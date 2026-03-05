@@ -2896,6 +2896,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 	    private var lastScrollEventTime: CFTimeInterval = 0
     private var visibleInUI: Bool = true
     private var pendingSurfaceSize: CGSize?
+    private var findEscapeSuppressionStartedAt: TimeInterval?
+    private static let findEscapeSuppressionInterval: TimeInterval = 0.35
 #if DEBUG
     private var lastSizeSkipSignature: String?
 #endif
@@ -3913,6 +3915,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             super.keyDown(with: event)
             return
         }
+        if event.keyCode != 53 {
+            endFindEscapeSuppression()
+        }
+        if shouldConsumeSuppressedFindEscape(event) {
+            return
+        }
         if handleKeyboardCopyModeIfNeeded(event, surface: surface) {
             keyboardCopyModeConsumedKeyUps.insert(event.keyCode)
             return
@@ -4125,6 +4133,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             super.keyUp(with: event)
             return
         }
+        if event.keyCode != 53 {
+            endFindEscapeSuppression()
+        }
+        if shouldConsumeSuppressedFindEscape(event) {
+            endFindEscapeSuppression()
+            return
+        }
+        if event.keyCode == 53 {
+            endFindEscapeSuppression()
+        }
 
         if keyboardCopyModeConsumedKeyUps.remove(event.keyCode) != nil {
             return
@@ -4175,6 +4193,30 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if flags.contains(.shift) { mods |= GHOSTTY_MODS_SHIFT.rawValue }
         if flags.contains(.option) { mods |= GHOSTTY_MODS_ALT.rawValue }
         return ghostty_input_mods_e(rawValue: mods)
+    }
+
+    func beginFindEscapeSuppression() {
+        findEscapeSuppressionStartedAt = ProcessInfo.processInfo.systemUptime
+    }
+
+    private func endFindEscapeSuppression() {
+        findEscapeSuppressionStartedAt = nil
+    }
+
+    private func shouldConsumeSuppressedFindEscape(_ event: NSEvent) -> Bool {
+        guard event.keyCode == 53 else { return false }
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        guard flags.isEmpty else { return false }
+        guard let startedAt = findEscapeSuppressionStartedAt else { return false }
+        if event.isARepeat {
+            return true
+        }
+        if ProcessInfo.processInfo.systemUptime - startedAt <= Self.findEscapeSuppressionInterval {
+            return true
+        }
+        // Fallback cleanup when key-up is lost.
+        endFindEscapeSuppression()
+        return false
     }
 
     /// Get the characters for a key event with control character handling.
@@ -5271,6 +5313,10 @@ final class GhosttySurfaceScrollView: NSView {
             }
             handler()
         }
+    }
+
+    func beginFindEscapeSuppression() {
+        surfaceView.beginFindEscapeSuppression()
     }
 
     func setTriggerFlashHandler(_ handler: (() -> Void)?) {
