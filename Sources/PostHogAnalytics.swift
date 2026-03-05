@@ -16,12 +16,16 @@ final class PostHogAnalytics {
 
     private let workQueue: DispatchQueue
     private let workQueueSpecificKey = DispatchSpecificKey<Void>()
+    private let utcHourFormatter: DateFormatter
+    private let utcDayFormatter: DateFormatter
 
     private var didStart = false
     private var activeCheckTimer: Timer?
 
     private init() {
         workQueue = DispatchQueue(label: "com.cmux.posthog.analytics", qos: .utility)
+        utcHourFormatter = Self.makeUTCFormatter("yyyy-MM-dd'T'HH")
+        utcDayFormatter = Self.makeUTCFormatter("yyyy-MM-dd")
         workQueue.setSpecific(key: workQueueSpecificKey, value: ())
     }
 
@@ -43,20 +47,26 @@ final class PostHogAnalytics {
 
     func trackActive(reason: String) {
         dispatchAsyncOnWorkQueue { [weak self] in
-            self?.trackDailyActiveOnWorkQueue(reason: reason)
-            self?.trackHourlyActiveOnWorkQueue(reason: reason)
+            guard let self else { return }
+
+            let didCaptureDaily = self.trackDailyActiveOnWorkQueue(reason: reason, flush: false)
+            let didCaptureHourly = self.trackHourlyActiveOnWorkQueue(reason: reason, flush: false)
+            if didCaptureDaily || didCaptureHourly {
+                // On app focus we can capture both events; flush once to reduce extra work.
+                PostHogSDK.shared.flush()
+            }
         }
     }
 
     func trackDailyActive(reason: String) {
         dispatchAsyncOnWorkQueue { [weak self] in
-            self?.trackDailyActiveOnWorkQueue(reason: reason)
+            self?.trackDailyActiveOnWorkQueue(reason: reason, flush: true)
         }
     }
 
     func trackHourlyActive(reason: String) {
         dispatchAsyncOnWorkQueue { [weak self] in
-            self?.trackHourlyActiveOnWorkQueue(reason: reason)
+            self?.trackHourlyActiveOnWorkQueue(reason: reason, flush: true)
         }
     }
 
@@ -105,14 +115,15 @@ final class PostHogAnalytics {
         }
     }
 
-    private func trackDailyActiveOnWorkQueue(reason: String) {
+    @discardableResult
+    private func trackDailyActiveOnWorkQueue(reason: String, flush: Bool) -> Bool {
         startIfNeededOnWorkQueue()
-        guard didStart else { return }
+        guard didStart else { return false }
 
         let today = utcDayString(Date())
         let defaults = UserDefaults.standard
         if defaults.string(forKey: lastActiveDayUTCKey) == today {
-            return
+            return false
         }
 
         defaults.set(today, forKey: lastActiveDayUTCKey)
@@ -126,20 +137,23 @@ final class PostHogAnalytics {
             )
         )
 
-        if Self.shouldFlushAfterCapture(event: "cmux_daily_active") {
+        if flush && Self.shouldFlushAfterCapture(event: "cmux_daily_active") {
             // For active metrics we care more about delivery than batching.
             PostHogSDK.shared.flush()
         }
+
+        return true
     }
 
-    private func trackHourlyActiveOnWorkQueue(reason: String) {
+    @discardableResult
+    private func trackHourlyActiveOnWorkQueue(reason: String, flush: Bool) -> Bool {
         startIfNeededOnWorkQueue()
-        guard didStart else { return }
+        guard didStart else { return false }
 
         let hour = utcHourString(Date())
         let defaults = UserDefaults.standard
         if defaults.string(forKey: lastActiveHourUTCKey) == hour {
-            return
+            return false
         }
 
         defaults.set(hour, forKey: lastActiveHourUTCKey)
@@ -153,10 +167,12 @@ final class PostHogAnalytics {
             )
         )
 
-        if Self.shouldFlushAfterCapture(event: "cmux_hourly_active") {
+        if flush && Self.shouldFlushAfterCapture(event: "cmux_hourly_active") {
             // Keep hourly freshness and avoid losing a deduped hour on abrupt exits.
             PostHogSDK.shared.flush()
         }
+
+        return true
     }
 
     private func dispatchAsyncOnWorkQueue(_ block: @escaping () -> Void) {
@@ -176,21 +192,20 @@ final class PostHogAnalytics {
     }
 
     private func utcHourString(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.calendar = Calendar(identifier: .iso8601)
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = TimeZone(secondsFromGMT: 0)
-        formatter.dateFormat = "yyyy-MM-dd'T'HH"
-        return formatter.string(from: date)
+        utcHourFormatter.string(from: date)
     }
 
     private func utcDayString(_ date: Date) -> String {
+        utcDayFormatter.string(from: date)
+    }
+
+    private static func makeUTCFormatter(_ dateFormat: String) -> DateFormatter {
         let formatter = DateFormatter()
         formatter.calendar = Calendar(identifier: .iso8601)
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.timeZone = TimeZone(secondsFromGMT: 0)
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter.string(from: date)
+        formatter.dateFormat = dateFormat
+        return formatter
     }
 
     nonisolated static func superProperties(infoDictionary: [String: Any]) -> [String: Any] {
