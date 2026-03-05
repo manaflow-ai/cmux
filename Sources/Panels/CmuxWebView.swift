@@ -93,7 +93,7 @@ final class CmuxWebView: WKWebView {
 
     /// Temporarily permits focus acquisition for explicit pointer-driven interactions
     /// (mouse click into this webview) while keeping background autofocus blocked.
-    func withPointerFocusAllowance(_ body: () -> Void) {
+    func withPointerFocusAllowance<T>(_ body: () -> T) -> T {
         pointerFocusAllowanceDepth += 1
 #if DEBUG
         dlog(
@@ -110,7 +110,7 @@ final class CmuxWebView: WKWebView {
             )
 #endif
         }
-        body()
+        return body()
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {

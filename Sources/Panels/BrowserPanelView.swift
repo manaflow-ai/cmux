@@ -385,7 +385,9 @@ struct BrowserPanelView: View {
 #endif
                 setAddressBarFocused(false, reason: "webView.clickIntent")
             }
-            onRequestPanelFocus()
+            if !isFocused {
+                onRequestPanelFocus()
+            }
         }
         .onAppear {
             UserDefaults.standard.register(defaults: [

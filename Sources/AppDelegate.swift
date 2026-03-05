@@ -9402,6 +9402,7 @@ private extension NSWindow {
         let responderWebView = responder.flatMap {
             Self.cmuxOwningWebView(for: $0, in: self, event: currentEvent)
         }
+        var pointerInitiatedWebFocus = false
 
         if AppDelegate.shared?.shouldBlockFirstResponderChangeWhileCommandPaletteVisible(
             window: self,
@@ -9425,6 +9426,7 @@ private extension NSWindow {
                 event: currentEvent
             )
             if pointerInitiatedFocus {
+                pointerInitiatedWebFocus = true
 #if DEBUG
                 dlog(
                     "focus.guard allowPointerFirstResponder responder=\(String(describing: type(of: responder))) " +
@@ -9461,7 +9463,16 @@ private extension NSWindow {
             )
         }
 #endif
-        let result = cmux_makeFirstResponder(responder)
+        let result: Bool
+        if pointerInitiatedWebFocus, let webView = responderWebView {
+            // `NSWindow.makeFirstResponder` may run before `CmuxWebView.mouseDown(with:)`.
+            // Preserve pointer intent during this synchronous responder change.
+            result = webView.withPointerFocusAllowance {
+                cmux_makeFirstResponder(responder)
+            }
+        } else {
+            result = cmux_makeFirstResponder(responder)
+        }
         if result {
             if let fieldEditor = responder as? NSTextView, fieldEditor.isFieldEditor {
                 Self.cmuxTrackFieldEditor(fieldEditor, owningWebView: responderWebView)
