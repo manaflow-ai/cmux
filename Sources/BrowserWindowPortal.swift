@@ -1196,6 +1196,12 @@ enum BrowserWindowPortalRegistry {
         portalsByWindowId[windowId]?.detachWebView(withId: webViewId)
     }
 
+    static func webViewAtWindowPoint(_ windowPoint: NSPoint, in window: NSWindow) -> WKWebView? {
+        let windowId = ObjectIdentifier(window)
+        guard let portal = portalsByWindowId[windowId] else { return nil }
+        return portal.webViewAtWindowPoint(windowPoint)
+    }
+
 #if DEBUG
     static func debugPortalCount() -> Int {
         portalsByWindowId.count
