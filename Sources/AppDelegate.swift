@@ -7338,23 +7338,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             "insertAtEnd=\(insertAtEnd ? 1 : 0) url=\(url?.absoluteString ?? "nil")"
         )
 #endif
-        let didFocus = focusBrowserAddressBar(panelId: panelId)
 #if DEBUG
+        let didFocus = focusBrowserAddressBar(panelId: panelId)
         dlog(
             "browser.focus.openAndFocus result=focus_request panel=\(panelId.uuidString.prefix(5)) " +
             "focused=\(didFocus ? 1 : 0) \(browserFocusStateSnapshot())"
         )
+#else
+        _ = focusBrowserAddressBar(panelId: panelId)
 #endif
         return panelId
     }
 
     private func focusBrowserAddressBar(in panel: BrowserPanel) {
-        let requestId = panel.requestAddressBarFocus()
 #if DEBUG
+        let requestId = panel.requestAddressBarFocus()
         dlog(
             "browser.focus.addressBar.request panel=\(panel.id.uuidString.prefix(5)) " +
             "request=\(requestId.uuidString.prefix(8)) \(browserFocusStateSnapshot())"
         )
+#else
+        _ = panel.requestAddressBarFocus()
 #endif
         browserAddressBarFocusedPanelId = panel.id
 #if DEBUG
@@ -7474,7 +7478,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func startBrowserOmnibarSelectionRepeatIfNeeded(keyCode: UInt16, delta: Int) {
         guard delta != 0 else { return }
-        guard let panelId = browserAddressBarFocusedPanelId else {
+        guard browserAddressBarFocusedPanelId != nil else {
 #if DEBUG
             dlog(
                 "browser.focus.omnibar.repeat.start key=\(keyCode) delta=\(delta) " +
@@ -7486,8 +7490,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         if browserOmnibarRepeatKeyCode == keyCode, browserOmnibarRepeatDelta == delta {
 #if DEBUG
+            let panelToken = browserAddressBarFocusedPanelId.map { String($0.uuidString.prefix(5)) } ?? "nil"
             dlog(
-                "browser.focus.omnibar.repeat.start panel=\(panelId.uuidString.prefix(5)) " +
+                "browser.focus.omnibar.repeat.start panel=\(panelToken) " +
                 "key=\(keyCode) delta=\(delta) result=reuse"
             )
 #endif
@@ -7498,8 +7503,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         browserOmnibarRepeatKeyCode = keyCode
         browserOmnibarRepeatDelta = delta
 #if DEBUG
+        let panelToken = browserAddressBarFocusedPanelId.map { String($0.uuidString.prefix(5)) } ?? "nil"
         dlog(
-            "browser.focus.omnibar.repeat.start panel=\(panelId.uuidString.prefix(5)) " +
+            "browser.focus.omnibar.repeat.start panel=\(panelToken) " +
             "key=\(keyCode) delta=\(delta) result=armed"
         )
 #endif
@@ -7513,7 +7519,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func scheduleBrowserOmnibarSelectionRepeatTick() {
         browserOmnibarRepeatStartWorkItem = nil
-        guard let panelId = browserAddressBarFocusedPanelId else {
+        guard browserAddressBarFocusedPanelId != nil else {
 #if DEBUG
             dlog("browser.focus.omnibar.repeat.tick result=stop_no_focused_address_bar")
 #endif
@@ -7523,8 +7529,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard browserOmnibarRepeatKeyCode != nil else { return }
 
 #if DEBUG
+        let panelToken = browserAddressBarFocusedPanelId.map { String($0.uuidString.prefix(5)) } ?? "nil"
         dlog(
-            "browser.focus.omnibar.repeat.tick panel=\(panelId.uuidString.prefix(5)) " +
+            "browser.focus.omnibar.repeat.tick panel=\(panelToken) " +
             "delta=\(browserOmnibarRepeatDelta)"
         )
 #endif
@@ -7538,8 +7545,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func stopBrowserOmnibarSelectionRepeat() {
+#if DEBUG
         let previousKeyCode = browserOmnibarRepeatKeyCode
         let previousDelta = browserOmnibarRepeatDelta
+#endif
         browserOmnibarRepeatStartWorkItem?.cancel()
         browserOmnibarRepeatTickWorkItem?.cancel()
         browserOmnibarRepeatStartWorkItem = nil
