@@ -30,11 +30,11 @@ final class SidebarHelpMenuUITests: XCTestCase {
 
         XCTAssertTrue(waitForWindowCount(atLeast: 1, app: app, timeout: 6.0))
 
-        let helpButton = app.popUpButtons["SidebarHelpMenuButton"]
+        let helpButton = app.buttons["SidebarHelpMenuButton"]
         XCTAssertTrue(helpButton.waitForExistence(timeout: 6.0))
         helpButton.click()
 
-        let keyboardShortcutsItem = app.menuItems["Keyboard Shortcuts"]
+        let keyboardShortcutsItem = app.buttons["SidebarHelpMenuOptionKeyboardShortcuts"]
         XCTAssertTrue(keyboardShortcutsItem.waitForExistence(timeout: 3.0))
         keyboardShortcutsItem.click()
 
@@ -52,11 +52,11 @@ final class SidebarHelpMenuUITests: XCTestCase {
 
         XCTAssertTrue(waitForWindowCount(atLeast: 1, app: app, timeout: 6.0))
 
-        let helpButton = app.popUpButtons["SidebarHelpMenuButton"]
+        let helpButton = app.buttons["SidebarHelpMenuButton"]
         XCTAssertTrue(helpButton.waitForExistence(timeout: 6.0))
         helpButton.click()
 
-        let checkForUpdatesItem = app.menuItems["Check for Updates"]
+        let checkForUpdatesItem = app.buttons["SidebarHelpMenuOptionCheckForUpdates"]
         XCTAssertTrue(checkForUpdatesItem.waitForExistence(timeout: 3.0))
         checkForUpdatesItem.click()
 
