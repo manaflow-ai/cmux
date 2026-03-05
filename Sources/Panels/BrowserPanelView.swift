@@ -3188,10 +3188,34 @@ struct WebViewRepresentable: NSViewRepresentable {
             )
             coordinator.lastPortalHostId = ObjectIdentifier(host)
         }
-        host.onGeometryChanged = { [weak host, weak coordinator] in
-            guard let host, let coordinator else { return }
+        host.onGeometryChanged = { [weak host, weak webView, weak coordinator] in
+            guard let host, let coordinator, let webView else { return }
             guard coordinator.attachGeneration == generation else { return }
             guard coordinator.lastPortalHostId == ObjectIdentifier(host) else { return }
+            let isBoundToHost = BrowserWindowPortalRegistry.isWebView(webView, boundTo: host)
+            let hasPortalEntry = BrowserWindowPortalRegistry.hasPortalEntry(for: webView)
+            if host.window != nil,
+               !isBoundToHost,
+               !hasPortalEntry {
+#if DEBUG
+                if let panel = coordinator.panel {
+                    Self.logDevToolsState(
+                        panel,
+                        event: "portal.rebindOnGeometry",
+                        generation: coordinator.attachGeneration,
+                        retryCount: 0,
+                        details: Self.attachContext(webView: webView, host: host) + " reason=portalEntryMissing"
+                    )
+                }
+#endif
+                BrowserWindowPortalRegistry.bind(
+                    webView: webView,
+                    to: host,
+                    visibleInUI: coordinator.desiredPortalVisibleInUI,
+                    zPriority: coordinator.desiredPortalZPriority
+                )
+                coordinator.lastPortalHostId = ObjectIdentifier(host)
+            }
             BrowserWindowPortalRegistry.synchronizeForAnchor(host)
         }
 
@@ -3316,6 +3340,9 @@ struct WebViewRepresentable: NSViewRepresentable {
 
     static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
         coordinator.attachGeneration += 1
+        coordinator.desiredPortalVisibleInUI = false
+        coordinator.desiredPortalZPriority = 0
+        coordinator.lastPortalHostId = nil
         clearPortalCallbacks(for: nsView)
 
         guard let webView = coordinator.webView else { return }
@@ -3341,10 +3368,17 @@ struct WebViewRepresentable: NSViewRepresentable {
                 window.makeFirstResponder(nil)
             }
         }
-        _ = BrowserWindowPortalRegistry.detach(
-            webView: webView,
-            expectedAnchorId: coordinator.lastPortalHostId
-        )
-        coordinator.lastPortalHostId = nil
+        if BrowserWindowPortalRegistry.isWebView(webView, boundTo: nsView) {
+            BrowserWindowPortalRegistry.updateEntryVisibility(
+                for: webView,
+                visibleInUI: coordinator.desiredPortalVisibleInUI,
+                zPriority: coordinator.desiredPortalZPriority
+            )
+            BrowserWindowPortalRegistry.synchronizeForAnchor(nsView)
+        }
+        // SwiftUI can transiently dismantle/rebuild BrowserPanel representables during
+        // split/tree churn. Do not detach here; that races deferred host rebinding and
+        // can leave a live browser pane blank. Permanent detach happens on panel close,
+        // web view replacement, or explicit registry detach paths.
     }
 }

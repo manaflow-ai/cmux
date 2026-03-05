@@ -2423,7 +2423,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         XCTAssertFalse(panel.shouldPreserveWebViewAttachmentDuringTransientHide())
     }
 
-    func testWebViewDismantleDetachesPortalHostedWebViewWhenDeveloperToolsIntentIsVisible() {
+    func testWebViewDismantlePreservesPortalHostedWebViewWhenDeveloperToolsIntentIsVisible() {
         let (panel, _) = makePanelWithInspector()
         XCTAssertTrue(panel.showDeveloperTools())
 
@@ -2453,13 +2453,18 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         )
         let coordinator = representable.makeCoordinator()
         coordinator.webView = panel.webView
+        coordinator.lastPortalHostId = ObjectIdentifier(anchor)
         WebViewRepresentable.dismantleNSView(anchor, coordinator: coordinator)
 
-        XCTAssertNil(panel.webView.superview)
+        XCTAssertNotNil(panel.webView.superview)
+        XCTAssertTrue(BrowserWindowPortalRegistry.hasPortalEntry(for: panel.webView))
+        let point = anchor.convert(NSPoint(x: anchor.bounds.midX, y: anchor.bounds.midY), to: nil)
+        XCTAssertNil(BrowserWindowPortalRegistry.webViewAtWindowPoint(point, in: window))
+        BrowserWindowPortalRegistry.detach(webView: panel.webView)
         window.orderOut(nil)
     }
 
-    func testWebViewDismantleDetachesPortalHostedWebViewWhenDeveloperToolsIntentIsHidden() {
+    func testWebViewDismantlePreservesPortalHostedWebViewWhenDeveloperToolsIntentIsHidden() {
         let (panel, _) = makePanelWithInspector()
         XCTAssertFalse(panel.shouldPreserveWebViewAttachmentDuringTransientHide())
 
@@ -2489,9 +2494,14 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         )
         let coordinator = representable.makeCoordinator()
         coordinator.webView = panel.webView
+        coordinator.lastPortalHostId = ObjectIdentifier(anchor)
         WebViewRepresentable.dismantleNSView(anchor, coordinator: coordinator)
 
-        XCTAssertNil(panel.webView.superview)
+        XCTAssertNotNil(panel.webView.superview)
+        XCTAssertTrue(BrowserWindowPortalRegistry.hasPortalEntry(for: panel.webView))
+        let point = anchor.convert(NSPoint(x: anchor.bounds.midX, y: anchor.bounds.midY), to: nil)
+        XCTAssertNil(BrowserWindowPortalRegistry.webViewAtWindowPoint(point, in: window))
+        BrowserWindowPortalRegistry.detach(webView: panel.webView)
         window.orderOut(nil)
     }
 
@@ -9367,6 +9377,49 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
 
         BrowserWindowPortalRegistry.detach(webView: webView)
         XCTAssertNil(webView.superview)
+    }
+
+    func testRegistryReportsWhetherWebViewIsBoundToAnchor() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 280),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        realizeWindowLayout(window)
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let firstAnchor = NSView(frame: NSRect(x: 20, y: 20, width: 180, height: 120))
+        let secondAnchor = NSView(frame: NSRect(x: 220, y: 20, width: 180, height: 120))
+        contentView.addSubview(firstAnchor)
+        contentView.addSubview(secondAnchor)
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+
+        BrowserWindowPortalRegistry.bind(webView: webView, to: firstAnchor, visibleInUI: true, zPriority: 1)
+        XCTAssertTrue(BrowserWindowPortalRegistry.isWebView(webView, boundTo: firstAnchor))
+        XCTAssertFalse(BrowserWindowPortalRegistry.isWebView(webView, boundTo: secondAnchor))
+        XCTAssertTrue(BrowserWindowPortalRegistry.hasPortalEntry(for: webView))
+
+        firstAnchor.removeFromSuperview()
+        XCTAssertNil(firstAnchor.window)
+        XCTAssertTrue(
+            BrowserWindowPortalRegistry.isWebView(webView, boundTo: firstAnchor),
+            "Binding checks should still resolve while anchor is off-window during teardown churn"
+        )
+        contentView.addSubview(firstAnchor)
+
+        BrowserWindowPortalRegistry.bind(webView: webView, to: secondAnchor, visibleInUI: true, zPriority: 1)
+        XCTAssertFalse(BrowserWindowPortalRegistry.isWebView(webView, boundTo: firstAnchor))
+        XCTAssertTrue(BrowserWindowPortalRegistry.isWebView(webView, boundTo: secondAnchor))
+        XCTAssertTrue(BrowserWindowPortalRegistry.hasPortalEntry(for: webView))
+
+        BrowserWindowPortalRegistry.detach(webView: webView)
+        XCTAssertFalse(BrowserWindowPortalRegistry.isWebView(webView, boundTo: secondAnchor))
+        XCTAssertFalse(BrowserWindowPortalRegistry.hasPortalEntry(for: webView))
     }
 }
 

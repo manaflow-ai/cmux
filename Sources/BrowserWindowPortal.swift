@@ -660,6 +660,16 @@ final class WindowBrowserPortal: NSObject {
         entriesByWebViewId[webViewId] = entry
     }
 
+    func isWebViewBoundToAnchor(withId webViewId: ObjectIdentifier, anchorView: NSView) -> Bool {
+        guard let entry = entriesByWebViewId[webViewId],
+              let boundAnchor = entry.anchorView else { return false }
+        return boundAnchor === anchorView
+    }
+
+    func hasWebViewEntry(withId webViewId: ObjectIdentifier) -> Bool {
+        entriesByWebViewId[webViewId] != nil
+    }
+
     func bind(webView: WKWebView, to anchorView: NSView, visibleInUI: Bool, zPriority: Int = 0) {
         guard ensureInstalled() else { return }
 
@@ -1045,17 +1055,26 @@ final class WindowBrowserPortal: NSObject {
         let deadWebViewIds = entriesByWebViewId.compactMap { webViewId, entry -> ObjectIdentifier? in
             guard entry.webView != nil else { return webViewId }
             guard let container = entry.containerView else { return webViewId }
-            guard let anchor = entry.anchorView else { return webViewId }
+            guard let anchor = entry.anchorView else {
+                return entry.visibleInUI ? nil : webViewId
+            }
             if container.superview == nil || !container.isDescendant(of: hostView) {
-                return webViewId
+                // We reparent the container in bind/sync. If it's missing from hostView,
+                // but still visibleInUI, we should recover it during sync instead of pruning it here.
+                return entry.visibleInUI ? nil : webViewId
             }
-            if anchor.window !== currentWindow || anchor.superview == nil {
-                return webViewId
+            
+            let anchorInvalidForCurrentHost =
+                anchor.window !== currentWindow ||
+                anchor.superview == nil ||
+                (installedReferenceView.map { !anchor.isDescendant(of: $0) } ?? false)
+            if anchorInvalidForCurrentHost {
+                // During aggressive tab drag/reorder churn, SwiftUI/AppKit can briefly
+                // detach/rehome anchor hosts while the browser should stay visible.
+                // Avoid pruning those visible entries so sync/bind recovery can reattach.
+                return entry.visibleInUI ? nil : webViewId
             }
-            if let reference = installedReferenceView,
-               !anchor.isDescendant(of: reference) {
-                return webViewId
-            }
+            
             return nil
         }
 
@@ -1207,6 +1226,27 @@ enum BrowserWindowPortalRegistry {
         guard let windowId = webViewToWindowId[webViewId],
               let portal = portalsByWindowId[windowId] else { return }
         portal.updateEntryVisibility(forWebViewId: webViewId, visibleInUI: visibleInUI, zPriority: zPriority)
+    }
+
+    static func isWebView(_ webView: WKWebView, boundTo anchorView: NSView) -> Bool {
+        let webViewId = ObjectIdentifier(webView)
+        if let windowId = webViewToWindowId[webViewId],
+           let portal = portalsByWindowId[windowId] {
+            return portal.isWebViewBoundToAnchor(withId: webViewId, anchorView: anchorView)
+        }
+        for portal in portalsByWindowId.values {
+            if portal.isWebViewBoundToAnchor(withId: webViewId, anchorView: anchorView) {
+                return true
+            }
+        }
+        return false
+    }
+
+    static func hasPortalEntry(for webView: WKWebView) -> Bool {
+        let webViewId = ObjectIdentifier(webView)
+        guard let windowId = webViewToWindowId[webViewId],
+              let portal = portalsByWindowId[windowId] else { return false }
+        return portal.hasWebViewEntry(withId: webViewId)
     }
 
     @discardableResult
