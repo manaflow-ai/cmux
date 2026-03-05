@@ -105,6 +105,16 @@ jobs:
           echo "=== Display after ==="
           system_profiler SPDisplaysDataType 2>/dev/null || echo "(none)"
 
+      - name: Ensure tmux is installed
+        run: |
+          set -euo pipefail
+          if command -v tmux >/dev/null 2>&1; then
+            tmux -V
+            exit 0
+          fi
+          brew install --quiet tmux
+          tmux -V
+
       - name: Install ffmpeg
         if: ${{ inputs.record_video }}
         run: |

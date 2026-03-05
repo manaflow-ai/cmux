@@ -26,6 +26,54 @@ fi
 command -v cmux &>/dev/null && cmux notify --title "Hello" || osascript -e 'display notification "" with title "Hello"'
 ```
 
+## tmux sessions
+
+cmux shell integration now starts a tmux control-mode bridge automatically.
+The bridge watches `%output` events, parses OSC notifications (OSC 9/99/777),
+and forwards them to the mapped cmux workspace/surface.
+
+How mapping works:
+
+```bash
+tmux set-option -p -t "$TMUX_PANE" @cmux_workspace_id "$CMUX_TAB_ID"
+tmux set-option -p -t "$TMUX_PANE" @cmux_surface_id "$CMUX_PANEL_ID"
+tmux set-option -p -t "$TMUX_PANE" @cmux_socket_path "$CMUX_SOCKET_PATH"
+```
+
+You do not need to run this manually in zsh/bash when cmux shell integration is active.
+It is documented here for custom shells.
+
+Manual bridge start (for custom shells):
+
+```bash
+cmux tmux-osc-bridge --ensure --tmux-socket "${TMUX%%,*}"
+```
+
+Disable auto-bridge:
+
+```bash
+export CMUX_TMUX_OSC_BRIDGE_DISABLED=1
+```
+
+Debug bridge logs:
+
+```bash
+export CMUX_TMUX_OSC_BRIDGE_DEBUG=1
+export CMUX_TMUX_OSC_BRIDGE_DEBUG_LOG=/tmp/cmux-tmux-osc-bridge.log
+tail -f /tmp/cmux-tmux-osc-bridge.log
+```
+
+To debug Claude wrapper decisions in tmux, enable wrapper logging:
+
+```bash
+export CMUX_CLAUDE_WRAPPER_DEBUG=1
+export CMUX_CLAUDE_WRAPPER_DEBUG_LOG=/tmp/cmux-claude-wrapper.log
+tail -f /tmp/cmux-claude-wrapper.log
+```
+
+The log records whether the wrapper chose passthrough mode or injected cmux
+hooks, along with the key env values used for that decision.
+
 ```python
 # Python
 import shutil

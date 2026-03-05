@@ -1,10 +1,21 @@
 #!/usr/bin/env bash
 # cmux claude wrapper - injects hooks and session tracking
 #
-# When running inside a cmux terminal (CMUX_SURFACE_ID is set), this wrapper
+# When running inside a cmux terminal (CMUX_SOCKET_PATH is set), this wrapper
 # intercepts `claude` invocations to inject --session-id and --settings flags
 # so that Claude Code hooks fire back into cmux for notifications/status.
 # Outside cmux, it passes through to the real claude binary unchanged.
+
+CLAUDE_WRAPPER_DEBUG="${CMUX_CLAUDE_WRAPPER_DEBUG:-0}"
+CLAUDE_WRAPPER_DEBUG_LOG="${CMUX_CLAUDE_WRAPPER_DEBUG_LOG:-/tmp/cmux-claude-wrapper.log}"
+
+wrapper_debug_log() {
+    [[ "$CLAUDE_WRAPPER_DEBUG" == "1" ]] || return 0
+    local parent
+    parent="$(dirname "$CLAUDE_WRAPPER_DEBUG_LOG")"
+    mkdir -p "$parent" >/dev/null 2>&1 || true
+    printf '%s pid=%s %s\n' "$(date -Iseconds)" "$$" "$1" >> "$CLAUDE_WRAPPER_DEBUG_LOG" 2>/dev/null || true
+}
 
 # Find the real claude binary, skipping our own directory.
 find_real_claude() {
@@ -18,18 +29,32 @@ find_real_claude() {
     return 1
 }
 
+wrapper_debug_log "start cwd=$(pwd) arg_count=$# first_arg=${1:-<none>} tmux=${TMUX:+set} socket=${CMUX_SOCKET_PATH:-unset} workspace=${CMUX_WORKSPACE_ID:-unset} surface=${CMUX_SURFACE_ID:-unset} hooks_disabled=${CMUX_CLAUDE_HOOKS_DISABLED:-0}"
+
 # Pass through if not in a cmux terminal or hooks are disabled.
-if [[ -z "$CMUX_SURFACE_ID" || "$CMUX_CLAUDE_HOOKS_DISABLED" == "1" ]]; then
+# We key off CMUX_SOCKET_PATH instead of CMUX_SURFACE_ID so hooks still work
+# in tmux panes where surface/workspace IDs may be missing from the shell env.
+if [[ -z "${CMUX_SOCKET_PATH:-}" || "${CMUX_CLAUDE_HOOKS_DISABLED:-}" == "1" ]]; then
+    if [[ -z "${CMUX_SOCKET_PATH:-}" ]]; then
+        wrapper_debug_log "passthrough reason=missing_socket_path"
+    else
+        wrapper_debug_log "passthrough reason=hooks_disabled"
+    fi
     REAL_CLAUDE="$(find_real_claude)" || { echo "Error: claude not found in PATH" >&2; exit 127; }
+    wrapper_debug_log "exec mode=passthrough real_claude=$REAL_CLAUDE"
     exec "$REAL_CLAUDE" "$@"
 fi
 
 # Find real claude.
 REAL_CLAUDE="$(find_real_claude)" || { echo "Error: claude not found in PATH" >&2; exit 127; }
+wrapper_debug_log "cmux_mode enabled real_claude=$REAL_CLAUDE"
 
 # Pass through subcommands that don't support session/hook flags.
 case "${1:-}" in
-    mcp|config|api-key) exec "$REAL_CLAUDE" "$@" ;;
+    mcp|config|api-key)
+        wrapper_debug_log "passthrough reason=unsupported_subcommand subcommand=${1:-<none>}"
+        exec "$REAL_CLAUDE" "$@"
+        ;;
 esac
 
 # Unset CLAUDECODE to avoid "nested session" detection — cmux terminals are
@@ -47,14 +72,17 @@ for arg in "$@"; do
             ;;
     esac
 done
+wrapper_debug_log "hook_injection skip_session_id=$SKIP_SESSION_ID"
 
 # Build hooks settings JSON.
 # Claude Code merges --settings additively with the user's own settings.json.
 HOOKS_JSON='{"hooks":{"SessionStart":[{"matcher":"","hooks":[{"type":"command","command":"cmux claude-hook session-start","timeout":10}]}],"Stop":[{"matcher":"","hooks":[{"type":"command","command":"cmux claude-hook stop","timeout":10}]}],"Notification":[{"matcher":"","hooks":[{"type":"command","command":"cmux claude-hook notification","timeout":10}]}],"UserPromptSubmit":[{"matcher":"","hooks":[{"type":"command","command":"cmux claude-hook prompt-submit","timeout":10}]}]}}'
 
 if [[ "$SKIP_SESSION_ID" == true ]]; then
+    wrapper_debug_log "exec mode=hooks_only"
     exec "$REAL_CLAUDE" --settings "$HOOKS_JSON" "$@"
 else
     SESSION_ID="$(uuidgen | tr '[:upper:]' '[:lower:]')"
+    wrapper_debug_log "exec mode=hooks_with_session generated_session_id=$SESSION_ID"
     exec "$REAL_CLAUDE" --session-id "$SESSION_ID" --settings "$HOOKS_JSON" "$@"
 fi

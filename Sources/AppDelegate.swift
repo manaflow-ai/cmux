@@ -1500,6 +1500,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var didSetupGotoSplitUITest = false
     private var gotoSplitUITestObservers: [NSObjectProtocol] = []
     private var didSetupMultiWindowNotificationsUITest = false
+    private var didSetupTmuxOSCBridgeUITest = false
     // Keep debug-only windows alive when tests intentionally inject key mismatches.
     private var debugDetachedContextWindows: [NSWindow] = []
 
@@ -1847,6 +1848,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         setupJumpUnreadUITestIfNeeded()
         setupGotoSplitUITestIfNeeded()
         setupMultiWindowNotificationsUITestIfNeeded()
+        setupTmuxOSCBridgeUITestIfNeeded()
 
         // UI tests sometimes don't run SwiftUI `.onAppear` soon enough (or at all) on the VM.
         // The automation socket is a core testing primitive, so ensure it's started here when
@@ -5695,6 +5697,63 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func loadMultiWindowNotificationTestData(at path: String) -> [String: String] {
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
+            return [:]
+        }
+        return object
+    }
+
+    private func setupTmuxOSCBridgeUITestIfNeeded() {
+        guard !didSetupTmuxOSCBridgeUITest else { return }
+        didSetupTmuxOSCBridgeUITest = true
+
+        let env = ProcessInfo.processInfo.environment
+        guard env["CMUX_UI_TEST_TMUX_OSC_BRIDGE_SETUP"] == "1" else { return }
+        guard let path = env["CMUX_UI_TEST_TMUX_OSC_BRIDGE_PATH"], !path.isEmpty else { return }
+
+        try? FileManager.default.removeItem(atPath: path)
+
+        let deadline = Date().addingTimeInterval(8.0)
+        func waitForContext(_ completion: @escaping (MainWindowContext) -> Void) {
+            if let context = mainWindowContexts.values.first, context.window != nil {
+                completion(context)
+                return
+            }
+            guard Date() < deadline else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                waitForContext(completion)
+            }
+        }
+
+        waitForContext { [weak self] context in
+            guard let self else { return }
+            guard let workspaceId = context.tabManager.selectedTabId ?? context.tabManager.tabs.first?.id else { return }
+            guard let surfaceId = context.tabManager.focusedPanelId(for: workspaceId) else { return }
+
+            let resolvedSocketPath = SocketControlSettings.socketPath(
+                environment: ProcessInfo.processInfo.environment,
+                bundleIdentifier: Bundle.main.bundleIdentifier
+            )
+
+            self.writeTmuxOSCBridgeUITestData([
+                "workspaceId": workspaceId.uuidString,
+                "surfaceId": surfaceId.uuidString,
+                "socketPath": resolvedSocketPath,
+            ], at: path)
+        }
+    }
+
+    private func writeTmuxOSCBridgeUITestData(_ updates: [String: String], at path: String) {
+        var payload = loadTmuxOSCBridgeUITestData(at: path)
+        for (key, value) in updates {
+            payload[key] = value
+        }
+        guard let data = try? JSONSerialization.data(withJSONObject: payload) else { return }
+        try? data.write(to: URL(fileURLWithPath: path), options: .atomic)
+    }
+
+    private func loadTmuxOSCBridgeUITestData(at path: String) -> [String: String] {
         guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
             return [:]
