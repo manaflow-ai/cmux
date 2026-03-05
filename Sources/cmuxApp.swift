@@ -2617,18 +2617,30 @@ enum AppLanguage: String, CaseIterable, Identifiable {
     case system
     case en
     case ja
+    case ar
+    case bs
+    case da
+    case de
+    case es
+    case fr
+    case it
+    case ko
+    case nb
+    case pl
+    case ptBR = "pt-BR"
+    case ru
+    case th
+    case tr
+    case zhHans = "zh-Hans"
+    case zhHant = "zh-Hant"
 
     var id: String { rawValue }
 
     var displayName: String {
-        switch self {
-        case .system:
+        if self == .system {
             return String(localized: "language.system", defaultValue: "System")
-        case .en:
-            return Locale.current.localizedString(forLanguageCode: "en") ?? "English"
-        case .ja:
-            return Locale.current.localizedString(forLanguageCode: "ja") ?? "Japanese"
         }
+        return Locale.current.localizedString(forLanguageCode: rawValue) ?? rawValue
     }
 }
 
@@ -2637,10 +2649,9 @@ enum LanguageSettings {
     static let defaultLanguage: AppLanguage = .system
 
     static func apply(_ language: AppLanguage) {
-        switch language {
-        case .system:
+        if language == .system {
             UserDefaults.standard.removeObject(forKey: "AppleLanguages")
-        case .en, .ja:
+        } else {
             UserDefaults.standard.set([language.rawValue], forKey: "AppleLanguages")
         }
     }
