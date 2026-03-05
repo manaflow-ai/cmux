@@ -72,7 +72,7 @@ struct InstallUpdateMenuItem: View {
 
     var body: some View {
         if model.state.isInstallable {
-            Button("Install Update and Relaunch") {
+            Button(String(localized: "update.installAndRelaunch", defaultValue: "Install Update and Relaunch")) {
                 model.state.confirm()
             }
         }

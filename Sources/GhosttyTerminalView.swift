@@ -104,7 +104,8 @@ private enum GhosttyPasteboardHelper {
 
     static func hasString(for location: ghostty_clipboard_e) -> Bool {
         guard let pasteboard = pasteboard(for: location) else { return false }
-        return (stringContents(from: pasteboard) ?? "").isEmpty == false
+        if let text = stringContents(from: pasteboard), !text.isEmpty { return true }
+        return clipboardHasImageOnly()
     }
 
     static func writeString(_ string: String, to location: ghostty_clipboard_e) {
@@ -113,12 +114,69 @@ private enum GhosttyPasteboardHelper {
         pasteboard.setString(string, forType: .string)
     }
 
-    private static func escapeForShell(_ value: String) -> String {
+    static func escapeForShell(_ value: String) -> String {
         var result = value
         for char in shellEscapeCharacters {
             result = result.replacingOccurrences(of: String(char), with: "\\\(char)")
         }
         return result
+    }
+
+    private static let maxClipboardImageSize = 10 * 1024 * 1024  // 10 MB
+
+    /// Quick check: does the clipboard have image data and no text?
+    static func clipboardHasImageOnly() -> Bool {
+        let pb = NSPasteboard.general
+        let types = pb.types ?? []
+        let hasText = types.contains(.string) || types.contains(.html)
+            || types.contains(.rtf) || types.contains(.rtfd)
+        if hasText { return false }
+        return types.contains(.tiff) || types.contains(.png)
+    }
+
+    /// When the clipboard contains only image data (no text/HTML), saves it as
+    /// a temporary PNG file and returns the shell-escaped file path. Returns nil
+    /// if the clipboard contains text or no image.
+    static func saveClipboardImageIfNeeded() -> String? {
+        let pb = NSPasteboard.general
+        let types = pb.types ?? []
+
+        // If pasteboard has text/HTML, this is a normal copy.
+        let hasText = types.contains(.string) || types.contains(.html)
+            || types.contains(.rtf) || types.contains(.rtfd)
+        if hasText { return nil }
+
+        // Check for image types (TIFF from screenshots, PNG from some tools).
+        guard types.contains(.tiff) || types.contains(.png) else { return nil }
+        guard let image = NSImage(pasteboard: pb),
+              let tiffData = image.tiffRepresentation,
+              let bitmap = NSBitmapImageRep(data: tiffData),
+              let pngData = bitmap.representation(using: .png, properties: [:]) else { return nil }
+
+        guard pngData.count <= maxClipboardImageSize else {
+#if DEBUG
+            dlog("terminal.paste.image.rejected reason=tooLarge bytes=\(pngData.count)")
+#endif
+            return nil
+        }
+
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd-HHmmss"
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        let timestamp = formatter.string(from: Date())
+        let filename = "clipboard-\(timestamp)-\(UUID().uuidString.prefix(8)).png"
+        let path = (NSTemporaryDirectory() as NSString).appendingPathComponent(filename)
+
+        do {
+            try pngData.write(to: URL(fileURLWithPath: path))
+        } catch {
+#if DEBUG
+            dlog("terminal.paste.image.writeFailed error=\(error.localizedDescription)")
+#endif
+            return nil
+        }
+
+        return escapeForShell(path)
     }
 }
 
@@ -292,6 +350,7 @@ enum TerminalKeyboardCopyModeAction: Equatable {
     case copyLineAndExit
     case scrollLines(Int)
     case scrollPage(Int)
+    case scrollHalfPage(Int)
     case scrollToTop
     case scrollToBottom
     case jumpToPrompt(Int)
@@ -304,10 +363,12 @@ enum TerminalKeyboardCopyModeAction: Equatable {
 struct TerminalKeyboardCopyModeInputState: Equatable {
     var countPrefix: Int?
     var pendingYankLine = false
+    var pendingG = false
 
     mutating func reset() {
         countPrefix = nil
         pendingYankLine = false
+        pendingG = false
     }
 }
 
@@ -395,10 +456,10 @@ func terminalKeyboardCopyModeAction(
 
     if normalized == [.control] {
         if chars == "u" || chars == "\u{15}" {
-            return hasSelection ? .adjustSelection(.pageUp) : .scrollPage(-1)
+            return hasSelection ? .adjustSelection(.pageUp) : .scrollHalfPage(-1)
         }
         if chars == "d" || chars == "\u{04}" {
-            return hasSelection ? .adjustSelection(.pageDown) : .scrollPage(1)
+            return hasSelection ? .adjustSelection(.pageDown) : .scrollHalfPage(1)
         }
         if chars == "b" || chars == "\u{02}" {
             return hasSelection ? .adjustSelection(.pageUp) : .scrollPage(-1)
@@ -439,7 +500,8 @@ func terminalKeyboardCopyModeAction(
         if normalized == [.shift] {
             return hasSelection ? .adjustSelection(.end) : .scrollToBottom
         }
-        return hasSelection ? .adjustSelection(.home) : .scrollToTop
+        // Bare "g" is a prefix key (e.g. gg); handled in resolve.
+        return nil
     case "0", "^":
         return hasSelection ? .adjustSelection(.beginningOfLine) : nil
     case "$", "4":
@@ -486,6 +548,17 @@ func terminalKeyboardCopyModeResolve(
         state.pendingYankLine = false
     }
 
+    if state.pendingG {
+        if chars == "g", normalized.isEmpty {
+            let count = terminalKeyboardCopyModeClampCount(state.countPrefix ?? 1)
+            let action: TerminalKeyboardCopyModeAction = hasSelection ? .adjustSelection(.home) : .scrollToTop
+            state.reset()
+            return .perform(action, count: count)
+        }
+        // Not `gg`, cancel and treat as fresh command.
+        state.pendingG = false
+    }
+
     if normalized.isEmpty,
        let scalar = chars.unicodeScalars.first,
        scalar.isASCII,
@@ -506,6 +579,11 @@ func terminalKeyboardCopyModeResolve(
 
     if !hasSelection, chars == "y", normalized.isEmpty {
         state.pendingYankLine = true
+        return .consume
+    }
+
+    if chars == "g", normalized.isEmpty {
+        state.pendingG = true
         return .consume
     }
 
@@ -766,7 +844,13 @@ class GhosttyApp {
                   let surface = callbackContext.runtimeSurface else { return }
 
             let pasteboard = GhosttyPasteboardHelper.pasteboard(for: location)
-            let value = pasteboard.flatMap { GhosttyPasteboardHelper.stringContents(from: $0) } ?? ""
+            var value = pasteboard.flatMap { GhosttyPasteboardHelper.stringContents(from: $0) } ?? ""
+
+            // When clipboard has only image data (e.g. screenshot), save as temp
+            // PNG and paste the file path so CLI tools can receive images.
+            if value.isEmpty, let imagePath = GhosttyPasteboardHelper.saveClipboardImageIfNeeded() {
+                value = imagePath
+            }
 
             value.withCString { ptr in
                 ghostty_surface_complete_clipboard_request(surface, ptr, state, false)
@@ -1955,7 +2039,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
 	        didSet {
 	            if let searchState {
 	                hostedView.cancelFocusRequest()
-                NSLog("Find: search state created tab=%@ surface=%@", tabId.uuidString, id.uuidString)
+#if DEBUG
+                dlog("find.searchState created tab=\(tabId.uuidString.prefix(5)) surface=\(id.uuidString.prefix(5))")
+#endif
                 searchNeedleCancellable = searchState.$needle
                     .removeDuplicates()
                     .map { needle -> AnyPublisher<String, Never> in
@@ -1969,12 +2055,16 @@ final class TerminalSurface: Identifiable, ObservableObject {
                     }
                     .switchToLatest()
                     .sink { [weak self] needle in
-                        NSLog("Find: needle updated tab=%@ surface=%@ needle=%@", self?.tabId.uuidString ?? "unknown", self?.id.uuidString ?? "unknown", needle)
+#if DEBUG
+                        dlog("find.needle updated tab=\(self?.tabId.uuidString.prefix(5) ?? "?") surface=\(self?.id.uuidString.prefix(5) ?? "?") chars=\(needle.count)")
+#endif
                         _ = self?.performBindingAction("search:\(needle)")
                     }
             } else if oldValue != nil {
                 searchNeedleCancellable = nil
-                NSLog("Find: search state cleared tab=%@ surface=%@", tabId.uuidString, id.uuidString)
+#if DEBUG
+                dlog("find.searchState cleared tab=\(tabId.uuidString.prefix(5)) surface=\(id.uuidString.prefix(5))")
+#endif
                 _ = performBindingAction("end_search")
             }
         }
@@ -2785,6 +2875,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var keyboardCopyModeConsumedKeyUps: Set<UInt16> = []
     private var keyboardCopyModeInputState = TerminalKeyboardCopyModeInputState()
     private var keyboardCopyModeViewportRow: Int?
+    /// Tracks whether the user has explicitly entered visual selection mode (v).
+    /// Separate from Ghostty's `has_selection` because copy mode always maintains
+    /// a 1-cell selection as a visible cursor. This flag determines whether
+    /// movements should extend the selection (visual) or scroll the viewport.
+    private var keyboardCopyModeVisualActive = false
     fileprivate var isKeyboardCopyModeActive: Bool { keyboardCopyModeActive }
 #if DEBUG
     private static let keyLatencyProbeEnabled: Bool = {
@@ -2886,9 +2981,38 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
     }
 
+    // Theme/background application is window-local. During cross-window workspace
+    // switches (e.g. jump-to-unread), the global active tab manager can lag behind.
+    // Prefer the owning window's selected workspace when available.
+    static func shouldApplyWindowBackground(
+        surfaceTabId: UUID?,
+        owningManagerExists: Bool,
+        owningSelectedTabId: UUID?,
+        activeSelectedTabId: UUID?
+    ) -> Bool {
+        guard let surfaceTabId else { return true }
+        if owningManagerExists {
+            guard let owningSelectedTabId else { return true }
+            return owningSelectedTabId == surfaceTabId
+        }
+        if let activeSelectedTabId {
+            return activeSelectedTabId == surfaceTabId
+        }
+        return true
+    }
+
     func applyWindowBackgroundIfActive() {
         guard let window else { return }
-        if let tabId, let selectedId = AppDelegate.shared?.tabManager?.selectedTabId, tabId != selectedId {
+        let appDelegate = AppDelegate.shared
+        let owningManager = tabId.flatMap { appDelegate?.tabManagerFor(tabId: $0) }
+        let owningSelectedTabId = owningManager?.selectedTabId
+        let activeSelectedTabId = owningManager == nil ? appDelegate?.tabManager?.selectedTabId : nil
+        guard Self.shouldApplyWindowBackground(
+            surfaceTabId: tabId,
+            owningManagerExists: owningManager != nil,
+            owningSelectedTabId: owningSelectedTabId,
+            activeSelectedTabId: activeSelectedTabId
+        ) else {
             return
         }
         applySurfaceBackground()
@@ -3229,6 +3353,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     private func setKeyboardCopyModeActive(_ active: Bool) {
         keyboardCopyModeInputState.reset()
+        keyboardCopyModeVisualActive = false
         keyboardCopyModeActive = active
         if active, let surface {
             keyboardCopyModeViewportRow = keyboardCopyModeSelectionAnchor(surface: surface)?.row
@@ -3236,6 +3361,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             if keyboardCopyModeViewportRow == nil {
                 keyboardCopyModeViewportRow = keyboardCopyModeImeViewportRow(surface: surface)
             }
+            // Create a 1-cell selection at the terminal cursor to serve as a
+            // visible cursor indicator in copy mode.
+            _ = ghostty_surface_select_cursor_cell(surface)
         } else {
             keyboardCopyModeViewportRow = nil
         }
@@ -3286,10 +3414,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     private func refreshKeyboardCopyModeViewportRowFromVisibleAnchor(surface: ghostty_surface_t) {
-        guard !ghostty_surface_has_selection(surface) else { return }
+        // In visual mode the user owns the selection range; don't disturb it.
+        // Outside visual mode we keep a 1-cell cursor selection for visibility,
+        // so we still need to refresh the viewport row after scrolling.
+        guard !keyboardCopyModeVisualActive else { return }
         guard let anchor = keyboardCopyModeSelectionAnchor(surface: surface) else { return }
         keyboardCopyModeViewportRow = anchor.row
-        _ = ghostty_surface_clear_selection(surface)
+        // Preserve the visible cursor indicator.
+        _ = ghostty_surface_select_cursor_cell(surface)
     }
 
     private func copyCurrentViewportLinesToClipboard(
@@ -3344,7 +3476,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return false
         }
 
-        let hasSelection = ghostty_surface_has_selection(surface)
+        // Use the visual-mode flag instead of raw has_selection so that the
+        // 1-cell cursor selection doesn't make every motion behave as visual.
+        let hasSelection = keyboardCopyModeVisualActive
         let resolution = terminalKeyboardCopyModeResolve(
             keyCode: event.keyCode,
             charactersIgnoringModifiers: event.charactersIgnoringModifiers,
@@ -3361,9 +3495,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             _ = ghostty_surface_clear_selection(surface)
             setKeyboardCopyModeActive(false)
         case .startSelection:
-            _ = ghostty_surface_select_cursor_cell(surface)
+            keyboardCopyModeVisualActive = true
         case .clearSelection:
+            keyboardCopyModeVisualActive = false
             _ = ghostty_surface_clear_selection(surface)
+            // Re-create 1-cell cursor at terminal cursor position.
+            _ = ghostty_surface_select_cursor_cell(surface)
         case .copyAndExit:
             _ = performBindingAction("copy_to_clipboard")
             _ = ghostty_surface_clear_selection(surface)
@@ -3382,6 +3519,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             refreshKeyboardCopyModeViewportRowFromVisibleAnchor(surface: surface)
         case let .scrollPage(delta):
             performBindingAction(delta > 0 ? "scroll_page_down" : "scroll_page_up", repeatCount: count)
+            refreshKeyboardCopyModeViewportRowFromVisibleAnchor(surface: surface)
+        case let .scrollHalfPage(delta):
+            let fraction = delta > 0 ? 0.5 : -0.5
+            performBindingAction("scroll_page_fractional:\(fraction)", repeatCount: count)
             refreshKeyboardCopyModeViewportRowFromVisibleAnchor(surface: surface)
         case .scrollToTop:
             keyboardCopyModeViewportRow = 0
@@ -3412,78 +3553,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         _ = performBindingAction("copy_to_clipboard")
     }
 
-    // MARK: - Clipboard image paste
+    // MARK: - Clipboard paste
 
-    private static let maxClipboardImageSize = 10 * 1024 * 1024  // 10 MB
-
-    /// Quick check: does the clipboard have image data and no text?
-    private static func clipboardHasImageOnly() -> Bool {
-        let pb = NSPasteboard.general
-        let types = pb.types ?? []
-        let hasText = types.contains(.string) || types.contains(.html)
-            || types.contains(.rtf) || types.contains(.rtfd)
-        if hasText { return false }
-        return types.contains(.tiff) || types.contains(.png)
-    }
-
-    /// When the clipboard contains only image data (no text/HTML), saves it as
-    /// a temporary PNG file and returns the file path. Returns nil if the
-    /// clipboard contains text or no image.
-    private static func saveClipboardImageIfNeeded() -> String? {
-        let pb = NSPasteboard.general
-        let types = pb.types ?? []
-
-        // If pasteboard has text/HTML, this is a normal copy — let Ghostty handle it.
-        let hasText = types.contains(.string) || types.contains(.html)
-            || types.contains(.rtf) || types.contains(.rtfd)
-        if hasText { return nil }
-
-        // Check for image types (TIFF from screenshots, PNG from some tools).
-        guard types.contains(.tiff) || types.contains(.png) else { return nil }
-        guard let image = NSImage(pasteboard: pb),
-              let tiffData = image.tiffRepresentation,
-              let bitmap = NSBitmapImageRep(data: tiffData),
-              let pngData = bitmap.representation(using: .png, properties: [:]) else { return nil }
-
-        guard pngData.count <= maxClipboardImageSize else {
-#if DEBUG
-            dlog("terminal.paste.image.rejected reason=tooLarge bytes=\(pngData.count)")
-#endif
-            return nil
-        }
-
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd-HHmmss"
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        let timestamp = formatter.string(from: Date())
-        let filename = "clipboard-\(timestamp)-\(UUID().uuidString.prefix(8)).png"
-        let path = (NSTemporaryDirectory() as NSString).appendingPathComponent(filename)
-
-        do {
-            try pngData.write(to: URL(fileURLWithPath: path))
-        } catch {
-#if DEBUG
-            dlog("terminal.paste.image.writeFailed error=\(error.localizedDescription)")
-#endif
-            return nil
-        }
-
-        return path
-    }
-
-    /// Pastes clipboard content into the terminal. If the clipboard contains only
-    /// image data, saves it as a temporary PNG and pastes the shell-escaped file path.
     @IBAction func paste(_ sender: Any?) {
-        // When the clipboard contains only image data (e.g. from Cmd+Ctrl+Shift+4
-        // screenshot), save it as a temporary PNG and paste the file path so that
-        // CLI tools like Claude Code can accept the image.
-        if let path = Self.saveClipboardImageIfNeeded() {
-#if DEBUG
-            dlog("terminal.paste.image path=\(path)")
-#endif
-            terminalSurface?.sendText(Self.escapeDropForShell(path))
-            return
-        }
         _ = performBindingAction("paste_from_clipboard")
     }
 
@@ -3500,7 +3572,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return ghostty_surface_has_selection(surface)
         case #selector(paste(_:)):
             return GhosttyPasteboardHelper.hasString(for: GHOSTTY_CLIPBOARD_STANDARD)
-                || Self.clipboardHasImageOnly()
         case #selector(pasteAsPlainText(_:)):
             return GhosttyPasteboardHelper.hasString(for: GHOSTTY_CLIPBOARD_STANDARD)
         case #selector(splitHorizontally(_:)), #selector(splitVertically(_:)):
@@ -4670,6 +4741,14 @@ final class GhosttySurfaceScrollView: NSView {
     private var dropZoneOverlayAnimationGeneration: UInt64 = 0
     // Intentionally no focus retry loops: rely on AppKit first-responder and bonsplit selection.
 
+    /// Tracks whether keyboard focus should go to the search field or the terminal
+    /// when the window becomes key while the find bar is open.
+    enum SearchFocusTarget {
+        case searchField
+        case terminal
+    }
+    private(set) var searchFocusTarget: SearchFocusTarget = .searchField
+
     private static func panelBackgroundFillColor(for terminalBackgroundColor: NSColor) -> NSColor {
         // The Ghostty renderer already draws translucent terminal backgrounds. If we paint an
         // additional translucent layer here, alpha stacks and appears effectively opaque.
@@ -4956,6 +5035,20 @@ final class GhosttySurfaceScrollView: NSView {
         })
 
         observers.append(NotificationCenter.default.addObserver(
+            forName: .ghosttySearchFocus,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let self,
+                  let surface = notification.object as? TerminalSurface,
+                  surface === self.surfaceView.terminalSurface else { return }
+            self.searchFocusTarget = .searchField
+            // Explicitly unfocus the terminal so the cursor stops blinking
+            // when the search field takes over.
+            surface.setFocus(false)
+        })
+
+        observers.append(NotificationCenter.default.addObserver(
             forName: .ghosttyDidUpdateCellSize,
             object: surfaceView,
             queue: .main
@@ -5056,7 +5149,12 @@ final class GhosttySurfaceScrollView: NSView {
             object: window,
             queue: .main
         ) { [weak self] _ in
-            self?.applyFirstResponderIfNeeded()
+            guard let self else { return }
+            let searchActive = self.surfaceView.terminalSurface?.searchState != nil
+#if DEBUG
+            dlog("find.window.didBecomeKey surface=\(self.surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") searchActive=\(searchActive) focusTarget=\(self.searchFocusTarget) firstResponder=\(String(describing: self.window?.firstResponder))")
+#endif
+            self.applyFirstResponderIfNeeded()
         })
         windowObservers.append(NotificationCenter.default.addObserver(
             forName: NSWindow.didResignKeyNotification,
@@ -5064,11 +5162,19 @@ final class GhosttySurfaceScrollView: NSView {
             queue: .main
         ) { [weak self] _ in
             guard let self, let window = self.window else { return }
+            let searchActive = self.surfaceView.terminalSurface?.searchState != nil
             // Losing key window does not always trigger first-responder resignation, so force
             // the focused terminal view to yield responder to keep Ghostty cursor/focus state in sync.
             if let fr = window.firstResponder as? NSView,
                fr === self.surfaceView || fr.isDescendant(of: self.surfaceView) {
+#if DEBUG
+                dlog("find.window.didResignKey surface=\(self.surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") searchActive=\(searchActive) resigningFirstResponder")
+#endif
                 window.makeFirstResponder(nil)
+            } else {
+#if DEBUG
+                dlog("find.window.didResignKey surface=\(self.surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") searchActive=\(searchActive) firstResponder=\(String(describing: window.firstResponder)) (not terminal, skipping)")
+#endif
             }
         })
         if window.isKeyWindow { applyFirstResponderIfNeeded() }
@@ -5079,7 +5185,18 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     func setFocusHandler(_ handler: (() -> Void)?) {
-        surfaceView.onFocus = handler
+        guard let handler else {
+            surfaceView.onFocus = nil
+            return
+        }
+        surfaceView.onFocus = { [weak self] in
+            // When the terminal surface gains focus (click, tab, etc.), update the
+            // search focus target so window reactivation restores terminal focus.
+            if self?.surfaceView.terminalSurface?.searchState != nil {
+                self?.searchFocusTarget = .terminal
+            }
+            handler()
+        }
     }
 
     func setTriggerFlashHandler(_ handler: (() -> Void)?) {
@@ -5132,10 +5249,20 @@ final class GhosttySurfaceScrollView: NSView {
         // SwiftUI panel-level overlays can fall behind portal-hosted terminal surfaces.
         guard let terminalSurface = surfaceView.terminalSurface,
               let searchState else {
+            let hadOverlay = searchOverlayHostingView != nil
+#if DEBUG
+            dlog("find.setSearchOverlay REMOVE surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") hadOverlay=\(hadOverlay)")
+#endif
             searchOverlayHostingView?.removeFromSuperview()
             searchOverlayHostingView = nil
+            searchFocusTarget = .searchField
             return
         }
+
+        let hadOverlay = searchOverlayHostingView != nil
+#if DEBUG
+        dlog("find.setSearchOverlay MOUNT surface=\(terminalSurface.id.uuidString.prefix(5)) existingOverlay=\(hadOverlay ? "yes(update)" : "no(create)")")
+#endif
 
         let tabId = terminalSurface.tabId
         let surfaceId = terminalSurface.id
@@ -5144,10 +5271,15 @@ final class GhosttySurfaceScrollView: NSView {
             surfaceId: surfaceId,
             searchState: searchState,
             onMoveFocusToTerminal: { [weak self] in
+                self?.searchFocusTarget = .terminal
                 self?.moveFocus()
             },
             onNavigateSearch: { [weak terminalSurface] action in
                 _ = terminalSurface?.performBindingAction(action)
+            },
+            onFieldDidFocus: { [weak self, weak terminalSurface] in
+                self?.searchFocusTarget = .searchField
+                terminalSurface?.setFocus(false)
             },
             onClose: { [weak self, weak terminalSurface] in
                 terminalSurface?.searchState = nil
@@ -5173,6 +5305,7 @@ final class GhosttySurfaceScrollView: NSView {
             return
         }
 
+        searchFocusTarget = .searchField
         let overlay = NSHostingView(rootView: rootView)
         overlay.translatesAutoresizingMaskIntoConstraints = false
         addSubview(overlay)
@@ -5477,7 +5610,9 @@ final class GhosttySurfaceScrollView: NSView {
 
     func moveFocus(from previous: GhosttySurfaceScrollView? = nil, delay: TimeInterval? = nil) {
 #if DEBUG
-        dlog("focus.moveFocus to=\(self.surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil")")
+        let surfaceShort = self.surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil"
+        let searchActive = self.surfaceView.terminalSurface?.searchState != nil
+        dlog("find.moveFocus to=\(surfaceShort) searchState=\(searchActive ? "active" : "nil")")
 #endif
         let work = { [weak self] in
             guard let self else { return }
@@ -5627,7 +5762,6 @@ final class GhosttySurfaceScrollView: NSView {
         let isHiddenForFocus = isHiddenOrHasHiddenAncestor || surfaceView.isHiddenOrHasHiddenAncestor
 
         guard isActive else { return }
-        guard surfaceView.terminalSurface?.searchState == nil else { return }
         guard let window else { return }
         guard surfaceView.isVisibleInUI else {
             retry()
@@ -5664,6 +5798,12 @@ final class GhosttySurfaceScrollView: NSView {
         guard tab.bonsplitController.selectedTab(inPane: paneId)?.id == tabIdForSurface,
               tab.bonsplitController.focusedPaneId == paneId else {
             retry()
+            return
+        }
+
+        // Search focus restoration — only after confirming this is the active tab/pane.
+        if surfaceView.terminalSurface?.searchState != nil {
+            restoreSearchFocus(window: window)
             return
         }
 
@@ -5706,25 +5846,85 @@ final class GhosttySurfaceScrollView: NSView {
             return size.width > 1 && size.height > 1
         }()
         let isHiddenForFocus = isHiddenOrHasHiddenAncestor || surfaceView.isHiddenOrHasHiddenAncestor
+        let surfaceShort = surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil"
 
         guard isActive else { return }
         guard surfaceView.isVisibleInUI else { return }
         guard !isHiddenForFocus, hasUsablePortalGeometry else {
 #if DEBUG
             dlog(
-                "focus.apply.skip surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") " +
+                "focus.apply.skip surface=\(surfaceShort) " +
                 "reason=hidden_or_tiny hidden=\(isHiddenForFocus ? 1 : 0) frame=\(String(format: "%.1fx%.1f", bounds.width, bounds.height))"
             )
 #endif
             return
         }
-        guard surfaceView.terminalSurface?.searchState == nil else { return }
         guard let window, window.isKeyWindow else { return }
+        if surfaceView.terminalSurface?.searchState != nil {
+            // Find bar is open. Restore focus based on what the user last intended.
+            restoreSearchFocus(window: window)
+            return
+        }
         if let fr = window.firstResponder as? NSView,
            fr === surfaceView || fr.isDescendant(of: surfaceView) {
             return
         }
+        // Don't steal focus from a search overlay on another surface in this window.
+        if let fr = window.firstResponder, isSearchOverlayOrDescendant(fr) {
+#if DEBUG
+            dlog("find.applyFirstResponder SKIP surface=\(surfaceShort) reason=searchOverlayFocused")
+#endif
+            return
+        }
+#if DEBUG
+        dlog("find.applyFirstResponder APPLY surface=\(surfaceShort) prevFirstResponder=\(String(describing: window.firstResponder))")
+#endif
         window.makeFirstResponder(surfaceView)
+    }
+
+    /// Restore focus when window becomes key and the find bar is open.
+    /// Respects `searchFocusTarget` so Escape-to-terminal intent is preserved across window switches.
+    private func restoreSearchFocus(window: NSWindow) {
+        let surfaceShort = surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil"
+        switch searchFocusTarget {
+        case .searchField:
+            // Explicitly unfocus the terminal so cursor stops blinking immediately.
+            // The notification observer also does this, but it runs async when posted from main.
+            surfaceView.terminalSurface?.setFocus(false)
+            // Post notification — SearchTextFieldRepresentable's Coordinator
+            // observes it and calls makeFirstResponder on the native NSTextField.
+            if let terminalSurface = surfaceView.terminalSurface {
+                NotificationCenter.default.post(name: .ghosttySearchFocus, object: terminalSurface)
+            }
+#if DEBUG
+            dlog("find.restoreSearchFocus surface=\(surfaceShort) target=searchField via=notification")
+#endif
+        case .terminal:
+            window.makeFirstResponder(surfaceView)
+#if DEBUG
+            dlog("find.restoreSearchFocus surface=\(surfaceShort) target=terminal")
+#endif
+        }
+    }
+
+    /// Check if a responder is inside a search overlay hosting view.
+    /// Handles the AppKit field-editor case: when an NSTextField is being edited,
+    /// window.firstResponder is the shared NSTextView field editor, not the text field.
+    private func isSearchOverlayOrDescendant(_ responder: NSResponder) -> Bool {
+        // If the responder is a field editor, follow its delegate back to the owning control.
+        if let editor = responder as? NSTextView,
+           editor.isFieldEditor,
+           let editedView = editor.delegate as? NSView {
+            return isSearchOverlayOrDescendant(editedView)
+        }
+
+        guard let view = responder as? NSView else { return false }
+        var current: NSView? = view
+        while let v = current {
+            if v is NSHostingView<SurfaceSearchOverlay> { return true }
+            current = v.superview
+        }
+        return false
     }
 
 #if DEBUG
@@ -6363,6 +6563,10 @@ struct GhosttyTerminalView: NSViewRepresentable {
     func makeNSView(context: Context) -> NSView {
         let container = HostContainerView()
         container.wantsLayer = false
+        // The actual terminal surface lives in the AppKit portal layer above SwiftUI.
+        // This empty placeholder should not be walked by the accessibility subsystem.
+        container.setAccessibilityRole(.none)
+        container.setAccessibilityElement(false)
         return container
     }
 

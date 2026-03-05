@@ -18,30 +18,30 @@ enum SocketControlMode: String, CaseIterable, Identifiable {
     var displayName: String {
         switch self {
         case .off:
-            return "Off"
+            return String(localized: "socketControl.off.name", defaultValue: "Off")
         case .cmuxOnly:
-            return "cmux processes only"
+            return String(localized: "socketControl.cmuxOnly.name", defaultValue: "cmux processes only")
         case .automation:
-            return "Automation mode"
+            return String(localized: "socketControl.automation.name", defaultValue: "Automation mode")
         case .password:
-            return "Password mode"
+            return String(localized: "socketControl.password.name", defaultValue: "Password mode")
         case .allowAll:
-            return "Full open access"
+            return String(localized: "socketControl.allowAll.name", defaultValue: "Full open access")
         }
     }
 
     var description: String {
         switch self {
         case .off:
-            return "Disable the local control socket."
+            return String(localized: "socketControl.off.description", defaultValue: "Disable the local control socket.")
         case .cmuxOnly:
-            return "Only processes started inside cmux terminals can send commands."
+            return String(localized: "socketControl.cmuxOnly.description", defaultValue: "Only processes started inside cmux terminals can send commands.")
         case .automation:
-            return "Allow external local automation clients from this macOS user (no ancestry check)."
+            return String(localized: "socketControl.automation.description", defaultValue: "Allow external local automation clients from this macOS user (no ancestry check).")
         case .password:
-            return "Require socket authentication with a password stored in a local file."
+            return String(localized: "socketControl.password.description", defaultValue: "Require socket authentication with a password stored in a local file.")
         case .allowAll:
-            return "Allow any local process and user to connect with no auth. Unsafe."
+            return String(localized: "socketControl.allowAll.description", defaultValue: "Allow any local process and user to connect with no auth. Unsafe.")
         }
     }
 
@@ -183,7 +183,7 @@ enum SocketControlPasswordStore {
             throw NSError(
                 domain: NSCocoaErrorDomain,
                 code: NSFileNoSuchFileError,
-                userInfo: [NSLocalizedDescriptionKey: "Unable to resolve socket password file path."]
+                userInfo: [NSLocalizedDescriptionKey: String(localized: "socketControl.error.passwordFilePath", defaultValue: "Unable to resolve socket password file path.")]
             )
         }
         let directory = fileURL.deletingLastPathComponent()
