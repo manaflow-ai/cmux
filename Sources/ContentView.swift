@@ -6237,15 +6237,107 @@ private struct SidebarFooterButtons: View {
     }
 }
 
-private struct SidebarHelpMenuButton: View {
+private enum SidebarHelpMenuAction: Int {
+    case keyboardShortcuts = 1
+    case docs = 2
+    case changelog = 3
+    case checkForUpdates = 4
+    case sendFeedback = 5
+}
+
+private struct SidebarHelpMenuButton: NSViewRepresentable {
     private let docsURL = URL(string: "https://cmux.dev/docs")
     private let changelogURL = URL(string: "https://cmux.dev/docs/changelog")
     private let feedbackURL = URL(string: "mailto:founders@manaflow.com?subject=cmux%20feedback")
     private let helpTitle = String(localized: "sidebar.help.button", defaultValue: "Help")
 
-    var body: some View {
-        Menu {
-            Button(String(localized: "settings.section.keyboardShortcuts", defaultValue: "Keyboard Shortcuts")) {
+    func makeCoordinator() -> Coordinator {
+        Coordinator(
+            docsURL: docsURL,
+            changelogURL: changelogURL,
+            feedbackURL: feedbackURL
+        )
+    }
+
+    func makeNSView(context: Context) -> NSPopUpButton {
+        let button = NSPopUpButton(frame: .zero, pullsDown: true)
+        configure(button, coordinator: context.coordinator)
+        return button
+    }
+
+    func updateNSView(_ button: NSPopUpButton, context: Context) {
+        configure(button, coordinator: context.coordinator)
+    }
+
+    private func configure(_ button: NSPopUpButton, coordinator: Coordinator) {
+        let menu = NSMenu()
+        let titleItem = NSMenuItem(title: helpTitle, action: nil, keyEquivalent: "")
+        titleItem.image = NSImage(systemSymbolName: "questionmark.circle", accessibilityDescription: helpTitle)
+        menu.addItem(titleItem)
+        menu.addItem(NSMenuItem.separator())
+        menu.addItem(coordinator.makeMenuItem(
+            title: String(localized: "settings.section.keyboardShortcuts", defaultValue: "Keyboard Shortcuts"),
+            action: .keyboardShortcuts
+        ))
+        if docsURL != nil {
+            menu.addItem(coordinator.makeMenuItem(
+                title: String(localized: "about.docs", defaultValue: "Docs"),
+                action: .docs
+            ))
+        }
+        if changelogURL != nil {
+            menu.addItem(coordinator.makeMenuItem(
+                title: String(localized: "sidebar.help.changelog", defaultValue: "Changelog"),
+                action: .changelog
+            ))
+        }
+        menu.addItem(coordinator.makeMenuItem(
+            title: String(localized: "command.checkForUpdates.title", defaultValue: "Check for Updates"),
+            action: .checkForUpdates
+        ))
+        if feedbackURL != nil {
+            menu.addItem(coordinator.makeMenuItem(
+                title: String(localized: "sidebar.help.sendFeedback", defaultValue: "Send Feedback"),
+                action: .sendFeedback
+            ))
+        }
+
+        button.menu = menu
+        button.selectItem(at: 0)
+        button.controlSize = .small
+        button.bezelStyle = .rounded
+        button.font = .systemFont(ofSize: 11, weight: .medium)
+        button.imagePosition = .imageLeading
+        button.setContentHuggingPriority(.required, for: .horizontal)
+        button.setContentCompressionResistancePriority(.required, for: .horizontal)
+        button.sizeToFit()
+        button.setAccessibilityLabel(helpTitle)
+        button.setAccessibilityIdentifier("SidebarHelpMenuButton")
+        button.toolTip = helpTitle
+    }
+
+    final class Coordinator: NSObject {
+        private let docsURL: URL?
+        private let changelogURL: URL?
+        private let feedbackURL: URL?
+
+        init(docsURL: URL?, changelogURL: URL?, feedbackURL: URL?) {
+            self.docsURL = docsURL
+            self.changelogURL = changelogURL
+            self.feedbackURL = feedbackURL
+        }
+
+        func makeMenuItem(title: String, action: SidebarHelpMenuAction) -> NSMenuItem {
+            let item = NSMenuItem(title: title, action: #selector(handleMenuItem(_:)), keyEquivalent: "")
+            item.tag = action.rawValue
+            item.target = self
+            return item
+        }
+
+        @objc private func handleMenuItem(_ sender: NSMenuItem) {
+            guard let action = SidebarHelpMenuAction(rawValue: sender.tag) else { return }
+            switch action {
+            case .keyboardShortcuts:
                 Task { @MainActor in
                     if let appDelegate = AppDelegate.shared {
                         appDelegate.openPreferencesWindow(
@@ -6256,38 +6348,21 @@ private struct SidebarHelpMenuButton: View {
                         AppDelegate.presentPreferencesWindow(navigationTarget: .keyboardShortcuts)
                     }
                 }
-            }
-
-            if let docsURL {
-                Button(String(localized: "about.docs", defaultValue: "Docs")) {
-                    NSWorkspace.shared.open(docsURL)
-                }
-            }
-
-            if let changelogURL {
-                Button(String(localized: "sidebar.help.changelog", defaultValue: "Changelog")) {
-                    NSWorkspace.shared.open(changelogURL)
-                }
-            }
-
-            Button(String(localized: "command.checkForUpdates.title", defaultValue: "Check for Updates")) {
+            case .docs:
+                guard let docsURL else { return }
+                NSWorkspace.shared.open(docsURL)
+            case .changelog:
+                guard let changelogURL else { return }
+                NSWorkspace.shared.open(changelogURL)
+            case .checkForUpdates:
                 Task { @MainActor in
                     AppDelegate.shared?.checkForUpdates(nil)
                 }
+            case .sendFeedback:
+                guard let feedbackURL else { return }
+                NSWorkspace.shared.open(feedbackURL)
             }
-
-            if let feedbackURL {
-                Button(String(localized: "sidebar.help.sendFeedback", defaultValue: "Send Feedback")) {
-                    NSWorkspace.shared.open(feedbackURL)
-                }
-            }
-        } label: {
-            Label(helpTitle, systemImage: "questionmark.circle")
-                .font(.system(size: 11, weight: .medium))
         }
-        .help(helpTitle)
-        .accessibilityLabel(helpTitle)
-        .accessibilityIdentifier("SidebarHelpMenuButton")
     }
 }
 
