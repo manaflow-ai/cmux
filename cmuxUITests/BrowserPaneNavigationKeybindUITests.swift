@@ -424,11 +424,15 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
     }
 
     func testCmdOptionPaneSwitchPreservesFindFieldFocus() {
-        runFindFocusPersistenceScenario(route: .cmdOptionArrows)
+        runFindFocusPersistenceScenario(route: .cmdOptionArrows, useAutofocusRacePage: false)
     }
 
     func testCmdCtrlPaneSwitchPreservesFindFieldFocus() {
-        runFindFocusPersistenceScenario(route: .cmdCtrlLetters)
+        runFindFocusPersistenceScenario(route: .cmdCtrlLetters, useAutofocusRacePage: false)
+    }
+
+    func testCmdOptionPaneSwitchPreservesFindFieldFocusDuringPageAutofocusRace() {
+        runFindFocusPersistenceScenario(route: .cmdOptionArrows, useAutofocusRacePage: true)
     }
 
     private enum FindFocusRoute {
@@ -436,9 +440,11 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         case cmdCtrlLetters
     }
 
-    private func runFindFocusPersistenceScenario(route: FindFocusRoute) {
+    private func runFindFocusPersistenceScenario(route: FindFocusRoute, useAutofocusRacePage: Bool) {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_RECORD_ONLY"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
         if route == .cmdCtrlLetters {
             app.launchEnvironment["CMUX_UI_TEST_FOCUS_SHORTCUTS"] = "1"
         }
@@ -457,54 +463,86 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
 
         app.typeKey("a", modifierFlags: [.command])
         app.typeKey(XCUIKeyboardKey.delete.rawValue, modifierFlags: [])
-        app.typeText("example.com")
+        if useAutofocusRacePage {
+            app.typeText(autofocusRacePageURL)
+        } else {
+            app.typeText("example.com")
+        }
         app.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [])
 
-        XCTAssertTrue(
-            waitForOmnibarToContainExampleDomain(omnibar, timeout: 8.0),
-            "Expected browser navigation to example domain before running find flow. value=\(String(describing: omnibar.value))"
-        )
+        if useAutofocusRacePage {
+            XCTAssertTrue(
+                waitForOmnibarToContain(omnibar, value: "data:text/html", timeout: 8.0),
+                "Expected browser navigation to data URL before running find flow. value=\(String(describing: omnibar.value))"
+            )
+        } else {
+            XCTAssertTrue(
+                waitForOmnibarToContainExampleDomain(omnibar, timeout: 8.0),
+                "Expected browser navigation to example domain before running find flow. value=\(String(describing: omnibar.value))"
+            )
+        }
 
         // Left terminal: Cmd+F then type "la".
         focusLeftPaneForFindScenario(app, route: route)
-        app.typeKey("f", modifierFlags: [.command])
-
-        let terminalFindField = app.textFields["TerminalFindSearchTextField"].firstMatch
-        XCTAssertTrue(terminalFindField.waitForExistence(timeout: 6.0), "Expected terminal find field")
-
-        app.typeText("la")
         XCTAssertTrue(
-            waitForTextFieldValue(terminalFindField, equals: "la", timeout: 4.0),
-            "Expected terminal find query to be 'la'. value=\(String(describing: terminalFindField.value))"
+            waitForDataMatch(timeout: 6.0) { data in
+                data["focusedPanelKind"] == "terminal"
+            },
+            "Expected left terminal pane to be focused before terminal find. data=\(String(describing: loadData()))"
         )
+        app.typeKey("f", modifierFlags: [.command])
+        app.typeText("la")
 
         // Right browser: Cmd+F then type "am".
         focusRightPaneForFindScenario(app, route: route)
-        app.typeKey("f", modifierFlags: [.command])
-
-        let browserFindField = app.textFields["BrowserFindSearchTextField"].firstMatch
-        XCTAssertTrue(browserFindField.waitForExistence(timeout: 6.0), "Expected browser find field")
-
-        app.typeText("am")
         XCTAssertTrue(
-            waitForTextFieldValue(browserFindField, equals: "am", timeout: 4.0),
-            "Expected browser find query to be 'am'. value=\(String(describing: browserFindField.value))"
+            waitForDataMatch(timeout: 6.0) { data in
+                data["lastMoveDirection"] == "right"
+                    && data["focusedPanelKind"] == "browser"
+                    && data["terminalFindNeedle"] == "la"
+            },
+            "Expected terminal find query to persist as 'la' after focusing browser pane. data=\(String(describing: loadData()))"
         )
+        app.typeKey("f", modifierFlags: [.command])
+        app.typeText("am")
+
+        if useAutofocusRacePage {
+            RunLoop.current.run(until: Date().addingTimeInterval(1.0))
+        }
 
         // Left terminal: typing should keep going into terminal find field.
         focusLeftPaneForFindScenario(app, route: route)
-        app.typeText("foo")
         XCTAssertTrue(
-            waitForTextFieldValue(terminalFindField, equals: "lafoo", timeout: 4.0),
-            "Expected terminal find field to stay focused and become 'lafoo'. value=\(String(describing: terminalFindField.value))"
+            waitForDataMatch(timeout: 6.0) { data in
+                data["lastMoveDirection"] == "left"
+                    && data["focusedPanelKind"] == "terminal"
+                    && data["browserFindNeedle"] == "am"
+            },
+            "Expected browser find query to persist as 'am' after returning left. data=\(String(describing: loadData()))"
         )
+        app.typeText("foo")
 
         // Right browser: typing should keep going into browser find field.
         focusRightPaneForFindScenario(app, route: route)
-        app.typeText("do")
         XCTAssertTrue(
-            waitForTextFieldValue(browserFindField, equals: "amdo", timeout: 4.0),
-            "Expected browser find field to stay focused and become 'amdo'. value=\(String(describing: browserFindField.value))"
+            waitForDataMatch(timeout: 6.0) { data in
+                data["lastMoveDirection"] == "right"
+                    && data["focusedPanelKind"] == "browser"
+                    && data["terminalFindNeedle"] == "lafoo"
+            },
+            "Expected terminal find query to stay focused and become 'lafoo'. data=\(String(describing: loadData()))"
+        )
+        app.typeText("do")
+
+        // Move left once more so the recorder captures browser find state after typing.
+        focusLeftPaneForFindScenario(app, route: route)
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 6.0) { data in
+                data["lastMoveDirection"] == "left"
+                    && data["focusedPanelKind"] == "terminal"
+                    && data["browserFindNeedle"] == "amdo"
+            },
+            "Expected browser find query to stay focused and become 'amdo'. data=\(String(describing: loadData()))"
         )
     }
 
@@ -539,15 +577,21 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         return value.contains("example.com") || value.contains("example.org")
     }
 
-    private func waitForTextFieldValue(_ field: XCUIElement, equals expected: String, timeout: TimeInterval) -> Bool {
+    private func waitForOmnibarToContain(_ omnibar: XCUIElement, value expectedSubstring: String, timeout: TimeInterval) -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
-            if (field.value as? String) == expected {
+            let value = (omnibar.value as? String) ?? ""
+            if value.contains(expectedSubstring) {
                 return true
             }
             RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         }
-        return (field.value as? String) == expected
+        let value = (omnibar.value as? String) ?? ""
+        return value.contains(expectedSubstring)
+    }
+
+    private var autofocusRacePageURL: String {
+        "data:text/html,%3Cinput%20id%3D%22q%22%3E%3Cscript%3EsetTimeout(function()%7Bdocument.getElementById(%22q%22).focus()%3B%7D,700)%3B%3C/script%3E"
     }
 
     private func launchAndEnsureForeground(_ app: XCUIApplication, timeout: TimeInterval = 12.0) {
