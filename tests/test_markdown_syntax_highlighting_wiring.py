@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import subprocess
+import json
 from pathlib import Path
 
 
@@ -22,6 +23,19 @@ def get_repo_root() -> Path:
 def require(content: str, needle: str, message: str, failures: list[str]) -> None:
     if needle not in content:
         failures.append(message)
+
+def require_package_version(
+    pins_by_identity: dict[str, str | None],
+    identity: str,
+    version: str,
+    failures: list[str],
+) -> None:
+    actual = pins_by_identity.get(identity)
+    if actual is None:
+        failures.append(f"Package.resolved should include {identity}")
+        return
+    if actual != version:
+        failures.append(f"Package.resolved should pin {identity} to {version} (found {actual})")
 
 
 def main() -> int:
@@ -48,6 +62,12 @@ def main() -> int:
     pbxproj = pbxproj_path.read_text(encoding="utf-8")
     resolved = resolved_path.read_text(encoding="utf-8")
     failures: list[str] = []
+    resolved_json = json.loads(resolved)
+    pins_by_identity = {
+        pin.get("identity"): pin.get("state", {}).get("version")
+        for pin in resolved_json.get("pins", [])
+        if pin.get("identity")
+    }
 
     # Markdown view wiring.
     require(
@@ -93,30 +113,8 @@ def main() -> int:
         require(pbxproj, needle, message, failures)
 
     # Dependency versions.
-    require(
-        resolved,
-        '"identity" : "highlightr"',
-        "Package.resolved should pin Highlightr",
-        failures,
-    )
-    require(
-        resolved,
-        '"version" : "2.3.0"',
-        "Package.resolved should pin Highlightr to 2.3.0",
-        failures,
-    )
-    require(
-        resolved,
-        '"identity" : "swift-markdown-ui"',
-        "Package.resolved should include swift-markdown-ui",
-        failures,
-    )
-    require(
-        resolved,
-        '"version" : "2.4.1"',
-        "Package.resolved should keep swift-markdown-ui at 2.4.1",
-        failures,
-    )
+    require_package_version(pins_by_identity, "highlightr", "2.3.0", failures)
+    require_package_version(pins_by_identity, "swift-markdown-ui", "2.4.1", failures)
 
     if failures:
         print("FAIL: markdown syntax-highlighting wiring regression(s) detected")
@@ -130,4 +128,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
