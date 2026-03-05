@@ -11,9 +11,10 @@ from pathlib import Path
 
 def get_repo_root() -> Path:
     """Return the repository root for source inspections."""
+    fallback_root = Path(__file__).resolve().parents[1]
     git_path = shutil.which("git")
     if git_path is None:
-        return Path.cwd()
+        return fallback_root
 
     try:
         result = subprocess.run(
@@ -23,10 +24,10 @@ def get_repo_root() -> Path:
             check=False,
         )
     except OSError:
-        return Path.cwd()
+        return fallback_root
     if result.returncode == 0:
         return Path(result.stdout.strip())
-    return Path.cwd()
+    return fallback_root
 
 
 def require(content: str, needle: str, message: str, failures: list[str], *, regex: bool = False) -> None:

@@ -1549,6 +1549,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var isApplyingStartupSessionRestore = false
     private var sessionAutosaveTimer: DispatchSourceTimer?
     private var socketListenerHealthTimer: DispatchSourceTimer?
+    private var socketListenerHealthCheckInFlight = false
     private static let socketListenerHealthCheckInterval: DispatchTimeInterval = .seconds(2)
     private var lastSocketListenerUnhealthyCaptureAt: Date = .distantPast
     private static let socketListenerUnhealthyCaptureCooldown: TimeInterval = 60
@@ -2474,11 +2475,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func stopSocketListenerHealthMonitor() {
         socketListenerHealthTimer?.cancel()
         socketListenerHealthTimer = nil
+        socketListenerHealthCheckInFlight = false
     }
 
     private func restartSocketListenerIfNeededForHealthCheck(source: String) {
-        guard let config = socketListenerConfigurationIfEnabled() else { return }
-        let health = TerminalController.shared.socketListenerHealth(expectedSocketPath: config.path)
+        guard !socketListenerHealthCheckInFlight,
+              let config = socketListenerConfigurationIfEnabled() else { return }
+        let expectedSocketPath = config.path
+        let terminalController = TerminalController.shared
+        socketListenerHealthCheckInFlight = true
+        Thread.detachNewThread { [weak self, expectedSocketPath, source, terminalController] in
+            let health = terminalController.socketListenerHealth(expectedSocketPath: expectedSocketPath)
+            Task { @MainActor [weak self, health] in
+                guard let self else { return }
+                self.socketListenerHealthCheckInFlight = false
+                self.handleSocketListenerHealthCheckResult(
+                    health,
+                    source: source,
+                    expectedSocketPath: expectedSocketPath
+                )
+            }
+        }
+    }
+
+    private func handleSocketListenerHealthCheckResult(
+        _ health: TerminalController.SocketListenerHealth,
+        source: String,
+        expectedSocketPath: String
+    ) {
+        guard let config = socketListenerConfigurationIfEnabled(),
+              config.path == expectedSocketPath else { return }
         guard !health.isHealthy else {
             lastSocketListenerUnhealthyCaptureAt = .distantPast
             return
