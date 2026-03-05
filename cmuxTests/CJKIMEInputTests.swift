@@ -7,43 +7,6 @@ import AppKit
 @testable import cmux
 #endif
 
-// MARK: - Test helpers
-
-/// Helper to make `NSApp.currentEvent` non-nil for insertText calls.
-/// NSTextInputClient.insertText guards on currentEvent because it should
-/// only fire during actual key event processing. In tests we simulate this
-/// by posting and immediately processing a synthetic key event.
-private func withSyntheticCurrentEvent(_ body: () -> Void) {
-    _ = NSApplication.shared // ensure NSApp exists
-    guard let event = NSEvent.keyEvent(
-        with: .keyDown,
-        location: .zero,
-        modifierFlags: [],
-        timestamp: ProcessInfo.processInfo.systemUptime,
-        windowNumber: 0,
-        context: nil,
-        characters: "",
-        charactersIgnoringModifiers: "",
-        isARepeat: false,
-        keyCode: 0
-    ) else {
-        body()
-        return
-    }
-    NSApp.postEvent(event, atStart: true)
-    // Process the event so that currentEvent becomes non-nil.
-    // Use a short timeout since we just posted the event.
-    if let posted = NSApp.nextEvent(matching: .keyDown, until: Date(timeIntervalSinceNow: 0.05), inMode: .default, dequeue: true) {
-        // We're now inside event processing; currentEvent should be set.
-        // However, currentEvent is only set during sendEvent. We need to
-        // actually invoke sendEvent. Since we can't do that cleanly in a
-        // unit test, we use a different approach: call insertText indirectly
-        // via a direct test of the accumulator + unmarkText path.
-        _ = posted
-    }
-    body()
-}
-
 // MARK: - NSTextInputClient protocol: marked text (preedit) lifecycle
 
 /// Tests that the GhosttyNSView NSTextInputClient implementation correctly
@@ -104,6 +67,30 @@ final class CJKIMEMarkedTextTests: XCTestCase {
         view.setKeyTextAccumulatorForTesting(acc)
         XCTAssertEqual(view.keyTextAccumulatorForTesting, ["한"], "Committed Korean text should be accumulated")
         view.setKeyTextAccumulatorForTesting(nil)
+    }
+
+    /// Third-party voice input apps often commit text outside an active keyDown
+    /// event. `insertText` should still clear marked text in that path.
+    func testInsertTextWithoutCurrentEventClearsMarkedText() {
+        let view = GhosttyNSView(frame: .zero)
+
+        view.setMarkedText("한", selectedRange: NSRange(location: 0, length: 1), replacementRange: NSRange(location: NSNotFound, length: 0))
+        XCTAssertTrue(view.hasMarkedText())
+
+        view.insertText("한", replacementRange: NSRange(location: NSNotFound, length: 0))
+        XCTAssertFalse(view.hasMarkedText(), "insertText should clear marked text even without an active currentEvent")
+    }
+
+    /// The responder-chain `insertText:` action (single argument) should route
+    /// to NSTextInputClient insertion so external text-injection tools work.
+    func testResponderChainInsertTextSelectorClearsMarkedText() {
+        let view = GhosttyNSView(frame: .zero)
+
+        view.setMarkedText("ni", selectedRange: NSRange(location: 2, length: 0), replacementRange: NSRange(location: NSNotFound, length: 0))
+        XCTAssertTrue(view.hasMarkedText())
+
+        view.insertText("你")
+        XCTAssertFalse(view.hasMarkedText(), "single-argument insertText should follow the same commit path")
     }
 
     // MARK: - Chinese (中文) pinyin candidate selection

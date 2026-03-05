@@ -3581,6 +3581,73 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
     }
 
+    // MARK: - Accessibility
+
+    /// Expose the terminal surface as an editable accessibility element.
+    /// Voice input tools frequently target AX text areas for text insertion.
+    override func isAccessibilityElement() -> Bool {
+        true
+    }
+
+    override func accessibilityRole() -> NSAccessibility.Role? {
+        .textArea
+    }
+
+    override func accessibilityHelp() -> String? {
+        "Terminal content area"
+    }
+
+    override func accessibilityValue() -> Any? {
+        // We don't keep a full terminal text snapshot in this layer.
+        // Expose selected text when available; otherwise provide an empty value
+        // so AX clients still treat this as an editable text area.
+        accessibilitySelectedText() ?? ""
+    }
+
+    override func setAccessibilityValue(_ value: Any?) {
+        let content: String
+        switch value {
+        case let v as NSAttributedString:
+            content = v.string
+        case let v as String:
+            content = v
+        default:
+            return
+        }
+
+        guard !content.isEmpty else { return }
+
+#if DEBUG
+        dlog("ime.ax.setValue len=\(content.count)")
+#endif
+
+        let inject = {
+            self.insertText(content, replacementRange: NSRange(location: NSNotFound, length: 0))
+        }
+        if Thread.isMainThread {
+            inject()
+        } else {
+            DispatchQueue.main.async(execute: inject)
+        }
+    }
+
+    override func accessibilitySelectedTextRange() -> NSRange {
+        selectedRange()
+    }
+
+    override func accessibilitySelectedText() -> String? {
+        guard let surface = surface else { return nil }
+
+        var text = ghostty_text_s()
+        guard ghostty_surface_read_selection(surface, &text) else { return nil }
+        defer { ghostty_surface_free_text(surface, &text) }
+
+        guard let ptr = text.text, text.text_len > 0 else { return nil }
+        let selectedData = Data(bytes: ptr, count: Int(text.text_len))
+        let selected = String(decoding: selectedData, as: UTF8.self)
+        return selected.isEmpty ? nil : selected
+    }
+
     override var acceptsFirstResponder: Bool { true }
 
     override func becomeFirstResponder() -> Bool {
@@ -3711,6 +3778,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     // Prevents NSBeep for unimplemented actions from interpretKeyEvents
     override func doCommand(by selector: Selector) {
         // Intentionally empty - prevents system beep on unhandled key commands
+    }
+
+    /// Some third-party voice input apps inject committed text by sending the
+    /// responder-chain `insertText:` action (single-argument form).
+    /// Route that into our NSTextInputClient path so text lands in the terminal.
+    override func insertText(_ insertString: Any) {
+        insertText(insertString, replacementRange: NSRange(location: NSNotFound, length: 0))
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
@@ -6458,8 +6532,6 @@ extension GhosttyNSView: NSTextInputClient {
     }
 
     func insertText(_ string: Any, replacementRange: NSRange) {
-        guard NSApp.currentEvent != nil else { return }
-
         // Get the string value
         var chars = ""
         switch string {
@@ -6473,6 +6545,16 @@ extension GhosttyNSView: NSTextInputClient {
 
         // Clear marked text since we're inserting
         unmarkText()
+
+        // Some IME/input-method paths call insertText with an empty payload to
+        // flush state. There is no terminal text to send in that case.
+        guard !chars.isEmpty else { return }
+
+#if DEBUG
+        if NSApp.currentEvent == nil {
+            dlog("ime.insertText.noEvent len=\(chars.count)")
+        }
+#endif
 
         // If we have an accumulator, we're in a keyDown event - accumulate the text
         if keyTextAccumulator != nil {
