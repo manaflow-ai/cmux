@@ -2992,8 +2992,11 @@ struct SettingsView: View {
                             .pickerStyle(.menu)
                             .onChange(of: appLanguage) { newValue in
                                 guard !isResettingSettings else { return }
-                                if newValue != LanguageSettings.languageAtLaunch.rawValue {
-                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                    if let lang = AppLanguage(rawValue: newValue) {
+                                        LanguageSettings.apply(lang)
+                                    }
+                                    if newValue != LanguageSettings.languageAtLaunch.rawValue {
                                         showLanguageRestartAlert = true
                                     }
                                 }
@@ -3783,7 +3786,12 @@ struct SettingsView: View {
 
     private func resetAllSettings() {
         isResettingSettings = true
+        let previousLanguage = appLanguage
         appLanguage = LanguageSettings.defaultLanguage.rawValue
+        LanguageSettings.apply(.system)
+        if previousLanguage != LanguageSettings.languageAtLaunch.rawValue {
+            showLanguageRestartAlert = true
+        }
         appearanceMode = AppearanceSettings.defaultMode.rawValue
         appIconMode = AppIconSettings.defaultMode.rawValue
         AppIconSettings.applyIcon(.automatic)
