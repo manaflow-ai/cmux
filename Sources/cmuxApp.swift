@@ -329,6 +329,13 @@ struct cmuxApp: App {
                     appDelegate.openDebugColorComparisonWorkspaces(nil)
                 }
 
+                Button(String(
+                    localized: "menu.debug.openTypingPerfStress",
+                    defaultValue: "Open Typing Perf Stress Workspaces"
+                )) {
+                    appDelegate.openDebugStressWorkspacesWithLoadedSurfaces(nil)
+                }
+
                 Divider()
                 Menu("Debug Windows") {
                     Button("Debug Window Controls…") {
