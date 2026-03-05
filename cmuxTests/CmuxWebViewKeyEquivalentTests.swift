@@ -5,6 +5,7 @@ import WebKit
 import SwiftUI
 import ObjectiveC.runtime
 import Bonsplit
+import UserNotifications
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -408,6 +409,67 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
         AppDelegate.clearWindowFirstResponderGuardTesting()
         _ = window.makeFirstResponder(nil)
         XCTAssertFalse(window.makeFirstResponder(descendant), "Expected pointer bypass to be limited to click context")
+    }
+
+    @MainActor
+    func testWindowFirstResponderGuardAllowsPointerInitiatedClickFocusForPortalHostedWebView() {
+        _ = NSApplication.shared
+        AppDelegate.installWindowResponderSwizzlesForTesting()
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
+        window.contentView = container
+
+        let anchor = NSView(frame: NSRect(x: 80, y: 60, width: 240, height: 150))
+        container.addSubview(anchor)
+
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let descendant = FirstResponderView(frame: NSRect(x: 0, y: 0, width: 10, height: 10))
+        webView.addSubview(descendant)
+
+        window.makeKeyAndOrderFront(nil)
+        container.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        BrowserWindowPortalRegistry.bind(webView: webView, to: anchor, visibleInUI: true, zPriority: 1)
+        BrowserWindowPortalRegistry.synchronizeForAnchor(anchor)
+
+        defer {
+            BrowserWindowPortalRegistry.detach(webView: webView)
+            AppDelegate.clearWindowFirstResponderGuardTesting()
+            window.orderOut(nil)
+        }
+
+        webView.allowsFirstResponderAcquisition = false
+        _ = window.makeFirstResponder(nil)
+        XCTAssertFalse(window.makeFirstResponder(descendant), "Expected blocked focus without pointer click context")
+
+        let timestamp = ProcessInfo.processInfo.systemUptime
+        let pointerPointInContent = NSPoint(x: anchor.frame.midX, y: anchor.frame.midY)
+        let pointerPointInWindow = container.convert(pointerPointInContent, to: nil)
+        let pointerDownEvent = NSEvent.mouseEvent(
+            with: .leftMouseDown,
+            location: pointerPointInWindow,
+            modifierFlags: [],
+            timestamp: timestamp,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: 1,
+            clickCount: 1,
+            pressure: 1.0
+        )
+        XCTAssertNotNil(pointerDownEvent)
+
+        AppDelegate.setWindowFirstResponderGuardTesting(currentEvent: pointerDownEvent, hitView: nil)
+        _ = window.makeFirstResponder(nil)
+        XCTAssertTrue(
+            window.makeFirstResponder(descendant),
+            "Expected portal-hosted pointer click context to bypass blocked policy"
+        )
     }
 
     @MainActor
@@ -1217,6 +1279,21 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
         XCTAssertTrue(prevShortcut.eventModifiers.contains(.control))
     }
 
+    func testToggleTerminalCopyModeShortcutDefaultsAndMetadata() {
+        XCTAssertEqual(KeyboardShortcutSettings.Action.toggleTerminalCopyMode.label, "Toggle Terminal Copy Mode")
+        XCTAssertEqual(
+            KeyboardShortcutSettings.Action.toggleTerminalCopyMode.defaultsKey,
+            "shortcut.toggleTerminalCopyMode"
+        )
+
+        let shortcut = KeyboardShortcutSettings.Action.toggleTerminalCopyMode.defaultShortcut
+        XCTAssertEqual(shortcut.key, "m")
+        XCTAssertTrue(shortcut.command)
+        XCTAssertTrue(shortcut.shift)
+        XCTAssertFalse(shortcut.option)
+        XCTAssertFalse(shortcut.control)
+    }
+
     func testMenuItemKeyEquivalentHandlesArrowAndTabKeys() {
         XCTAssertNotNil(StoredShortcut(key: "←", command: true, shift: false, option: false, control: false).menuItemKeyEquivalent)
         XCTAssertNotNil(StoredShortcut(key: "→", command: true, shift: false, option: false, control: false).menuItemKeyEquivalent)
@@ -1231,6 +1308,537 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
     func testShortcutDefaultsKeysRemainUnique() {
         let keys = KeyboardShortcutSettings.Action.allCases.map(\.defaultsKey)
         XCTAssertEqual(Set(keys).count, keys.count)
+    }
+}
+
+final class TerminalKeyboardCopyModeActionTests: XCTestCase {
+    func testCopyModeBypassAllowsOnlyCommandShortcuts() {
+        XCTAssertTrue(terminalKeyboardCopyModeShouldBypassForShortcut(modifierFlags: [.command]))
+        XCTAssertTrue(terminalKeyboardCopyModeShouldBypassForShortcut(modifierFlags: [.command, .shift]))
+        XCTAssertTrue(terminalKeyboardCopyModeShouldBypassForShortcut(modifierFlags: [.command, .option]))
+        XCTAssertFalse(terminalKeyboardCopyModeShouldBypassForShortcut(modifierFlags: [.option]))
+        XCTAssertFalse(terminalKeyboardCopyModeShouldBypassForShortcut(modifierFlags: [.option, .shift]))
+        XCTAssertFalse(terminalKeyboardCopyModeShouldBypassForShortcut(modifierFlags: [.control]))
+    }
+
+    func testJKWithoutSelectionScrollByLine() {
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 38,
+                charactersIgnoringModifiers: "j",
+                modifierFlags: [],
+                hasSelection: false
+            ),
+            .scrollLines(1)
+        )
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 40,
+                charactersIgnoringModifiers: "k",
+                modifierFlags: [],
+                hasSelection: false
+            ),
+            .scrollLines(-1)
+        )
+    }
+
+    func testCapsLockDoesNotBlockLetterMappings() {
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 38,
+                charactersIgnoringModifiers: "j",
+                modifierFlags: [.capsLock],
+                hasSelection: false
+            ),
+            .scrollLines(1)
+        )
+    }
+
+    func testJKWithSelectionAdjustSelection() {
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 38,
+                charactersIgnoringModifiers: "j",
+                modifierFlags: [],
+                hasSelection: true
+            ),
+            .adjustSelection(.down)
+        )
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 40,
+                charactersIgnoringModifiers: "k",
+                modifierFlags: [],
+                hasSelection: true
+            ),
+            .adjustSelection(.up)
+        )
+    }
+
+    func testControlPagingSupportsPrintableAndControlCharacters() {
+        // Ctrl+U = half-page up (vim standard).
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 0,
+                charactersIgnoringModifiers: "\u{15}",
+                modifierFlags: [.control],
+                hasSelection: false
+            ),
+            .scrollHalfPage(-1)
+        )
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 0,
+                charactersIgnoringModifiers: "\u{04}",
+                modifierFlags: [.control],
+                hasSelection: true
+            ),
+            .adjustSelection(.pageDown)
+        )
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 0,
+                charactersIgnoringModifiers: "\u{02}",
+                modifierFlags: [.control],
+                hasSelection: false
+            ),
+            .scrollPage(-1)
+        )
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 0,
+                charactersIgnoringModifiers: "\u{06}",
+                modifierFlags: [.control],
+                hasSelection: true
+            ),
+            .adjustSelection(.pageDown)
+        )
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 0,
+                charactersIgnoringModifiers: "\u{19}",
+                modifierFlags: [.control],
+                hasSelection: false
+            ),
+            .scrollLines(-1)
+        )
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 0,
+                charactersIgnoringModifiers: "\u{05}",
+                modifierFlags: [.control],
+                hasSelection: true
+            ),
+            .adjustSelection(.down)
+        )
+    }
+
+    func testVGYMapping() {
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 9,
+                charactersIgnoringModifiers: "v",
+                modifierFlags: [],
+                hasSelection: false
+            ),
+            .startSelection
+        )
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 9,
+                charactersIgnoringModifiers: "v",
+                modifierFlags: [],
+                hasSelection: true
+            ),
+            .clearSelection
+        )
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 16,
+                charactersIgnoringModifiers: "y",
+                modifierFlags: [],
+                hasSelection: true
+            ),
+            .copyAndExit
+        )
+    }
+
+    func testGAndShiftGMapping() {
+        // Bare "g" is a prefix key (gg), not an immediate action.
+        XCTAssertNil(
+            terminalKeyboardCopyModeAction(
+                keyCode: 5,
+                charactersIgnoringModifiers: "g",
+                modifierFlags: [],
+                hasSelection: false
+            )
+        )
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 5,
+                charactersIgnoringModifiers: "g",
+                modifierFlags: [.shift],
+                hasSelection: false
+            ),
+            .scrollToBottom
+        )
+    }
+
+    func testLineBoundaryPromptAndSearchMappings() {
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 29,
+                charactersIgnoringModifiers: "0",
+                modifierFlags: [],
+                hasSelection: true
+            ),
+            .adjustSelection(.beginningOfLine)
+        )
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 20,
+                charactersIgnoringModifiers: "^",
+                modifierFlags: [.shift],
+                hasSelection: true
+            ),
+            .adjustSelection(.beginningOfLine)
+        )
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 21,
+                charactersIgnoringModifiers: "4",
+                modifierFlags: [.shift],
+                hasSelection: true
+            ),
+            .adjustSelection(.endOfLine)
+        )
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 33,
+                charactersIgnoringModifiers: "[",
+                modifierFlags: [.shift],
+                hasSelection: false
+            ),
+            .jumpToPrompt(-1)
+        )
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 30,
+                charactersIgnoringModifiers: "]",
+                modifierFlags: [.shift],
+                hasSelection: false
+            ),
+            .jumpToPrompt(1)
+        )
+        XCTAssertNil(
+            terminalKeyboardCopyModeAction(
+                keyCode: 21,
+                charactersIgnoringModifiers: "4",
+                modifierFlags: [],
+                hasSelection: true
+            )
+        )
+        XCTAssertNil(
+            terminalKeyboardCopyModeAction(
+                keyCode: 33,
+                charactersIgnoringModifiers: "[",
+                modifierFlags: [],
+                hasSelection: false
+            )
+        )
+        XCTAssertNil(
+            terminalKeyboardCopyModeAction(
+                keyCode: 30,
+                charactersIgnoringModifiers: "]",
+                modifierFlags: [],
+                hasSelection: false
+            )
+        )
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 44,
+                charactersIgnoringModifiers: "/",
+                modifierFlags: [],
+                hasSelection: false
+            ),
+            .startSearch
+        )
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 45,
+                charactersIgnoringModifiers: "n",
+                modifierFlags: [],
+                hasSelection: false
+            ),
+            .searchNext
+        )
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 45,
+                charactersIgnoringModifiers: "n",
+                modifierFlags: [.shift],
+                hasSelection: false
+            ),
+            .searchPrevious
+        )
+    }
+
+    func testShiftVMatchesVisualToggleBehavior() {
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 9,
+                charactersIgnoringModifiers: "v",
+                modifierFlags: [.shift],
+                hasSelection: false
+            ),
+            .startSelection
+        )
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 9,
+                charactersIgnoringModifiers: "v",
+                modifierFlags: [.shift],
+                hasSelection: true
+            ),
+            .clearSelection
+        )
+    }
+
+    func testEscapeAlwaysExits() {
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 53,
+                charactersIgnoringModifiers: "",
+                modifierFlags: [],
+                hasSelection: false
+            ),
+            .exit
+        )
+    }
+
+    func testQAlwaysExits() {
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 12, // kVK_ANSI_Q
+                charactersIgnoringModifiers: "q",
+                modifierFlags: [],
+                hasSelection: false
+            ),
+            .exit
+        )
+    }
+}
+
+final class TerminalKeyboardCopyModeResolveTests: XCTestCase {
+    private func resolve(
+        _ keyCode: UInt16,
+        chars: String,
+        modifiers: NSEvent.ModifierFlags = [],
+        hasSelection: Bool,
+        state: inout TerminalKeyboardCopyModeInputState
+    ) -> TerminalKeyboardCopyModeResolution {
+        terminalKeyboardCopyModeResolve(
+            keyCode: keyCode,
+            charactersIgnoringModifiers: chars,
+            modifierFlags: modifiers,
+            hasSelection: hasSelection,
+            state: &state
+        )
+    }
+
+    func testCountPrefixAppliesToMotion() {
+        var state = TerminalKeyboardCopyModeInputState()
+        XCTAssertEqual(resolve(20, chars: "3", hasSelection: false, state: &state), .consume)
+        XCTAssertEqual(resolve(38, chars: "j", hasSelection: false, state: &state), .perform(.scrollLines(1), count: 3))
+        XCTAssertEqual(state, TerminalKeyboardCopyModeInputState())
+    }
+
+    func testZeroAppendsCountOrActsAsMotion() {
+        var state = TerminalKeyboardCopyModeInputState()
+        XCTAssertEqual(resolve(19, chars: "2", hasSelection: false, state: &state), .consume)
+        XCTAssertEqual(resolve(29, chars: "0", hasSelection: false, state: &state), .consume)
+        XCTAssertEqual(resolve(40, chars: "k", hasSelection: false, state: &state), .perform(.scrollLines(-1), count: 20))
+
+        var selectionState = TerminalKeyboardCopyModeInputState()
+        XCTAssertEqual(
+            resolve(29, chars: "0", hasSelection: true, state: &selectionState),
+            .perform(.adjustSelection(.beginningOfLine), count: 1)
+        )
+    }
+
+    func testYankLineOperatorSupportsYYAndYWithCounts() {
+        var yyState = TerminalKeyboardCopyModeInputState()
+        XCTAssertEqual(resolve(16, chars: "y", hasSelection: false, state: &yyState), .consume)
+        XCTAssertEqual(resolve(16, chars: "y", hasSelection: false, state: &yyState), .perform(.copyLineAndExit, count: 1))
+
+        var countedState = TerminalKeyboardCopyModeInputState()
+        XCTAssertEqual(resolve(21, chars: "4", hasSelection: false, state: &countedState), .consume)
+        XCTAssertEqual(resolve(16, chars: "y", hasSelection: false, state: &countedState), .consume)
+        XCTAssertEqual(resolve(16, chars: "y", hasSelection: false, state: &countedState), .perform(.copyLineAndExit, count: 4))
+
+        var shiftYState = TerminalKeyboardCopyModeInputState()
+        XCTAssertEqual(resolve(20, chars: "3", hasSelection: false, state: &shiftYState), .consume)
+        XCTAssertEqual(
+            resolve(16, chars: "y", modifiers: [.shift], hasSelection: false, state: &shiftYState),
+            .perform(.copyLineAndExit, count: 3)
+        )
+    }
+
+    func testPendingYankLineDoesNotSwallowNextCommand() {
+        var state = TerminalKeyboardCopyModeInputState()
+        XCTAssertEqual(resolve(16, chars: "y", hasSelection: false, state: &state), .consume)
+        XCTAssertEqual(resolve(38, chars: "j", hasSelection: false, state: &state), .perform(.scrollLines(1), count: 1))
+        XCTAssertEqual(state, TerminalKeyboardCopyModeInputState())
+    }
+
+    func testSearchAndPromptMotionsUseCounts() {
+        var promptState = TerminalKeyboardCopyModeInputState()
+        XCTAssertEqual(resolve(20, chars: "3", hasSelection: false, state: &promptState), .consume)
+        XCTAssertEqual(
+            resolve(30, chars: "]", modifiers: [.shift], hasSelection: false, state: &promptState),
+            .perform(.jumpToPrompt(1), count: 3)
+        )
+
+        var searchState = TerminalKeyboardCopyModeInputState()
+        XCTAssertEqual(resolve(18, chars: "2", hasSelection: false, state: &searchState), .consume)
+        XCTAssertEqual(resolve(45, chars: "n", hasSelection: false, state: &searchState), .perform(.searchNext, count: 2))
+    }
+
+    func testInvalidKeyClearsPendingState() {
+        var state = TerminalKeyboardCopyModeInputState()
+        XCTAssertEqual(resolve(18, chars: "2", hasSelection: false, state: &state), .consume)
+        XCTAssertEqual(resolve(7, chars: "x", hasSelection: false, state: &state), .consume)
+        XCTAssertEqual(state, TerminalKeyboardCopyModeInputState())
+    }
+
+    // MARK: - gg (scroll to top via two-key sequence)
+
+    func testGGScrollsToTop() {
+        var state = TerminalKeyboardCopyModeInputState()
+        XCTAssertEqual(resolve(5, chars: "g", hasSelection: false, state: &state), .consume)
+        XCTAssertEqual(resolve(5, chars: "g", hasSelection: false, state: &state), .perform(.scrollToTop, count: 1))
+        XCTAssertEqual(state, TerminalKeyboardCopyModeInputState())
+    }
+
+    func testGGWithSelectionAdjustsToHome() {
+        var state = TerminalKeyboardCopyModeInputState()
+        XCTAssertEqual(resolve(5, chars: "g", hasSelection: true, state: &state), .consume)
+        XCTAssertEqual(resolve(5, chars: "g", hasSelection: true, state: &state), .perform(.adjustSelection(.home), count: 1))
+        XCTAssertEqual(state, TerminalKeyboardCopyModeInputState())
+    }
+
+    func testCountedGG() {
+        var state = TerminalKeyboardCopyModeInputState()
+        XCTAssertEqual(resolve(22, chars: "5", hasSelection: false, state: &state), .consume)
+        XCTAssertEqual(resolve(5, chars: "g", hasSelection: false, state: &state), .consume)
+        XCTAssertEqual(resolve(5, chars: "g", hasSelection: false, state: &state), .perform(.scrollToTop, count: 5))
+    }
+
+    func testPendingGCancelledByOtherKey() {
+        var state = TerminalKeyboardCopyModeInputState()
+        XCTAssertEqual(resolve(5, chars: "g", hasSelection: false, state: &state), .consume)
+        XCTAssertEqual(resolve(38, chars: "j", hasSelection: false, state: &state), .perform(.scrollLines(1), count: 1))
+        XCTAssertEqual(state, TerminalKeyboardCopyModeInputState())
+    }
+
+    func testShiftGStillWorksImmediately() {
+        var state = TerminalKeyboardCopyModeInputState()
+        XCTAssertEqual(
+            resolve(5, chars: "g", modifiers: [.shift], hasSelection: false, state: &state),
+            .perform(.scrollToBottom, count: 1)
+        )
+        XCTAssertEqual(state, TerminalKeyboardCopyModeInputState())
+    }
+
+    // MARK: - Ctrl+U/D half-page scroll
+
+    func testCtrlUHalfPage() {
+        var state = TerminalKeyboardCopyModeInputState()
+        XCTAssertEqual(
+            resolve(32, chars: "u", modifiers: [.control], hasSelection: false, state: &state),
+            .perform(.scrollHalfPage(-1), count: 1)
+        )
+    }
+
+    func testCtrlDHalfPage() {
+        var state = TerminalKeyboardCopyModeInputState()
+        XCTAssertEqual(
+            resolve(2, chars: "d", modifiers: [.control], hasSelection: false, state: &state),
+            .perform(.scrollHalfPage(1), count: 1)
+        )
+    }
+
+    func testCtrlBFullPage() {
+        var state = TerminalKeyboardCopyModeInputState()
+        XCTAssertEqual(
+            resolve(11, chars: "b", modifiers: [.control], hasSelection: false, state: &state),
+            .perform(.scrollPage(-1), count: 1)
+        )
+    }
+
+    func testCtrlFFullPage() {
+        var state = TerminalKeyboardCopyModeInputState()
+        XCTAssertEqual(
+            resolve(3, chars: "f", modifiers: [.control], hasSelection: false, state: &state),
+            .perform(.scrollPage(1), count: 1)
+        )
+    }
+}
+
+final class TerminalKeyboardCopyModeViewportRowTests: XCTestCase {
+    func testInitialViewportRowUsesImePointBaseline() {
+        XCTAssertEqual(
+            terminalKeyboardCopyModeInitialViewportRow(
+                rows: 24,
+                imePointY: 24,
+                imeCellHeight: 24
+            ),
+            0
+        )
+        XCTAssertEqual(
+            terminalKeyboardCopyModeInitialViewportRow(
+                rows: 24,
+                imePointY: 240,
+                imeCellHeight: 24
+            ),
+            9
+        )
+        XCTAssertEqual(
+            terminalKeyboardCopyModeInitialViewportRow(
+                rows: 24,
+                imePointY: 48,
+                imeCellHeight: 24,
+                topPadding: 24
+            ),
+            0
+        )
+    }
+
+    func testInitialViewportRowClampsBoundsAndFallsBackWhenHeightMissing() {
+        XCTAssertEqual(
+            terminalKeyboardCopyModeInitialViewportRow(
+                rows: 24,
+                imePointY: 0,
+                imeCellHeight: 24
+            ),
+            0
+        )
+        XCTAssertEqual(
+            terminalKeyboardCopyModeInitialViewportRow(
+                rows: 24,
+                imePointY: 9999,
+                imeCellHeight: 24
+            ),
+            23
+        )
+        XCTAssertEqual(
+            terminalKeyboardCopyModeInitialViewportRow(
+                rows: 24,
+                imePointY: 123,
+                imeCellHeight: 0
+            ),
+            23
+        )
     }
 }
 
@@ -1663,6 +2271,31 @@ final class BrowserSessionHistoryRestoreTests: XCTestCase {
         XCTAssertTrue(panel.canGoBack)
         XCTAssertTrue(panel.canGoForward)
     }
+
+    func testWebViewReplacementAfterProcessTerminationUpdatesInstanceIdentity() {
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: URL(string: "https://example.com")
+        )
+        let oldWebView = panel.webView
+        let oldInstanceID = panel.webViewInstanceID
+
+        panel.debugSimulateWebContentProcessTermination()
+
+        XCTAssertFalse(panel.webView === oldWebView)
+        XCTAssertNotEqual(panel.webViewInstanceID, oldInstanceID)
+        XCTAssertNotNil(panel.webView.navigationDelegate)
+        XCTAssertNotNil(panel.webView.uiDelegate)
+    }
+
+    func testWebViewReplacementPreservesEmptyNewTabRenderState() {
+        let panel = BrowserPanel(workspaceId: UUID())
+        XCTAssertFalse(panel.shouldRenderWebView)
+
+        panel.debugSimulateWebContentProcessTermination()
+
+        XCTAssertFalse(panel.shouldRenderWebView)
+    }
 }
 
 @MainActor
@@ -1790,10 +2423,27 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         XCTAssertFalse(panel.shouldPreserveWebViewAttachmentDuringTransientHide())
     }
 
-    func testWebViewDismantleSkipsDetachWhenDeveloperToolsIntentIsVisible() {
+    func testWebViewDismantleDetachesPortalHostedWebViewWhenDeveloperToolsIntentIsVisible() {
         let (panel, _) = makePanelWithInspector()
         XCTAssertTrue(panel.showDeveloperTools())
 
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let anchor = NSView(frame: NSRect(x: 30, y: 30, width: 180, height: 140))
+        window.contentView?.addSubview(anchor)
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        window.contentView?.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        BrowserWindowPortalRegistry.bind(webView: panel.webView, to: anchor, visibleInUI: true, zPriority: 1)
+        BrowserWindowPortalRegistry.synchronizeForAnchor(anchor)
+        XCTAssertNotNil(panel.webView.superview)
+
         let representable = WebViewRepresentable(
             panel: panel,
             shouldAttachWebView: true,
@@ -1803,18 +2453,33 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         )
         let coordinator = representable.makeCoordinator()
         coordinator.webView = panel.webView
-        let host = NSView(frame: NSRect(x: 0, y: 0, width: 100, height: 100))
-        host.addSubview(panel.webView)
+        WebViewRepresentable.dismantleNSView(anchor, coordinator: coordinator)
 
-        WebViewRepresentable.dismantleNSView(host, coordinator: coordinator)
-
-        XCTAssertTrue(panel.webView.superview === host)
+        XCTAssertNil(panel.webView.superview)
+        window.orderOut(nil)
     }
 
-    func testWebViewDismantleDetachesWhenDeveloperToolsIntentIsHidden() {
+    func testWebViewDismantleDetachesPortalHostedWebViewWhenDeveloperToolsIntentIsHidden() {
         let (panel, _) = makePanelWithInspector()
         XCTAssertFalse(panel.shouldPreserveWebViewAttachmentDuringTransientHide())
 
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let anchor = NSView(frame: NSRect(x: 20, y: 20, width: 200, height: 150))
+        window.contentView?.addSubview(anchor)
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        window.contentView?.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        BrowserWindowPortalRegistry.bind(webView: panel.webView, to: anchor, visibleInUI: true, zPriority: 1)
+        BrowserWindowPortalRegistry.synchronizeForAnchor(anchor)
+        XCTAssertNotNil(panel.webView.superview)
+
         let representable = WebViewRepresentable(
             panel: panel,
             shouldAttachWebView: true,
@@ -1824,12 +2489,10 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         )
         let coordinator = representable.makeCoordinator()
         coordinator.webView = panel.webView
-        let host = NSView(frame: NSRect(x: 0, y: 0, width: 100, height: 100))
-        host.addSubview(panel.webView)
-
-        WebViewRepresentable.dismantleNSView(host, coordinator: coordinator)
+        WebViewRepresentable.dismantleNSView(anchor, coordinator: coordinator)
 
         XCTAssertNil(panel.webView.superview)
+        window.orderOut(nil)
     }
 }
 
@@ -1988,7 +2651,8 @@ final class BrowserReturnKeyDownRoutingTests: XCTestCase {
         XCTAssertTrue(
             shouldDispatchBrowserReturnViaFirstResponderKeyDown(
                 keyCode: 36,
-                firstResponderIsBrowser: true
+                firstResponderIsBrowser: true,
+                flags: []
             )
         )
     }
@@ -1997,7 +2661,8 @@ final class BrowserReturnKeyDownRoutingTests: XCTestCase {
         XCTAssertTrue(
             shouldDispatchBrowserReturnViaFirstResponderKeyDown(
                 keyCode: 76,
-                firstResponderIsBrowser: true
+                firstResponderIsBrowser: true,
+                flags: []
             )
         )
     }
@@ -2006,7 +2671,8 @@ final class BrowserReturnKeyDownRoutingTests: XCTestCase {
         XCTAssertFalse(
             shouldDispatchBrowserReturnViaFirstResponderKeyDown(
                 keyCode: 13,
-                firstResponderIsBrowser: true
+                firstResponderIsBrowser: true,
+                flags: []
             )
         )
     }
@@ -2015,7 +2681,58 @@ final class BrowserReturnKeyDownRoutingTests: XCTestCase {
         XCTAssertFalse(
             shouldDispatchBrowserReturnViaFirstResponderKeyDown(
                 keyCode: 36,
-                firstResponderIsBrowser: false
+                firstResponderIsBrowser: false,
+                flags: []
+            )
+        )
+    }
+
+    func testRoutesForShiftReturnWhenBrowserFirstResponder() {
+        XCTAssertTrue(
+            shouldDispatchBrowserReturnViaFirstResponderKeyDown(
+                keyCode: 36,
+                firstResponderIsBrowser: true,
+                flags: [.shift]
+            )
+        )
+    }
+
+    func testDoesNotRouteForCommandShiftReturnWhenBrowserFirstResponder() {
+        XCTAssertFalse(
+            shouldDispatchBrowserReturnViaFirstResponderKeyDown(
+                keyCode: 36,
+                firstResponderIsBrowser: true,
+                flags: [.command, .shift]
+            )
+        )
+    }
+
+    func testDoesNotRouteForCommandReturnWhenBrowserFirstResponder() {
+        XCTAssertFalse(
+            shouldDispatchBrowserReturnViaFirstResponderKeyDown(
+                keyCode: 36,
+                firstResponderIsBrowser: true,
+                flags: [.command]
+            )
+        )
+    }
+
+    func testDoesNotRouteForOptionReturnWhenBrowserFirstResponder() {
+        XCTAssertFalse(
+            shouldDispatchBrowserReturnViaFirstResponderKeyDown(
+                keyCode: 36,
+                firstResponderIsBrowser: true,
+                flags: [.option]
+            )
+        )
+    }
+
+    func testDoesNotRouteForControlReturnWhenBrowserFirstResponder() {
+        XCTAssertFalse(
+            shouldDispatchBrowserReturnViaFirstResponderKeyDown(
+                keyCode: 36,
+                firstResponderIsBrowser: true,
+                flags: [.control]
             )
         )
     }
@@ -2223,6 +2940,71 @@ final class BrowserZoomShortcutRoutingPolicyTests: XCTestCase {
                 chars: ";",
                 keyCode: 41,
                 literalChars: "+"
+            )
+        )
+    }
+}
+
+final class TerminalCommandShortcutRoutingPolicyTests: XCTestCase {
+    func testRoutesCommandCToTerminalWhenNoSelection() {
+        XCTAssertTrue(
+            shouldRouteTerminalCommandShortcutToGhostty(
+                flags: [.command],
+                chars: "c",
+                keyCode: 8, // kVK_ANSI_C
+                terminalHasSelection: false
+            )
+        )
+    }
+
+    func testKeepsCommandCCopyMenuRoutedWhenSelectionExists() {
+        XCTAssertFalse(
+            shouldRouteTerminalCommandShortcutToGhostty(
+                flags: [.command],
+                chars: "c",
+                keyCode: 8, // kVK_ANSI_C
+                terminalHasSelection: true
+            )
+        )
+    }
+
+    func testKeepsCommandCommaMenuRoutedForPreferences() {
+        XCTAssertFalse(
+            shouldRouteTerminalCommandShortcutToGhostty(
+                flags: [.command],
+                chars: ",",
+                keyCode: 43, // kVK_ANSI_Comma
+                terminalHasSelection: false
+            )
+        )
+    }
+
+    func testRequiresCommandModifier() {
+        XCTAssertFalse(
+            shouldRouteTerminalCommandShortcutToGhostty(
+                flags: [.control],
+                chars: "c",
+                keyCode: 8,
+                terminalHasSelection: false
+            )
+        )
+    }
+
+    func testRoutesOtherCommandShortcutsToTerminal() {
+        XCTAssertTrue(
+            shouldRouteTerminalCommandShortcutToGhostty(
+                flags: [.command, .option],
+                chars: "c",
+                keyCode: 8,
+                terminalHasSelection: false
+            )
+        )
+        XCTAssertTrue(
+            shouldRouteTerminalCommandShortcutToGhostty(
+                flags: [.command],
+                chars: "v",
+                keyCode: 9, // kVK_ANSI_V
+                terminalHasSelection: false
             )
         )
     }
@@ -2452,6 +3234,17 @@ final class CommandPaletteOpenShortcutConsumptionTests: XCTestCase {
                 normalizedFlags: [.command],
                 chars: "",
                 keyCode: 51
+            )
+        )
+    }
+
+    func testConsumesEscapeWhenPaletteIsVisible() {
+        XCTAssertTrue(
+            shouldConsumeShortcutWhileCommandPaletteVisible(
+                isCommandPaletteVisible: true,
+                normalizedFlags: [],
+                chars: "",
+                keyCode: 53
             )
         )
     }
@@ -5856,6 +6649,337 @@ final class NotificationDockBadgeTests: XCTestCase {
         XCTAssertTrue(NotificationBadgeSettings.isDockBadgeEnabled(defaults: defaults))
     }
 
+    func testNotificationSoundUsesSystemSoundForDefaultAndNamedSounds() {
+        let suiteName = "NotificationDockBadgeTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        XCTAssertTrue(NotificationSoundSettings.usesSystemSound(defaults: defaults))
+
+        defaults.set("Ping", forKey: NotificationSoundSettings.key)
+        XCTAssertTrue(NotificationSoundSettings.usesSystemSound(defaults: defaults))
+        XCTAssertNotNil(NotificationSoundSettings.sound(defaults: defaults))
+    }
+
+    func testNotificationSoundDisablesSystemSoundForNoneAndCustomFile() {
+        let suiteName = "NotificationDockBadgeTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        defaults.set("none", forKey: NotificationSoundSettings.key)
+        XCTAssertFalse(NotificationSoundSettings.usesSystemSound(defaults: defaults))
+        XCTAssertNil(NotificationSoundSettings.sound(defaults: defaults))
+
+        defaults.set(NotificationSoundSettings.customFileValue, forKey: NotificationSoundSettings.key)
+        XCTAssertFalse(NotificationSoundSettings.usesSystemSound(defaults: defaults))
+        XCTAssertNil(NotificationSoundSettings.sound(defaults: defaults))
+    }
+
+    func testNotificationCustomFileURLExpandsTildePath() {
+        let suiteName = "NotificationDockBadgeTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let rawPath = "~/Library/Sounds/my-custom.wav"
+        defaults.set(rawPath, forKey: NotificationSoundSettings.customFilePathKey)
+        let expectedPath = (rawPath as NSString).expandingTildeInPath
+        XCTAssertEqual(NotificationSoundSettings.customFileURL(defaults: defaults)?.path, expectedPath)
+    }
+
+    func testNotificationCustomFileSelectionMustBeExplicit() {
+        let suiteName = "NotificationDockBadgeTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        defaults.set("~/Library/Sounds/my-custom.wav", forKey: NotificationSoundSettings.customFilePathKey)
+
+        defaults.set("none", forKey: NotificationSoundSettings.key)
+        XCTAssertFalse(NotificationSoundSettings.isCustomFileSelected(defaults: defaults))
+
+        defaults.set("Ping", forKey: NotificationSoundSettings.key)
+        XCTAssertFalse(NotificationSoundSettings.isCustomFileSelected(defaults: defaults))
+
+        defaults.set(NotificationSoundSettings.customFileValue, forKey: NotificationSoundSettings.key)
+        XCTAssertTrue(NotificationSoundSettings.isCustomFileSelected(defaults: defaults))
+    }
+
+    func testNotificationCustomStagingPreservesSourceFileWithCmuxPrefix() {
+        let suiteName = "NotificationDockBadgeTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let fileManager = FileManager.default
+        let soundsDirectory = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+            .appendingPathComponent("Library", isDirectory: true)
+            .appendingPathComponent("Sounds", isDirectory: true)
+        do {
+            try fileManager.createDirectory(at: soundsDirectory, withIntermediateDirectories: true)
+        } catch {
+            XCTFail("Failed to create sounds directory: \(error)")
+            return
+        }
+
+        let sourceURL = soundsDirectory.appendingPathComponent(
+            "cmux-custom-notification-sound.source-\(UUID().uuidString).wav",
+            isDirectory: false
+        )
+        defer {
+            try? fileManager.removeItem(at: sourceURL)
+        }
+
+        do {
+            try Data("test".utf8).write(to: sourceURL, options: .atomic)
+        } catch {
+            XCTFail("Failed to write source custom sound file: \(error)")
+            return
+        }
+
+        defaults.set(NotificationSoundSettings.customFileValue, forKey: NotificationSoundSettings.key)
+        defaults.set(sourceURL.path, forKey: NotificationSoundSettings.customFilePathKey)
+
+        _ = NotificationSoundSettings.sound(defaults: defaults)
+
+        guard let stagedName = NotificationSoundSettings.stagedCustomSoundName(defaults: defaults) else {
+            XCTFail("Expected staged custom sound name")
+            return
+        }
+        let stagedURL = soundsDirectory.appendingPathComponent(stagedName, isDirectory: false)
+        defer {
+            try? fileManager.removeItem(at: stagedURL)
+        }
+
+        XCTAssertTrue(fileManager.fileExists(atPath: sourceURL.path))
+        XCTAssertTrue(fileManager.fileExists(atPath: stagedURL.path))
+        XCTAssertTrue(stagedName.hasPrefix("cmux-custom-notification-sound-"))
+        XCTAssertTrue(stagedName.hasSuffix(".wav"))
+    }
+
+    func testNotificationCustomUnsupportedExtensionsStageAsCaf() {
+        XCTAssertEqual(
+            NotificationSoundSettings.stagedCustomSoundFileExtension(forSourceExtension: "mp3"),
+            "caf"
+        )
+        XCTAssertEqual(
+            NotificationSoundSettings.stagedCustomSoundFileExtension(forSourceExtension: "M4A"),
+            "caf"
+        )
+        XCTAssertEqual(
+            NotificationSoundSettings.stagedCustomSoundFileExtension(forSourceExtension: "wav"),
+            "wav"
+        )
+        XCTAssertEqual(
+            NotificationSoundSettings.stagedCustomSoundFileExtension(forSourceExtension: "AIFF"),
+            "aiff"
+        )
+
+        let sourceA = URL(fileURLWithPath: "/tmp/custom-a.mp3")
+        let sourceB = URL(fileURLWithPath: "/tmp/custom-b.mp3")
+        let stagedA = NotificationSoundSettings.stagedCustomSoundFileName(
+            forSourceURL: sourceA,
+            destinationExtension: "caf"
+        )
+        let stagedB = NotificationSoundSettings.stagedCustomSoundFileName(
+            forSourceURL: sourceB,
+            destinationExtension: "caf"
+        )
+        XCTAssertNotEqual(stagedA, stagedB)
+        XCTAssertTrue(stagedA.hasPrefix("cmux-custom-notification-sound-"))
+        XCTAssertTrue(stagedA.hasSuffix(".caf"))
+    }
+
+    func testNotificationCustomPreparationKeepsActiveSourceMetadataSidecar() {
+        let suiteName = "NotificationDockBadgeTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let fileManager = FileManager.default
+        let soundsDirectory = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+            .appendingPathComponent("Library", isDirectory: true)
+            .appendingPathComponent("Sounds", isDirectory: true)
+        do {
+            try fileManager.createDirectory(at: soundsDirectory, withIntermediateDirectories: true)
+        } catch {
+            XCTFail("Failed to create sounds directory: \(error)")
+            return
+        }
+
+        let sourceURL = soundsDirectory.appendingPathComponent(
+            "cmux-custom-notification-sound.metadata-\(UUID().uuidString).wav",
+            isDirectory: false
+        )
+        do {
+            try Data("test".utf8).write(to: sourceURL, options: .atomic)
+        } catch {
+            XCTFail("Failed to write source custom sound file: \(error)")
+            return
+        }
+        defer {
+            try? fileManager.removeItem(at: sourceURL)
+        }
+
+        defaults.set(NotificationSoundSettings.customFileValue, forKey: NotificationSoundSettings.key)
+        defaults.set(sourceURL.path, forKey: NotificationSoundSettings.customFilePathKey)
+
+        let prepareResult = NotificationSoundSettings.prepareCustomFileForNotifications(path: sourceURL.path)
+        let stagedName: String
+        switch prepareResult {
+        case .success(let name):
+            stagedName = name
+        case .failure(let issue):
+            XCTFail("Expected custom sound preparation success, got \(issue)")
+            return
+        }
+
+        let stagedURL = soundsDirectory.appendingPathComponent(stagedName, isDirectory: false)
+        let metadataURL = stagedURL.appendingPathExtension("source-metadata")
+        defer {
+            try? fileManager.removeItem(at: stagedURL)
+            try? fileManager.removeItem(at: metadataURL)
+        }
+
+        XCTAssertTrue(fileManager.fileExists(atPath: stagedURL.path))
+        XCTAssertTrue(fileManager.fileExists(atPath: metadataURL.path))
+    }
+
+    func testNotificationCustomSoundReturnsNilWhenPreparationFails() {
+        let suiteName = "NotificationDockBadgeTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let invalidSourceURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-invalid-sound-\(UUID().uuidString).mp3", isDirectory: false)
+        defer {
+            try? FileManager.default.removeItem(at: invalidSourceURL)
+            let stagedURL = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+                .appendingPathComponent("Library", isDirectory: true)
+                .appendingPathComponent("Sounds", isDirectory: true)
+                .appendingPathComponent("cmux-custom-notification-sound.caf", isDirectory: false)
+            try? FileManager.default.removeItem(at: stagedURL)
+        }
+
+        do {
+            try Data("not-audio".utf8).write(to: invalidSourceURL, options: .atomic)
+        } catch {
+            XCTFail("Failed to write invalid custom sound source: \(error)")
+            return
+        }
+
+        defaults.set(NotificationSoundSettings.customFileValue, forKey: NotificationSoundSettings.key)
+        defaults.set(invalidSourceURL.path, forKey: NotificationSoundSettings.customFilePathKey)
+
+        XCTAssertNil(NotificationSoundSettings.sound(defaults: defaults))
+    }
+
+    func testNotificationCustomPreparationReportsMissingFile() {
+        let missingPath = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-missing-\(UUID().uuidString).wav", isDirectory: false)
+            .path
+
+        let result = NotificationSoundSettings.prepareCustomFileForNotifications(path: missingPath)
+        switch result {
+        case .success:
+            XCTFail("Expected missing file failure")
+        case .failure(let issue):
+            guard case .missingFile = issue else {
+                XCTFail("Expected missingFile issue, got \(issue)")
+                return
+            }
+        }
+    }
+
+    func testNotificationAuthorizationStateMappingCoversKnownUNAuthorizationStatuses() {
+        XCTAssertEqual(TerminalNotificationStore.authorizationState(from: .notDetermined), .notDetermined)
+        XCTAssertEqual(TerminalNotificationStore.authorizationState(from: .denied), .denied)
+        XCTAssertEqual(TerminalNotificationStore.authorizationState(from: .authorized), .authorized)
+        XCTAssertEqual(TerminalNotificationStore.authorizationState(from: .provisional), .provisional)
+    }
+
+    func testNotificationAuthorizationStateDeliveryCapability() {
+        XCTAssertFalse(NotificationAuthorizationState.unknown.allowsDelivery)
+        XCTAssertFalse(NotificationAuthorizationState.notDetermined.allowsDelivery)
+        XCTAssertFalse(NotificationAuthorizationState.denied.allowsDelivery)
+        XCTAssertTrue(NotificationAuthorizationState.authorized.allowsDelivery)
+        XCTAssertTrue(NotificationAuthorizationState.provisional.allowsDelivery)
+        XCTAssertTrue(NotificationAuthorizationState.ephemeral.allowsDelivery)
+    }
+
+    func testNotificationAuthorizationDefersFirstPromptWhileAppIsInactive() {
+        XCTAssertTrue(
+            TerminalNotificationStore.shouldDeferAutomaticAuthorizationRequest(
+                status: .notDetermined,
+                isAppActive: false
+            )
+        )
+        XCTAssertFalse(
+            TerminalNotificationStore.shouldDeferAutomaticAuthorizationRequest(
+                status: .notDetermined,
+                isAppActive: true
+            )
+        )
+        XCTAssertFalse(
+            TerminalNotificationStore.shouldDeferAutomaticAuthorizationRequest(
+                status: .authorized,
+                isAppActive: false
+            )
+        )
+    }
+
+    func testNotificationAuthorizationRequestGatingAllowsSettingsRetry() {
+        XCTAssertTrue(
+            TerminalNotificationStore.shouldRequestAuthorization(
+                isAutomaticRequest: false,
+                hasRequestedAutomaticAuthorization: true
+            )
+        )
+        XCTAssertTrue(
+            TerminalNotificationStore.shouldRequestAuthorization(
+                isAutomaticRequest: true,
+                hasRequestedAutomaticAuthorization: false
+            )
+        )
+        XCTAssertFalse(
+            TerminalNotificationStore.shouldRequestAuthorization(
+                isAutomaticRequest: true,
+                hasRequestedAutomaticAuthorization: true
+            )
+        )
+    }
+
     func testNotificationSettingsPromptUsesSheetAndNeverRunsModal() {
         let store = TerminalNotificationStore.shared
         let alertSpy = NotificationSettingsAlertSpy()
@@ -7175,6 +8299,18 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         }
     }
 
+    private func findEditableTextField(in view: NSView) -> NSTextField? {
+        if let field = view as? NSTextField, field.isEditable {
+            return field
+        }
+        for subview in view.subviews {
+            if let field = findEditableTextField(in: subview) {
+                return field
+            }
+        }
+        return nil
+    }
+
     func testTrackpadScrollRoutesToTerminalSurfaceAndPreservesKeyboardFocusPath() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
@@ -7311,6 +8447,117 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
 
         hostedView.setSearchOverlay(searchState: nil)
         XCTAssertFalse(hostedView.debugHasSearchOverlay())
+    }
+
+    func testEscapeDismissingFindOverlayDoesNotLeakEscapeKeyUpToTerminal() {
+        _ = NSApplication.shared
+
+        let surface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        let hostedView = surface.hostedView
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer {
+            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = nil
+            window.orderOut(nil)
+        }
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+        hostedView.frame = contentView.bounds
+        hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostedView)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        hostedView.setVisibleInUI(true)
+        hostedView.setActive(true)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        let searchState = TerminalSurface.SearchState(needle: "")
+        surface.searchState = searchState
+        hostedView.setSearchOverlay(searchState: searchState)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        guard let searchField = findEditableTextField(in: hostedView) else {
+            XCTFail("Expected mounted find text field")
+            return
+        }
+        window.makeFirstResponder(searchField)
+
+        var escapeKeyUpCount = 0
+        GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
+            guard keyEvent.action == GHOSTTY_ACTION_RELEASE, keyEvent.keycode == 53 else { return }
+            escapeKeyUpCount += 1
+        }
+
+        let timestamp = ProcessInfo.processInfo.systemUptime
+        guard let escapeKeyDown = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: timestamp,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: "\u{1b}",
+            charactersIgnoringModifiers: "\u{1b}",
+            isARepeat: false,
+            keyCode: 53
+        ), let escapeKeyUp = NSEvent.keyEvent(
+            with: .keyUp,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: timestamp + 0.001,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: "\u{1b}",
+            charactersIgnoringModifiers: "\u{1b}",
+            isARepeat: false,
+            keyCode: 53
+        ) else {
+            XCTFail("Failed to construct Escape key events")
+            return
+        }
+
+        NSApp.sendEvent(escapeKeyDown)
+        NSApp.sendEvent(escapeKeyUp)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        XCTAssertNil(surface.searchState, "Escape should dismiss find overlay when search text is empty")
+        XCTAssertEqual(
+            escapeKeyUpCount,
+            0,
+            "Escape used to dismiss find overlay must not pass through to the terminal key-up path"
+        )
+    }
+
+    func testKeyboardCopyModeIndicatorMountsAndUnmounts() {
+        let surface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        let hostedView = surface.hostedView
+        XCTAssertFalse(hostedView.debugHasKeyboardCopyModeIndicator())
+
+        hostedView.setKeyboardCopyModeIndicator(visible: true)
+        XCTAssertTrue(hostedView.debugHasKeyboardCopyModeIndicator())
+
+        hostedView.setKeyboardCopyModeIndicator(visible: false)
+        XCTAssertFalse(hostedView.debugHasKeyboardCopyModeIndicator())
     }
 
     func testForceRefreshNoopsAfterSurfaceReleaseDuringGeometryReconcile() throws {

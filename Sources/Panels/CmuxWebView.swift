@@ -1133,7 +1133,7 @@ final class CmuxWebView: WKWebView {
             debugLogContextMenuDownloadCandidate(item, index: index)
             if !hasDefaultBrowserOpenLinkItem,
                (item.action == #selector(contextMenuOpenLinkInDefaultBrowser(_:))
-                || item.title == "Open Link in Default Browser") {
+                || item.title == String(localized: "browser.contextMenu.openLinkInDefaultBrowser", defaultValue: "Open Link in Default Browser")) {
                 hasDefaultBrowserOpenLinkItem = true
             }
 
@@ -1148,7 +1148,7 @@ final class CmuxWebView: WKWebView {
             // by opening the link as a new surface in the same pane.
             if item.identifier?.rawValue == "WKMenuItemIdentifierOpenLinkInNewWindow"
                 || item.title.contains("Open Link in New Window") {
-                item.title = "Open Link in New Tab"
+                item.title = String(localized: "browser.contextMenu.openLinkInNewTab", defaultValue: "Open Link in New Tab")
             }
 
             if isDownloadImageMenuItem(item) {
@@ -1188,7 +1188,7 @@ final class CmuxWebView: WKWebView {
 
         if let openLinkInsertionIndex, !hasDefaultBrowserOpenLinkItem {
             let item = NSMenuItem(
-                title: "Open Link in Default Browser",
+                title: String(localized: "browser.contextMenu.openLinkInDefaultBrowser", defaultValue: "Open Link in Default Browser"),
                 action: #selector(contextMenuOpenLinkInDefaultBrowser(_:)),
                 keyEquivalent: ""
             )

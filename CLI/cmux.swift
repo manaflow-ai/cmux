@@ -465,9 +465,159 @@ private func mcpServerIsEnabled() -> Bool {
     return true // default enabled
 }
 
+private enum CLISocketPathSource {
+    case explicitFlag
+    case environment
+    case implicitDefault
+}
+
+private enum CLISocketPathResolver {
+    static let defaultSocketPath = "/tmp/cmux.sock"
+    private static let fallbackSocketPath = "/tmp/cmux-debug.sock"
+    private static let stagingSocketPath = "/tmp/cmux-staging.sock"
+    private static let lastSocketPathFile = "/tmp/cmux-last-socket-path"
+
+    static func resolve(
+        requestedPath: String,
+        source: CLISocketPathSource,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> String {
+        guard source == .implicitDefault else {
+            return requestedPath
+        }
+
+        let candidates = dedupe(candidatePaths(requestedPath: requestedPath, environment: environment))
+
+        // Prefer sockets that are currently accepting connections.
+        for path in candidates where canConnect(to: path) {
+            return path
+        }
+
+        // If the listener is still starting, prefer existing socket files.
+        for path in candidates where isSocketFile(path) {
+            return path
+        }
+
+        return requestedPath
+    }
+
+    private static func candidatePaths(requestedPath: String, environment: [String: String]) -> [String] {
+        var candidates: [String] = []
+
+        if let tag = normalized(environment["CMUX_TAG"]) {
+            let slug = sanitizeTagSlug(tag)
+            candidates.append("/tmp/cmux-debug-\(slug).sock")
+            candidates.append("/tmp/cmux-\(slug).sock")
+        }
+
+        candidates.append(requestedPath)
+        candidates.append(fallbackSocketPath)
+        candidates.append(stagingSocketPath)
+        candidates.append(contentsOf: discoverTaggedSockets(limit: 12))
+        if let last = readLastSocketPath() {
+            candidates.append(last)
+        }
+        return candidates
+    }
+
+    private static func readLastSocketPath() -> String? {
+        guard let data = try? String(contentsOfFile: lastSocketPathFile, encoding: .utf8) else {
+            return nil
+        }
+        return normalized(data)
+    }
+
+    private static func discoverTaggedSockets(limit: Int) -> [String] {
+        guard let entries = try? FileManager.default.contentsOfDirectory(atPath: "/tmp") else {
+            return []
+        }
+
+        var discovered: [(path: String, mtime: TimeInterval)] = []
+        discovered.reserveCapacity(min(limit, entries.count))
+        for name in entries where name.hasPrefix("cmux") && name.hasSuffix(".sock") {
+            let path = "/tmp/\(name)"
+            var st = stat()
+            guard lstat(path, &st) == 0 else { continue }
+            guard (st.st_mode & mode_t(S_IFMT)) == mode_t(S_IFSOCK) else { continue }
+            if path == defaultSocketPath || path == fallbackSocketPath || path == stagingSocketPath {
+                continue
+            }
+            let modified = TimeInterval(st.st_mtimespec.tv_sec) + TimeInterval(st.st_mtimespec.tv_nsec) / 1_000_000_000
+            discovered.append((path: path, mtime: modified))
+        }
+
+        discovered.sort { $0.mtime > $1.mtime }
+        return discovered.prefix(limit).map(\.path)
+    }
+
+    private static func isSocketFile(_ path: String) -> Bool {
+        var st = stat()
+        return lstat(path, &st) == 0 && (st.st_mode & mode_t(S_IFMT)) == mode_t(S_IFSOCK)
+    }
+
+    private static func canConnect(to path: String) -> Bool {
+        guard isSocketFile(path) else { return false }
+        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+        guard fd >= 0 else { return false }
+        defer { Darwin.close(fd) }
+
+        var addr = sockaddr_un()
+        addr.sun_family = sa_family_t(AF_UNIX)
+        let maxLength = MemoryLayout.size(ofValue: addr.sun_path)
+        path.withCString { ptr in
+            withUnsafeMutablePointer(to: &addr.sun_path) { pathPtr in
+                let buf = UnsafeMutableRawPointer(pathPtr).assumingMemoryBound(to: CChar.self)
+                strncpy(buf, ptr, maxLength - 1)
+            }
+        }
+
+        let result = withUnsafePointer(to: &addr) { ptr in
+            ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                Darwin.connect(fd, sockaddrPtr, socklen_t(MemoryLayout<sockaddr_un>.size))
+            }
+        }
+        return result == 0
+    }
+
+    private static func sanitizeTagSlug(_ raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let slug = trimmed
+            .replacingOccurrences(of: "[^a-z0-9]+", with: "-", options: .regularExpression)
+            .replacingOccurrences(of: "-+", with: "-", options: .regularExpression)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+        return slug.isEmpty ? "agent" : slug
+    }
+
+    private static func normalized(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private static func dedupe(_ paths: [String]) -> [String] {
+        var seen: Set<String> = []
+        var ordered: [String] = []
+        ordered.reserveCapacity(paths.count)
+        for path in paths where !path.isEmpty {
+            if seen.insert(path).inserted {
+                ordered.append(path)
+            }
+        }
+        return ordered
+    }
+}
+
 final class SocketClient {
     private let path: String
     private var socketFD: Int32 = -1
+    private static let connectRetryWindowSeconds: TimeInterval = 2.0
+    private static let connectRetryIntervalSeconds: TimeInterval = 0.1
+    private static let retriableConnectErrnos: Set<Int32> = [
+        ENOENT,
+        ECONNREFUSED,
+        EAGAIN,
+        EINTR
+    ]
     private static let defaultResponseTimeoutSeconds: TimeInterval = 15.0
     private static let responseTimeoutSeconds: TimeInterval = {
         let env = ProcessInfo.processInfo.environment
@@ -486,40 +636,68 @@ final class SocketClient {
     func connect() throws {
         if socketFD >= 0 { return }
 
-        // Verify socket is owned by the current user to prevent fake-socket attacks
-        var st = stat()
-        guard stat(path, &st) == 0 else {
-            throw CLIError(message: "Socket not found at \(path)")
-        }
-        guard st.st_uid == getuid() else {
-            throw CLIError(message: "Socket at \(path) is not owned by the current user — refusing to connect")
-        }
+        let deadline = Date().addingTimeInterval(Self.connectRetryWindowSeconds)
+        var lastError: CLIError?
 
-        socketFD = socket(AF_UNIX, SOCK_STREAM, 0)
-        if socketFD < 0 {
-            throw CLIError(message: "Failed to create socket")
-        }
-
-        var addr = sockaddr_un()
-        addr.sun_family = sa_family_t(AF_UNIX)
-        let maxLength = MemoryLayout.size(ofValue: addr.sun_path)
-        path.withCString { ptr in
-            withUnsafeMutablePointer(to: &addr.sun_path) { pathPtr in
-                let buf = UnsafeMutableRawPointer(pathPtr).assumingMemoryBound(to: CChar.self)
-                strncpy(buf, ptr, maxLength - 1)
+        while true {
+            // Verify socket is owned by the current user to prevent fake-socket attacks.
+            var st = stat()
+            guard stat(path, &st) == 0 else {
+                let error = CLIError(message: "Socket not found at \(path)")
+                lastError = error
+                if errno == ENOENT, Date() < deadline {
+                    Thread.sleep(forTimeInterval: Self.connectRetryIntervalSeconds)
+                    continue
+                }
+                throw error
             }
-        }
-
-        let result = withUnsafePointer(to: &addr) { ptr in
-            ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
-                Darwin.connect(socketFD, sockaddrPtr, socklen_t(MemoryLayout<sockaddr_un>.size))
+            guard (st.st_mode & mode_t(S_IFMT)) == mode_t(S_IFSOCK) else {
+                throw CLIError(message: "Path exists at \(path) but is not a Unix socket")
             }
-        }
-        if result != 0 {
+            guard st.st_uid == getuid() else {
+                throw CLIError(message: "Socket at \(path) is not owned by the current user — refusing to connect")
+            }
+
+            socketFD = socket(AF_UNIX, SOCK_STREAM, 0)
+            if socketFD < 0 {
+                throw CLIError(message: "Failed to create socket")
+            }
+
+            var addr = sockaddr_un()
+            addr.sun_family = sa_family_t(AF_UNIX)
+            let maxLength = MemoryLayout.size(ofValue: addr.sun_path)
+            path.withCString { ptr in
+                withUnsafeMutablePointer(to: &addr.sun_path) { pathPtr in
+                    let buf = UnsafeMutableRawPointer(pathPtr).assumingMemoryBound(to: CChar.self)
+                    strncpy(buf, ptr, maxLength - 1)
+                }
+            }
+
+            let result = withUnsafePointer(to: &addr) { ptr in
+                ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                    Darwin.connect(socketFD, sockaddrPtr, socklen_t(MemoryLayout<sockaddr_un>.size))
+                }
+            }
+            if result == 0 {
+                return
+            }
+
+            let connectErrno = errno
             Darwin.close(socketFD)
             socketFD = -1
-            throw CLIError(message: "Failed to connect to socket at \(path)")
+
+            let error = CLIError(
+                message: "Failed to connect to socket at \(path) (\(String(cString: strerror(connectErrno))), errno \(connectErrno))"
+            )
+            lastError = error
+            if Self.retriableConnectErrnos.contains(connectErrno), Date() < deadline {
+                Thread.sleep(forTimeInterval: Self.connectRetryIntervalSeconds)
+                continue
+            }
+            throw error
         }
+
+        throw lastError ?? CLIError(message: "Failed to connect to socket at \(path)")
     }
 
     func close() {
@@ -628,7 +806,19 @@ struct CMUXCLI {
     let args: [String]
 
     func run() throws {
-        var socketPath = ProcessInfo.processInfo.environment["CMUX_SOCKET_PATH"] ?? "/tmp/cmux.sock"
+        let processEnv = ProcessInfo.processInfo.environment
+        let envSocketPath: String? = {
+            guard let raw = processEnv["CMUX_SOCKET_PATH"] else { return nil }
+            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }()
+        var socketPath = envSocketPath ?? CLISocketPathResolver.defaultSocketPath
+        var socketPathSource: CLISocketPathSource
+        if let envSocketPath {
+            socketPathSource = envSocketPath == CLISocketPathResolver.defaultSocketPath ? .implicitDefault : .environment
+        } else {
+            socketPathSource = .implicitDefault
+        }
         var jsonOutput = false
         var idFormatArg: String? = nil
         var windowId: String? = nil
@@ -642,6 +832,7 @@ struct CMUXCLI {
                     throw CLIError(message: "--socket requires a path")
                 }
                 socketPath = args[index + 1]
+                socketPathSource = .explicitFlag
                 index += 2
                 continue
             }
@@ -713,7 +904,12 @@ struct CMUXCLI {
             command: command,
             commandArgs: commandArgs,
             socketPath: socketPath,
-            processEnv: ProcessInfo.processInfo.environment
+            processEnv: processEnv
+        )
+        let resolvedSocketPath = CLISocketPathResolver.resolve(
+            requestedPath: socketPath,
+            source: socketPathSource,
+            environment: processEnv
         )
 
         if command == "version" {
@@ -723,7 +919,7 @@ struct CMUXCLI {
 
         // If the argument looks like a path (not a known command), open a workspace there.
         if looksLikePath(command) {
-            try openPath(command, socketPath: socketPath)
+            try openPath(command, socketPath: resolvedSocketPath)
             return
         }
 
@@ -737,16 +933,28 @@ struct CMUXCLI {
             return
         }
 
-        let client = SocketClient(path: socketPath)
+        let client = SocketClient(path: resolvedSocketPath)
+        if resolvedSocketPath != socketPath {
+            cliTelemetry.breadcrumb(
+                "socket.path.autodiscovered",
+                data: [
+                    "requested_path": socketPath,
+                    "resolved_path": resolvedSocketPath
+                ]
+            )
+        }
         cliTelemetry.breadcrumb(
             "socket.connect.attempt",
-            data: ["command": command]
+            data: [
+                "command": command,
+                "path": resolvedSocketPath
+            ]
         )
         do {
             try client.connect()
-            cliTelemetry.breadcrumb("socket.connect.success")
+            cliTelemetry.breadcrumb("socket.connect.success", data: ["path": resolvedSocketPath])
         } catch {
-            cliTelemetry.breadcrumb("socket.connect.failure")
+            cliTelemetry.breadcrumb("socket.connect.failure", data: ["path": resolvedSocketPath])
             cliTelemetry.captureError(stage: "socket_connect", error: error)
             throw error
         }
@@ -1336,7 +1544,16 @@ struct CMUXCLI {
             }
 
         case "clear-notifications":
-            let response = try sendV1Command("clear_notifications", client: client)
+            var socketCmd = "clear_notifications"
+            if let wsFlag = optionValue(commandArgs, name: "--workspace") {
+                let wsId = try resolveWorkspaceId(wsFlag, client: client)
+                socketCmd += " --tab=\(wsId)"
+            } else if windowId == nil,
+                      let envWs = ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"],
+                      let wsId = try? resolveWorkspaceId(envWs, client: client) {
+                socketCmd += " --tab=\(wsId)"
+            }
+            let response = try sendV1Command(socketCmd, client: client)
             print(response)
 
         case "claude-hook":
@@ -1533,6 +1750,10 @@ struct CMUXCLI {
             let bridged = replaceToken(commandArgs, from: "--panel", to: "--surface")
             try runBrowserCommand(commandArgs: ["is-webview-focused"] + bridged, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
 
+        // Markdown commands
+        case "markdown":
+            try runMarkdownCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
+
         default:
             print(usage())
             throw CLIError(message: "Unknown command: \(command)")
@@ -1544,6 +1765,96 @@ struct CMUXCLI {
         if expanded.hasPrefix("/") { return expanded }
         let cwd = FileManager.default.currentDirectoryPath
         return (cwd as NSString).appendingPathComponent(expanded)
+    }
+
+    // MARK: - Markdown Commands
+
+    private func runMarkdownCommand(
+        commandArgs: [String],
+        client: SocketClient,
+        jsonOutput: Bool,
+        idFormat: CLIIDFormat
+    ) throws {
+        var args = commandArgs
+
+        // Parse routing flags
+        let (workspaceOpt, argsAfterWorkspace) = parseOption(args, name: "--workspace")
+        let (windowOpt, argsAfterWindow) = parseOption(argsAfterWorkspace, name: "--window")
+        let (surfaceOpt, argsAfterSurface) = parseOption(argsAfterWindow, name: "--surface")
+        args = argsAfterSurface
+
+        // Determine subcommand. Explicit "open" is supported, otherwise treat
+        // a single positional argument as shorthand path.
+        let subArgs: [String]
+        if let first = args.first, first.lowercased() == "open" {
+            subArgs = Array(args.dropFirst())
+        } else if args.count == 1, let first = args.first, !first.hasPrefix("-") {
+            subArgs = [first]
+        } else {
+            // Allow path-like first tokens (e.g. plan.md) with trailing args
+            // so we can surface specific trailing-arg/flag errors below.
+            if let first = args.first, first.hasPrefix("-") {
+                throw CLIError(
+                    message:
+                        "markdown open: unknown flag '\(first)'. Usage: cmux markdown open <path> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]"
+                )
+            } else if let first = args.first, looksLikePath(first) || first.contains(".") {
+                subArgs = args
+            } else if let first = args.first {
+                throw CLIError(message: "Unknown markdown subcommand: \(first). Usage: cmux markdown open <path>")
+            } else {
+                subArgs = []
+            }
+        }
+
+        guard let rawPath = subArgs.first, !rawPath.isEmpty else {
+            throw CLIError(message: "markdown open requires a file path. Usage: cmux markdown open <path>")
+        }
+        let trailingArgs = Array(subArgs.dropFirst())
+        if let unknownFlag = trailingArgs.first(where: { $0.hasPrefix("-") }) {
+            throw CLIError(
+                message:
+                    "markdown open: unknown flag '\(unknownFlag)'. Usage: cmux markdown open <path> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]"
+            )
+        }
+        if let extraArg = trailingArgs.first {
+            throw CLIError(
+                message:
+                    "markdown open: unexpected argument '\(extraArg)'. Usage: cmux markdown open <path> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]"
+            )
+        }
+
+        let absolutePath = resolvePath(rawPath)
+
+        // Build params
+        var params: [String: Any] = ["path": absolutePath]
+        if let surfaceRaw = surfaceOpt {
+            if let surface = try normalizeSurfaceHandle(surfaceRaw, client: client) {
+                params["surface_id"] = surface
+            }
+        }
+        let workspaceRaw = workspaceOpt ?? (windowOpt == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+        if let workspaceRaw {
+            if let workspace = try normalizeWorkspaceHandle(workspaceRaw, client: client) {
+                params["workspace_id"] = workspace
+            }
+        }
+        if let windowRaw = windowOpt {
+            if let window = try normalizeWindowHandle(windowRaw, client: client) {
+                params["window_id"] = window
+            }
+        }
+
+        let payload = try client.sendV2(method: "markdown.open", params: params)
+
+        if jsonOutput {
+            print(jsonString(formatIDs(payload, mode: idFormat)))
+        } else {
+            let surfaceText = formatHandle(payload, kind: "surface", idFormat: idFormat) ?? "unknown"
+            let paneText = formatHandle(payload, kind: "pane", idFormat: idFormat) ?? "unknown"
+            let filePath = (payload["path"] as? String) ?? absolutePath
+            print("OK surface=\(surfaceText) pane=\(paneText) path=\(filePath)")
+        }
     }
 
     /// Returns true if the argument looks like a filesystem path rather than a CLI command.
@@ -4472,7 +4783,7 @@ struct CMUXCLI {
             """
         case "claude-hook":
             return """
-            Usage: cmux claude-hook <session-start|active|stop|idle|notification|notify> [flags]
+            Usage: cmux claude-hook <session-start|active|stop|idle|notification|notify|prompt-submit> [flags]
 
             Hook for Claude Code integration. Reads JSON from stdin.
 
@@ -4483,6 +4794,7 @@ struct CMUXCLI {
               idle            Alias for stop
               notification    Forward a Claude notification
               notify          Alias for notification
+              prompt-submit   Clear notification and set Running on user prompt
 
             Flags:
               --workspace <id|ref>   Target workspace (default: $CMUX_WORKSPACE_ID)
@@ -4572,6 +4884,25 @@ struct CMUXCLI {
             return "Legacy alias for 'cmux browser focus-webview'. Run 'cmux browser --help' for details."
         case "is-webview-focused":
             return "Legacy alias for 'cmux browser is-webview-focused'. Run 'cmux browser --help' for details."
+        case "markdown":
+            return """
+            Usage: cmux markdown open <path> [options]
+                   cmux markdown <path>       (shorthand for 'open')
+
+            Open a markdown file in a formatted viewer panel with live file watching.
+            The file is rendered with rich formatting (headings, code blocks, tables,
+            lists, blockquotes) and automatically updates when the file changes on disk.
+
+            Options:
+              --workspace <id|ref|index>   Target workspace (default: $CMUX_WORKSPACE_ID)
+              --surface <id|ref|index>     Source surface to split from (default: focused surface)
+              --window <id|ref|index>      Target window
+
+            Examples:
+              cmux markdown open plan.md
+              cmux markdown ~/project/CHANGELOG.md
+              cmux markdown open ./docs/design.md --workspace 0
+            """
         default:
             return nil
         }
@@ -5731,6 +6062,24 @@ struct CMUXCLI {
                 print("OK")
             }
 
+        case "prompt-submit":
+            telemetry.breadcrumb("claude-hook.prompt-submit")
+            var workspaceId = fallbackWorkspaceId
+            if let sessionId = parsedInput.sessionId,
+               let mapped = try? sessionStore.lookup(sessionId: sessionId),
+               let mappedWorkspace = try? resolveWorkspaceIdForClaudeHook(mapped.workspaceId, client: client) {
+                workspaceId = mappedWorkspace
+            }
+            _ = try sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
+            try setClaudeStatus(
+                client: client,
+                workspaceId: workspaceId,
+                value: "Running",
+                icon: "bolt.fill",
+                color: "#4C8DFF"
+            )
+            print("OK")
+
         case "notification", "notify":
             telemetry.breadcrumb("claude-hook.notification")
             let summary = summarizeClaudeHookNotification(rawInput: rawInput)
@@ -6462,6 +6811,8 @@ struct CMUXCLI {
           respawn-pane [--workspace <id|ref>] [--surface <id|ref>] [--command <cmd>]
           display-message [-p|--print] <text>
 
+          markdown [open] <path>             (open markdown file in formatted viewer panel with live reload)
+
           browser [--surface <id|ref|index> | <surface>] <subcommand> ...
           browser open [url]                   (create browser split in caller's workspace; if surface supplied, behaves like navigate)
           browser open-split [url]
@@ -6501,7 +6852,8 @@ struct CMUXCLI {
                               ALL commands (send, list-panels, new-split, notify, etc.).
           CMUX_TAB_ID         Optional alias used by `tab-action`/`rename-tab` as default --tab.
           CMUX_SURFACE_ID     Auto-set in cmux terminals. Used as default --surface.
-          CMUX_SOCKET_PATH    Override the default Unix socket path (/tmp/cmux.sock).
+          CMUX_SOCKET_PATH    Override the Unix socket path. Without this, the CLI defaults
+                              to /tmp/cmux.sock and auto-discovers tagged/debug sockets.
           CMUX_CLI_SENTRY_DISABLED
                               Set to 1 to disable CLI Sentry socket diagnostics.
         """

@@ -21,16 +21,18 @@ When reporting a tagged reload result in chat, use the format for your agent typ
 **Claude Code** (markdown link with correct derived-data path, cmd+clickable):
 ```markdown
 =======================================================
-[cmux DEV <tag-name>.app](file:///tmp/cmux-<tag-name>/Build/Products/Debug/cmux%20DEV%20<tag-name>.app)
+[cmux DEV <tag-name>.app](file:///Users/lawrencechen/Library/Developer/Xcode/DerivedData/cmux-<tag-name>/Build/Products/Debug/cmux%20DEV%20<tag-name>.app)
 =======================================================
 ```
 
 **Codex** (plain text format):
 ```
 =======================================================
-[<tag-name>: file:///tmp/cmux-<tag-name>.app](file:///tmp/cmux-<tag-name>.app)
+[<tag-name>: file:///Users/lawrencechen/Library/Developer/Xcode/DerivedData/cmux-<tag-name>/Build/Products/Debug/cmux%20DEV%20<tag-name>.app](file:///Users/lawrencechen/Library/Developer/Xcode/DerivedData/cmux-<tag-name>/Build/Products/Debug/cmux%20DEV%20<tag-name>.app)
 =======================================================
 ```
+
+Never use `/tmp/cmux-<tag>/...` app links in chat output. If the expected DerivedData path is missing, resolve the real `.app` path and report that `file://` URL.
 
 After making code changes, always run the build:
 
@@ -111,6 +113,7 @@ tail -f "$(cat /tmp/cmux-last-debug-log-path 2>/dev/null || echo /tmp/cmux-debug
 - Do not add an app-level display link or manual `ghostty_surface_draw` loop; rely on Ghostty wakeups/renderer to avoid typing lag.
 - **Terminal find layering contract:** `SurfaceSearchOverlay` must be mounted from `GhosttySurfaceScrollView` in `Sources/GhosttyTerminalView.swift` (AppKit portal layer), not from SwiftUI panel containers such as `Sources/Panels/TerminalPanelView.swift`. Portal-hosted terminal views can sit above SwiftUI during split/workspace churn.
 - **Submodule safety:** When modifying a submodule (ghostty, vendor/bonsplit, etc.), always push the submodule commit to its remote `main` branch BEFORE committing the updated pointer in the parent repo. Never commit on a detached HEAD or temporary branch — the commit will be orphaned and lost. Verify with: `cd <submodule> && git merge-base --is-ancestor HEAD origin/main`.
+- **All user-facing strings must be localized.** Use `String(localized: "key.name", defaultValue: "English text")` for every string shown in the UI (labels, buttons, menus, dialogs, tooltips, error messages). Keys go in `Resources/Localizable.xcstrings` with translations for all supported languages (currently English and Japanese). Never use bare string literals in SwiftUI `Text()`, `Button()`, alert titles, etc.
 
 ## Socket command threading policy
 

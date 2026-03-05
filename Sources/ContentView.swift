@@ -1287,27 +1287,27 @@ struct ContentView: View {
         var title: String {
             switch kind {
             case .workspace:
-                return "Rename Workspace"
+                return String(localized: "commandPalette.rename.workspaceTitle", defaultValue: "Rename Workspace")
             case .tab:
-                return "Rename Tab"
+                return String(localized: "commandPalette.rename.tabTitle", defaultValue: "Rename Tab")
             }
         }
 
         var description: String {
             switch kind {
             case .workspace:
-                return "Choose a custom workspace name."
+                return String(localized: "commandPalette.rename.workspaceDescription", defaultValue: "Choose a custom workspace name.")
             case .tab:
-                return "Choose a custom tab name."
+                return String(localized: "commandPalette.rename.tabDescription", defaultValue: "Choose a custom tab name.")
             }
         }
 
         var placeholder: String {
             switch kind {
             case .workspace:
-                return "Workspace name"
+                return String(localized: "commandPalette.rename.workspacePlaceholder", defaultValue: "Workspace name")
             case .tab:
-                return "Tab name"
+                return String(localized: "commandPalette.rename.tabPlaceholder", defaultValue: "Tab name")
             }
         }
     }
@@ -1821,15 +1821,18 @@ struct ContentView: View {
                     )
                     .opacity(isVisible ? 1 : 0)
                     .allowsHitTesting(isSelectedWorkspace)
+                    .accessibilityHidden(!isVisible)
                     .zIndex(isSelectedWorkspace ? 2 : (isRetiringWorkspace ? 1 : 0))
                 }
             }
             .opacity(sidebarSelectionState.selection == .tabs ? 1 : 0)
             .allowsHitTesting(sidebarSelectionState.selection == .tabs)
+            .accessibilityHidden(sidebarSelectionState.selection != .tabs)
 
             NotificationsPage(selection: $sidebarSelectionState.selection)
                 .opacity(sidebarSelectionState.selection == .notifications ? 1 : 0)
                 .allowsHitTesting(sidebarSelectionState.selection == .notifications)
+                .accessibilityHidden(sidebarSelectionState.selection != .notifications)
         }
         .padding(.top, titlebarPadding)
         .overlay(alignment: .top) {
@@ -2280,6 +2283,30 @@ struct ContentView: View {
                 mainWindow: NSApp.mainWindow
             ) else { return }
             openCommandPaletteSwitcher()
+        })
+
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .commandPaletteSubmitRequested)) { notification in
+            guard isCommandPalettePresented else { return }
+            let requestedWindow = notification.object as? NSWindow
+            guard Self.shouldHandleCommandPaletteRequest(
+                observedWindow: observedWindow,
+                requestedWindow: requestedWindow,
+                keyWindow: NSApp.keyWindow,
+                mainWindow: NSApp.mainWindow
+            ) else { return }
+            handleCommandPaletteSubmitRequest()
+        })
+
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .commandPaletteDismissRequested)) { notification in
+            guard isCommandPalettePresented else { return }
+            let requestedWindow = notification.object as? NSWindow
+            guard Self.shouldHandleCommandPaletteRequest(
+                observedWindow: observedWindow,
+                requestedWindow: requestedWindow,
+                keyWindow: NSApp.keyWindow,
+                mainWindow: NSApp.mainWindow
+            ) else { return }
+            dismissCommandPalette()
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .commandPaletteRenameTabRequested)) { notification in
@@ -2880,7 +2907,7 @@ struct ContentView: View {
 
             Divider()
 
-            Text("Enter a \(renameTargetNoun(target)) name. Press Enter to rename, Escape to cancel.")
+            Text(renameInputHintText(target: target))
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
@@ -2909,7 +2936,7 @@ struct ContentView: View {
         proposedName: String
     ) -> some View {
         let trimmedName = proposedName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let nextName = trimmedName.isEmpty ? "(clear custom name)" : trimmedName
+        let nextName = trimmedName.isEmpty ? String(localized: "commandPalette.rename.clearCustomName", defaultValue: "(clear custom name)") : trimmedName
 
         return VStack(spacing: 0) {
             Text(nextName)
@@ -2921,7 +2948,7 @@ struct ContentView: View {
 
             Divider()
 
-            Text("Press Enter to apply this \(renameTargetNoun(target)) name, or Escape to cancel.")
+            Text(renameConfirmHintText(target: target))
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
@@ -2942,12 +2969,21 @@ struct ContentView: View {
         }
     }
 
-    private func renameTargetNoun(_ target: CommandPaletteRenameTarget) -> String {
+    private func renameInputHintText(target: CommandPaletteRenameTarget) -> String {
         switch target.kind {
         case .workspace:
-            return "workspace"
+            return String(localized: "commandPalette.rename.workspaceInputHint", defaultValue: "Enter a workspace name. Press Enter to rename, Escape to cancel.")
         case .tab:
-            return "tab"
+            return String(localized: "commandPalette.rename.tabInputHint", defaultValue: "Enter a tab name. Press Enter to rename, Escape to cancel.")
+        }
+    }
+
+    private func renameConfirmHintText(target: CommandPaletteRenameTarget) -> String {
+        switch target.kind {
+        case .workspace:
+            return String(localized: "commandPalette.rename.workspaceConfirmHint", defaultValue: "Press Enter to apply this workspace name, or Escape to cancel.")
+        case .tab:
+            return String(localized: "commandPalette.rename.tabConfirmHint", defaultValue: "Press Enter to apply this tab name, or Escape to cancel.")
         }
     }
 
@@ -2961,18 +2997,18 @@ struct ContentView: View {
     private var commandPaletteSearchPlaceholder: String {
         switch commandPaletteListScope {
         case .commands:
-            return "Type a command"
+            return String(localized: "commandPalette.search.commandsPlaceholder", defaultValue: "Type a command")
         case .switcher:
-            return "Search workspaces and tabs"
+            return String(localized: "commandPalette.search.switcherPlaceholder", defaultValue: "Search workspaces")
         }
     }
 
     private var commandPaletteEmptyStateText: String {
         switch commandPaletteListScope {
         case .commands:
-            return "No commands match your search."
+            return String(localized: "commandPalette.search.commandsEmpty", defaultValue: "No commands match your search.")
         case .switcher:
-            return "No workspaces or tabs match your search."
+            return String(localized: "commandPalette.search.switcherEmpty", defaultValue: "No workspaces match your search.")
         }
     }
 
@@ -3065,10 +3101,7 @@ struct ContentView: View {
 
         guard commandPaletteListScope == .switcher else { return nil }
         if command.id.hasPrefix("switcher.workspace.") {
-            return CommandPaletteTrailingLabel(text: "Workspace", style: .kind)
-        }
-        if command.id.hasPrefix("switcher.surface.") {
-            return CommandPaletteTrailingLabel(text: "Surface", style: .kind)
+            return CommandPaletteTrailingLabel(text: String(localized: "commandPalette.kind.workspace", defaultValue: "Workspace"), style: .kind)
         }
         return nil
     }
@@ -3079,7 +3112,7 @@ struct ContentView: View {
 
         var entries: [CommandPaletteCommand] = []
         let estimatedCount = windowContexts.reduce(0) { partial, context in
-            partial + max(1, context.tabManager.tabs.count) * 4
+            partial + context.tabManager.tabs.count
         }
         entries.reserveCapacity(estimatedCount)
         var nextRank = 0
@@ -3118,7 +3151,7 @@ struct ContentView: View {
                         id: workspaceCommandId,
                         rank: nextRank,
                         title: workspaceName,
-                        subtitle: commandPaletteSwitcherSubtitle(base: "Workspace", windowLabel: context.windowLabel),
+                        subtitle: commandPaletteSwitcherSubtitle(base: String(localized: "commandPalette.switcher.workspaceLabel", defaultValue: "Workspace"), windowLabel: context.windowLabel),
                         shortcutHint: nil,
                         keywords: workspaceKeywords,
                         dismissOnRun: true,
@@ -3126,62 +3159,12 @@ struct ContentView: View {
                             focusCommandPaletteSwitcherTarget(
                                 windowId: windowId,
                                 tabManager: windowTabManager,
-                                workspaceId: workspaceId,
-                                panelId: nil
+                                workspaceId: workspaceId
                             )
                         }
                     )
                 )
                 nextRank += 1
-
-                var orderedPanelIds = workspace.sidebarOrderedPanelIds()
-                if let focusedPanelId = workspace.focusedPanelId,
-                   let focusedIndex = orderedPanelIds.firstIndex(of: focusedPanelId) {
-                    orderedPanelIds.remove(at: focusedIndex)
-                    orderedPanelIds.insert(focusedPanelId, at: 0)
-                }
-
-                for panelId in orderedPanelIds {
-                    guard let panel = workspace.panels[panelId] else { continue }
-                    let panelTitle = panelDisplayName(workspace: workspace, panelId: panelId, fallback: panel.displayTitle)
-                    let typeLabel: String = (panel.panelType == .browser) ? "Browser" : "Terminal"
-                    let panelKeywords = CommandPaletteSwitcherSearchIndexer.keywords(
-                        baseKeywords: [
-                            "tab",
-                            "surface",
-                            "panel",
-                            "switch",
-                            "go",
-                            workspaceName,
-                            panelTitle,
-                            typeLabel.lowercased()
-                        ] + windowKeywords,
-                        metadata: commandPalettePanelSearchMetadata(in: workspace, panelId: panelId)
-                    )
-                    entries.append(
-                        CommandPaletteCommand(
-                            id: "switcher.surface.\(workspace.id.uuidString.lowercased()).\(panelId.uuidString.lowercased())",
-                            rank: nextRank,
-                            title: panelTitle,
-                            subtitle: commandPaletteSwitcherSubtitle(
-                                base: "\(typeLabel) • \(workspaceName)",
-                                windowLabel: context.windowLabel
-                            ),
-                            shortcutHint: nil,
-                            keywords: panelKeywords,
-                            dismissOnRun: true,
-                            action: {
-                                focusCommandPaletteSwitcherTarget(
-                                    windowId: windowId,
-                                    tabManager: windowTabManager,
-                                    workspaceId: workspaceId,
-                                    panelId: panelId
-                                )
-                            }
-                        )
-                    )
-                    nextRank += 1
-                }
             }
         }
 
@@ -3212,7 +3195,7 @@ struct ContentView: View {
         var windowLabelById: [UUID: String] = [:]
         if orderedSummaries.count > 1 {
             for (index, summary) in orderedSummaries.enumerated() where summary.windowId != windowId {
-                windowLabelById[summary.windowId] = "Window \(index + 1)"
+                windowLabelById[summary.windowId] = String(localized: "commandPalette.switcher.windowLabel", defaultValue: "Window \(index + 1)")
             }
         }
 
@@ -3250,54 +3233,22 @@ struct ContentView: View {
     private func focusCommandPaletteSwitcherTarget(
         windowId: UUID,
         tabManager: TabManager,
-        workspaceId: UUID,
-        panelId: UUID?
+        workspaceId: UUID
     ) {
         // Switcher commands dismiss the palette after action dispatch.
         // Defer focus mutation one turn so browser omnibar autofocus can run
         // without being blocked by the palette-visibility guard.
         DispatchQueue.main.async {
             _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
-            if let panelId {
-                tabManager.focusTab(workspaceId, surfaceId: panelId, suppressFlash: true)
-            } else {
-                tabManager.focusTab(workspaceId, suppressFlash: true)
-            }
+            tabManager.focusTab(workspaceId, suppressFlash: true)
         }
     }
 
     private func commandPaletteWorkspaceSearchMetadata(for workspace: Workspace) -> CommandPaletteSwitcherSearchMetadata {
-        // Keep workspace rows coarse so surface rows win for directory/branch-specific queries.
+        // Keep workspace rows coarse and stable for predictable workspace switching queries.
         let directories = [workspace.currentDirectory]
         let branches = [workspace.gitBranch?.branch].compactMap { $0 }
         let ports = workspace.listeningPorts
-        return CommandPaletteSwitcherSearchMetadata(
-            directories: directories,
-            branches: branches,
-            ports: ports
-        )
-    }
-
-    private func commandPalettePanelSearchMetadata(in workspace: Workspace, panelId: UUID) -> CommandPaletteSwitcherSearchMetadata {
-        var directories: [String] = []
-        if let directory = workspace.panelDirectories[panelId] {
-            directories.append(directory)
-        } else if workspace.focusedPanelId == panelId {
-            directories.append(workspace.currentDirectory)
-        }
-
-        var branches: [String] = []
-        if let branch = workspace.panelGitBranches[panelId]?.branch {
-            branches.append(branch)
-        } else if workspace.focusedPanelId == panelId, let branch = workspace.gitBranch?.branch {
-            branches.append(branch)
-        }
-
-        var ports = workspace.surfaceListeningPorts[panelId] ?? []
-        if ports.isEmpty, workspace.panels.count == 1 {
-            ports = workspace.listeningPorts
-        }
-
         return CommandPaletteSwitcherSearchMetadata(
             directories: directories,
             branches: branches,
@@ -3510,23 +3461,23 @@ struct ContentView: View {
         }
 
         func workspaceSubtitle(_ context: CommandPaletteContextSnapshot) -> String {
-            let name = context.string(CommandPaletteContextKeys.workspaceName) ?? "Workspace"
-            return "Workspace • \(name)"
+            let name = context.string(CommandPaletteContextKeys.workspaceName) ?? String(localized: "commandPalette.subtitle.workspaceFallback", defaultValue: "Workspace")
+            return String(localized: "commandPalette.subtitle.workspaceWithName", defaultValue: "Workspace • \(name)")
         }
 
         func panelSubtitle(_ context: CommandPaletteContextSnapshot) -> String {
-            let name = context.string(CommandPaletteContextKeys.panelName) ?? "Tab"
-            return "Tab • \(name)"
+            let name = context.string(CommandPaletteContextKeys.panelName) ?? String(localized: "commandPalette.subtitle.tabFallback", defaultValue: "Tab")
+            return String(localized: "commandPalette.subtitle.tabWithName", defaultValue: "Tab • \(name)")
         }
 
         func browserPanelSubtitle(_ context: CommandPaletteContextSnapshot) -> String {
-            let name = context.string(CommandPaletteContextKeys.panelName) ?? "Tab"
-            return "Browser • \(name)"
+            let name = context.string(CommandPaletteContextKeys.panelName) ?? String(localized: "commandPalette.subtitle.tabFallback", defaultValue: "Tab")
+            return String(localized: "commandPalette.subtitle.browserWithName", defaultValue: "Browser • \(name)")
         }
 
         func terminalPanelSubtitle(_ context: CommandPaletteContextSnapshot) -> String {
-            let name = context.string(CommandPaletteContextKeys.panelName) ?? "Tab"
-            return "Terminal • \(name)"
+            let name = context.string(CommandPaletteContextKeys.panelName) ?? String(localized: "commandPalette.subtitle.tabFallback", defaultValue: "Tab")
+            return String(localized: "commandPalette.subtitle.terminalWithName", defaultValue: "Terminal • \(name)")
         }
 
         var contributions: [CommandPaletteCommandContribution] = []
@@ -3534,24 +3485,24 @@ struct ContentView: View {
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.newWorkspace",
-                title: constant("New Workspace"),
-                subtitle: constant("Workspace"),
+                title: constant(String(localized: "command.newWorkspace.title", defaultValue: "New Workspace")),
+                subtitle: constant(String(localized: "command.newWorkspace.subtitle", defaultValue: "Workspace")),
                 keywords: ["create", "new", "workspace"]
             )
         )
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.newWindow",
-                title: constant("New Window"),
-                subtitle: constant("Window"),
+                title: constant(String(localized: "command.newWindow.title", defaultValue: "New Window")),
+                subtitle: constant(String(localized: "command.newWindow.subtitle", defaultValue: "Window")),
                 keywords: ["create", "new", "window"]
             )
         )
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.installCLI",
-                title: constant("Shell Command: Install 'cmux' in PATH"),
-                subtitle: constant("CLI"),
+                title: constant(String(localized: "command.installCLI.title", defaultValue: "Shell Command: Install 'cmux' in PATH")),
+                subtitle: constant(String(localized: "command.installCLI.subtitle", defaultValue: "CLI")),
                 keywords: ["install", "cli", "path", "shell", "command", "symlink"],
                 when: { _ in !(AppDelegate.shared?.isCmuxCLIInstalledInPATH() ?? false) }
             )
@@ -3559,8 +3510,8 @@ struct ContentView: View {
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.uninstallCLI",
-                title: constant("Shell Command: Uninstall 'cmux' from PATH"),
-                subtitle: constant("CLI"),
+                title: constant(String(localized: "command.uninstallCLI.title", defaultValue: "Shell Command: Uninstall 'cmux' from PATH")),
+                subtitle: constant(String(localized: "command.uninstallCLI.subtitle", defaultValue: "CLI")),
                 keywords: ["uninstall", "remove", "cli", "path", "shell", "command", "symlink"],
                 when: { _ in AppDelegate.shared?.isCmuxCLIInstalledInPATH() ?? false }
             )
@@ -3568,16 +3519,16 @@ struct ContentView: View {
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.openFolder",
-                title: constant("Open Folder…"),
-                subtitle: constant("Workspace"),
+                title: constant(String(localized: "command.openFolder.title", defaultValue: "Open Folder…")),
+                subtitle: constant(String(localized: "command.openFolder.subtitle", defaultValue: "Workspace")),
                 keywords: ["open", "folder", "repository", "project", "directory"]
             )
         )
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.newTerminalTab",
-                title: constant("New Tab (Terminal)"),
-                subtitle: constant("Tab"),
+                title: constant(String(localized: "command.newTerminalTab.title", defaultValue: "New Tab (Terminal)")),
+                subtitle: constant(String(localized: "command.newTerminalTab.subtitle", defaultValue: "Tab")),
                 shortcutHint: "⌘T",
                 keywords: ["new", "terminal", "tab"]
             )
@@ -3585,8 +3536,8 @@ struct ContentView: View {
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.newBrowserTab",
-                title: constant("New Tab (Browser)"),
-                subtitle: constant("Tab"),
+                title: constant(String(localized: "command.newBrowserTab.title", defaultValue: "New Tab (Browser)")),
+                subtitle: constant(String(localized: "command.newBrowserTab.subtitle", defaultValue: "Tab")),
                 shortcutHint: "⌘⇧L",
                 keywords: ["new", "browser", "tab", "web"]
             )
@@ -3594,8 +3545,8 @@ struct ContentView: View {
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.closeTab",
-                title: constant("Close Tab"),
-                subtitle: constant("Tab"),
+                title: constant(String(localized: "command.closeTab.title", defaultValue: "Close Tab")),
+                subtitle: constant(String(localized: "command.closeTab.subtitle", defaultValue: "Tab")),
                 shortcutHint: "⌘W",
                 keywords: ["close", "tab"]
             )
@@ -3603,8 +3554,8 @@ struct ContentView: View {
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.closeWorkspace",
-                title: constant("Close Workspace"),
-                subtitle: constant("Workspace"),
+                title: constant(String(localized: "command.closeWorkspace.title", defaultValue: "Close Workspace")),
+                subtitle: constant(String(localized: "command.closeWorkspace.subtitle", defaultValue: "Workspace")),
                 shortcutHint: "⌘⇧W",
                 keywords: ["close", "workspace"]
             )
@@ -3612,24 +3563,24 @@ struct ContentView: View {
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.closeWindow",
-                title: constant("Close Window"),
-                subtitle: constant("Window"),
+                title: constant(String(localized: "command.closeWindow.title", defaultValue: "Close Window")),
+                subtitle: constant(String(localized: "command.closeWindow.subtitle", defaultValue: "Window")),
                 keywords: ["close", "window"]
             )
         )
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.toggleFullScreen",
-                title: constant("Toggle Full Screen"),
-                subtitle: constant("Window"),
+                title: constant(String(localized: "command.toggleFullScreen.title", defaultValue: "Toggle Full Screen")),
+                subtitle: constant(String(localized: "command.toggleFullScreen.subtitle", defaultValue: "Window")),
                 keywords: ["fullscreen", "full", "screen", "window", "toggle"]
             )
         )
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.reopenClosedBrowserTab",
-                title: constant("Reopen Closed Browser Tab"),
-                subtitle: constant("Browser"),
+                title: constant(String(localized: "command.reopenClosedBrowserTab.title", defaultValue: "Reopen Closed Browser Tab")),
+                subtitle: constant(String(localized: "command.reopenClosedBrowserTab.subtitle", defaultValue: "Browser")),
                 shortcutHint: "⌘⇧T",
                 keywords: ["reopen", "closed", "browser"]
             )
@@ -3637,40 +3588,40 @@ struct ContentView: View {
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.toggleSidebar",
-                title: constant("Toggle Sidebar"),
-                subtitle: constant("Layout"),
+                title: constant(String(localized: "command.toggleSidebar.title", defaultValue: "Toggle Sidebar")),
+                subtitle: constant(String(localized: "command.toggleSidebar.subtitle", defaultValue: "Layout")),
                 keywords: ["toggle", "sidebar", "layout"]
             )
         )
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.triggerFlash",
-                title: constant("Flash Focused Panel"),
-                subtitle: constant("View"),
+                title: constant(String(localized: "command.triggerFlash.title", defaultValue: "Flash Focused Panel")),
+                subtitle: constant(String(localized: "command.triggerFlash.subtitle", defaultValue: "View")),
                 keywords: ["flash", "highlight", "focus", "panel"]
             )
         )
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.showNotifications",
-                title: constant("Show Notifications"),
-                subtitle: constant("Notifications"),
+                title: constant(String(localized: "command.showNotifications.title", defaultValue: "Show Notifications")),
+                subtitle: constant(String(localized: "command.showNotifications.subtitle", defaultValue: "Notifications")),
                 keywords: ["notifications", "inbox"]
             )
         )
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.jumpUnread",
-                title: constant("Jump to Latest Unread"),
-                subtitle: constant("Notifications"),
+                title: constant(String(localized: "command.jumpUnread.title", defaultValue: "Jump to Latest Unread")),
+                subtitle: constant(String(localized: "command.jumpUnread.subtitle", defaultValue: "Notifications")),
                 keywords: ["jump", "unread", "notification"]
             )
         )
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.openSettings",
-                title: constant("Open Settings"),
-                subtitle: constant("Global"),
+                title: constant(String(localized: "command.openSettings.title", defaultValue: "Open Settings")),
+                subtitle: constant(String(localized: "command.openSettings.subtitle", defaultValue: "Global")),
                 shortcutHint: "⌘,",
                 keywords: ["settings", "preferences"]
             )
@@ -3678,16 +3629,16 @@ struct ContentView: View {
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.checkForUpdates",
-                title: constant("Check for Updates"),
-                subtitle: constant("Global"),
+                title: constant(String(localized: "command.checkForUpdates.title", defaultValue: "Check for Updates")),
+                subtitle: constant(String(localized: "command.checkForUpdates.subtitle", defaultValue: "Global")),
                 keywords: ["update", "upgrade", "release"]
             )
         )
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.applyUpdateIfAvailable",
-                title: constant("Apply Update (If Available)"),
-                subtitle: constant("Global"),
+                title: constant(String(localized: "command.applyUpdateIfAvailable.title", defaultValue: "Apply Update (If Available)")),
+                subtitle: constant(String(localized: "command.applyUpdateIfAvailable.subtitle", defaultValue: "Global")),
                 keywords: ["apply", "install", "update", "available"],
                 when: { $0.bool(CommandPaletteContextKeys.updateHasAvailable) }
             )
@@ -3695,16 +3646,16 @@ struct ContentView: View {
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.attemptUpdate",
-                title: constant("Attempt Update"),
-                subtitle: constant("Global"),
+                title: constant(String(localized: "command.attemptUpdate.title", defaultValue: "Attempt Update")),
+                subtitle: constant(String(localized: "command.attemptUpdate.subtitle", defaultValue: "Global")),
                 keywords: ["attempt", "check", "update", "upgrade", "release"]
             )
         )
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.restartSocketListener",
-                title: constant("Restart CLI Listener"),
-                subtitle: constant("Global"),
+                title: constant(String(localized: "command.restartSocketListener.title", defaultValue: "Restart CLI Listener")),
+                subtitle: constant(String(localized: "command.restartSocketListener.subtitle", defaultValue: "Global")),
                 keywords: ["restart", "socket", "listener", "cli", "cmux", "control"]
             )
         )
@@ -3712,7 +3663,7 @@ struct ContentView: View {
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.renameWorkspace",
-                title: constant("Rename Workspace…"),
+                title: constant(String(localized: "command.renameWorkspace.title", defaultValue: "Rename Workspace…")),
                 subtitle: workspaceSubtitle,
                 keywords: ["rename", "workspace", "title"],
                 dismissOnRun: false,
@@ -3722,7 +3673,7 @@ struct ContentView: View {
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.clearWorkspaceName",
-                title: constant("Clear Workspace Name"),
+                title: constant(String(localized: "command.clearWorkspaceName.title", defaultValue: "Clear Workspace Name")),
                 subtitle: workspaceSubtitle,
                 keywords: ["clear", "workspace", "name"],
                 when: {
@@ -3735,7 +3686,7 @@ struct ContentView: View {
             CommandPaletteCommandContribution(
                 commandId: "palette.toggleWorkspacePin",
                 title: { context in
-                    context.bool(CommandPaletteContextKeys.workspaceShouldPin) ? "Pin Workspace" : "Unpin Workspace"
+                    context.bool(CommandPaletteContextKeys.workspaceShouldPin) ? String(localized: "command.pinWorkspace.title", defaultValue: "Pin Workspace") : String(localized: "command.unpinWorkspace.title", defaultValue: "Unpin Workspace")
                 },
                 subtitle: workspaceSubtitle,
                 keywords: ["workspace", "pin", "pinned"],
@@ -3745,8 +3696,8 @@ struct ContentView: View {
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.nextWorkspace",
-                title: constant("Next Workspace"),
-                subtitle: constant("Workspace Navigation"),
+                title: constant(String(localized: "command.nextWorkspace.title", defaultValue: "Next Workspace")),
+                subtitle: constant(String(localized: "command.nextWorkspace.subtitle", defaultValue: "Workspace Navigation")),
                 keywords: ["next", "workspace", "navigate"],
                 when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) }
             )
@@ -3754,8 +3705,8 @@ struct ContentView: View {
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.previousWorkspace",
-                title: constant("Previous Workspace"),
-                subtitle: constant("Workspace Navigation"),
+                title: constant(String(localized: "command.previousWorkspace.title", defaultValue: "Previous Workspace")),
+                subtitle: constant(String(localized: "command.previousWorkspace.subtitle", defaultValue: "Workspace Navigation")),
                 keywords: ["previous", "workspace", "navigate"],
                 when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) }
             )
@@ -3764,7 +3715,7 @@ struct ContentView: View {
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.renameTab",
-                title: constant("Rename Tab…"),
+                title: constant(String(localized: "command.renameTab.title", defaultValue: "Rename Tab…")),
                 subtitle: panelSubtitle,
                 keywords: ["rename", "tab", "title"],
                 dismissOnRun: false,
@@ -3774,7 +3725,7 @@ struct ContentView: View {
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.clearTabName",
-                title: constant("Clear Tab Name"),
+                title: constant(String(localized: "command.clearTabName.title", defaultValue: "Clear Tab Name")),
                 subtitle: panelSubtitle,
                 keywords: ["clear", "tab", "name"],
                 when: {
@@ -3787,7 +3738,7 @@ struct ContentView: View {
             CommandPaletteCommandContribution(
                 commandId: "palette.toggleTabPin",
                 title: { context in
-                    context.bool(CommandPaletteContextKeys.panelShouldPin) ? "Pin Tab" : "Unpin Tab"
+                    context.bool(CommandPaletteContextKeys.panelShouldPin) ? String(localized: "command.pinTab.title", defaultValue: "Pin Tab") : String(localized: "command.unpinTab.title", defaultValue: "Unpin Tab")
                 },
                 subtitle: panelSubtitle,
                 keywords: ["tab", "pin", "pinned"],
@@ -3798,7 +3749,7 @@ struct ContentView: View {
             CommandPaletteCommandContribution(
                 commandId: "palette.toggleTabUnread",
                 title: { context in
-                    context.bool(CommandPaletteContextKeys.panelHasUnread) ? "Mark Tab as Read" : "Mark Tab as Unread"
+                    context.bool(CommandPaletteContextKeys.panelHasUnread) ? String(localized: "command.markTabRead.title", defaultValue: "Mark Tab as Read") : String(localized: "command.markTabUnread.title", defaultValue: "Mark Tab as Unread")
                 },
                 subtitle: panelSubtitle,
                 keywords: ["tab", "read", "unread", "notification"],
@@ -3808,8 +3759,8 @@ struct ContentView: View {
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.nextTabInPane",
-                title: constant("Next Tab in Pane"),
-                subtitle: constant("Tab Navigation"),
+                title: constant(String(localized: "command.nextTabInPane.title", defaultValue: "Next Tab in Pane")),
+                subtitle: constant(String(localized: "command.nextTabInPane.subtitle", defaultValue: "Tab Navigation")),
                 keywords: ["next", "tab", "pane"],
                 when: { $0.bool(CommandPaletteContextKeys.hasFocusedPanel) }
             )
@@ -3817,8 +3768,8 @@ struct ContentView: View {
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.previousTabInPane",
-                title: constant("Previous Tab in Pane"),
-                subtitle: constant("Tab Navigation"),
+                title: constant(String(localized: "command.previousTabInPane.title", defaultValue: "Previous Tab in Pane")),
+                subtitle: constant(String(localized: "command.previousTabInPane.subtitle", defaultValue: "Tab Navigation")),
                 keywords: ["previous", "tab", "pane"],
                 when: { $0.bool(CommandPaletteContextKeys.hasFocusedPanel) }
             )
@@ -3827,7 +3778,7 @@ struct ContentView: View {
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.openWorkspacePullRequests",
-                title: constant("Open All Workspace PR Links"),
+                title: constant(String(localized: "command.openWorkspacePRLinks.title", defaultValue: "Open All Workspace PR Links")),
                 subtitle: workspaceSubtitle,
                 keywords: ["pull", "request", "review", "merge", "pr", "mr", "open", "links", "workspace"],
                 when: {
@@ -3839,7 +3790,7 @@ struct ContentView: View {
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.browserBack",
-                title: constant("Back"),
+                title: constant(String(localized: "command.browserBack.title", defaultValue: "Back")),
                 subtitle: browserPanelSubtitle,
                 shortcutHint: "⌘[",
                 keywords: ["browser", "back", "history"],
@@ -3849,7 +3800,7 @@ struct ContentView: View {
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.browserForward",
-                title: constant("Forward"),
+                title: constant(String(localized: "command.browserForward.title", defaultValue: "Forward")),
                 subtitle: browserPanelSubtitle,
                 shortcutHint: "⌘]",
                 keywords: ["browser", "forward", "history"],
@@ -3859,7 +3810,7 @@ struct ContentView: View {
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.browserReload",
-                title: constant("Reload Page"),
+                title: constant(String(localized: "command.browserReload.title", defaultValue: "Reload Page")),
                 subtitle: browserPanelSubtitle,
                 shortcutHint: "⌘R",
                 keywords: ["browser", "reload", "refresh"],
@@ -3869,7 +3820,7 @@ struct ContentView: View {
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.browserOpenDefault",
-                title: constant("Open Current Page in Default Browser"),
+                title: constant(String(localized: "command.browserOpenDefault.title", defaultValue: "Open Current Page in Default Browser")),
                 subtitle: browserPanelSubtitle,
                 keywords: ["open", "default", "external", "browser"],
                 when: { $0.bool(CommandPaletteContextKeys.panelIsBrowser) }
@@ -3878,7 +3829,7 @@ struct ContentView: View {
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.browserFocusAddressBar",
-                title: constant("Focus Address Bar"),
+                title: constant(String(localized: "command.browserFocusAddressBar.title", defaultValue: "Focus Address Bar")),
                 subtitle: browserPanelSubtitle,
                 shortcutHint: "⌘L",
                 keywords: ["browser", "address", "omnibar", "url"],
@@ -3888,7 +3839,7 @@ struct ContentView: View {
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.browserToggleDevTools",
-                title: constant("Toggle Developer Tools"),
+                title: constant(String(localized: "command.browserToggleDevTools.title", defaultValue: "Toggle Developer Tools")),
                 subtitle: browserPanelSubtitle,
                 keywords: ["browser", "devtools", "inspector"],
                 when: { $0.bool(CommandPaletteContextKeys.panelIsBrowser) }
@@ -3897,7 +3848,7 @@ struct ContentView: View {
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.browserConsole",
-                title: constant("Show JavaScript Console"),
+                title: constant(String(localized: "command.browserConsole.title", defaultValue: "Show JavaScript Console")),
                 subtitle: browserPanelSubtitle,
                 keywords: ["browser", "console", "javascript"],
                 when: { $0.bool(CommandPaletteContextKeys.panelIsBrowser) }
@@ -3906,7 +3857,7 @@ struct ContentView: View {
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.browserZoomIn",
-                title: constant("Zoom In"),
+                title: constant(String(localized: "command.browserZoomIn.title", defaultValue: "Zoom In")),
                 subtitle: browserPanelSubtitle,
                 keywords: ["browser", "zoom", "in"],
                 when: { $0.bool(CommandPaletteContextKeys.panelIsBrowser) }
@@ -3915,7 +3866,7 @@ struct ContentView: View {
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.browserZoomOut",
-                title: constant("Zoom Out"),
+                title: constant(String(localized: "command.browserZoomOut.title", defaultValue: "Zoom Out")),
                 subtitle: browserPanelSubtitle,
                 keywords: ["browser", "zoom", "out"],
                 when: { $0.bool(CommandPaletteContextKeys.panelIsBrowser) }
@@ -3924,7 +3875,7 @@ struct ContentView: View {
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.browserZoomReset",
-                title: constant("Actual Size"),
+                title: constant(String(localized: "command.browserZoomReset.title", defaultValue: "Actual Size")),
                 subtitle: browserPanelSubtitle,
                 keywords: ["browser", "zoom", "reset", "actual size"],
                 when: { $0.bool(CommandPaletteContextKeys.panelIsBrowser) }
@@ -3933,8 +3884,8 @@ struct ContentView: View {
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.browserClearHistory",
-                title: constant("Clear Browser History"),
-                subtitle: constant("Browser"),
+                title: constant(String(localized: "command.browserClearHistory.title", defaultValue: "Clear Browser History")),
+                subtitle: constant(String(localized: "command.browserClearHistory.subtitle", defaultValue: "Browser")),
                 keywords: ["browser", "history", "clear"],
                 when: { $0.bool(CommandPaletteContextKeys.panelIsBrowser) }
             )
@@ -3942,8 +3893,8 @@ struct ContentView: View {
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.browserSplitRight",
-                title: constant("Split Browser Right"),
-                subtitle: constant("Browser Layout"),
+                title: constant(String(localized: "command.browserSplitRight.title", defaultValue: "Split Browser Right")),
+                subtitle: constant(String(localized: "command.browserSplitRight.subtitle", defaultValue: "Browser Layout")),
                 keywords: ["browser", "split", "right"],
                 when: { $0.bool(CommandPaletteContextKeys.panelIsBrowser) }
             )
@@ -3951,8 +3902,8 @@ struct ContentView: View {
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.browserSplitDown",
-                title: constant("Split Browser Down"),
-                subtitle: constant("Browser Layout"),
+                title: constant(String(localized: "command.browserSplitDown.title", defaultValue: "Split Browser Down")),
+                subtitle: constant(String(localized: "command.browserSplitDown.subtitle", defaultValue: "Browser Layout")),
                 keywords: ["browser", "split", "down"],
                 when: { $0.bool(CommandPaletteContextKeys.panelIsBrowser) }
             )
@@ -3960,8 +3911,8 @@ struct ContentView: View {
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.browserDuplicateRight",
-                title: constant("Duplicate Browser to the Right"),
-                subtitle: constant("Browser Layout"),
+                title: constant(String(localized: "command.browserDuplicateRight.title", defaultValue: "Duplicate Browser to the Right")),
+                subtitle: constant(String(localized: "command.browserDuplicateRight.subtitle", defaultValue: "Browser Layout")),
                 keywords: ["browser", "duplicate", "clone", "split"],
                 when: { $0.bool(CommandPaletteContextKeys.panelIsBrowser) }
             )
@@ -3984,7 +3935,7 @@ struct ContentView: View {
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.vscodeServeWebStop",
-                title: constant("Stop VS Code Inline Server"),
+                title: constant(String(localized: "command.vscodeServeWebStop.title", defaultValue: "Stop VS Code Inline Server")),
                 subtitle: terminalPanelSubtitle,
                 keywords: ["vscode", "inline", "serve-web", "stop", "server"],
                 when: { context in
@@ -3996,7 +3947,7 @@ struct ContentView: View {
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.vscodeServeWebRestart",
-                title: constant("Restart VS Code Inline Server"),
+                title: constant(String(localized: "command.vscodeServeWebRestart.title", defaultValue: "Restart VS Code Inline Server")),
                 subtitle: terminalPanelSubtitle,
                 keywords: ["vscode", "inline", "serve-web", "restart", "server"],
                 when: { context in
@@ -4008,7 +3959,7 @@ struct ContentView: View {
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.terminalFind",
-                title: constant("Find…"),
+                title: constant(String(localized: "command.terminalFind.title", defaultValue: "Find…")),
                 subtitle: terminalPanelSubtitle,
                 shortcutHint: "⌘F",
                 keywords: ["terminal", "find", "search"],
@@ -4018,7 +3969,7 @@ struct ContentView: View {
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.terminalFindNext",
-                title: constant("Find Next"),
+                title: constant(String(localized: "command.terminalFindNext.title", defaultValue: "Find Next")),
                 subtitle: terminalPanelSubtitle,
                 shortcutHint: "⌘G",
                 keywords: ["terminal", "find", "next", "search"],
@@ -4028,7 +3979,7 @@ struct ContentView: View {
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.terminalFindPrevious",
-                title: constant("Find Previous"),
+                title: constant(String(localized: "command.terminalFindPrevious.title", defaultValue: "Find Previous")),
                 subtitle: terminalPanelSubtitle,
                 shortcutHint: "⌘⇧G",
                 keywords: ["terminal", "find", "previous", "search"],
@@ -4038,7 +3989,7 @@ struct ContentView: View {
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.terminalHideFind",
-                title: constant("Hide Find Bar"),
+                title: constant(String(localized: "command.terminalHideFind.title", defaultValue: "Hide Find Bar")),
                 subtitle: terminalPanelSubtitle,
                 shortcutHint: "⌘⇧F",
                 keywords: ["terminal", "hide", "find", "search"],
@@ -4048,7 +3999,7 @@ struct ContentView: View {
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.terminalUseSelectionForFind",
-                title: constant("Use Selection for Find"),
+                title: constant(String(localized: "command.terminalUseSelectionForFind.title", defaultValue: "Use Selection for Find")),
                 subtitle: terminalPanelSubtitle,
                 keywords: ["terminal", "selection", "find"],
                 when: { $0.bool(CommandPaletteContextKeys.panelIsTerminal) }
@@ -4057,8 +4008,8 @@ struct ContentView: View {
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.terminalSplitRight",
-                title: constant("Split Right"),
-                subtitle: constant("Terminal Layout"),
+                title: constant(String(localized: "command.terminalSplitRight.title", defaultValue: "Split Right")),
+                subtitle: constant(String(localized: "command.terminalSplitRight.subtitle", defaultValue: "Terminal Layout")),
                 keywords: ["terminal", "split", "right"],
                 when: { $0.bool(CommandPaletteContextKeys.panelIsTerminal) }
             )
@@ -4066,8 +4017,8 @@ struct ContentView: View {
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.terminalSplitDown",
-                title: constant("Split Down"),
-                subtitle: constant("Terminal Layout"),
+                title: constant(String(localized: "command.terminalSplitDown.title", defaultValue: "Split Down")),
+                subtitle: constant(String(localized: "command.terminalSplitDown.subtitle", defaultValue: "Terminal Layout")),
                 keywords: ["terminal", "split", "down"],
                 when: { $0.bool(CommandPaletteContextKeys.panelIsTerminal) }
             )
@@ -4075,8 +4026,8 @@ struct ContentView: View {
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.terminalSplitBrowserRight",
-                title: constant("Split Browser Right"),
-                subtitle: constant("Terminal Layout"),
+                title: constant(String(localized: "command.terminalSplitBrowserRight.title", defaultValue: "Split Browser Right")),
+                subtitle: constant(String(localized: "command.terminalSplitBrowserRight.subtitle", defaultValue: "Terminal Layout")),
                 keywords: ["terminal", "split", "browser", "right"],
                 when: { $0.bool(CommandPaletteContextKeys.panelIsTerminal) }
             )
@@ -4084,8 +4035,8 @@ struct ContentView: View {
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.terminalSplitBrowserDown",
-                title: constant("Split Browser Down"),
-                subtitle: constant("Terminal Layout"),
+                title: constant(String(localized: "command.terminalSplitBrowserDown.title", defaultValue: "Split Browser Down")),
+                subtitle: constant(String(localized: "command.terminalSplitBrowserDown.subtitle", defaultValue: "Terminal Layout")),
                 keywords: ["terminal", "split", "browser", "down"],
                 when: { $0.bool(CommandPaletteContextKeys.panelIsTerminal) }
             )
@@ -4093,8 +4044,8 @@ struct ContentView: View {
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.toggleSplitZoom",
-                title: constant("Toggle Pane Zoom"),
-                subtitle: constant("Terminal Layout"),
+                title: constant(String(localized: "command.toggleSplitZoom.title", defaultValue: "Toggle Pane Zoom")),
+                subtitle: constant(String(localized: "command.toggleSplitZoom.subtitle", defaultValue: "Terminal Layout")),
                 keywords: ["terminal", "pane", "split", "zoom", "maximize"],
                 when: { context in
                     context.bool(CommandPaletteContextKeys.panelIsTerminal) &&
@@ -4105,7 +4056,7 @@ struct ContentView: View {
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.equalizeSplits",
-                title: constant("Equalize Splits"),
+                title: constant(String(localized: "command.equalizeSplits.title", defaultValue: "Equalize Splits")),
                 subtitle: workspaceSubtitle,
                 keywords: ["split", "equalize", "balance", "divider", "layout"],
                 when: { $0.bool(CommandPaletteContextKeys.workspaceHasSplits) }
@@ -4126,8 +4077,8 @@ struct ContentView: View {
                 panel.canChooseFiles = false
                 panel.canChooseDirectories = true
                 panel.allowsMultipleSelection = false
-                panel.title = "Open Folder"
-                panel.prompt = "Open"
+                panel.title = String(localized: "panel.openFolder.title", defaultValue: "Open Folder")
+                panel.prompt = String(localized: "panel.openFolder.prompt", defaultValue: "Open")
                 if panel.runModal() == .OK, let url = panel.url {
                     tabManager.addWorkspace(workingDirectory: url.path)
                 }
@@ -4413,7 +4364,7 @@ struct ContentView: View {
             return custom
         }
         let title = workspace.title.trimmingCharacters(in: .whitespacesAndNewlines)
-        return title.isEmpty ? "Workspace" : title
+        return title.isEmpty ? String(localized: "workspace.displayName.fallback", defaultValue: "Workspace") : title
     }
 
     private func panelDisplayName(workspace: Workspace, panelId: UUID, fallback: String) -> String {
@@ -4422,7 +4373,7 @@ struct ContentView: View {
             return title
         }
         let trimmedFallback = fallback.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmedFallback.isEmpty ? "Tab" : trimmedFallback
+        return trimmedFallback.isEmpty ? String(localized: "panel.displayName.fallback", defaultValue: "Tab") : trimmedFallback
     }
 
     private func commandPaletteSelectedIndex(resultCount: Int) -> Int {
@@ -4541,6 +4492,17 @@ struct ContentView: View {
         }
         let index = commandPaletteSelectedIndex(resultCount: visibleResults.count)
         runCommandPaletteCommand(visibleResults[index].command)
+    }
+
+    private func handleCommandPaletteSubmitRequest() {
+        switch commandPaletteMode {
+        case .commands:
+            runSelectedCommandPaletteResult()
+        case .renameInput(let target):
+            continueRenameFlow(target: target)
+        case .renameConfirm(let target, let proposedName):
+            applyRenameFlow(target: target, proposedName: proposedName)
+        }
     }
 
     private func runCommandPaletteCommand(_ command: CommandPaletteCommand) {
@@ -6601,6 +6563,10 @@ private struct TabItemView: View {
     }
 
     var body: some View {
+        let closeWorkspaceTooltip = String(localized: "sidebar.closeWorkspace.tooltip", defaultValue: "Close Workspace")
+        let accessibilityHintText = String(localized: "sidebar.workspace.accessibilityHint", defaultValue: "Activate to focus this workspace. Drag to reorder, or use Move Up and Move Down actions.")
+        let moveUpActionText = String(localized: "sidebar.workspace.moveUpAction", defaultValue: "Move Up")
+        let moveDownActionText = String(localized: "sidebar.workspace.moveDownAction", defaultValue: "Move Down")
         let latestNotificationSubtitle = latestNotificationText
         let orderedPanelIds: [UUID]? = (sidebarShowBranchDirectory || sidebarShowPullRequest)
             ? tab.sidebarOrderedPanelIds()
@@ -6680,7 +6646,7 @@ private struct TabItemView: View {
                             .foregroundColor(activeSecondaryColor(0.7))
                     }
                     .buttonStyle(.plain)
-                    .help(KeyboardShortcutSettings.Action.closeWorkspace.tooltip("Close Workspace"))
+                    .help(KeyboardShortcutSettings.Action.closeWorkspace.tooltip(closeWorkspaceTooltip))
                     .frame(width: 16, height: 16, alignment: .center)
                     .opacity(showCloseButton && !showsWorkspaceShortcutHint ? 1 : 0)
                     .allowsHitTesting(showCloseButton && !showsWorkspaceShortcutHint)
@@ -6853,7 +6819,7 @@ private struct TabItemView: View {
                             .foregroundColor(pullRequestForegroundColor)
                         }
                         .buttonStyle(.plain)
-                        .help("Open \(pullRequest.label) #\(pullRequest.number)")
+                        .help(String(localized: "sidebar.pullRequest.openTooltip", defaultValue: "Open \(pullRequest.label) #\(pullRequest.number)"))
                     }
                 }
             }
@@ -6953,165 +6919,190 @@ private struct TabItemView: View {
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(Text(accessibilityTitle))
-        .accessibilityHint(Text("Activate to focus this workspace. Drag to reorder, or use Move Up and Move Down actions."))
-        .accessibilityAction(named: Text("Move Up")) {
+        .accessibilityHint(Text(accessibilityHintText))
+        .accessibilityAction(named: Text(moveUpActionText)) {
             moveBy(-1)
         }
-        .accessibilityAction(named: Text("Move Down")) {
+        .accessibilityAction(named: Text(moveDownActionText)) {
             moveBy(1)
         }
-        .contextMenu {
-            let targetIds = contextTargetIds()
-            let tabColorPalette = WorkspaceTabColorSettings.palette()
-            let shouldPin = !tab.isPinned
-            let pinLabel = targetIds.count > 1
-                ? (shouldPin ? "Pin Workspaces" : "Unpin Workspaces")
-                : (shouldPin ? "Pin Workspace" : "Unpin Workspace")
-            let closeLabel = targetIds.count > 1 ? "Close Workspaces" : "Close Workspace"
-            let markReadLabel = targetIds.count > 1 ? "Mark Workspaces as Read" : "Mark Workspace as Read"
-            let markUnreadLabel = targetIds.count > 1 ? "Mark Workspaces as Unread" : "Mark Workspace as Unread"
-            let renameWorkspaceShortcut = KeyboardShortcutSettings.shortcut(for: .renameWorkspace)
-            let closeWorkspaceShortcut = KeyboardShortcutSettings.shortcut(for: .closeWorkspace)
-            Button(pinLabel) {
-                for id in targetIds {
-                    if let tab = tabManager.tabs.first(where: { $0.id == id }) {
-                        tabManager.setPinned(tab, pinned: shouldPin)
-                    }
-                }
-                syncSelectionAfterMutation()
-            }
+        .contextMenu { workspaceContextMenu }
+    }
 
-            if let key = renameWorkspaceShortcut.keyEquivalent {
-                Button("Rename Workspace…") {
-                    promptRename()
-                }
-                .keyboardShortcut(key, modifiers: renameWorkspaceShortcut.eventModifiers)
-            } else {
-                Button("Rename Workspace…") {
-                    promptRename()
-                }
-            }
+    private func contextMenuLabel(multi: String, single: String, isMulti: Bool) -> String {
+        isMulti ? multi : single
+    }
 
-            if tab.hasCustomTitle {
-                Button("Remove Custom Workspace Name") {
-                    tabManager.clearCustomTitle(tabId: tab.id)
-                }
-            }
-
-            Menu("Workspace Color") {
-                if tab.customColor != nil {
-                    Button {
-                        applyTabColor(nil, targetIds: targetIds)
-                    } label: {
-                        Label("Clear Color", systemImage: "xmark.circle")
-                    }
-                }
-
-                Button {
-                    promptCustomColor(targetIds: targetIds)
-                } label: {
-                    Label("Choose Custom Color…", systemImage: "paintpalette")
-                }
-
-                if !tabColorPalette.isEmpty {
-                    Divider()
-                }
-
-                ForEach(tabColorPalette, id: \.id) { entry in
-                    Button {
-                        applyTabColor(entry.hex, targetIds: targetIds)
-                    } label: {
-                        Label {
-                            Text(entry.name)
-                        } icon: {
-                            Image(nsImage: coloredCircleImage(color: tabColorSwatchColor(for: entry.hex)))
-                        }
-                    }
+    @ViewBuilder
+    private var workspaceContextMenu: some View {
+        let targetIds = contextTargetIds()
+        let isMulti = targetIds.count > 1
+        let tabColorPalette = WorkspaceTabColorSettings.palette()
+        let shouldPin = !tab.isPinned
+        let pinLabel = shouldPin
+            ? contextMenuLabel(
+                multi: String(localized: "contextMenu.pinWorkspaces", defaultValue: "Pin Workspaces"),
+                single: String(localized: "contextMenu.pinWorkspace", defaultValue: "Pin Workspace"),
+                isMulti: isMulti)
+            : contextMenuLabel(
+                multi: String(localized: "contextMenu.unpinWorkspaces", defaultValue: "Unpin Workspaces"),
+                single: String(localized: "contextMenu.unpinWorkspace", defaultValue: "Unpin Workspace"),
+                isMulti: isMulti)
+        let closeLabel = contextMenuLabel(
+            multi: String(localized: "contextMenu.closeWorkspaces", defaultValue: "Close Workspaces"),
+            single: String(localized: "contextMenu.closeWorkspace", defaultValue: "Close Workspace"),
+            isMulti: isMulti)
+        let markReadLabel = contextMenuLabel(
+            multi: String(localized: "contextMenu.markWorkspacesRead", defaultValue: "Mark Workspaces as Read"),
+            single: String(localized: "contextMenu.markWorkspaceRead", defaultValue: "Mark Workspace as Read"),
+            isMulti: isMulti)
+        let markUnreadLabel = contextMenuLabel(
+            multi: String(localized: "contextMenu.markWorkspacesUnread", defaultValue: "Mark Workspaces as Unread"),
+            single: String(localized: "contextMenu.markWorkspaceUnread", defaultValue: "Mark Workspace as Unread"),
+            isMulti: isMulti)
+        let renameWorkspaceShortcut = KeyboardShortcutSettings.shortcut(for: .renameWorkspace)
+        let closeWorkspaceShortcut = KeyboardShortcutSettings.shortcut(for: .closeWorkspace)
+        Button(pinLabel) {
+            for id in targetIds {
+                if let tab = tabManager.tabs.first(where: { $0.id == id }) {
+                    tabManager.setPinned(tab, pinned: shouldPin)
                 }
             }
-
-            Divider()
-
-            Button("Move Up") {
-                moveBy(-1)
-            }
-            .disabled(index == 0)
-
-            Button("Move Down") {
-                moveBy(1)
-            }
-            .disabled(index >= tabManager.tabs.count - 1)
-
-            Button("Move to Top") {
-                tabManager.moveTabsToTop(Set(targetIds))
-                syncSelectionAfterMutation()
-            }
-            .disabled(targetIds.isEmpty)
-
-            let referenceWindowId = AppDelegate.shared?.windowId(for: tabManager)
-            let windowMoveTargets = AppDelegate.shared?.windowMoveTargets(referenceWindowId: referenceWindowId) ?? []
-            let moveMenuTitle = targetIds.count > 1 ? "Move Workspaces to Window" : "Move Workspace to Window"
-            Menu(moveMenuTitle) {
-                Button("New Window") {
-                    moveWorkspacesToNewWindow(targetIds)
-                }
-                .disabled(targetIds.isEmpty)
-
-                if !windowMoveTargets.isEmpty {
-                    Divider()
-                }
-
-                ForEach(windowMoveTargets) { target in
-                    Button(target.label) {
-                        moveWorkspaces(targetIds, toWindow: target.windowId)
-                    }
-                    .disabled(target.isCurrentWindow || targetIds.isEmpty)
-                }
-            }
-            .disabled(targetIds.isEmpty)
-
-            Divider()
-
-            if let key = closeWorkspaceShortcut.keyEquivalent {
-                Button(closeLabel) {
-                    closeTabs(targetIds, allowPinned: true)
-                }
-                .keyboardShortcut(key, modifiers: closeWorkspaceShortcut.eventModifiers)
-                .disabled(targetIds.isEmpty)
-            } else {
-                Button(closeLabel) {
-                    closeTabs(targetIds, allowPinned: true)
-                }
-                .disabled(targetIds.isEmpty)
-            }
-
-            Button("Close Other Workspaces") {
-                closeOtherTabs(targetIds)
-            }
-            .disabled(tabManager.tabs.count <= 1 || targetIds.count == tabManager.tabs.count)
-
-            Button("Close Workspaces Below") {
-                closeTabsBelow(tabId: tab.id)
-            }
-            .disabled(index >= tabManager.tabs.count - 1)
-
-            Button("Close Workspaces Above") {
-                closeTabsAbove(tabId: tab.id)
-            }
-            .disabled(index == 0)
-
-            Divider()
-
-            Button(markReadLabel) {
-                markTabsRead(targetIds)
-            }
-            .disabled(!hasUnreadNotifications(in: targetIds))
-
-            Button(markUnreadLabel) {
-                markTabsUnread(targetIds)
-            }
-            .disabled(!hasReadNotifications(in: targetIds))
+            syncSelectionAfterMutation()
         }
+
+        if let key = renameWorkspaceShortcut.keyEquivalent {
+            Button(String(localized: "contextMenu.renameWorkspace", defaultValue: "Rename Workspace…")) {
+                promptRename()
+            }
+            .keyboardShortcut(key, modifiers: renameWorkspaceShortcut.eventModifiers)
+        } else {
+            Button(String(localized: "contextMenu.renameWorkspace", defaultValue: "Rename Workspace…")) {
+                promptRename()
+            }
+        }
+
+        if tab.hasCustomTitle {
+            Button(String(localized: "contextMenu.removeCustomWorkspaceName", defaultValue: "Remove Custom Workspace Name")) {
+                tabManager.clearCustomTitle(tabId: tab.id)
+            }
+        }
+
+        Menu(String(localized: "contextMenu.workspaceColor", defaultValue: "Workspace Color")) {
+            if tab.customColor != nil {
+                Button {
+                    applyTabColor(nil, targetIds: targetIds)
+                } label: {
+                    Label(String(localized: "contextMenu.clearColor", defaultValue: "Clear Color"), systemImage: "xmark.circle")
+                }
+            }
+
+            Button {
+                promptCustomColor(targetIds: targetIds)
+            } label: {
+                Label(String(localized: "contextMenu.chooseCustomColor", defaultValue: "Choose Custom Color…"), systemImage: "paintpalette")
+            }
+
+            if !tabColorPalette.isEmpty {
+                Divider()
+            }
+
+            ForEach(tabColorPalette, id: \.id) { entry in
+                Button {
+                    applyTabColor(entry.hex, targetIds: targetIds)
+                } label: {
+                    Label {
+                        Text(entry.name)
+                    } icon: {
+                        Image(nsImage: coloredCircleImage(color: tabColorSwatchColor(for: entry.hex)))
+                    }
+                }
+            }
+        }
+
+        Divider()
+
+        Button(String(localized: "contextMenu.moveUp", defaultValue: "Move Up")) {
+            moveBy(-1)
+        }
+        .disabled(index == 0)
+
+        Button(String(localized: "contextMenu.moveDown", defaultValue: "Move Down")) {
+            moveBy(1)
+        }
+        .disabled(index >= tabManager.tabs.count - 1)
+
+        Button(String(localized: "contextMenu.moveToTop", defaultValue: "Move to Top")) {
+            tabManager.moveTabsToTop(Set(targetIds))
+            syncSelectionAfterMutation()
+        }
+        .disabled(targetIds.isEmpty)
+
+        let referenceWindowId = AppDelegate.shared?.windowId(for: tabManager)
+        let windowMoveTargets = AppDelegate.shared?.windowMoveTargets(referenceWindowId: referenceWindowId) ?? []
+        let moveMenuTitle = targetIds.count > 1
+            ? String(localized: "contextMenu.moveWorkspacesToWindow", defaultValue: "Move Workspaces to Window")
+            : String(localized: "contextMenu.moveWorkspaceToWindow", defaultValue: "Move Workspace to Window")
+        Menu(moveMenuTitle) {
+            Button(String(localized: "contextMenu.newWindow", defaultValue: "New Window")) {
+                moveWorkspacesToNewWindow(targetIds)
+            }
+            .disabled(targetIds.isEmpty)
+
+            if !windowMoveTargets.isEmpty {
+                Divider()
+            }
+
+            ForEach(windowMoveTargets) { target in
+                Button(target.label) {
+                    moveWorkspaces(targetIds, toWindow: target.windowId)
+                }
+                .disabled(target.isCurrentWindow || targetIds.isEmpty)
+            }
+        }
+        .disabled(targetIds.isEmpty)
+
+        Divider()
+
+        if let key = closeWorkspaceShortcut.keyEquivalent {
+            Button(closeLabel) {
+                closeTabs(targetIds, allowPinned: true)
+            }
+            .keyboardShortcut(key, modifiers: closeWorkspaceShortcut.eventModifiers)
+            .disabled(targetIds.isEmpty)
+        } else {
+            Button(closeLabel) {
+                closeTabs(targetIds, allowPinned: true)
+            }
+            .disabled(targetIds.isEmpty)
+        }
+
+        Button(String(localized: "contextMenu.closeOtherWorkspaces", defaultValue: "Close Other Workspaces")) {
+            closeOtherTabs(targetIds)
+        }
+        .disabled(tabManager.tabs.count <= 1 || targetIds.count == tabManager.tabs.count)
+
+        Button(String(localized: "contextMenu.closeWorkspacesBelow", defaultValue: "Close Workspaces Below")) {
+            closeTabsBelow(tabId: tab.id)
+        }
+        .disabled(index >= tabManager.tabs.count - 1)
+
+        Button(String(localized: "contextMenu.closeWorkspacesAbove", defaultValue: "Close Workspaces Above")) {
+            closeTabsAbove(tabId: tab.id)
+        }
+        .disabled(index == 0)
+
+        Divider()
+
+        Button(markReadLabel) {
+            markTabsRead(targetIds)
+        }
+        .disabled(!hasUnreadNotifications(in: targetIds))
+
+        Button(markUnreadLabel) {
+            markTabsUnread(targetIds)
+        }
+        .disabled(!hasReadNotifications(in: targetIds))
     }
 
     private var backgroundColor: Color {
@@ -7176,7 +7167,7 @@ private struct TabItemView: View {
     }
 
     private var accessibilityTitle: String {
-        "\(tab.title), workspace \(index + 1) of \(tabManager.tabs.count)"
+        String(localized: "accessibility.workspacePosition", defaultValue: "\(tab.title), workspace \(index + 1) of \(tabManager.tabs.count)")
     }
 
     private func moveBy(_ delta: Int) {
@@ -7462,9 +7453,9 @@ private struct TabItemView: View {
 
     private func pullRequestStatusLabel(_ status: SidebarPullRequestStatus) -> String {
         switch status {
-        case .open: return "open"
-        case .merged: return "merged"
-        case .closed: return "closed"
+        case .open: return String(localized: "sidebar.pullRequest.statusOpen", defaultValue: "open")
+        case .merged: return String(localized: "sidebar.pullRequest.statusMerged", defaultValue: "merged")
+        case .closed: return String(localized: "sidebar.pullRequest.statusClosed", defaultValue: "closed")
         }
     }
 
@@ -7605,16 +7596,16 @@ private struct TabItemView: View {
 
     private func promptCustomColor(targetIds: [UUID]) {
         let alert = NSAlert()
-        alert.messageText = "Custom Workspace Color"
-        alert.informativeText = "Enter a hex color in the format #RRGGBB."
+        alert.messageText = String(localized: "alert.customColor.title", defaultValue: "Custom Workspace Color")
+        alert.informativeText = String(localized: "alert.customColor.message", defaultValue: "Enter a hex color in the format #RRGGBB.")
 
         let seed = tab.customColor ?? WorkspaceTabColorSettings.customColors().first ?? ""
         let input = NSTextField(string: seed)
         input.placeholderString = "#1565C0"
         input.frame = NSRect(x: 0, y: 0, width: 240, height: 22)
         alert.accessoryView = input
-        alert.addButton(withTitle: "Apply")
-        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: String(localized: "alert.customColor.apply", defaultValue: "Apply"))
+        alert.addButton(withTitle: String(localized: "alert.customColor.cancel", defaultValue: "Cancel"))
 
         let alertWindow = alert.window
         alertWindow.initialFirstResponder = input
@@ -7635,27 +7626,27 @@ private struct TabItemView: View {
     private func showInvalidColorAlert(_ value: String) {
         let alert = NSAlert()
         alert.alertStyle = .warning
-        alert.messageText = "Invalid Color"
+        alert.messageText = String(localized: "alert.invalidColor.title", defaultValue: "Invalid Color")
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty {
-            alert.informativeText = "Enter a hex color in the format #RRGGBB."
+            alert.informativeText = String(localized: "alert.invalidColor.emptyMessage", defaultValue: "Enter a hex color in the format #RRGGBB.")
         } else {
-            alert.informativeText = "\"\(trimmed)\" is not a valid hex color. Use #RRGGBB."
+            alert.informativeText = String(localized: "alert.invalidColor.invalidMessage", defaultValue: "\"\(trimmed)\" is not a valid hex color. Use #RRGGBB.")
         }
-        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: String(localized: "alert.invalidColor.ok", defaultValue: "OK"))
         _ = alert.runModal()
     }
 
     private func promptRename() {
         let alert = NSAlert()
-        alert.messageText = "Rename Workspace"
-        alert.informativeText = "Enter a custom name for this workspace."
+        alert.messageText = String(localized: "alert.renameWorkspace.title", defaultValue: "Rename Workspace")
+        alert.informativeText = String(localized: "alert.renameWorkspace.message", defaultValue: "Enter a custom name for this workspace.")
         let input = NSTextField(string: tab.customTitle ?? tab.title)
-        input.placeholderString = "Workspace name"
+        input.placeholderString = String(localized: "alert.renameWorkspace.placeholder", defaultValue: "Workspace name")
         input.frame = NSRect(x: 0, y: 0, width: 240, height: 22)
         alert.accessoryView = input
-        alert.addButton(withTitle: "Rename")
-        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: String(localized: "alert.renameWorkspace.rename", defaultValue: "Rename"))
+        alert.addButton(withTitle: String(localized: "alert.renameWorkspace.cancel", defaultValue: "Cancel"))
         let alertWindow = alert.window
         alertWindow.initialFirstResponder = input
         DispatchQueue.main.async {
@@ -7683,7 +7674,7 @@ private struct SidebarMetadataRows: View {
             }
 
             if shouldShowToggle {
-                Button(isExpanded ? "Show less" : "Show more") {
+                Button(isExpanded ? String(localized: "sidebar.metadata.showLess", defaultValue: "Show less") : String(localized: "sidebar.metadata.showMore", defaultValue: "Show more")) {
                     onFocus()
                     withAnimation(.easeInOut(duration: 0.15)) {
                         isExpanded.toggle()
@@ -7836,7 +7827,7 @@ private struct SidebarMetadataMarkdownBlocks: View {
             }
 
             if shouldShowToggle {
-                Button(isExpanded ? "Show less details" : "Show more details") {
+                Button(isExpanded ? String(localized: "sidebar.metadata.showLessDetails", defaultValue: "Show less details") : String(localized: "sidebar.metadata.showMoreDetails", defaultValue: "Show more details")) {
                     onFocus()
                     withAnimation(.easeInOut(duration: 0.15)) {
                         isExpanded.toggle()
@@ -8529,7 +8520,7 @@ private struct DraggableFolderIcon: View {
     var body: some View {
         DraggableFolderIconRepresentable(directory: directory)
             .frame(width: 16, height: 16)
-            .help("Drag to open in Finder or another app")
+            .help(String(localized: "sidebar.folderIcon.dragHint", defaultValue: "Drag to open in Finder or another app"))
             .onTapGesture(count: 2) {
                 NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: directory)
             }
@@ -8694,7 +8685,7 @@ final class DraggableFolderNSView: NSView, NSDraggingSource {
                 if let volumeName = try? URL(fileURLWithPath: "/").resourceValues(forKeys: [.volumeNameKey]).volumeName {
                     displayName = volumeName
                 } else {
-                    displayName = "Macintosh HD"
+                    displayName = String(localized: "sidebar.pathMenu.macintoshHD", defaultValue: "Macintosh HD")
                 }
             } else {
                 displayName = FileManager.default.displayName(atPath: pathURL.path)
@@ -8958,19 +8949,19 @@ enum SidebarMaterialOption: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .none: return "None"
-        case .liquidGlass: return "Liquid Glass (macOS 26+)"
-        case .sidebar: return "Sidebar"
-        case .hudWindow: return "HUD Window"
-        case .menu: return "Menu"
-        case .popover: return "Popover"
-        case .underWindowBackground: return "Under Window"
-        case .windowBackground: return "Window Background"
-        case .contentBackground: return "Content Background"
-        case .fullScreenUI: return "Full Screen UI"
-        case .sheet: return "Sheet"
-        case .headerView: return "Header View"
-        case .toolTip: return "Tool Tip"
+        case .none: return String(localized: "settings.material.none", defaultValue: "None")
+        case .liquidGlass: return String(localized: "settings.material.liquidGlass", defaultValue: "Liquid Glass (macOS 26+)")
+        case .sidebar: return String(localized: "settings.material.sidebar", defaultValue: "Sidebar")
+        case .hudWindow: return String(localized: "settings.material.hudWindow", defaultValue: "HUD Window")
+        case .menu: return String(localized: "settings.material.menu", defaultValue: "Menu")
+        case .popover: return String(localized: "settings.material.popover", defaultValue: "Popover")
+        case .underWindowBackground: return String(localized: "settings.material.underWindow", defaultValue: "Under Window")
+        case .windowBackground: return String(localized: "settings.material.windowBackground", defaultValue: "Window Background")
+        case .contentBackground: return String(localized: "settings.material.contentBackground", defaultValue: "Content Background")
+        case .fullScreenUI: return String(localized: "settings.material.fullScreenUI", defaultValue: "Full Screen UI")
+        case .sheet: return String(localized: "settings.material.sheet", defaultValue: "Sheet")
+        case .headerView: return String(localized: "settings.material.headerView", defaultValue: "Header View")
+        case .toolTip: return String(localized: "settings.material.toolTip", defaultValue: "Tool Tip")
         }
     }
 
@@ -9006,8 +8997,8 @@ enum SidebarBlendModeOption: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .behindWindow: return "Behind Window"
-        case .withinWindow: return "Within Window"
+        case .behindWindow: return String(localized: "settings.blendMode.behindWindow", defaultValue: "Behind Window")
+        case .withinWindow: return String(localized: "settings.blendMode.withinWindow", defaultValue: "Within Window")
         }
     }
 
@@ -9028,9 +9019,9 @@ enum SidebarStateOption: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .active: return "Active"
-        case .inactive: return "Inactive"
-        case .followWindow: return "Follow Window"
+        case .active: return String(localized: "settings.state.active", defaultValue: "Active")
+        case .inactive: return String(localized: "settings.state.inactive", defaultValue: "Inactive")
+        case .followWindow: return String(localized: "settings.state.followWindow", defaultValue: "Follow Window")
         }
     }
 
@@ -9055,12 +9046,12 @@ enum SidebarPresetOption: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .nativeSidebar: return "Native Sidebar"
-        case .glassBehind: return "Raycast Gray"
-        case .softBlur: return "Soft Blur"
-        case .popoverGlass: return "Popover Glass"
-        case .hudGlass: return "HUD Glass"
-        case .underWindow: return "Under Window"
+        case .nativeSidebar: return String(localized: "settings.preset.nativeSidebar", defaultValue: "Native Sidebar")
+        case .glassBehind: return String(localized: "settings.preset.raycastGray", defaultValue: "Raycast Gray")
+        case .softBlur: return String(localized: "settings.preset.softBlur", defaultValue: "Soft Blur")
+        case .popoverGlass: return String(localized: "settings.preset.popoverGlass", defaultValue: "Popover Glass")
+        case .hudGlass: return String(localized: "settings.preset.hudGlass", defaultValue: "HUD Glass")
+        case .underWindow: return String(localized: "settings.preset.underWindow", defaultValue: "Under Window")
         }
     }
 

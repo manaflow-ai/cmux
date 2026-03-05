@@ -80,31 +80,31 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
     var commandPaletteTitle: String {
         switch self {
         case .androidStudio:
-            return "Open Current Directory in Android Studio"
+            return String(localized: "menu.openInAndroidStudio", defaultValue: "Open Current Directory in Android Studio")
         case .antigravity:
-            return "Open Current Directory in Antigravity"
+            return String(localized: "menu.openInAntigravity", defaultValue: "Open Current Directory in Antigravity")
         case .cursor:
-            return "Open Current Directory in Cursor"
+            return String(localized: "menu.openInCursor", defaultValue: "Open Current Directory in Cursor")
         case .finder:
-            return "Open Current Directory in Finder"
+            return String(localized: "menu.openInFinder", defaultValue: "Open Current Directory in Finder")
         case .ghostty:
-            return "Open Current Directory in Ghostty"
+            return String(localized: "menu.openInGhostty", defaultValue: "Open Current Directory in Ghostty")
         case .iterm2:
-            return "Open Current Directory in iTerm2"
+            return String(localized: "menu.openInITerm2", defaultValue: "Open Current Directory in iTerm2")
         case .terminal:
-            return "Open Current Directory in Terminal"
+            return String(localized: "menu.openInTerminal", defaultValue: "Open Current Directory in Terminal")
         case .tower:
-            return "Open Current Directory in Tower"
+            return String(localized: "menu.openInTower", defaultValue: "Open Current Directory in Tower")
         case .vscode:
-            return "Open Current Directory in VS Code (Inline)"
+            return String(localized: "menu.openInVSCode", defaultValue: "Open Current Directory in VS Code (Inline)")
         case .warp:
-            return "Open Current Directory in Warp"
+            return String(localized: "menu.openInWarp", defaultValue: "Open Current Directory in Warp")
         case .windsurf:
-            return "Open Current Directory in Windsurf"
+            return String(localized: "menu.openInWindsurf", defaultValue: "Open Current Directory in Windsurf")
         case .xcode:
-            return "Open Current Directory in Xcode"
+            return String(localized: "menu.openInXcode", defaultValue: "Open Current Directory in Xcode")
         case .zed:
-            return "Open Current Directory in Zed"
+            return String(localized: "menu.openInZed", defaultValue: "Open Current Directory in Zed")
         }
     }
 
@@ -991,10 +991,15 @@ func browserOmnibarShouldSubmitOnReturn(flags: NSEvent.ModifierFlags) -> Bool {
 
 func shouldDispatchBrowserReturnViaFirstResponderKeyDown(
     keyCode: UInt16,
-    firstResponderIsBrowser: Bool
+    firstResponderIsBrowser: Bool,
+    flags: NSEvent.ModifierFlags
 ) -> Bool {
     guard firstResponderIsBrowser else { return false }
-    return keyCode == 36 || keyCode == 76
+    guard keyCode == 36 || keyCode == 76 else { return false }
+    // Keep browser Return forwarding narrow: only plain/Shift Return should be
+    // treated as submit-intent. Command-modified Return is reserved for app shortcuts
+    // like Toggle Pane Zoom (Cmd+Shift+Enter).
+    return browserOmnibarShouldSubmitOnReturn(flags: flags)
 }
 
 func shouldToggleMainWindowFullScreenForCommandControlFShortcut(
@@ -1046,6 +1051,13 @@ func shouldConsumeShortcutWhileCommandPaletteVisible(
     keyCode: UInt16
 ) -> Bool {
     guard isCommandPaletteVisible else { return false }
+
+    // Escape dismisses the palette, and must not leak through to the
+    // underlying terminal or browser content.
+    if normalizedFlags.isEmpty, keyCode == 53 {
+        return true
+    }
+
     guard normalizedFlags.contains(.command) else { return false }
 
     let normalizedChars = chars.lowercased()
@@ -1073,6 +1085,43 @@ func shouldConsumeShortcutWhileCommandPaletteVisible(
     }
 
     return true
+}
+
+func shouldSubmitCommandPaletteWithReturn(
+    keyCode: UInt16,
+    flags: NSEvent.ModifierFlags
+) -> Bool {
+    guard keyCode == 36 || keyCode == 76 else { return false }
+    let normalizedFlags = flags
+        .intersection(.deviceIndependentFlagsMask)
+        .subtracting([.numericPad, .function, .capsLock])
+    return normalizedFlags == [] || normalizedFlags == [.shift]
+}
+
+func commandPaletteFieldEditorHasMarkedText(in window: NSWindow) -> Bool {
+    guard let editor = window.firstResponder as? NSTextView,
+          editor.isFieldEditor else {
+        return false
+    }
+    return editor.hasMarkedText()
+}
+
+func shouldHandleCommandPaletteShortcutEvent(
+    _ event: NSEvent,
+    paletteWindow: NSWindow?
+) -> Bool {
+    guard let paletteWindow else { return false }
+    if let eventWindow = event.window {
+        return eventWindow === paletteWindow
+    }
+    let eventWindowNumber = event.windowNumber
+    if eventWindowNumber > 0 {
+        return eventWindowNumber == paletteWindow.windowNumber
+    }
+    if let keyWindow = NSApp.keyWindow {
+        return keyWindow === paletteWindow
+    }
+    return false
 }
 
 enum BrowserZoomShortcutAction: Equatable {
@@ -1174,6 +1223,33 @@ func shouldRouteTerminalFontZoomShortcutToGhostty(
         keyCode: keyCode,
         literalChars: literalChars
     ) != nil
+}
+
+func shouldRouteTerminalCommandShortcutToGhostty(
+    flags: NSEvent.ModifierFlags,
+    chars: String,
+    keyCode: UInt16,
+    terminalHasSelection: Bool
+) -> Bool {
+    let normalizedFlags = flags
+        .intersection(.deviceIndependentFlagsMask)
+        .subtracting([.numericPad, .function, .capsLock])
+    guard normalizedFlags.contains(.command) else { return false }
+
+    let normalizedChars = chars.lowercased()
+    if normalizedFlags == [.command] {
+        // Keep Preferences (Cmd+,) menu-routed even when a terminal is focused.
+        if normalizedChars == "," || keyCode == 43 {
+            return false
+        }
+
+        // Preserve standard copy behavior when text is selected in the terminal.
+        if (normalizedChars == "c" || keyCode == 8), terminalHasSelection {
+            return false
+        }
+    }
+
+    return true
 }
 
 func cmuxOwningGhosttyView(for responder: NSResponder?) -> GhosttyNSView? {
@@ -1385,7 +1461,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private lazy var titlebarAccessoryController = UpdateTitlebarAccessoryController(viewModel: updateViewModel)
     private let windowDecorationsController = WindowDecorationsController()
     private var menuBarExtraController: MenuBarExtraController?
-    private static let serviceErrorNoPath = NSString(string: "Could not load any folder path from the clipboard.")
+    private static let serviceErrorNoPath = NSString(string: String(localized: "error.clipboardFolderPath", defaultValue: "Could not load any folder path from the clipboard."))
     private static let didInstallWindowKeyEquivalentSwizzle: Void = {
         let targetClass: AnyClass = NSWindow.self
         let originalSelector = #selector(NSWindow.performKeyEquivalent(with:))
@@ -1494,9 +1570,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var didInstallLifecycleSnapshotObservers = false
     private var didDisableSuddenTermination = false
     private var commandPaletteVisibilityByWindowId: [UUID: Bool] = [:]
+    private var commandPalettePendingOpenByWindowId: [UUID: Bool] = [:]
+    private var commandPaletteRecentRequestAtByWindowId: [UUID: TimeInterval] = [:]
+    private var commandPaletteEscapeSuppressionByWindowId: Set<UUID> = []
+    private var commandPaletteEscapeSuppressionStartedAtByWindowId: [UUID: TimeInterval] = [:]
     private var commandPaletteSelectionByWindowId: [UUID: Int] = [:]
     private var commandPaletteSnapshotByWindowId: [UUID: CommandPaletteDebugSnapshot] = [:]
-    private weak var lastActiveMainWindow: NSWindow?
+    private static let commandPaletteRequestGraceInterval: TimeInterval = 1.25
+    private static let commandPalettePendingOpenMaxAge: TimeInterval = 8.0
 
     var updateViewModel: UpdateViewModel {
         updateController.viewModel
@@ -1555,10 +1636,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        if NSApp.activationPolicy() != .regular {
-            NSApp.setActivationPolicy(.regular)
-        }
-
         let env = ProcessInfo.processInfo.environment
         let isRunningUnderXCTest = isRunningUnderXCTest(env)
         let telemetryEnabled = TelemetrySettings.enabledForCurrentLaunch
@@ -1714,7 +1791,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             PostHogAnalytics.shared.trackHourlyActive(reason: "didBecomeActive")
         }
 
-        guard let tabManager, let notificationStore else { return }
+        guard let notificationStore else { return }
+        notificationStore.handleApplicationDidBecomeActive()
+        guard let tabManager else { return }
         guard let tabId = tabManager.selectedTabId else { return }
         let surfaceId = tabManager.focusedSurfaceId(for: tabId)
         guard notificationStore.hasUnreadNotification(forTabId: tabId, surfaceId: surfaceId) else { return }
@@ -1724,7 +1803,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             tab.triggerNotificationFocusFlash(panelId: surfaceId, requiresSplit: false, shouldFocus: false)
         }
         notificationStore.markRead(forTabId: tabId, surfaceId: surfaceId)
-        bringMainWindowToFrontOnActivationIfNeeded()
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
@@ -3218,9 +3296,212 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         windowForMainWindowId(windowId)
     }
 
+    private func markCommandPaletteOpenRequested(for window: NSWindow?) {
+        guard let window,
+              let windowId = mainWindowId(for: window) else { return }
+        commandPalettePendingOpenByWindowId[windowId] = true
+        commandPaletteRecentRequestAtByWindowId[windowId] = ProcessInfo.processInfo.systemUptime
+    }
+
+    private func postCommandPaletteRequest(
+        name: Notification.Name,
+        preferredWindow: NSWindow?,
+        source: String,
+        markPending: Bool
+    ) {
+        let targetWindow = preferredWindow ?? NSApp.keyWindow ?? NSApp.mainWindow
+        if markPending {
+            markCommandPaletteOpenRequested(for: targetWindow)
+        }
+        NotificationCenter.default.post(name: name, object: targetWindow)
+#if DEBUG
+        dlog(
+            "shortcut.palette.request source=\(source) " +
+            "target={\(debugWindowToken(targetWindow))} " +
+            "pendingMarked=\(markPending ? 1 : 0)"
+        )
+#endif
+    }
+
+    func requestCommandPaletteCommands(preferredWindow: NSWindow? = nil, source: String = "api.commandPalette") {
+        postCommandPaletteRequest(
+            name: .commandPaletteRequested,
+            preferredWindow: preferredWindow,
+            source: source,
+            markPending: true
+        )
+    }
+
+    func requestCommandPaletteSwitcher(preferredWindow: NSWindow? = nil, source: String = "api.commandPaletteSwitcher") {
+        postCommandPaletteRequest(
+            name: .commandPaletteSwitcherRequested,
+            preferredWindow: preferredWindow,
+            source: source,
+            markPending: true
+        )
+    }
+
+    func requestCommandPaletteRenameTab(preferredWindow: NSWindow? = nil, source: String = "api.commandPaletteRenameTab") {
+        postCommandPaletteRequest(
+            name: .commandPaletteRenameTabRequested,
+            preferredWindow: preferredWindow,
+            source: source,
+            markPending: true
+        )
+    }
+
+    func requestCommandPaletteRenameWorkspace(
+        preferredWindow: NSWindow? = nil,
+        source: String = "api.commandPaletteRenameWorkspace"
+    ) {
+        postCommandPaletteRequest(
+            name: .commandPaletteRenameWorkspaceRequested,
+            preferredWindow: preferredWindow,
+            source: source,
+            markPending: true
+        )
+    }
+
+    private func clearCommandPalettePendingOpen(for window: NSWindow?) {
+        guard let window,
+              let windowId = mainWindowId(for: window) else { return }
+        commandPalettePendingOpenByWindowId.removeValue(forKey: windowId)
+        commandPaletteRecentRequestAtByWindowId.removeValue(forKey: windowId)
+    }
+
+    private func pruneExpiredCommandPalettePendingOpenStates(
+        now: TimeInterval = ProcessInfo.processInfo.systemUptime
+    ) {
+        for windowId in Array(commandPalettePendingOpenByWindowId.keys) {
+            guard commandPalettePendingOpenByWindowId[windowId] == true else { continue }
+            guard let requestedAt = commandPaletteRecentRequestAtByWindowId[windowId] else {
+                commandPalettePendingOpenByWindowId.removeValue(forKey: windowId)
+#if DEBUG
+                dlog("shortcut.palette.pendingPrune windowId=\(windowId.uuidString.prefix(8)) reason=missingTimestamp")
+#endif
+                continue
+            }
+            let age = now - requestedAt
+            guard age > Self.commandPalettePendingOpenMaxAge else { continue }
+            commandPalettePendingOpenByWindowId.removeValue(forKey: windowId)
+            commandPaletteRecentRequestAtByWindowId.removeValue(forKey: windowId)
+#if DEBUG
+            dlog(
+                "shortcut.palette.pendingPrune windowId=\(windowId.uuidString.prefix(8)) " +
+                "reason=stale ageMs=\(Int(age * 1000))"
+            )
+#endif
+        }
+    }
+
+    private func isCommandPalettePendingOpen(for window: NSWindow) -> Bool {
+        guard let windowId = mainWindowId(for: window) else { return false }
+        pruneExpiredCommandPalettePendingOpenStates()
+        return commandPalettePendingOpenByWindowId[windowId] == true
+    }
+
+    private func beginCommandPaletteEscapeSuppression(for window: NSWindow?) {
+        guard let window,
+              let windowId = mainWindowId(for: window) else { return }
+        commandPaletteEscapeSuppressionByWindowId.insert(windowId)
+        commandPaletteEscapeSuppressionStartedAtByWindowId[windowId] = ProcessInfo.processInfo.systemUptime
+    }
+
+    private func endCommandPaletteEscapeSuppression(for window: NSWindow?) {
+        guard let window,
+              let windowId = mainWindowId(for: window) else { return }
+        commandPaletteEscapeSuppressionByWindowId.remove(windowId)
+        commandPaletteEscapeSuppressionStartedAtByWindowId.removeValue(forKey: windowId)
+    }
+
+    private func shouldConsumeSuppressedEscape(event: NSEvent, window: NSWindow?) -> Bool {
+        guard let window,
+              let windowId = mainWindowId(for: window),
+              commandPaletteEscapeSuppressionByWindowId.contains(windowId) else {
+            return false
+        }
+        if event.isARepeat {
+            return true
+        }
+        let startedAt = commandPaletteEscapeSuppressionStartedAtByWindowId[windowId] ?? 0
+        if ProcessInfo.processInfo.systemUptime - startedAt <= 0.35 {
+            return true
+        }
+        // Fallback cleanup when keyUp is lost for any reason.
+        endCommandPaletteEscapeSuppression(for: window)
+        return false
+    }
+
+    private func recentCommandPaletteRequestAge(for window: NSWindow?) -> TimeInterval? {
+        guard let window,
+              let windowId = mainWindowId(for: window) else {
+            return nil
+        }
+        let now = ProcessInfo.processInfo.systemUptime
+        pruneExpiredCommandPalettePendingOpenStates(now: now)
+        guard commandPalettePendingOpenByWindowId[windowId] == true else {
+            commandPaletteRecentRequestAtByWindowId.removeValue(forKey: windowId)
+            return nil
+        }
+        guard let startedAt = commandPaletteRecentRequestAtByWindowId[windowId] else {
+            commandPalettePendingOpenByWindowId.removeValue(forKey: windowId)
+            return nil
+        }
+        let age = now - startedAt
+        if age <= Self.commandPaletteRequestGraceInterval {
+            return age
+        }
+        return nil
+    }
+
+    private func escapeSuppressionWindow(for event: NSEvent) -> NSWindow? {
+        commandPaletteWindowForShortcutEvent(event) ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
+    }
+
+    @discardableResult
+    private func clearEscapeSuppressionForKeyUp(event: NSEvent, consumeIfSuppressed: Bool = false) -> Bool {
+        guard event.type == .keyUp, event.keyCode == 53 else { return false }
+        let suppressionWindow = escapeSuppressionWindow(for: event)
+        let didConsume = consumeIfSuppressed && shouldConsumeSuppressedEscape(event: event, window: suppressionWindow)
+        if let window = suppressionWindow {
+            endCommandPaletteEscapeSuppression(for: window)
+#if DEBUG
+            dlog(
+                "shortcut.escape suppressionClear target={\(debugWindowToken(window))} " +
+                "keyUpConsumed=\(didConsume ? 1 : 0)"
+            )
+#endif
+            return didConsume
+        }
+        commandPaletteEscapeSuppressionByWindowId.removeAll()
+        commandPaletteEscapeSuppressionStartedAtByWindowId.removeAll()
+#if DEBUG
+        dlog("shortcut.escape suppressionClear target={nil} clearedAll=1 keyUpConsumed=\(didConsume ? 1 : 0)")
+#endif
+        return didConsume
+    }
+
     func setCommandPaletteVisible(_ visible: Bool, for window: NSWindow) {
         guard let windowId = mainWindowId(for: window) else { return }
+        let wasVisible = commandPaletteVisibilityByWindowId[windowId] ?? false
         commandPaletteVisibilityByWindowId[windowId] = visible
+        // Opening (false -> true) always resolves pending-open.
+        // Closing (true -> false) also clears stale pending state.
+        // Ignore repeated false updates so a stale sync cannot erase an in-flight open request.
+        if visible || wasVisible {
+            commandPalettePendingOpenByWindowId.removeValue(forKey: windowId)
+            commandPaletteRecentRequestAtByWindowId.removeValue(forKey: windowId)
+        }
+#if DEBUG
+        if !visible,
+           !wasVisible,
+           commandPalettePendingOpenByWindowId[windowId] == true {
+            dlog(
+                "palette.visibility.retainPending " +
+                "window={\(debugWindowToken(window))} visible=0 wasVisible=0 pending=1"
+            )
+        }
+#endif
     }
 
     func isCommandPaletteVisible(windowId: UUID) -> Bool {
@@ -3330,6 +3611,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return nil
     }
 
+    /// Resolve the workspace that currently owns a panel/surface ID.
+    /// Prefer the provided workspace when available, then fall back to global lookup.
+    func workspaceContainingPanel(
+        panelId: UUID,
+        preferredWorkspaceId: UUID? = nil
+    ) -> (workspace: Workspace, tabManager: TabManager)? {
+        if let preferredWorkspaceId,
+           let manager = tabManagerFor(tabId: preferredWorkspaceId),
+           let workspace = manager.tabs.first(where: { $0.id == preferredWorkspaceId }),
+           workspace.panels[panelId] != nil {
+            return (workspace, manager)
+        }
+
+        if let located = locateSurface(surfaceId: panelId),
+           let workspace = located.tabManager.tabs.first(where: { $0.id == located.workspaceId }),
+           workspace.panels[panelId] != nil {
+            return (workspace, located.tabManager)
+        }
+
+        if let preferredWorkspaceId,
+           let manager = tabManagerFor(tabId: preferredWorkspaceId) ?? tabManager,
+           let workspace = manager.tabs.first(where: { $0.id == preferredWorkspaceId }),
+           workspace.panels[panelId] != nil {
+            return (workspace, manager)
+        }
+
+        if let manager = tabManager,
+           let workspace = manager.tabs.first(where: { $0.panels[panelId] != nil }) {
+            return (workspace, manager)
+        }
+
+        return nil
+    }
+
     func locateGhosttySurface(_ surface: ghostty_surface_t?) -> (windowId: UUID, workspaceId: UUID, panelId: UUID, tabManager: TabManager)? {
         guard let surface else { return nil }
         for ctx in mainWindowContexts.values {
@@ -3343,6 +3658,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
         return nil
+    }
+
+    func refreshTerminalSurfacesAfterGhosttyConfigReload(source: String) {
+        var refreshedCount = 0
+        forEachTerminalPanel { terminalPanel in
+            terminalPanel.hostedView.reconcileGeometryNow()
+            terminalPanel.surface.forceRefresh()
+            refreshedCount += 1
+        }
+#if DEBUG
+        dlog("reload.config.surfaceRefresh source=\(source) count=\(refreshedCount)")
+#endif
+    }
+
+    private func forEachTerminalPanel(_ body: (TerminalPanel) -> Void) {
+        var seenManagers: Set<ObjectIdentifier> = []
+
+        func visitManager(_ manager: TabManager?) {
+            guard let manager else { return }
+            let managerId = ObjectIdentifier(manager)
+            guard seenManagers.insert(managerId).inserted else { return }
+            for workspace in manager.tabs {
+                for panel in workspace.panels.values {
+                    guard let terminalPanel = panel as? TerminalPanel else { continue }
+                    body(terminalPanel)
+                }
+            }
+        }
+
+        visitManager(tabManager)
+        for context in mainWindowContexts.values {
+            visitManager(context.tabManager)
+        }
     }
 
     func focusMainWindow(windowId: UUID) -> Bool {
@@ -3383,9 +3731,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         var labels: [UUID: String] = [:]
         for (index, summary) in orderedSummaries.enumerated() {
             if summary.windowId == referenceWindowId {
-                labels[summary.windowId] = "Current Window"
+                labels[summary.windowId] = String(localized: "menu.currentWindow", defaultValue: "Current Window")
             } else {
-                labels[summary.windowId] = "Window \(index + 1)"
+                let number = index + 1
+                labels[summary.windowId] = String(localized: "menu.windowNumber", defaultValue: "Window \(number)")
             }
         }
         return labels
@@ -3393,7 +3742,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func workspaceDisplayName(_ workspace: Workspace) -> String {
         let trimmed = workspace.title.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? "Workspace" : trimmed
+        return trimmed.isEmpty ? String(localized: "workspace.displayName.fallback", defaultValue: "Workspace") : trimmed
     }
 
     private func rollbackDetachedSurface(
@@ -3560,19 +3909,81 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return UUID(uuidString: idPart)
     }
 
+    private func commandPaletteOverlayContainer(in window: NSWindow) -> NSView? {
+        guard let searchRoot = window.contentView?.superview ?? window.contentView else { return nil }
+        var stack: [NSView] = [searchRoot]
+        while let candidate = stack.popLast() {
+            if candidate.identifier == commandPaletteOverlayContainerIdentifier {
+                return candidate
+            }
+            stack.append(contentsOf: candidate.subviews)
+        }
+        return nil
+    }
+
+    private func isCommandPaletteOverlayPresented(in window: NSWindow) -> Bool {
+        guard let container = commandPaletteOverlayContainer(in: window) else { return false }
+        return !container.isHidden && container.alphaValue > 0.001
+    }
+
+    private func isCommandPaletteResponderActive(in window: NSWindow) -> Bool {
+        guard let responder = window.firstResponder else { return false }
+        if let textView = responder as? NSTextView,
+           textView.isFieldEditor,
+           !(textView.delegate is NSView) {
+            // Field-editor delegates can be non-view responders. Confirm the overlay is
+            // mounted and visible to avoid treating unrelated editors as palette input.
+            return isCommandPaletteOverlayPresented(in: window)
+        }
+        return isCommandPaletteResponder(responder)
+    }
+
+    private func commandPaletteMarkedTextInput(in window: NSWindow) -> NSTextView? {
+        if let textView = window.firstResponder as? NSTextView,
+           isCommandPaletteResponder(textView),
+           textView.hasMarkedText() {
+            return textView
+        }
+
+        if let textField = window.firstResponder as? NSTextField,
+           let editor = textField.currentEditor() as? NSTextView,
+           isCommandPaletteResponder(editor),
+           editor.hasMarkedText() {
+            return editor
+        }
+
+        return nil
+    }
+
+    private func isCommandPaletteEffectivelyVisible(in window: NSWindow) -> Bool {
+        isCommandPaletteVisible(for: window)
+            || isCommandPalettePendingOpen(for: window)
+            || isCommandPaletteOverlayPresented(in: window)
+            || isCommandPaletteResponderActive(in: window)
+    }
+
     private func activeCommandPaletteWindow() -> NSWindow? {
+        pruneExpiredCommandPalettePendingOpenStates()
         if let keyWindow = NSApp.keyWindow,
-           let windowId = mainWindowId(for: keyWindow),
-           commandPaletteVisibilityByWindowId[windowId] == true {
+           isMainTerminalWindow(keyWindow),
+           isCommandPaletteEffectivelyVisible(in: keyWindow) {
             return keyWindow
         }
         if let mainWindow = NSApp.mainWindow,
-           let windowId = mainWindowId(for: mainWindow),
-           commandPaletteVisibilityByWindowId[windowId] == true {
+           isMainTerminalWindow(mainWindow),
+           isCommandPaletteEffectivelyVisible(in: mainWindow) {
             return mainWindow
+        }
+        if let orderedWindow = NSApp.orderedWindows.first(where: { window in
+            isMainTerminalWindow(window) && isCommandPaletteEffectivelyVisible(in: window)
+        }) {
+            return orderedWindow
         }
         if let visibleWindowId = commandPaletteVisibilityByWindowId.first(where: { $0.value })?.key {
             return windowForMainWindowId(visibleWindowId)
+        }
+        if let pendingWindowId = commandPalettePendingOpenByWindowId.first(where: { $0.value })?.key {
+            return windowForMainWindowId(pendingWindowId)
         }
         return nil
     }
@@ -4274,22 +4685,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let installer = CmuxCLIPathInstaller()
         do {
             let outcome = try installer.install()
-            var informativeText = """
-            Created symlink:
-
-            \(outcome.destinationURL.path) -> \(outcome.sourceURL.path)
-            """
+            var informativeText = String(localized: "cli.install.symlinkCreated", defaultValue: "Created symlink:\n\n\(outcome.destinationURL.path) -> \(outcome.sourceURL.path)")
             if outcome.usedAdministratorPrivileges {
-                informativeText += "\n\nAdministrator privileges were required to write to /usr/local/bin."
+                informativeText += "\n\n" + String(localized: "cli.install.adminRequired", defaultValue: "Administrator privileges were required to write to /usr/local/bin.")
             }
             presentCLIPathAlert(
-                title: "cmux CLI Installed",
+                title: String(localized: "cli.installed", defaultValue: "cmux CLI Installed"),
                 informativeText: informativeText,
                 style: .informational
             )
         } catch {
             presentCLIPathAlert(
-                title: "Couldn't Install cmux CLI",
+                title: String(localized: "cli.installFailed", defaultValue: "Couldn't Install cmux CLI"),
                 informativeText: error.localizedDescription,
                 style: .warning
             )
@@ -4301,20 +4708,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         do {
             let outcome = try installer.uninstall()
             let prefix = outcome.removedExistingEntry
-                ? "Removed \(outcome.destinationURL.path)."
-                : "No cmux CLI symlink was found at \(outcome.destinationURL.path)."
+                ? String(localized: "cli.uninstall.removed", defaultValue: "Removed \(outcome.destinationURL.path).")
+                : String(localized: "cli.uninstall.notFound", defaultValue: "No cmux CLI symlink was found at \(outcome.destinationURL.path).")
             var informativeText = prefix
             if outcome.usedAdministratorPrivileges {
-                informativeText += "\n\nAdministrator privileges were required to modify /usr/local/bin."
+                informativeText += "\n\n" + String(localized: "cli.uninstall.adminRequired", defaultValue: "Administrator privileges were required to modify /usr/local/bin.")
             }
             presentCLIPathAlert(
-                title: "cmux CLI Uninstalled",
+                title: String(localized: "cli.uninstalled", defaultValue: "cmux CLI Uninstalled"),
                 informativeText: informativeText,
                 style: .informational
             )
         } catch {
             presentCLIPathAlert(
-                title: "Couldn't Uninstall cmux CLI",
+                title: String(localized: "cli.uninstallFailed", defaultValue: "Couldn't Uninstall cmux CLI"),
                 informativeText: error.localizedDescription,
                 style: .warning
             )
@@ -4330,7 +4737,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         alert.alertStyle = style
         alert.messageText = title
         alert.informativeText = informativeText
-        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
 
         if let window = NSApp.keyWindow ?? NSApp.mainWindow {
             alert.beginSheetModal(for: window, completionHandler: nil)
@@ -5457,6 +5864,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return event // Pass through
             }
             self.handleBrowserOmnibarSelectionRepeatLifecycleEvent(event)
+            if self.clearEscapeSuppressionForKeyUp(event: event, consumeIfSuppressed: true) {
+                return nil
+            }
             return event
         }
     }
@@ -5626,12 +6036,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         let alert = NSAlert()
         alert.alertStyle = .warning
-        alert.messageText = "Quit cmux?"
-        alert.informativeText = "This will close all windows and workspaces."
-        alert.addButton(withTitle: "Quit")
-        alert.addButton(withTitle: "Cancel")
+        alert.messageText = String(localized: "dialog.quitCmux.title", defaultValue: "Quit cmux?")
+        alert.informativeText = String(localized: "dialog.quitCmux.message", defaultValue: "This will close all windows and workspaces.")
+        alert.addButton(withTitle: String(localized: "dialog.quitCmux.quit", defaultValue: "Quit"))
+        alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
         alert.showsSuppressionButton = true
-        alert.suppressionButton?.title = "Don't warn again for Cmd+Q"
+        alert.suppressionButton?.title = String(localized: "dialog.dontWarnCmdQ", defaultValue: "Don't warn again for Cmd+Q")
 
         let response = alert.runModal()
         if alert.suppressionButton?.state == .on {
@@ -5653,14 +6063,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         let alert = NSAlert()
-        alert.messageText = "Rename Workspace"
-        alert.informativeText = "Enter a custom name for this workspace."
+        alert.messageText = String(localized: "dialog.renameWorkspace.title", defaultValue: "Rename Workspace")
+        alert.informativeText = String(localized: "dialog.renameWorkspace.message", defaultValue: "Enter a custom name for this workspace.")
         let input = NSTextField(string: tab.customTitle ?? tab.title)
-        input.placeholderString = "Workspace name"
+        input.placeholderString = String(localized: "dialog.renameWorkspace.placeholder", defaultValue: "Workspace name")
         input.frame = NSRect(x: 0, y: 0, width: 240, height: 22)
         alert.accessoryView = input
-        alert.addButton(withTitle: "Rename")
-        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: String(localized: "common.rename", defaultValue: "Rename"))
+        alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
         let alertWindow = alert.window
         alertWindow.initialFirstResponder = input
         DispatchQueue.main.async {
@@ -5728,9 +6138,109 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         let normalizedFlags = flags.subtracting([.numericPad, .function, .capsLock])
         let commandPaletteTargetWindow = commandPaletteWindowForShortcutEvent(event)
-        let commandPaletteVisibleInTargetWindow = commandPaletteTargetWindow.map {
+        let commandPaletteShortcutWindow = shouldHandleCommandPaletteShortcutEvent(
+            event,
+            paletteWindow: commandPaletteTargetWindow
+        ) ? commandPaletteTargetWindow : nil
+        let commandPaletteVisibleInTargetWindow = commandPaletteShortcutWindow.map {
             isCommandPaletteVisible(for: $0)
         } ?? false
+        let commandPalettePendingOpenInTargetWindow = commandPaletteTargetWindow.map {
+            isCommandPalettePendingOpen(for: $0)
+        } ?? false
+        let commandPaletteOverlayVisibleInTargetWindow = commandPaletteTargetWindow.map {
+            isCommandPaletteOverlayPresented(in: $0)
+        } ?? false
+        let commandPaletteResponderActiveInTargetWindow = commandPaletteTargetWindow.map {
+            isCommandPaletteResponderActive(in: $0)
+        } ?? false
+        let commandPaletteEffectiveInTargetWindow =
+            commandPaletteVisibleInTargetWindow
+            || commandPalettePendingOpenInTargetWindow
+            || commandPaletteOverlayVisibleInTargetWindow
+            || commandPaletteResponderActiveInTargetWindow
+
+        if normalizedFlags.isEmpty, event.keyCode == 53 {
+            let activePaletteWindow = activeCommandPaletteWindow()
+            let escapePaletteWindow: NSWindow? = {
+                if let targetWindow = commandPaletteTargetWindow {
+                    guard commandPaletteEffectiveInTargetWindow else {
+                        return nil
+                    }
+                    return targetWindow
+                }
+                return activePaletteWindow
+            }()
+#if DEBUG
+            dlog(
+                "shortcut.escape route target={\(debugWindowToken(commandPaletteTargetWindow))} " +
+                "active={\(debugWindowToken(activePaletteWindow))} " +
+                "visibleTarget=\(commandPaletteVisibleInTargetWindow ? 1 : 0) " +
+                "pendingTarget=\(commandPalettePendingOpenInTargetWindow ? 1 : 0) " +
+                "overlayTarget=\(commandPaletteOverlayVisibleInTargetWindow ? 1 : 0) " +
+                "responderTarget=\(commandPaletteResponderActiveInTargetWindow ? 1 : 0) " +
+                "effectiveTarget=\(commandPaletteEffectiveInTargetWindow ? 1 : 0) " +
+                "\(debugShortcutRouteSnapshot(event: event))"
+            )
+            if commandPaletteTargetWindow != nil,
+               !commandPaletteVisibleInTargetWindow,
+               !commandPalettePendingOpenInTargetWindow,
+               (commandPaletteOverlayVisibleInTargetWindow || commandPaletteResponderActiveInTargetWindow) {
+                dlog(
+                    "shortcut.escape stateMismatch target={\(debugWindowToken(commandPaletteTargetWindow))} " +
+                    "overlayTarget=\(commandPaletteOverlayVisibleInTargetWindow ? 1 : 0) " +
+                    "responderTarget=\(commandPaletteResponderActiveInTargetWindow ? 1 : 0)"
+                )
+            }
+#endif
+            if let paletteWindow = escapePaletteWindow,
+               isCommandPaletteEffectivelyVisible(in: paletteWindow) {
+                if commandPaletteMarkedTextInput(in: paletteWindow) != nil {
+#if DEBUG
+                    dlog(
+                        "shortcut.escape imeMarkedTextBypass consumed=0 target={\(debugWindowToken(paletteWindow))}"
+                    )
+#endif
+                    return false
+                }
+                clearCommandPalettePendingOpen(for: paletteWindow)
+                beginCommandPaletteEscapeSuppression(for: paletteWindow)
+                NotificationCenter.default.post(name: .commandPaletteToggleRequested, object: paletteWindow)
+#if DEBUG
+                dlog("shortcut.escape paletteDismiss consumed=1 target={\(debugWindowToken(paletteWindow))}")
+#endif
+                return true
+            }
+            let suppressionWindow = commandPaletteTargetWindow
+                ?? event.window
+                ?? NSApp.keyWindow
+                ?? NSApp.mainWindow
+            if shouldConsumeSuppressedEscape(event: event, window: suppressionWindow) {
+#if DEBUG
+                dlog(
+                    "shortcut.escape suppressionConsume consumed=1 target={\(debugWindowToken(suppressionWindow))} " +
+                    "repeat=\(event.isARepeat ? 1 : 0)"
+                )
+#endif
+                return true
+            }
+            if let requestAge = recentCommandPaletteRequestAge(for: suppressionWindow) {
+                beginCommandPaletteEscapeSuppression(for: suppressionWindow)
+#if DEBUG
+                dlog(
+                    "shortcut.escape requestGraceConsume consumed=1 target={\(debugWindowToken(suppressionWindow))} " +
+                    "ageMs=\(Int(requestAge * 1000)) repeat=\(event.isARepeat ? 1 : 0)"
+                )
+#endif
+                return true
+            }
+#if DEBUG
+            dlog(
+                "shortcut.escape paletteDismiss consumed=0 target={\(debugWindowToken(commandPaletteTargetWindow))} " +
+                "active={\(debugWindowToken(activePaletteWindow))}"
+            )
+#endif
+        }
 
         if let delta = commandPaletteSelectionDeltaForKeyboardNavigation(
             flags: event.modifierFlags,
@@ -5738,13 +6248,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             keyCode: event.keyCode
         ),
            commandPaletteVisibleInTargetWindow,
-           let paletteWindow = commandPaletteTargetWindow {
+           let paletteWindow = commandPaletteShortcutWindow {
             NotificationCenter.default.post(
                 name: .commandPaletteMoveSelection,
                 object: paletteWindow,
                 userInfo: ["delta": delta]
             )
             return true
+        }
+
+        if commandPaletteVisibleInTargetWindow,
+           let paletteWindow = commandPaletteShortcutWindow {
+            let paletteFieldEditorHasMarkedText = commandPaletteFieldEditorHasMarkedText(in: paletteWindow)
+            if normalizedFlags.isEmpty, event.keyCode == 53 {
+                if paletteFieldEditorHasMarkedText {
+                    return false
+                }
+                NotificationCenter.default.post(name: .commandPaletteDismissRequested, object: paletteWindow)
+                return true
+            }
+
+            if shouldSubmitCommandPaletteWithReturn(
+                keyCode: event.keyCode,
+                flags: event.modifierFlags
+            ) {
+                if paletteFieldEditorHasMarkedText {
+                    return false
+                }
+                NotificationCenter.default.post(name: .commandPaletteSubmitRequested, object: paletteWindow)
+                return true
+            }
         }
 
         // Guard against stale browserAddressBarFocusedPanelId after focus transitions
@@ -5769,19 +6302,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             && (chars == "p" || event.keyCode == 35)
         if isCommandP {
             let targetWindow = commandPaletteTargetWindow ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
-            NotificationCenter.default.post(name: .commandPaletteSwitcherRequested, object: targetWindow)
+            requestCommandPaletteSwitcher(preferredWindow: targetWindow, source: "shortcut.cmdP")
             return true
         }
 
         let isCommandShiftP = normalizedFlags == [.command, .shift] && (chars == "p" || event.keyCode == 35)
         if isCommandShiftP {
             let targetWindow = commandPaletteTargetWindow ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
-            NotificationCenter.default.post(name: .commandPaletteRequested, object: targetWindow)
+            requestCommandPaletteCommands(preferredWindow: targetWindow, source: "shortcut.cmdShiftP")
             return true
         }
 
         if shouldConsumeShortcutWhileCommandPaletteVisible(
-            isCommandPaletteVisible: commandPaletteVisibleInTargetWindow,
+            isCommandPaletteVisible: commandPaletteEffectiveInTargetWindow,
             normalizedFlags: normalizedFlags,
             chars: chars,
             keyCode: event.keyCode
@@ -5971,6 +6504,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .toggleTerminalCopyMode)) {
+            let handled = tabManager?.toggleFocusedTerminalCopyMode() ?? false
+#if DEBUG
+            dlog(
+                "shortcut.action name=toggleTerminalCopyMode handled=\(handled ? 1 : 0) " +
+                "\(debugShortcutRouteSnapshot(event: event))"
+            )
+#endif
+            // Only consume when a focused terminal actually handled the toggle.
+            // Otherwise allow the event to continue through the responder chain.
+            return handled
+        }
+
         // Workspace navigation: Cmd+Ctrl+] / Cmd+Ctrl+[
         if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .nextSidebarTab)) {
 #if DEBUG
@@ -6070,7 +6616,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return false
             }
             let targetWindow = commandPaletteTargetWindow ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
-            NotificationCenter.default.post(name: .commandPaletteRenameTabRequested, object: targetWindow)
+            requestCommandPaletteRenameTab(preferredWindow: targetWindow, source: "shortcut.renameTab")
             return true
         }
 
@@ -6179,11 +6725,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .splitBrowserRight)) {
+#if DEBUG
+            dlog("shortcut.action name=splitBrowserRight \(debugShortcutRouteSnapshot(event: event))")
+#endif
             _ = performBrowserSplitShortcut(direction: .right)
             return true
         }
 
         if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .splitBrowserDown)) {
+#if DEBUG
+            dlog("shortcut.action name=splitBrowserDown \(debugShortcutRouteSnapshot(event: event))")
+#endif
             _ = performBrowserSplitShortcut(direction: .down)
             return true
         }
@@ -6697,7 +7249,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func performBrowserSplitShortcut(direction: SplitDirection) -> Bool {
         _ = synchronizeActiveMainWindowContext(preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow)
 
-        guard let panelId = tabManager?.createBrowserSplit(direction: direction) else { return false }
+        #if DEBUG
+        let directionLabel: String
+        switch direction {
+        case .left: directionLabel = "left"
+        case .right: directionLabel = "right"
+        case .up: directionLabel = "up"
+        case .down: directionLabel = "down"
+        }
+        let selectedTabBefore = tabManager?.selectedTabId?.uuidString.prefix(5) ?? "nil"
+        let focusedPanelBefore = tabManager?.selectedWorkspace?.focusedPanelId?.uuidString.prefix(5) ?? "nil"
+        dlog(
+            "split.browser.shortcut pre dir=\(directionLabel) " +
+            "tab=\(selectedTabBefore) focusedPanel=\(focusedPanelBefore)"
+        )
+        #endif
+
+        guard let panelId = tabManager?.createBrowserSplit(direction: direction) else {
+            #if DEBUG
+            dlog("split.browser.shortcut failed dir=\(directionLabel)")
+            #endif
+            return false
+        }
+
+        #if DEBUG
+        let selectedTabAfter = tabManager?.selectedTabId?.uuidString.prefix(5) ?? "nil"
+        let focusedPanelAfter = tabManager?.selectedWorkspace?.focusedPanelId?.uuidString.prefix(5) ?? "nil"
+        dlog(
+            "split.browser.shortcut post dir=\(directionLabel) " +
+            "created=\(panelId.uuidString.prefix(5)) tab=\(selectedTabAfter) focusedPanel=\(focusedPanelAfter)"
+        )
+        #endif
+
         _ = focusBrowserAddressBar(panelId: panelId)
         return true
     }
@@ -6712,7 +7295,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     @discardableResult
     func requestRenameWorkspaceViaCommandPalette(preferredWindow: NSWindow? = nil) -> Bool {
         let targetWindow = preferredWindow ?? NSApp.keyWindow ?? NSApp.mainWindow
-        NotificationCenter.default.post(name: .commandPaletteRenameWorkspaceRequested, object: targetWindow)
+        requestCommandPaletteRenameWorkspace(
+            preferredWindow: targetWindow,
+            source: "shortcut.renameWorkspace"
+        )
         return true
     }
 
@@ -6722,6 +7308,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     // synthetic NSEvents.
     func debugHandleCustomShortcut(event: NSEvent) -> Bool {
         handleCustomShortcut(event: event)
+    }
+
+    // Debug/test hook: mirrors local monitor routing (keyDown + keyUp lifecycle).
+    func debugHandleShortcutMonitorEvent(event: NSEvent) -> Bool {
+        if event.type == .keyDown {
+            return handleCustomShortcut(event: event)
+        }
+        handleBrowserOmnibarSelectionRepeatLifecycleEvent(event)
+        return clearEscapeSuppressionForKeyUp(event: event, consumeIfSuppressed: true)
+    }
+
+    func debugMarkCommandPaletteOpenPending(window: NSWindow) {
+        markCommandPaletteOpenRequested(for: window)
+    }
+
+    @discardableResult
+    func debugSetCommandPalettePendingOpenAge(window: NSWindow, age: TimeInterval) -> Bool {
+        guard let windowId = mainWindowId(for: window) else { return false }
+        commandPalettePendingOpenByWindowId[windowId] = true
+        commandPaletteRecentRequestAtByWindowId[windowId] = ProcessInfo.processInfo.systemUptime - max(age, 0)
+        return true
     }
 
     // Test hook: remap a window context under a detached window key so direct
@@ -7047,7 +7654,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         willPresent notification: UNNotification,
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
-        completionHandler([.banner, .sound, .list])
+        var options: UNNotificationPresentationOptions = [.banner, .list]
+        if notification.request.content.sound != nil {
+            options.insert(.sound)
+        }
+        completionHandler(options)
     }
 
     private func handleNotificationResponse(_ response: UNNotificationResponse) {
@@ -7099,7 +7710,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             queue: .main
         ) { [weak self] note in
             guard let self, let window = note.object as? NSWindow else { return }
-            self.lastActiveMainWindow = window
             self.setActiveMainWindow(window)
         }
     }
@@ -7166,6 +7776,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         persistWindowGeometry(from: window)
         guard let removed = unregisterMainWindowContext(for: window) else { return }
         commandPaletteVisibilityByWindowId.removeValue(forKey: removed.windowId)
+        commandPalettePendingOpenByWindowId.removeValue(forKey: removed.windowId)
+        commandPaletteRecentRequestAtByWindowId.removeValue(forKey: removed.windowId)
+        commandPaletteEscapeSuppressionByWindowId.remove(removed.windowId)
+        commandPaletteEscapeSuppressionStartedAtByWindowId.removeValue(forKey: removed.windowId)
         commandPaletteSelectionByWindowId.removeValue(forKey: removed.windowId)
         commandPaletteSnapshotByWindowId.removeValue(forKey: removed.windowId)
 
@@ -7459,36 +8073,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
-    private func bringMainWindowToFrontOnActivationIfNeeded() {
-        guard let window = frontmostKnownMainWindow() else { return }
-        bringToFront(window)
-    }
-
-    private func frontmostKnownMainWindow() -> NSWindow? {
-        let directCandidates: [NSWindow?] = [lastActiveMainWindow, NSApp.keyWindow, NSApp.mainWindow]
-        for candidate in directCandidates where candidate != nil {
-            if let window = candidate, isMainTerminalWindow(window) {
-                return window
-            }
-        }
-
-        if let activeManager = tabManager,
-           let context = mainWindowContexts.values.first(where: { $0.tabManager === activeManager }),
-           let window = context.window ?? windowForMainWindowId(context.windowId) {
-            return window
-        }
-
-        if let visible = mainWindowContexts.values
-            .compactMap({ $0.window ?? windowForMainWindowId($0.windowId) })
-            .first(where: { $0.isVisible }) {
-            return visible
-        }
-
-        return mainWindowContexts.values
-            .compactMap({ $0.window ?? windowForMainWindowId($0.windowId) })
-            .first
-    }
-
 #if DEBUG
     private func recordMultiWindowNotificationOpenFailureIfNeeded(
         tabId: UUID,
@@ -7532,17 +8116,17 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
     private var notificationsCancellable: AnyCancellable?
     private let buildHintTitle: String?
 
-    private let stateHintItem = NSMenuItem(title: "No unread notifications", action: nil, keyEquivalent: "")
+    private let stateHintItem = NSMenuItem(title: String(localized: "statusMenu.noUnread", defaultValue: "No unread notifications"), action: nil, keyEquivalent: "")
     private let buildHintItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     private let notificationListSeparator = NSMenuItem.separator()
     private let notificationSectionSeparator = NSMenuItem.separator()
-    private let showNotificationsItem = NSMenuItem(title: "Show Notifications", action: nil, keyEquivalent: "")
-    private let jumpToUnreadItem = NSMenuItem(title: "Jump to Latest Unread", action: nil, keyEquivalent: "")
-    private let markAllReadItem = NSMenuItem(title: "Mark All Read", action: nil, keyEquivalent: "")
-    private let clearAllItem = NSMenuItem(title: "Clear All", action: nil, keyEquivalent: "")
-    private let checkForUpdatesItem = NSMenuItem(title: "Check for Updates…", action: nil, keyEquivalent: "")
-    private let preferencesItem = NSMenuItem(title: "Preferences…", action: nil, keyEquivalent: "")
-    private let quitItem = NSMenuItem(title: "Quit cmux", action: nil, keyEquivalent: "")
+    private let showNotificationsItem = NSMenuItem(title: String(localized: "statusMenu.showNotifications", defaultValue: "Show Notifications"), action: nil, keyEquivalent: "")
+    private let jumpToUnreadItem = NSMenuItem(title: String(localized: "statusMenu.jumpToLatestUnread", defaultValue: "Jump to Latest Unread"), action: nil, keyEquivalent: "")
+    private let markAllReadItem = NSMenuItem(title: String(localized: "statusMenu.markAllRead", defaultValue: "Mark All Read"), action: nil, keyEquivalent: "")
+    private let clearAllItem = NSMenuItem(title: String(localized: "statusMenu.clearAll", defaultValue: "Clear All"), action: nil, keyEquivalent: "")
+    private let checkForUpdatesItem = NSMenuItem(title: String(localized: "menu.checkForUpdates", defaultValue: "Check for Updates…"), action: nil, keyEquivalent: "")
+    private let preferencesItem = NSMenuItem(title: String(localized: "menu.preferences", defaultValue: "Preferences…"), action: nil, keyEquivalent: "")
+    private let quitItem = NSMenuItem(title: String(localized: "menu.quitCmux", defaultValue: "Quit cmux"), action: nil, keyEquivalent: "")
 
     private var notificationItems: [NSMenuItem] = []
     private let maxInlineNotificationItems = 6
@@ -7671,7 +8255,9 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
             button.image = MenuBarIconRenderer.makeImage(unreadCount: displayedUnreadCount)
             button.toolTip = displayedUnreadCount == 0
                 ? "cmux"
-                : "cmux: \(displayedUnreadCount) unread notification\(displayedUnreadCount == 1 ? "" : "s")"
+                : displayedUnreadCount == 1
+                    ? "cmux: " + String(localized: "statusMenu.tooltip.unread.one", defaultValue: "1 unread notification")
+                    : "cmux: " + String(localized: "statusMenu.tooltip.unread.other", defaultValue: "\(displayedUnreadCount) unread notifications")
         }
     }
 
@@ -7794,9 +8380,14 @@ enum NotificationMenuSnapshotBuilder {
     }
 
     static func stateHintTitle(unreadCount: Int) -> String {
-        unreadCount == 0
-            ? "No unread notifications"
-            : "\(unreadCount) unread notification\(unreadCount == 1 ? "" : "s")"
+        switch unreadCount {
+        case 0:
+            return String(localized: "statusMenu.noUnread", defaultValue: "No unread notifications")
+        case 1:
+            return String(localized: "statusMenu.unreadCount.one", defaultValue: "1 unread notification")
+        default:
+            return String(localized: "statusMenu.unreadCount.other", defaultValue: "\(unreadCount) unread notifications")
+        }
     }
 }
 
@@ -8365,7 +8956,8 @@ private extension NSWindow {
         // mark handled to avoid the AppKit alert sound path.
         if shouldDispatchBrowserReturnViaFirstResponderKeyDown(
             keyCode: event.keyCode,
-            firstResponderIsBrowser: firstResponderWebView != nil
+            firstResponderIsBrowser: firstResponderWebView != nil,
+            flags: event.modifierFlags
         ) {
             // Forwarding keyDown can re-enter performKeyEquivalent in WebKit/AppKit internals.
             // On re-entry, fall back to normal dispatch to avoid an infinite loop.
@@ -8387,6 +8979,23 @@ private extension NSWindow {
         if AppDelegate.shared?.handleBrowserSurfaceKeyEquivalent(event) == true {
 #if DEBUG
             dlog("  → consumed by handleBrowserSurfaceKeyEquivalent")
+#endif
+            return true
+        }
+
+        // Support custom tmux prefixes (for example Cmd+C): when the terminal is focused
+        // and no app-level shortcut matched, prefer forwarding Command-key input to the
+        // terminal rather than consuming it as a menu key equivalent.
+        if let ghosttyView = firstResponderGhosttyView,
+           shouldRouteTerminalCommandShortcutToGhostty(
+               flags: event.modifierFlags,
+               chars: event.charactersIgnoringModifiers ?? "",
+               keyCode: event.keyCode,
+               terminalHasSelection: ghosttyView.terminalSurface?.hasSelection() ?? false
+           ) {
+            ghosttyView.keyDown(with: event)
+#if DEBUG
+            dlog("  → ghostty command passthrough")
 #endif
             return true
         }
@@ -8571,6 +9180,12 @@ private extension NSWindow {
         }
         if let eventWindow = event.window, eventWindow !== window {
             return nil
+        }
+        if let portalWebView = BrowserWindowPortalRegistry.webViewAtWindowPoint(
+            event.locationInWindow,
+            in: window
+        ) as? CmuxWebView {
+            return portalWebView
         }
         guard let hitView = cmuxHitViewForCurrentEvent(in: window, event: event) else {
             return nil

@@ -49,17 +49,17 @@ fileprivate struct PermissionRequestView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 8) {
-                Text("Enable automatic updates?")
+                Text(String(localized: "update.popover.enableAutoUpdates", defaultValue: "Enable automatic updates?"))
                     .font(.system(size: 13, weight: .semibold))
 
-                Text("cmux can automatically check for updates in the background.")
+                Text(String(localized: "update.popover.autoUpdatesDescription", defaultValue: "cmux can automatically check for updates in the background."))
                     .font(.system(size: 11))
                     .foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
             HStack(spacing: 8) {
-                Button("Not Now") {
+                Button(String(localized: "common.notNow", defaultValue: "Not Now")) {
                     request.reply(SUUpdatePermissionResponse(
                         automaticUpdateChecks: false,
                         sendSystemProfile: false))
@@ -69,7 +69,7 @@ fileprivate struct PermissionRequestView: View {
 
                 Spacer()
 
-                Button("Allow") {
+                Button(String(localized: "common.allow", defaultValue: "Allow")) {
                     request.reply(SUUpdatePermissionResponse(
                         automaticUpdateChecks: true,
                         sendSystemProfile: false))
@@ -92,13 +92,13 @@ fileprivate struct CheckingView: View {
             HStack(spacing: 10) {
                 ProgressView()
                     .controlSize(.small)
-                Text("Checking for updates…")
+                Text(String(localized: "update.popover.checking", defaultValue: "Checking for updates…"))
                     .font(.system(size: 13))
             }
 
             HStack {
                 Spacer()
-                Button("Cancel") {
+                Button(String(localized: "common.cancel", defaultValue: "Cancel")) {
                     checking.cancel()
                     dismiss()
                 }
@@ -120,12 +120,12 @@ fileprivate struct UpdateAvailableView: View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 12) {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Update Available")
+                    Text(String(localized: "update.popover.updateAvailable", defaultValue: "Update Available"))
                         .font(.system(size: 13, weight: .semibold))
 
                     VStack(alignment: .leading, spacing: 4) {
                         HStack(spacing: 6) {
-                            Text("Version:")
+                            Text(String(localized: "update.popover.version", defaultValue: "Version:"))
                                 .foregroundColor(.secondary)
                                 .frame(width: labelWidth, alignment: .trailing)
                             Text(update.appcastItem.displayVersionString)
@@ -134,7 +134,7 @@ fileprivate struct UpdateAvailableView: View {
 
                         if update.appcastItem.contentLength > 0 {
                             HStack(spacing: 6) {
-                                Text("Size:")
+                                Text(String(localized: "update.popover.size", defaultValue: "Size:"))
                                     .foregroundColor(.secondary)
                                     .frame(width: labelWidth, alignment: .trailing)
                                 Text(ByteCountFormatter.string(fromByteCount: Int64(update.appcastItem.contentLength), countStyle: .file))
@@ -144,7 +144,7 @@ fileprivate struct UpdateAvailableView: View {
 
                         if let date = update.appcastItem.date {
                             HStack(spacing: 6) {
-                                Text("Released:")
+                                Text(String(localized: "update.popover.released", defaultValue: "Released:"))
                                     .foregroundColor(.secondary)
                                     .frame(width: labelWidth, alignment: .trailing)
                                 Text(date.formatted(date: .abbreviated, time: .omitted))
@@ -156,13 +156,13 @@ fileprivate struct UpdateAvailableView: View {
                 }
 
                 HStack(spacing: 8) {
-                    Button("Skip") {
+                    Button(String(localized: "common.skip", defaultValue: "Skip")) {
                         update.reply(.skip)
                         dismiss()
                     }
                     .controlSize(.small)
 
-                    Button("Later") {
+                    Button(String(localized: "common.later", defaultValue: "Later")) {
                         update.reply(.dismiss)
                         dismiss()
                     }
@@ -171,7 +171,7 @@ fileprivate struct UpdateAvailableView: View {
 
                     Spacer()
 
-                    Button("Install and Relaunch") {
+                    Button(String(localized: "common.installAndRelaunch", defaultValue: "Install and Relaunch")) {
                         update.reply(.install)
                         dismiss()
                     }
@@ -214,7 +214,7 @@ fileprivate struct DownloadingView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 8) {
-                Text("Downloading Update")
+                Text(String(localized: "update.popover.downloadingUpdate", defaultValue: "Downloading Update"))
                     .font(.system(size: 13, weight: .semibold))
 
                 if let expectedLength = download.expectedLength, expectedLength > 0 {
@@ -233,7 +233,7 @@ fileprivate struct DownloadingView: View {
 
             HStack {
                 Spacer()
-                Button("Cancel") {
+                Button(String(localized: "common.cancel", defaultValue: "Cancel")) {
                     download.cancel()
                     dismiss()
                 }
@@ -250,7 +250,7 @@ fileprivate struct ExtractingView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Preparing Update")
+            Text(String(localized: "update.popover.preparingUpdate", defaultValue: "Preparing Update"))
                 .font(.system(size: 13, weight: .semibold))
 
             VStack(alignment: .leading, spacing: 6) {
@@ -271,17 +271,17 @@ fileprivate struct InstallingView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 8) {
-                Text("Restart Required")
+                Text(String(localized: "update.popover.restartRequired", defaultValue: "Restart Required"))
                     .font(.system(size: 13, weight: .semibold))
 
-                Text("The update is ready. Please restart the application to complete the installation.")
+                Text(String(localized: "update.popover.restartRequired.message", defaultValue: "The update is ready. Please restart the application to complete the installation."))
                     .font(.system(size: 11))
                     .foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
             HStack {
-                Button("Restart Later") {
+                Button(String(localized: "common.restartLater", defaultValue: "Restart Later")) {
                     installing.dismiss()
                     dismiss()
                 }
@@ -290,7 +290,7 @@ fileprivate struct InstallingView: View {
 
                 Spacer()
 
-                Button("Restart Now") {
+                Button(String(localized: "common.restartNow", defaultValue: "Restart Now")) {
                     installing.retryTerminatingApplication()
                     dismiss()
                 }
@@ -310,10 +310,10 @@ fileprivate struct NotFoundView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 8) {
-                Text("No Updates Found")
+                Text(String(localized: "update.popover.noUpdatesFound", defaultValue: "No Updates Found"))
                     .font(.system(size: 13, weight: .semibold))
 
-                Text("You're already running the latest version.")
+                Text(String(localized: "update.popover.noUpdatesFound.message", defaultValue: "You're already running the latest version."))
                     .font(.system(size: 11))
                     .foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -321,7 +321,7 @@ fileprivate struct NotFoundView: View {
 
             HStack {
                 Spacer()
-                Button("OK") {
+                Button(String(localized: "common.ok", defaultValue: "OK")) {
                     notFound.acknowledgement()
                     dismiss()
                 }
@@ -363,7 +363,7 @@ fileprivate struct UpdateErrorView: View {
             }
 
             VStack(alignment: .leading, spacing: 6) {
-                Text("Details")
+                Text(String(localized: "update.popover.details", defaultValue: "Details"))
                     .font(.system(size: 11, weight: .semibold))
                 Text(details)
                     .font(.system(size: 10, design: .monospaced))
@@ -373,14 +373,14 @@ fileprivate struct UpdateErrorView: View {
             }
 
             HStack(spacing: 8) {
-                Button("Copy Details") {
+                Button(String(localized: "common.copyDetails", defaultValue: "Copy Details")) {
                     let pasteboard = NSPasteboard.general
                     pasteboard.clearContents()
                     pasteboard.setString(details, forType: .string)
                 }
                 .controlSize(.small)
 
-                Button("OK") {
+                Button(String(localized: "common.ok", defaultValue: "OK")) {
                     error.dismiss()
                     dismiss()
                 }
@@ -389,7 +389,7 @@ fileprivate struct UpdateErrorView: View {
 
                 Spacer()
 
-                Button("Retry") {
+                Button(String(localized: "common.retry", defaultValue: "Retry")) {
                     error.retry()
                     dismiss()
                 }
