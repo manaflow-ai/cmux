@@ -8075,8 +8075,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if window.isMiniaturized {
             window.deminiaturize(nil)
         }
-        // Bring the specific window to front across Spaces without activating
-        // all windows, which would cause SwiftUI to spawn new scenes (#872).
+        // Make the window key (for focus/input routing) and bring it forward.
+        // orderFrontRegardless() ensures reliability across Spaces, while
+        // makeKeyAndOrderFront() establishes proper key-window status (#872).
+        window.makeKeyAndOrderFront(nil)
         window.orderFrontRegardless()
         NSRunningApplication.current.activate(options: [.activateIgnoringOtherApps])
     }
