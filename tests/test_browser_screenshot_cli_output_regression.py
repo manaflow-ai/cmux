@@ -64,9 +64,9 @@ def main() -> int:
     controller_source = (root / "Sources" / "TerminalController.swift").read_text(encoding="utf-8")
     v2_screenshot_block = extract_block(controller_source, "private func v2BrowserScreenshot(params: [String: Any]) -> V2CallResult")
 
-    if '"path": imageURL.path' not in v2_screenshot_block:
+    if 'result["path"] = imageURL.path' not in v2_screenshot_block:
         failures.append("browser.screenshot v2 response no longer includes screenshot path")
-    if '"url": imageURL.absoluteString' not in v2_screenshot_block:
+    if 'result["url"] = imageURL.absoluteString' not in v2_screenshot_block:
         failures.append("browser.screenshot v2 response no longer includes screenshot URL")
 
     if failures:

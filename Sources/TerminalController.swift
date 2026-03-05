@@ -6707,43 +6707,30 @@ class TerminalController {
                 return .err(code: "internal_error", message: "Failed to capture snapshot", data: nil)
             }
 
-            let screenshotsDirectory = FileManager.default.temporaryDirectory
-                .appendingPathComponent("cmux-browser-screenshots", isDirectory: true)
-            do {
-                try FileManager.default.createDirectory(at: screenshotsDirectory, withIntermediateDirectories: true)
-            } catch {
-                return .err(
-                    code: "internal_error",
-                    message: "Failed to create screenshot directory",
-                    data: ["error": error.localizedDescription]
-                )
-            }
-
-            let timestampMs = Int(Date().timeIntervalSince1970 * 1000)
-            let shortSurfaceId = String(surfaceId.uuidString.prefix(8))
-            let shortRandomId = String(UUID().uuidString.prefix(8))
-            let filename = "surface-\(shortSurfaceId)-\(timestampMs)-\(shortRandomId).png"
-            let imageURL = screenshotsDirectory.appendingPathComponent(filename, isDirectory: false)
-
-            do {
-                try imageData.write(to: imageURL, options: .atomic)
-            } catch {
-                return .err(
-                    code: "internal_error",
-                    message: "Failed to write screenshot file",
-                    data: ["error": error.localizedDescription]
-                )
-            }
-
-            return .ok([
+            var result: [String: Any] = [
                 "workspace_id": ws.id.uuidString,
                 "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
                 "surface_id": surfaceId.uuidString,
                 "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
-                "png_base64": imageData.base64EncodedString(),
-                "path": imageURL.path,
-                "url": imageURL.absoluteString
-            ])
+                "png_base64": imageData.base64EncodedString()
+            ]
+
+            // Best effort: keep screenshot data available even when temp-file writes fail.
+            let screenshotsDirectory = FileManager.default.temporaryDirectory
+                .appendingPathComponent("cmux-browser-screenshots", isDirectory: true)
+            if (try? FileManager.default.createDirectory(at: screenshotsDirectory, withIntermediateDirectories: true)) != nil {
+                let timestampMs = Int(Date().timeIntervalSince1970 * 1000)
+                let shortSurfaceId = String(surfaceId.uuidString.prefix(8))
+                let shortRandomId = String(UUID().uuidString.prefix(8))
+                let filename = "surface-\(shortSurfaceId)-\(timestampMs)-\(shortRandomId).png"
+                let imageURL = screenshotsDirectory.appendingPathComponent(filename, isDirectory: false)
+                if (try? imageData.write(to: imageURL, options: .atomic)) != nil {
+                    result["path"] = imageURL.path
+                    result["url"] = imageURL.absoluteString
+                }
+            }
+
+            return .ok(result)
         }
     }
 
