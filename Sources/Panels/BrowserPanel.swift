@@ -1232,6 +1232,18 @@ private enum BrowserInsecureHTTPNavigationIntent {
     case newTab
 }
 
+/// Observable state for browser find-in-page. Mirrors `TerminalSurface.SearchState`.
+@MainActor
+final class BrowserSearchState: ObservableObject {
+    @Published var needle: String
+    @Published var selected: UInt?
+    @Published var total: UInt?
+
+    init(needle: String = "") {
+        self.needle = needle
+    }
+}
+
 @MainActor
 final class BrowserPanel: Panel, ObservableObject {
     /// Shared process pool for cookie sharing across all browser panels
@@ -1436,6 +1448,36 @@ final class BrowserPanel: Panel, ObservableObject {
     /// cleared only after BrowserPanelView acknowledges handling it.
     @Published private(set) var pendingAddressBarFocusRequestId: UUID?
 
+    /// Find-in-page state. Non-nil when the find bar is visible.
+    @Published var searchState: BrowserSearchState? = nil {
+        didSet {
+            if let searchState {
+                NSLog("Find: browser search state created panel=%@", id.uuidString)
+                searchNeedleCancellable = searchState.$needle
+                    .removeDuplicates()
+                    .map { needle -> AnyPublisher<String, Never> in
+                        if needle.isEmpty || needle.count >= 3 {
+                            return Just(needle).eraseToAnyPublisher()
+                        }
+                        return Just(needle)
+                            .delay(for: .milliseconds(300), scheduler: DispatchQueue.main)
+                            .eraseToAnyPublisher()
+                    }
+                    .switchToLatest()
+                    .sink { [weak self] needle in
+                        guard let self else { return }
+                        NSLog("Find: browser needle updated panel=%@ needle=%@", self.id.uuidString, needle)
+                        self.executeFindSearch(needle)
+                    }
+            } else if oldValue != nil {
+                searchNeedleCancellable = nil
+                NSLog("Find: browser search state cleared panel=%@", id.uuidString)
+                executeFindClear()
+            }
+        }
+    }
+    private var searchNeedleCancellable: AnyCancellable?
+
     private var cancellables = Set<AnyCancellable>()
     private var navigationDelegate: BrowserNavigationDelegate?
     private var uiDelegate: BrowserUIDelegate?
@@ -1541,6 +1583,10 @@ final class BrowserPanel: Panel, ObservableObject {
             Task { @MainActor [weak self] in
                 self?.refreshFavicon(from: webView)
                 self?.applyBrowserThemeModeIfNeeded()
+                // Clear find-in-page on navigation so stale highlights don't persist.
+                if self?.searchState != nil {
+                    self?.searchState = nil
+                }
             }
         }
         navDelegate.didFailNavigation = { [weak self] _, failedURL in
@@ -1551,6 +1597,10 @@ final class BrowserPanel: Panel, ObservableObject {
                 self.pageTitle = failedURL.isEmpty ? "" : failedURL
                 self.faviconPNGData = nil
                 self.lastFaviconURLString = nil
+                // Clear find-in-page so stale highlights don't persist.
+                if self.searchState != nil {
+                    self.searchState = nil
+                }
             }
         }
         navDelegate.openInNewTab = { [weak self] url in
@@ -2500,6 +2550,78 @@ extension BrowserPanel {
     /// Execute JavaScript
     func evaluateJavaScript(_ script: String) async throws -> Any? {
         try await webView.evaluateJavaScript(script)
+    }
+
+    // MARK: - Find in Page
+
+    func startFind() {
+        if searchState == nil {
+            searchState = BrowserSearchState()
+        }
+        NotificationCenter.default.post(name: .browserSearchFocus, object: id)
+    }
+
+    func findNext() {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let result = try? await self.webView.evaluateJavaScript(BrowserFindJavaScript.nextScript())
+            self.parseFindResult(result)
+        }
+    }
+
+    func findPrevious() {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let result = try? await self.webView.evaluateJavaScript(BrowserFindJavaScript.previousScript())
+            self.parseFindResult(result)
+        }
+    }
+
+    func hideFind() {
+        searchState = nil
+    }
+
+    private func executeFindSearch(_ needle: String) {
+        guard !needle.isEmpty else {
+            executeFindClear()
+            searchState?.selected = nil
+            searchState?.total = nil
+            return
+        }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let js = BrowserFindJavaScript.searchScript(query: needle)
+            do {
+                let result = try await self.webView.evaluateJavaScript(js)
+                self.parseFindResult(result)
+            } catch {
+                NSLog("Find: browser JS search error: %@", error.localizedDescription)
+            }
+        }
+    }
+
+    private func executeFindClear() {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                _ = try await self.webView.evaluateJavaScript(BrowserFindJavaScript.clearScript())
+            } catch {
+                NSLog("Find: browser JS clear error: %@", error.localizedDescription)
+            }
+        }
+    }
+
+    private func parseFindResult(_ result: Any?) {
+        guard let jsonString = result as? String,
+              let data = jsonString.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let total = json["total"] as? Int,
+              let current = json["current"] as? Int,
+              total >= 0, current >= 0 else {
+            return
+        }
+        searchState?.total = UInt(total)
+        searchState?.selected = total > 0 ? UInt(current) : nil
     }
 
     func setBrowserThemeMode(_ mode: BrowserThemeMode) {
