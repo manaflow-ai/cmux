@@ -2640,7 +2640,7 @@ enum AppLanguage: String, CaseIterable, Identifiable {
         switch self {
         case .system: return String(localized: "language.system", defaultValue: "System")
         case .en: return "English"
-        case .ar: return "العربية (Arabic)"
+        case .ar: return "\u{200E}العربية (Arabic)"
         case .bs: return "Bosanski (Bosnian)"
         case .zhHans: return "简体中文 (Chinese Simplified)"
         case .zhHant: return "繁體中文 (Chinese Traditional)"
