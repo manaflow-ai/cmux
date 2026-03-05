@@ -178,6 +178,8 @@ _cmux_prompt_command() {
         if [[ -n "$head_signature" && "$head_signature" != "$_CMUX_GIT_HEAD_SIGNATURE" ]]; then
             _CMUX_GIT_HEAD_SIGNATURE="$head_signature"
             git_head_changed=1
+            # Also invalidate the PR probe so it refreshes with the new branch.
+            _CMUX_PR_LAST_RUN=0
         fi
     fi
 
@@ -213,16 +215,16 @@ _cmux_prompt_command() {
     fi
 
     # Pull request metadata (number/state/url):
-    # refresh on cwd change and periodically to avoid stale status.
+    # refresh on cwd change, HEAD change, and periodically to avoid stale status.
     if [[ -n "$_CMUX_PR_JOB_PID" ]] && kill -0 "$_CMUX_PR_JOB_PID" 2>/dev/null; then
-        if [[ "$pwd" != "$_CMUX_PR_LAST_PWD" ]]; then
+        if [[ "$pwd" != "$_CMUX_PR_LAST_PWD" || "$git_head_changed" == "1" ]]; then
             kill "$_CMUX_PR_JOB_PID" >/dev/null 2>&1 || true
             _CMUX_PR_JOB_PID=""
             _CMUX_PR_JOB_STARTED_AT=0
         fi
     fi
 
-    if [[ "$pwd" != "$_CMUX_PR_LAST_PWD" ]] || (( now - _CMUX_PR_LAST_RUN >= 60 )); then
+    if [[ "$pwd" != "$_CMUX_PR_LAST_PWD" || "$git_head_changed" == "1" ]] || (( now - _CMUX_PR_LAST_RUN >= 60 )); then
         if [[ -z "$_CMUX_PR_JOB_PID" ]] || ! kill -0 "$_CMUX_PR_JOB_PID" 2>/dev/null; then
             _CMUX_PR_LAST_PWD="$pwd"
             _CMUX_PR_LAST_RUN=$now
