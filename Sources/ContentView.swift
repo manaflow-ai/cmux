@@ -6453,6 +6453,7 @@ private struct TabItemView: View {
     @AppStorage(SidebarBranchLayoutSettings.key) private var sidebarBranchVerticalLayout = SidebarBranchLayoutSettings.defaultVerticalLayout
     @AppStorage("sidebarShowBranchDirectory") private var sidebarShowBranchDirectory = true
     @AppStorage("sidebarShowGitBranchIcon") private var sidebarShowGitBranchIcon = false
+    @AppStorage("sidebarShowGitStatusCounts") private var sidebarShowGitStatusCounts = true
     @AppStorage("sidebarShowPullRequest") private var sidebarShowPullRequest = true
     @AppStorage(BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowserKey)
     private var openSidebarPullRequestLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenSidebarPullRequestLinksInCmuxBrowser
@@ -7356,7 +7357,10 @@ private struct TabItemView: View {
         return lines.joined(separator: " | ")
     }
 
-    private static func gitStatusSuffix(_ state: SidebarGitBranchState) -> String {
+    private static func gitStatusSuffix(_ state: SidebarGitBranchState, showCounts: Bool) -> String {
+        guard showCounts else {
+            return state.isDirty ? "*" : ""
+        }
         var parts: [String] = []
         if let count = state.changedCount, count > 0 {
             parts.append("!\(count)")
@@ -7370,7 +7374,7 @@ private struct TabItemView: View {
 
     private func gitBranchSummaryLines(orderedPanelIds: [UUID]) -> [String] {
         tab.sidebarGitBranchesInDisplayOrder(orderedPanelIds: orderedPanelIds).map { branch in
-            "\(branch.branch)\(Self.gitStatusSuffix(branch))"
+            "\(branch.branch)\(Self.gitStatusSuffix(branch, showCounts: sidebarShowGitStatusCounts))"
         }
     }
 
@@ -7388,7 +7392,7 @@ private struct TabItemView: View {
                 let suffix = Self.gitStatusSuffix(SidebarGitBranchState(
                     branch: branch, isDirty: entry.isDirty,
                     changedCount: entry.changedCount, ahead: entry.ahead, behind: entry.behind
-                ))
+                ), showCounts: sidebarShowGitStatusCounts)
                 return "\(branch)\(suffix)"
             }()
 

@@ -2836,6 +2836,7 @@ struct SettingsView: View {
     private var openSidebarPullRequestLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenSidebarPullRequestLinksInCmuxBrowser
     @AppStorage(ShortcutHintDebugSettings.showHintsOnCommandHoldKey)
     private var showShortcutHintsOnCommandHold = ShortcutHintDebugSettings.defaultShowHintsOnCommandHold
+    @AppStorage("sidebarShowGitStatusCounts") private var sidebarShowGitStatusCounts = true
     @AppStorage("sidebarShowPorts") private var sidebarShowPorts = true
     @AppStorage("sidebarShowLog") private var sidebarShowLog = true
     @AppStorage("sidebarShowProgress") private var sidebarShowProgress = true
@@ -3414,6 +3415,17 @@ struct SettingsView: View {
                             subtitle: String(localized: "settings.app.showBranchDirectory.subtitle", defaultValue: "Display the built-in git branch and working-directory row.")
                         ) {
                             Toggle("", isOn: $sidebarShowBranchDirectory)
+                                .labelsHidden()
+                                .controlSize(.small)
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            String(localized: "settings.app.showGitStatusCounts", defaultValue: "Show Git Status Counts"),
+                            subtitle: String(localized: "settings.app.showGitStatusCounts.subtitle", defaultValue: "Show uncommitted changes (!3), ahead (⇡1), and behind (⇣2) counts next to the branch name.")
+                        ) {
+                            Toggle("", isOn: $sidebarShowGitStatusCounts)
                                 .labelsHidden()
                                 .controlSize(.small)
                         }
@@ -4115,6 +4127,7 @@ struct SettingsView: View {
         sidebarShowPullRequest = true
         openSidebarPullRequestLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenSidebarPullRequestLinksInCmuxBrowser
         showShortcutHintsOnCommandHold = ShortcutHintDebugSettings.defaultShowHintsOnCommandHold
+        sidebarShowGitStatusCounts = true
         sidebarShowPorts = true
         sidebarShowLog = true
         sidebarShowProgress = true
