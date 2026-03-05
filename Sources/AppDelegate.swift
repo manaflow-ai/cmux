@@ -9147,6 +9147,12 @@ private extension NSWindow {
         if let eventWindow = event.window, eventWindow !== window {
             return nil
         }
+        if let portalWebView = BrowserWindowPortalRegistry.webViewAtWindowPoint(
+            event.locationInWindow,
+            in: window
+        ) as? CmuxWebView {
+            return portalWebView
+        }
         guard let hitView = cmuxHitViewForCurrentEvent(in: window, event: event) else {
             return nil
         }

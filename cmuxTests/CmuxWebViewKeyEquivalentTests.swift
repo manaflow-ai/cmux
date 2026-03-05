@@ -412,6 +412,67 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
     }
 
     @MainActor
+    func testWindowFirstResponderGuardAllowsPointerInitiatedClickFocusForPortalHostedWebView() {
+        _ = NSApplication.shared
+        AppDelegate.installWindowResponderSwizzlesForTesting()
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
+        window.contentView = container
+
+        let anchor = NSView(frame: NSRect(x: 80, y: 60, width: 240, height: 150))
+        container.addSubview(anchor)
+
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let descendant = FirstResponderView(frame: NSRect(x: 0, y: 0, width: 10, height: 10))
+        webView.addSubview(descendant)
+
+        window.makeKeyAndOrderFront(nil)
+        container.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        BrowserWindowPortalRegistry.bind(webView: webView, to: anchor, visibleInUI: true, zPriority: 1)
+        BrowserWindowPortalRegistry.synchronizeForAnchor(anchor)
+
+        defer {
+            BrowserWindowPortalRegistry.detach(webView: webView)
+            AppDelegate.clearWindowFirstResponderGuardTesting()
+            window.orderOut(nil)
+        }
+
+        webView.allowsFirstResponderAcquisition = false
+        _ = window.makeFirstResponder(nil)
+        XCTAssertFalse(window.makeFirstResponder(descendant), "Expected blocked focus without pointer click context")
+
+        let timestamp = ProcessInfo.processInfo.systemUptime
+        let pointerPointInContent = NSPoint(x: anchor.frame.midX, y: anchor.frame.midY)
+        let pointerPointInWindow = container.convert(pointerPointInContent, to: nil)
+        let pointerDownEvent = NSEvent.mouseEvent(
+            with: .leftMouseDown,
+            location: pointerPointInWindow,
+            modifierFlags: [],
+            timestamp: timestamp,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: 1,
+            clickCount: 1,
+            pressure: 1.0
+        )
+        XCTAssertNotNil(pointerDownEvent)
+
+        AppDelegate.setWindowFirstResponderGuardTesting(currentEvent: pointerDownEvent, hitView: nil)
+        _ = window.makeFirstResponder(nil)
+        XCTAssertTrue(
+            window.makeFirstResponder(descendant),
+            "Expected portal-hosted pointer click context to bypass blocked policy"
+        )
+    }
+
+    @MainActor
     func testWindowFirstResponderGuardAvoidsTextViewDelegateLookupForWebViewResolution() {
         _ = NSApplication.shared
         AppDelegate.installWindowResponderSwizzlesForTesting()
