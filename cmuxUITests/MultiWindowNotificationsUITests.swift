@@ -218,13 +218,15 @@ final class MultiWindowNotificationsUITests: XCTestCase {
 
         XCTAssertTrue(waitForWindowCount(atLeast: 2, app: app, timeout: 6.0))
 
-        guard let resolvedPath = resolveSocketPath(timeout: 8.0) else {
-            throw XCTSkip("Control socket unavailable in this test environment. requested=\(socketPath)")
+        guard let resolvedPath = resolveSocketPath(timeout: 8.0, requiredWorkspaceId: tabId2) else {
+            XCTFail("Control socket unavailable in this test environment. requested=\(socketPath)")
+            return
         }
         socketPath = resolvedPath
         let pingResponse = waitForSocketPong(timeout: 8.0)
         guard pingResponse == "PONG" else {
-            throw XCTSkip("Control socket did not respond in time. path=\(socketPath) response=\(pingResponse ?? "<nil>")")
+            XCTFail("Control socket did not respond in time. path=\(socketPath) response=\(pingResponse ?? "<nil>")")
+            return
         }
 
         guard let surfaceId = firstSurfaceId(forWorkspaceId: tabId2) else {
@@ -482,33 +484,106 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         return nil
     }
 
-    private func resolveSocketPath(timeout: TimeInterval) -> String? {
+    private func resolveSocketPath(timeout: TimeInterval, requiredWorkspaceId: String? = nil) -> String? {
+        let primaryCandidates = expectedSocketCandidates(includeGlobalFallback: false)
+        let fallbackCandidates: [String]
+        if let requiredWorkspaceId, !requiredWorkspaceId.isEmpty {
+            fallbackCandidates = expectedSocketCandidates(includeGlobalFallback: true)
+                .filter { !primaryCandidates.contains($0) }
+        } else {
+            fallbackCandidates = []
+        }
+
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
-            for candidate in expectedSocketCandidates() {
+            for candidate in primaryCandidates {
                 guard FileManager.default.fileExists(atPath: candidate) else { continue }
-                if socketRespondsToPing(at: candidate) {
+                if socketRespondsToPing(at: candidate),
+                   socketMatchesRequiredWorkspace(candidate, workspaceId: requiredWorkspaceId) {
+                    return candidate
+                }
+            }
+            for candidate in fallbackCandidates {
+                guard FileManager.default.fileExists(atPath: candidate) else { continue }
+                if socketRespondsToPing(at: candidate),
+                   socketMatchesRequiredWorkspace(candidate, workspaceId: requiredWorkspaceId) {
                     return candidate
                 }
             }
             RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         }
-        for candidate in expectedSocketCandidates() {
+        for candidate in primaryCandidates {
             guard FileManager.default.fileExists(atPath: candidate) else { continue }
-            if socketRespondsToPing(at: candidate) {
+            if socketRespondsToPing(at: candidate),
+               socketMatchesRequiredWorkspace(candidate, workspaceId: requiredWorkspaceId) {
+                return candidate
+            }
+        }
+        for candidate in fallbackCandidates {
+            guard FileManager.default.fileExists(atPath: candidate) else { continue }
+            if socketRespondsToPing(at: candidate),
+               socketMatchesRequiredWorkspace(candidate, workspaceId: requiredWorkspaceId) {
                 return candidate
             }
         }
         return nil
     }
 
-    private func expectedSocketCandidates() -> [String] {
+    private func expectedSocketCandidates(includeGlobalFallback: Bool) -> [String] {
         var candidates = [socketPath]
         let taggedDebugSocket = "/tmp/cmux-debug-\(launchTag).sock"
-        if taggedDebugSocket != socketPath {
+        if !taggedDebugSocket.isEmpty {
             candidates.append(taggedDebugSocket)
         }
-        return candidates
+        if includeGlobalFallback {
+            candidates.append(contentsOf: discoverTmpSocketCandidates(limit: 12))
+            candidates.append("/tmp/cmux-debug.sock")
+            candidates.append("/tmp/cmux.sock")
+        }
+
+        var unique: [String] = []
+        var seen = Set<String>()
+        for candidate in candidates {
+            if seen.insert(candidate).inserted {
+                unique.append(candidate)
+            }
+        }
+        return unique
+    }
+
+    private func socketMatchesRequiredWorkspace(_ candidatePath: String, workspaceId: String?) -> Bool {
+        guard let workspaceId, !workspaceId.isEmpty else { return true }
+        let originalPath = socketPath
+        socketPath = candidatePath
+        defer { socketPath = originalPath }
+
+        guard let response = socketCommand("list_surfaces \(workspaceId)"),
+              !response.isEmpty,
+              !response.hasPrefix("ERROR"),
+              response != "No surfaces" else {
+            return false
+        }
+        return true
+    }
+
+    private func discoverTmpSocketCandidates(limit: Int) -> [String] {
+        let tmpPath = "/tmp"
+        guard let entries = try? FileManager.default.contentsOfDirectory(atPath: tmpPath) else {
+            return []
+        }
+
+        let matches = entries.filter { $0.hasPrefix("cmux") && $0.hasSuffix(".sock") }
+        let sorted = matches.compactMap { entry -> (path: String, mtime: Date)? in
+            let fullPath = (tmpPath as NSString).appendingPathComponent(entry)
+            guard let attrs = try? FileManager.default.attributesOfItem(atPath: fullPath) else {
+                return nil
+            }
+            let mtime = (attrs[.modificationDate] as? Date) ?? .distantPast
+            return (fullPath, mtime)
+        }
+        .sorted { $0.mtime > $1.mtime }
+
+        return Array(sorted.prefix(limit)).map(\.path)
     }
 
     private func socketRespondsToPing(at path: String) -> Bool {
