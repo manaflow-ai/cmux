@@ -2371,13 +2371,16 @@ extension BrowserPanel {
             "bypass=\(bypassInsecureHTTPHostOnce ?? "nil")"
         )
 #endif
-        guard let tabManager = AppDelegate.shared?.tabManager else {
+        guard let app = AppDelegate.shared else {
 #if DEBUG
-            dlog("browser.newTab.open.abort panel=\(id.uuidString.prefix(5)) reason=missingTabManager")
+            dlog("browser.newTab.open.abort panel=\(id.uuidString.prefix(5)) reason=missingAppDelegate")
 #endif
             return
         }
-        guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else {
+        guard let workspace = app.workspaceContainingPanel(
+            panelId: id,
+            preferredWorkspaceId: workspaceId
+        )?.workspace else {
 #if DEBUG
             dlog("browser.newTab.open.abort panel=\(id.uuidString.prefix(5)) reason=workspaceMissing")
 #endif

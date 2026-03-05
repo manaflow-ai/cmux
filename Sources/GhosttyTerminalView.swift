@@ -1860,35 +1860,54 @@ class GhosttyApp {
                         NSWorkspace.shared.open(url)
                     }
                 }
-                guard let tabId = surfaceView.tabId,
-                      let surfaceId = surfaceView.terminalSurface?.id else {
+                let sourceWorkspaceId = callbackTabId ?? surfaceView.tabId
+                let sourcePanelId = callbackSurfaceId ?? surfaceView.terminalSurface?.id
+                guard let sourceWorkspaceId,
+                      let sourcePanelId else {
                     #if DEBUG
                     dlog("link.openURL target=embedded but tabId/surfaceId=nil")
                     #endif
                     return false
                 }
                 #if DEBUG
-                dlog("link.openURL target=embedded, opening in browser pane host=\(host) url=\(url) tabId=\(tabId) surfaceId=\(surfaceId)")
+                dlog(
+                    "link.openURL target=embedded, opening in browser pane " +
+                    "host=\(host) url=\(url) tabId=\(sourceWorkspaceId) surfaceId=\(sourcePanelId)"
+                )
                 #endif
                 return performOnMain {
                     guard let app = AppDelegate.shared,
-                          let tabManager = app.tabManagerFor(tabId: tabId) ?? app.tabManager,
-                          let workspace = tabManager.tabs.first(where: { $0.id == tabId }) else {
+                          let resolved = app.workspaceContainingPanel(
+                            panelId: sourcePanelId,
+                            preferredWorkspaceId: sourceWorkspaceId
+                          ) else {
                         #if DEBUG
-                        dlog("link.openURL embedded but workspace lookup failed tabId=\(tabId)")
+                        dlog(
+                            "link.openURL embedded but workspace lookup failed " +
+                            "tabId=\(sourceWorkspaceId) surfaceId=\(sourcePanelId)"
+                        )
                         #endif
                         return false
                     }
-                    if let targetPane = workspace.preferredBrowserTargetPane(fromPanelId: surfaceId) {
+                    let workspace = resolved.workspace
+                    #if DEBUG
+                    if workspace.id != sourceWorkspaceId {
+                        dlog(
+                            "link.openURL workspace.remap sourceTab=\(sourceWorkspaceId) " +
+                            "resolvedTab=\(workspace.id) surfaceId=\(sourcePanelId)"
+                        )
+                    }
+                    #endif
+                    if let targetPane = workspace.preferredBrowserTargetPane(fromPanelId: sourcePanelId) {
                         #if DEBUG
                         dlog("link.openURL opening in existing browser pane=\(targetPane)")
                         #endif
                         return workspace.newBrowserSurface(inPane: targetPane, url: url, focus: true) != nil
                     } else {
                         #if DEBUG
-                        dlog("link.openURL opening as new browser split from surface=\(surfaceId)")
+                        dlog("link.openURL opening as new browser split from surface=\(sourcePanelId)")
                         #endif
-                        return workspace.newBrowserSplit(from: surfaceId, orientation: .horizontal, url: url) != nil
+                        return workspace.newBrowserSplit(from: sourcePanelId, orientation: .horizontal, url: url) != nil
                     }
                 }
             }

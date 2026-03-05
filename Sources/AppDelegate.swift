@@ -3611,6 +3611,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return nil
     }
 
+    /// Resolve the workspace that currently owns a panel/surface ID.
+    /// Prefer the provided workspace when available, then fall back to global lookup.
+    func workspaceContainingPanel(
+        panelId: UUID,
+        preferredWorkspaceId: UUID? = nil
+    ) -> (workspace: Workspace, tabManager: TabManager)? {
+        if let preferredWorkspaceId,
+           let manager = tabManagerFor(tabId: preferredWorkspaceId),
+           let workspace = manager.tabs.first(where: { $0.id == preferredWorkspaceId }),
+           workspace.panels[panelId] != nil {
+            return (workspace, manager)
+        }
+
+        if let located = locateSurface(surfaceId: panelId),
+           let workspace = located.tabManager.tabs.first(where: { $0.id == located.workspaceId }),
+           workspace.panels[panelId] != nil {
+            return (workspace, located.tabManager)
+        }
+
+        if let preferredWorkspaceId,
+           let manager = tabManagerFor(tabId: preferredWorkspaceId) ?? tabManager,
+           let workspace = manager.tabs.first(where: { $0.id == preferredWorkspaceId }),
+           workspace.panels[panelId] != nil {
+            return (workspace, manager)
+        }
+
+        if let manager = tabManager,
+           let workspace = manager.tabs.first(where: { $0.panels[panelId] != nil }) {
+            return (workspace, manager)
+        }
+
+        return nil
+    }
+
     func locateGhosttySurface(_ surface: ghostty_surface_t?) -> (windowId: UUID, workspaceId: UUID, panelId: UUID, tabManager: TabManager)? {
         guard let surface else { return nil }
         for ctx in mainWindowContexts.values {
