@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Regression test: cmux advertises and allows microphone access."""
+"""Regression test: cmux advertises media-capture access metadata."""
 
 from __future__ import annotations
 
@@ -36,6 +36,7 @@ def main() -> int:
     entitlements = load_plist(repo_root / "cmux.entitlements", failures)
 
     mic_usage = info.get("NSMicrophoneUsageDescription")
+    camera_usage = info.get("NSCameraUsageDescription")
     if not isinstance(mic_usage, str) or not mic_usage.strip():
         failures.append(
             "Resources/Info.plist must define a non-empty NSMicrophoneUsageDescription"
@@ -50,13 +51,27 @@ def main() -> int:
             "cmux.entitlements must set com.apple.security.device.audio-input to true"
         )
 
+    if not isinstance(camera_usage, str) or not camera_usage.strip():
+        failures.append(
+            "Resources/Info.plist must define a non-empty NSCameraUsageDescription"
+        )
+    elif camera_usage.strip() != "A program running within cmux would like to use your camera.":
+        failures.append(
+            "Resources/Info.plist NSCameraUsageDescription should match the Ghostty-style wording"
+        )
+
+    if entitlements.get("com.apple.security.device.camera") is not True:
+        failures.append(
+            "cmux.entitlements must set com.apple.security.device.camera to true"
+        )
+
     if failures:
-        print("FAIL: microphone access metadata regression(s) detected")
+        print("FAIL: media-capture metadata regression(s) detected")
         for failure in failures:
             print(f"- {failure}")
         return 1
 
-    print("PASS: microphone usage description and entitlement are present")
+    print("PASS: microphone/camera usage descriptions and entitlements are present")
     return 0
 
 

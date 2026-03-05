@@ -28,6 +28,8 @@
 	<string></string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>A program running within cmux would like to use your microphone.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>A program running within cmux would like to use your camera.</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
 	<key>NSServices</key>

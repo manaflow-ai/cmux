@@ -1533,6 +1533,7 @@ final class BrowserPanel: Panel, ObservableObject {
     private static func makeWebView() -> CmuxWebView {
         let config = WKWebViewConfiguration()
         config.processPool = BrowserPanel.sharedProcessPool
+        config.mediaTypesRequiringUserActionForPlayback = []
         // Ensure browser cookies/storage persist across navigations and launches.
         // This reduces repeated consent/bot-challenge flows on sites like Google.
         config.websiteDataStore = .default()
@@ -3650,6 +3651,16 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
         panel.begin { result in
             completionHandler(result == .OK ? panel.urls : nil)
         }
+    }
+
+    func webView(
+        _ webView: WKWebView,
+        requestMediaCapturePermissionFor origin: WKSecurityOrigin,
+        initiatedByFrame frame: WKFrameInfo,
+        type: WKMediaCaptureType,
+        decisionHandler: @escaping (WKPermissionDecision) -> Void
+    ) {
+        decisionHandler(.prompt)
     }
 
     func webView(
