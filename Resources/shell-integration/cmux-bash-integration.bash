@@ -62,7 +62,7 @@ _cmux_report_tty_once() {
     _CMUX_TTY_REPORTED=1
     {
         _cmux_send "report_tty $_CMUX_TTY_NAME --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
-    } >/dev/null 2>&1 &
+    } >/dev/null 2>&1 & disown
 }
 
 _cmux_ports_kick() {
@@ -74,7 +74,7 @@ _cmux_ports_kick() {
     _CMUX_PORTS_LAST_RUN=$SECONDS
     {
         _cmux_send "ports_kick --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
-    } >/dev/null 2>&1 &
+    } >/dev/null 2>&1 & disown
 }
 
 _cmux_prompt_command() {
@@ -123,7 +123,7 @@ _cmux_prompt_command() {
         {
             local qpwd="${pwd//\"/\\\"}"
             _cmux_send "report_pwd \"${qpwd}\" --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
-        } >/dev/null 2>&1 &
+        } >/dev/null 2>&1 & disown
     fi
 
     # Git branch/dirty can change without a directory change (e.g. `git checkout`),
@@ -154,6 +154,7 @@ _cmux_prompt_command() {
             fi
         } >/dev/null 2>&1 &
         _CMUX_GIT_JOB_PID=$!
+        disown
         _CMUX_GIT_JOB_STARTED_AT=$now
     fi
 
@@ -197,6 +198,7 @@ _cmux_prompt_command() {
                 fi
             } >/dev/null 2>&1 &
             _CMUX_PR_JOB_PID=$!
+            disown
             _CMUX_PR_JOB_STARTED_AT=$now
         fi
     fi
@@ -205,6 +207,7 @@ _cmux_prompt_command() {
     if (( now - _CMUX_PORTS_LAST_RUN >= 10 )); then
         _cmux_ports_kick
     fi
+
 }
 
 _cmux_install_prompt_command() {
