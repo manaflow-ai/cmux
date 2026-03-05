@@ -2491,9 +2491,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             "acceptLoopAlive": health.acceptLoopAlive ? 1 : 0,
             "socketPathMatches": health.socketPathMatches ? 1 : 0,
             "socketPathExists": health.socketPathExists ? 1 : 0,
-            "socketConnectable": health.socketConnectable ? 1 : 0,
+            "socketProbePerformed": health.socketProbePerformed ? 1 : 0,
             "failureSignals": failureSignals
         ]
+        if health.socketProbePerformed {
+            data["socketConnectable"] = health.socketConnectable ? 1 : 0
+        }
         if let socketConnectErrno = health.socketConnectErrno {
             data["socketConnectErrno"] = Int(socketConnectErrno)
         }

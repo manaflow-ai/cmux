@@ -13,6 +13,7 @@ class TerminalController {
         let acceptLoopAlive: Bool
         let socketPathMatches: Bool
         let socketPathExists: Bool
+        let socketProbePerformed: Bool
         let socketConnectable: Bool
         let socketConnectErrno: Int32?
 
@@ -22,7 +23,7 @@ class TerminalController {
             if !acceptLoopAlive { signals.append("accept_loop_dead") }
             if !socketPathMatches { signals.append("socket_path_mismatch") }
             if !socketPathExists { signals.append("socket_missing") }
-            if isRunning && acceptLoopAlive && socketPathMatches && socketPathExists && !socketConnectable {
+            if socketProbePerformed && isRunning && acceptLoopAlive && socketPathMatches && socketPathExists && !socketConnectable {
                 signals.append("socket_unreachable")
             }
             return signals
@@ -756,6 +757,7 @@ class TerminalController {
             acceptLoopAlive: snapshot.acceptLoopAlive,
             socketPathMatches: pathMatches,
             socketPathExists: exists,
+            socketProbePerformed: shouldProbeConnection,
             socketConnectable: connectability.isConnectable,
             socketConnectErrno: connectability.errnoCode
         )
