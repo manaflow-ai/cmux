@@ -221,6 +221,7 @@ struct cmuxApp: App {
                     updateSocketController()
                 }
         }
+        .handlesExternalEvents(matching: [])
         .windowStyle(.hiddenTitleBar)
         .commands {
             CommandGroup(replacing: .appSettings) {
