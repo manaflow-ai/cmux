@@ -5021,15 +5021,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
 
             let creationElapsedMs = (ProcessInfo.processInfo.systemUptime - totalStart) * 1000.0
-            let primeStats = await self.primeDebugStressWorkspacesForSurfaceLoad(created)
-            // Avoid synchronous "load all surfaces" waiting in this command path.
-            // Waiting for every background surface to be ready creates sustained
-            // main-actor churn and can starve typing responsiveness.
-            let loadStats = DebugStressSurfaceLoadStats(
-                pendingSurfaces: self.pendingDebugTerminalSurfaceCount(in: created),
-                attempts: 0,
-                elapsedMs: 0
+            let primeStats = await self.primeDebugStressWorkspacesForSurfaceLoad(
+                created,
+                tabManager: tabManager
             )
+            let loadStats = await self.waitForDebugStressSurfaceLoad(created)
             let totalElapsedMs = (ProcessInfo.processInfo.systemUptime - totalStart) * 1000.0
             let avgWorkspaceMs = created.isEmpty ? 0 : (cumulativeWorkspaceMs / Double(created.count))
             let expectedSurfaceCount = self.debugStressWorkspaceCount
@@ -5075,7 +5071,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func primeDebugStressWorkspacesForSurfaceLoad(
-        _ workspaces: [Workspace]
+        _ workspaces: [Workspace],
+        tabManager: TabManager
     ) async -> DebugStressSurfacePrimeStats {
         guard !workspaces.isEmpty else {
             return DebugStressSurfacePrimeStats(activatedTabs: 0, elapsedMs: 0)
@@ -5085,9 +5082,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         var activatedTabs = 0
 
         for (index, workspace) in workspaces.enumerated() {
-            activatedTabs += workspace.panels.values.reduce(into: 0) { count, panel in
-                if panel is TerminalPanel {
-                    count += 1
+            tabManager.selectWorkspace(workspace)
+            await Task.yield()
+
+            for paneId in workspace.bonsplitController.allPaneIds {
+                workspace.bonsplitController.focusPane(paneId)
+                let tabCount = workspace.bonsplitController.tabs(inPane: paneId).count
+                for tabIndex in 0..<tabCount {
+                    workspace.selectSurface(at: tabIndex)
+                    if let panelId = workspace.focusedPanelId,
+                       let terminalPanel = workspace.terminalPanel(for: panelId) {
+                        terminalPanel.surface.requestBackgroundSurfaceStartIfNeeded()
+                        activatedTabs += 1
+                    }
+                    if activatedTabs % debugStressYieldInterval == 0 {
+                        await Task.yield()
+                    }
                 }
             }
 
@@ -5163,6 +5173,47 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let pendingSurfaces: Int
         let attempts: Int
         let elapsedMs: Double
+    }
+
+    private func requestDebugStressBackgroundSurfaceStarts(_ workspaces: [Workspace]) {
+        for workspace in workspaces {
+            for panel in workspace.panels.values {
+                guard let terminalPanel = panel as? TerminalPanel else { continue }
+                terminalPanel.surface.requestBackgroundSurfaceStartIfNeeded()
+            }
+        }
+    }
+
+    private func waitForDebugStressSurfaceLoad(
+        _ workspaces: [Workspace],
+        maxAttempts: Int = 60
+    ) async -> DebugStressSurfaceLoadStats {
+        guard !workspaces.isEmpty else {
+            return DebugStressSurfaceLoadStats(pendingSurfaces: 0, attempts: 0, elapsedMs: 0)
+        }
+
+        let waitStart = ProcessInfo.processInfo.systemUptime
+        var attempts = 0
+        var pending = pendingDebugTerminalSurfaceCount(in: workspaces)
+
+        while pending > 0, attempts < maxAttempts {
+            requestDebugStressBackgroundSurfaceStarts(workspaces)
+            attempts += 1
+
+            if attempts % debugStressYieldInterval == 0 {
+                await Task.yield()
+            }
+
+            try? await Task.sleep(nanoseconds: 50_000_000)
+            pending = pendingDebugTerminalSurfaceCount(in: workspaces)
+        }
+
+        let elapsedMs = (ProcessInfo.processInfo.systemUptime - waitStart) * 1000.0
+        return DebugStressSurfaceLoadStats(
+            pendingSurfaces: pending,
+            attempts: attempts,
+            elapsedMs: elapsedMs
+        )
     }
 
     private func pendingDebugTerminalSurfaceCount(in workspaces: [Workspace]) -> Int {

@@ -9,10 +9,11 @@ Scenario A (baseline):
 
 Scenario B (churn):
 1) Keep only the first workspace.
-2) Create N workspaces.
-3) Visit every workspace (simulates clicking each tab), then return to the first.
-4) Seed shell history.
-5) Measure Up-arrow latency again.
+2) Expand each workspace to a representative pane/tab topology.
+3) Create N additional workspaces and expand each the same way.
+4) Visit every workspace and every surface at least once, then return to the first.
+5) Seed shell history.
+6) Measure Up-arrow latency again.
 
 The test fails when churn latency regresses too far relative to baseline.
 """
@@ -41,6 +42,10 @@ HISTORY_SEED_LINES = int(os.environ.get("CMUX_LAG_HISTORY_LINES", "120"))
 KEY_EVENTS = int(os.environ.get("CMUX_LAG_KEY_EVENTS", "180"))
 KEY_DELAY_S = float(os.environ.get("CMUX_LAG_KEY_DELAY_S", "0.0"))
 KEY_COMBO = os.environ.get("CMUX_LAG_KEY_COMBO", "up")
+PANES_PER_WORKSPACE = max(1, int(os.environ.get("CMUX_LAG_PANES_PER_WORKSPACE", "2")))
+TABS_PER_PANE = max(1, int(os.environ.get("CMUX_LAG_TABS_PER_PANE", "2")))
+TOPOLOGY_MUTATION_DELAY_S = float(os.environ.get("CMUX_LAG_TOPOLOGY_MUTATION_DELAY_S", "0.01"))
+SURFACE_PRIME_DELAY_S = float(os.environ.get("CMUX_LAG_SURFACE_PRIME_DELAY_S", "0.01"))
 
 MAX_P95_RATIO = float(os.environ.get("CMUX_LAG_MAX_P95_RATIO", "1.70"))
 MAX_AVG_RATIO = float(os.environ.get("CMUX_LAG_MAX_AVG_RATIO", "1.70"))
@@ -251,6 +256,45 @@ def create_workspaces(client: cmux, count: int) -> list[str]:
     return created
 
 
+def configure_current_workspace_topology(
+    client: cmux,
+    panes_per_workspace: int,
+    tabs_per_pane: int,
+) -> None:
+    if panes_per_workspace < 1 or tabs_per_pane < 1:
+        raise cmuxError("panes_per_workspace and tabs_per_pane must be >= 1")
+
+    while len(client.list_panes()) < panes_per_workspace:
+        client.new_pane(direction="right")
+        if TOPOLOGY_MUTATION_DELAY_S > 0:
+            time.sleep(TOPOLOGY_MUTATION_DELAY_S)
+
+    for _pane_index, pane_id, _surface_count, _focused in client.list_panes():
+        current_tab_count = len(client.list_pane_surfaces(pane=pane_id))
+        missing_tabs = max(0, tabs_per_pane - current_tab_count)
+        for _ in range(missing_tabs):
+            client.new_surface(pane=pane_id)
+            if TOPOLOGY_MUTATION_DELAY_S > 0:
+                time.sleep(TOPOLOGY_MUTATION_DELAY_S)
+
+
+def warm_current_workspace_surfaces(client: cmux, delay_s: float) -> None:
+    for _index, surface_id, _is_focused in client.list_surfaces():
+        client.focus_surface(surface_id)
+        if delay_s > 0:
+            time.sleep(delay_s)
+
+
+def configure_and_warm_workspace(client: cmux, workspace_id: str) -> None:
+    client.select_workspace(workspace_id)
+    configure_current_workspace_topology(
+        client,
+        panes_per_workspace=PANES_PER_WORKSPACE,
+        tabs_per_pane=TABS_PER_PANE,
+    )
+    warm_current_workspace_surfaces(client, delay_s=SURFACE_PRIME_DELAY_S)
+
+
 def cycle_all_workspaces(client: cmux, passes: int, delay_s: float) -> list[str]:
     ids = [wid for _idx, wid, _title, _selected in sorted(client.list_workspaces(), key=lambda row: row[0])]
     for _ in range(passes):
@@ -325,6 +369,7 @@ def print_stats(label: str, stats: LatencyStats) -> None:
 
 def run_baseline_scenario(client: cmux, socket_path: str) -> tuple[str, LatencyStats]:
     first_workspace_id = keep_only_first_workspace(client)
+    configure_and_warm_workspace(client, first_workspace_id)
     client.select_workspace(first_workspace_id)
     panel_id = focused_terminal_panel(client)
     seed_history(client, HISTORY_SEED_LINES)
@@ -337,9 +382,14 @@ def run_baseline_scenario(client: cmux, socket_path: str) -> tuple[str, LatencyS
     return panel_id, compute_stats(latencies)
 
 
-def run_churn_scenario(client: cmux, socket_path: str, first_workspace_id: str) -> tuple[str, LatencyStats]:
+def run_churn_scenario(client: cmux, socket_path: str) -> tuple[str, LatencyStats]:
     first_workspace_id = keep_only_first_workspace(client)
-    _ = create_workspaces(client, NEW_WORKSPACES)
+    configure_and_warm_workspace(client, first_workspace_id)
+
+    created_workspace_ids = create_workspaces(client, NEW_WORKSPACES)
+    for workspace_id in created_workspace_ids:
+        configure_and_warm_workspace(client, workspace_id)
+
     ordered_ids = cycle_all_workspaces(client, SWITCH_PASSES, SWITCH_DELAY_S)
 
     if first_workspace_id in ordered_ids:
@@ -362,6 +412,10 @@ def main() -> int:
     print("=" * 64)
     print("Workspace Churn + Up-Arrow Latency Regression")
     print("=" * 64)
+    print(
+        f"new_workspaces={NEW_WORKSPACES} panes_per_workspace={PANES_PER_WORKSPACE} "
+        f"tabs_per_pane={TABS_PER_PANE}"
+    )
 
     client: Optional[cmux] = None
     pid: Optional[int] = None
@@ -385,7 +439,7 @@ def main() -> int:
         baseline_panel_id, baseline = run_baseline_scenario(client, client.socket_path)
         print(f"Baseline panel: {baseline_panel_id}")
 
-        churn_panel_id, churn = run_churn_scenario(client, client.socket_path, first_workspace_id)
+        churn_panel_id, churn = run_churn_scenario(client, client.socket_path)
         print(f"Churn panel:    {churn_panel_id}")
 
         cpu_monitor.stop()
