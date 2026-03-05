@@ -34,6 +34,11 @@ class TerminalController {
     private nonisolated(unsafe) var serverSocket: Int32 = -1
     private nonisolated(unsafe) var isRunning = false
     private nonisolated(unsafe) var acceptLoopAlive = false
+    private nonisolated(unsafe) var activeAcceptLoopGeneration: UInt64 = 0
+    private nonisolated(unsafe) var nextAcceptLoopGeneration: UInt64 = 0
+    private nonisolated(unsafe) var pendingAcceptLoopRearmGeneration: UInt64?
+    private nonisolated(unsafe) var listenerStartInProgress = false
+    private nonisolated let listenerStateLock = NSLock()
     private var clientHandlers: [Int32: Thread] = [:]
     private var tabManager: TabManager?
     private var accessMode: SocketControlMode = .cmuxOnly
@@ -41,6 +46,20 @@ class TerminalController {
     private nonisolated(unsafe) static var socketCommandPolicyDepth: Int = 0
     private nonisolated(unsafe) static var socketCommandFocusAllowanceStack: [Bool] = []
     private nonisolated static let socketCommandPolicyLock = NSLock()
+    private nonisolated static let socketListenBacklog: Int32 = 128
+    private nonisolated static let acceptFailureBaseBackoffMs = 10
+    private nonisolated static let acceptFailureMaxBackoffMs = 5_000
+    private nonisolated static let acceptFailureMinimumRearmDelayMs = 100
+    private nonisolated static let acceptFailureRearmThreshold = 50
+
+    private struct ListenerStateSnapshot {
+        let socketPath: String
+        let serverSocket: Int32
+        let isRunning: Bool
+        let acceptLoopAlive: Bool
+        let activeGeneration: UInt64
+        let pendingRearmGeneration: UInt64?
+    }
 
     private static let focusIntentV1Commands: Set<String> = [
         "focus_window",
@@ -126,6 +145,31 @@ class TerminalController {
     private let v2BrowserUndefinedSentinel = V2BrowserUndefinedSentinel()
 
     private init() {}
+
+    private nonisolated func withListenerState<T>(_ body: () -> T) -> T {
+        listenerStateLock.lock()
+        defer { listenerStateLock.unlock() }
+        return body()
+    }
+
+    private nonisolated func listenerStateSnapshot() -> ListenerStateSnapshot {
+        withListenerState {
+            ListenerStateSnapshot(
+                socketPath: socketPath,
+                serverSocket: serverSocket,
+                isRunning: isRunning,
+                acceptLoopAlive: acceptLoopAlive,
+                activeGeneration: activeAcceptLoopGeneration,
+                pendingRearmGeneration: pendingAcceptLoopRearmGeneration
+            )
+        }
+    }
+
+    private nonisolated func shouldContinueAcceptLoop(generation: UInt64) -> Bool {
+        withListenerState {
+            isRunning && generation == activeAcceptLoopGeneration
+        }
+    }
 
     nonisolated static func shouldSuppressSocketCommandActivation() -> Bool {
         socketCommandPolicyLock.lock()
@@ -369,12 +413,14 @@ class TerminalController {
         errnoCode: Int32? = nil,
         extra: [String: Any] = [:]
     ) -> [String: Any] {
+        let snapshot = listenerStateSnapshot()
         var data: [String: Any] = [
             "stage": stage,
-            "path": socketPath,
-            "isRunning": isRunning ? 1 : 0,
-            "acceptLoopAlive": acceptLoopAlive ? 1 : 0,
-            "serverSocket": Int(serverSocket)
+            "path": snapshot.socketPath,
+            "isRunning": snapshot.isRunning ? 1 : 0,
+            "acceptLoopAlive": snapshot.acceptLoopAlive ? 1 : 0,
+            "serverSocket": Int(snapshot.serverSocket),
+            "activeGeneration": snapshot.activeGeneration
         ]
         if let errnoCode {
             data["errno"] = Int(errnoCode)
@@ -397,27 +443,108 @@ class TerminalController {
         sentryCaptureError(message, category: "socket", data: data, contextKey: "socket_listener")
     }
 
+    nonisolated static func acceptErrorClassification(errnoCode: Int32) -> String {
+        switch errnoCode {
+        case EINTR, ECONNABORTED, EAGAIN, EWOULDBLOCK:
+            return "immediate_retry"
+        case EMFILE, ENFILE, ENOBUFS, ENOMEM:
+            return "resource_pressure"
+        case EBADF, EINVAL, ENOTSOCK:
+            return "fatal"
+        default:
+            return "retry_with_backoff"
+        }
+    }
+
+    nonisolated static func shouldRearmListenerForAcceptError(errnoCode: Int32) -> Bool {
+        acceptErrorClassification(errnoCode: errnoCode) == "fatal"
+    }
+
+    nonisolated static func shouldRetryAcceptImmediately(errnoCode: Int32) -> Bool {
+        acceptErrorClassification(errnoCode: errnoCode) == "immediate_retry"
+    }
+
+    nonisolated static func shouldRearmForConsecutiveAcceptFailures(consecutiveFailures: Int) -> Bool {
+        consecutiveFailures >= acceptFailureRearmThreshold
+    }
+
+    nonisolated static func acceptFailureBackoffMilliseconds(consecutiveFailures: Int) -> Int {
+        guard consecutiveFailures > 0 else { return 0 }
+        var delay = acceptFailureBaseBackoffMs
+        var remaining = consecutiveFailures - 1
+        while remaining > 0 {
+            if delay >= acceptFailureMaxBackoffMs {
+                return acceptFailureMaxBackoffMs
+            }
+            delay = min(delay * 2, acceptFailureMaxBackoffMs)
+            remaining -= 1
+        }
+        return delay
+    }
+
+    nonisolated static func acceptFailureRearmDelayMilliseconds(consecutiveFailures: Int) -> Int {
+        max(
+            acceptFailureBackoffMilliseconds(consecutiveFailures: consecutiveFailures),
+            acceptFailureMinimumRearmDelayMs
+        )
+    }
+
+    nonisolated static func shouldEmitAcceptFailureBreadcrumb(consecutiveFailures: Int) -> Bool {
+        guard consecutiveFailures > 0 else { return false }
+        if consecutiveFailures <= 3 {
+            return true
+        }
+        return (consecutiveFailures & (consecutiveFailures - 1)) == 0
+    }
+
+    nonisolated static func shouldUnlinkSocketPathAfterAcceptLoopCleanup(
+        pathMatches: Bool,
+        isRunning: Bool,
+        activeGeneration: UInt64,
+        listenerStartInProgress: Bool
+    ) -> Bool {
+        guard pathMatches else { return false }
+        guard !listenerStartInProgress else { return false }
+        return !isRunning && activeGeneration == 0
+    }
+
     func start(tabManager: TabManager, socketPath: String, accessMode: SocketControlMode) {
         self.tabManager = tabManager
         self.accessMode = accessMode
 
-        if isRunning {
-            if self.socketPath == socketPath && acceptLoopAlive {
-                self.accessMode = accessMode
-                applySocketPermissions()
-                return
-            }
+        let existing = withListenerState {
+            (isRunning: isRunning, socketPath: self.socketPath, acceptLoopAlive: acceptLoopAlive)
+        }
+
+        if existing.isRunning && existing.socketPath == socketPath && existing.acceptLoopAlive {
+            self.accessMode = accessMode
+            applySocketPermissions()
+            return
+        }
+
+        if existing.isRunning {
             stop()
         }
 
-        self.socketPath = socketPath
+        withListenerState {
+            self.socketPath = socketPath
+            listenerStartInProgress = true
+        }
+        var listenerActivated = false
+        defer {
+            if !listenerActivated {
+                withListenerState {
+                    listenerStartInProgress = false
+                }
+            }
+        }
 
         // Remove existing socket file
         unlink(socketPath)
 
         // Create socket
-        serverSocket = socket(AF_UNIX, SOCK_STREAM, 0)
-        guard serverSocket >= 0 else {
+        let newServerSocket = socket(AF_UNIX, SOCK_STREAM, 0)
+        guard newServerSocket >= 0 else {
             let errnoCode = errno
             print("TerminalController: Failed to create socket")
             reportSocketListenerFailure(
@@ -440,14 +567,14 @@ class TerminalController {
 
         let bindResult = withUnsafePointer(to: &addr) { ptr in
             ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
-                bind(serverSocket, sockaddrPtr, socklen_t(MemoryLayout<sockaddr_un>.size))
+                bind(newServerSocket, sockaddrPtr, socklen_t(MemoryLayout<sockaddr_un>.size))
             }
         }
 
         guard bindResult >= 0 else {
             let errnoCode = errno
             print("TerminalController: Failed to bind socket")
-            close(serverSocket)
+            close(newServerSocket)
             reportSocketListenerFailure(
                 message: "socket.listener.start.failed",
                 stage: "bind",
@@ -459,10 +586,10 @@ class TerminalController {
         applySocketPermissions()
 
         // Listen
-        guard listen(serverSocket, 5) >= 0 else {
+        guard listen(newServerSocket, Self.socketListenBacklog) >= 0 else {
             let errnoCode = errno
             print("TerminalController: Failed to listen on socket")
-            close(serverSocket)
+            close(newServerSocket)
             reportSocketListenerFailure(
                 message: "socket.listener.start.failed",
                 stage: "listen",
@@ -471,14 +598,27 @@ class TerminalController {
             return
         }
 
-        isRunning = true
+        let generation = withListenerState {
+            isRunning = true
+            pendingAcceptLoopRearmGeneration = nil
+            nextAcceptLoopGeneration &+= 1
+            let generation = nextAcceptLoopGeneration
+            activeAcceptLoopGeneration = generation
+            serverSocket = newServerSocket
+            listenerStartInProgress = false
+            return generation
+        }
+        listenerActivated = true
+        let listenerSocket = newServerSocket
         print("TerminalController: Listening on \(socketPath)")
         sentryBreadcrumb(
             "socket.listener.listening",
             category: "socket",
             data: [
                 "path": socketPath,
-                "mode": accessMode.rawValue
+                "mode": accessMode.rawValue,
+                "generation": generation,
+                "backlog": Self.socketListenBacklog
             ]
         )
 
@@ -503,40 +643,65 @@ class TerminalController {
 
         // Accept connections in background thread
         Thread.detachNewThread { [weak self] in
-            self?.acceptLoop()
+            self?.acceptLoop(listenerSocket: listenerSocket, generation: generation)
         }
     }
 
     nonisolated func socketListenerHealth(expectedSocketPath: String) -> SocketListenerHealth {
-        let running = isRunning
-        let loopAlive = acceptLoopAlive
-        let pathMatches = socketPath == expectedSocketPath
+        let snapshot = listenerStateSnapshot()
+        let pathMatches = snapshot.socketPath == expectedSocketPath
 
         var st = stat()
         let exists = lstat(expectedSocketPath, &st) == 0 && (st.st_mode & S_IFMT) == S_IFSOCK
 
         return SocketListenerHealth(
-            isRunning: running,
-            acceptLoopAlive: loopAlive,
+            isRunning: snapshot.isRunning,
+            acceptLoopAlive: snapshot.acceptLoopAlive,
             socketPathMatches: pathMatches,
             socketPathExists: exists
         )
     }
 
     nonisolated func stop() {
-        isRunning = false
-        if serverSocket >= 0 {
-            close(serverSocket)
+        let (socketToClose, socketPathToUnlink) = withListenerState {
+            isRunning = false
+            acceptLoopAlive = false
+            pendingAcceptLoopRearmGeneration = nil
+            listenerStartInProgress = false
+            nextAcceptLoopGeneration &+= 1
+            activeAcceptLoopGeneration = 0
+            let socketToClose = serverSocket
             serverSocket = -1
+            return (socketToClose, socketPath)
         }
-        unlink(socketPath)
+        if socketToClose >= 0 {
+            close(socketToClose)
+        }
+        unlink(socketPathToUnlink)
+    }
+
+    private nonisolated func unlinkSocketPathIfListenerStillInactive(_ path: String) {
+        let shouldUnlink = withListenerState {
+            Self.shouldUnlinkSocketPathAfterAcceptLoopCleanup(
+                pathMatches: socketPath == path,
+                isRunning: isRunning,
+                activeGeneration: activeAcceptLoopGeneration,
+                listenerStartInProgress: listenerStartInProgress
+            )
+        }
+        if shouldUnlink {
+            unlink(path)
+        }
     }
 
     private func applySocketPermissions() {
         let permissions = mode_t(accessMode.socketFilePermissions)
-        if chmod(socketPath, permissions) != 0 {
+        let currentSocketPath = withListenerState { socketPath }
+        if chmod(currentSocketPath, permissions) != 0 {
             let errnoCode = errno
-            print("TerminalController: Failed to set socket permissions to \(String(permissions, radix: 8)) for \(socketPath)")
+            print(
+                "TerminalController: Failed to set socket permissions to \(String(permissions, radix: 8)) for \(currentSocketPath)"
+            )
             sentryBreadcrumb(
                 "socket.listener.permissions.failed",
                 category: "socket",
@@ -640,27 +805,77 @@ class TerminalController {
         return nil
     }
 
-    private nonisolated func acceptLoop() {
-        acceptLoopAlive = true
+    private nonisolated func acceptLoop(listenerSocket: Int32, generation: UInt64) {
+        let armedAcceptLoop = withListenerState {
+            guard generation == activeAcceptLoopGeneration else { return false }
+            acceptLoopAlive = true
+            return true
+        }
+        guard armedAcceptLoop else {
+            return
+        }
+
         sentryBreadcrumb(
             "socket.listener.accept_loop.started",
             category: "socket",
-            data: socketListenerEventData(stage: "accept_loop_start")
+            data: socketListenerEventData(
+                stage: "accept_loop_start",
+                extra: [
+                    "generation": generation,
+                    "listenerSocket": Int(listenerSocket)
+                ]
+            )
         )
+
         var exitReason = "stopped"
         var lastAcceptErrno: Int32?
+        var lastAcceptErrnoClass = "none"
+        var rearmRequested = false
+
         defer {
-            if isRunning && exitReason == "stopped" {
-                exitReason = "unexpected_loop_exit"
+            let cleanup = withListenerState {
+                guard generation == activeAcceptLoopGeneration else {
+                    return (shouldCaptureExit: false, socketToClose: Int32(-1), pathToUnlink: nil as String?)
+                }
+
+                if isRunning && exitReason == "stopped" {
+                    exitReason = "unexpected_loop_exit"
+                }
+                let shouldCaptureExit = exitReason != "stopped"
+
+                acceptLoopAlive = false
+                isRunning = false
+                activeAcceptLoopGeneration = 0
+
+                var socketToClose: Int32 = -1
+                var pathToUnlink: String?
+                if serverSocket == listenerSocket {
+                    socketToClose = serverSocket
+                    serverSocket = -1
+                    if shouldCaptureExit {
+                        pathToUnlink = socketPath
+                    }
+                }
+                return (shouldCaptureExit, socketToClose, pathToUnlink)
             }
-            let shouldCaptureExit = exitReason != "stopped"
-            acceptLoopAlive = false
-            isRunning = false
-            if shouldCaptureExit {
+
+            if cleanup.socketToClose >= 0 {
+                close(cleanup.socketToClose)
+            }
+            if let pathToUnlink = cleanup.pathToUnlink {
+                unlinkSocketPathIfListenerStillInactive(pathToUnlink)
+            }
+
+            if cleanup.shouldCaptureExit {
                 let data = socketListenerEventData(
                     stage: "accept_loop_exit",
                     errnoCode: lastAcceptErrno,
-                    extra: ["reason": exitReason]
+                    extra: [
+                        "reason": exitReason,
+                        "generation": generation,
+                        "errnoClass": lastAcceptErrnoClass,
+                        "rearmRequested": rearmRequested ? 1 : 0
+                    ]
                 )
                 sentryBreadcrumb("socket.listener.accept_loop.exited", category: "socket", data: data)
                 sentryCaptureError(
@@ -673,39 +888,81 @@ class TerminalController {
         }
 
         var consecutiveFailures = 0
-        while isRunning {
+
+        while shouldContinueAcceptLoop(generation: generation) {
             var clientAddr = sockaddr_un()
             var clientAddrLen = socklen_t(MemoryLayout<sockaddr_un>.size)
 
             let clientSocket = withUnsafeMutablePointer(to: &clientAddr) { ptr in
                 ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
-                    accept(serverSocket, sockaddrPtr, &clientAddrLen)
+                    accept(listenerSocket, sockaddrPtr, &clientAddrLen)
                 }
             }
 
             guard clientSocket >= 0 else {
-                if isRunning {
-                    let errnoCode = errno
-                    lastAcceptErrno = errnoCode
-                    consecutiveFailures += 1
-                    print("TerminalController: Accept failed (\(consecutiveFailures) consecutive)")
-                    if consecutiveFailures == 1 || consecutiveFailures % 10 == 0 {
-                        sentryBreadcrumb(
-                            "socket.listener.accept.failed",
-                            category: "socket",
-                            data: socketListenerEventData(
-                                stage: "accept",
-                                errnoCode: errnoCode,
-                                extra: ["consecutiveFailures": consecutiveFailures]
-                            )
+                if !shouldContinueAcceptLoop(generation: generation) {
+                    exitReason = "stopped"
+                    break
+                }
+
+                let errnoCode = errno
+                lastAcceptErrno = errnoCode
+                let errnoClass = Self.acceptErrorClassification(errnoCode: errnoCode)
+                lastAcceptErrnoClass = errnoClass
+
+                if Self.shouldRetryAcceptImmediately(errnoCode: errnoCode) {
+                    continue
+                }
+
+                consecutiveFailures += 1
+                let backoffMs = Self.acceptFailureBackoffMilliseconds(
+                    consecutiveFailures: consecutiveFailures
+                )
+                let rearmDelayMs = Self.acceptFailureRearmDelayMilliseconds(
+                    consecutiveFailures: consecutiveFailures
+                )
+
+                if Self.shouldEmitAcceptFailureBreadcrumb(consecutiveFailures: consecutiveFailures) {
+                    sentryBreadcrumb(
+                        "socket.listener.accept.failed",
+                        category: "socket",
+                        data: socketListenerEventData(
+                            stage: "accept",
+                            errnoCode: errnoCode,
+                            extra: [
+                                "consecutiveFailures": consecutiveFailures,
+                                "generation": generation,
+                                "errnoClass": errnoClass,
+                                "backoffMs": backoffMs
+                            ]
                         )
+                    )
+                }
+
+                let shouldRearmForFatalErrno = Self.shouldRearmListenerForAcceptError(errnoCode: errnoCode)
+                let shouldRearmForPersistentFailures = Self.shouldRearmForConsecutiveAcceptFailures(
+                    consecutiveFailures: consecutiveFailures
+                )
+
+                if shouldRearmForFatalErrno || shouldRearmForPersistentFailures {
+                    exitReason = shouldRearmForFatalErrno
+                        ? "fatal_accept_error"
+                        : "persistent_accept_failures"
+                    rearmRequested = true
+                    withListenerState {
+                        pendingAcceptLoopRearmGeneration = generation
                     }
-                    if consecutiveFailures >= 50 {
-                        print("TerminalController: Too many consecutive accept failures, exiting accept loop")
-                        exitReason = "too_many_accept_failures"
-                        break
-                    }
-                    usleep(10_000) // 10ms backoff
+                    scheduleListenerRearm(
+                        generation: generation,
+                        errnoCode: errnoCode,
+                        consecutiveFailures: consecutiveFailures,
+                        delayMs: rearmDelayMs
+                    )
+                    break
+                }
+
+                if backoffMs > 0 {
+                    usleep(useconds_t(backoffMs * 1_000))
                 }
                 continue
             }
@@ -721,6 +978,43 @@ class TerminalController {
             Thread.detachNewThread { [weak self] in
                 self?.handleClient(clientSocket, peerPid: peerPid)
             }
+        }
+    }
+
+    private nonisolated func scheduleListenerRearm(
+        generation: UInt64,
+        errnoCode: Int32,
+        consecutiveFailures: Int,
+        delayMs: Int
+    ) {
+        let deadline = DispatchTime.now() + .milliseconds(delayMs)
+        DispatchQueue.main.asyncAfter(deadline: deadline) { [weak self] in
+            guard let self else { return }
+            guard let tabManager = self.tabManager else { return }
+            guard let restartPath = self.withListenerState({ () -> String? in
+                guard self.pendingAcceptLoopRearmGeneration == generation else { return nil }
+                self.pendingAcceptLoopRearmGeneration = nil
+                return self.socketPath
+            }) else { return }
+
+            let restartMode = self.accessMode
+
+            sentryBreadcrumb(
+                "socket.listener.rearm.requested",
+                category: "socket",
+                data: self.socketListenerEventData(
+                    stage: "accept_rearm",
+                    errnoCode: errnoCode,
+                    extra: [
+                        "generation": generation,
+                        "consecutiveFailures": consecutiveFailures,
+                        "rearmDelayMs": delayMs
+                    ]
+                )
+            )
+
+            self.stop()
+            self.start(tabManager: tabManager, socketPath: restartPath, accessMode: restartMode)
         }
     }
 
@@ -760,7 +1054,7 @@ class TerminalController {
         var pending = ""
         var authenticated = false
 
-        while isRunning {
+        while withListenerState({ isRunning }) {
             let bytesRead = read(socket, &buffer, buffer.count - 1)
             guard bytesRead > 0 else { break }
 

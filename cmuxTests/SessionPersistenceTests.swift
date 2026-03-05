@@ -733,3 +733,141 @@ final class SessionPersistenceTests: XCTestCase {
         )
     }
 }
+
+final class SocketListenerAcceptPolicyTests: XCTestCase {
+    func testAcceptErrorClassificationBucketsExpectedErrnos() {
+        XCTAssertEqual(
+            TerminalController.acceptErrorClassification(errnoCode: EINTR),
+            "immediate_retry"
+        )
+        XCTAssertEqual(
+            TerminalController.acceptErrorClassification(errnoCode: ECONNABORTED),
+            "immediate_retry"
+        )
+        XCTAssertEqual(
+            TerminalController.acceptErrorClassification(errnoCode: EMFILE),
+            "resource_pressure"
+        )
+        XCTAssertEqual(
+            TerminalController.acceptErrorClassification(errnoCode: ENOMEM),
+            "resource_pressure"
+        )
+        XCTAssertEqual(
+            TerminalController.acceptErrorClassification(errnoCode: EBADF),
+            "fatal"
+        )
+        XCTAssertEqual(
+            TerminalController.acceptErrorClassification(errnoCode: EINVAL),
+            "fatal"
+        )
+    }
+
+    func testAcceptErrorPolicySignalsRearmOnlyForFatalErrors() {
+        XCTAssertTrue(TerminalController.shouldRearmListenerForAcceptError(errnoCode: EBADF))
+        XCTAssertTrue(TerminalController.shouldRearmListenerForAcceptError(errnoCode: ENOTSOCK))
+        XCTAssertFalse(TerminalController.shouldRearmListenerForAcceptError(errnoCode: EMFILE))
+        XCTAssertFalse(TerminalController.shouldRearmListenerForAcceptError(errnoCode: EINTR))
+    }
+
+    func testAcceptErrorPolicyRearmsAfterPersistentFailures() {
+        XCTAssertFalse(TerminalController.shouldRearmForConsecutiveAcceptFailures(consecutiveFailures: 0))
+        XCTAssertFalse(TerminalController.shouldRearmForConsecutiveAcceptFailures(consecutiveFailures: 49))
+        XCTAssertTrue(TerminalController.shouldRearmForConsecutiveAcceptFailures(consecutiveFailures: 50))
+        XCTAssertTrue(TerminalController.shouldRearmForConsecutiveAcceptFailures(consecutiveFailures: 120))
+    }
+
+    func testAcceptFailureBackoffIsExponentialAndCapped() {
+        XCTAssertEqual(
+            TerminalController.acceptFailureBackoffMilliseconds(consecutiveFailures: 0),
+            0
+        )
+        XCTAssertEqual(
+            TerminalController.acceptFailureBackoffMilliseconds(consecutiveFailures: 1),
+            10
+        )
+        XCTAssertEqual(
+            TerminalController.acceptFailureBackoffMilliseconds(consecutiveFailures: 2),
+            20
+        )
+        XCTAssertEqual(
+            TerminalController.acceptFailureBackoffMilliseconds(consecutiveFailures: 6),
+            320
+        )
+        XCTAssertEqual(
+            TerminalController.acceptFailureBackoffMilliseconds(consecutiveFailures: 12),
+            5_000
+        )
+        XCTAssertEqual(
+            TerminalController.acceptFailureBackoffMilliseconds(consecutiveFailures: 50),
+            5_000
+        )
+    }
+
+    func testAcceptFailureRearmDelayAppliesMinimumThrottle() {
+        XCTAssertEqual(
+            TerminalController.acceptFailureRearmDelayMilliseconds(consecutiveFailures: 0),
+            100
+        )
+        XCTAssertEqual(
+            TerminalController.acceptFailureRearmDelayMilliseconds(consecutiveFailures: 1),
+            100
+        )
+        XCTAssertEqual(
+            TerminalController.acceptFailureRearmDelayMilliseconds(consecutiveFailures: 2),
+            100
+        )
+        XCTAssertEqual(
+            TerminalController.acceptFailureRearmDelayMilliseconds(consecutiveFailures: 6),
+            320
+        )
+        XCTAssertEqual(
+            TerminalController.acceptFailureRearmDelayMilliseconds(consecutiveFailures: 12),
+            5_000
+        )
+    }
+
+    func testAcceptFailureBreadcrumbSamplingPrefersEarlyAndPowerOfTwoMilestones() {
+        XCTAssertTrue(TerminalController.shouldEmitAcceptFailureBreadcrumb(consecutiveFailures: 1))
+        XCTAssertTrue(TerminalController.shouldEmitAcceptFailureBreadcrumb(consecutiveFailures: 2))
+        XCTAssertTrue(TerminalController.shouldEmitAcceptFailureBreadcrumb(consecutiveFailures: 3))
+        XCTAssertFalse(TerminalController.shouldEmitAcceptFailureBreadcrumb(consecutiveFailures: 5))
+        XCTAssertTrue(TerminalController.shouldEmitAcceptFailureBreadcrumb(consecutiveFailures: 8))
+        XCTAssertFalse(TerminalController.shouldEmitAcceptFailureBreadcrumb(consecutiveFailures: 9))
+        XCTAssertTrue(TerminalController.shouldEmitAcceptFailureBreadcrumb(consecutiveFailures: 16))
+    }
+
+    func testAcceptLoopCleanupUnlinkPolicySkipsDuringListenerStartup() {
+        XCTAssertFalse(
+            TerminalController.shouldUnlinkSocketPathAfterAcceptLoopCleanup(
+                pathMatches: true,
+                isRunning: false,
+                activeGeneration: 0,
+                listenerStartInProgress: true
+            )
+        )
+        XCTAssertFalse(
+            TerminalController.shouldUnlinkSocketPathAfterAcceptLoopCleanup(
+                pathMatches: false,
+                isRunning: false,
+                activeGeneration: 0,
+                listenerStartInProgress: false
+            )
+        )
+        XCTAssertFalse(
+            TerminalController.shouldUnlinkSocketPathAfterAcceptLoopCleanup(
+                pathMatches: true,
+                isRunning: true,
+                activeGeneration: 7,
+                listenerStartInProgress: false
+            )
+        )
+        XCTAssertTrue(
+            TerminalController.shouldUnlinkSocketPathAfterAcceptLoopCleanup(
+                pathMatches: true,
+                isRunning: false,
+                activeGeneration: 0,
+                listenerStartInProgress: false
+            )
+        )
+    }
+}

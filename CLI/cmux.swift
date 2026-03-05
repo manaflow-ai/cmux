@@ -672,7 +672,9 @@ final class SocketClient {
             Darwin.close(socketFD)
             socketFD = -1
 
-            let error = CLIError(message: "Failed to connect to socket at \(path)")
+            let error = CLIError(
+                message: "Failed to connect to socket at \(path) (\(String(cString: strerror(connectErrno))), errno \(connectErrno))"
+            )
             lastError = error
             if Self.retriableConnectErrnos.contains(connectErrno), Date() < deadline {
                 Thread.sleep(forTimeInterval: Self.connectRetryIntervalSeconds)
