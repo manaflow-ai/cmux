@@ -2449,10 +2449,10 @@ struct OmnibarSuggestion: Identifiable, Hashable {
 }
 
 func browserOmnibarShouldReacquireFocusAfterEndEditing(
-    suppressWebViewFocus: Bool,
+    desiredOmnibarFocus: Bool,
     nextResponderIsOtherTextField: Bool
 ) -> Bool {
-    suppressWebViewFocus && !nextResponderIsOtherTextField
+    desiredOmnibarFocus && !nextResponderIsOtherTextField
 }
 
 private final class OmnibarNativeTextField: NSTextField {
@@ -2663,7 +2663,7 @@ private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
 
         private func shouldReacquireFocusAfterEndEditing(window: NSWindow?) -> Bool {
             return browserOmnibarShouldReacquireFocusAfterEndEditing(
-                suppressWebViewFocus: parent.shouldSuppressWebViewFocus(),
+                desiredOmnibarFocus: parent.isFocused,
                 nextResponderIsOtherTextField: nextResponderIsOtherTextField(window: window)
             )
         }
@@ -2977,6 +2977,13 @@ private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
                     coordinator?.pendingFocusRequest = nil
                     guard let nsView, let window = nsView.window else { return }
 #if DEBUG
+                    if coordinator?.parent.isFocused != true {
+                        coordinator?.logFocusEvent("updateNSView.requestFocus.cancel", detail: "reason=stale_state")
+                        return
+                    }
+#endif
+                    guard coordinator?.parent.isFocused == true else { return }
+#if DEBUG
                     coordinator?.logFocusEvent("updateNSView.requestFocus.tick")
 #endif
                     let fr = window.firstResponder
@@ -3000,6 +3007,13 @@ private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
                 DispatchQueue.main.async { [weak nsView, weak coordinator = context.coordinator] in
                     coordinator?.pendingFocusRequest = nil
                     guard let nsView, let window = nsView.window else { return }
+#if DEBUG
+                    if coordinator?.parent.isFocused == true {
+                        coordinator?.logFocusEvent("updateNSView.requestBlur.cancel", detail: "reason=stale_state")
+                        return
+                    }
+#endif
+                    guard coordinator?.parent.isFocused == false else { return }
 #if DEBUG
                     coordinator?.logFocusEvent("updateNSView.requestBlur.tick")
 #endif
