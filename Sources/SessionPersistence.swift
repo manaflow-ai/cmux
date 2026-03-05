@@ -18,6 +18,7 @@ enum SessionPersistencePolicy {
     static let maxPanelsPerWorkspace: Int = 512
     static let maxScrollbackLinesPerTerminal: Int = 4000
     static let maxScrollbackCharactersPerTerminal: Int = 400_000
+    static let maxSnapshotBytes: Int = 8_000_000
 
     static func sanitizedSidebarWidth(_ candidate: Double?) -> Double {
         let fallback = defaultSidebarWidth
@@ -362,12 +363,33 @@ struct AppSessionSnapshot: Codable, Sendable {
 enum SessionPersistenceStore {
     static func load(fileURL: URL? = nil) -> AppSessionSnapshot? {
         guard let fileURL = fileURL ?? defaultSnapshotFileURL() else { return nil }
-        guard let data = try? Data(contentsOf: fileURL) else { return nil }
+        if let fileSize = snapshotFileSize(at: fileURL), fileSize > SessionPersistencePolicy.maxSnapshotBytes {
+            sentryBreadcrumb(
+                "session.restore.skipped.oversize_snapshot",
+                category: "startup",
+                data: [
+                    "path": fileURL.path,
+                    "bytes": fileSize,
+                    "maxBytes": SessionPersistencePolicy.maxSnapshotBytes
+                ]
+            )
+            return nil
+        }
+        guard let data = try? Data(contentsOf: fileURL, options: [.mappedIfSafe]) else { return nil }
+        guard data.count <= SessionPersistencePolicy.maxSnapshotBytes else { return nil }
         let decoder = JSONDecoder()
         guard let snapshot = try? decoder.decode(AppSessionSnapshot.self, from: data) else { return nil }
         guard snapshot.version == SessionSnapshotSchema.currentVersion else { return nil }
         guard !snapshot.windows.isEmpty else { return nil }
         return snapshot
+    }
+
+    private static func snapshotFileSize(at fileURL: URL) -> Int? {
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: fileURL.path),
+              let size = attributes[.size] as? NSNumber else {
+            return nil
+        }
+        return size.intValue
     }
 
     @discardableResult
