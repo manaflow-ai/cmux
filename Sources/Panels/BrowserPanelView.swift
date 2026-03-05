@@ -2247,6 +2247,8 @@ func browserOmnibarShouldReacquireFocusAfterEndEditing(
 private final class OmnibarNativeTextField: NSTextField {
     var onPointerDown: (() -> Void)?
     var onHandleKeyEvent: ((NSEvent, NSTextView?) -> Bool)?
+    /// Anchor index for Shift+click selection extension, reset on non-shift clicks.
+    private var shiftClickAnchor: Int?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -2274,37 +2276,65 @@ private final class OmnibarNativeTextField: NSTextField {
             // enters an infinite invalidation cycle (e.g. under memory pressure).
             window?.makeFirstResponder(self)
             currentEditor()?.selectAll(nil)
+            shiftClickAnchor = nil
         } else {
-            // Already editing — allow normal click-to-place-cursor and drag-to-select.
-            // Guard against a stuck tracking loop by posting a synthetic mouseUp after
-            // a timeout. IMPORTANT: must use a background queue because super.mouseDown
-            // blocks the main thread in NSTextView's tracking loop, so
-            // DispatchQueue.main.asyncAfter would never fire.
-            let cancelled = DispatchWorkItem { /* sentinel */ }
-            let windowNumber = window?.windowNumber ?? 0
-            let location = event.locationInWindow
-            DispatchQueue.global(qos: .userInteractive).asyncAfter(deadline: .now() + 3.0) {
-                guard !cancelled.isCancelled else { return }
-                if let fakeUp = NSEvent.mouseEvent(
-                    with: .leftMouseUp,
-                    location: location,
-                    modifierFlags: [],
-                    timestamp: ProcessInfo.processInfo.systemUptime,
-                    windowNumber: windowNumber,
-                    context: nil,
-                    eventNumber: 0,
-                    clickCount: 1,
-                    pressure: 0.0
-                ) {
-                    NSApp.postEvent(fakeUp, atStart: true)
-                }
+            // Already editing — place the cursor at the click position without calling
+            // super.mouseDown, which enters NSTextView's mouse-tracking loop. That loop
+            // can spin forever when NSTextLayoutManager.enumerateTextLayoutFragments hits
+            // an infinite invalidation cycle (see #917). The previous mitigation posted a
+            // synthetic mouseUp via NSApp.postEvent after a timeout, but the tracking loop
+            // does not always dequeue events from the application event queue, so the hang
+            // persisted. By positioning the cursor ourselves we avoid the tracking loop
+            // entirely. Drag-to-select is not supported in this path, but for a single-line
+            // omnibar this is an acceptable trade-off (double-click to select word and
+            // Shift+click to extend selection still work via the field editor).
+            guard let editor = currentEditor() as? NSTextView else {
+                super.mouseDown(with: event)
+                return
             }
-            super.mouseDown(with: event)
-            cancelled.cancel()
+
+            // Double/triple-click: forward directly to the field editor (NSTextView)
+            // which handles word and line selection internally. This bypasses
+            // NSTextField's super.mouseDown (and its problematic tracking loop)
+            // while preserving multi-click semantics.
+            if event.clickCount > 1 {
+                editor.mouseDown(with: event)
+                shiftClickAnchor = nil
+                return
+            }
+
+            let localPoint = editor.convert(event.locationInWindow, from: nil)
+            let index = editor.characterIndexForInsertion(at: localPoint)
+            let textLength = (editor.string as NSString).length
+            let safeIndex = min(index, textLength)
+
+            if event.modifierFlags.contains(.shift) {
+                // Shift+click: extend the existing selection to the clicked position.
+                // Use stored anchor to handle bidirectional extension correctly;
+                // NSRange.location is always the lower index so it cannot serve as
+                // a directional anchor on its own.
+                let sel = editor.selectedRange()
+                let anchor = shiftClickAnchor ?? sel.location
+                shiftClickAnchor = anchor
+                let newRange: NSRange
+                if safeIndex >= anchor {
+                    newRange = NSRange(location: anchor, length: safeIndex - anchor)
+                } else {
+                    newRange = NSRange(location: safeIndex, length: anchor - safeIndex)
+                }
+                editor.setSelectedRange(newRange)
+            } else {
+                shiftClickAnchor = nil
+                editor.setSelectedRange(NSRange(location: safeIndex, length: 0))
+            }
         }
     }
 
     override func keyDown(with event: NSEvent) {
+        // Reset shift-click anchor on any keyboard input so that a subsequent
+        // Shift+click uses the post-keyboard selection as its anchor, not a
+        // stale value from a prior mouse interaction.
+        shiftClickAnchor = nil
         if (currentEditor() as? NSTextView)?.hasMarkedText() == true {
             super.keyDown(with: event)
             return
@@ -2316,6 +2346,7 @@ private final class OmnibarNativeTextField: NSTextField {
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        shiftClickAnchor = nil
         if (currentEditor() as? NSTextView)?.hasMarkedText() == true {
             return super.performKeyEquivalent(with: event)
         }
