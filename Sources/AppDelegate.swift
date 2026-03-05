@@ -1831,10 +1831,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         // When visible windows already exist, return false to prevent SwiftUI
         // from creating a new window on dock-click or activation events (#872).
-        if flag {
-            return false
-        }
-        return true
+        return !flag
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -8078,9 +8075,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if window.isMiniaturized {
             window.deminiaturize(nil)
         }
-        window.makeKeyAndOrderFront(nil)
-        // Only activate the app without bringing all windows forward to prevent
-        // SwiftUI from opening new windows on activation events (#872).
+        // Bring the specific window to front across Spaces without activating
+        // all windows, which would cause SwiftUI to spawn new scenes (#872).
+        window.orderFrontRegardless()
         NSRunningApplication.current.activate(options: [.activateIgnoringOtherApps])
     }
 
