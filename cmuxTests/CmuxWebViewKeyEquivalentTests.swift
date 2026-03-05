@@ -9653,6 +9653,9 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
         )
         XCTAssertTrue(health.isHealthy)
         XCTAssertTrue(health.failureSignals.isEmpty)
+        XCTAssertTrue(health.socketProbePerformed)
+        XCTAssertEqual(health.socketConnectable, true)
+        XCTAssertNil(health.socketConnectErrno)
     }
 
     func testSocketListenerHealthFailureSignalsIncludeAllDetectedProblems() {
@@ -9662,10 +9665,13 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
             socketPathMatches: false,
             socketPathExists: false,
             socketProbePerformed: false,
-            socketConnectable: false,
+            socketConnectable: nil,
             socketConnectErrno: nil
         )
         XCTAssertFalse(health.isHealthy)
+        XCTAssertFalse(health.socketProbePerformed)
+        XCTAssertNil(health.socketConnectable)
+        XCTAssertNil(health.socketConnectErrno)
         XCTAssertEqual(
             health.failureSignals,
             ["not_running", "accept_loop_dead", "socket_path_mismatch", "socket_missing"]

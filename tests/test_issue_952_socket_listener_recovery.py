@@ -56,8 +56,8 @@ def collect_failures() -> list[str]:
     )
     require(
         terminal_controller,
-        "let socketConnectable: Bool",
-        "Socket health snapshot no longer tracks connectability",
+        "let socketConnectable: Bool?",
+        "Socket health snapshot no longer distinguishes unprobed vs connectable sockets",
         failures,
     )
     require(
@@ -113,13 +113,13 @@ def collect_failures() -> list[str]:
     )
     require(
         app_delegate,
-        "if health.socketProbePerformed {",
-        "Health telemetry no longer gates connectability on an actual probe",
+        "if let socketConnectable = health.socketConnectable {",
+        "Health telemetry no longer gates connectability on an actual probe result",
         failures,
     )
     require(
         app_delegate,
-        "data[\"socketConnectable\"] = health.socketConnectable ? 1 : 0",
+        "data[\"socketConnectable\"] = socketConnectable ? 1 : 0",
         "Health telemetry no longer includes connectability when a probe ran",
         failures,
     )

@@ -14,7 +14,7 @@ class TerminalController {
         let socketPathMatches: Bool
         let socketPathExists: Bool
         let socketProbePerformed: Bool
-        let socketConnectable: Bool
+        let socketConnectable: Bool?
         let socketConnectErrno: Int32?
 
         var failureSignals: [String] {
@@ -23,7 +23,7 @@ class TerminalController {
             if !acceptLoopAlive { signals.append("accept_loop_dead") }
             if !socketPathMatches { signals.append("socket_path_mismatch") }
             if !socketPathExists { signals.append("socket_missing") }
-            if socketProbePerformed && isRunning && acceptLoopAlive && socketPathMatches && socketPathExists && !socketConnectable {
+            if socketProbePerformed && isRunning && acceptLoopAlive && socketPathMatches && socketPathExists && socketConnectable == false {
                 signals.append("socket_unreachable")
             }
             return signals
@@ -57,6 +57,9 @@ class TerminalController {
     private nonisolated static let acceptFailureMaxBackoffMs = 5_000
     private nonisolated static let acceptFailureMinimumRearmDelayMs = 100
     private nonisolated static let acceptFailureRearmThreshold = 50
+    private nonisolated static let socketProbePollTimeoutMs: Int32 = 100
+    private nonisolated static let socketProbePollAttempts = 3
+    private nonisolated static let socketProbePollRetryBackoffUs: useconds_t = 50_000
     private nonisolated static let unixSocketPathMaxLength: Int = {
         var addr = sockaddr_un()
         // Reserve one byte for the null terminator.
@@ -550,7 +553,7 @@ class TerminalController {
         }
     }
 
-    private nonisolated static func probeSocketConnectability(path: String) -> (isConnectable: Bool, errnoCode: Int32?) {
+    private nonisolated static func probeSocketConnectability(path: String) -> (isConnectable: Bool?, errnoCode: Int32?) {
         let probeSocket = socket(AF_UNIX, SOCK_STREAM, 0)
         guard probeSocket >= 0 else {
             return (false, errno)
@@ -576,29 +579,38 @@ class TerminalController {
         let connectErrno = errno
         if connectErrno == EINPROGRESS {
             var pollDescriptor = pollfd(fd: probeSocket, events: Int16(POLLOUT), revents: 0)
-            let pollResult = poll(&pollDescriptor, 1, 10)
-            if pollResult > 0 {
-                var socketError: Int32 = 0
-                var socketErrorLength = socklen_t(MemoryLayout<Int32>.size)
-                let status = getsockopt(
-                    probeSocket,
-                    SOL_SOCKET,
-                    SO_ERROR,
-                    &socketError,
-                    &socketErrorLength
-                )
-                if status == 0 && socketError == 0 {
-                    return (true, nil)
+            for attempt in 0..<Self.socketProbePollAttempts {
+                pollDescriptor.revents = 0
+                let pollResult = poll(&pollDescriptor, 1, Self.socketProbePollTimeoutMs)
+                if pollResult > 0 {
+                    var socketError: Int32 = 0
+                    var socketErrorLength = socklen_t(MemoryLayout<Int32>.size)
+                    let status = getsockopt(
+                        probeSocket,
+                        SOL_SOCKET,
+                        SO_ERROR,
+                        &socketError,
+                        &socketErrorLength
+                    )
+                    if status == 0 && socketError == 0 {
+                        return (true, nil)
+                    }
+                    if status == 0 {
+                        return (false, socketError)
+                    }
+                    return (false, errno)
                 }
-                if status == 0 {
-                    return (false, socketError)
+
+                let pollErrno = errno
+                if pollResult == 0 || pollErrno == EINTR {
+                    if attempt + 1 < Self.socketProbePollAttempts {
+                        usleep(Self.socketProbePollRetryBackoffUs)
+                        continue
+                    }
+                    return (false, pollResult == 0 ? ETIMEDOUT : pollErrno)
                 }
-                return (false, errno)
+                return (false, pollErrno)
             }
-            if pollResult == 0 {
-                return (false, ETIMEDOUT)
-            }
-            return (false, errno)
         }
         return (false, connectErrno)
     }
@@ -750,7 +762,7 @@ class TerminalController {
         let shouldProbeConnection = snapshot.isRunning && snapshot.acceptLoopAlive && pathMatches && exists
         let connectability = shouldProbeConnection
             ? Self.probeSocketConnectability(path: expectedSocketPath)
-            : (isConnectable: true, errnoCode: nil)
+            : (isConnectable: nil, errnoCode: nil)
 
         return SocketListenerHealth(
             isRunning: snapshot.isRunning,

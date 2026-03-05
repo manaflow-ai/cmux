@@ -2494,8 +2494,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             "socketProbePerformed": health.socketProbePerformed ? 1 : 0,
             "failureSignals": failureSignals
         ]
-        if health.socketProbePerformed {
-            data["socketConnectable"] = health.socketConnectable ? 1 : 0
+        if let socketConnectable = health.socketConnectable {
+            data["socketConnectable"] = socketConnectable ? 1 : 0
         }
         if let socketConnectErrno = health.socketConnectErrno {
             data["socketConnectErrno"] = Int(socketConnectErrno)
