@@ -723,6 +723,7 @@ struct BrowserPanelView: View {
             if panel.shouldRenderWebView {
                 WebViewRepresentable(
                     panel: panel,
+                    browserSearchState: panel.searchState,
                     shouldAttachWebView: isVisibleInUI,
                     shouldFocusWebView: isFocused && !addressBarFocused,
                     isPanelFocused: isFocused,
@@ -2990,6 +2991,7 @@ private struct OmnibarSuggestionsView: View {
 /// NSViewRepresentable wrapper for WKWebView
 struct WebViewRepresentable: NSViewRepresentable {
     let panel: BrowserPanel
+    let browserSearchState: BrowserSearchState?
     let shouldAttachWebView: Bool
     let shouldFocusWebView: Bool
     let isPanelFocused: Bool

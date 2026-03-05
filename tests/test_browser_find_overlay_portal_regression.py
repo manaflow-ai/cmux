@@ -71,6 +71,8 @@ def main() -> int:
         webview_repr_block = ""
 
     if webview_repr_block:
+        if "let browserSearchState: BrowserSearchState?" not in webview_repr_block:
+            failures.append("WebViewRepresentable must include browserSearchState so Cmd+F state changes trigger updates")
         if "var searchOverlayHostingView: NSHostingView<BrowserSearchOverlay>?" not in webview_repr_block:
             failures.append("WebViewRepresentable.Coordinator must own a BrowserSearchOverlay hosting view")
         if "private static func updateSearchOverlay(" not in webview_repr_block:
@@ -79,6 +81,9 @@ def main() -> int:
             failures.append("Portal updates must sync BrowserSearchOverlay against the web view container")
         if "removeSearchOverlay(from: coordinator)" not in webview_repr_block:
             failures.append("WebViewRepresentable must remove browser search overlays during teardown/rebind")
+
+    if "browserSearchState: panel.searchState" not in source:
+        failures.append("BrowserPanelView must pass panel.searchState into WebViewRepresentable")
 
     if failures:
         print("FAIL: browser find overlay portal regression guards failed")
