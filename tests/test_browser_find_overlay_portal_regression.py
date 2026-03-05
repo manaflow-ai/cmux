@@ -10,8 +10,10 @@ def main() -> int:
     root = repo_root()
     view_path = root / "Sources" / "Panels" / "BrowserPanelView.swift"
     panel_path = root / "Sources" / "Panels" / "BrowserPanel.swift"
+    overlay_path = root / "Sources" / "Find" / "BrowserSearchOverlay.swift"
     source = view_path.read_text(encoding="utf-8")
     panel_source = panel_path.read_text(encoding="utf-8")
+    overlay_source = overlay_path.read_text(encoding="utf-8")
     failures: list[str] = []
 
     try:
@@ -71,6 +73,25 @@ def main() -> int:
 
     if "if searchState != nil {" not in suppress_focus_block:
         failures.append("BrowserPanel.shouldSuppressWebViewFocus must suppress focus while find-in-page is active")
+
+    try:
+        start_find_block = extract_block(panel_source, "func startFind()")
+    except ValueError as error:
+        failures.append(str(error))
+        start_find_block = ""
+
+    if start_find_block:
+        if "postBrowserSearchFocusNotification()" not in start_find_block:
+            failures.append("BrowserPanel.startFind must publish browserSearchFocus notifications")
+        if "DispatchQueue.main.async {" not in start_find_block:
+            failures.append("BrowserPanel.startFind must re-post focus on next runloop to avoid mount races")
+        if "DispatchQueue.main.asyncAfter" not in start_find_block:
+            failures.append("BrowserPanel.startFind must re-post focus shortly after to avoid portal mount races")
+
+    if "private func requestSearchFieldFocus(" not in overlay_source:
+        failures.append("BrowserSearchOverlay must define requestSearchFieldFocus retry helper")
+    if "requestSearchFieldFocus()" not in overlay_source:
+        failures.append("BrowserSearchOverlay must request text focus from appear/notification paths")
 
     if failures:
         print("FAIL: browser find overlay portal regression guards failed")

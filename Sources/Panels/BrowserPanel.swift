@@ -2641,6 +2641,18 @@ extension BrowserPanel {
         if searchState == nil {
             searchState = BrowserSearchState()
         }
+        postBrowserSearchFocusNotification()
+        // Focus notification can race with portal overlay mount. Re-post on the
+        // next runloop and shortly after so the find field can claim first responder.
+        DispatchQueue.main.async { [weak self] in
+            self?.postBrowserSearchFocusNotification()
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+            self?.postBrowserSearchFocusNotification()
+        }
+    }
+
+    private func postBrowserSearchFocusNotification() {
         NotificationCenter.default.post(name: .browserSearchFocus, object: id)
     }
 
