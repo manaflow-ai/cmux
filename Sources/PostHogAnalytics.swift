@@ -81,8 +81,10 @@ final class PostHogAnalytics {
             )
         )
 
-        // For DAU we care more about delivery than batching.
-        PostHogSDK.shared.flush()
+        if Self.shouldFlushAfterCapture(event: "cmux_daily_active") {
+            // For active metrics we care more about delivery than batching.
+            PostHogSDK.shared.flush()
+        }
     }
 
     func trackHourlyActive(reason: String) {
@@ -105,6 +107,11 @@ final class PostHogAnalytics {
                 infoDictionary: Bundle.main.infoDictionary ?? [:]
             )
         )
+
+        if Self.shouldFlushAfterCapture(event: "cmux_hourly_active") {
+            // Keep hourly freshness and avoid losing a deduped hour on abrupt exits.
+            PostHogSDK.shared.flush()
+        }
     }
 
     func flush() {
@@ -160,6 +167,15 @@ final class PostHogAnalytics {
         ]
         properties.merge(versionProperties(infoDictionary: infoDictionary)) { _, new in new }
         return properties
+    }
+
+    nonisolated static func shouldFlushAfterCapture(event: String) -> Bool {
+        switch event {
+        case "cmux_daily_active", "cmux_hourly_active":
+            return true
+        default:
+            return false
+        }
     }
 
     nonisolated private static func versionProperties(infoDictionary: [String: Any]) -> [String: Any] {
