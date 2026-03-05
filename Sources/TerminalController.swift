@@ -37,6 +37,7 @@ class TerminalController {
     private nonisolated(unsafe) var activeAcceptLoopGeneration: UInt64 = 0
     private nonisolated(unsafe) var nextAcceptLoopGeneration: UInt64 = 0
     private nonisolated(unsafe) var pendingAcceptLoopRearmGeneration: UInt64?
+    private nonisolated(unsafe) var listenerStartInProgress = false
     private nonisolated let listenerStateLock = NSLock()
     private var clientHandlers: [Int32: Thread] = [:]
     private var tabManager: TabManager?
@@ -496,6 +497,17 @@ class TerminalController {
         return (consecutiveFailures & (consecutiveFailures - 1)) == 0
     }
 
+    nonisolated static func shouldUnlinkSocketPathAfterAcceptLoopCleanup(
+        pathMatches: Bool,
+        isRunning: Bool,
+        activeGeneration: UInt64,
+        listenerStartInProgress: Bool
+    ) -> Bool {
+        guard pathMatches else { return false }
+        guard !listenerStartInProgress else { return false }
+        return !isRunning && activeGeneration == 0
+    }
+
     func start(tabManager: TabManager, socketPath: String, accessMode: SocketControlMode) {
         self.tabManager = tabManager
         self.accessMode = accessMode
@@ -516,6 +528,15 @@ class TerminalController {
 
         withListenerState {
             self.socketPath = socketPath
+            listenerStartInProgress = true
+        }
+        var listenerActivated = false
+        defer {
+            if !listenerActivated {
+                withListenerState {
+                    listenerStartInProgress = false
+                }
+            }
         }
 
         // Remove existing socket file
@@ -584,8 +605,10 @@ class TerminalController {
             let generation = nextAcceptLoopGeneration
             activeAcceptLoopGeneration = generation
             serverSocket = newServerSocket
+            listenerStartInProgress = false
             return generation
         }
+        listenerActivated = true
         let listenerSocket = newServerSocket
         print("TerminalController: Listening on \(socketPath)")
         sentryBreadcrumb(
@@ -644,6 +667,7 @@ class TerminalController {
             isRunning = false
             acceptLoopAlive = false
             pendingAcceptLoopRearmGeneration = nil
+            listenerStartInProgress = false
             nextAcceptLoopGeneration &+= 1
             activeAcceptLoopGeneration = 0
             let socketToClose = serverSocket
@@ -656,16 +680,14 @@ class TerminalController {
         unlink(socketPathToUnlink)
     }
 
-    private nonisolated func unlinkSocketPathIfStillInactive(
-        _ path: String,
-        expectedGeneration: UInt64
-    ) {
+    private nonisolated func unlinkSocketPathIfListenerStillInactive(_ path: String) {
         let shouldUnlink = withListenerState {
-            guard socketPath == path else { return false }
-            if activeAcceptLoopGeneration == expectedGeneration {
-                return true
-            }
-            return activeAcceptLoopGeneration == 0 && !isRunning
+            Self.shouldUnlinkSocketPathAfterAcceptLoopCleanup(
+                pathMatches: socketPath == path,
+                isRunning: isRunning,
+                activeGeneration: activeAcceptLoopGeneration,
+                listenerStartInProgress: listenerStartInProgress
+            )
         }
         if shouldUnlink {
             unlink(path)
@@ -841,7 +863,7 @@ class TerminalController {
                 close(cleanup.socketToClose)
             }
             if let pathToUnlink = cleanup.pathToUnlink {
-                unlinkSocketPathIfStillInactive(pathToUnlink, expectedGeneration: generation)
+                unlinkSocketPathIfListenerStillInactive(pathToUnlink)
             }
 
             if cleanup.shouldCaptureExit {

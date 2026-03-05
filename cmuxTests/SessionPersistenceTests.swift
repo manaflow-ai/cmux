@@ -835,4 +835,39 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         XCTAssertFalse(TerminalController.shouldEmitAcceptFailureBreadcrumb(consecutiveFailures: 9))
         XCTAssertTrue(TerminalController.shouldEmitAcceptFailureBreadcrumb(consecutiveFailures: 16))
     }
+
+    func testAcceptLoopCleanupUnlinkPolicySkipsDuringListenerStartup() {
+        XCTAssertFalse(
+            TerminalController.shouldUnlinkSocketPathAfterAcceptLoopCleanup(
+                pathMatches: true,
+                isRunning: false,
+                activeGeneration: 0,
+                listenerStartInProgress: true
+            )
+        )
+        XCTAssertFalse(
+            TerminalController.shouldUnlinkSocketPathAfterAcceptLoopCleanup(
+                pathMatches: false,
+                isRunning: false,
+                activeGeneration: 0,
+                listenerStartInProgress: false
+            )
+        )
+        XCTAssertFalse(
+            TerminalController.shouldUnlinkSocketPathAfterAcceptLoopCleanup(
+                pathMatches: true,
+                isRunning: true,
+                activeGeneration: 7,
+                listenerStartInProgress: false
+            )
+        )
+        XCTAssertTrue(
+            TerminalController.shouldUnlinkSocketPathAfterAcceptLoopCleanup(
+                pathMatches: true,
+                isRunning: false,
+                activeGeneration: 0,
+                listenerStartInProgress: false
+            )
+        )
+    }
 }
