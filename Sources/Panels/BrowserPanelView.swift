@@ -316,6 +316,17 @@ struct BrowserPanelView: View {
                 .padding(FocusFlashPattern.ringInset)
                 .allowsHitTesting(false)
         }
+        .overlay {
+            if let searchState = panel.searchState {
+                BrowserSearchOverlay(
+                    panelId: panel.id,
+                    searchState: searchState,
+                    onNext: { panel.findNext() },
+                    onPrevious: { panel.findPrevious() },
+                    onClose: { panel.hideFind() }
+                )
+            }
+        }
         .overlay(alignment: .topLeading) {
             if addressBarFocused, !omnibarState.suggestions.isEmpty, omnibarPillFrame.width > 0 {
                 OmnibarSuggestionsView(

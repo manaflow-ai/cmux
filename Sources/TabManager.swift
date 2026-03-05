@@ -718,14 +718,21 @@ class TabManager: ObservableObject {
     }
 
     var isFindVisible: Bool {
-        selectedTerminalPanel?.searchState != nil
+        if selectedTerminalPanel?.searchState != nil { return true }
+        if focusedBrowserPanel?.searchState != nil { return true }
+        return false
     }
 
     var canUseSelectionForFind: Bool {
-        selectedTerminalPanel?.hasSelection() == true
+        if focusedBrowserPanel != nil { return false }
+        return selectedTerminalPanel?.hasSelection() == true
     }
 
     func startSearch() {
+        if let browser = focusedBrowserPanel {
+            browser.startFind()
+            return
+        }
         guard let panel = selectedTerminalPanel else {
 #if DEBUG
             dlog("find.startSearch SKIPPED no selectedTerminalPanel")
@@ -756,10 +763,18 @@ class TabManager: ObservableObject {
     }
 
     func findNext() {
+        if let browser = focusedBrowserPanel, browser.searchState != nil {
+            browser.findNext()
+            return
+        }
         _ = selectedTerminalPanel?.performBindingAction("search:next")
     }
 
     func findPrevious() {
+        if let browser = focusedBrowserPanel, browser.searchState != nil {
+            browser.findPrevious()
+            return
+        }
         _ = selectedTerminalPanel?.performBindingAction("search:previous")
     }
 
@@ -770,6 +785,10 @@ class TabManager: ObservableObject {
     }
 
     func hideFind() {
+        if let browser = focusedBrowserPanel, browser.searchState != nil {
+            browser.hideFind()
+            return
+        }
 #if DEBUG
         dlog("find.hideFind panel=\(selectedTerminalPanel?.id.uuidString.prefix(5) ?? "nil")")
 #endif
