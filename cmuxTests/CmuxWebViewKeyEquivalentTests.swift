@@ -8299,6 +8299,18 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         }
     }
 
+    private func findEditableTextField(in view: NSView) -> NSTextField? {
+        if let field = view as? NSTextField, field.isEditable {
+            return field
+        }
+        for subview in view.subviews {
+            if let field = findEditableTextField(in: subview) {
+                return field
+            }
+        }
+        return nil
+    }
+
     func testTrackpadScrollRoutesToTerminalSurfaceAndPreservesKeyboardFocusPath() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
@@ -8435,6 +8447,100 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
 
         hostedView.setSearchOverlay(searchState: nil)
         XCTAssertFalse(hostedView.debugHasSearchOverlay())
+    }
+
+    func testEscapeDismissingFindOverlayDoesNotLeakEscapeKeyUpToTerminal() {
+        _ = NSApplication.shared
+
+        let surface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        let hostedView = surface.hostedView
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer {
+            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = nil
+            window.orderOut(nil)
+        }
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+        hostedView.frame = contentView.bounds
+        hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostedView)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        hostedView.setVisibleInUI(true)
+        hostedView.setActive(true)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        let searchState = TerminalSurface.SearchState(needle: "")
+        surface.searchState = searchState
+        hostedView.setSearchOverlay(searchState: searchState)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        guard let searchField = findEditableTextField(in: hostedView) else {
+            XCTFail("Expected mounted find text field")
+            return
+        }
+        window.makeFirstResponder(searchField)
+
+        var escapeKeyUpCount = 0
+        GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
+            guard keyEvent.action == GHOSTTY_ACTION_RELEASE, keyEvent.keycode == 53 else { return }
+            escapeKeyUpCount += 1
+        }
+
+        let timestamp = ProcessInfo.processInfo.systemUptime
+        guard let escapeKeyDown = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: timestamp,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: "\u{1b}",
+            charactersIgnoringModifiers: "\u{1b}",
+            isARepeat: false,
+            keyCode: 53
+        ), let escapeKeyUp = NSEvent.keyEvent(
+            with: .keyUp,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: timestamp + 0.001,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: "\u{1b}",
+            charactersIgnoringModifiers: "\u{1b}",
+            isARepeat: false,
+            keyCode: 53
+        ) else {
+            XCTFail("Failed to construct Escape key events")
+            return
+        }
+
+        NSApp.sendEvent(escapeKeyDown)
+        NSApp.sendEvent(escapeKeyUp)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        XCTAssertNil(surface.searchState, "Escape should dismiss find overlay when search text is empty")
+        XCTAssertEqual(
+            escapeKeyUpCount,
+            0,
+            "Escape used to dismiss find overlay must not pass through to the terminal key-up path"
+        )
     }
 
     func testKeyboardCopyModeIndicatorMountsAndUnmounts() {

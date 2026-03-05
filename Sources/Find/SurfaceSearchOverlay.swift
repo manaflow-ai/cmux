@@ -2,6 +2,19 @@ import AppKit
 import Bonsplit
 import SwiftUI
 
+private extension NSView {
+    func cmuxAncestor<T: NSView>(of type: T.Type) -> T? {
+        var current: NSView? = self
+        while let view = current {
+            if let target = view as? T {
+                return target
+            }
+            current = view.superview
+        }
+        return nil
+    }
+}
+
 struct SurfaceSearchOverlay: View {
     let tabId: UUID
     let surfaceId: UUID
@@ -268,6 +281,7 @@ private struct SearchTextFieldRepresentable: NSViewRepresentable {
             case #selector(NSResponder.cancelOperation(_:)):
                 // Don't intercept Escape during CJK IME composition (issue #118)
                 if textView.hasMarkedText() { return false }
+                control.cmuxAncestor(of: GhosttySurfaceScrollView.self)?.beginFindEscapeSuppression()
                 parent.onEscape()
                 return true
             case #selector(NSResponder.insertNewline(_:)):
