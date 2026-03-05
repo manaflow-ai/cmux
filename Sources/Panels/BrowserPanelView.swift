@@ -211,6 +211,7 @@ struct BrowserPanelView: View {
     let portalPriority: Int
     let onRequestPanelFocus: () -> Void
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.paneDropZone) private var paneDropZone
     @State private var omnibarState = OmnibarState()
     @State private var addressBarFocused: Bool = false
     @AppStorage(BrowserSearchSettings.searchEngineKey) private var searchEngineRaw = BrowserSearchSettings.defaultSearchEngine.rawValue
@@ -317,7 +318,10 @@ struct BrowserPanelView: View {
                 .allowsHitTesting(false)
         }
         .overlay {
-            if let searchState = panel.searchState {
+            // Keep Cmd+F usable when the browser is still in the empty new-tab
+            // state (no WKWebView mounted yet). WebView-backed cases are hosted
+            // in AppKit by WebViewRepresentable to avoid layering/clipping issues.
+            if !panel.shouldRenderWebView, let searchState = panel.searchState {
                 BrowserSearchOverlay(
                     panelId: panel.id,
                     searchState: searchState,
@@ -734,10 +738,12 @@ struct BrowserPanelView: View {
             if panel.shouldRenderWebView {
                 WebViewRepresentable(
                     panel: panel,
+                    browserSearchState: panel.searchState,
                     shouldAttachWebView: isVisibleInUI,
                     shouldFocusWebView: isFocused && !addressBarFocused,
                     isPanelFocused: isFocused,
-                    portalZPriority: portalPriority
+                    portalZPriority: portalPriority,
+                    paneDropZone: paneDropZone
                 )
                 // Keep the host stable for normal pane churn, but force a remount when
                 // BrowserPanel replaces its underlying WKWebView after process termination.
@@ -2247,6 +2253,8 @@ func browserOmnibarShouldReacquireFocusAfterEndEditing(
 private final class OmnibarNativeTextField: NSTextField {
     var onPointerDown: (() -> Void)?
     var onHandleKeyEvent: ((NSEvent, NSTextView?) -> Bool)?
+    /// Anchor index for Shift+click selection extension, reset on non-shift clicks.
+    private var shiftClickAnchor: Int?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -2274,37 +2282,65 @@ private final class OmnibarNativeTextField: NSTextField {
             // enters an infinite invalidation cycle (e.g. under memory pressure).
             window?.makeFirstResponder(self)
             currentEditor()?.selectAll(nil)
+            shiftClickAnchor = nil
         } else {
-            // Already editing — allow normal click-to-place-cursor and drag-to-select.
-            // Guard against a stuck tracking loop by posting a synthetic mouseUp after
-            // a timeout. IMPORTANT: must use a background queue because super.mouseDown
-            // blocks the main thread in NSTextView's tracking loop, so
-            // DispatchQueue.main.asyncAfter would never fire.
-            let cancelled = DispatchWorkItem { /* sentinel */ }
-            let windowNumber = window?.windowNumber ?? 0
-            let location = event.locationInWindow
-            DispatchQueue.global(qos: .userInteractive).asyncAfter(deadline: .now() + 3.0) {
-                guard !cancelled.isCancelled else { return }
-                if let fakeUp = NSEvent.mouseEvent(
-                    with: .leftMouseUp,
-                    location: location,
-                    modifierFlags: [],
-                    timestamp: ProcessInfo.processInfo.systemUptime,
-                    windowNumber: windowNumber,
-                    context: nil,
-                    eventNumber: 0,
-                    clickCount: 1,
-                    pressure: 0.0
-                ) {
-                    NSApp.postEvent(fakeUp, atStart: true)
-                }
+            // Already editing — place the cursor at the click position without calling
+            // super.mouseDown, which enters NSTextView's mouse-tracking loop. That loop
+            // can spin forever when NSTextLayoutManager.enumerateTextLayoutFragments hits
+            // an infinite invalidation cycle (see #917). The previous mitigation posted a
+            // synthetic mouseUp via NSApp.postEvent after a timeout, but the tracking loop
+            // does not always dequeue events from the application event queue, so the hang
+            // persisted. By positioning the cursor ourselves we avoid the tracking loop
+            // entirely. Drag-to-select is not supported in this path, but for a single-line
+            // omnibar this is an acceptable trade-off (double-click to select word and
+            // Shift+click to extend selection still work via the field editor).
+            guard let editor = currentEditor() as? NSTextView else {
+                super.mouseDown(with: event)
+                return
             }
-            super.mouseDown(with: event)
-            cancelled.cancel()
+
+            // Double/triple-click: forward directly to the field editor (NSTextView)
+            // which handles word and line selection internally. This bypasses
+            // NSTextField's super.mouseDown (and its problematic tracking loop)
+            // while preserving multi-click semantics.
+            if event.clickCount > 1 {
+                editor.mouseDown(with: event)
+                shiftClickAnchor = nil
+                return
+            }
+
+            let localPoint = editor.convert(event.locationInWindow, from: nil)
+            let index = editor.characterIndexForInsertion(at: localPoint)
+            let textLength = (editor.string as NSString).length
+            let safeIndex = min(index, textLength)
+
+            if event.modifierFlags.contains(.shift) {
+                // Shift+click: extend the existing selection to the clicked position.
+                // Use stored anchor to handle bidirectional extension correctly;
+                // NSRange.location is always the lower index so it cannot serve as
+                // a directional anchor on its own.
+                let sel = editor.selectedRange()
+                let anchor = shiftClickAnchor ?? sel.location
+                shiftClickAnchor = anchor
+                let newRange: NSRange
+                if safeIndex >= anchor {
+                    newRange = NSRange(location: anchor, length: safeIndex - anchor)
+                } else {
+                    newRange = NSRange(location: safeIndex, length: anchor - safeIndex)
+                }
+                editor.setSelectedRange(newRange)
+            } else {
+                shiftClickAnchor = nil
+                editor.setSelectedRange(NSRange(location: safeIndex, length: 0))
+            }
         }
     }
 
     override func keyDown(with event: NSEvent) {
+        // Reset shift-click anchor on any keyboard input so that a subsequent
+        // Shift+click uses the post-keyboard selection as its anchor, not a
+        // stale value from a prior mouse interaction.
+        shiftClickAnchor = nil
         if (currentEditor() as? NSTextView)?.hasMarkedText() == true {
             super.keyDown(with: event)
             return
@@ -2316,6 +2352,7 @@ private final class OmnibarNativeTextField: NSTextField {
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        shiftClickAnchor = nil
         if (currentEditor() as? NSTextView)?.hasMarkedText() == true {
             return super.performKeyEquivalent(with: event)
         }
@@ -3001,10 +3038,12 @@ private struct OmnibarSuggestionsView: View {
 /// NSViewRepresentable wrapper for WKWebView
 struct WebViewRepresentable: NSViewRepresentable {
     let panel: BrowserPanel
+    let browserSearchState: BrowserSearchState?
     let shouldAttachWebView: Bool
     let shouldFocusWebView: Bool
     let isPanelFocused: Bool
     let portalZPriority: Int
+    let paneDropZone: DropZone?
 
     final class Coordinator {
         weak var panel: BrowserPanel?
@@ -3013,6 +3052,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         var desiredPortalVisibleInUI: Bool = true
         var desiredPortalZPriority: Int = 0
         var lastPortalHostId: ObjectIdentifier?
+        var searchOverlayHostingView: NSHostingView<BrowserSearchOverlay>?
     }
 
     private final class HostContainerView: NSView {
@@ -3165,6 +3205,67 @@ struct WebViewRepresentable: NSViewRepresentable {
         host.onGeometryChanged = nil
     }
 
+    private static func removeSearchOverlay(from coordinator: Coordinator) {
+        coordinator.searchOverlayHostingView?.removeFromSuperview()
+        coordinator.searchOverlayHostingView = nil
+    }
+
+    private static func updateSearchOverlay(
+        panel: BrowserPanel,
+        coordinator: Coordinator,
+        containerView: NSView?
+    ) {
+        // Layering contract: keep browser Cmd+F UI in the portal-hosted AppKit layer.
+        // SwiftUI panel overlays can be covered by portal-hosted WKWebView content.
+        guard let searchState = panel.searchState,
+              let containerView else {
+            removeSearchOverlay(from: coordinator)
+            return
+        }
+
+        let rootView = BrowserSearchOverlay(
+            panelId: panel.id,
+            searchState: searchState,
+            onNext: { [weak panel] in
+                panel?.findNext()
+            },
+            onPrevious: { [weak panel] in
+                panel?.findPrevious()
+            },
+            onClose: { [weak panel] in
+                panel?.hideFind()
+            }
+        )
+
+        if let overlay = coordinator.searchOverlayHostingView {
+            overlay.rootView = rootView
+            if overlay.superview !== containerView {
+                overlay.removeFromSuperview()
+                containerView.addSubview(overlay, positioned: .above, relativeTo: nil)
+                NSLayoutConstraint.activate([
+                    overlay.topAnchor.constraint(equalTo: containerView.topAnchor),
+                    overlay.bottomAnchor.constraint(equalTo: containerView.bottomAnchor),
+                    overlay.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
+                    overlay.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
+                ])
+            } else if containerView.subviews.last !== overlay {
+                containerView.addSubview(overlay, positioned: .above, relativeTo: nil)
+            }
+            return
+        }
+
+        let overlay = NSHostingView(rootView: rootView)
+        overlay.translatesAutoresizingMaskIntoConstraints = false
+        containerView.addSubview(overlay, positioned: .above, relativeTo: nil)
+        NSLayoutConstraint.activate([
+            overlay.topAnchor.constraint(equalTo: containerView.topAnchor),
+            overlay.bottomAnchor.constraint(equalTo: containerView.bottomAnchor),
+            overlay.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
+            overlay.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
+        ])
+        coordinator.searchOverlayHostingView = overlay
+    }
+
     private func updateUsingWindowPortal(_ nsView: NSView, context: Context, webView: WKWebView) {
         guard let host = nsView as? HostContainerView else { return }
 
@@ -3175,6 +3276,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         coordinator.desiredPortalZPriority = portalZPriority
         coordinator.attachGeneration += 1
         let generation = coordinator.attachGeneration
+        let paneDropContext = shouldAttachWebView ? currentPaneDropContext() : nil
 
         host.onDidMoveToWindow = { [weak host, weak webView, weak coordinator] in
             guard let host, let webView, let coordinator else { return }
@@ -3186,7 +3288,15 @@ struct WebViewRepresentable: NSViewRepresentable {
                 visibleInUI: coordinator.desiredPortalVisibleInUI,
                 zPriority: coordinator.desiredPortalZPriority
             )
+            BrowserWindowPortalRegistry.updatePaneDropContext(for: webView, context: paneDropContext)
             coordinator.lastPortalHostId = ObjectIdentifier(host)
+            if let panel = coordinator.panel {
+                Self.updateSearchOverlay(
+                    panel: panel,
+                    coordinator: coordinator,
+                    containerView: webView.superview
+                )
+            }
         }
         host.onGeometryChanged = { [weak host, weak coordinator] in
             guard let host, let coordinator else { return }
@@ -3218,6 +3328,11 @@ struct WebViewRepresentable: NSViewRepresentable {
                 coordinator.lastPortalHostId = hostId
             }
             BrowserWindowPortalRegistry.synchronizeForAnchor(host)
+            Self.updateSearchOverlay(
+                panel: panel,
+                coordinator: coordinator,
+                containerView: webView.superview
+            )
         } else {
             // Bind is deferred until host moves into a window. Keep the current
             // portal entry's desired state in sync so stale callbacks cannot keep
@@ -3227,7 +3342,17 @@ struct WebViewRepresentable: NSViewRepresentable {
                 visibleInUI: coordinator.desiredPortalVisibleInUI,
                 zPriority: coordinator.desiredPortalZPriority
             )
+            Self.removeSearchOverlay(from: coordinator)
         }
+
+        BrowserWindowPortalRegistry.updateDropZoneOverlay(
+            for: webView,
+            zone: shouldAttachWebView ? paneDropZone : nil
+        )
+        BrowserWindowPortalRegistry.updatePaneDropContext(
+            for: webView,
+            context: paneDropContext
+        )
 
         panel.restoreDeveloperToolsAfterAttachIfNeeded()
 
@@ -3246,6 +3371,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         let webView = panel.webView
         let coordinator = context.coordinator
         if let previousWebView = coordinator.webView, previousWebView !== webView {
+            Self.removeSearchOverlay(from: coordinator)
             BrowserWindowPortalRegistry.detach(webView: previousWebView)
             coordinator.lastPortalHostId = nil
         }
@@ -3317,6 +3443,7 @@ struct WebViewRepresentable: NSViewRepresentable {
     static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
         coordinator.attachGeneration += 1
         clearPortalCallbacks(for: nsView)
+        removeSearchOverlay(from: coordinator)
 
         guard let webView = coordinator.webView else { return }
         let panel = coordinator.panel
@@ -3341,7 +3468,24 @@ struct WebViewRepresentable: NSViewRepresentable {
                 window.makeFirstResponder(nil)
             }
         }
-        BrowserWindowPortalRegistry.detach(webView: webView)
+
+        // SwiftUI can transiently dismantle/rebuild the browser host view during split
+        // rearrangement. Do not detach the portal-hosted WKWebView here; explicit detach
+        // still happens on real web view replacement and panel teardown.
+        BrowserWindowPortalRegistry.updateDropZoneOverlay(for: webView, zone: nil)
+        BrowserWindowPortalRegistry.updatePaneDropContext(for: webView, context: nil)
         coordinator.lastPortalHostId = nil
+    }
+
+    private func currentPaneDropContext() -> BrowserPaneDropContext? {
+        guard let workspace = AppDelegate.shared?.tabManager?.tabs.first(where: { $0.id == panel.workspaceId }),
+              let paneId = workspace.paneId(forPanelId: panel.id) else {
+            return nil
+        }
+        return BrowserPaneDropContext(
+            workspaceId: panel.workspaceId,
+            panelId: panel.id,
+            paneId: paneId
+        )
     }
 }

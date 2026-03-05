@@ -14,11 +14,21 @@ struct BrowserSearchOverlay: View {
 
     private let padding: CGFloat = 8
 
+    private func requestSearchFieldFocus(maxAttempts: Int = 3) {
+        guard maxAttempts > 0 else { return }
+        isSearchFieldFocused = true
+        guard maxAttempts > 1 else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            requestSearchFieldFocus(maxAttempts: maxAttempts - 1)
+        }
+    }
+
     var body: some View {
         GeometryReader { geo in
             HStack(spacing: 4) {
                 TextField("Search", text: $searchState.needle)
                     .textFieldStyle(.plain)
+                    .accessibilityIdentifier("BrowserFindSearchTextField")
                     .frame(width: 180)
                     .padding(.leading, 8)
                     .padding(.trailing, 50)
@@ -95,13 +105,13 @@ struct BrowserSearchOverlay: View {
                 #if DEBUG
                 dlog("browser.findbar.appear panel=\(panelId.uuidString.prefix(5))")
                 #endif
-                isSearchFieldFocused = true
+                requestSearchFieldFocus()
             }
             .onReceive(NotificationCenter.default.publisher(for: .browserSearchFocus)) { notification in
                 guard let notifiedPanelId = notification.object as? UUID,
                       notifiedPanelId == panelId else { return }
                 DispatchQueue.main.async {
-                    isSearchFieldFocused = true
+                    requestSearchFieldFocus()
                 }
             }
             .background(
