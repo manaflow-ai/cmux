@@ -3164,23 +3164,6 @@
         }
       }
     },
-    "commandPalette.subtitle.tabWithName": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tab • %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "タブ • %@"
-          }
-        }
-      }
-    },
     "commandPalette.subtitle.tabFallback": {
       "extractionState": "manual",
       "localizations": {
@@ -3194,6 +3177,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "タブ"
+          }
+        }
+      }
+    },
+    "commandPalette.subtitle.tabWithName": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tab • %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブ • %@"
           }
         }
       }
@@ -3215,23 +3215,6 @@
         }
       }
     },
-    "commandPalette.subtitle.workspaceWithName": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Workspace • %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ワークスペース • %@"
-          }
-        }
-      }
-    },
     "commandPalette.subtitle.workspaceFallback": {
       "extractionState": "manual",
       "localizations": {
@@ -3245,6 +3228,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "ワークスペース"
+          }
+        }
+      }
+    },
+    "commandPalette.subtitle.workspaceWithName": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace • %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペース • %@"
           }
         }
       }
@@ -4469,6 +4469,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "クリップボードからフォルダパスを読み込めませんでした。"
+          }
+        }
+      }
+    },
+    "language.system": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "System"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "システム"
           }
         }
       }
@@ -5948,6 +5965,91 @@
           "stringUnit": {
             "state": "translated",
             "value": "アプリアイコン（DockおよびCmd+Tab）に未読数を表示します。"
+          }
+        }
+      }
+    },
+    "settings.app.language": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Language"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "言語"
+          }
+        }
+      }
+    },
+    "settings.app.language.restartDialog.confirm": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restart Now"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今すぐ再起動"
+          }
+        }
+      }
+    },
+    "settings.app.language.restartDialog.later": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Later"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "後で"
+          }
+        }
+      }
+    },
+    "settings.app.language.restartDialog.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restart to apply language change?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "言語変更を適用するために再起動しますか？"
+          }
+        }
+      }
+    },
+    "settings.app.language.restartSubtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restart cmux to apply"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmuxを再起動して適用"
           }
         }
       }
@@ -9284,40 +9386,6 @@
         }
       }
     },
-    "statusMenu.unreadCount.one": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "1 unread notification"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "未読通知 1件"
-          }
-        }
-      }
-    },
-    "statusMenu.unreadCount.other": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld unread notifications"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "未読通知 %lld件"
-          }
-        }
-      }
-    },
     "statusMenu.tooltip.unread.one": {
       "extractionState": "manual",
       "localizations": {
@@ -9336,6 +9404,40 @@
       }
     },
     "statusMenu.tooltip.unread.other": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld unread notifications"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未読通知 %lld件"
+          }
+        }
+      }
+    },
+    "statusMenu.unreadCount.one": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 unread notification"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未読通知 1件"
+          }
+        }
+      }
+    },
+    "statusMenu.unreadCount.other": {
       "extractionState": "manual",
       "localizations": {
         "en": {

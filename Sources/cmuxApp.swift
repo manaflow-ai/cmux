@@ -2613,6 +2613,45 @@ enum AppearanceSettings {
     }
 }
 
+enum AppLanguage: String, CaseIterable, Identifiable {
+    case system
+    case en
+    case ja
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .system:
+            return String(localized: "language.system", defaultValue: "System")
+        case .en:
+            return Locale.current.localizedString(forLanguageCode: "en") ?? "English"
+        case .ja:
+            return Locale.current.localizedString(forLanguageCode: "ja") ?? "Japanese"
+        }
+    }
+}
+
+enum LanguageSettings {
+    static let languageKey = "appLanguage"
+    static let defaultLanguage: AppLanguage = .system
+
+    static func apply(_ language: AppLanguage) {
+        switch language {
+        case .system:
+            UserDefaults.standard.removeObject(forKey: "AppleLanguages")
+        case .en, .ja:
+            UserDefaults.standard.set([language.rawValue], forKey: "AppleLanguages")
+        }
+    }
+
+    static var languageAtLaunch: AppLanguage = {
+        let stored = UserDefaults.standard.string(forKey: languageKey)
+        guard let stored, let lang = AppLanguage(rawValue: stored) else { return .system }
+        return lang
+    }()
+}
+
 enum AppIconMode: String, CaseIterable, Identifiable {
     case automatic
     case light
@@ -2726,6 +2765,7 @@ struct SettingsView: View {
     private let contentTopInset: CGFloat = 8
     private let pickerColumnWidth: CGFloat = 196
 
+    @AppStorage(LanguageSettings.languageKey) private var appLanguage = LanguageSettings.defaultLanguage.rawValue
     @AppStorage(AppearanceSettings.appearanceModeKey) private var appearanceMode = AppearanceSettings.defaultMode.rawValue
     @AppStorage(AppIconSettings.modeKey) private var appIconMode = AppIconSettings.defaultMode.rawValue
     @AppStorage(SocketControlSettings.appStorageKey) private var socketControlMode = SocketControlSettings.defaultMode.rawValue
@@ -2779,6 +2819,8 @@ struct SettingsView: View {
     @State private var socketPasswordStatusMessage: String?
     @State private var socketPasswordStatusIsError = false
     @State private var telemetryValueAtLaunch = TelemetrySettings.enabledForCurrentLaunch
+    @State private var showLanguageRestartAlert = false
+    @State private var isResettingSettings = false
     @State private var workspaceTabDefaultEntries = WorkspaceTabColorSettings.defaultPaletteWithOverrides()
     @State private var workspaceTabCustomColors = WorkspaceTabColorSettings.customColors()
 
@@ -2898,6 +2940,33 @@ struct SettingsView: View {
                         SettingsPickerRow(String(localized: "settings.app.theme", defaultValue: "Theme"), controlWidth: pickerColumnWidth, selection: $appearanceMode) {
                             ForEach(AppearanceMode.visibleCases) { mode in
                                 Text(mode.displayName).tag(mode.rawValue)
+                            }
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            String(localized: "settings.app.language", defaultValue: "Language"),
+                            subtitle: appLanguage != LanguageSettings.languageAtLaunch.rawValue
+                                ? String(localized: "settings.app.language.restartSubtitle", defaultValue: "Restart cmux to apply")
+                                : nil,
+                            controlWidth: pickerColumnWidth
+                        ) {
+                            Picker("", selection: $appLanguage) {
+                                ForEach(AppLanguage.allCases) { lang in
+                                    Text(lang.displayName).tag(lang.rawValue)
+                                }
+                            }
+                            .labelsHidden()
+                            .pickerStyle(.menu)
+                            .onChange(of: appLanguage) { newValue in
+                                guard !isResettingSettings else { return }
+                                if let lang = AppLanguage(rawValue: newValue) {
+                                    LanguageSettings.apply(lang)
+                                    if newValue != LanguageSettings.languageAtLaunch.rawValue {
+                                        showLanguageRestartAlert = true
+                                    }
+                                }
                             }
                         }
 
@@ -3656,9 +3725,36 @@ struct SettingsView: View {
         } message: {
             Text(String(localized: "settings.automation.openAccess.dialog.message", defaultValue: "This disables ancestry and password checks and opens the socket to all local users. Only enable when you understand the risk."))
         }
+        .confirmationDialog(
+            String(localized: "settings.app.language.restartDialog.title", defaultValue: "Restart to apply language change?"),
+            isPresented: $showLanguageRestartAlert,
+            titleVisibility: .visible
+        ) {
+            Button(String(localized: "settings.app.language.restartDialog.confirm", defaultValue: "Restart Now")) {
+                relaunchApp()
+            }
+            Button(String(localized: "settings.app.language.restartDialog.later", defaultValue: "Later"), role: .cancel) {}
+        }
+    }
+
+    private func relaunchApp() {
+        let bundlePath = Bundle.main.bundlePath
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/bin/sh")
+        task.arguments = ["-c", "sleep 1 && open -n -- \"$RELAUNCH_PATH\""]
+        task.environment = ["RELAUNCH_PATH": bundlePath]
+        do {
+            try task.run()
+        } catch {
+            return
+        }
+        NSApplication.shared.terminate(nil)
     }
 
     private func resetAllSettings() {
+        isResettingSettings = true
+        appLanguage = LanguageSettings.defaultLanguage.rawValue
+        LanguageSettings.apply(.system)
         appearanceMode = AppearanceSettings.defaultMode.rawValue
         appIconMode = AppIconSettings.defaultMode.rawValue
         AppIconSettings.applyIcon(.automatic)
@@ -3700,6 +3796,7 @@ struct SettingsView: View {
         WorkspaceTabColorSettings.reset()
         reloadWorkspaceTabColorSettings()
         shortcutResetToken = UUID()
+        DispatchQueue.main.async { isResettingSettings = false }
     }
 
     private func defaultTabColorBinding(for name: String) -> Binding<Color> {
