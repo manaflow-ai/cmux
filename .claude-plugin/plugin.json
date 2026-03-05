@@ -5,7 +5,7 @@
   "author": {
     "name": "manaflow-ai"
   },
-  "repository": "https://github.com/sudoish/cmux",
+  "repository": "https://github.com/manaflow-ai/cmux",
   "homepage": "https://cmux.dev",
   "license": "AGPL-3.0-or-later",
   "keywords": ["cmux", "terminal", "browser-automation", "workspaces", "panes", "splits"]
