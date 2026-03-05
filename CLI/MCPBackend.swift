@@ -156,18 +156,19 @@ public class MCPBackend {
     ///
     /// Returns the data before the newline (newline itself is consumed but not included).
     /// Uses a small stack buffer to minimize allocations for typical JSON responses.
-    private func readLine() throws -> Data {
+    /// - Parameter timeoutMs: Poll timeout in milliseconds. Pass -1 for no timeout.
+    private func readLine(timeoutMs: Int32) throws -> Data {
         var buffer = Data()
         let newline = UInt8(ascii: "\n")
         var chunk = [UInt8](repeating: 0, count: 4096)
 
         while true {
-            // Poll with 30s timeout to prevent indefinite blocking
             var pollFd = pollfd(fd: socketFd, events: Int16(POLLIN), revents: 0)
-            let pollResult = poll(&pollFd, 1, 30_000) // 30 seconds
+            let pollResult = poll(&pollFd, 1, timeoutMs)
             if pollResult == 0 {
                 disconnect()
-                throw MCPError.transportError("Socket read timed out after 30s")
+                let secs = timeoutMs / 1000
+                throw MCPError.transportError("Socket read timed out after \(secs)s")
             }
             if pollResult < 0 {
                 if errno == EINTR { continue }
@@ -206,7 +207,7 @@ public class MCPBackend {
     ///
     /// The cmux socket v2 protocol uses `{id, method, params}` requests and
     /// `{id, ok, result}` or `{id, ok, error}` responses — NOT JSON-RPC 2.0.
-    public func rpc(method: String, params: [String: Any] = [:]) throws -> [String: Any] {
+    public func rpc(method: String, params: [String: Any] = [:], timeoutMs: Int32 = 120_000) throws -> [String: Any] {
         lock.lock()
         defer { lock.unlock() }
 
@@ -216,17 +217,17 @@ public class MCPBackend {
         // operations like create, close, send_text, etc.
         do {
             try ensureConnected()
-            return try sendRPC(method: method, params: params)
+            return try sendRPC(method: method, params: params, timeoutMs: timeoutMs)
         } catch MCPError.transportError {
             // Connection may be stale — reconnect and retry once
             disconnect()
             try ensureConnected()
-            return try sendRPC(method: method, params: params)
+            return try sendRPC(method: method, params: params, timeoutMs: timeoutMs)
         }
     }
 
     /// Low-level: send a single RPC request and read the response.
-    private func sendRPC(method: String, params: [String: Any]) throws -> [String: Any] {
+    private func sendRPC(method: String, params: [String: Any], timeoutMs: Int32) throws -> [String: Any] {
         guard socketFd >= 0 else {
             throw MCPError.executionFailed("Not connected to socket")
         }
@@ -245,7 +246,7 @@ public class MCPBackend {
         try writeAll(payload)
 
         // Read response (newline-terminated JSON)
-        let responseData = try readLine()
+        let responseData = try readLine(timeoutMs: timeoutMs)
 
         guard let response = try JSONSerialization.jsonObject(with: responseData) as? [String: Any] else {
             throw MCPError.executionFailed("Invalid response from socket")
@@ -287,8 +288,8 @@ public class MCPBackend {
     }
 
     /// Perform an RPC call and return a formatted text result for MCP tool output.
-    public func rpcForTool(method: String, params: [String: Any] = [:]) throws -> MCPToolCallResult {
-        let result = try rpc(method: method, params: params)
+    public func rpcForTool(method: String, params: [String: Any] = [:], timeoutMs: Int32 = 120_000) throws -> MCPToolCallResult {
+        let result = try rpc(method: method, params: params, timeoutMs: timeoutMs)
         let data = try JSONSerialization.data(withJSONObject: result, options: [.sortedKeys, .prettyPrinted])
         let text = String(data: data, encoding: .utf8) ?? "{}"
         return MCPToolCallResult(content: [.text(text)])

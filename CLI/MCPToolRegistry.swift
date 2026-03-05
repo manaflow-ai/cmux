@@ -64,10 +64,14 @@ public final class MCPToolRegistry {
 struct ActionDef {
     let required: [String]
     let optional: [String]
+    /// Socket read timeout in milliseconds for this action. Long-running actions
+    /// (e.g. browser.wait, download.wait) should use a larger value.
+    let timeoutMs: Int32
 
-    init(required: [String] = [], optional: [String] = []) {
+    init(required: [String] = [], optional: [String] = [], timeoutMs: Int32 = 120_000) {
         self.required = required
         self.optional = optional
+        self.timeoutMs = timeoutMs
     }
 }
 
@@ -128,7 +132,7 @@ public class GroupedTool: MCPExecutionTool {
         }
 
         let method = "\(namespace).\(action)"
-        return try backend.rpcForTool(method: method, params: params)
+        return try backend.rpcForTool(method: method, params: params, timeoutMs: def.timeoutMs)
     }
 }
 
@@ -569,7 +573,7 @@ public final class BrowserTool: GroupedTool {
                 "screenshot": ActionDef(optional: ["selector", "path", "surface_id"]),
                 "snapshot": ActionDef(optional: ["surface_id"]),
                 "eval": ActionDef(required: ["expression"], optional: ["surface_id"]),
-                "wait": ActionDef(optional: ["selector", "state", "timeout", "surface_id"]),
+                "wait": ActionDef(optional: ["selector", "state", "timeout", "surface_id"], timeoutMs: 300_000),
                 "highlight": ActionDef(required: ["selector"], optional: ["surface_id"]),
                 // Tabs
                 "tab.new": ActionDef(optional: ["url", "surface_id"]),
@@ -617,7 +621,7 @@ public final class BrowserTool: GroupedTool {
                 "screencast.stop": ActionDef(optional: ["surface_id"]),
                 "trace.start": ActionDef(optional: ["path", "surface_id"]),
                 "trace.stop": ActionDef(optional: ["surface_id"]),
-                "download.wait": ActionDef(optional: ["surface_id"]),
+                "download.wait": ActionDef(optional: ["surface_id"], timeoutMs: 300_000),
                 // Dialog
                 "dialog.accept": ActionDef(optional: ["text", "surface_id"]),
                 "dialog.dismiss": ActionDef(optional: ["surface_id"]),

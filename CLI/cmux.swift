@@ -823,6 +823,7 @@ struct CMUXCLI {
         var idFormatArg: String? = nil
         var windowId: String? = nil
         var socketPasswordArg: String? = nil
+        var mcpMode = false
 
         var index = 1
         while index < args.count {
@@ -874,23 +875,29 @@ struct CMUXCLI {
                 return
             }
             if arg == "--mcp" {
-                // Check if MCP server is enabled in app settings
-                if !mcpServerIsEnabled() {
-                    FileHandle.standardError.write(
-                        "MCP server is disabled in cmux settings.\n".data(using: .utf8) ?? Data()
-                    )
-                    let errorResponse = """
-                    {"jsonrpc":"2.0","id":null,"error":{"code":-32000,"message":"MCP server is disabled in cmux settings. Enable it in Settings > Automation."}}
-                    """
-                    print(errorResponse)
-                    Foundation.exit(1)
-                }
-                // Run MCP server mode
-                let resolvedPassword = SocketPasswordResolver.resolve(explicit: socketPasswordArg)
-                runMCPServer(socketPath: socketPath, password: resolvedPassword)
-                return
+                mcpMode = true
+                index += 1
+                continue
             }
             break
+        }
+
+        if mcpMode {
+            // Check if MCP server is enabled in app settings
+            if !mcpServerIsEnabled() {
+                FileHandle.standardError.write(
+                    "MCP server is disabled in cmux settings.\n".data(using: .utf8) ?? Data()
+                )
+                let errorResponse = """
+                {"jsonrpc":"2.0","id":null,"error":{"code":-32000,"message":"MCP server is disabled in cmux settings. Enable it in Settings > Automation."}}
+                """
+                print(errorResponse)
+                Foundation.exit(1)
+            }
+            // Run MCP server mode (all flags like --socket/--password are fully parsed above)
+            let resolvedPassword = SocketPasswordResolver.resolve(explicit: socketPasswordArg)
+            runMCPServer(socketPath: socketPath, password: resolvedPassword)
+            return
         }
 
         guard index < args.count else {
