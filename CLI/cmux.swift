@@ -1511,6 +1511,10 @@ struct CMUXCLI {
             let bridged = replaceToken(commandArgs, from: "--panel", to: "--surface")
             try runBrowserCommand(commandArgs: ["is-webview-focused"] + bridged, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
 
+        // Markdown commands
+        case "markdown":
+            try runMarkdownCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
+
         default:
             print(usage())
             throw CLIError(message: "Unknown command: \(command)")
@@ -1522,6 +1526,96 @@ struct CMUXCLI {
         if expanded.hasPrefix("/") { return expanded }
         let cwd = FileManager.default.currentDirectoryPath
         return (cwd as NSString).appendingPathComponent(expanded)
+    }
+
+    // MARK: - Markdown Commands
+
+    private func runMarkdownCommand(
+        commandArgs: [String],
+        client: SocketClient,
+        jsonOutput: Bool,
+        idFormat: CLIIDFormat
+    ) throws {
+        var args = commandArgs
+
+        // Parse routing flags
+        let (workspaceOpt, argsAfterWorkspace) = parseOption(args, name: "--workspace")
+        let (windowOpt, argsAfterWindow) = parseOption(argsAfterWorkspace, name: "--window")
+        let (surfaceOpt, argsAfterSurface) = parseOption(argsAfterWindow, name: "--surface")
+        args = argsAfterSurface
+
+        // Determine subcommand. Explicit "open" is supported, otherwise treat
+        // a single positional argument as shorthand path.
+        let subArgs: [String]
+        if let first = args.first, first.lowercased() == "open" {
+            subArgs = Array(args.dropFirst())
+        } else if args.count == 1, let first = args.first, !first.hasPrefix("-") {
+            subArgs = [first]
+        } else {
+            // Allow path-like first tokens (e.g. plan.md) with trailing args
+            // so we can surface specific trailing-arg/flag errors below.
+            if let first = args.first, first.hasPrefix("-") {
+                throw CLIError(
+                    message:
+                        "markdown open: unknown flag '\(first)'. Usage: cmux markdown open <path> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]"
+                )
+            } else if let first = args.first, looksLikePath(first) || first.contains(".") {
+                subArgs = args
+            } else if let first = args.first {
+                throw CLIError(message: "Unknown markdown subcommand: \(first). Usage: cmux markdown open <path>")
+            } else {
+                subArgs = []
+            }
+        }
+
+        guard let rawPath = subArgs.first, !rawPath.isEmpty else {
+            throw CLIError(message: "markdown open requires a file path. Usage: cmux markdown open <path>")
+        }
+        let trailingArgs = Array(subArgs.dropFirst())
+        if let unknownFlag = trailingArgs.first(where: { $0.hasPrefix("-") }) {
+            throw CLIError(
+                message:
+                    "markdown open: unknown flag '\(unknownFlag)'. Usage: cmux markdown open <path> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]"
+            )
+        }
+        if let extraArg = trailingArgs.first {
+            throw CLIError(
+                message:
+                    "markdown open: unexpected argument '\(extraArg)'. Usage: cmux markdown open <path> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]"
+            )
+        }
+
+        let absolutePath = resolvePath(rawPath)
+
+        // Build params
+        var params: [String: Any] = ["path": absolutePath]
+        if let surfaceRaw = surfaceOpt {
+            if let surface = try normalizeSurfaceHandle(surfaceRaw, client: client) {
+                params["surface_id"] = surface
+            }
+        }
+        let workspaceRaw = workspaceOpt ?? (windowOpt == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+        if let workspaceRaw {
+            if let workspace = try normalizeWorkspaceHandle(workspaceRaw, client: client) {
+                params["workspace_id"] = workspace
+            }
+        }
+        if let windowRaw = windowOpt {
+            if let window = try normalizeWindowHandle(windowRaw, client: client) {
+                params["window_id"] = window
+            }
+        }
+
+        let payload = try client.sendV2(method: "markdown.open", params: params)
+
+        if jsonOutput {
+            print(jsonString(formatIDs(payload, mode: idFormat)))
+        } else {
+            let surfaceText = formatHandle(payload, kind: "surface", idFormat: idFormat) ?? "unknown"
+            let paneText = formatHandle(payload, kind: "pane", idFormat: idFormat) ?? "unknown"
+            let filePath = (payload["path"] as? String) ?? absolutePath
+            print("OK surface=\(surfaceText) pane=\(paneText) path=\(filePath)")
+        }
     }
 
     /// Returns true if the argument looks like a filesystem path rather than a CLI command.
@@ -4551,6 +4645,25 @@ struct CMUXCLI {
             return "Legacy alias for 'cmux browser focus-webview'. Run 'cmux browser --help' for details."
         case "is-webview-focused":
             return "Legacy alias for 'cmux browser is-webview-focused'. Run 'cmux browser --help' for details."
+        case "markdown":
+            return """
+            Usage: cmux markdown open <path> [options]
+                   cmux markdown <path>       (shorthand for 'open')
+
+            Open a markdown file in a formatted viewer panel with live file watching.
+            The file is rendered with rich formatting (headings, code blocks, tables,
+            lists, blockquotes) and automatically updates when the file changes on disk.
+
+            Options:
+              --workspace <id|ref|index>   Target workspace (default: $CMUX_WORKSPACE_ID)
+              --surface <id|ref|index>     Source surface to split from (default: focused surface)
+              --window <id|ref|index>      Target window
+
+            Examples:
+              cmux markdown open plan.md
+              cmux markdown ~/project/CHANGELOG.md
+              cmux markdown open ./docs/design.md --workspace 0
+            """
         default:
             return nil
         }
@@ -6458,6 +6571,8 @@ struct CMUXCLI {
           paste-buffer [--name <name>] [--workspace <id|ref>] [--surface <id|ref>]
           respawn-pane [--workspace <id|ref>] [--surface <id|ref>] [--command <cmd>]
           display-message [-p|--print] <text>
+
+          markdown [open] <path>             (open markdown file in formatted viewer panel with live reload)
 
           browser [--surface <id|ref|index> | <surface>] <subcommand> ...
           browser open [url]                   (create browser split in caller's workspace; if surface supplied, behaves like navigate)

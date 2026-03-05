@@ -28,6 +28,9 @@
 		A5001402 /* BrowserPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001412 /* BrowserPanel.swift */; };
 		A5001403 /* TerminalPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001413 /* TerminalPanelView.swift */; };
 		A5001404 /* BrowserPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001414 /* BrowserPanelView.swift */; };
+		A5001420 /* MarkdownPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001418 /* MarkdownPanel.swift */; };
+		A5001421 /* MarkdownPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001419 /* MarkdownPanelView.swift */; };
+		A5001290 /* MarkdownUI in Frameworks */ = {isa = PBXBuildFile; productRef = A5001291 /* MarkdownUI */; };
 		A5001405 /* PanelContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001415 /* PanelContentView.swift */; };
 		A5001406 /* Workspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001416 /* Workspace.swift */; };
 		A5001407 /* WorkspaceContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001417 /* WorkspaceContentView.swift */; };
@@ -170,6 +173,8 @@
 		A5001413 /* TerminalPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/TerminalPanelView.swift; sourceTree = "<group>"; };
 		A5001414 /* BrowserPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserPanelView.swift; sourceTree = "<group>"; };
 		A5001415 /* PanelContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/PanelContentView.swift; sourceTree = "<group>"; };
+		A5001418 /* MarkdownPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownPanel.swift; sourceTree = "<group>"; };
+		A5001419 /* MarkdownPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownPanelView.swift; sourceTree = "<group>"; };
 		A5001416 /* Workspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Workspace.swift; sourceTree = "<group>"; };
 		A5001417 /* WorkspaceContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceContentView.swift; sourceTree = "<group>"; };
 		A5001090 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
@@ -236,6 +241,7 @@
 					A5001230 /* Sparkle in Frameworks */,
 					A5001250 /* Sentry in Frameworks */,
 					A5001270 /* PostHog in Frameworks */,
+					A5001290 /* MarkdownUI in Frameworks */,
 				);
 				runOnlyForDeploymentPostprocessing = 0;
 			};
@@ -363,6 +369,8 @@
 				A5001412 /* BrowserPanel.swift */,
 				A5001413 /* TerminalPanelView.swift */,
 				A5001414 /* BrowserPanelView.swift */,
+				A5001418 /* MarkdownPanel.swift */,
+				A5001419 /* MarkdownPanelView.swift */,
 				A5001510 /* CmuxWebView.swift */,
 				A5001415 /* PanelContentView.swift */,
 				A5001211 /* UpdateController.swift */,
@@ -473,6 +481,7 @@
 					A5001251 /* Sentry */,
 					A5001271 /* PostHog */,
 					A5001261 /* Bonsplit */,
+					A5001291 /* MarkdownUI */,
 				);
 			name = GhosttyTabs;
 			productName = GhosttyTabs;
@@ -558,6 +567,7 @@
 					A5001232 /* XCRemoteSwiftPackageReference "Sparkle" */,
 					A5001252 /* XCRemoteSwiftPackageReference "sentry-cocoa" */,
 					A5001272 /* XCRemoteSwiftPackageReference "posthog-ios" */,
+					A5001292 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */,
 					A5001260 /* XCLocalSwiftPackageReference "bonsplit" */,
 				);
 			productRefGroup = A5001042 /* Products */;
@@ -608,6 +618,8 @@
 				A5001402 /* BrowserPanel.swift in Sources */,
 				A5001403 /* TerminalPanelView.swift in Sources */,
 				A5001404 /* BrowserPanelView.swift in Sources */,
+				A5001420 /* MarkdownPanel.swift in Sources */,
+				A5001421 /* MarkdownPanelView.swift in Sources */,
 				A5001500 /* CmuxWebView.swift in Sources */,
 				A5001405 /* PanelContentView.swift in Sources */,
 				A5001201 /* UpdateController.swift in Sources */,
@@ -966,6 +978,14 @@
 					minimumVersion = 3.41.0;
 				};
 			};
+			A5001292 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */ = {
+				isa = XCRemoteSwiftPackageReference;
+				repositoryURL = "https://github.com/gonzalezreal/swift-markdown-ui";
+				requirement = {
+					kind = upToNextMajorVersion;
+					minimumVersion = 2.4.1;
+				};
+			};
 			A5001260 /* XCLocalSwiftPackageReference "bonsplit" */ = {
 				isa = XCLocalSwiftPackageReference;
 				relativePath = vendor/bonsplit;
@@ -992,6 +1012,11 @@
 				isa = XCSwiftPackageProductDependency;
 				package = A5001260 /* XCLocalSwiftPackageReference "bonsplit" */;
 				productName = Bonsplit;
+			};
+			A5001291 /* MarkdownUI */ = {
+				isa = XCSwiftPackageProductDependency;
+				package = A5001292 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */;
+				productName = MarkdownUI;
 			};
 /* End XCSwiftPackageProductDependency section */
 
