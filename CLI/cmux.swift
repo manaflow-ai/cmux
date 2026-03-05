@@ -3052,17 +3052,69 @@ struct CMUXCLI {
         if subcommand == "screenshot" {
             let sid = try requireSurface()
             let (outPathOpt, _) = parseOption(subArgs, name: "--out")
-            let payload = try client.sendV2(method: "browser.screenshot", params: ["surface_id": sid])
-            if let outPathOpt,
-               let b64 = payload["png_base64"] as? String,
-               let data = Data(base64Encoded: b64) {
-                try data.write(to: URL(fileURLWithPath: outPathOpt))
+            let localJSONOutput = hasFlag(subArgs, name: "--json")
+            let outputAsJSON = jsonOutput || localJSONOutput
+            var payload = try client.sendV2(method: "browser.screenshot", params: ["surface_id": sid])
+
+            func fileURL(fromPath rawPath: String) -> URL {
+                let expandedPath = (rawPath as NSString).expandingTildeInPath
+                return URL(fileURLWithPath: expandedPath).standardizedFileURL
             }
 
-            if jsonOutput {
+            func writeScreenshot(_ data: Data, to destinationURL: URL) throws {
+                try FileManager.default.createDirectory(
+                    at: destinationURL.deletingLastPathComponent(),
+                    withIntermediateDirectories: true
+                )
+                try data.write(to: destinationURL, options: .atomic)
+            }
+
+            var screenshotPath = payload["path"] as? String
+            var screenshotURL = payload["url"] as? String
+
+            if let outPathOpt {
+                let outputURL = fileURL(fromPath: outPathOpt)
+                if let b64 = payload["png_base64"] as? String,
+                   let data = Data(base64Encoded: b64) {
+                    try writeScreenshot(data, to: outputURL)
+                } else if let sourcePath = payload["path"] as? String {
+                    let sourceURL = URL(fileURLWithPath: sourcePath)
+                    if sourceURL.path != outputURL.path {
+                        try? FileManager.default.removeItem(at: outputURL)
+                        try FileManager.default.copyItem(at: sourceURL, to: outputURL)
+                    }
+                } else {
+                    throw CLIError(message: "browser screenshot missing image data")
+                }
+                screenshotPath = outputURL.path
+                screenshotURL = outputURL.absoluteString
+                payload["path"] = screenshotPath
+                payload["url"] = screenshotURL
+            } else if screenshotPath == nil || screenshotURL == nil {
+                if let b64 = payload["png_base64"] as? String,
+                   let data = Data(base64Encoded: b64) {
+                    let outputDir = FileManager.default.temporaryDirectory
+                        .appendingPathComponent("cmux-browser-screenshots-cli", isDirectory: true)
+                    try FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
+                    let timestampMs = Int(Date().timeIntervalSince1970 * 1000)
+                    let filename = "surface-\(sid)-\(timestampMs)-\(String(UUID().uuidString.prefix(8))).png"
+                    let outputURL = outputDir.appendingPathComponent(filename, isDirectory: false)
+                    try writeScreenshot(data, to: outputURL)
+                    screenshotPath = outputURL.path
+                    screenshotURL = outputURL.absoluteString
+                    payload["path"] = screenshotPath
+                    payload["url"] = screenshotURL
+                }
+            }
+
+            if outputAsJSON {
                 print(jsonString(formatIDs(payload, mode: idFormat)))
-            } else if let outPathOpt {
-                print("OK \(outPathOpt)")
+            } else if let screenshotURL,
+                      !screenshotURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                print("OK \(screenshotURL)")
+            } else if let screenshotPath,
+                      !screenshotPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                print("OK \(screenshotPath)")
             } else {
                 print("OK")
             }
