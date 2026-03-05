@@ -4907,7 +4907,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var debugStressLagProbeEnabled = false
     private let debugStressWorkspaceCount = 20
     private let debugStressPaneCount = 4
-    private let debugStressTabsPerPane = 4
+    private let debugStressTabsPerPane = 1
     private let debugStressYieldInterval = 4
 
     @objc func openDebugScrollbackTab(_ sender: Any?) {
@@ -5021,10 +5021,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
 
             let creationElapsedMs = (ProcessInfo.processInfo.systemUptime - totalStart) * 1000.0
-            let primeStats = await self.primeDebugStressWorkspacesForSurfaceLoad(
-                created,
-                tabManager: tabManager
-            )
+            let primeStats = await self.primeDebugStressWorkspacesForSurfaceLoad(created)
             let loadStats = await self.waitForDebugStressSurfaceLoad(created)
             let totalElapsedMs = (ProcessInfo.processInfo.systemUptime - totalStart) * 1000.0
             let avgWorkspaceMs = created.isEmpty ? 0 : (cumulativeWorkspaceMs / Double(created.count))
@@ -5071,8 +5068,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func primeDebugStressWorkspacesForSurfaceLoad(
-        _ workspaces: [Workspace],
-        tabManager: TabManager
+        _ workspaces: [Workspace]
     ) async -> DebugStressSurfacePrimeStats {
         guard !workspaces.isEmpty else {
             return DebugStressSurfacePrimeStats(activatedTabs: 0, elapsedMs: 0)
@@ -5082,23 +5078,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         var activatedTabs = 0
 
         for (index, workspace) in workspaces.enumerated() {
-            tabManager.selectWorkspace(workspace)
-            await Task.yield()
-
-            for paneId in workspace.bonsplitController.allPaneIds {
-                workspace.bonsplitController.focusPane(paneId)
-                let tabCount = workspace.bonsplitController.tabs(inPane: paneId).count
-                for tabIndex in 0..<tabCount {
-                    workspace.selectSurface(at: tabIndex)
-                    if let panelId = workspace.focusedPanelId,
-                       let terminalPanel = workspace.terminalPanel(for: panelId) {
-                        terminalPanel.surface.requestBackgroundSurfaceStartIfNeeded()
-                        activatedTabs += 1
-                    }
-                    if activatedTabs % debugStressYieldInterval == 0 {
-                        await Task.yield()
-                    }
-                }
+            for panel in workspace.panels.values {
+                guard let terminalPanel = panel as? TerminalPanel else { continue }
+                terminalPanel.surface.requestBackgroundSurfaceStartIfNeeded()
+                activatedTabs += 1
+            }
+            if activatedTabs % debugStressYieldInterval == 0 {
+                await Task.yield()
             }
 
             if (index + 1) % debugStressYieldInterval == 0 || index == workspaces.count - 1 {
@@ -5195,6 +5181,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let waitStart = ProcessInfo.processInfo.systemUptime
         var attempts = 0
         var pending = pendingDebugTerminalSurfaceCount(in: workspaces)
+        var stagnantAttemptCount = 0
 
         while pending > 0, attempts < maxAttempts {
             requestDebugStressBackgroundSurfaceStarts(workspaces)
@@ -5205,7 +5192,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
 
             try? await Task.sleep(nanoseconds: 50_000_000)
-            pending = pendingDebugTerminalSurfaceCount(in: workspaces)
+            let refreshedPending = pendingDebugTerminalSurfaceCount(in: workspaces)
+            if refreshedPending < pending {
+                stagnantAttemptCount = 0
+            } else {
+                stagnantAttemptCount += 1
+                if stagnantAttemptCount >= debugStressYieldInterval {
+                    pending = refreshedPending
+                    break
+                }
+            }
+            pending = refreshedPending
         }
 
         let elapsedMs = (ProcessInfo.processInfo.systemUptime - waitStart) * 1000.0
