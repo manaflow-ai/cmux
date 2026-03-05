@@ -2330,6 +2330,10 @@ private final class OmnibarNativeTextField: NSTextField {
     }
 
     override func keyDown(with event: NSEvent) {
+        // Reset shift-click anchor on any keyboard input so that a subsequent
+        // Shift+click uses the post-keyboard selection as its anchor, not a
+        // stale value from a prior mouse interaction.
+        shiftClickAnchor = nil
         if (currentEditor() as? NSTextView)?.hasMarkedText() == true {
             super.keyDown(with: event)
             return
