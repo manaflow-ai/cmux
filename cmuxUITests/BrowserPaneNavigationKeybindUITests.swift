@@ -507,7 +507,10 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         app.typeText("am")
 
         if useAutofocusRacePage {
-            RunLoop.current.run(until: Date().addingTimeInterval(1.0))
+            XCTAssertTrue(
+                waitForOmnibarToContain(omnibar, value: "#focused", timeout: 5.0),
+                "Expected autofocus race page to signal focus handoff via URL hash. value=\(String(describing: omnibar.value))"
+            )
         }
 
         // Left terminal: typing should keep going into terminal find field.
@@ -591,7 +594,7 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
     }
 
     private var autofocusRacePageURL: String {
-        "data:text/html,%3Cinput%20id%3D%22q%22%3E%3Cscript%3EsetTimeout(function()%7Bdocument.getElementById(%22q%22).focus()%3B%7D,700)%3B%3C/script%3E"
+        "data:text/html,%3Cinput%20id%3D%22q%22%3E%3Cscript%3EsetTimeout%28function%28%29%7Bdocument.getElementById%28%22q%22%29.focus%28%29%3Blocation.hash%3D%22focused%22%3B%7D%2C700%29%3B%3C%2Fscript%3E"
     }
 
     private func launchAndEnsureForeground(_ app: XCUIApplication, timeout: TimeInterval = 12.0) {
