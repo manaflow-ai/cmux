@@ -556,6 +556,11 @@ class TerminalController {
         }
         defer { close(probeSocket) }
 
+        let existingFlags = fcntl(probeSocket, F_GETFL, 0)
+        if existingFlags >= 0 {
+            _ = fcntl(probeSocket, F_SETFL, existingFlags | O_NONBLOCK)
+        }
+
         guard var addr = unixSocketAddress(path: path) else {
             return (false, ENAMETOOLONG)
         }
@@ -567,7 +572,34 @@ class TerminalController {
         if connectResult == 0 {
             return (true, nil)
         }
-        return (false, errno)
+        let connectErrno = errno
+        if connectErrno == EINPROGRESS {
+            var pollDescriptor = pollfd(fd: probeSocket, events: Int16(POLLOUT), revents: 0)
+            let pollResult = poll(&pollDescriptor, 1, 10)
+            if pollResult > 0 {
+                var socketError: Int32 = 0
+                var socketErrorLength = socklen_t(MemoryLayout<Int32>.size)
+                let status = getsockopt(
+                    probeSocket,
+                    SOL_SOCKET,
+                    SO_ERROR,
+                    &socketError,
+                    &socketErrorLength
+                )
+                if status == 0 && socketError == 0 {
+                    return (true, nil)
+                }
+                if status == 0 {
+                    return (false, socketError)
+                }
+                return (false, errno)
+            }
+            if pollResult == 0 {
+                return (false, ETIMEDOUT)
+            }
+            return (false, errno)
+        }
+        return (false, connectErrno)
     }
 
     func start(tabManager: TabManager, socketPath: String, accessMode: SocketControlMode) {
