@@ -21,16 +21,18 @@ When reporting a tagged reload result in chat, use the format for your agent typ
 **Claude Code** (markdown link with correct derived-data path, cmd+clickable):
 ```markdown
 =======================================================
-[cmux DEV <tag-name>.app](file:///tmp/cmux-<tag-name>/Build/Products/Debug/cmux%20DEV%20<tag-name>.app)
+[cmux DEV <tag-name>.app](file:///Users/lawrencechen/Library/Developer/Xcode/DerivedData/cmux-<tag-name>/Build/Products/Debug/cmux%20DEV%20<tag-name>.app)
 =======================================================
 ```
 
 **Codex** (plain text format):
 ```
 =======================================================
-[<tag-name>: file:///tmp/cmux-<tag-name>.app](file:///tmp/cmux-<tag-name>.app)
+[<tag-name>: file:///Users/lawrencechen/Library/Developer/Xcode/DerivedData/cmux-<tag-name>/Build/Products/Debug/cmux%20DEV%20<tag-name>.app](file:///Users/lawrencechen/Library/Developer/Xcode/DerivedData/cmux-<tag-name>/Build/Products/Debug/cmux%20DEV%20<tag-name>.app)
 =======================================================
 ```
+
+Never use `/tmp/cmux-<tag>/...` app links in chat output. If the expected DerivedData path is missing, resolve the real `.app` path and report that `file://` URL.
 
 After making code changes, always run the build:
 
