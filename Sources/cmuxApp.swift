@@ -2988,6 +2988,11 @@ struct SettingsView: View {
     }
 
     private func handleNotificationPermissionAction() {
+        let state = notificationStore.authorizationState.statusLabel
+#if DEBUG
+        dlog("notification.ui enableTapped state=\(state)")
+#endif
+        NSLog("notification.ui enableTapped state=%@", state)
         switch notificationStore.authorizationState {
         case .unknown, .notDetermined:
             notificationStore.requestAuthorizationFromSettings()

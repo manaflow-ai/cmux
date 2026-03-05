@@ -6753,29 +6753,19 @@ final class NotificationDockBadgeTests: XCTestCase {
         XCTAssertTrue(
             TerminalNotificationStore.shouldRequestAuthorization(
                 isAutomaticRequest: false,
-                hasRequestedAutomaticAuthorization: true,
-                isAuthorizationRequestInFlight: false
-            )
-        )
-        XCTAssertFalse(
-            TerminalNotificationStore.shouldRequestAuthorization(
-                isAutomaticRequest: false,
-                hasRequestedAutomaticAuthorization: false,
-                isAuthorizationRequestInFlight: true
+                hasRequestedAutomaticAuthorization: true
             )
         )
         XCTAssertTrue(
             TerminalNotificationStore.shouldRequestAuthorization(
                 isAutomaticRequest: true,
-                hasRequestedAutomaticAuthorization: false,
-                isAuthorizationRequestInFlight: false
+                hasRequestedAutomaticAuthorization: false
             )
         )
         XCTAssertFalse(
             TerminalNotificationStore.shouldRequestAuthorization(
                 isAutomaticRequest: true,
-                hasRequestedAutomaticAuthorization: true,
-                isAuthorizationRequestInFlight: false
+                hasRequestedAutomaticAuthorization: true
             )
         )
     }
