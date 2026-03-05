@@ -5285,7 +5285,7 @@ class TerminalController {
         script: String,
         timeout: TimeInterval = 5.0,
         preferAsync: Bool = false,
-        contentWorld: WKContentWorld = .page
+        contentWorld: WKContentWorld
     ) -> V2JavaScriptResult {
         let timeoutSeconds = max(0.01, timeout)
         let resultLock = NSLock()
@@ -5462,7 +5462,7 @@ class TerminalController {
               \(asyncFunctionBody)
             })()
             """
-            rawResult = v2RunJavaScript(webView, script: evaluateFallback, timeout: timeout)
+            rawResult = v2RunJavaScript(webView, script: evaluateFallback, timeout: timeout, contentWorld: .page)
         }
 
         if !useEval, case .failure(let pageMessage) = rawResult, #available(macOS 11.0, *) {
@@ -7665,7 +7665,8 @@ class TerminalController {
         _ = v2RunJavaScript(
             browserPanel.webView,
             script: BrowserPanel.telemetryHookBootstrapScriptSource,
-            timeout: 5.0
+            timeout: 5.0,
+            contentWorld: .page
         )
     }
 
@@ -7673,7 +7674,8 @@ class TerminalController {
         _ = v2RunJavaScript(
             browserPanel.webView,
             script: BrowserPanel.dialogTelemetryHookBootstrapScriptSource,
-            timeout: 5.0
+            timeout: 5.0,
+            contentWorld: .page
         )
     }
 
@@ -7705,7 +7707,7 @@ class TerminalController {
             })()
             """
 
-            switch v2RunJavaScript(browserPanel.webView, script: script, timeout: 5.0) {
+            switch v2RunJavaScript(browserPanel.webView, script: script, timeout: 5.0, contentWorld: .page) {
             case .failure(let message):
                 return .err(code: "js_error", message: message, data: nil)
             case .success(let value):
@@ -8300,7 +8302,7 @@ class TerminalController {
               return { ok: true, items };
             })()
             """
-            switch v2RunJavaScript(browserPanel.webView, script: script, timeout: 5.0) {
+            switch v2RunJavaScript(browserPanel.webView, script: script, timeout: 5.0, contentWorld: .page) {
             case .failure(let message):
                 return .err(code: "js_error", message: message, data: nil)
             case .success(let value):
@@ -8338,7 +8340,7 @@ class TerminalController {
               return { ok: true, items };
             })()
             """
-            switch v2RunJavaScript(browserPanel.webView, script: script, timeout: 5.0) {
+            switch v2RunJavaScript(browserPanel.webView, script: script, timeout: 5.0, contentWorld: .page) {
             case .failure(let message):
                 return .err(code: "js_error", message: message, data: nil)
             case .success(let value):

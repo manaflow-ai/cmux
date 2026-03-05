@@ -55,7 +55,7 @@ def main() -> int:
         failures.append("browser wait no longer fails fast with js_error on script failures")
 
     run_js_block = extract_block(terminal_source, "private func v2RunJavaScript(")
-    if "contentWorld: WKContentWorld = .page" not in terminal_source:
+    if "contentWorld: WKContentWorld" not in terminal_source:
         failures.append("v2RunJavaScript no longer accepts a configurable WKContentWorld")
     if "DispatchQueue.main.async(execute: evaluator)" not in run_js_block:
         failures.append("v2RunJavaScript no longer dispatches evaluation to main thread from background callers")
