@@ -561,6 +561,22 @@
 				en,
 				Base,
 				ja,
+				ar,
+				bs,
+				da,
+				de,
+				es,
+				fr,
+				it,
+				ko,
+				nb,
+				pl,
+				pt-BR,
+				ru,
+				th,
+				tr,
+				zh-Hans,
+				zh-Hant,
 			);
 			mainGroup = A5001040;
 				packageReferences = (
