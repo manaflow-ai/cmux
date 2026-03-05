@@ -1542,7 +1542,9 @@ struct CMUXCLI {
                 throw CLIError(message: "set-status requires <key> and <value>")
             }
             let key = r3[0]
-            let value = r3.dropFirst().joined(separator: " ")
+            // Strip leading "--" separator if present (e.g. `set-status mykey -- value`)
+            let valueParts = r3.dropFirst()
+            let value = (valueParts.first == "--" ? Array(valueParts.dropFirst()) : Array(valueParts)).joined(separator: " ")
             guard !value.isEmpty else {
                 throw CLIError(message: "set-status requires a non-empty value")
             }
