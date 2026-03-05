@@ -1,0 +1,15 @@
+{
+  "name": "cmux",
+  "description": "Skills for controlling cmux terminal multiplexer",
+  "owner": {
+    "name": "manaflow-ai"
+  },
+  "plugins": [
+    {
+      "name": "cmux",
+      "description": "Skills for controlling cmux terminal: window/workspace/pane management, browser automation, release workflows, and debug utilities",
+      "version": "1.0.0",
+      "source": "./"
+    }
+  ]
+}
