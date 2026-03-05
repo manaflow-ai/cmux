@@ -182,6 +182,432 @@ final class MenuKeyEquivalentRoutingUITests: XCTestCase {
     }
 }
 
+final class CommandPaletteSwitcherRefreshUITests: XCTestCase {
+    private var socketPath = ""
+
+    override func setUp() {
+        super.setUp()
+        continueAfterFailure = false
+        let shortId = String(UUID().uuidString.prefix(8))
+        socketPath = NSHomeDirectory() + "/cmux-ui-test-\(shortId).sock"
+        try? FileManager.default.removeItem(atPath: socketPath)
+    }
+
+    override func tearDown() {
+        try? FileManager.default.removeItem(atPath: socketPath)
+        super.tearDown()
+    }
+
+    func testSwitcherRefreshesAfterWorkspaceRenameWhilePaletteIsOpen() throws {
+        let app = XCUIApplication()
+        app.launchArguments += ["-socketControlMode", "allowAll"]
+        app.launchEnvironment["CMUX_SOCKET_MODE"] = "allowAll"
+        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        app.launch()
+        app.activate()
+
+        let client = CommandPaletteV2SocketClient(path: socketPath)
+        XCTAssertTrue(
+            waitUntil(timeout: 30.0) { client.ping() },
+            "Expected control socket to respond to ping (socket=\(socketPath), lastResponse=\(client.lastRawResponse ?? "nil"), transport=\(client.lastTransportError ?? "nil"))"
+        )
+
+        _ = try client.callDict("debug.app.activate")
+
+        let windowId = try waitForCurrentWindowId(client: client, timeout: 8.0)
+        try closeExtraWindows(client: client, keepWindowId: windowId)
+
+        let workspaceId = try client.createWorkspace(windowId: windowId)
+        addTeardownBlock {
+            try? self.setPaletteVisible(client: client, windowId: windowId, visible: false)
+            try? client.closeWorkspace(workspaceId: workspaceId)
+            app.terminate()
+        }
+
+        try client.selectWorkspace(workspaceId: workspaceId)
+        try client.renameWorkspace(workspaceId: workspaceId, title: "switcher-cache-seed")
+        RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+
+        try setPaletteVisible(client: client, windowId: windowId, visible: false)
+        try client.simulateShortcut("cmd+p")
+
+        XCTAssertTrue(
+            waitUntil(timeout: 6.0) {
+                (try? client.paletteVisible(windowId: windowId)) == true
+            },
+            "Expected Cmd+P to open command palette switcher"
+        )
+
+        XCTAssertTrue(
+            waitUntil(timeout: 6.0) {
+                let mode = (try? client.paletteResults(windowId: windowId, limit: 20)["mode"] as? String) ?? nil
+                return mode == "switcher"
+            },
+            "Expected command palette to be in switcher mode"
+        )
+
+        let token = "xcui-cmdp-refresh-\(Int(Date().timeIntervalSince1970 * 1000))"
+        try client.renameWorkspace(workspaceId: workspaceId, title: "Email Template \(token)")
+        RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+
+        try client.simulateShortcut("cmd+a")
+        try client.simulateType(token)
+
+        XCTAssertTrue(
+            waitUntil(timeout: 6.0) {
+                guard let query = (try? client.paletteResults(windowId: windowId, limit: 80)["query"] as? String) else {
+                    return false
+                }
+                return query.lowercased().contains(token.lowercased())
+            },
+            "Expected switcher query to include typed rename token"
+        )
+
+        let resultPayload = try client.paletteResults(windowId: windowId, limit: 80)
+        let rows = (resultPayload["results"] as? [[String: Any]]) ?? []
+        XCTAssertFalse(rows.isEmpty, "Expected non-empty switcher rows after rename")
+
+        let expectedCommandId = "switcher.workspace.\(workspaceId.lowercased())"
+        let commandIds = rows.compactMap { $0["command_id"] as? String }
+        XCTAssertTrue(
+            commandIds.contains(expectedCommandId),
+            "Expected refreshed switcher rows to include \(expectedCommandId). rows=\(commandIds)"
+        )
+    }
+
+    private func waitForCurrentWindowId(client: CommandPaletteV2SocketClient, timeout: TimeInterval) throws -> String {
+        let deadline = Date().addingTimeInterval(timeout)
+        var lastError: Error?
+        while Date() < deadline {
+            do {
+                return try client.currentWindowId()
+            } catch {
+                lastError = error
+                RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+            }
+        }
+        if let lastError {
+            throw lastError
+        }
+        throw CommandPaletteSocketTestError("Timed out waiting for current window ID")
+    }
+
+    private func closeExtraWindows(client: CommandPaletteV2SocketClient, keepWindowId: String) throws {
+        let windowIds = try client.listWindowIds()
+        for id in windowIds where id != keepWindowId {
+            try client.closeWindow(windowId: id)
+        }
+    }
+
+    private func setPaletteVisible(
+        client: CommandPaletteV2SocketClient,
+        windowId: String,
+        visible: Bool
+    ) throws {
+        let currentlyVisible = try client.paletteVisible(windowId: windowId)
+        if currentlyVisible == visible {
+            return
+        }
+
+        _ = try client.callDict("debug.command_palette.toggle", ["window_id": windowId])
+
+        let becameVisible = waitUntil(timeout: 5.0) {
+            (try? client.paletteVisible(windowId: windowId)) == visible
+        }
+        if !becameVisible {
+            throw CommandPaletteSocketTestError("Palette visibility did not become \(visible)")
+        }
+    }
+
+    private func waitUntil(timeout: TimeInterval, poll: () -> Bool) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if poll() {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        return poll()
+    }
+}
+
+private struct CommandPaletteSocketTestError: LocalizedError {
+    let message: String
+
+    init(_ message: String) {
+        self.message = message
+    }
+
+    var errorDescription: String? {
+        message
+    }
+}
+
+private final class CommandPaletteV2SocketClient {
+    private let path: String
+    private var nextId: Int = 1
+    private(set) var lastRawResponse: String?
+    private(set) var lastTransportError: String?
+
+    init(path: String) {
+        self.path = path
+    }
+
+    func ping() -> Bool {
+        sendLine("ping") == "PONG"
+    }
+
+    func currentWindowId() throws -> String {
+        let payload = try callDict("window.current")
+        guard let windowId = payload["window_id"] as? String, !windowId.isEmpty else {
+            throw CommandPaletteSocketTestError("window.current returned no window_id: \(payload)")
+        }
+        return windowId
+    }
+
+    func listWindowIds() throws -> [String] {
+        let payload = try callDict("window.list")
+        let windows = (payload["windows"] as? [[String: Any]]) ?? []
+        return windows.compactMap { $0["id"] as? String }
+    }
+
+    func closeWindow(windowId: String) throws {
+        _ = try callDict("window.close", ["window_id": windowId])
+    }
+
+    func createWorkspace(windowId: String) throws -> String {
+        let payload = try callDict("workspace.create", ["window_id": windowId])
+        guard let workspaceId = payload["workspace_id"] as? String, !workspaceId.isEmpty else {
+            throw CommandPaletteSocketTestError("workspace.create returned no workspace_id: \(payload)")
+        }
+        return workspaceId
+    }
+
+    func selectWorkspace(workspaceId: String) throws {
+        _ = try callDict("workspace.select", ["workspace_id": workspaceId])
+    }
+
+    func renameWorkspace(workspaceId: String, title: String) throws {
+        _ = try callDict("workspace.rename", ["workspace_id": workspaceId, "title": title])
+    }
+
+    func closeWorkspace(workspaceId: String) throws {
+        _ = try callDict("workspace.close", ["workspace_id": workspaceId])
+    }
+
+    func simulateShortcut(_ combo: String) throws {
+        _ = try callDict("debug.shortcut.simulate", ["combo": combo])
+    }
+
+    func simulateType(_ text: String) throws {
+        _ = try callDict("debug.type", ["text": text])
+    }
+
+    func paletteVisible(windowId: String) throws -> Bool {
+        let payload = try callDict("debug.command_palette.visible", ["window_id": windowId])
+        return (payload["visible"] as? Bool) ?? false
+    }
+
+    func paletteResults(windowId: String, limit: Int) throws -> [String: Any] {
+        try callDict("debug.command_palette.results", ["window_id": windowId, "limit": limit])
+    }
+
+    @discardableResult
+    func callDict(_ method: String, _ params: [String: Any] = [:]) throws -> [String: Any] {
+        let result = try call(method, params)
+        guard let dict = result as? [String: Any] else {
+            throw CommandPaletteSocketTestError("\(method) returned non-dictionary result: \(result)")
+        }
+        return dict
+    }
+
+    @discardableResult
+    func call(_ method: String, _ params: [String: Any] = [:]) throws -> Any {
+        let requestId = nextId
+        nextId += 1
+
+        let request: [String: Any] = [
+            "id": requestId,
+            "method": method,
+            "params": params
+        ]
+        let requestData = try JSONSerialization.data(withJSONObject: request, options: [])
+        guard let line = String(data: requestData, encoding: .utf8) else {
+            throw CommandPaletteSocketTestError("Failed to encode JSON request for \(method)")
+        }
+        guard let rawResponse = sendLine(line) else {
+            throw CommandPaletteSocketTestError("No response for \(method)")
+        }
+
+        guard let responseData = rawResponse.data(using: .utf8),
+              let json = try JSONSerialization.jsonObject(with: responseData, options: []) as? [String: Any] else {
+            throw CommandPaletteSocketTestError("Invalid JSON response for \(method): \(rawResponse)")
+        }
+
+        let ok = (json["ok"] as? Bool) ?? false
+        if ok {
+            return json["result"] ?? [:]
+        }
+
+        if let error = json["error"] as? [String: Any],
+           let message = error["message"] as? String {
+            throw CommandPaletteSocketTestError("\(method) failed: \(message)")
+        }
+
+        throw CommandPaletteSocketTestError("\(method) failed: \(json)")
+    }
+
+    private func sendLine(_ line: String) -> String? {
+        if let direct = sendLineDirect(line) {
+            lastRawResponse = direct
+            lastTransportError = nil
+            return direct
+        }
+        let directError = lastTransportError
+        let fallback = sendLineViaNetcat(line)
+        lastRawResponse = fallback
+        if fallback != nil {
+            lastTransportError = nil
+        } else {
+            let fallbackError = lastTransportError
+            let directPart = directError ?? "nil"
+            let fallbackPart = fallbackError ?? "nil"
+            lastTransportError = "direct=\(directPart); fallback=\(fallbackPart)"
+        }
+        return fallback
+    }
+
+    private func sendLineDirect(_ line: String) -> String? {
+        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+        guard fd >= 0 else {
+            lastTransportError = "socket() errno=\(errno)"
+            return nil
+        }
+        defer { close(fd) }
+
+        var addr = sockaddr_un()
+        memset(&addr, 0, MemoryLayout<sockaddr_un>.size)
+        addr.sun_family = sa_family_t(AF_UNIX)
+
+        let maxLen = MemoryLayout.size(ofValue: addr.sun_path)
+        let bytes = Array(path.utf8CString)
+        guard bytes.count <= maxLen else {
+            lastTransportError = "path_too_long len=\(bytes.count) max=\(maxLen)"
+            return nil
+        }
+
+        withUnsafeMutablePointer(to: &addr.sun_path) { p in
+            let raw = UnsafeMutableRawPointer(p).assumingMemoryBound(to: CChar.self)
+            memset(raw, 0, maxLen)
+            for i in 0..<bytes.count {
+                raw[i] = bytes[i]
+            }
+        }
+
+        let pathOffset = MemoryLayout<sockaddr_un>.offset(of: \.sun_path) ?? 0
+        let addrLen = socklen_t(pathOffset + bytes.count)
+#if os(macOS)
+        addr.sun_len = UInt8(min(Int(addrLen), 255))
+#endif
+
+        let connectResult = withUnsafePointer(to: &addr) { ptr in
+            ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
+                connect(fd, sa, addrLen)
+            }
+        }
+        guard connectResult == 0 else {
+            lastTransportError = "connect errno=\(errno)"
+            return nil
+        }
+
+        let payload = line + "\n"
+        let wrote: Bool = payload.withCString { cstr in
+            var remaining = strlen(cstr)
+            var pointer = UnsafeRawPointer(cstr)
+            while remaining > 0 {
+                let count = write(fd, pointer, remaining)
+                if count <= 0 { return false }
+                remaining -= count
+                pointer = pointer.advanced(by: count)
+            }
+            return true
+        }
+        guard wrote else {
+            lastTransportError = "write_failed errno=\(errno)"
+            return nil
+        }
+
+        var buffer = [UInt8](repeating: 0, count: 4096)
+        var accumulated = ""
+        while true {
+            let count = read(fd, &buffer, buffer.count)
+            if count <= 0 { break }
+            guard let chunk = String(bytes: buffer[0..<count], encoding: .utf8) else { continue }
+            accumulated.append(chunk)
+            if let newline = accumulated.firstIndex(of: "\n") {
+                return String(accumulated[..<newline])
+            }
+        }
+
+        let trimmed = accumulated.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            lastTransportError = "read_empty"
+            return nil
+        }
+        return trimmed
+    }
+
+    private func sendLineViaNetcat(_ line: String) -> String? {
+        let nc = "/usr/bin/nc"
+        guard FileManager.default.isExecutableFile(atPath: nc) else { return nil }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: nc)
+        process.arguments = ["-U", path, "-w", "2"]
+
+        let stdinPipe = Pipe()
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        process.standardInput = stdinPipe
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+
+        do {
+            try process.run()
+        } catch {
+            lastTransportError = "nc_run_failed"
+            return nil
+        }
+
+        if let payload = (line + "\n").data(using: .utf8) {
+            stdinPipe.fileHandleForWriting.write(payload)
+        }
+        stdinPipe.fileHandleForWriting.closeFile()
+
+        process.waitUntilExit()
+        let status = process.terminationStatus
+
+        let data = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+        let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+        let stderrText = String(data: stderrData, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard let raw = String(data: data, encoding: .utf8) else {
+            lastTransportError = "nc_decode_failed status=\(status) stderr=\(stderrText)"
+            return nil
+        }
+        if let first = raw.split(separator: "\n", maxSplits: 1).first {
+            return String(first).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            lastTransportError = "nc_empty status=\(status) stderr=\(stderrText)"
+            return nil
+        }
+        return trimmed
+    }
+}
+
 final class SplitCloseRightBlankRegressionUITests: XCTestCase {
     private var dataPath = ""
     private var socketPath = ""

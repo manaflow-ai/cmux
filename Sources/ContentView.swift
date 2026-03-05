@@ -1256,6 +1256,10 @@ struct ContentView: View {
     @State private var commandPaletteScrollTargetIndex: Int?
     @State private var commandPaletteScrollTargetAnchor: UnitPoint?
     @State private var commandPaletteRestoreFocusTarget: CommandPaletteRestoreFocusTarget?
+    @State private var cachedCommandPaletteResults: [CommandPaletteSearchResult] = []
+    @State private var cachedCommandPaletteEntries: [CommandPaletteCommand] = []
+    @State private var cachedCommandPaletteScope: CommandPaletteListScope?
+    @State private var cachedCommandPaletteEntriesFingerprint: Int?
     @State private var commandPaletteUsageHistoryByCommandId: [String: CommandPaletteUsageEntry] = [:]
     @AppStorage(CommandPaletteRenameSelectionSettings.selectAllOnFocusKey)
     private var commandPaletteRenameSelectAllOnFocus = CommandPaletteRenameSelectionSettings.defaultSelectAllOnFocus
@@ -2724,7 +2728,7 @@ struct ContentView: View {
     }
 
     private var commandPaletteCommandListView: some View {
-        let visibleResults = Array(commandPaletteResults)
+        let visibleResults = cachedCommandPaletteResults
         let selectedIndex = commandPaletteSelectedIndex(resultCount: visibleResults.count)
         let commandPaletteListMaxHeight: CGFloat = 450
         let commandPaletteRowHeight: CGFloat = 24
@@ -2835,8 +2839,6 @@ struct ContentView: View {
                     }
                 }
                 .scrollTargetLayout()
-                // Force a fresh row tree per query so rendered labels/actions stay in lockstep.
-                .id(commandPaletteQuery)
             }
             .frame(height: commandPaletteListHeight)
             .scrollPosition(
@@ -2871,12 +2873,19 @@ struct ContentView: View {
             commandPaletteHoveredResultIndex = nil
             commandPaletteScrollTargetIndex = nil
             commandPaletteScrollTargetAnchor = nil
-            syncCommandPaletteDebugStateForObservedWindow()
+            // Re-cache entries only when scope changes (e.g. typing ">" switches to commands).
+            let currentScope = commandPaletteListScope
+            let currentFingerprint = commandPaletteEntriesFingerprint(for: currentScope)
+            if currentScope != cachedCommandPaletteScope || currentFingerprint != cachedCommandPaletteEntriesFingerprint {
+                cachedCommandPaletteScope = currentScope
+                refreshCachedCommandPaletteEntries(scope: currentScope, fingerprint: currentFingerprint)
+            }
+            recomputeCommandPaletteResults()
         }
-        .onChange(of: visibleResults.count) { _ in
-            commandPaletteSelectedResultIndex = commandPaletteSelectedIndex(resultCount: visibleResults.count)
-            updateCommandPaletteScrollTarget(resultCount: visibleResults.count, animated: false)
-            if let hoveredIndex = commandPaletteHoveredResultIndex, hoveredIndex >= visibleResults.count {
+        .onChange(of: cachedCommandPaletteResults.count) { _ in
+            commandPaletteSelectedResultIndex = commandPaletteSelectedIndex(resultCount: cachedCommandPaletteResults.count)
+            updateCommandPaletteScrollTarget(resultCount: cachedCommandPaletteResults.count, animated: false)
+            if let hoveredIndex = commandPaletteHoveredResultIndex, hoveredIndex >= cachedCommandPaletteResults.count {
                 commandPaletteHoveredResultIndex = nil
             }
             syncCommandPaletteDebugStateForObservedWindow()
@@ -3023,7 +3032,11 @@ struct ContentView: View {
     }
 
     private var commandPaletteEntries: [CommandPaletteCommand] {
-        switch commandPaletteListScope {
+        commandPaletteEntries(for: commandPaletteListScope)
+    }
+
+    private func commandPaletteEntries(for scope: CommandPaletteListScope) -> [CommandPaletteCommand] {
+        switch scope {
         case .commands:
             return commandPaletteCommands()
         case .switcher:
@@ -3031,8 +3044,95 @@ struct ContentView: View {
         }
     }
 
-    private var commandPaletteResults: [CommandPaletteSearchResult] {
-        let entries = commandPaletteEntries
+    /// Recompute the base entry list and cache it. Call when the palette opens
+    /// or when the underlying data changes (workspace added/removed).
+    private func refreshCachedCommandPaletteEntries(
+        scope: CommandPaletteListScope? = nil,
+        fingerprint: Int? = nil
+    ) {
+        let resolvedScope = scope ?? commandPaletteListScope
+        cachedCommandPaletteEntries = commandPaletteEntries(for: resolvedScope)
+        cachedCommandPaletteEntriesFingerprint = fingerprint ?? commandPaletteEntriesFingerprint(for: resolvedScope)
+    }
+
+    private func commandPaletteEntriesFingerprint(for scope: CommandPaletteListScope) -> Int? {
+        switch scope {
+        case .commands:
+            return nil
+        case .switcher:
+            return commandPaletteSwitcherEntriesFingerprint()
+        }
+    }
+
+    private func commandPaletteSwitcherEntriesFingerprint() -> Int {
+        let windowContexts = commandPaletteSwitcherWindowContexts()
+        var hasher = Hasher()
+        hasher.combine(windowContexts.count)
+
+        for context in windowContexts {
+            hasher.combine(context.windowId)
+            hasher.combine(context.windowLabel ?? "")
+            hasher.combine(context.selectedWorkspaceId)
+            hasher.combine(context.tabManager.tabs.count)
+
+            for workspace in context.tabManager.tabs {
+                hasher.combine(workspace.id)
+                hasher.combine(workspace.title)
+                hasher.combine(workspace.customTitle ?? "")
+                hasher.combine(workspace.currentDirectory)
+                hasher.combine(workspace.focusedPanelId)
+                hasher.combine(workspace.panels.count)
+
+                if let branch = workspace.gitBranch {
+                    hasher.combine(branch.branch)
+                    hasher.combine(branch.isDirty)
+                } else {
+                    hasher.combine("")
+                    hasher.combine(false)
+                }
+
+                let workspacePorts = workspace.listeningPorts.sorted()
+                hasher.combine(workspacePorts.count)
+                for port in workspacePorts {
+                    hasher.combine(port)
+                }
+
+                let orderedPanelIds = workspace.sidebarOrderedPanelIds()
+                hasher.combine(orderedPanelIds.count)
+                for panelId in orderedPanelIds {
+                    hasher.combine(panelId)
+                    hasher.combine(workspace.panelTitle(panelId: panelId) ?? "")
+                    hasher.combine(workspace.panelDirectories[panelId] ?? "")
+
+                    if let panelBranch = workspace.panelGitBranches[panelId] {
+                        hasher.combine(panelBranch.branch)
+                        hasher.combine(panelBranch.isDirty)
+                    } else {
+                        hasher.combine("")
+                        hasher.combine(false)
+                    }
+
+                    let panelPorts = (workspace.surfaceListeningPorts[panelId] ?? []).sorted()
+                    hasher.combine(panelPorts.count)
+                    for port in panelPorts {
+                        hasher.combine(port)
+                    }
+
+                    if let panel = workspace.panels[panelId] {
+                        hasher.combine(panel.panelType.rawValue)
+                        hasher.combine(panel.displayTitle)
+                    }
+                }
+            }
+        }
+
+        return hasher.finalize()
+    }
+
+    /// Run the search pipeline once against the cached entries and store the
+    /// result in `cachedCommandPaletteResults`.
+    private func recomputeCommandPaletteResults() {
+        let entries = cachedCommandPaletteEntries
         let query = commandPaletteQueryForMatching
         let queryIsEmpty = query.isEmpty
 
@@ -3058,13 +3158,14 @@ struct ContentView: View {
                 )
             }
 
-        return results
+        cachedCommandPaletteResults = results
             .sorted { lhs, rhs in
                 if lhs.score != rhs.score { return lhs.score > rhs.score }
                 if lhs.command.rank != rhs.command.rank { return lhs.command.rank < rhs.command.rank }
                 return lhs.command.title.localizedCaseInsensitiveCompare(rhs.command.title) == .orderedAscending
             }
     }
+
 
     private func commandPaletteHighlightedTitleText(_ title: String, matchedIndices: Set<Int>) -> Text {
         guard !matchedIndices.isEmpty else {
@@ -4421,7 +4522,7 @@ struct ContentView: View {
     }
 
     private func moveCommandPaletteSelection(by delta: Int) {
-        let count = commandPaletteResults.count
+        let count = cachedCommandPaletteResults.count
         guard count > 0 else {
             NSSound.beep()
             return
@@ -4485,7 +4586,7 @@ struct ContentView: View {
     }
 
     private func runSelectedCommandPaletteResult(visibleResults: [CommandPaletteSearchResult]? = nil) {
-        let visibleResults = visibleResults ?? Array(commandPaletteResults)
+        let visibleResults = visibleResults ?? cachedCommandPaletteResults
         guard !visibleResults.isEmpty else {
             NSSound.beep()
             return
@@ -4584,7 +4685,7 @@ struct ContentView: View {
     private func syncCommandPaletteDebugStateForObservedWindow() {
         guard let window = observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow else { return }
         AppDelegate.shared?.setCommandPaletteVisible(isCommandPalettePresented, for: window)
-        let visibleResultCount = commandPaletteResults.count
+        let visibleResultCount = cachedCommandPaletteResults.count
         let selectedIndex = isCommandPalettePresented ? commandPaletteSelectedIndex(resultCount: visibleResultCount) : 0
         AppDelegate.shared?.setCommandPaletteSelectionIndex(selectedIndex, for: window)
         AppDelegate.shared?.setCommandPaletteSnapshot(commandPaletteDebugSnapshot(), for: window)
@@ -4603,7 +4704,7 @@ struct ContentView: View {
             mode = "rename_confirm"
         }
 
-        let rows = Array(commandPaletteResults.prefix(20)).map { result in
+        let rows = Array(cachedCommandPaletteResults.prefix(20)).map { result in
             CommandPaletteDebugResultRow(
                 commandId: result.command.id,
                 title: result.command.title,
@@ -4648,6 +4749,10 @@ struct ContentView: View {
         commandPaletteHoveredResultIndex = nil
         commandPaletteScrollTargetIndex = nil
         commandPaletteScrollTargetAnchor = nil
+        // Cache entries and compute results immediately on open (no debounce).
+        cachedCommandPaletteScope = commandPaletteListScope
+        refreshCachedCommandPaletteEntries()
+        recomputeCommandPaletteResults()
         resetCommandPaletteSearchFocus()
         syncCommandPaletteDebugStateForObservedWindow()
     }
@@ -4665,6 +4770,11 @@ struct ContentView: View {
         isCommandPaletteSearchFocused = false
         isCommandPaletteRenameFocused = false
         commandPaletteRestoreFocusTarget = nil
+        // Release cached data.
+        cachedCommandPaletteScope = nil
+        cachedCommandPaletteEntries = []
+        cachedCommandPaletteResults = []
+        cachedCommandPaletteEntriesFingerprint = nil
         if let window = observedWindow {
             _ = window.makeFirstResponder(nil)
         }
@@ -5106,17 +5216,64 @@ enum CommandPaletteSwitcherSearchIndexer {
 
         let standardized = (trimmed as NSString).standardizingPath
         let canonical = standardized.isEmpty ? trimmed : standardized
-        let abbreviated = (canonical as NSString).abbreviatingWithTildeInPath
+        let abbreviated = homeRelativePathForSearch(canonicalPath: canonical)
+            ?? (canonical as NSString).abbreviatingWithTildeInPath
+        let basename = URL(fileURLWithPath: canonical, isDirectory: true).lastPathComponent
+        let includeAllSegments = (detail == .surface)
+        let segmentTokens = directorySegmentTokensForSearch(
+            path: abbreviated,
+            includeAllSegments: includeAllSegments
+        )
+
         switch detail {
         case .workspace:
-            return uniqueNormalizedPreservingOrder([trimmed, canonical, abbreviated])
-        case .surface:
-            let basename = URL(fileURLWithPath: canonical, isDirectory: true).lastPathComponent
-            let components = canonical.components(separatedBy: metadataDelimiters).filter { !$0.isEmpty }
+            // Keep workspace-level path matching coarse so short queries don't
+            // match every home directory entry via `/Users/<name>/...`.
             return uniqueNormalizedPreservingOrder(
-                [trimmed, canonical, abbreviated, basename] + components
+                [basename, abbreviated] + Array(segmentTokens.prefix(3))
+            )
+        case .surface:
+            return uniqueNormalizedPreservingOrder(
+                [basename, abbreviated] + segmentTokens
             )
         }
+    }
+
+    private static func homeRelativePathForSearch(canonicalPath: String) -> String? {
+        let standardizedHome = (NSHomeDirectory() as NSString).standardizingPath
+        guard !standardizedHome.isEmpty else { return nil }
+        if canonicalPath == standardizedHome { return "~" }
+
+        let homePrefix = standardizedHome.hasSuffix("/")
+            ? standardizedHome
+            : "\(standardizedHome)/"
+        guard canonicalPath.hasPrefix(homePrefix) else { return nil }
+
+        let relative = String(canonicalPath.dropFirst(homePrefix.count))
+        guard !relative.isEmpty else { return "~" }
+        return "~/\(relative)"
+    }
+
+    private static func directorySegmentTokensForSearch(
+        path: String,
+        includeAllSegments: Bool
+    ) -> [String] {
+        let rawSegments = (path as NSString).pathComponents.filter { component in
+            !component.isEmpty && component != "/" && component != "~"
+        }
+        let maxSegments = includeAllSegments ? 4 : 2
+        let relevantSegments = Array(rawSegments.suffix(maxSegments))
+
+        var tokens: [String] = []
+        for segment in relevantSegments {
+            tokens.append(segment)
+            tokens.append(
+                contentsOf: segment
+                    .components(separatedBy: metadataDelimiters)
+                    .filter { !$0.isEmpty }
+            )
+        }
+        return uniqueNormalizedPreservingOrder(tokens)
     }
 
     private static func branchTokensForSearch(

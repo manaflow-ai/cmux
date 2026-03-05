@@ -4950,6 +4950,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         sendTextWhenReady(payload, to: tab)
     }
 
+    @objc func populateDebugSearchWorkspaces(_ sender: Any?) {
+        guard let tabManager else { return }
+
+        let names = [
+            "API Gateway", "Auth Service", "Payment Processing",
+            "User Dashboard", "Database Migrations", "CI/CD Pipeline",
+            "Monitoring & Alerts", "Feature Flags", "Email Templates",
+            "Search Indexer", "WebSocket Server", "Cache Layer",
+            "Rate Limiter", "File Upload Service", "Notification System",
+            "Analytics Engine", "GraphQL Schema", "Docker Compose",
+            "Kubernetes Configs", "Load Balancer",
+        ]
+
+        let palette = WorkspaceTabColorSettings.palette()
+
+        for (index, name) in names.enumerated() {
+            let ws = tabManager.addWorkspace()
+            tabManager.setCustomTitle(tabId: ws.id, title: name)
+            if !palette.isEmpty {
+                let entry = palette[index % palette.count]
+                tabManager.setTabColor(tabId: ws.id, color: entry.hex)
+            }
+            // Add splits to some workspaces for variety.
+            if index % 2 == 0, let panelId = ws.panels.keys.first {
+                ws.newTerminalSplit(from: panelId, orientation: .horizontal)
+            }
+            if index % 4 == 0, let panelId = ws.panels.keys.first {
+                ws.newTerminalSplit(from: panelId, orientation: .vertical)
+            }
+        }
+    }
+
     @objc func openDebugColorComparisonWorkspaces(_ sender: Any?) {
         guard let tabManager else { return }
 
