@@ -803,6 +803,29 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         )
     }
 
+    func testAcceptFailureRearmDelayAppliesMinimumThrottle() {
+        XCTAssertEqual(
+            TerminalController.acceptFailureRearmDelayMilliseconds(consecutiveFailures: 0),
+            100
+        )
+        XCTAssertEqual(
+            TerminalController.acceptFailureRearmDelayMilliseconds(consecutiveFailures: 1),
+            100
+        )
+        XCTAssertEqual(
+            TerminalController.acceptFailureRearmDelayMilliseconds(consecutiveFailures: 2),
+            100
+        )
+        XCTAssertEqual(
+            TerminalController.acceptFailureRearmDelayMilliseconds(consecutiveFailures: 6),
+            320
+        )
+        XCTAssertEqual(
+            TerminalController.acceptFailureRearmDelayMilliseconds(consecutiveFailures: 12),
+            5_000
+        )
+    }
+
     func testAcceptFailureBreadcrumbSamplingPrefersEarlyAndPowerOfTwoMilestones() {
         XCTAssertTrue(TerminalController.shouldEmitAcceptFailureBreadcrumb(consecutiveFailures: 1))
         XCTAssertTrue(TerminalController.shouldEmitAcceptFailureBreadcrumb(consecutiveFailures: 2))

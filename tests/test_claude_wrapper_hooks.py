@@ -71,7 +71,7 @@ done
             wrapper_dir / "cmux",
             """#!/usr/bin/env bash
 set -euo pipefail
-printf '%s\\n' "$*" >> "$FAKE_CMUX_LOG"
+printf '%s timeout=%s\\n' "$*" "${CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC-__UNSET__}" >> "$FAKE_CMUX_LOG"
 if [[ "${1:-}" == "--socket" ]]; then
   shift 2
 fi
@@ -130,6 +130,11 @@ def test_live_socket_injects_supported_hooks(failures: list[str]) -> None:
     expect("--session-id" in real_argv, f"live socket: missing --session-id in args: {real_argv}", failures)
     expect(real_argv[-1] == "hello", f"live socket: expected original arg to pass through, got {real_argv}", failures)
     expect(any(" ping" in line for line in cmux_log), f"live socket: expected cmux ping, got {cmux_log}", failures)
+    expect(
+        any("timeout=0.75" in line for line in cmux_log),
+        f"live socket: expected bounded ping timeout, got {cmux_log}",
+        failures,
+    )
     expect(claudecode == "__UNSET__", f"live socket: expected CLAUDECODE unset, got {claudecode!r}", failures)
 
     settings = parse_settings_arg(real_argv)
@@ -153,6 +158,11 @@ def test_stale_socket_skips_hook_injection(failures: list[str]) -> None:
     expect(code == 0, f"stale socket: wrapper exited {code}: {stderr}", failures)
     expect(real_argv == ["hello"], f"stale socket: expected passthrough args, got {real_argv}", failures)
     expect(any(" ping" in line for line in cmux_log), f"stale socket: expected cmux ping probe, got {cmux_log}", failures)
+    expect(
+        any("timeout=0.75" in line for line in cmux_log),
+        f"stale socket: expected bounded ping timeout, got {cmux_log}",
+        failures,
+    )
     expect(claudecode == "__UNSET__", f"stale socket: expected CLAUDECODE unset, got {claudecode!r}", failures)
 
 

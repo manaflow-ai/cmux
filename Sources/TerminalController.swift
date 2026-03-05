@@ -48,6 +48,7 @@ class TerminalController {
     private nonisolated static let socketListenBacklog: Int32 = 128
     private nonisolated static let acceptFailureBaseBackoffMs = 10
     private nonisolated static let acceptFailureMaxBackoffMs = 5_000
+    private nonisolated static let acceptFailureMinimumRearmDelayMs = 100
     private nonisolated static let acceptFailureRearmThreshold = 50
 
     private struct ListenerStateSnapshot {
@@ -480,6 +481,13 @@ class TerminalController {
         return delay
     }
 
+    nonisolated static func acceptFailureRearmDelayMilliseconds(consecutiveFailures: Int) -> Int {
+        max(
+            acceptFailureBackoffMilliseconds(consecutiveFailures: consecutiveFailures),
+            acceptFailureMinimumRearmDelayMs
+        )
+    }
+
     nonisolated static func shouldEmitAcceptFailureBreadcrumb(consecutiveFailures: Int) -> Bool {
         guard consecutiveFailures > 0 else { return false }
         if consecutiveFailures <= 3 {
@@ -646,6 +654,22 @@ class TerminalController {
             close(socketToClose)
         }
         unlink(socketPathToUnlink)
+    }
+
+    private nonisolated func unlinkSocketPathIfStillInactive(
+        _ path: String,
+        expectedGeneration: UInt64
+    ) {
+        let shouldUnlink = withListenerState {
+            guard socketPath == path else { return false }
+            if activeAcceptLoopGeneration == expectedGeneration {
+                return true
+            }
+            return activeAcceptLoopGeneration == 0 && !isRunning
+        }
+        if shouldUnlink {
+            unlink(path)
+        }
     }
 
     private func applySocketPermissions() {
@@ -817,7 +841,7 @@ class TerminalController {
                 close(cleanup.socketToClose)
             }
             if let pathToUnlink = cleanup.pathToUnlink {
-                unlink(pathToUnlink)
+                unlinkSocketPathIfStillInactive(pathToUnlink, expectedGeneration: generation)
             }
 
             if cleanup.shouldCaptureExit {
@@ -872,6 +896,9 @@ class TerminalController {
                 let backoffMs = Self.acceptFailureBackoffMilliseconds(
                     consecutiveFailures: consecutiveFailures
                 )
+                let rearmDelayMs = Self.acceptFailureRearmDelayMilliseconds(
+                    consecutiveFailures: consecutiveFailures
+                )
 
                 if Self.shouldEmitAcceptFailureBreadcrumb(consecutiveFailures: consecutiveFailures) {
                     sentryBreadcrumb(
@@ -906,7 +933,8 @@ class TerminalController {
                     scheduleListenerRearm(
                         generation: generation,
                         errnoCode: errnoCode,
-                        consecutiveFailures: consecutiveFailures
+                        consecutiveFailures: consecutiveFailures,
+                        delayMs: rearmDelayMs
                     )
                     break
                 }
@@ -934,9 +962,11 @@ class TerminalController {
     private nonisolated func scheduleListenerRearm(
         generation: UInt64,
         errnoCode: Int32,
-        consecutiveFailures: Int
+        consecutiveFailures: Int,
+        delayMs: Int
     ) {
-        DispatchQueue.main.async { [weak self] in
+        let deadline = DispatchTime.now() + .milliseconds(delayMs)
+        DispatchQueue.main.asyncAfter(deadline: deadline) { [weak self] in
             guard let self else { return }
             guard let tabManager = self.tabManager else { return }
             guard let restartPath = self.withListenerState({ () -> String? in
@@ -955,7 +985,8 @@ class TerminalController {
                     errnoCode: errnoCode,
                     extra: [
                         "generation": generation,
-                        "consecutiveFailures": consecutiveFailures
+                        "consecutiveFailures": consecutiveFailures,
+                        "rearmDelayMs": delayMs
                     ]
                 )
             )

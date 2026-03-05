@@ -29,7 +29,10 @@ cmux_socket_available() {
     [[ -x "$cmux_bin" ]] || cmux_bin="$(command -v cmux || true)"
     [[ -n "$cmux_bin" ]] || return 1
 
-    "$cmux_bin" --socket "$socket" ping >/dev/null 2>&1
+    # Keep stale/hung socket checks bounded so claude startup does not block
+    # behind the CLI default timeout (15s).
+    CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=0.75 \
+        "$cmux_bin" --socket "$socket" ping >/dev/null 2>&1
 }
 
 # Pass through if not in a cmux terminal, hooks are disabled, or the cmux
