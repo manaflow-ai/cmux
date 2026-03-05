@@ -2992,7 +2992,9 @@ struct SettingsView: View {
                                 if let lang = AppLanguage(rawValue: newValue) {
                                     LanguageSettings.apply(lang)
                                     if newValue != LanguageSettings.languageAtLaunch.rawValue {
-                                        showLanguageRestartAlert = true
+                                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                            showLanguageRestartAlert = true
+                                        }
                                     }
                                 }
                             }
