@@ -190,6 +190,72 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         XCTAssertFalse(after.contains(marker), "Expected typing to be blocked while empty notifications popover is open")
     }
 
+    func testNotifyCLIDoesNotStealFocusAcrossWindows() throws {
+        let app = XCUIApplication()
+        app.launchArguments += ["-socketControlMode", "allowAll"]
+        app.launchEnvironment["CMUX_UI_TEST_MULTI_WINDOW_NOTIF_SETUP"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_MULTI_WINDOW_NOTIF_PATH"] = dataPath
+        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        app.launchEnvironment["CMUX_SOCKET_MODE"] = "allowAll"
+        app.launchEnvironment["CMUX_SOCKET_ENABLE"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_SOCKET_SANITY"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_ENABLE_DUPLICATE_LAUNCH_OBSERVER"] = "1"
+        app.launchEnvironment["CMUX_TAG"] = launchTag
+        app.launch()
+        XCTAssertTrue(
+            ensureForegroundAfterLaunch(app, timeout: 12.0),
+            "Expected app to launch for notify focus regression test. state=\(app.state.rawValue)"
+        )
+        XCTAssertTrue(
+            waitForData(keys: ["tabId2"], timeout: 15.0),
+            "Expected multi-window notification setup data"
+        )
+
+        guard let tabId2 = loadData()?["tabId2"], !tabId2.isEmpty else {
+            XCTFail("Missing setup workspace id")
+            return
+        }
+
+        XCTAssertTrue(waitForWindowCount(atLeast: 2, app: app, timeout: 6.0))
+
+        guard let resolvedPath = resolveSocketPath(timeout: 8.0) else {
+            throw XCTSkip("Control socket unavailable in this test environment. requested=\(socketPath)")
+        }
+        socketPath = resolvedPath
+        let pingResponse = waitForSocketPong(timeout: 8.0)
+        guard pingResponse == "PONG" else {
+            throw XCTSkip("Control socket did not respond in time. path=\(socketPath) response=\(pingResponse ?? "<nil>")")
+        }
+
+        guard let surfaceId = firstSurfaceId(forWorkspaceId: tabId2) else {
+            XCTFail("Expected at least one surface in workspace \(tabId2)")
+            return
+        }
+
+        let finder = XCUIApplication(bundleIdentifier: "com.apple.finder")
+        finder.activate()
+        XCTAssertTrue(
+            waitForAppToLeaveForeground(app, timeout: 8.0),
+            "Expected cmux to move to background before sending notify command. state=\(app.state.rawValue)"
+        )
+
+        let title = "focus-regression-\(UUID().uuidString.prefix(8))"
+        let notifyResult = runCmuxNotify(
+            socketPath: socketPath,
+            workspaceId: tabId2,
+            surfaceId: surfaceId,
+            title: title
+        )
+        XCTAssertEqual(notifyResult.terminationStatus, 0, "Expected `cmux notify` to succeed. stderr=\(notifyResult.stderr)")
+        XCTAssertTrue(notifyResult.stdout.contains("OK"), "Expected notify command to return OK. stdout=\(notifyResult.stdout)")
+
+        RunLoop.current.run(until: Date().addingTimeInterval(0.5))
+        XCTAssertFalse(
+            app.state == .runningForeground,
+            "Expected cmux to remain in background after `cmux notify`. state=\(app.state.rawValue)"
+        )
+    }
+
     private func clickNotificationPopoverRowAndWaitForFocusChange(
         button: XCUIElement,
         app: XCUIApplication,
@@ -285,6 +351,135 @@ final class MultiWindowNotificationsUITests: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         }
         return socketCommand("ping") ?? lastResponse
+    }
+
+    private func waitForAppToLeaveForeground(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if app.state != .runningForeground {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        return app.state != .runningForeground
+    }
+
+    private func firstSurfaceId(forWorkspaceId workspaceId: String) -> String? {
+        guard let response = socketCommand("list_surfaces \(workspaceId)"),
+              !response.isEmpty,
+              !response.hasPrefix("ERROR"),
+              response != "No surfaces" else {
+            return nil
+        }
+
+        for line in response.split(separator: "\n", omittingEmptySubsequences: true) {
+            let parts = line.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
+            guard parts.count == 2 else { continue }
+            let candidate = String(parts[1]).trimmingCharacters(in: .whitespacesAndNewlines)
+            if UUID(uuidString: candidate) != nil {
+                return candidate
+            }
+        }
+        return nil
+    }
+
+    private func runCmuxNotify(
+        socketPath: String,
+        workspaceId: String,
+        surfaceId: String,
+        title: String
+    ) -> (terminationStatus: Int32, stdout: String, stderr: String) {
+        let process = Process()
+        let cliPath = resolveCmuxCLIPath()
+        var args = [
+            "--socket",
+            socketPath,
+            "notify",
+            "--workspace",
+            workspaceId,
+            "--surface",
+            surfaceId,
+            "--title",
+            title,
+            "--subtitle",
+            "ui-test",
+            "--body",
+            "focus-regression"
+        ]
+        if let cliPath {
+            process.executableURL = URL(fileURLWithPath: cliPath)
+        } else {
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+            args.insert("cmux", at: 0)
+        }
+        process.arguments = args
+
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+
+        do {
+            try process.run()
+            process.waitUntilExit()
+        } catch {
+            return (
+                terminationStatus: -1,
+                stdout: "",
+                stderr: "Failed to run cmux notify: \(error.localizedDescription) (cliPath=\(cliPath ?? "env:cmux"))"
+            )
+        }
+
+        let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+        let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+        let stdout = String(data: stdoutData, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let stderr = String(data: stderrData, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return (process.terminationStatus, stdout, stderr)
+    }
+
+    private func resolveCmuxCLIPath() -> String? {
+        let fileManager = FileManager.default
+        let env = ProcessInfo.processInfo.environment
+        var candidates: [String] = []
+
+        for key in ["CMUX_UI_TEST_CLI_PATH", "CMUXTERM_CLI"] {
+            if let value = env[key], !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                candidates.append(value)
+            }
+        }
+
+        if let builtProductsDir = env["BUILT_PRODUCTS_DIR"], !builtProductsDir.isEmpty {
+            candidates.append("\(builtProductsDir)/cmux DEV.app/Contents/Resources/bin/cmux")
+            candidates.append("\(builtProductsDir)/cmux.app/Contents/Resources/bin/cmux")
+            candidates.append("\(builtProductsDir)/cmux")
+        }
+
+        if let hostPath = env["TEST_HOST"], !hostPath.isEmpty {
+            let hostURL = URL(fileURLWithPath: hostPath)
+            let productsDir = hostURL
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .path
+            candidates.append("\(productsDir)/cmux DEV.app/Contents/Resources/bin/cmux")
+            candidates.append("\(productsDir)/cmux.app/Contents/Resources/bin/cmux")
+            candidates.append("\(productsDir)/cmux")
+        }
+
+        candidates.append("/tmp/cmux-\(launchTag)/Build/Products/Debug/cmux DEV.app/Contents/Resources/bin/cmux")
+        candidates.append("/tmp/cmux-\(launchTag)/Build/Products/Debug/cmux.app/Contents/Resources/bin/cmux")
+        candidates.append("/tmp/cmux-\(launchTag)/Build/Products/Debug/cmux")
+
+        for path in candidates {
+            if fileManager.isExecutableFile(atPath: path) {
+                return URL(fileURLWithPath: path).resolvingSymlinksInPath().path
+            }
+        }
+
+        return nil
     }
 
     private func resolveSocketPath(timeout: TimeInterval) -> String? {
