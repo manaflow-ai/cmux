@@ -82,6 +82,11 @@ _cmux_prompt_command() {
     [[ -n "$CMUX_TAB_ID" ]] || return 0
     [[ -n "$CMUX_PANEL_ID" ]] || return 0
 
+    # Suppress bash job-done notifications for background tasks spawned below.
+    # Without this, every completed async probe prints "[N] Done ..." to the terminal.
+    local _cmux_old_monitor="${-//[^m]/}"
+    set +m
+
     local now=$SECONDS
     local pwd="$PWD"
 
@@ -205,6 +210,9 @@ _cmux_prompt_command() {
     if (( now - _CMUX_PORTS_LAST_RUN >= 10 )); then
         _cmux_ports_kick
     fi
+
+    # Restore job control if it was previously enabled.
+    [[ -n "$_cmux_old_monitor" ]] && set -m
 }
 
 _cmux_install_prompt_command() {
