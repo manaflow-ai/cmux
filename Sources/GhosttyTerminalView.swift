@@ -2974,6 +2974,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             visibleInUI = visible
         }
 
+    func debugIsVisibleInUI() -> Bool {
+        visibleInUI
+    }
+
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         setup()
@@ -5697,6 +5701,10 @@ final class GhosttySurfaceScrollView: NSView {
         } else {
             applyFirstResponderIfNeeded()
         }
+    }
+
+    func debugIsVisibleInUI() -> Bool {
+        surfaceView.isVisibleInUI
     }
 
     func setActive(_ active: Bool) {

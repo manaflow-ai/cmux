@@ -4961,6 +4961,46 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         )
     }
 
+    func testToggleSplitZoomCollapsesVisiblePanelSnapshotToZoomedPaneAndRestoresOnUnzoom() {
+        let workspace = Workspace()
+        guard let firstPanelId = workspace.focusedPanelId,
+              let secondPanel = workspace.newTerminalSplit(from: firstPanelId, orientation: .horizontal),
+              let firstTerminal = workspace.terminalPanel(for: firstPanelId),
+              let secondTerminal = workspace.terminalPanel(for: secondPanel.id) else {
+            XCTFail("Expected two terminal panels for split-zoom visibility test")
+            return
+        }
+
+        XCTAssertEqual(
+            workspace.debugVisiblePanelIdsForCurrentLayout(),
+            Set([firstPanelId, secondPanel.id]),
+            "Unzoomed layout should report selected panels from both panes as visible"
+        )
+        XCTAssertTrue(firstTerminal.hostedView.debugIsVisibleInUI())
+        XCTAssertTrue(secondTerminal.hostedView.debugIsVisibleInUI())
+
+        XCTAssertTrue(workspace.toggleSplitZoom(panelId: secondPanel.id))
+        XCTAssertEqual(
+            workspace.debugVisiblePanelIdsForCurrentLayout(),
+            Set([secondPanel.id]),
+            "Zoomed layout should report only the zoomed pane panel as visible"
+        )
+        XCTAssertFalse(
+            firstTerminal.hostedView.debugIsVisibleInUI(),
+            "Non-zoomed terminal should be marked not visible to prevent stale portal overlays"
+        )
+        XCTAssertTrue(secondTerminal.hostedView.debugIsVisibleInUI())
+
+        XCTAssertTrue(workspace.toggleSplitZoom(panelId: secondPanel.id))
+        XCTAssertEqual(
+            workspace.debugVisiblePanelIdsForCurrentLayout(),
+            Set([firstPanelId, secondPanel.id]),
+            "Unzoom should restore selected visibility across both panes"
+        )
+        XCTAssertTrue(firstTerminal.hostedView.debugIsVisibleInUI())
+        XCTAssertTrue(secondTerminal.hostedView.debugIsVisibleInUI())
+    }
+
     func testClosingFocusedSplitRestoresBranchForRemainingFocusedPanel() {
         let workspace = Workspace()
         guard let firstPanelId = workspace.focusedPanelId else {
