@@ -2247,6 +2247,8 @@ func browserOmnibarShouldReacquireFocusAfterEndEditing(
 private final class OmnibarNativeTextField: NSTextField {
     var onPointerDown: (() -> Void)?
     var onHandleKeyEvent: ((NSEvent, NSTextView?) -> Bool)?
+    /// Anchor index for Shift+click selection extension, reset on non-shift clicks.
+    private var shiftClickAnchor: Int?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -2290,14 +2292,29 @@ private final class OmnibarNativeTextField: NSTextField {
                 return
             }
 
+            // Double/triple-click: forward directly to the field editor (NSTextView)
+            // which handles word and line selection internally. This bypasses
+            // NSTextField's super.mouseDown (and its problematic tracking loop)
+            // while preserving multi-click semantics.
+            if event.clickCount > 1 {
+                editor.mouseDown(with: event)
+                shiftClickAnchor = nil
+                return
+            }
+
             let localPoint = editor.convert(event.locationInWindow, from: nil)
             let index = editor.characterIndexForInsertion(at: localPoint)
-            let safeIndex = min(index, editor.string.count)
+            let textLength = (editor.string as NSString).length
+            let safeIndex = min(index, textLength)
 
             if event.modifierFlags.contains(.shift) {
                 // Shift+click: extend the existing selection to the clicked position.
+                // Use stored anchor to handle bidirectional extension correctly;
+                // NSRange.location is always the lower index so it cannot serve as
+                // a directional anchor on its own.
                 let sel = editor.selectedRange()
-                let anchor = sel.location
+                let anchor = shiftClickAnchor ?? sel.location
+                shiftClickAnchor = anchor
                 let newRange: NSRange
                 if safeIndex >= anchor {
                     newRange = NSRange(location: anchor, length: safeIndex - anchor)
@@ -2306,6 +2323,7 @@ private final class OmnibarNativeTextField: NSTextField {
                 }
                 editor.setSelectedRange(newRange)
             } else {
+                shiftClickAnchor = nil
                 editor.setSelectedRange(NSRange(location: safeIndex, length: 0))
             }
         }
