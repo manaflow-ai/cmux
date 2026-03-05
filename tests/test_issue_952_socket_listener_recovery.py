@@ -136,3 +136,20 @@ def test_issue_952_socket_listener_recovery() -> None:
     """Keep the source-level recovery guards for issue #952 in CI."""
     failures = collect_failures()
     assert not failures, "issue #952 regression(s) detected:\n- " + "\n- ".join(failures)
+
+
+def main() -> int:
+    """Run the regression guard without requiring pytest to be installed."""
+    failures = collect_failures()
+    if failures:
+        print("FAIL: issue #952 regression(s) detected")
+        for failure in failures:
+            print(f"- {failure}")
+        return 1
+
+    print("PASS: issue #952 socket listener recovery guards are present")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

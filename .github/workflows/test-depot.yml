@@ -123,9 +123,7 @@ jobs:
           done
 
       - name: Run issue #952 regression guard
-        env:
-          PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
-        run: python3 -m pytest -q tests/test_issue_952_socket_listener_recovery.py
+        run: python3 tests/test_issue_952_socket_listener_recovery.py
 
       - name: Run unit tests
         if: ${{ !inputs.skip_unit_tests }}
