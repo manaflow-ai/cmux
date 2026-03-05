@@ -1549,7 +1549,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var isApplyingStartupSessionRestore = false
     private var sessionAutosaveTimer: DispatchSourceTimer?
     private var socketListenerHealthTimer: DispatchSourceTimer?
-    private static let socketListenerHealthCheckInterval: DispatchTimeInterval = .seconds(5)
+    private static let socketListenerHealthCheckInterval: DispatchTimeInterval = .seconds(2)
     private var lastSocketListenerUnhealthyCaptureAt: Date = .distantPast
     private static let socketListenerUnhealthyCaptureCooldown: TimeInterval = 60
     private let sessionPersistenceQueue = DispatchQueue(
@@ -2484,15 +2484,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return
         }
         let failureSignals = health.failureSignals
-        let data: [String: Any] = [
+        var data: [String: Any] = [
             "source": source,
             "path": config.path,
             "isRunning": health.isRunning ? 1 : 0,
             "acceptLoopAlive": health.acceptLoopAlive ? 1 : 0,
             "socketPathMatches": health.socketPathMatches ? 1 : 0,
             "socketPathExists": health.socketPathExists ? 1 : 0,
+            "socketConnectable": health.socketConnectable ? 1 : 0,
             "failureSignals": failureSignals
         ]
+        if let socketConnectErrno = health.socketConnectErrno {
+            data["socketConnectErrno"] = Int(socketConnectErrno)
+        }
         sentryBreadcrumb("socket.listener.unhealthy", category: "socket", data: data)
         let now = Date()
         if now.timeIntervalSince(lastSocketListenerUnhealthyCaptureAt) >= Self.socketListenerUnhealthyCaptureCooldown {
