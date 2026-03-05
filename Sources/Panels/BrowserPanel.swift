@@ -1594,10 +1594,8 @@ final class BrowserPanel: Panel, ObservableObject {
             Task { @MainActor [weak self] in
                 self?.refreshFavicon(from: webView)
                 self?.applyBrowserThemeModeIfNeeded()
-                // Clear find-in-page on navigation so stale highlights don't persist.
-                if self?.searchState != nil {
-                    self?.searchState = nil
-                }
+                // Keep find-in-page open through load completion and refresh matches for the new DOM.
+                self?.restoreFindStateAfterNavigation(replaySearch: true)
             }
         }
         navDelegate.didFailNavigation = { [weak self] _, failedURL in
@@ -1608,10 +1606,8 @@ final class BrowserPanel: Panel, ObservableObject {
                 self.pageTitle = failedURL.isEmpty ? "" : failedURL
                 self.faviconPNGData = nil
                 self.lastFaviconURLString = nil
-                // Clear find-in-page so stale highlights don't persist.
-                if self.searchState != nil {
-                    self.searchState = nil
-                }
+                // Keep find-in-page open and clear stale counters on failed loads.
+                self.restoreFindStateAfterNavigation(replaySearch: false)
             }
         }
         navDelegate.openInNewTab = { [weak self] url in
@@ -2674,6 +2670,16 @@ extension BrowserPanel {
 
     func hideFind() {
         searchState = nil
+    }
+
+    private func restoreFindStateAfterNavigation(replaySearch: Bool) {
+        guard let state = searchState else { return }
+        state.total = nil
+        state.selected = nil
+        if replaySearch, !state.needle.isEmpty {
+            executeFindSearch(state.needle)
+        }
+        postBrowserSearchFocusNotification()
     }
 
     private func executeFindSearch(_ needle: String) {
