@@ -2616,14 +2616,16 @@ enum AppearanceSettings {
 enum AppLanguage: String, CaseIterable, Identifiable {
     case system
     case en
-    case ja
     case ar
     case bs
+    case zhHans = "zh-Hans"
+    case zhHant = "zh-Hant"
     case da
     case de
     case es
     case fr
     case it
+    case ja
     case ko
     case nb
     case pl
@@ -2631,16 +2633,31 @@ enum AppLanguage: String, CaseIterable, Identifiable {
     case ru
     case th
     case tr
-    case zhHans = "zh-Hans"
-    case zhHant = "zh-Hant"
 
     var id: String { rawValue }
 
     var displayName: String {
-        if self == .system {
-            return String(localized: "language.system", defaultValue: "System")
+        switch self {
+        case .system: return String(localized: "language.system", defaultValue: "System")
+        case .en: return "English"
+        case .ar: return "العربية (Arabic)"
+        case .bs: return "Bosanski (Bosnian)"
+        case .zhHans: return "Chinese Simplified"
+        case .zhHant: return "Chinese Traditional"
+        case .da: return "Dansk (Danish)"
+        case .de: return "Deutsch (German)"
+        case .es: return "Español (Spanish)"
+        case .fr: return "Français (French)"
+        case .it: return "Italiano (Italian)"
+        case .ja: return "日本語 (Japanese)"
+        case .ko: return "한국어 (Korean)"
+        case .nb: return "Norsk (Norwegian)"
+        case .pl: return "Polski (Polish)"
+        case .ptBR: return "Português (Brasil)"
+        case .ru: return "Русский (Russian)"
+        case .th: return "ไทย (Thai)"
+        case .tr: return "Türkçe (Turkish)"
         }
-        return Locale.current.localizedString(forLanguageCode: rawValue) ?? rawValue
     }
 }
 
