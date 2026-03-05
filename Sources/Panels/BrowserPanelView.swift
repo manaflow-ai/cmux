@@ -1092,16 +1092,12 @@ struct BrowserPanelView: View {
 #if DEBUG
         logBrowserFocusState(event: "addressBar.tap")
 #endif
-        onRequestPanelFocus()
-        guard !addressBarFocused else { return }
-        // `focusPane` converges selection and can transiently move first responder to WebKit.
-        // Reassert omnibar focus on the next runloop for click-to-type behavior.
-        DispatchQueue.main.async {
-#if DEBUG
-            logBrowserFocusState(event: "addressBar.tap.asyncSetFocused")
-#endif
-            setAddressBarFocused(true, reason: "omnibar.tap.async")
+        if !addressBarFocused {
+            // Mark focused before pane selection converges so WebKit focus is not
+            // briefly re-acquired during `focusPane`.
+            setAddressBarFocused(true, reason: "omnibar.tap")
         }
+        onRequestPanelFocus()
     }
 
     private func hideSuggestions() {
