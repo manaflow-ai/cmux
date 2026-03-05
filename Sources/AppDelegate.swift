@@ -5732,10 +5732,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
               focused: active === input,
               id: input.id || "",
               activeId: active && typeof active.id === "string" ? active.id : "",
-              activeTag: active && active.tagName ? active.tagName.toLowerCase() : ""
+              activeTag: active && active.tagName ? active.tagName.toLowerCase() : "",
+              trackerInstalled: window.__cmuxAddressBarFocusTrackerInstalled === true,
+              trackedStateId:
+                window.__cmuxAddressBarFocusState &&
+                typeof window.__cmuxAddressBarFocusState.id === "string"
+                  ? window.__cmuxAddressBarFocusState.id
+                  : ""
             };
           } catch (_) {
-            return { focused: false, id: "", activeId: "", activeTag: "" };
+            return {
+              focused: false,
+              id: "",
+              activeId: "",
+              activeTag: "",
+              trackerInstalled: false,
+              trackedStateId: ""
+            };
           }
         })();
         """
@@ -5746,11 +5759,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let focused = (payload?["focused"] as? Bool) ?? false
             let inputId = (payload?["id"] as? String) ?? ""
             let activeId = (payload?["activeId"] as? String) ?? ""
+            let trackerInstalled = (payload?["trackerInstalled"] as? Bool) ?? false
+            let trackedStateId = (payload?["trackedStateId"] as? String) ?? ""
             if focused, !inputId.isEmpty, inputId == activeId {
                 self.writeGotoSplitTestData([
                     "webInputFocusSeeded": "true",
                     "webInputFocusElementId": inputId,
-                    "webInputFocusActiveElementId": activeId
+                    "webInputFocusActiveElementId": activeId,
+                    "webInputFocusTrackerInstalled": trackerInstalled ? "true" : "false",
+                    "webInputFocusTrackedStateId": trackedStateId
                 ])
                 return
             }
@@ -5793,7 +5810,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     "\(keyPrefix)ActiveElementId": activeId,
                     "\(keyPrefix)ActiveElementTag": snapshot["tag"] ?? "",
                     "\(keyPrefix)ActiveElementType": snapshot["type"] ?? "",
-                    "\(keyPrefix)ActiveElementEditable": snapshot["editable"] ?? "false"
+                    "\(keyPrefix)ActiveElementEditable": snapshot["editable"] ?? "false",
+                    "\(keyPrefix)TrackedFocusStateId": snapshot["trackedFocusStateId"] ?? "",
+                    "\(keyPrefix)FocusTrackerInstalled": snapshot["focusTrackerInstalled"] ?? "false"
                 ])
             }
         }
@@ -5820,10 +5839,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
               id: typeof active.id === "string" ? active.id : "",
               tag,
               type,
-              editable: editable ? "true" : "false"
+              editable: editable ? "true" : "false",
+              trackedFocusStateId:
+                window.__cmuxAddressBarFocusState &&
+                typeof window.__cmuxAddressBarFocusState.id === "string"
+                  ? window.__cmuxAddressBarFocusState.id
+                  : "",
+              focusTrackerInstalled:
+                window.__cmuxAddressBarFocusTrackerInstalled === true ? "true" : "false"
             };
           } catch (_) {
-            return { id: "", tag: "", type: "", editable: "false" };
+            return {
+              id: "",
+              tag: "",
+              type: "",
+              editable: "false",
+              trackedFocusStateId: "",
+              focusTrackerInstalled: "false"
+            };
           }
         })();
         """
@@ -5834,7 +5867,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 "id": (payload?["id"] as? String) ?? "",
                 "tag": (payload?["tag"] as? String) ?? "",
                 "type": (payload?["type"] as? String) ?? "",
-                "editable": (payload?["editable"] as? String) ?? "false"
+                "editable": (payload?["editable"] as? String) ?? "false",
+                "trackedFocusStateId": (payload?["trackedFocusStateId"] as? String) ?? "",
+                "focusTrackerInstalled": (payload?["focusTrackerInstalled"] as? String) ?? "false"
             ])
         }
     }
