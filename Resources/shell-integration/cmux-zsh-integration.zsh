@@ -46,6 +46,7 @@ typeset -g _CMUX_GIT_FORCE=0
 typeset -g _CMUX_GIT_HEAD_LAST_PWD=""
 typeset -g _CMUX_GIT_HEAD_PATH=""
 typeset -g _CMUX_GIT_HEAD_SIGNATURE=""
+typeset -g _CMUX_GIT_HEAD_WATCH_PID=""
 typeset -g _CMUX_PR_LAST_PWD=""
 typeset -g _CMUX_PR_LAST_RUN=0
 typeset -g _CMUX_PR_JOB_PID=""
@@ -122,6 +123,65 @@ _cmux_ports_kick() {
     } >/dev/null 2>&1 &!
 }
 
+_cmux_report_git_branch_for_path() {
+    local repo_path="$1"
+    [[ -n "$repo_path" ]] || return 0
+    [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
+    [[ -n "$CMUX_TAB_ID" ]] || return 0
+    [[ -n "$CMUX_PANEL_ID" ]] || return 0
+
+    local branch dirty_opt="" first
+    branch="$(git -C "$repo_path" branch --show-current 2>/dev/null)"
+    if [[ -n "$branch" ]]; then
+        first="$(git -C "$repo_path" status --porcelain -uno 2>/dev/null | head -1)"
+        [[ -n "$first" ]] && dirty_opt="--status=dirty"
+        _cmux_send "report_git_branch $branch $dirty_opt --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+    else
+        _cmux_send "clear_git_branch --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+    fi
+}
+
+_cmux_stop_git_head_watch() {
+    if [[ -n "$_CMUX_GIT_HEAD_WATCH_PID" ]]; then
+        kill "$_CMUX_GIT_HEAD_WATCH_PID" >/dev/null 2>&1 || true
+        _CMUX_GIT_HEAD_WATCH_PID=""
+    fi
+}
+
+_cmux_start_git_head_watch() {
+    [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
+    [[ -n "$CMUX_TAB_ID" ]] || return 0
+    [[ -n "$CMUX_PANEL_ID" ]] || return 0
+
+    local watch_pwd="$PWD"
+    local watch_head_path
+    watch_head_path="$(_cmux_git_resolve_head_path 2>/dev/null || true)"
+    [[ -n "$watch_head_path" ]] || return 0
+
+    local watch_head_signature
+    watch_head_signature="$(_cmux_git_head_signature "$watch_head_path" 2>/dev/null || true)"
+
+    _CMUX_GIT_HEAD_LAST_PWD="$watch_pwd"
+    _CMUX_GIT_HEAD_PATH="$watch_head_path"
+    _CMUX_GIT_HEAD_SIGNATURE="$watch_head_signature"
+
+    _cmux_stop_git_head_watch
+    {
+        local last_signature="$watch_head_signature"
+        while true; do
+            sleep 1
+
+            local signature
+            signature="$(_cmux_git_head_signature "$watch_head_path" 2>/dev/null || true)"
+            if [[ -n "$signature" && "$signature" != "$last_signature" ]]; then
+                last_signature="$signature"
+                _cmux_report_git_branch_for_path "$watch_pwd"
+            fi
+        done
+    } >/dev/null 2>&1 &!
+    _CMUX_GIT_HEAD_WATCH_PID=$!
+}
+
 _cmux_preexec() {
     if [[ -z "$_CMUX_TTY_NAME" ]]; then
         local t
@@ -143,9 +203,12 @@ _cmux_preexec() {
     # Register TTY + kick batched port scan for foreground commands (servers).
     _cmux_report_tty_once
     _cmux_ports_kick
+    _cmux_start_git_head_watch
 }
 
 _cmux_precmd() {
+    _cmux_stop_git_head_watch
+
     # Skip if socket doesn't exist yet
     [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
     [[ -n "$CMUX_TAB_ID" ]] || return 0
@@ -201,6 +264,8 @@ _cmux_precmd() {
     fi
 
     # Git branch/dirty: update immediately on directory change, otherwise every ~3s.
+    # While a foreground command is running, _cmux_start_git_head_watch probes HEAD
+    # once per second so agent-initiated git checkouts still surface quickly.
     local should_git=0
 
     # Git branch can change without a `git ...`-prefixed command (aliases like `gco`,
@@ -254,16 +319,7 @@ _cmux_precmd() {
             _CMUX_GIT_LAST_PWD="$pwd"
             _CMUX_GIT_LAST_RUN=$now
             {
-                local branch dirty_opt=""
-                branch=$(git branch --show-current 2>/dev/null)
-                if [[ -n "$branch" ]]; then
-                    local first
-                    first=$(git status --porcelain -uno 2>/dev/null | head -1)
-                    [[ -n "$first" ]] && dirty_opt="--status=dirty"
-                    _cmux_send "report_git_branch $branch $dirty_opt --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
-                else
-                    _cmux_send "clear_git_branch --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
-                fi
+                _cmux_report_git_branch_for_path "$pwd"
             } >/dev/null 2>&1 &!
             _CMUX_GIT_JOB_PID=$!
             _CMUX_GIT_JOB_STARTED_AT=$now
@@ -361,7 +417,12 @@ _cmux_fix_path() {
     add-zsh-hook -d precmd _cmux_fix_path
 }
 
+_cmux_zshexit() {
+    _cmux_stop_git_head_watch
+}
+
 autoload -Uz add-zsh-hook
 add-zsh-hook preexec _cmux_preexec
 add-zsh-hook precmd _cmux_precmd
 add-zsh-hook precmd _cmux_fix_path
+add-zsh-hook zshexit _cmux_zshexit

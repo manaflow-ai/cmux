@@ -1860,35 +1860,54 @@ class GhosttyApp {
                         NSWorkspace.shared.open(url)
                     }
                 }
-                guard let tabId = surfaceView.tabId,
-                      let surfaceId = surfaceView.terminalSurface?.id else {
+                let sourceWorkspaceId = callbackTabId ?? surfaceView.tabId
+                let sourcePanelId = callbackSurfaceId ?? surfaceView.terminalSurface?.id
+                guard let sourceWorkspaceId,
+                      let sourcePanelId else {
                     #if DEBUG
                     dlog("link.openURL target=embedded but tabId/surfaceId=nil")
                     #endif
                     return false
                 }
                 #if DEBUG
-                dlog("link.openURL target=embedded, opening in browser pane host=\(host) url=\(url) tabId=\(tabId) surfaceId=\(surfaceId)")
+                dlog(
+                    "link.openURL target=embedded, opening in browser pane " +
+                    "host=\(host) url=\(url) tabId=\(sourceWorkspaceId) surfaceId=\(sourcePanelId)"
+                )
                 #endif
                 return performOnMain {
                     guard let app = AppDelegate.shared,
-                          let tabManager = app.tabManagerFor(tabId: tabId) ?? app.tabManager,
-                          let workspace = tabManager.tabs.first(where: { $0.id == tabId }) else {
+                          let resolved = app.workspaceContainingPanel(
+                            panelId: sourcePanelId,
+                            preferredWorkspaceId: sourceWorkspaceId
+                          ) else {
                         #if DEBUG
-                        dlog("link.openURL embedded but workspace lookup failed tabId=\(tabId)")
+                        dlog(
+                            "link.openURL embedded but workspace lookup failed " +
+                            "tabId=\(sourceWorkspaceId) surfaceId=\(sourcePanelId)"
+                        )
                         #endif
                         return false
                     }
-                    if let targetPane = workspace.preferredBrowserTargetPane(fromPanelId: surfaceId) {
+                    let workspace = resolved.workspace
+                    #if DEBUG
+                    if workspace.id != sourceWorkspaceId {
+                        dlog(
+                            "link.openURL workspace.remap sourceTab=\(sourceWorkspaceId) " +
+                            "resolvedTab=\(workspace.id) surfaceId=\(sourcePanelId)"
+                        )
+                    }
+                    #endif
+                    if let targetPane = workspace.preferredBrowserTargetPane(fromPanelId: sourcePanelId) {
                         #if DEBUG
                         dlog("link.openURL opening in existing browser pane=\(targetPane)")
                         #endif
                         return workspace.newBrowserSurface(inPane: targetPane, url: url, focus: true) != nil
                     } else {
                         #if DEBUG
-                        dlog("link.openURL opening as new browser split from surface=\(surfaceId)")
+                        dlog("link.openURL opening as new browser split from surface=\(sourcePanelId)")
                         #endif
-                        return workspace.newBrowserSplit(from: surfaceId, orientation: .horizontal, url: url) != nil
+                        return workspace.newBrowserSplit(from: sourcePanelId, orientation: .horizontal, url: url) != nil
                     }
                 }
             }
@@ -2147,6 +2166,32 @@ final class TerminalSurface: Identifiable, ObservableObject {
         )
 #endif
     }
+
+    /// Explicitly free the Ghostty runtime surface. Idempotent — safe to call
+    /// before deinit; deinit will skip the free if already torn down.
+    @MainActor
+    func teardownSurface() {
+        markPortalLifecycleClosed(reason: "teardown")
+
+        let callbackContext = surfaceCallbackContext
+        surfaceCallbackContext = nil
+
+        let surfaceToFree = surface
+        surface = nil
+
+        guard let surfaceToFree else {
+            callbackContext?.release()
+            return
+        }
+
+        Task { @MainActor in
+            // Keep free behavior aligned with deinit: perform the runtime teardown on
+            // the next main-actor turn so SIGHUP delivery is deterministic but non-reentrant.
+            ghostty_surface_free(surfaceToFree)
+            callbackContext?.release()
+        }
+    }
+
     #if DEBUG
     private static let surfaceLogPath = "/tmp/cmux-ghostty-surface.log"
     private static let sizeLogPath = "/tmp/cmux-ghostty-size.log"
@@ -2896,6 +2941,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 	    private var lastScrollEventTime: CFTimeInterval = 0
     private var visibleInUI: Bool = true
     private var pendingSurfaceSize: CGSize?
+    private var isFindEscapeSuppressionArmed = false
 #if DEBUG
     private var lastSizeSkipSignature: String?
 #endif
@@ -3913,6 +3959,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             super.keyDown(with: event)
             return
         }
+        if event.keyCode != 53 {
+            endFindEscapeSuppression()
+        }
+        if shouldConsumeSuppressedFindEscape(event) {
+            return
+        }
         if handleKeyboardCopyModeIfNeeded(event, surface: surface) {
             keyboardCopyModeConsumedKeyUps.insert(event.keyCode)
             return
@@ -3940,7 +3992,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // AppKit text interpretation and send a single deterministic Ghostty key event.
         // This avoids intermittent drops after rapid split close/reparent transitions.
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        if flags.contains(.control) && !flags.contains(.command) && !flags.contains(.option) {
+        if flags.contains(.control) && !flags.contains(.command) && !flags.contains(.option) && !hasMarkedText() {
             ghostty_surface_set_focus(surface, true)
             var keyEvent = ghostty_input_key_s()
             keyEvent.action = event.isARepeat ? GHOSTTY_ACTION_REPEAT : GHOSTTY_ACTION_PRESS
@@ -4125,6 +4177,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             super.keyUp(with: event)
             return
         }
+        if event.keyCode != 53 {
+            endFindEscapeSuppression()
+        }
+        if shouldConsumeSuppressedFindEscape(event) {
+            endFindEscapeSuppression()
+            return
+        }
+        if event.keyCode == 53 {
+            endFindEscapeSuppression()
+        }
 
         if keyboardCopyModeConsumedKeyUps.remove(event.keyCode) != nil {
             return
@@ -4175,6 +4237,21 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if flags.contains(.shift) { mods |= GHOSTTY_MODS_SHIFT.rawValue }
         if flags.contains(.option) { mods |= GHOSTTY_MODS_ALT.rawValue }
         return ghostty_input_mods_e(rawValue: mods)
+    }
+
+    func beginFindEscapeSuppression() {
+        isFindEscapeSuppressionArmed = true
+    }
+
+    private func endFindEscapeSuppression() {
+        isFindEscapeSuppressionArmed = false
+    }
+
+    private func shouldConsumeSuppressedFindEscape(_ event: NSEvent) -> Bool {
+        guard event.keyCode == 53 else { return false }
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        guard flags.isEmpty else { return false }
+        return isFindEscapeSuppressionArmed
     }
 
     /// Get the characters for a key event with control character handling.
@@ -5271,6 +5348,10 @@ final class GhosttySurfaceScrollView: NSView {
             }
             handler()
         }
+    }
+
+    func beginFindEscapeSuppression() {
+        surfaceView.beginFindEscapeSuppression()
     }
 
     func setTriggerFlashHandler(_ handler: (() -> Void)?) {

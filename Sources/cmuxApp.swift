@@ -2853,6 +2853,10 @@ struct SettingsView: View {
     @State private var socketPasswordDraft = ""
     @State private var socketPasswordStatusMessage: String?
     @State private var socketPasswordStatusIsError = false
+    @State private var notificationCustomSoundStatusMessage: String?
+    @State private var notificationCustomSoundStatusIsError = false
+    @State private var showNotificationCustomSoundErrorAlert = false
+    @State private var notificationCustomSoundErrorAlertMessage = ""
     @State private var telemetryValueAtLaunch = TelemetrySettings.enabledForCurrentLaunch
     @State private var showLanguageRestartAlert = false
     @State private var isResettingSettings = false
@@ -2935,7 +2939,10 @@ struct SettingsView: View {
 
     private var notificationSoundCustomFileDisplayName: String {
         guard hasCustomNotificationSoundFilePath else {
-            return "No file selected"
+            return String(
+                localized: "settings.notifications.sound.custom.file.none",
+                defaultValue: "No file selected"
+            )
         }
         return URL(fileURLWithPath: notificationSoundCustomFilePath).lastPathComponent
     }
@@ -3004,18 +3011,113 @@ struct SettingsView: View {
         NotificationSoundSettings.previewSound(value: notificationSound)
     }
 
+    private func notificationCustomSoundIssueMessage(_ issue: NotificationSoundSettings.CustomSoundPreparationIssue) -> String {
+        switch issue {
+        case .emptyPath:
+            return String(
+                localized: "settings.notifications.sound.custom.status.empty",
+                defaultValue: "Choose a custom audio file first."
+            )
+        case .missingFile(let path):
+            let fileName = URL(fileURLWithPath: path).lastPathComponent
+            return String(
+                localized: "settings.notifications.sound.custom.status.missingFilePrefix",
+                defaultValue: "File not found: "
+            ) + fileName
+        case .missingFileExtension(let path):
+            let fileName = URL(fileURLWithPath: path).lastPathComponent
+            return String(
+                localized: "settings.notifications.sound.custom.status.missingExtensionPrefix",
+                defaultValue: "File needs an extension: "
+            ) + fileName
+        case .stagingFailed(_, let details):
+            let prefix = String(
+                localized: "settings.notifications.sound.custom.status.prepareFailed",
+                defaultValue: "Could not prepare this file for notifications. Try WAV, AIFF, or CAF."
+            )
+            return "\(prefix) (\(details))"
+        }
+    }
+
+    private func notificationCustomSoundReadyStatusMessage(for path: String) -> String {
+        let sourceExtension = URL(fileURLWithPath: path).pathExtension
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        let stagedExtension = NotificationSoundSettings.stagedCustomSoundFileExtension(forSourceExtension: sourceExtension)
+        if !sourceExtension.isEmpty, stagedExtension != sourceExtension {
+            return String(
+                localized: "settings.notifications.sound.custom.status.readyConverted",
+                defaultValue: "Prepared for notifications (converted to CAF)."
+            )
+        }
+        return String(
+            localized: "settings.notifications.sound.custom.status.ready",
+            defaultValue: "Ready for notifications."
+        )
+    }
+
+    private func refreshNotificationCustomSoundStatus(showAlertOnFailure: Bool = false) {
+        guard notificationSound == NotificationSoundSettings.customFileValue else {
+            notificationCustomSoundStatusMessage = nil
+            notificationCustomSoundStatusIsError = false
+            return
+        }
+        let pathSnapshot = notificationSoundCustomFilePath
+        DispatchQueue.global(qos: .userInitiated).async {
+            let result = NotificationSoundSettings.prepareCustomFileForNotifications(path: pathSnapshot)
+            DispatchQueue.main.async {
+                guard notificationSound == NotificationSoundSettings.customFileValue else {
+                    notificationCustomSoundStatusMessage = nil
+                    notificationCustomSoundStatusIsError = false
+                    return
+                }
+                guard notificationSoundCustomFilePath == pathSnapshot else { return }
+                switch result {
+                case .success:
+                    notificationCustomSoundStatusMessage = notificationCustomSoundReadyStatusMessage(for: pathSnapshot)
+                    notificationCustomSoundStatusIsError = false
+                case .failure(let issue):
+                    let message = notificationCustomSoundIssueMessage(issue)
+                    notificationCustomSoundStatusMessage = message
+                    notificationCustomSoundStatusIsError = true
+                    if showAlertOnFailure {
+                        notificationCustomSoundErrorAlertMessage = message
+                        showNotificationCustomSoundErrorAlert = true
+                    }
+                }
+            }
+        }
+    }
+
     private func chooseNotificationSoundFile() {
         let panel = NSOpenPanel()
         panel.canChooseFiles = true
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = false
         panel.allowedContentTypes = [.audio]
-        panel.title = "Choose Notification Sound"
-        panel.prompt = "Choose"
+        panel.title = String(
+            localized: "settings.notifications.sound.custom.choose.title",
+            defaultValue: "Choose Notification Sound"
+        )
+        panel.prompt = String(
+            localized: "settings.notifications.sound.custom.choose.prompt",
+            defaultValue: "Choose"
+        )
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        notificationSoundCustomFilePath = url.path
-        notificationSound = NotificationSoundSettings.customFileValue
-        previewNotificationSound()
+        let selectedPath = url.path
+        switch NotificationSoundSettings.prepareCustomFileForNotifications(path: selectedPath) {
+        case .success:
+            notificationSoundCustomFilePath = selectedPath
+            notificationSound = NotificationSoundSettings.customFileValue
+            notificationCustomSoundStatusMessage = notificationCustomSoundReadyStatusMessage(for: selectedPath)
+            notificationCustomSoundStatusIsError = false
+            previewNotificationSound()
+        case .failure(let issue):
+            let message = notificationCustomSoundIssueMessage(issue)
+            notificationCustomSoundErrorAlertMessage = message
+            showNotificationCustomSoundErrorAlert = true
+            refreshNotificationCustomSoundStatus()
+        }
     }
 
     private func handleNotificationPermissionAction() {
@@ -3178,8 +3280,8 @@ struct SettingsView: View {
                         SettingsCardDivider()
 
                         SettingsCardRow(
-                            "Notification Sound",
-                            subtitle: "Sound played when a notification arrives."
+                            String(localized: "settings.notifications.sound.title", defaultValue: "Notification Sound"),
+                            subtitle: String(localized: "settings.notifications.sound.subtitle", defaultValue: "Sound played when a notification arrives.")
                         ) {
                             VStack(alignment: .trailing, spacing: 6) {
                                 HStack(spacing: 6) {
@@ -3208,15 +3310,34 @@ struct SettingsView: View {
                                             .lineLimit(1)
                                             .truncationMode(.middle)
                                             .frame(width: 170, alignment: .trailing)
-                                        Button("Choose...") {
+                                        Button(
+                                            String(
+                                                localized: "settings.notifications.sound.custom.choose.button",
+                                                defaultValue: "Choose..."
+                                            )
+                                        ) {
                                             chooseNotificationSoundFile()
                                         }
                                         .controlSize(.small)
-                                        Button("Clear") {
+                                        Button(
+                                            String(
+                                                localized: "settings.notifications.sound.custom.clear.button",
+                                                defaultValue: "Clear"
+                                            )
+                                        ) {
                                             notificationSoundCustomFilePath = NotificationSoundSettings.defaultCustomFilePath
+                                            refreshNotificationCustomSoundStatus()
                                         }
                                         .controlSize(.small)
                                         .disabled(!hasCustomNotificationSoundFilePath)
+                                    }
+                                    if let notificationCustomSoundStatusMessage {
+                                        Text(notificationCustomSoundStatusMessage)
+                                            .font(.system(size: 11))
+                                            .foregroundStyle(notificationCustomSoundStatusIsError ? Color.red : Color.secondary)
+                                            .lineLimit(2)
+                                            .multilineTextAlignment(.trailing)
+                                            .frame(width: 260, alignment: .trailing)
                                     }
                                 }
                             }
@@ -3870,6 +3991,13 @@ struct SettingsView: View {
             browserHistoryEntryCount = BrowserHistoryStore.shared.entries.count
             browserInsecureHTTPAllowlistDraft = browserInsecureHTTPAllowlist
             reloadWorkspaceTabColorSettings()
+            refreshNotificationCustomSoundStatus()
+        }
+        .onChange(of: notificationSound) { _, _ in
+            refreshNotificationCustomSoundStatus()
+        }
+        .onChange(of: notificationSoundCustomFilePath) { _, _ in
+            refreshNotificationCustomSoundStatus()
         }
         .onChange(of: browserInsecureHTTPAllowlist) { oldValue, newValue in
             // Keep draft in sync with external changes unless the user has local unsaved edits.
@@ -3920,6 +4048,17 @@ struct SettingsView: View {
             }
             Button(String(localized: "settings.app.language.restartDialog.later", defaultValue: "Later"), role: .cancel) {}
         }
+        .alert(
+            String(
+                localized: "settings.notifications.sound.custom.error.title",
+                defaultValue: "Custom Notification Sound Error"
+            ),
+            isPresented: $showNotificationCustomSoundErrorAlert
+        ) {
+            Button(String(localized: "common.ok", defaultValue: "OK"), role: .cancel) {}
+        } message: {
+            Text(notificationCustomSoundErrorAlertMessage)
+        }
     }
 
     private func relaunchApp() {
@@ -3960,6 +4099,10 @@ struct SettingsView: View {
         browserInsecureHTTPAllowlistDraft = BrowserInsecureHTTPSettings.defaultAllowlistText
         notificationSound = NotificationSoundSettings.defaultValue
         notificationSoundCustomFilePath = NotificationSoundSettings.defaultCustomFilePath
+        notificationCustomSoundStatusMessage = nil
+        notificationCustomSoundStatusIsError = false
+        showNotificationCustomSoundErrorAlert = false
+        notificationCustomSoundErrorAlertMessage = ""
         notificationCustomCommand = NotificationSoundSettings.defaultCustomCommand
         notificationDockBadgeEnabled = NotificationBadgeSettings.defaultDockBadgeEnabled
         warnBeforeQuitShortcut = QuitWarningSettings.defaultWarnBeforeQuit

@@ -4110,6 +4110,64 @@ final class TabManagerChildExitCloseTests: XCTestCase {
 }
 
 @MainActor
+final class WorkspaceTeardownTests: XCTestCase {
+    func testTeardownAllPanelsClearsPanelMetadataCaches() {
+        let workspace = Workspace()
+        guard let initialPanelId = workspace.focusedPanelId else {
+            XCTFail("Expected focused panel in new workspace")
+            return
+        }
+
+        workspace.setPanelCustomTitle(panelId: initialPanelId, title: "Initial custom title")
+        workspace.setPanelPinned(panelId: initialPanelId, pinned: true)
+
+        guard let splitPanel = workspace.newTerminalSplit(from: initialPanelId, orientation: .horizontal) else {
+            XCTFail("Expected split panel to be created")
+            return
+        }
+
+        workspace.setPanelCustomTitle(panelId: splitPanel.id, title: "Split custom title")
+        workspace.setPanelPinned(panelId: splitPanel.id, pinned: true)
+        workspace.markPanelUnread(initialPanelId)
+
+        XCTAssertFalse(workspace.panels.isEmpty)
+        XCTAssertFalse(workspace.panelTitles.isEmpty)
+        XCTAssertFalse(workspace.panelCustomTitles.isEmpty)
+        XCTAssertFalse(workspace.pinnedPanelIds.isEmpty)
+        XCTAssertFalse(workspace.manualUnreadPanelIds.isEmpty)
+
+        workspace.teardownAllPanels()
+
+        XCTAssertTrue(workspace.panels.isEmpty)
+        XCTAssertTrue(workspace.panelTitles.isEmpty)
+        XCTAssertTrue(workspace.panelCustomTitles.isEmpty)
+        XCTAssertTrue(workspace.pinnedPanelIds.isEmpty)
+        XCTAssertTrue(workspace.manualUnreadPanelIds.isEmpty)
+    }
+}
+
+@MainActor
+final class TabManagerWorkspaceOwnershipTests: XCTestCase {
+    func testCloseWorkspaceIgnoresWorkspaceNotOwnedByManager() {
+        let manager = TabManager()
+        _ = manager.addWorkspace()
+        let initialTabIds = manager.tabs.map(\.id)
+        let initialSelectedTabId = manager.selectedTabId
+
+        let externalWorkspace = Workspace(title: "External workspace")
+        let externalPanelCountBefore = externalWorkspace.panels.count
+        let externalPanelTitlesBefore = externalWorkspace.panelTitles
+
+        manager.closeWorkspace(externalWorkspace)
+
+        XCTAssertEqual(manager.tabs.map(\.id), initialTabIds)
+        XCTAssertEqual(manager.selectedTabId, initialSelectedTabId)
+        XCTAssertEqual(externalWorkspace.panels.count, externalPanelCountBefore)
+        XCTAssertEqual(externalWorkspace.panelTitles, externalPanelTitlesBefore)
+    }
+}
+
+@MainActor
 final class TabManagerPendingUnfocusPolicyTests: XCTestCase {
     func testDoesNotUnfocusWhenPendingTabIsCurrentlySelected() {
         let tabId = UUID()
@@ -6745,16 +6803,11 @@ final class NotificationDockBadgeTests: XCTestCase {
         }
 
         let sourceURL = soundsDirectory.appendingPathComponent(
-            "cmux-custom-notification-sound.source-\(UUID().uuidString).custtest",
-            isDirectory: false
-        )
-        let stagedURL = soundsDirectory.appendingPathComponent(
-            "cmux-custom-notification-sound.custtest",
+            "cmux-custom-notification-sound.source-\(UUID().uuidString).wav",
             isDirectory: false
         )
         defer {
             try? fileManager.removeItem(at: sourceURL)
-            try? fileManager.removeItem(at: stagedURL)
         }
 
         do {
@@ -6769,8 +6822,162 @@ final class NotificationDockBadgeTests: XCTestCase {
 
         _ = NotificationSoundSettings.sound(defaults: defaults)
 
+        guard let stagedName = NotificationSoundSettings.stagedCustomSoundName(defaults: defaults) else {
+            XCTFail("Expected staged custom sound name")
+            return
+        }
+        let stagedURL = soundsDirectory.appendingPathComponent(stagedName, isDirectory: false)
+        defer {
+            try? fileManager.removeItem(at: stagedURL)
+        }
+
         XCTAssertTrue(fileManager.fileExists(atPath: sourceURL.path))
         XCTAssertTrue(fileManager.fileExists(atPath: stagedURL.path))
+        XCTAssertTrue(stagedName.hasPrefix("cmux-custom-notification-sound-"))
+        XCTAssertTrue(stagedName.hasSuffix(".wav"))
+    }
+
+    func testNotificationCustomUnsupportedExtensionsStageAsCaf() {
+        XCTAssertEqual(
+            NotificationSoundSettings.stagedCustomSoundFileExtension(forSourceExtension: "mp3"),
+            "caf"
+        )
+        XCTAssertEqual(
+            NotificationSoundSettings.stagedCustomSoundFileExtension(forSourceExtension: "M4A"),
+            "caf"
+        )
+        XCTAssertEqual(
+            NotificationSoundSettings.stagedCustomSoundFileExtension(forSourceExtension: "wav"),
+            "wav"
+        )
+        XCTAssertEqual(
+            NotificationSoundSettings.stagedCustomSoundFileExtension(forSourceExtension: "AIFF"),
+            "aiff"
+        )
+
+        let sourceA = URL(fileURLWithPath: "/tmp/custom-a.mp3")
+        let sourceB = URL(fileURLWithPath: "/tmp/custom-b.mp3")
+        let stagedA = NotificationSoundSettings.stagedCustomSoundFileName(
+            forSourceURL: sourceA,
+            destinationExtension: "caf"
+        )
+        let stagedB = NotificationSoundSettings.stagedCustomSoundFileName(
+            forSourceURL: sourceB,
+            destinationExtension: "caf"
+        )
+        XCTAssertNotEqual(stagedA, stagedB)
+        XCTAssertTrue(stagedA.hasPrefix("cmux-custom-notification-sound-"))
+        XCTAssertTrue(stagedA.hasSuffix(".caf"))
+    }
+
+    func testNotificationCustomPreparationKeepsActiveSourceMetadataSidecar() {
+        let suiteName = "NotificationDockBadgeTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let fileManager = FileManager.default
+        let soundsDirectory = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+            .appendingPathComponent("Library", isDirectory: true)
+            .appendingPathComponent("Sounds", isDirectory: true)
+        do {
+            try fileManager.createDirectory(at: soundsDirectory, withIntermediateDirectories: true)
+        } catch {
+            XCTFail("Failed to create sounds directory: \(error)")
+            return
+        }
+
+        let sourceURL = soundsDirectory.appendingPathComponent(
+            "cmux-custom-notification-sound.metadata-\(UUID().uuidString).wav",
+            isDirectory: false
+        )
+        do {
+            try Data("test".utf8).write(to: sourceURL, options: .atomic)
+        } catch {
+            XCTFail("Failed to write source custom sound file: \(error)")
+            return
+        }
+        defer {
+            try? fileManager.removeItem(at: sourceURL)
+        }
+
+        defaults.set(NotificationSoundSettings.customFileValue, forKey: NotificationSoundSettings.key)
+        defaults.set(sourceURL.path, forKey: NotificationSoundSettings.customFilePathKey)
+
+        let prepareResult = NotificationSoundSettings.prepareCustomFileForNotifications(path: sourceURL.path)
+        let stagedName: String
+        switch prepareResult {
+        case .success(let name):
+            stagedName = name
+        case .failure(let issue):
+            XCTFail("Expected custom sound preparation success, got \(issue)")
+            return
+        }
+
+        let stagedURL = soundsDirectory.appendingPathComponent(stagedName, isDirectory: false)
+        let metadataURL = stagedURL.appendingPathExtension("source-metadata")
+        defer {
+            try? fileManager.removeItem(at: stagedURL)
+            try? fileManager.removeItem(at: metadataURL)
+        }
+
+        XCTAssertTrue(fileManager.fileExists(atPath: stagedURL.path))
+        XCTAssertTrue(fileManager.fileExists(atPath: metadataURL.path))
+    }
+
+    func testNotificationCustomSoundReturnsNilWhenPreparationFails() {
+        let suiteName = "NotificationDockBadgeTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let invalidSourceURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-invalid-sound-\(UUID().uuidString).mp3", isDirectory: false)
+        defer {
+            try? FileManager.default.removeItem(at: invalidSourceURL)
+            let stagedURL = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+                .appendingPathComponent("Library", isDirectory: true)
+                .appendingPathComponent("Sounds", isDirectory: true)
+                .appendingPathComponent("cmux-custom-notification-sound.caf", isDirectory: false)
+            try? FileManager.default.removeItem(at: stagedURL)
+        }
+
+        do {
+            try Data("not-audio".utf8).write(to: invalidSourceURL, options: .atomic)
+        } catch {
+            XCTFail("Failed to write invalid custom sound source: \(error)")
+            return
+        }
+
+        defaults.set(NotificationSoundSettings.customFileValue, forKey: NotificationSoundSettings.key)
+        defaults.set(invalidSourceURL.path, forKey: NotificationSoundSettings.customFilePathKey)
+
+        XCTAssertNil(NotificationSoundSettings.sound(defaults: defaults))
+    }
+
+    func testNotificationCustomPreparationReportsMissingFile() {
+        let missingPath = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-missing-\(UUID().uuidString).wav", isDirectory: false)
+            .path
+
+        let result = NotificationSoundSettings.prepareCustomFileForNotifications(path: missingPath)
+        switch result {
+        case .success:
+            XCTFail("Expected missing file failure")
+        case .failure(let issue):
+            guard case .missingFile = issue else {
+                XCTFail("Expected missingFile issue, got \(issue)")
+                return
+            }
+        }
     }
 
     func testNotificationAuthorizationStateMappingCoversKnownUNAuthorizationStatuses() {
@@ -8150,6 +8357,18 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         }
     }
 
+    private func findEditableTextField(in view: NSView) -> NSTextField? {
+        if let field = view as? NSTextField, field.isEditable {
+            return field
+        }
+        for subview in view.subviews {
+            if let field = findEditableTextField(in: subview) {
+                return field
+            }
+        }
+        return nil
+    }
+
     func testTrackpadScrollRoutesToTerminalSurfaceAndPreservesKeyboardFocusPath() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
@@ -8286,6 +8505,100 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
 
         hostedView.setSearchOverlay(searchState: nil)
         XCTAssertFalse(hostedView.debugHasSearchOverlay())
+    }
+
+    func testEscapeDismissingFindOverlayDoesNotLeakEscapeKeyUpToTerminal() {
+        _ = NSApplication.shared
+
+        let surface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        let hostedView = surface.hostedView
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer {
+            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = nil
+            window.orderOut(nil)
+        }
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+        hostedView.frame = contentView.bounds
+        hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostedView)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        hostedView.setVisibleInUI(true)
+        hostedView.setActive(true)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        let searchState = TerminalSurface.SearchState(needle: "")
+        surface.searchState = searchState
+        hostedView.setSearchOverlay(searchState: searchState)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        guard let searchField = findEditableTextField(in: hostedView) else {
+            XCTFail("Expected mounted find text field")
+            return
+        }
+        window.makeFirstResponder(searchField)
+
+        var escapeKeyUpCount = 0
+        GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
+            guard keyEvent.action == GHOSTTY_ACTION_RELEASE, keyEvent.keycode == 53 else { return }
+            escapeKeyUpCount += 1
+        }
+
+        let timestamp = ProcessInfo.processInfo.systemUptime
+        guard let escapeKeyDown = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: timestamp,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: "\u{1b}",
+            charactersIgnoringModifiers: "\u{1b}",
+            isARepeat: false,
+            keyCode: 53
+        ), let escapeKeyUp = NSEvent.keyEvent(
+            with: .keyUp,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: timestamp + 0.001,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: "\u{1b}",
+            charactersIgnoringModifiers: "\u{1b}",
+            isARepeat: false,
+            keyCode: 53
+        ) else {
+            XCTFail("Failed to construct Escape key events")
+            return
+        }
+
+        NSApp.sendEvent(escapeKeyDown)
+        NSApp.sendEvent(escapeKeyUp)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        XCTAssertNil(surface.searchState, "Escape should dismiss find overlay when search text is empty")
+        XCTAssertEqual(
+            escapeKeyUpCount,
+            0,
+            "Escape used to dismiss find overlay must not pass through to the terminal key-up path"
+        )
     }
 
     func testKeyboardCopyModeIndicatorMountsAndUnmounts() {
