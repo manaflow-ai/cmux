@@ -43,6 +43,9 @@ struct cmuxApp: App {
 
         Self.configureGhosttyEnvironment()
 
+        // Apply saved language preference before any UI loads
+        LanguageSettings.apply(LanguageSettings.languageAtLaunch)
+
         let startupAppearance = AppearanceSettings.resolvedMode()
         Self.applyAppearance(startupAppearance)
         _tabManager = StateObject(wrappedValue: TabManager())
@@ -2989,12 +2992,9 @@ struct SettingsView: View {
                             .pickerStyle(.menu)
                             .onChange(of: appLanguage) { newValue in
                                 guard !isResettingSettings else { return }
-                                if let lang = AppLanguage(rawValue: newValue) {
-                                    LanguageSettings.apply(lang)
-                                    if newValue != LanguageSettings.languageAtLaunch.rawValue {
-                                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                                            showLanguageRestartAlert = true
-                                        }
+                                if newValue != LanguageSettings.languageAtLaunch.rawValue {
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                        showLanguageRestartAlert = true
                                     }
                                 }
                             }
@@ -3784,7 +3784,6 @@ struct SettingsView: View {
     private func resetAllSettings() {
         isResettingSettings = true
         appLanguage = LanguageSettings.defaultLanguage.rawValue
-        LanguageSettings.apply(.system)
         appearanceMode = AppearanceSettings.defaultMode.rawValue
         appIconMode = AppIconSettings.defaultMode.rawValue
         AppIconSettings.applyIcon(.automatic)
