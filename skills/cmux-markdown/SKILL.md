@@ -39,7 +39,7 @@ The panel automatically re-renders when the file changes on disk. This works wit
 - Atomic file replacement (write to temp, rename over original)
 - Agent-generated plan files that are updated progressively
 
-If the file is deleted, the panel shows a "file unavailable" state. If the file reappears (e.g., after an atomic replace), the panel reconnects automatically.
+If the file is deleted, the panel shows a "file unavailable" state. During atomic replace, the panel attempts automatic reconnection within its short retry window. If the file returns later, close and reopen the panel.
 
 ## Agent Integration
 

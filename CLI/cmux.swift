@@ -1544,24 +1544,45 @@ struct CMUXCLI {
         let (surfaceOpt, argsAfterSurface) = parseOption(argsAfterWindow, name: "--surface")
         args = argsAfterSurface
 
-        // Determine subcommand. Default to "open" if the first arg looks like a path.
-        let subcommand: String
+        // Determine subcommand. Explicit "open" is supported, otherwise treat
+        // a single positional argument as shorthand path.
         let subArgs: [String]
-        if let first = args.first, !looksLikePath(first) {
-            subcommand = first.lowercased()
+        if let first = args.first, first.lowercased() == "open" {
             subArgs = Array(args.dropFirst())
+        } else if args.count == 1, let first = args.first, !first.hasPrefix("-") {
+            subArgs = [first]
         } else {
-            // Treat direct path argument as implicit "open"
-            subcommand = "open"
-            subArgs = args
-        }
-
-        guard subcommand == "open" else {
-            throw CLIError(message: "Unknown markdown subcommand: \(subcommand). Usage: cmux markdown open <path>")
+            // Allow path-like first tokens (e.g. plan.md) with trailing args
+            // so we can surface specific trailing-arg/flag errors below.
+            if let first = args.first, first.hasPrefix("-") {
+                throw CLIError(
+                    message:
+                        "markdown open: unknown flag '\(first)'. Usage: cmux markdown open <path> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]"
+                )
+            } else if let first = args.first, looksLikePath(first) || first.contains(".") {
+                subArgs = args
+            } else if let first = args.first {
+                throw CLIError(message: "Unknown markdown subcommand: \(first). Usage: cmux markdown open <path>")
+            } else {
+                subArgs = []
+            }
         }
 
         guard let rawPath = subArgs.first, !rawPath.isEmpty else {
             throw CLIError(message: "markdown open requires a file path. Usage: cmux markdown open <path>")
+        }
+        let trailingArgs = Array(subArgs.dropFirst())
+        if let unknownFlag = trailingArgs.first(where: { $0.hasPrefix("-") }) {
+            throw CLIError(
+                message:
+                    "markdown open: unknown flag '\(unknownFlag)'. Usage: cmux markdown open <path> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]"
+            )
+        }
+        if let extraArg = trailingArgs.first {
+            throw CLIError(
+                message:
+                    "markdown open: unexpected argument '\(extraArg)'. Usage: cmux markdown open <path> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]"
+            )
         }
 
         let absolutePath = resolvePath(rawPath)
@@ -4636,7 +4657,7 @@ struct CMUXCLI {
             Options:
               --workspace <id|ref|index>   Target workspace (default: $CMUX_WORKSPACE_ID)
               --surface <id|ref|index>     Source surface to split from (default: focused surface)
-              --window <id|ref>            Target window
+              --window <id|ref|index>      Target window
 
             Examples:
               cmux markdown open plan.md
@@ -6551,7 +6572,7 @@ struct CMUXCLI {
           respawn-pane [--workspace <id|ref>] [--surface <id|ref>] [--command <cmd>]
           display-message [-p|--print] <text>
 
-          markdown open <path>               (open markdown file in formatted viewer panel with live reload)
+          markdown [open] <path>             (open markdown file in formatted viewer panel with live reload)
 
           browser [--surface <id|ref|index> | <surface>] <subcommand> ...
           browser open [url]                   (create browser split in caller's workspace; if surface supplied, behaves like navigate)

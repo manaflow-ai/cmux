@@ -30,7 +30,7 @@ The panel handles this by:
 
 1. Detecting the delete/rename event
 2. Attempting to re-read the file immediately (in case the rename already happened)
-3. If the file is gone, waiting 500ms and checking again (the new file may not be in place yet)
+3. If the file is missing, wait 500 ms and check again (the new file may not yet be in place)
 4. Reconnecting the file watcher to the new inode
 
 ## File Unavailable State
@@ -41,7 +41,7 @@ If the file later reappears at the same path (e.g., the user recreates it), the 
 
 ## Performance
 
-- Re-reads are dispatched to the main thread and are non-blocking.
+- Re-reads are dispatched to the main thread and run synchronously.
 - Large files (100KB+) may cause brief UI hitches during re-render. For extremely large markdown files, consider splitting into smaller documents.
 - The file watcher runs on a low-priority background queue and has negligible CPU impact.
 

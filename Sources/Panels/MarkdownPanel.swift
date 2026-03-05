@@ -53,6 +53,11 @@ final class MarkdownPanel: Panel, ObservableObject {
 
         loadFileContent()
         startFileWatcher()
+        if isFileUnavailable && fileWatchSource == nil {
+            // Session restore can create a panel before the file is recreated.
+            // Retry briefly so atomic-rename recreations can reconnect.
+            scheduleReattach(attempt: 1)
+        }
     }
 
     // MARK: - Panel protocol
