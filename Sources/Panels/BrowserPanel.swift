@@ -3305,8 +3305,10 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
         completionHandler(.performDefaultHandling, nil)
     }
 
-    func webView(_ webView: WKWebView, webContentProcessDidTerminate: WKWebView) {
-        NSLog("BrowserPanel web content process terminated, replacing web view")
+    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+#if DEBUG
+        dlog("browser.webcontent.terminated panel=\(String(describing: self))")
+#endif
         didTerminateWebContentProcess?(webView)
     }
 

@@ -11,12 +11,15 @@ Guards the long-term browser mounting design:
 from __future__ import annotations
 
 import subprocess
+import shutil
 from pathlib import Path
 
 
 def repo_root() -> Path:
+    git_path = shutil.which("git")
+    git_command = git_path if git_path else "git"
     result = subprocess.run(
-        ["git", "rev-parse", "--show-toplevel"],
+        [git_command, "rev-parse", "--show-toplevel"],
         capture_output=True,
         text=True,
     )
@@ -70,7 +73,7 @@ def main() -> int:
 
     terminate_delegate = extract_block(
         panel_source,
-        "func webView(_ webView: WKWebView, webContentProcessDidTerminate: WKWebView)",
+        "func webViewWebContentProcessDidTerminate(_ webView: WKWebView)",
     )
     if "didTerminateWebContentProcess?(webView)" not in terminate_delegate:
         failures.append("webContentProcessDidTerminate no longer delegates to deterministic replacement handler")
