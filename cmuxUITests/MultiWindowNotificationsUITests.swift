@@ -229,8 +229,8 @@ final class MultiWindowNotificationsUITests: XCTestCase {
             return
         }
 
-        guard let surfaceId = firstSurfaceId(forWorkspaceId: tabId2) else {
-            XCTFail("Expected at least one surface in workspace \(tabId2)")
+        guard let surfaceId = waitForSurfaceId(forWorkspaceId: tabId2, timeout: 12.0) else {
+            XCTFail("Expected at least one surface in workspace \(tabId2). socket=\(socketPath)")
             return
         }
 
@@ -385,6 +385,17 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         return nil
     }
 
+    private func waitForSurfaceId(forWorkspaceId workspaceId: String, timeout: TimeInterval) -> String? {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if let surfaceId = firstSurfaceId(forWorkspaceId: workspaceId) {
+                return surfaceId
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        return firstSurfaceId(forWorkspaceId: workspaceId)
+    }
+
     private func runCmuxNotify(
         socketPath: String,
         workspaceId: String,
@@ -498,8 +509,9 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         while Date() < deadline {
             for candidate in primaryCandidates {
                 guard FileManager.default.fileExists(atPath: candidate) else { continue }
-                if socketRespondsToPing(at: candidate),
-                   socketMatchesRequiredWorkspace(candidate, workspaceId: requiredWorkspaceId) {
+                // Primary candidate is the explicitly requested CMUX_SOCKET_PATH. If it responds,
+                // prefer it even before workspace contents are fully initialized.
+                if socketRespondsToPing(at: candidate) {
                     return candidate
                 }
             }
@@ -514,8 +526,7 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         }
         for candidate in primaryCandidates {
             guard FileManager.default.fileExists(atPath: candidate) else { continue }
-            if socketRespondsToPing(at: candidate),
-               socketMatchesRequiredWorkspace(candidate, workspaceId: requiredWorkspaceId) {
+            if socketRespondsToPing(at: candidate) {
                 return candidate
             }
         }
