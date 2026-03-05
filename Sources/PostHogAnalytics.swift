@@ -11,6 +11,9 @@ final class PostHogAnalytics {
     // PostHog Cloud US default (matches other cmux properties).
     private let host = "https://us.i.posthog.com"
 
+    private let dailyActiveEvent = "cmux_daily_active"
+    private let hourlyActiveEvent = "cmux_hourly_active"
+
     private let lastActiveDayUTCKey = "posthog.lastActiveDayUTC"
     private let lastActiveHourUTCKey = "posthog.lastActiveHourUTC"
 
@@ -128,8 +131,10 @@ final class PostHogAnalytics {
 
         defaults.set(today, forKey: lastActiveDayUTCKey)
 
+        let event = dailyActiveEvent
+
         PostHogSDK.shared.capture(
-            "cmux_daily_active",
+            event,
             properties: Self.dailyActiveProperties(
                 dayUTC: today,
                 reason: reason,
@@ -137,7 +142,7 @@ final class PostHogAnalytics {
             )
         )
 
-        if flush && Self.shouldFlushAfterCapture(event: "cmux_daily_active") {
+        if flush && Self.shouldFlushAfterCapture(event: event) {
             // For active metrics we care more about delivery than batching.
             PostHogSDK.shared.flush()
         }
@@ -158,8 +163,10 @@ final class PostHogAnalytics {
 
         defaults.set(hour, forKey: lastActiveHourUTCKey)
 
+        let event = hourlyActiveEvent
+
         PostHogSDK.shared.capture(
-            "cmux_hourly_active",
+            event,
             properties: Self.hourlyActiveProperties(
                 hourUTC: hour,
                 reason: reason,
@@ -167,7 +174,7 @@ final class PostHogAnalytics {
             )
         )
 
-        if flush && Self.shouldFlushAfterCapture(event: "cmux_hourly_active") {
+        if flush && Self.shouldFlushAfterCapture(event: event) {
             // Keep hourly freshness and avoid losing a deduped hour on abrupt exits.
             PostHogSDK.shared.flush()
         }
