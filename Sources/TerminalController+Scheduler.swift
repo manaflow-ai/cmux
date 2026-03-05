@@ -428,11 +428,12 @@ extension TerminalController {
                 return
             }
 
-            // Find the terminal panel via the scheduler workspace
+            // Find the terminal panel via the run's dedicated workspace
+            let workspaceId = engine.runToWorkspaceId[runId] ?? engine.schedulerWorkspaceId
             guard let app = AppDelegate.shared,
                   let tabManager = app.tabManager,
-                  let workspaceId = engine.schedulerWorkspaceId,
-                  let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }),
+                  let wsId = workspaceId,
+                  let workspace = tabManager.tabs.first(where: { $0.id == wsId }),
                   let terminalPanel = workspace.terminalPanel(for: panelId) else {
                 result = .err(code: "surface_not_found", message: "Terminal surface not available", data: ["panel_id": panelId.uuidString])
                 return

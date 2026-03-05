@@ -314,6 +314,60 @@ final class SchedulerSidebarTests: XCTestCase {
         waitForExpectations(timeout: 2)
     }
 
+    // MARK: - Claude Mode Types
+
+    func testClaudeToolPresetReadOnlyContainsExpectedTools() {
+        let tools = ClaudeToolPreset.readOnly.tools
+        XCTAssertNotNil(tools)
+        XCTAssertEqual(tools, ["Read", "Glob", "Grep", "WebSearch"])
+    }
+
+    func testClaudeToolPresetStandardContainsExpectedTools() {
+        let tools = ClaudeToolPreset.standard.tools
+        XCTAssertNotNil(tools)
+        XCTAssertEqual(tools, ["Read", "Glob", "Grep", "Edit", "Bash", "Write", "WebSearch"])
+    }
+
+    func testClaudeToolPresetFullReturnsNil() {
+        XCTAssertNil(ClaudeToolPreset.full.tools, "Full preset should return nil (all tools)")
+    }
+
+    func testClaudeModelEnumHasThreeModels() {
+        XCTAssertEqual(ClaudeModel.allCases.count, 3)
+        XCTAssertTrue(ClaudeModel.allCases.contains(.opus))
+        XCTAssertTrue(ClaudeModel.allCases.contains(.sonnet))
+        XCTAssertTrue(ClaudeModel.allCases.contains(.haiku))
+    }
+
+    func testClaudePermissionModeCLIFlags() {
+        XCTAssertEqual(
+            ClaudePermissionMode.plan.cliFlag,
+            "--permission-mode plan"
+        )
+        XCTAssertEqual(
+            ClaudePermissionMode.autoEdit.cliFlag,
+            "--permission-mode acceptEdits"
+        )
+        XCTAssertEqual(
+            ClaudePermissionMode.fullAuto.cliFlag,
+            "--dangerously-skip-permissions"
+        )
+    }
+
+    func testTaskTypeModeDefaultIsClaude() {
+        XCTAssertEqual(TaskTypeMode.allCases.first, .claude)
+    }
+
+    func testClaudeToolAllContainsTenTools() {
+        XCTAssertEqual(ClaudeTool.all.count, 10)
+        let names = Set(ClaudeTool.all.map(\.name))
+        XCTAssertTrue(names.contains("Read"))
+        XCTAssertTrue(names.contains("Bash"))
+        XCTAssertTrue(names.contains("Agent"))
+    }
+
+    // MARK: - Task CRUD via Engine (continued)
+
     @MainActor
     func testUpdateTaskPreservesIdAndUpdatesFields() {
         let tempFile = FileManager.default.temporaryDirectory

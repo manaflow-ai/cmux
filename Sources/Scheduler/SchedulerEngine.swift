@@ -39,6 +39,9 @@ final class SchedulerEngine: ObservableObject {
     /// The workspace ID used for scheduler task terminals (lazily created).
     var schedulerWorkspaceId: UUID?
 
+    /// Maps runId -> workspaceId for per-run workspace tracking (used by Focus).
+    var runToWorkspaceId: [UUID: UUID] = [:]
+
     private var timer: DispatchSourceTimer?
     private let persistenceFileURL: URL?
 
@@ -219,25 +222,12 @@ final class SchedulerEngine: ObservableObject {
 
     // MARK: - Task Execution
 
-    /// Get or create a dedicated "Scheduler" workspace in the given TabManager.
-    func schedulerWorkspace(in tabManager: TabManager) -> Workspace {
-        // Return existing scheduler workspace if still alive
-        if let existingId = schedulerWorkspaceId,
-           let existing = tabManager.tabs.first(where: { $0.id == existingId }) {
-            return existing
-        }
-
-        // Create a new workspace for scheduler tasks (don't select it — non-intrusive)
-        let workspace = tabManager.addWorkspace(select: false)
-        workspace.customTitle = "Scheduler"
-        schedulerWorkspaceId = workspace.id
-        return workspace
-    }
-
-    /// Execute a scheduled task by creating a Ghostty terminal surface with `config.command`.
+    /// Execute a scheduled task by creating a dedicated workspace with a terminal
+    /// that runs the command via Ghostty's native `config.command`.
+    ///
+    /// Each task run gets its own workspace so that Focus is a simple workspace
+    /// switch — no bonsplit tab navigation required.
     func executeTask(_ task: ScheduledTask, run: TaskRun, tabManager: TabManager) {
-        let workspace = schedulerWorkspace(in: tabManager)
-
         // Resolve working directory (may create a git worktree if isolation is enabled)
         let worktreeResult = WorktreeIsolation.resolveWorkingDirectory(
             task: task,
@@ -267,23 +257,61 @@ final class SchedulerEngine: ObservableObject {
         createContextFile(for: task, run: run, at: contextFileURL)
         env["CMUX_TASK_CONTEXT_FILE"] = contextFileURL.path
 
-        // Build surface config (command and working_directory are passed as Swift
-        // Strings so TerminalSurface can derive live C pointers in createSurface)
+        // Create a dedicated workspace for this run (non-intrusive: don't select it).
+        let workspace = tabManager.addWorkspace(
+            workingDirectory: effectiveWorkDir,
+            select: false
+        )
+        workspace.customTitle = "[\(task.name)]"
+
+        // Track workspace for this run (used by Focus and snapshot)
+        runToWorkspaceId[run.id] = workspace.id
+        schedulerWorkspaceId = workspace.id
+
+        // Create a terminal panel that uses initial_input to inject the command
+        // into the shell after it starts. Environment variables are passed via
+        // additionalEnvironment (set on the process before the shell starts),
+        // so no export commands are needed in the input.
+        //
+        // The initial_input sequence:
+        //   1. clear — start with a clean terminal
+        //   2. banner — show task name and timestamp for context
+        //   3. command — the actual task command (exit code captured)
+        //   4. completion message — indicate review mode with exit code
+        let safeName = task.name.replacingOccurrences(of: "'", with: "")
+        let banner = "echo '--- \(safeName) ---'; echo ''"
+        let doneMsg = "echo ''; echo \"--- Task finished (exit $CMUX_EXIT) --- Output above is read-only. Close tab when done.\""
+        let fullCommand = "clear; \(banner); \(task.command); CMUX_EXIT=$?; \(doneMsg); exit $CMUX_EXIT\n"
+
+        // wait_after_command keeps the terminal visible after the shell exits
+        // (triggered by `exit $CMUX_EXIT` at the end of initial_input) so the
+        // user can review output. This also triggers COMMAND_FINISHED for status tracking.
         var config = ghostty_surface_config_new()
         config.wait_after_command = true
 
-        // Create terminal panel in the scheduler workspace
         let panel = TerminalPanel(
             workspaceId: workspace.id,
             context: GHOSTTY_SURFACE_CONTEXT_TAB,
             configTemplate: config,
             workingDirectory: effectiveWorkDir,
-            command: task.command,
+            initialInput: fullCommand,
             additionalEnvironment: env
         )
 
-        // Register panel in workspace
+        // Add to workspace, then ensure bonsplit's focused pane and selected tab
+        // point to the task terminal. Without focusPane, focusedPanelId returns nil
+        // when the workspace is later selected, causing a transparent terminal.
         workspace.addTerminalPanel(panel, title: "[\(task.name)]")
+        if let tabId = workspace.surfaceIdFromPanelId(panel.id) {
+            // Find the pane containing the task terminal's tab
+            let paneToFocus = workspace.bonsplitController.allPaneIds.first(where: { paneId in
+                workspace.bonsplitController.tabs(inPane: paneId).contains(where: { $0.id == tabId })
+            })
+            if let paneToFocus {
+                workspace.bonsplitController.focusPane(paneToFocus)
+            }
+            workspace.bonsplitController.selectTab(tabId)
+        }
 
         // Track panel -> run mapping
         panelToRunId[panel.id] = run.id
@@ -311,6 +339,7 @@ final class SchedulerEngine: ObservableObject {
         runs[runIndex].completedAt = Date()
 
         panelToRunId.removeValue(forKey: panelId)
+        runToWorkspaceId.removeValue(forKey: runId)
 
         // Look up the task for notification and chaining
         let taskId = runs[runIndex].taskId
@@ -379,8 +408,8 @@ final class SchedulerEngine: ObservableObject {
         if let panelId = runs[runIndex].panelId,
            let app = AppDelegate.shared,
            let tabManager = app.tabManager,
-           let workspaceId = schedulerWorkspaceId,
-           let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }),
+           let wsId = runToWorkspaceId[runId] ?? schedulerWorkspaceId,
+           let workspace = tabManager.tabs.first(where: { $0.id == wsId }),
            let panel = workspace.panels[panelId] as? TerminalPanel,
            let surface = panel.surface.surface {
             ghostty_surface_request_close(surface)
@@ -410,22 +439,18 @@ final class SchedulerEngine: ObservableObject {
         pruneCompletedRuns()
     }
 
-    /// Focus a running task's terminal by switching to its workspace and panel.
+    /// Focus a running task's terminal by switching to its dedicated workspace.
     func focusRunningTask(runId: UUID) {
         guard let runIndex = runs.firstIndex(where: { $0.id == runId }),
               runs[runIndex].status == .running,
-              let panelId = runs[runIndex].panelId,
+              let workspaceId = runToWorkspaceId[runId],
               let app = AppDelegate.shared,
-              let tabManager = app.tabManager,
-              let workspaceId = schedulerWorkspaceId else { return }
-
-        // Switch to the scheduler workspace
-        tabManager.selectedTabId = workspaceId
-
-        // Focus the specific panel within the workspace
-        if let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) {
-            workspace.focusPanel(panelId)
+              let tabManager = app.tabManager else {
+            return
         }
+
+        // Each run has its own workspace — just switch to it.
+        tabManager.selectedTabId = workspaceId
     }
 
     // MARK: - Session Memory

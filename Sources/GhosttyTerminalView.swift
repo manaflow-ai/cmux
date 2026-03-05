@@ -1628,6 +1628,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private let configTemplate: ghostty_surface_config_s?
     private let workingDirectory: String?
     private let command: String?
+    private let initialInput: String?
     private let additionalEnvironment: [String: String]
     let hostedView: GhosttySurfaceScrollView
     private let surfaceView: GhosttyNSView
@@ -1676,6 +1677,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         configTemplate: ghostty_surface_config_s?,
         workingDirectory: String? = nil,
         command: String? = nil,
+        initialInput: String? = nil,
         additionalEnvironment: [String: String] = [:]
     ) {
         self.id = UUID()
@@ -1684,6 +1686,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         self.configTemplate = configTemplate
         self.workingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines)
         self.command = command
+        self.initialInput = initialInput
         self.additionalEnvironment = additionalEnvironment
         // Match Ghostty's own SurfaceView: ensure a non-zero initial frame so the backing layer
         // has non-zero bounds and the renderer can initialize without presenting a blank/stretched
@@ -2000,13 +2003,24 @@ final class TerminalSurface: Identifiable, ObservableObject {
             }
         }
 
-        if let command, !command.isEmpty {
-            command.withCString { cCommand in
-                surfaceConfig.command = UnsafePointer(cCommand)
+        let applyCommandAndCreate = {
+            if let command = self.command, !command.isEmpty {
+                command.withCString { cCommand in
+                    surfaceConfig.command = UnsafePointer(cCommand)
+                    applyAndCreate()
+                }
+            } else {
                 applyAndCreate()
             }
+        }
+
+        if let initialInput, !initialInput.isEmpty {
+            initialInput.withCString { cInput in
+                surfaceConfig.initial_input = UnsafePointer(cInput)
+                applyCommandAndCreate()
+            }
         } else {
-            applyAndCreate()
+            applyCommandAndCreate()
         }
 
         if surface == nil {

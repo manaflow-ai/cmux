@@ -2091,7 +2091,14 @@ struct ContentView: View {
                         }
                     }
                 }
-                .onChange(of: isSchedulerFormExpanded) { _ in
+                .onChange(of: isSchedulerFormExpanded) { expanded in
+                    // When the scheduler form is expanded, unfocus the terminal to prevent
+                    // ensureFocus retries from stealing first responder from SwiftUI text fields.
+                    if expanded, let tabManager = AppDelegate.shared?.tabManager,
+                       let workspace = tabManager.tabs.first(where: { $0.id == tabManager.selectedTabId }),
+                       let panel = workspace.focusedTerminalPanel {
+                        panel.unfocus()
+                    }
                     DispatchQueue.main.async {
                         NSApp.windows.forEach { window in
                             TerminalWindowPortalRegistry.setTrailingExclusionWidth(
