@@ -26,11 +26,12 @@ def main() -> int:
         failures.append(str(error))
         body_block = ""
 
-    if body_block and "BrowserSearchOverlay(" in body_block:
-        failures.append(
-            "BrowserSearchOverlay must not be mounted in BrowserPanelView body; "
-            "portal-hosted WKWebView can cover SwiftUI overlays"
-        )
+    if body_block:
+        if "if !panel.shouldRenderWebView, let searchState = panel.searchState {" not in body_block:
+            failures.append(
+                "BrowserPanelView must provide BrowserSearchOverlay fallback for new-tab state "
+                "(when WKWebView is not mounted)"
+            )
 
     try:
         webview_repr_block = extract_block(source, "struct WebViewRepresentable: NSViewRepresentable")

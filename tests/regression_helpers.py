@@ -8,11 +8,14 @@ from pathlib import Path
 
 
 def repo_root() -> Path:
-    result = subprocess.run(
-        ["git", "rev-parse", "--show-toplevel"],
-        capture_output=True,
-        text=True,
-    )
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+        )
+    except OSError:
+        return Path(__file__).resolve().parents[1]
     if result.returncode == 0:
         return Path(result.stdout.strip())
     return Path(__file__).resolve().parents[1]

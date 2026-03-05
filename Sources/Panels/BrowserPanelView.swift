@@ -316,6 +316,20 @@ struct BrowserPanelView: View {
                 .padding(FocusFlashPattern.ringInset)
                 .allowsHitTesting(false)
         }
+        .overlay {
+            // Keep Cmd+F usable when the browser is still in the empty new-tab
+            // state (no WKWebView mounted yet). WebView-backed cases are hosted
+            // in AppKit by WebViewRepresentable to avoid layering/clipping issues.
+            if !panel.shouldRenderWebView, let searchState = panel.searchState {
+                BrowserSearchOverlay(
+                    panelId: panel.id,
+                    searchState: searchState,
+                    onNext: { panel.findNext() },
+                    onPrevious: { panel.findPrevious() },
+                    onClose: { panel.hideFind() }
+                )
+            }
+        }
         .overlay(alignment: .topLeading) {
             if addressBarFocused, !omnibarState.suggestions.isEmpty, omnibarPillFrame.width > 0 {
                 OmnibarSuggestionsView(
