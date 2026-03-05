@@ -5284,41 +5284,70 @@ class TerminalController {
         _ webView: WKWebView,
         script: String,
         timeout: TimeInterval = 5.0,
-        preferAsync: Bool = false
+        preferAsync: Bool = false,
+        contentWorld: WKContentWorld = .page
     ) -> V2JavaScriptResult {
+        let timeoutSeconds = max(0.01, timeout)
+        let resultLock = NSLock()
+        let completionSignal = DispatchSemaphore(value: 0)
         var done = false
         var resultValue: Any?
         var resultError: String?
 
-        if preferAsync, #available(macOS 11.0, *) {
-            webView.callAsyncJavaScript(script, arguments: [:], in: nil, in: .page) { result in
-                switch result {
-                case .success(let value):
-                    resultValue = value
-                case .failure(let error):
-                    resultError = error.localizedDescription
-                }
+        let finish: (_ value: Any?, _ error: String?) -> Void = { value, error in
+            resultLock.lock()
+            if !done {
                 done = true
+                resultValue = value
+                resultError = error
+                completionSignal.signal()
+            }
+            resultLock.unlock()
+        }
+
+        let evaluator = {
+            if preferAsync, #available(macOS 11.0, *) {
+                webView.callAsyncJavaScript(script, arguments: [:], in: nil, in: contentWorld) { result in
+                    switch result {
+                    case .success(let value):
+                        finish(value, nil)
+                    case .failure(let error):
+                        finish(nil, error.localizedDescription)
+                    }
+                }
+            } else {
+                webView.evaluateJavaScript(script) { value, error in
+                    if let error {
+                        finish(nil, error.localizedDescription)
+                    } else {
+                        finish(value, nil)
+                    }
+                }
+            }
+        }
+
+        if Thread.isMainThread {
+            evaluator()
+            let deadline = Date().addingTimeInterval(timeoutSeconds)
+            while true {
+                resultLock.lock()
+                let isDone = done
+                resultLock.unlock()
+                if isDone {
+                    break
+                }
+                if Date() >= deadline {
+                    return .failure("Timed out waiting for JavaScript result")
+                }
+                _ = RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
             }
         } else {
-            webView.evaluateJavaScript(script) { value, error in
-                if let error {
-                    resultError = error.localizedDescription
-                } else {
-                    resultValue = value
-                }
-                done = true
+            DispatchQueue.main.async(execute: evaluator)
+            if completionSignal.wait(timeout: .now() + timeoutSeconds) == .timedOut {
+                return .failure("Timed out waiting for JavaScript result")
             }
         }
 
-        let deadline = Date().addingTimeInterval(timeout)
-        while !done && Date() < deadline {
-            _ = RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
-        }
-
-        if !done {
-            return .failure("Timed out waiting for JavaScript result")
-        }
         if let resultError {
             return .failure(resultError)
         }
@@ -5368,7 +5397,8 @@ class TerminalController {
         _ webView: WKWebView,
         surfaceId: UUID,
         script: String,
-        timeout: TimeInterval = 5.0
+        timeout: TimeInterval = 5.0,
+        useEval: Bool = true
     ) -> V2JavaScriptResult {
         let scriptLiteral = v2JSONLiteral(script)
         let framePrelude: String
@@ -5387,6 +5417,13 @@ class TerminalController {
             framePrelude = "const __cmuxDoc = document;"
         }
 
+        let executionBlock: String
+        if useEval {
+            executionBlock = "const __r = eval(\(scriptLiteral));"
+        } else {
+            executionBlock = "const __r = \(script);"
+        }
+
         let asyncFunctionBody = """
         \(framePrelude)
 
@@ -5399,7 +5436,7 @@ class TerminalController {
 
         const __cmuxEvalInFrame = async function() {
           const document = __cmuxDoc;
-          const __r = eval(\(scriptLiteral));
+          \(executionBlock)
           const __value = await __cmuxMaybeAwait(__r);
           return {
             __cmux_t: (typeof __value === 'undefined') ? 'undefined' : 'value',
@@ -5410,9 +5447,15 @@ class TerminalController {
         return await __cmuxEvalInFrame();
         """
 
-        let rawResult: V2JavaScriptResult
+        var rawResult: V2JavaScriptResult
         if #available(macOS 11.0, *) {
-            rawResult = v2RunJavaScript(webView, script: asyncFunctionBody, timeout: timeout, preferAsync: true)
+            rawResult = v2RunJavaScript(
+                webView,
+                script: asyncFunctionBody,
+                timeout: timeout,
+                preferAsync: true,
+                contentWorld: .page
+            )
         } else {
             let evaluateFallback = """
             (async () => {
@@ -5420,6 +5463,24 @@ class TerminalController {
             })()
             """
             rawResult = v2RunJavaScript(webView, script: evaluateFallback, timeout: timeout)
+        }
+
+        if !useEval, case .failure(let pageMessage) = rawResult, #available(macOS 11.0, *) {
+            let isolatedResult = v2RunJavaScript(
+                webView,
+                script: asyncFunctionBody,
+                timeout: timeout,
+                preferAsync: true,
+                contentWorld: .defaultClient
+            )
+            switch isolatedResult {
+            case .success:
+                rawResult = isolatedResult
+            case .failure(let isolatedMessage):
+                if isolatedMessage != pageMessage {
+                    rawResult = .failure("\(pageMessage) (isolated-world retry: \(isolatedMessage))")
+                }
+            }
         }
 
         switch rawResult {
@@ -5518,32 +5579,6 @@ class TerminalController {
             """
             _ = v2RunBrowserJavaScript(browserPanel.webView, surfaceId: surfaceId, script: styleScript)
         }
-    }
-
-    private func v2BrowserWaitForCondition(
-        _ conditionScript: String,
-        webView: WKWebView,
-        surfaceId: UUID? = nil,
-        timeout: TimeInterval = 5.0,
-        pollInterval: TimeInterval = 0.05
-    ) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            let wrapped = "(() => { try { return !!(\(conditionScript)); } catch (_) { return false; } })()"
-            let jsResult: V2JavaScriptResult
-            if let surfaceId {
-                jsResult = v2RunBrowserJavaScript(webView, surfaceId: surfaceId, script: wrapped, timeout: max(0.5, pollInterval + 0.25))
-            } else {
-                jsResult = v2RunJavaScript(webView, script: wrapped, timeout: max(0.5, pollInterval + 0.25))
-            }
-            if case let .success(value) = jsResult,
-               let ok = value as? Bool,
-               ok {
-                return true
-            }
-            _ = RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(pollInterval))
-        }
-        return false
     }
 
     private func v2PNGData(from image: NSImage) -> Data? {
@@ -5972,7 +6007,7 @@ class TerminalController {
             let retryAttempts = max(1, v2Int(params, "retry_attempts") ?? 3)
 
             for attempt in 1...retryAttempts {
-                switch v2RunBrowserJavaScript(browserPanel.webView, surfaceId: surfaceId, script: script) {
+                switch v2RunBrowserJavaScript(browserPanel.webView, surfaceId: surfaceId, script: script, useEval: false) {
                 case .failure(let message):
                     return .err(code: "js_error", message: message, data: ["action": actionName, "selector": selector])
                 case .success(let value):
@@ -6230,7 +6265,7 @@ class TerminalController {
             })()
             """
 
-            switch v2RunBrowserJavaScript(browserPanel.webView, surfaceId: surfaceId, script: script, timeout: 10.0) {
+            switch v2RunBrowserJavaScript(browserPanel.webView, surfaceId: surfaceId, script: script, timeout: 10.0, useEval: false) {
             case .failure(let message):
                 return .err(code: "js_error", message: message, data: nil)
             case .success(let value):
@@ -6328,41 +6363,111 @@ class TerminalController {
         let timeoutMs = max(1, v2Int(params, "timeout_ms") ?? 5_000)
         let timeout = Double(timeoutMs) / 1000.0
 
-        return v2BrowserWithPanel(params: params) { _, ws, surfaceId, browserPanel in
-            let conditionScript: String = {
-                if let selector = v2BrowserSelector(params) {
-                    let literal = v2JSONLiteral(selector)
-                    return "document.querySelector(\(literal)) !== null"
+        let conditionScript: String = {
+            if let selector = v2BrowserSelector(params) {
+                let literal = v2JSONLiteral(selector)
+                return "document.querySelector(\(literal)) !== null"
+            }
+            if let urlContains = v2String(params, "url_contains") {
+                let literal = v2JSONLiteral(urlContains)
+                return "String(location.href || '').includes(\(literal))"
+            }
+            if let textContains = v2String(params, "text_contains") {
+                let literal = v2JSONLiteral(textContains)
+                return "(document.body && String(document.body.innerText || '').includes(\(literal)))"
+            }
+            if let loadState = v2String(params, "load_state") {
+                let normalizedLoadState = loadState.lowercased()
+                if normalizedLoadState == "interactive" {
+                    return """
+                    (() => {
+                      const __state = String(document.readyState || '').toLowerCase();
+                      return __state === 'interactive' || __state === 'complete';
+                    })()
+                    """
                 }
-                if let urlContains = v2String(params, "url_contains") {
-                    let literal = v2JSONLiteral(urlContains)
-                    return "String(location.href || '').includes(\(literal))"
-                }
-                if let textContains = v2String(params, "text_contains") {
-                    let literal = v2JSONLiteral(textContains)
-                    return "(document.body && String(document.body.innerText || '').includes(\(literal)))"
-                }
-                if let loadState = v2String(params, "load_state") {
-                    let literal = v2JSONLiteral(loadState.lowercased())
-                    return "String(document.readyState || '').toLowerCase() === \(literal)"
-                }
-                if let fn = v2String(params, "function") {
-                    return "(() => { return !!(\(fn)); })()"
-                }
-                return "document.readyState === 'complete'"
-            }()
+                let literal = v2JSONLiteral(normalizedLoadState)
+                return "String(document.readyState || '').toLowerCase() === \(literal)"
+            }
+            if let fn = v2String(params, "function") {
+                return "(() => { return !!(\(fn)); })()"
+            }
+            return "document.readyState === 'complete'"
+        }()
 
-            let ok = v2BrowserWaitForCondition(conditionScript, webView: browserPanel.webView, surfaceId: surfaceId, timeout: timeout)
-            if !ok {
+        var setupResult: V2CallResult?
+        var workspaceId: UUID?
+        var surfaceIdOut: UUID?
+        var webView: WKWebView?
+
+        v2MainSync {
+            guard let tabManager = self.v2ResolveTabManager(params: params) else {
+                setupResult = .err(code: "unavailable", message: "TabManager not available", data: nil)
+                return
+            }
+            guard let ws = self.v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+                setupResult = .err(code: "not_found", message: "Workspace not found", data: nil)
+                return
+            }
+            let surfaceId = self.v2UUID(params, "surface_id") ?? ws.focusedPanelId
+            guard let surfaceId else {
+                setupResult = .err(code: "not_found", message: "No focused browser surface", data: nil)
+                return
+            }
+            guard let browserPanel = ws.browserPanel(for: surfaceId) else {
+                setupResult = .err(code: "invalid_params", message: "Surface is not a browser", data: ["surface_id": surfaceId.uuidString])
+                return
+            }
+            workspaceId = ws.id
+            surfaceIdOut = surfaceId
+            webView = browserPanel.webView
+        }
+
+        if let setupResult {
+            return setupResult
+        }
+        guard let workspaceId, let surfaceIdOut, let webView else {
+            return .err(code: "internal_error", message: "Failed to resolve browser surface", data: nil)
+        }
+
+        let deadline = Date().addingTimeInterval(timeout)
+        let pollInterval = 0.05
+        let wrappedScript = "(() => { try { return !!(\(conditionScript)); } catch (_) { return false; } })()"
+
+        while true {
+            switch v2RunBrowserJavaScript(
+                webView,
+                surfaceId: surfaceIdOut,
+                script: wrappedScript,
+                timeout: max(0.5, pollInterval + 0.25),
+                useEval: false
+            ) {
+            case .success(let value):
+                if let b = value as? Bool, b {
+                    return .ok([
+                        "workspace_id": workspaceId.uuidString,
+                        "workspace_ref": self.v2Ref(kind: .workspace, uuid: workspaceId),
+                        "surface_id": surfaceIdOut.uuidString,
+                        "surface_ref": self.v2Ref(kind: .surface, uuid: surfaceIdOut),
+                        "waited": true
+                    ])
+                }
+            case .failure(let message):
+                return .err(
+                    code: "js_error",
+                    message: message,
+                    data: [
+                        "condition": conditionScript,
+                        "timeout_ms": timeoutMs
+                    ]
+                )
+            }
+
+            if Date() >= deadline {
                 return .err(code: "timeout", message: "Condition not met before timeout", data: ["timeout_ms": timeoutMs])
             }
-            return .ok([
-                "workspace_id": ws.id.uuidString,
-                "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
-                "surface_id": surfaceId.uuidString,
-                "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
-                "waited": true
-            ])
+
+            Thread.sleep(forTimeInterval: pollInterval)
         }
     }
 
