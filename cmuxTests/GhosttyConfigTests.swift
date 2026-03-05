@@ -1259,6 +1259,12 @@ final class PostHogAnalyticsPropertiesTests: XCTestCase {
         XCTAssertNil(dailyProperties["app_version"])
         XCTAssertNil(dailyProperties["app_build"])
     }
+
+    func testFlushPolicyIncludesDailyAndHourlyActiveEvents() {
+        XCTAssertTrue(PostHogAnalytics.shouldFlushAfterCapture(event: "cmux_daily_active"))
+        XCTAssertTrue(PostHogAnalytics.shouldFlushAfterCapture(event: "cmux_hourly_active"))
+        XCTAssertFalse(PostHogAnalytics.shouldFlushAfterCapture(event: "cmux_other_event"))
+    }
 }
 
 final class GhosttyMouseFocusTests: XCTestCase {
