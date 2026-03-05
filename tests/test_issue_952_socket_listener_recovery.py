@@ -11,13 +11,19 @@ from pathlib import Path
 
 def get_repo_root() -> Path:
     """Return the repository root for source inspections."""
-    git_path = shutil.which("git") or "git"
-    result = subprocess.run(
-        [git_path, "rev-parse", "--show-toplevel"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    git_path = shutil.which("git")
+    if git_path is None:
+        return Path.cwd()
+
+    try:
+        result = subprocess.run(
+            [git_path, "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError:
+        return Path.cwd()
     if result.returncode == 0:
         return Path(result.stdout.strip())
     return Path.cwd()
