@@ -171,6 +171,60 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         )
     }
 
+    func testEscapeRestoresFocusedPageInputAfterCmdL() {
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
+        app.launchEnvironment["CMUX_UI_TEST_FOCUS_SHORTCUTS"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_INPUT_SETUP"] = "1"
+        launchAndEnsureForeground(app)
+
+        XCTAssertTrue(
+            waitForData(keys: ["browserPanelId", "webViewFocused", "webInputFocusSeeded", "webInputFocusElementId"], timeout: 12.0),
+            "Expected setup data including focused page input to be written"
+        )
+
+        guard let setup = loadData() else {
+            XCTFail("Missing goto_split setup data")
+            return
+        }
+
+        XCTAssertEqual(setup["webViewFocused"], "true", "Expected WKWebView to be first responder for this test")
+        XCTAssertEqual(setup["webInputFocusSeeded"], "true", "Expected test page input to be focused before Cmd+L")
+
+        guard let expectedInputId = setup["webInputFocusElementId"], !expectedInputId.isEmpty else {
+            XCTFail("Missing webInputFocusElementId in setup data")
+            return
+        }
+
+        app.typeKey("l", modifierFlags: [.command])
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 5.0) { data in
+                data["webViewFocusedAfterAddressBarFocus"] == "false"
+            },
+            "Expected Cmd+L to focus omnibar"
+        )
+
+        app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
+        if !waitForDataMatch(timeout: 2.0, predicate: { data in
+            data["webViewFocusedAfterAddressBarExit"] == "true" &&
+                data["addressBarExitActiveElementId"] == expectedInputId &&
+                data["addressBarExitActiveElementEditable"] == "true"
+        }) {
+            app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
+        }
+
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 6.0) { data in
+                data["webViewFocusedAfterAddressBarExit"] == "true" &&
+                    data["addressBarExitActiveElementId"] == expectedInputId &&
+                    data["addressBarExitActiveElementEditable"] == "true"
+            },
+            "Expected Escape to restore focus to the previously focused page input"
+        )
+    }
+
     func testCmdLOpensBrowserWhenTerminalFocused() {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath

@@ -1443,8 +1443,13 @@ struct BrowserPanelView: View {
                 guard let window = panel.webView.window,
                       !panel.webView.isHiddenOrHasHiddenAncestor else { return }
                 panel.clearWebViewFocusSuppression()
-                window.makeFirstResponder(panel.webView)
-                NotificationCenter.default.post(name: .browserDidExitAddressBar, object: panel.id)
+                _ = window.makeFirstResponder(panel.webView)
+                panel.restoreAddressBarPageFocusIfNeeded { restored in
+                    if !restored && !browserFocusResponderChainContains(window.firstResponder, target: panel.webView) {
+                        _ = window.makeFirstResponder(panel.webView)
+                    }
+                    NotificationCenter.default.post(name: .browserDidExitAddressBar, object: panel.id)
+                }
             }
         }
     }

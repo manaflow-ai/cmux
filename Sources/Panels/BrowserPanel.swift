@@ -1413,6 +1413,87 @@ final class BrowserPanel: Panel, ObservableObject {
     private var suppressWebViewFocusUntil: Date?
     private var suppressWebViewFocusForAddressBar: Bool = false
     private let blankURLString = "about:blank"
+    private static let addressBarFocusCaptureScript = """
+    (() => {
+      try {
+        const active = document.activeElement;
+        if (!active) {
+          window.__cmuxAddressBarFocusState = null;
+          return "none";
+        }
+
+        const tag = (active.tagName || "").toLowerCase();
+        const type = (active.type || "").toLowerCase();
+        const isEditable =
+          !!active.isContentEditable ||
+          tag === "textarea" ||
+          (tag === "input" && type !== "hidden");
+        if (!isEditable) {
+          window.__cmuxAddressBarFocusState = null;
+          return "noneditable";
+        }
+
+        let id = active.getAttribute("data-cmux-addressbar-focus-id");
+        if (!id) {
+          id = "cmux-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8);
+          active.setAttribute("data-cmux-addressbar-focus-id", id);
+        }
+
+        const state = { id, selectionStart: null, selectionEnd: null };
+        if (typeof active.selectionStart === "number" && typeof active.selectionEnd === "number") {
+          state.selectionStart = active.selectionStart;
+          state.selectionEnd = active.selectionEnd;
+        }
+        window.__cmuxAddressBarFocusState = state;
+        return "captured:" + id;
+      } catch (_) {
+        window.__cmuxAddressBarFocusState = null;
+        return "error";
+      }
+    })();
+    """
+    private static let addressBarFocusRestoreScript = """
+    (() => {
+      try {
+        const state = window.__cmuxAddressBarFocusState;
+        window.__cmuxAddressBarFocusState = null;
+        if (!state || typeof state.id !== "string" || !state.id) {
+          return false;
+        }
+
+        const selector = '[data-cmux-addressbar-focus-id="' + state.id + '"]';
+        const target = document.querySelector(selector);
+        if (!target || !target.isConnected) {
+          return false;
+        }
+
+        try {
+          target.focus({ preventScroll: true });
+        } catch (_) {
+          try { target.focus(); } catch (_) {}
+        }
+
+        const active = document.activeElement;
+        const focused = active === target || (active && typeof target.contains === "function" && target.contains(active));
+        if (!focused) {
+          return false;
+        }
+
+        if (
+          typeof state.selectionStart === "number" &&
+          typeof state.selectionEnd === "number" &&
+          typeof target.setSelectionRange === "function"
+        ) {
+          try {
+            target.setSelectionRange(state.selectionStart, state.selectionEnd);
+          } catch (_) {}
+        }
+        return true;
+      } catch (_) {
+        return false;
+      }
+    })();
+    """
 
     /// Published URL being displayed
     @Published private(set) var currentURL: URL?
@@ -2796,12 +2877,16 @@ extension BrowserPanel {
     }
 
     func beginSuppressWebViewFocusForAddressBar() {
-        if !suppressWebViewFocusForAddressBar {
+        let enteringAddressBar = !suppressWebViewFocusForAddressBar
+        if enteringAddressBar {
 #if DEBUG
             dlog("browser.focus.addressBarSuppress.begin panel=\(id.uuidString.prefix(5))")
 #endif
         }
         suppressWebViewFocusForAddressBar = true
+        if enteringAddressBar {
+            captureAddressBarPageFocusIfNeeded()
+        }
     }
 
     func endSuppressWebViewFocusForAddressBar() {
@@ -2854,6 +2939,52 @@ extension BrowserPanel {
             "request=\(requestId.uuidString.prefix(8)) result=cleared"
         )
 #endif
+    }
+
+    private func captureAddressBarPageFocusIfNeeded() {
+        webView.evaluateJavaScript(Self.addressBarFocusCaptureScript) { [weak self] result, error in
+#if DEBUG
+            guard let self else { return }
+            if let error {
+                dlog(
+                    "browser.focus.addressBar.capture panel=\(self.id.uuidString.prefix(5)) " +
+                    "result=error message=\(error.localizedDescription)"
+                )
+                return
+            }
+            let resultValue = (result as? String) ?? "unknown"
+            dlog(
+                "browser.focus.addressBar.capture panel=\(self.id.uuidString.prefix(5)) " +
+                "result=\(resultValue)"
+            )
+#else
+            _ = self
+            _ = result
+            _ = error
+#endif
+        }
+    }
+
+    func restoreAddressBarPageFocusIfNeeded(completion: @escaping (Bool) -> Void) {
+        webView.evaluateJavaScript(Self.addressBarFocusRestoreScript) { [weak self] result, error in
+            let restored = (result as? Bool) == true && error == nil
+#if DEBUG
+            if let self {
+                if let error {
+                    dlog(
+                        "browser.focus.addressBar.restore panel=\(self.id.uuidString.prefix(5)) " +
+                        "result=error message=\(error.localizedDescription)"
+                    )
+                } else {
+                    dlog(
+                        "browser.focus.addressBar.restore panel=\(self.id.uuidString.prefix(5)) " +
+                        "result=\(restored ? 1 : 0)"
+                    )
+                }
+            }
+#endif
+            completion(restored)
+        }
     }
 
     /// Returns the most reliable URL string for omnibar-related matching and UI decisions.
