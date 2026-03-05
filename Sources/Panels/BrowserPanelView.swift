@@ -379,6 +379,12 @@ struct BrowserPanelView: View {
                 "addressFocused=\(addressBarFocused ? 1 : 0)"
             )
 #endif
+            if addressBarFocused {
+#if DEBUG
+                logBrowserFocusState(event: "addressBarFocus.webViewClickBlur")
+#endif
+                setAddressBarFocused(false, reason: "webView.clickIntent")
+            }
             onRequestPanelFocus()
         }
         .onAppear {
