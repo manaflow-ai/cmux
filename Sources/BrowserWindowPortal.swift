@@ -612,10 +612,28 @@ final class WindowBrowserPortal: NSObject {
         }
     }
 
-    func detachWebView(withId webViewId: ObjectIdentifier) {
-        guard let entry = entriesByWebViewId.removeValue(forKey: webViewId) else { return }
+    @discardableResult
+    func detachWebView(withId webViewId: ObjectIdentifier, expectedAnchorId: ObjectIdentifier? = nil) -> Bool {
+        guard let entry = entriesByWebViewId[webViewId] else { return false }
+        if let expectedAnchorId {
+            let actualAnchorId = entry.anchorView.map(ObjectIdentifier.init)
+            guard actualAnchorId == expectedAnchorId else {
+#if DEBUG
+                dlog(
+                    "browser.portal.detach.skip web=\(browserPortalDebugToken(entry.webView)) " +
+                    "expectedAnchor=\(String(describing: expectedAnchorId)) " +
+                    "actualAnchor=\(browserPortalDebugToken(entry.anchorView))"
+                )
+#endif
+                return false
+            }
+        }
+        _ = entriesByWebViewId.removeValue(forKey: webViewId)
         if let anchor = entry.anchorView {
-            webViewByAnchorId.removeValue(forKey: ObjectIdentifier(anchor))
+            let anchorId = ObjectIdentifier(anchor)
+            if webViewByAnchorId[anchorId] == webViewId {
+                webViewByAnchorId.removeValue(forKey: anchorId)
+            }
         }
 #if DEBUG
         let hadContainerSuperview = (entry.containerView?.superview === hostView) ? 1 : 0
@@ -629,6 +647,7 @@ final class WindowBrowserPortal: NSObject {
 #endif
         entry.webView?.removeFromSuperview()
         entry.containerView?.removeFromSuperview()
+        return true
     }
 
     /// Update the visibleInUI/zPriority state on an existing entry without rebinding.
@@ -1190,10 +1209,19 @@ enum BrowserWindowPortalRegistry {
         portal.updateEntryVisibility(forWebViewId: webViewId, visibleInUI: visibleInUI, zPriority: zPriority)
     }
 
-    static func detach(webView: WKWebView) {
+    @discardableResult
+    static func detach(webView: WKWebView, expectedAnchorId: ObjectIdentifier? = nil) -> Bool {
         let webViewId = ObjectIdentifier(webView)
-        guard let windowId = webViewToWindowId.removeValue(forKey: webViewId) else { return }
-        portalsByWindowId[windowId]?.detachWebView(withId: webViewId)
+        guard let windowId = webViewToWindowId[webViewId] else { return false }
+        guard let portal = portalsByWindowId[windowId] else {
+            webViewToWindowId.removeValue(forKey: webViewId)
+            return true
+        }
+        let didDetach = portal.detachWebView(withId: webViewId, expectedAnchorId: expectedAnchorId)
+        guard didDetach else { return false }
+        webViewToWindowId.removeValue(forKey: webViewId)
+        pruneWebViewMappings(for: windowId, validWebViewIds: portal.webViewIds())
+        return true
     }
 
     static func webViewAtWindowPoint(_ windowPoint: NSPoint, in window: NSWindow) -> WKWebView? {

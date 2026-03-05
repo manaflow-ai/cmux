@@ -2494,6 +2494,65 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         XCTAssertNil(panel.webView.superview)
         window.orderOut(nil)
     }
+
+    func testWebViewDismantleSkipsDetachWhenCoordinatorHostIsStale() {
+        let (panel, _) = makePanelWithInspector()
+        XCTAssertTrue(panel.showDeveloperTools())
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let staleAnchor = NSView(frame: NSRect(x: 20, y: 20, width: 170, height: 140))
+        let liveAnchor = NSView(frame: NSRect(x: 210, y: 20, width: 170, height: 140))
+        contentView.addSubview(staleAnchor)
+        contentView.addSubview(liveAnchor)
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        BrowserWindowPortalRegistry.bind(webView: panel.webView, to: staleAnchor, visibleInUI: true, zPriority: 1)
+        BrowserWindowPortalRegistry.bind(webView: panel.webView, to: liveAnchor, visibleInUI: true, zPriority: 1)
+        BrowserWindowPortalRegistry.synchronizeForAnchor(liveAnchor)
+        XCTAssertNotNil(panel.webView.superview)
+
+        let representable = WebViewRepresentable(
+            panel: panel,
+            shouldAttachWebView: true,
+            shouldFocusWebView: false,
+            isPanelFocused: true,
+            portalZPriority: 1
+        )
+        let staleCoordinator = representable.makeCoordinator()
+        staleCoordinator.webView = panel.webView
+        staleCoordinator.lastPortalHostId = ObjectIdentifier(staleAnchor)
+
+        WebViewRepresentable.dismantleNSView(staleAnchor, coordinator: staleCoordinator)
+
+        XCTAssertNotNil(
+            panel.webView.superview,
+            "Stale dismantle should not detach a web view already rebound to another live anchor"
+        )
+        let livePoint = liveAnchor.convert(
+            NSPoint(x: liveAnchor.bounds.midX, y: liveAnchor.bounds.midY),
+            to: nil
+        )
+        XCTAssertTrue(
+            BrowserWindowPortalRegistry.webViewAtWindowPoint(livePoint, in: window) === panel.webView,
+            "Web view should remain portal-hosted at the live anchor after stale dismantle"
+        )
+
+        BrowserWindowPortalRegistry.detach(webView: panel.webView)
+    }
 }
 
 final class WorkspaceShortcutMapperTests: XCTestCase {

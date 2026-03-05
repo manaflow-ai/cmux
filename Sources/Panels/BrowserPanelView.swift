@@ -3341,7 +3341,10 @@ struct WebViewRepresentable: NSViewRepresentable {
                 window.makeFirstResponder(nil)
             }
         }
-        BrowserWindowPortalRegistry.detach(webView: webView)
+        _ = BrowserWindowPortalRegistry.detach(
+            webView: webView,
+            expectedAnchorId: coordinator.lastPortalHostId
+        )
         coordinator.lastPortalHostId = nil
     }
 }
