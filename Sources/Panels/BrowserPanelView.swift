@@ -1457,12 +1457,15 @@ struct BrowserPanelView: View {
                 )
 #endif
                 panel.restoreAddressBarPageFocusIfNeeded { restored in
-                    if !restored && !browserFocusResponderChainContains(window.firstResponder, target: panel.webView) {
+                    let hasWebViewResponder =
+                        browserFocusResponderChainContains(window.firstResponder, target: panel.webView)
+                    if !hasWebViewResponder {
                         let fallbackFocusedWebView = window.makeFirstResponder(panel.webView)
 #if DEBUG
                         dlog(
                             "browser.focus.addressBar.exit.handoff panel=\(panel.id.uuidString.prefix(5)) " +
-                            "fallbackFocusedWebView=\(fallbackFocusedWebView ? 1 : 0)"
+                            "fallbackFocusedWebView=\(fallbackFocusedWebView ? 1 : 0) " +
+                            "restored=\(restored ? 1 : 0)"
                         )
 #endif
                     }
