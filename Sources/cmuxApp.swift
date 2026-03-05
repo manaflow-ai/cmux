@@ -2992,11 +2992,13 @@ struct SettingsView: View {
                             .pickerStyle(.menu)
                             .onChange(of: appLanguage) { newValue in
                                 guard !isResettingSettings else { return }
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                                    if let lang = AppLanguage(rawValue: newValue) {
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [self] in
+                                    // Re-check current value to handle rapid changes
+                                    let current = appLanguage
+                                    if let lang = AppLanguage(rawValue: current) {
                                         LanguageSettings.apply(lang)
                                     }
-                                    if newValue != LanguageSettings.languageAtLaunch.rawValue {
+                                    if current != LanguageSettings.languageAtLaunch.rawValue {
                                         showLanguageRestartAlert = true
                                     }
                                 }
