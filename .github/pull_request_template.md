@@ -13,8 +13,6 @@ For UI/behavior changes, include a short demo video (GitHub upload, Loom, or oth
 
 - Video URL or attachment:
 
-For now, this is optional for @lawrencecchen and @austinywang.
-
 ## Checklist
 
 - [ ] I tested the change locally
