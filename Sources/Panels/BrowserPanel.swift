@@ -1481,8 +1481,7 @@ final class BrowserPanel: Panel, ObservableObject {
         }
     }
     private var searchNeedleCancellable: AnyCancellable?
-
-    private var cancellables = Set<AnyCancellable>()
+    private var webViewCancellables = Set<AnyCancellable>()
     private var navigationDelegate: BrowserNavigationDelegate?
     private var uiDelegate: BrowserUIDelegate?
     private var downloadDelegate: BrowserDownloadDelegate?
@@ -1503,7 +1502,7 @@ final class BrowserPanel: Panel, ObservableObject {
     private let pageZoomStep: CGFloat = 0.1
     private var insecureHTTPBypassHostOnce: String?
     private var insecureHTTPAlertFactory: () -> NSAlert
-    private var insecureHTTPAlertWindowProvider: () -> NSWindow?
+    private var insecureHTTPAlertWindowProvider: () -> NSWindow? = { NSApp.keyWindow ?? NSApp.mainWindow }
     // Persist user intent across WebKit detach/reattach churn (split/layout updates).
     private var preferredDeveloperToolsVisible: Bool = false
     private var forceDeveloperToolsRefreshOnNextAttach: Bool = false
@@ -1587,7 +1586,6 @@ final class BrowserPanel: Panel, ObservableObject {
         let webView = Self.makeWebView()
         self.webView = webView
         self.insecureHTTPAlertFactory = { NSAlert() }
-        self.insecureHTTPAlertWindowProvider = { NSApp.keyWindow ?? NSApp.mainWindow }
 
         // Set up navigation delegate
         let navDelegate = BrowserNavigationDelegate()
@@ -1801,7 +1799,7 @@ final class BrowserPanel: Panel, ObservableObject {
                 guard let self else { return }
                 self.webView.underPageBackgroundColor = GhosttyBackgroundTheme.color(from: notification)
             }
-            .store(in: &cancellables)
+            .store(in: &webViewCancellables)
     }
 
     private func replaceWebViewAfterContentProcessTermination(for terminatedWebView: WKWebView) {
@@ -1826,6 +1824,7 @@ final class BrowserPanel: Panel, ObservableObject {
 #endif
 
         webViewObservers.removeAll()
+        webViewCancellables.removeAll()
         BrowserWindowPortalRegistry.detach(webView: terminatedWebView)
         terminatedWebView.stopLoading()
         terminatedWebView.navigationDelegate = nil
@@ -1919,7 +1918,7 @@ final class BrowserPanel: Panel, ObservableObject {
         navigationDelegate = nil
         uiDelegate = nil
         webViewObservers.removeAll()
-        cancellables.removeAll()
+        webViewCancellables.removeAll()
         faviconTask?.cancel()
         faviconTask = nil
     }
@@ -2275,7 +2274,7 @@ final class BrowserPanel: Panel, ObservableObject {
             BrowserWindowPortalRegistry.detach(webView: webView)
         }
         webViewObservers.removeAll()
-        cancellables.removeAll()
+        webViewCancellables.removeAll()
     }
 }
 
@@ -2955,8 +2954,8 @@ extension BrowserPanel {
 
     func resetInsecureHTTPAlertHooksForTesting() {
         insecureHTTPAlertFactory = { NSAlert() }
-        insecureHTTPAlertWindowProvider = { [weak weakWebView = self.webView] in
-            weakWebView?.window ?? NSApp.keyWindow ?? NSApp.mainWindow
+        insecureHTTPAlertWindowProvider = { [weak self] in
+            self?.webView.window ?? NSApp.keyWindow ?? NSApp.mainWindow
         }
     }
 
