@@ -2276,6 +2276,7 @@ private final class OmnibarNativeTextField: NSTextField {
             // enters an infinite invalidation cycle (e.g. under memory pressure).
             window?.makeFirstResponder(self)
             currentEditor()?.selectAll(nil)
+            shiftClickAnchor = nil
         } else {
             // Already editing — place the cursor at the click position without calling
             // super.mouseDown, which enters NSTextView's mouse-tracking loop. That loop
@@ -2345,6 +2346,7 @@ private final class OmnibarNativeTextField: NSTextField {
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        shiftClickAnchor = nil
         if (currentEditor() as? NSTextView)?.hasMarkedText() == true {
             return super.performKeyEquivalent(with: event)
         }
