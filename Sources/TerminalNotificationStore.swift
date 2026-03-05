@@ -379,7 +379,8 @@ final class TerminalNotificationStore: ObservableObject {
     @Published private(set) var authorizationState: NotificationAuthorizationState = .unknown
 
     private let center = UNUserNotificationCenter.current()
-    private var hasRequestedAuthorization = false
+    private var hasRequestedAutomaticAuthorization = false
+    private var isAuthorizationRequestInFlight = false
     private var hasDeferredAuthorizationRequest = false
     private var hasPromptedForSettings = false
     private var userDefaultsObserver: NSObjectProtocol?
@@ -753,7 +754,7 @@ final class TerminalNotificationStore: ObservableObject {
                         self.hasDeferredAuthorizationRequest = true
                         completion(false)
                     } else {
-                        self.requestAuthorizationIfNeeded(completion)
+                        self.requestAuthorizationIfNeeded(origin: origin, completion)
                     }
                 @unknown default:
                     completion(false)
@@ -762,15 +763,27 @@ final class TerminalNotificationStore: ObservableObject {
         }
     }
 
-    private func requestAuthorizationIfNeeded(_ completion: @escaping (Bool) -> Void) {
-        guard !hasRequestedAuthorization else {
+    private func requestAuthorizationIfNeeded(
+        origin: AuthorizationRequestOrigin,
+        _ completion: @escaping (Bool) -> Void
+    ) {
+        let isAutomaticRequest = origin == .notificationDelivery
+        guard Self.shouldRequestAuthorization(
+            isAutomaticRequest: isAutomaticRequest,
+            hasRequestedAutomaticAuthorization: hasRequestedAutomaticAuthorization,
+            isAuthorizationRequestInFlight: isAuthorizationRequestInFlight
+        ) else {
             completion(false)
             return
         }
-        hasRequestedAuthorization = true
+        if isAutomaticRequest {
+            hasRequestedAutomaticAuthorization = true
+        }
+        isAuthorizationRequestInFlight = true
         hasDeferredAuthorizationRequest = false
         center.requestAuthorization(options: [.alert, .sound]) { granted, _ in
             DispatchQueue.main.async {
+                self.isAuthorizationRequestInFlight = false
                 if granted {
                     self.authorizationState = .authorized
                 } else {
@@ -838,6 +851,16 @@ final class TerminalNotificationStore: ObservableObject {
         isAppActive: Bool
     ) -> Bool {
         status == .notDetermined && !isAppActive
+    }
+
+    static func shouldRequestAuthorization(
+        isAutomaticRequest: Bool,
+        hasRequestedAutomaticAuthorization: Bool,
+        isAuthorizationRequestInFlight: Bool
+    ) -> Bool {
+        guard !isAuthorizationRequestInFlight else { return false }
+        guard isAutomaticRequest else { return true }
+        return !hasRequestedAutomaticAuthorization
     }
 
     private static func shouldDeferAutomaticAuthorizationRequest(
