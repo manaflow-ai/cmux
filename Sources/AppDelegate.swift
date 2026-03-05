@@ -5707,6 +5707,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let script = """
         (() => {
           try {
+            const trackerInstalled = window.__cmuxAddressBarFocusTrackerInstalled === true;
+            const readyState = String(document.readyState || "");
+            if (!trackerInstalled || readyState !== "complete") {
+              const active = document.activeElement;
+              return {
+                focused: false,
+                id: "",
+                activeId: active && typeof active.id === "string" ? active.id : "",
+                activeTag: active && active.tagName ? active.tagName.toLowerCase() : "",
+                trackerInstalled,
+                trackedStateId:
+                  window.__cmuxAddressBarFocusState &&
+                  typeof window.__cmuxAddressBarFocusState.id === "string"
+                    ? window.__cmuxAddressBarFocusState.id
+                    : "",
+                readyState
+              };
+            }
+
             const existing = document.getElementById("cmux-ui-test-focus-input");
             const input = (existing && existing.tagName && existing.tagName.toLowerCase() === "input")
               ? existing
@@ -5727,18 +5746,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
               input.setSelectionRange(end, end);
             }
 
+            let trackedFocusId = input.getAttribute("data-cmux-addressbar-focus-id");
+            if (!trackedFocusId) {
+              trackedFocusId = "cmux-ui-test-focus-input-tracked";
+              input.setAttribute("data-cmux-addressbar-focus-id", trackedFocusId);
+            }
+            const selectionStart = typeof input.selectionStart === "number" ? input.selectionStart : null;
+            const selectionEnd = typeof input.selectionEnd === "number" ? input.selectionEnd : null;
+            if (
+              !window.__cmuxAddressBarFocusState ||
+              typeof window.__cmuxAddressBarFocusState.id !== "string" ||
+              window.__cmuxAddressBarFocusState.id !== trackedFocusId
+            ) {
+              window.__cmuxAddressBarFocusState = { id: trackedFocusId, selectionStart, selectionEnd };
+            }
+
             const active = document.activeElement;
             return {
               focused: active === input,
               id: input.id || "",
               activeId: active && typeof active.id === "string" ? active.id : "",
               activeTag: active && active.tagName ? active.tagName.toLowerCase() : "",
-              trackerInstalled: window.__cmuxAddressBarFocusTrackerInstalled === true,
+              trackerInstalled,
               trackedStateId:
                 window.__cmuxAddressBarFocusState &&
                 typeof window.__cmuxAddressBarFocusState.id === "string"
                   ? window.__cmuxAddressBarFocusState.id
-                  : ""
+                  : "",
+              readyState
             };
           } catch (_) {
             return {
@@ -5747,7 +5782,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
               activeId: "",
               activeTag: "",
               trackerInstalled: false,
-              trackedStateId: ""
+              trackedStateId: "",
+              readyState: ""
             };
           }
         })();
@@ -5761,13 +5797,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let activeId = (payload?["activeId"] as? String) ?? ""
             let trackerInstalled = (payload?["trackerInstalled"] as? Bool) ?? false
             let trackedStateId = (payload?["trackedStateId"] as? String) ?? ""
-            if focused, !inputId.isEmpty, inputId == activeId {
+            let readyState = (payload?["readyState"] as? String) ?? ""
+            if focused, !inputId.isEmpty, inputId == activeId, trackerInstalled, !trackedStateId.isEmpty {
                 self.writeGotoSplitTestData([
                     "webInputFocusSeeded": "true",
                     "webInputFocusElementId": inputId,
                     "webInputFocusActiveElementId": activeId,
                     "webInputFocusTrackerInstalled": trackerInstalled ? "true" : "false",
-                    "webInputFocusTrackedStateId": trackedStateId
+                    "webInputFocusTrackedStateId": trackedStateId,
+                    "webInputFocusReadyState": readyState
                 ])
                 return
             }
