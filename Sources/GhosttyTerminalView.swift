@@ -2150,6 +2150,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
     /// Explicitly free the Ghostty runtime surface. Idempotent — safe to call
     /// before deinit; deinit will skip the free if already torn down.
+    @MainActor
     func teardownSurface() {
         markPortalLifecycleClosed(reason: "teardown")
 
@@ -2165,6 +2166,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
         }
 
         Task { @MainActor in
+            // Keep free behavior aligned with deinit: perform the runtime teardown on
+            // the next main-actor turn so SIGHUP delivery is deterministic but non-reentrant.
             ghostty_surface_free(surfaceToFree)
             callbackContext?.release()
         }

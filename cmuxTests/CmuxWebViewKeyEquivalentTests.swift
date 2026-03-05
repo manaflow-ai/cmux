@@ -4128,11 +4128,13 @@ final class WorkspaceTeardownTests: XCTestCase {
 
         workspace.setPanelCustomTitle(panelId: splitPanel.id, title: "Split custom title")
         workspace.setPanelPinned(panelId: splitPanel.id, pinned: true)
+        workspace.markPanelUnread(initialPanelId)
 
         XCTAssertFalse(workspace.panels.isEmpty)
         XCTAssertFalse(workspace.panelTitles.isEmpty)
         XCTAssertFalse(workspace.panelCustomTitles.isEmpty)
         XCTAssertFalse(workspace.pinnedPanelIds.isEmpty)
+        XCTAssertFalse(workspace.manualUnreadPanelIds.isEmpty)
 
         workspace.teardownAllPanels()
 
