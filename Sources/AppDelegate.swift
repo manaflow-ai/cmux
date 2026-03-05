@@ -5726,19 +5726,61 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
               };
             }
 
-            const existing = document.getElementById("cmux-ui-test-focus-input");
-            const input = (existing && existing.tagName && existing.tagName.toLowerCase() === "input")
-              ? existing
-              : (() => {
-                  const created = document.createElement("input");
-                  created.id = "cmux-ui-test-focus-input";
-                  created.type = "text";
-                  created.value = "cmux-ui-focus";
-                  created.style.margin = "24px";
-                  created.style.padding = "8px";
-                  document.body.prepend(created);
-                  return created;
-                })();
+            const ensureInput = (id, value) => {
+              const existing = document.getElementById(id);
+              const input = (existing && existing.tagName && existing.tagName.toLowerCase() === "input")
+                ? existing
+                : (() => {
+                    const created = document.createElement("input");
+                    created.id = id;
+                    created.type = "text";
+                    created.value = value;
+                    return created;
+                  })();
+              input.autocapitalize = "off";
+              input.autocomplete = "off";
+              input.spellcheck = false;
+              input.style.display = "block";
+              input.style.width = "100%";
+              input.style.margin = "0";
+              input.style.padding = "8px 10px";
+              input.style.border = "1px solid #5f6368";
+              input.style.borderRadius = "6px";
+              input.style.boxSizing = "border-box";
+              input.style.fontSize = "14px";
+              input.style.fontFamily = "system-ui, -apple-system, sans-serif";
+              input.style.background = "white";
+              input.style.color = "black";
+              return input;
+            };
+
+            let container = document.getElementById("cmux-ui-test-focus-container");
+            if (!container || !container.tagName || container.tagName.toLowerCase() !== "div") {
+              container = document.createElement("div");
+              container.id = "cmux-ui-test-focus-container";
+              document.body.appendChild(container);
+            }
+            container.style.position = "fixed";
+            container.style.left = "24px";
+            container.style.top = "24px";
+            container.style.width = "min(520px, calc(100vw - 48px))";
+            container.style.display = "grid";
+            container.style.rowGap = "12px";
+            container.style.padding = "12px";
+            container.style.background = "rgba(255,255,255,0.92)";
+            container.style.border = "1px solid rgba(95,99,104,0.55)";
+            container.style.borderRadius = "8px";
+            container.style.boxShadow = "0 2px 10px rgba(0,0,0,0.2)";
+            container.style.zIndex = "2147483647";
+
+            const input = ensureInput("cmux-ui-test-focus-input", "cmux-ui-focus-primary");
+            const secondaryInput = ensureInput("cmux-ui-test-focus-input-secondary", "cmux-ui-focus-secondary");
+            if (input.parentElement !== container) {
+              container.appendChild(input);
+            }
+            if (secondaryInput.parentElement !== container) {
+              container.appendChild(secondaryInput);
+            }
 
             input.focus({ preventScroll: true });
             if (typeof input.setSelectionRange === "function") {
@@ -5761,10 +5803,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
               window.__cmuxAddressBarFocusState = { id: trackedFocusId, selectionStart, selectionEnd };
             }
 
+            const secondaryRect = secondaryInput.getBoundingClientRect();
+            const viewportWidth = Math.max(Number(window.innerWidth) || 0, 1);
+            const viewportHeight = Math.max(Number(window.innerHeight) || 0, 1);
+            const secondaryCenterX = Math.min(
+              0.98,
+              Math.max(0.02, (secondaryRect.left + (secondaryRect.width / 2)) / viewportWidth)
+            );
+            const secondaryCenterY = Math.min(
+              0.98,
+              Math.max(0.02, (secondaryRect.top + (secondaryRect.height / 2)) / viewportHeight)
+            );
             const active = document.activeElement;
             return {
               focused: active === input,
               id: input.id || "",
+              secondaryId: secondaryInput.id || "",
+              secondaryCenterX,
+              secondaryCenterY,
               activeId: active && typeof active.id === "string" ? active.id : "",
               activeTag: active && active.tagName ? active.tagName.toLowerCase() : "",
               trackerInstalled,
@@ -5779,6 +5835,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return {
               focused: false,
               id: "",
+              secondaryId: "",
+              secondaryCenterX: -1,
+              secondaryCenterY: -1,
               activeId: "",
               activeTag: "",
               trackerInstalled: false,
@@ -5794,14 +5853,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let payload = result as? [String: Any]
             let focused = (payload?["focused"] as? Bool) ?? false
             let inputId = (payload?["id"] as? String) ?? ""
+            let secondaryInputId = (payload?["secondaryId"] as? String) ?? ""
+            let secondaryCenterX = (payload?["secondaryCenterX"] as? NSNumber)?.doubleValue ?? -1
+            let secondaryCenterY = (payload?["secondaryCenterY"] as? NSNumber)?.doubleValue ?? -1
             let activeId = (payload?["activeId"] as? String) ?? ""
             let trackerInstalled = (payload?["trackerInstalled"] as? Bool) ?? false
             let trackedStateId = (payload?["trackedStateId"] as? String) ?? ""
             let readyState = (payload?["readyState"] as? String) ?? ""
-            if focused, !inputId.isEmpty, inputId == activeId, trackerInstalled, !trackedStateId.isEmpty {
+            if focused,
+               !inputId.isEmpty,
+               !secondaryInputId.isEmpty,
+               inputId == activeId,
+               trackerInstalled,
+               !trackedStateId.isEmpty,
+               secondaryCenterX > 0,
+               secondaryCenterX < 1,
+               secondaryCenterY > 0,
+               secondaryCenterY < 1 {
                 self.writeGotoSplitTestData([
                     "webInputFocusSeeded": "true",
                     "webInputFocusElementId": inputId,
+                    "webInputFocusSecondaryElementId": secondaryInputId,
+                    "webInputFocusSecondaryCenterX": "\(secondaryCenterX)",
+                    "webInputFocusSecondaryCenterY": "\(secondaryCenterY)",
                     "webInputFocusActiveElementId": activeId,
                     "webInputFocusTrackerInstalled": trackerInstalled ? "true" : "false",
                     "webInputFocusTrackedStateId": trackedStateId,
