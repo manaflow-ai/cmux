@@ -4110,6 +4110,64 @@ final class TabManagerChildExitCloseTests: XCTestCase {
 }
 
 @MainActor
+final class WorkspaceTeardownTests: XCTestCase {
+    func testTeardownAllPanelsClearsPanelMetadataCaches() {
+        let workspace = Workspace()
+        guard let initialPanelId = workspace.focusedPanelId else {
+            XCTFail("Expected focused panel in new workspace")
+            return
+        }
+
+        workspace.setPanelCustomTitle(panelId: initialPanelId, title: "Initial custom title")
+        workspace.setPanelPinned(panelId: initialPanelId, pinned: true)
+
+        guard let splitPanel = workspace.newTerminalSplit(from: initialPanelId, orientation: .horizontal) else {
+            XCTFail("Expected split panel to be created")
+            return
+        }
+
+        workspace.setPanelCustomTitle(panelId: splitPanel.id, title: "Split custom title")
+        workspace.setPanelPinned(panelId: splitPanel.id, pinned: true)
+        workspace.markPanelUnread(initialPanelId)
+
+        XCTAssertFalse(workspace.panels.isEmpty)
+        XCTAssertFalse(workspace.panelTitles.isEmpty)
+        XCTAssertFalse(workspace.panelCustomTitles.isEmpty)
+        XCTAssertFalse(workspace.pinnedPanelIds.isEmpty)
+        XCTAssertFalse(workspace.manualUnreadPanelIds.isEmpty)
+
+        workspace.teardownAllPanels()
+
+        XCTAssertTrue(workspace.panels.isEmpty)
+        XCTAssertTrue(workspace.panelTitles.isEmpty)
+        XCTAssertTrue(workspace.panelCustomTitles.isEmpty)
+        XCTAssertTrue(workspace.pinnedPanelIds.isEmpty)
+        XCTAssertTrue(workspace.manualUnreadPanelIds.isEmpty)
+    }
+}
+
+@MainActor
+final class TabManagerWorkspaceOwnershipTests: XCTestCase {
+    func testCloseWorkspaceIgnoresWorkspaceNotOwnedByManager() {
+        let manager = TabManager()
+        _ = manager.addWorkspace()
+        let initialTabIds = manager.tabs.map(\.id)
+        let initialSelectedTabId = manager.selectedTabId
+
+        let externalWorkspace = Workspace(title: "External workspace")
+        let externalPanelCountBefore = externalWorkspace.panels.count
+        let externalPanelTitlesBefore = externalWorkspace.panelTitles
+
+        manager.closeWorkspace(externalWorkspace)
+
+        XCTAssertEqual(manager.tabs.map(\.id), initialTabIds)
+        XCTAssertEqual(manager.selectedTabId, initialSelectedTabId)
+        XCTAssertEqual(externalWorkspace.panels.count, externalPanelCountBefore)
+        XCTAssertEqual(externalWorkspace.panelTitles, externalPanelTitlesBefore)
+    }
+}
+
+@MainActor
 final class TabManagerPendingUnfocusPolicyTests: XCTestCase {
     func testDoesNotUnfocusWhenPendingTabIsCurrentlySelected() {
         let tabId = UUID()

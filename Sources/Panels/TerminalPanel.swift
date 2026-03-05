@@ -161,6 +161,7 @@ final class TerminalPanel: Panel, ObservableObject {
             "hidden=\(hostedView.isHidden ? 1 : 0)"
         )
 #endif
+        surface.teardownSurface()
     }
 
     func requestViewReattach() {

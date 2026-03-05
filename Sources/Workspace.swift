@@ -2316,6 +2316,27 @@ final class Workspace: Identifiable, ObservableObject {
         return markdownPanel
     }
 
+    /// Tear down all panels in this workspace, freeing their Ghostty surfaces.
+    /// Called before the workspace is removed from TabManager to ensure child
+    /// processes receive SIGHUP even if ARC deallocation is delayed.
+    func teardownAllPanels() {
+        let panelEntries = Array(panels)
+        for (panelId, panel) in panelEntries {
+            panelSubscriptions.removeValue(forKey: panelId)
+            PortScanner.shared.unregisterPanel(workspaceId: id, panelId: panelId)
+            panel.close()
+        }
+
+        panels.removeAll(keepingCapacity: false)
+        surfaceIdToPanelId.removeAll(keepingCapacity: false)
+        panelSubscriptions.removeAll(keepingCapacity: false)
+        pruneSurfaceMetadata(validSurfaceIds: [])
+        restoredTerminalScrollbackByPanelId.removeAll(keepingCapacity: false)
+        terminalInheritanceFontPointsByPanelId.removeAll(keepingCapacity: false)
+        lastTerminalConfigInheritancePanelId = nil
+        lastTerminalConfigInheritanceFontPoints = nil
+    }
+
     /// Close a panel.
     /// Returns true when a bonsplit tab close request was issued.
     func closePanel(_ panelId: UUID, force: Bool = false) -> Bool {
