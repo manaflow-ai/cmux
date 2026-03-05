@@ -2,7 +2,6 @@ import AppKit
 import Foundation
 import PostHog
 
-@MainActor
 final class PostHogAnalytics {
     static let shared = PostHogAnalytics()
 
@@ -15,8 +14,16 @@ final class PostHogAnalytics {
     private let lastActiveDayUTCKey = "posthog.lastActiveDayUTC"
     private let lastActiveHourUTCKey = "posthog.lastActiveHourUTC"
 
+    private let workQueue: DispatchQueue
+    private let workQueueSpecificKey = DispatchSpecificKey<Void>()
+
     private var didStart = false
     private var activeCheckTimer: Timer?
+
+    private init() {
+        workQueue = DispatchQueue(label: "com.cmux.posthog.analytics", qos: .utility)
+        workQueue.setSpecific(key: workQueueSpecificKey, value: ())
+    }
 
     private var isEnabled: Bool {
         guard TelemetrySettings.enabledForCurrentLaunch else { return false }
@@ -29,6 +36,38 @@ final class PostHogAnalytics {
     }
 
     func startIfNeeded() {
+        dispatchAsyncOnWorkQueue { [weak self] in
+            self?.startIfNeededOnWorkQueue()
+        }
+    }
+
+    func trackActive(reason: String) {
+        dispatchAsyncOnWorkQueue { [weak self] in
+            self?.trackDailyActiveOnWorkQueue(reason: reason)
+            self?.trackHourlyActiveOnWorkQueue(reason: reason)
+        }
+    }
+
+    func trackDailyActive(reason: String) {
+        dispatchAsyncOnWorkQueue { [weak self] in
+            self?.trackDailyActiveOnWorkQueue(reason: reason)
+        }
+    }
+
+    func trackHourlyActive(reason: String) {
+        dispatchAsyncOnWorkQueue { [weak self] in
+            self?.trackHourlyActiveOnWorkQueue(reason: reason)
+        }
+    }
+
+    func flush() {
+        dispatchSyncOnWorkQueue {
+            guard didStart else { return }
+            PostHogSDK.shared.flush()
+        }
+    }
+
+    private func startIfNeededOnWorkQueue() {
         guard !didStart else { return }
         guard isEnabled else { return }
 
@@ -49,19 +88,25 @@ final class PostHogAnalytics {
 
         didStart = true
 
+        scheduleActiveCheckTimer()
+    }
+
+    private func scheduleActiveCheckTimer() {
         // If the app stays in the foreground across midnight, `applicationDidBecomeActive`
         // won't fire again, so a periodic check avoids undercounting those users.
-        activeCheckTimer?.invalidate()
-        activeCheckTimer = Timer.scheduledTimer(withTimeInterval: 30 * 60, repeats: true) { [weak self] _ in
+        DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-            guard NSApp.isActive else { return }
-            self.trackDailyActive(reason: "activeTimer")
-            self.trackHourlyActive(reason: "activeTimer")
+            self.activeCheckTimer?.invalidate()
+            self.activeCheckTimer = Timer.scheduledTimer(withTimeInterval: 30 * 60, repeats: true) { [weak self] _ in
+                guard let self else { return }
+                guard NSApp.isActive else { return }
+                self.trackActive(reason: "activeTimer")
+            }
         }
     }
 
-    func trackDailyActive(reason: String) {
-        startIfNeeded()
+    private func trackDailyActiveOnWorkQueue(reason: String) {
+        startIfNeededOnWorkQueue()
         guard didStart else { return }
 
         let today = utcDayString(Date())
@@ -87,8 +132,8 @@ final class PostHogAnalytics {
         }
     }
 
-    func trackHourlyActive(reason: String) {
-        startIfNeeded()
+    private func trackHourlyActiveOnWorkQueue(reason: String) {
+        startIfNeededOnWorkQueue()
         guard didStart else { return }
 
         let hour = utcHourString(Date())
@@ -114,9 +159,20 @@ final class PostHogAnalytics {
         }
     }
 
-    func flush() {
-        guard didStart else { return }
-        PostHogSDK.shared.flush()
+    private func dispatchAsyncOnWorkQueue(_ block: @escaping () -> Void) {
+        if DispatchQueue.getSpecific(key: workQueueSpecificKey) != nil {
+            block()
+            return
+        }
+        workQueue.async(execute: block)
+    }
+
+    private func dispatchSyncOnWorkQueue(_ block: () -> Void) {
+        if DispatchQueue.getSpecific(key: workQueueSpecificKey) != nil {
+            block()
+            return
+        }
+        workQueue.sync(execute: block)
     }
 
     private func utcHourString(_ date: Date) -> String {

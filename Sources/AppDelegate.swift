@@ -1787,8 +1787,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ])
         let env = ProcessInfo.processInfo.environment
         if TelemetrySettings.enabledForCurrentLaunch && !isRunningUnderXCTest(env) {
-            PostHogAnalytics.shared.trackDailyActive(reason: "didBecomeActive")
-            PostHogAnalytics.shared.trackHourlyActive(reason: "didBecomeActive")
+            PostHogAnalytics.shared.trackActive(reason: "didBecomeActive")
         }
 
         guard let notificationStore else { return }
