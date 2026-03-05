@@ -2661,7 +2661,62 @@ private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
             return false
         }
 
+        private func isPointerDownEvent(_ event: NSEvent) -> Bool {
+            switch event.type {
+            case .leftMouseDown, .rightMouseDown, .otherMouseDown:
+                return true
+            default:
+                return false
+            }
+        }
+
+        private func topHitViewForCurrentPointerEvent(window: NSWindow) -> NSView? {
+            guard let event = NSApp.currentEvent, isPointerDownEvent(event) else {
+                return nil
+            }
+            if event.windowNumber != 0, event.windowNumber != window.windowNumber {
+                return nil
+            }
+            if let eventWindow = event.window, eventWindow !== window {
+                return nil
+            }
+
+            if let contentView = window.contentView,
+               let themeFrame = contentView.superview {
+                let pointInTheme = themeFrame.convert(event.locationInWindow, from: nil)
+                if let hitInTheme = themeFrame.hitTest(pointInTheme) {
+                    return hitInTheme
+                }
+            }
+
+            guard let contentView = window.contentView else {
+                return nil
+            }
+            let pointInContent = contentView.convert(event.locationInWindow, from: nil)
+            return contentView.hitTest(pointInContent)
+        }
+
+        private func pointerDownBlurIntent(window: NSWindow?) -> Bool {
+            guard let window, let field = parentField else { return false }
+            guard let hitView = topHitViewForCurrentPointerEvent(window: window) else {
+                return false
+            }
+
+            if hitView === field || hitView.isDescendant(of: field) {
+                return false
+            }
+            if let textView = hitView as? NSTextView,
+               let delegateField = textView.delegate as? NSTextField,
+               delegateField === field {
+                return false
+            }
+            return true
+        }
+
         private func shouldReacquireFocusAfterEndEditing(window: NSWindow?) -> Bool {
+            if pointerDownBlurIntent(window: window) {
+                return false
+            }
             return browserOmnibarShouldReacquireFocusAfterEndEditing(
                 desiredOmnibarFocus: parent.isFocused,
                 nextResponderIsOtherTextField: nextResponderIsOtherTextField(window: window)
@@ -2687,9 +2742,10 @@ private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
         func controlTextDidEndEditing(_ obj: Notification) {
 #if DEBUG
             let nextOther = nextResponderIsOtherTextField(window: parentField?.window)
+            let pointerBlur = pointerDownBlurIntent(window: parentField?.window)
             logFocusEvent(
                 "controlTextDidEndEditing",
-                detail: "nextOther=\(nextOther ? 1 : 0) shouldReacquire=\(shouldReacquireFocusAfterEndEditing(window: parentField?.window) ? 1 : 0)"
+                detail: "nextOther=\(nextOther ? 1 : 0) pointerBlur=\(pointerBlur ? 1 : 0) shouldReacquire=\(shouldReacquireFocusAfterEndEditing(window: parentField?.window) ? 1 : 0)"
             )
 #endif
             if parent.isFocused {
