@@ -399,6 +399,9 @@ struct BrowserPanelView: View {
             autoFocusOmnibarIfBlank()
             syncWebViewResponderPolicyWithViewState(reason: "onAppear")
             BrowserHistoryStore.shared.loadIfNeeded()
+#if DEBUG
+            logBrowserFocusState(event: "view.onAppear")
+#endif
         }
         .onChange(of: panel.focusFlashToken) { _ in
             triggerFocusFlashAnimation()
@@ -429,6 +432,12 @@ struct BrowserPanelView: View {
             applyPendingAddressBarFocusRequestIfNeeded()
         }
         .onChange(of: isFocused) { focused in
+#if DEBUG
+            logBrowserFocusState(
+                event: "panelFocus.onChange",
+                detail: "next=\(focused ? 1 : 0)"
+            )
+#endif
             // Ensure this view doesn't retain focus while hidden (bonsplit keepAllAlive).
             if focused {
                 applyPendingAddressBarFocusRequestIfNeeded()
@@ -440,6 +449,12 @@ struct BrowserPanelView: View {
             syncWebViewResponderPolicyWithViewState(reason: "panelFocusChanged")
         }
         .onChange(of: addressBarFocused) { focused in
+#if DEBUG
+            logBrowserFocusState(
+                event: "addressBarFocus.onChange",
+                detail: "next=\(focused ? 1 : 0)"
+            )
+#endif
             let urlString = panel.preferredURLStringForOmnibar() ?? ""
             if focused {
                 panel.beginSuppressWebViewFocusForAddressBar()
@@ -447,6 +462,9 @@ struct BrowserPanelView: View {
                 // Only request panel focus if this pane isn't currently focused. When already
                 // focused (e.g. Cmd+L), forcing focus can steal first responder back to WebKit.
                 if !isFocused {
+#if DEBUG
+                    logBrowserFocusState(event: "addressBarFocus.requestPanelFocus")
+#endif
                     onRequestPanelFocus()
                 }
                 let effects = omnibarReduce(state: &omnibarState, event: .focusGained(currentURLString: urlString))
@@ -466,11 +484,17 @@ struct BrowserPanelView: View {
                 inlineCompletion = nil
             }
             syncWebViewResponderPolicyWithViewState(reason: "addressBarFocusChanged")
+#if DEBUG
+            logBrowserFocusState(event: "addressBarFocus.onChange.applied")
+#endif
         }
         .onReceive(NotificationCenter.default.publisher(for: .browserMoveOmnibarSelection)) { notification in
             guard let panelId = notification.object as? UUID, panelId == panel.id else { return }
             guard addressBarFocused, !omnibarState.suggestions.isEmpty else { return }
             guard let delta = notification.userInfo?["delta"] as? Int, delta != 0 else { return }
+#if DEBUG
+            logBrowserFocusState(event: "addressBarFocus.moveSelection", detail: "delta=\(delta)")
+#endif
             let effects = omnibarReduce(state: &omnibarState, event: .moveSelection(delta: delta))
             applyOmnibarEffects(effects)
             refreshInlineCompletion()
@@ -484,6 +508,9 @@ struct BrowserPanelView: View {
             return panelId == panel.id
         }) { _ in
             if addressBarFocused {
+#if DEBUG
+                logBrowserFocusState(event: "addressBarFocus.externalBlur")
+#endif
                 addressBarFocused = false
             }
         }
@@ -782,6 +809,9 @@ struct BrowserPanelView: View {
                     // Chrome-like behavior: clicking web content while editing the
                     // omnibar should commit blur and revert transient edits.
                     if addressBarFocused {
+#if DEBUG
+                        logBrowserFocusState(event: "webContent.tapBlur")
+#endif
                         addressBarFocused = false
                     }
                 })
@@ -839,6 +869,51 @@ struct BrowserPanelView: View {
         cmuxWebView.allowsFirstResponderAcquisition = next
     }
 
+#if DEBUG
+    private func browserFocusWindow() -> NSWindow? {
+        panel.webView.window ?? NSApp.keyWindow ?? NSApp.mainWindow
+    }
+
+    private func browserFocusResponderDescription(_ responder: NSResponder?) -> String {
+        guard let responder else { return "nil" }
+        return String(describing: type(of: responder))
+    }
+
+    private func browserFocusResponderChainContains(
+        _ start: NSResponder?,
+        target: NSResponder
+    ) -> Bool {
+        var current = start
+        var hops = 0
+        while let responder = current, hops < 64 {
+            if responder === target { return true }
+            current = responder.nextResponder
+            hops += 1
+        }
+        return false
+    }
+
+    private func logBrowserFocusState(event: String, detail: String = "") {
+        let window = browserFocusWindow()
+        let firstResponder = window?.firstResponder
+        let firstResponderType = browserFocusResponderDescription(firstResponder)
+        let webResponder = browserFocusResponderChainContains(firstResponder, target: panel.webView) ? 1 : 0
+        var line =
+            "browser.focus.trace event=\(event) panel=\(panel.id.uuidString.prefix(5)) " +
+            "panelFocused=\(isFocused ? 1 : 0) addrFocused=\(addressBarFocused ? 1 : 0) " +
+            "suppressWeb=\(panel.shouldSuppressWebViewFocus() ? 1 : 0) " +
+            "suppressAuto=\(panel.shouldSuppressOmnibarAutofocus() ? 1 : 0) " +
+            "webResponder=\(webResponder) win=\(window?.windowNumber ?? -1) fr=\(firstResponderType)"
+        if let pending = panel.pendingAddressBarFocusRequestId {
+            line += " pending=\(pending.uuidString.prefix(8))"
+        }
+        if !detail.isEmpty {
+            line += " \(detail)"
+        }
+        dlog(line)
+    }
+#endif
+
     private func syncURLFromPanel() {
         let urlString = panel.preferredURLStringForOmnibar() ?? ""
         let effects = omnibarReduce(state: &omnibarState, event: .panelURLChanged(currentURLString: urlString))
@@ -870,10 +945,32 @@ struct BrowserPanelView: View {
 
     private func applyPendingAddressBarFocusRequestIfNeeded() {
         guard let requestId = panel.pendingAddressBarFocusRequestId else { return }
-        guard !isCommandPaletteVisibleForPanelWindow() else { return }
-        guard lastHandledAddressBarFocusRequestId != requestId else { return }
+        guard !isCommandPaletteVisibleForPanelWindow() else {
+#if DEBUG
+            logBrowserFocusState(
+                event: "addressBarFocus.request.apply.skip",
+                detail: "reason=command_palette_visible request=\(requestId.uuidString.prefix(8))"
+            )
+#endif
+            return
+        }
+        guard lastHandledAddressBarFocusRequestId != requestId else {
+#if DEBUG
+            logBrowserFocusState(
+                event: "addressBarFocus.request.apply.skip",
+                detail: "reason=already_handled request=\(requestId.uuidString.prefix(8))"
+            )
+#endif
+            return
+        }
         lastHandledAddressBarFocusRequestId = requestId
         panel.beginSuppressWebViewFocusForAddressBar()
+#if DEBUG
+        logBrowserFocusState(
+            event: "addressBarFocus.request.apply",
+            detail: "request=\(requestId.uuidString.prefix(8))"
+        )
+#endif
 
         if addressBarFocused {
             // Re-run focus behavior (select-all/refresh suggestions) when focus is
@@ -882,11 +979,29 @@ struct BrowserPanelView: View {
             let effects = omnibarReduce(state: &omnibarState, event: .focusGained(currentURLString: urlString))
             applyOmnibarEffects(effects)
             refreshInlineCompletion()
+#if DEBUG
+            logBrowserFocusState(
+                event: "addressBarFocus.request.apply",
+                detail: "request=\(requestId.uuidString.prefix(8)) mode=refresh"
+            )
+#endif
         } else {
             addressBarFocused = true
+#if DEBUG
+            logBrowserFocusState(
+                event: "addressBarFocus.request.apply",
+                detail: "request=\(requestId.uuidString.prefix(8)) mode=set_focused"
+            )
+#endif
         }
 
         panel.acknowledgeAddressBarFocusRequest(requestId)
+#if DEBUG
+        logBrowserFocusState(
+            event: "addressBarFocus.request.ack",
+            detail: "request=\(requestId.uuidString.prefix(8))"
+        )
+#endif
     }
 
     /// Treat a WebView with no URL (or about:blank) as "blank" for UX purposes.
@@ -896,15 +1011,48 @@ struct BrowserPanelView: View {
     }
 
     private func autoFocusOmnibarIfBlank() {
-        guard isFocused else { return }
-        guard !addressBarFocused else { return }
-        guard !isCommandPaletteVisibleForPanelWindow() else { return }
+        guard isFocused else {
+#if DEBUG
+            logBrowserFocusState(event: "addressBarFocus.autoFocus.skip", detail: "reason=panel_not_focused")
+#endif
+            return
+        }
+        guard !addressBarFocused else {
+#if DEBUG
+            logBrowserFocusState(event: "addressBarFocus.autoFocus.skip", detail: "reason=already_focused")
+#endif
+            return
+        }
+        guard !isCommandPaletteVisibleForPanelWindow() else {
+#if DEBUG
+            logBrowserFocusState(event: "addressBarFocus.autoFocus.skip", detail: "reason=command_palette_visible")
+#endif
+            return
+        }
         // If a test/automation explicitly focused WebKit, don't steal focus back.
-        guard !panel.shouldSuppressOmnibarAutofocus() else { return }
+        guard !panel.shouldSuppressOmnibarAutofocus() else {
+#if DEBUG
+            logBrowserFocusState(event: "addressBarFocus.autoFocus.skip", detail: "reason=autofocus_suppressed")
+#endif
+            return
+        }
         // If a real navigation is underway (e.g. open_browser https://...), don't steal focus.
-        guard !panel.webView.isLoading else { return }
-        guard isWebViewBlank() else { return }
+        guard !panel.webView.isLoading else {
+#if DEBUG
+            logBrowserFocusState(event: "addressBarFocus.autoFocus.skip", detail: "reason=webview_loading")
+#endif
+            return
+        }
+        guard isWebViewBlank() else {
+#if DEBUG
+            logBrowserFocusState(event: "addressBarFocus.autoFocus.skip", detail: "reason=webview_not_blank")
+#endif
+            return
+        }
         addressBarFocused = true
+#if DEBUG
+        logBrowserFocusState(event: "addressBarFocus.autoFocus.apply")
+#endif
     }
 
     private func openDevTools() {
@@ -924,11 +1072,17 @@ struct BrowserPanelView: View {
     }
 
     private func handleOmnibarTap() {
+#if DEBUG
+        logBrowserFocusState(event: "addressBar.tap")
+#endif
         onRequestPanelFocus()
         guard !addressBarFocused else { return }
         // `focusPane` converges selection and can transiently move first responder to WebKit.
         // Reassert omnibar focus on the next runloop for click-to-type behavior.
         DispatchQueue.main.async {
+#if DEBUG
+            logBrowserFocusState(event: "addressBar.tap.asyncSetFocused")
+#endif
             addressBarFocused = true
         }
     }
@@ -3995,20 +4149,53 @@ struct WebViewRepresentable: NSViewRepresentable {
         isPanelFocused: Bool
     ) {
         // Focus handling. Avoid fighting the address bar when it is focused.
-        guard let window = nsView.window else { return }
+        guard let window = nsView.window else {
+#if DEBUG
+            dlog(
+                "browser.focus.content.apply panel=\(panel.id.uuidString.prefix(5)) " +
+                "action=skip reason=no_window shouldFocus=\(shouldFocusWebView ? 1 : 0) " +
+                "panelFocused=\(isPanelFocused ? 1 : 0)"
+            )
+#endif
+            return
+        }
         if shouldFocusWebView {
             if panel.shouldSuppressWebViewFocus() {
+#if DEBUG
+                dlog(
+                    "browser.focus.content.apply panel=\(panel.id.uuidString.prefix(5)) " +
+                    "action=skip reason=suppressed panelFocused=\(isPanelFocused ? 1 : 0)"
+                )
+#endif
                 return
             }
             if responderChainContains(window.firstResponder, target: webView) {
+#if DEBUG
+                dlog(
+                    "browser.focus.content.apply panel=\(panel.id.uuidString.prefix(5)) " +
+                    "action=skip reason=already_first_responder_chain"
+                )
+#endif
                 return
             }
-            window.makeFirstResponder(webView)
+            let result = window.makeFirstResponder(webView)
+#if DEBUG
+            dlog(
+                "browser.focus.content.apply panel=\(panel.id.uuidString.prefix(5)) " +
+                "action=focus result=\(result ? 1 : 0) fr=\(responderDescription(window.firstResponder))"
+            )
+#endif
         } else if !isPanelFocused && responderChainContains(window.firstResponder, target: webView) {
             // Only force-resign WebView focus when this panel itself is not focused.
             // If the panel is focused but the omnibar-focus state is briefly stale, aggressively
             // clearing first responder here can undo programmatic webview focus (socket tests).
-            window.makeFirstResponder(nil)
+            let result = window.makeFirstResponder(nil)
+#if DEBUG
+            dlog(
+                "browser.focus.content.apply panel=\(panel.id.uuidString.prefix(5)) " +
+                "action=resign result=\(result ? 1 : 0) fr=\(responderDescription(window.firstResponder))"
+            )
+#endif
         }
     }
 

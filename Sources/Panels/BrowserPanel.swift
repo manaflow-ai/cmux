@@ -2750,14 +2750,29 @@ extension BrowserPanel {
 
     func suppressOmnibarAutofocus(for seconds: TimeInterval) {
         suppressOmnibarAutofocusUntil = Date().addingTimeInterval(seconds)
+#if DEBUG
+        dlog(
+            "browser.focus.omnibarAutofocus.suppress panel=\(id.uuidString.prefix(5)) " +
+            "seconds=\(String(format: "%.2f", seconds))"
+        )
+#endif
     }
 
     func suppressWebViewFocus(for seconds: TimeInterval) {
         suppressWebViewFocusUntil = Date().addingTimeInterval(seconds)
+#if DEBUG
+        dlog(
+            "browser.focus.webView.suppress panel=\(id.uuidString.prefix(5)) " +
+            "seconds=\(String(format: "%.2f", seconds))"
+        )
+#endif
     }
 
     func clearWebViewFocusSuppression() {
         suppressWebViewFocusUntil = nil
+#if DEBUG
+        dlog("browser.focus.webView.suppress.clear panel=\(id.uuidString.prefix(5))")
+#endif
     }
 
     func shouldSuppressOmnibarAutofocus() -> Bool {
@@ -2802,16 +2817,43 @@ extension BrowserPanel {
     func requestAddressBarFocus() -> UUID {
         beginSuppressWebViewFocusForAddressBar()
         if let pendingAddressBarFocusRequestId {
+#if DEBUG
+            dlog(
+                "browser.focus.addressBar.request panel=\(id.uuidString.prefix(5)) " +
+                "request=\(pendingAddressBarFocusRequestId.uuidString.prefix(8)) result=reuse_pending"
+            )
+#endif
             return pendingAddressBarFocusRequestId
         }
         let requestId = UUID()
         pendingAddressBarFocusRequestId = requestId
+#if DEBUG
+        dlog(
+            "browser.focus.addressBar.request panel=\(id.uuidString.prefix(5)) " +
+            "request=\(requestId.uuidString.prefix(8)) result=new"
+        )
+#endif
         return requestId
     }
 
     func acknowledgeAddressBarFocusRequest(_ requestId: UUID) {
-        guard pendingAddressBarFocusRequestId == requestId else { return }
+        guard pendingAddressBarFocusRequestId == requestId else {
+#if DEBUG
+            dlog(
+                "browser.focus.addressBar.requestAck panel=\(id.uuidString.prefix(5)) " +
+                "request=\(requestId.uuidString.prefix(8)) result=ignored " +
+                "pending=\(pendingAddressBarFocusRequestId?.uuidString.prefix(8) ?? "nil")"
+            )
+#endif
+            return
+        }
         pendingAddressBarFocusRequestId = nil
+#if DEBUG
+        dlog(
+            "browser.focus.addressBar.requestAck panel=\(id.uuidString.prefix(5)) " +
+            "request=\(requestId.uuidString.prefix(8)) result=cleared"
+        )
+#endif
     }
 
     /// Returns the most reliable URL string for omnibar-related matching and UI decisions.

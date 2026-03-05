@@ -6591,7 +6591,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if browserAddressBarFocusedPanelId != nil,
            cmuxOwningGhosttyView(for: NSApp.keyWindow?.firstResponder) != nil {
 #if DEBUG
-            dlog("handleCustomShortcut: clearing stale browserAddressBarFocusedPanelId")
+            let stalePanelToken = browserAddressBarFocusedPanelId.map { String($0.uuidString.prefix(5)) } ?? "nil"
+            let firstResponderType = NSApp.keyWindow?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
+            dlog(
+                "browser.focus.addressBar.staleClear panel=\(stalePanelToken) " +
+                "reason=terminal_first_responder fr=\(firstResponderType)"
+            )
 #endif
             browserAddressBarFocusedPanelId = nil
             stopBrowserOmnibarSelectionRepeat()
@@ -7274,6 +7279,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         dlog(line)
     }
+
+    private func browserFocusStateSnapshot() -> String {
+        let selected = tabManager?.selectedTabId.map { String($0.uuidString.prefix(5)) } ?? "nil"
+        let focused = tabManager?.selectedWorkspace?.focusedPanelId.map { String($0.uuidString.prefix(5)) } ?? "nil"
+        let addressBar = browserAddressBarFocusedPanelId.map { String($0.uuidString.prefix(5)) } ?? "nil"
+        let keyWindow = NSApp.keyWindow?.windowNumber ?? -1
+        let firstResponderType = NSApp.keyWindow?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
+        return "selected=\(selected) focused=\(focused) addr=\(addressBar) keyWin=\(keyWindow) fr=\(firstResponderType)"
+    }
 #endif
 
     @discardableResult
@@ -7281,9 +7295,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard let tabManager,
               let workspace = tabManager.selectedWorkspace,
               let panel = workspace.browserPanel(for: panelId) else {
+#if DEBUG
+            dlog(
+                "browser.focus.addressBar.route panel=\(panelId.uuidString.prefix(5)) " +
+                "result=miss \(browserFocusStateSnapshot())"
+            )
+#endif
             return false
         }
+#if DEBUG
+        dlog(
+            "browser.focus.addressBar.route panel=\(panel.id.uuidString.prefix(5)) " +
+            "workspace=\(workspace.id.uuidString.prefix(5)) result=hit \(browserFocusStateSnapshot())"
+        )
+#endif
         workspace.focusPanel(panel.id)
+#if DEBUG
+        let focusedAfter = workspace.focusedPanelId.map { String($0.uuidString.prefix(5)) } ?? "nil"
+        dlog(
+            "browser.focus.addressBar.route panel=\(panel.id.uuidString.prefix(5)) " +
+            "workspace=\(workspace.id.uuidString.prefix(5)) focusedAfter=\(focusedAfter)"
+        )
+#endif
         focusBrowserAddressBar(in: panel)
         return true
     }
@@ -7291,16 +7324,52 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     @discardableResult
     func openBrowserAndFocusAddressBar(url: URL? = nil, insertAtEnd: Bool = false) -> UUID? {
         guard let panelId = tabManager?.openBrowser(url: url, insertAtEnd: insertAtEnd) else {
+#if DEBUG
+            dlog(
+                "browser.focus.openAndFocus result=open_failed insertAtEnd=\(insertAtEnd ? 1 : 0) " +
+                "url=\(url?.absoluteString ?? "nil") \(browserFocusStateSnapshot())"
+            )
+#endif
             return nil
         }
-        _ = focusBrowserAddressBar(panelId: panelId)
+#if DEBUG
+        dlog(
+            "browser.focus.openAndFocus result=open_ok panel=\(panelId.uuidString.prefix(5)) " +
+            "insertAtEnd=\(insertAtEnd ? 1 : 0) url=\(url?.absoluteString ?? "nil")"
+        )
+#endif
+        let didFocus = focusBrowserAddressBar(panelId: panelId)
+#if DEBUG
+        dlog(
+            "browser.focus.openAndFocus result=focus_request panel=\(panelId.uuidString.prefix(5)) " +
+            "focused=\(didFocus ? 1 : 0) \(browserFocusStateSnapshot())"
+        )
+#endif
         return panelId
     }
 
     private func focusBrowserAddressBar(in panel: BrowserPanel) {
-        _ = panel.requestAddressBarFocus()
+        let requestId = panel.requestAddressBarFocus()
+#if DEBUG
+        dlog(
+            "browser.focus.addressBar.request panel=\(panel.id.uuidString.prefix(5)) " +
+            "request=\(requestId.uuidString.prefix(8)) \(browserFocusStateSnapshot())"
+        )
+#endif
         browserAddressBarFocusedPanelId = panel.id
+#if DEBUG
+        dlog(
+            "browser.focus.addressBar.sticky panel=\(panel.id.uuidString.prefix(5)) " +
+            "request=\(requestId.uuidString.prefix(8)) \(browserFocusStateSnapshot())"
+        )
+#endif
         NotificationCenter.default.post(name: .browserFocusAddressBar, object: panel.id)
+#if DEBUG
+        dlog(
+            "browser.focus.addressBar.notify panel=\(panel.id.uuidString.prefix(5)) " +
+            "request=\(requestId.uuidString.prefix(8))"
+        )
+#endif
     }
 
     func focusedBrowserAddressBarPanelId() -> UUID? {
@@ -7309,11 +7378,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func focusedBrowserAddressBarPanelIdForShortcutEvent(_ event: NSEvent) -> UUID? {
         guard let panelId = browserAddressBarFocusedPanelId else { return nil }
-        guard let context = preferredMainWindowContextForShortcutRouting(event: event),
-              let workspace = context.tabManager.selectedWorkspace,
-              workspace.browserPanel(for: panelId) != nil else {
+
+        guard let context = preferredMainWindowContextForShortcutRouting(event: event) else {
+#if DEBUG
+            dlog(
+                "browser.focus.addressBar.shortcutContext panel=\(panelId.uuidString.prefix(5)) " +
+                "accepted=0 reason=no_context event=\(NSWindow.keyDescription(event))"
+            )
+#endif
             return nil
         }
+
+        guard let workspace = context.tabManager.selectedWorkspace else {
+#if DEBUG
+            dlog(
+                "browser.focus.addressBar.shortcutContext panel=\(panelId.uuidString.prefix(5)) " +
+                "accepted=0 reason=no_workspace event=\(NSWindow.keyDescription(event))"
+            )
+#endif
+            return nil
+        }
+
+        guard workspace.browserPanel(for: panelId) != nil else {
+#if DEBUG
+            dlog(
+                "browser.focus.addressBar.shortcutContext panel=\(panelId.uuidString.prefix(5)) " +
+                "accepted=0 reason=panel_not_in_workspace workspace=\(workspace.id.uuidString.prefix(5)) " +
+                "event=\(NSWindow.keyDescription(event))"
+            )
+#endif
+            return nil
+        }
+
+#if DEBUG
+        dlog(
+            "browser.focus.addressBar.shortcutContext panel=\(panelId.uuidString.prefix(5)) " +
+            "accepted=1 workspace=\(workspace.id.uuidString.prefix(5)) event=\(NSWindow.keyDescription(event))"
+        )
+#endif
         return panelId
     }
 
@@ -7330,7 +7432,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let normalizedFlags = browserOmnibarNormalizedModifierFlags(flags)
         let isCommandOrControlOnly = normalizedFlags == [.command] || normalizedFlags == [.control]
         guard isCommandOrControlOnly else { return false }
-        return chars == "n" || chars == "p"
+        let shouldBypass = chars == "n" || chars == "p"
+#if DEBUG
+        if shouldBypass {
+            let panelToken = browserAddressBarFocusedPanelId.map { String($0.uuidString.prefix(5)) } ?? "nil"
+            dlog(
+                "browser.focus.addressBar.shortcutBypass panel=\(panelToken) " +
+                "chars=\(chars) flags=\(normalizedFlags.rawValue)"
+            )
+        }
+#endif
+        return shouldBypass
     }
 
     private func commandOmnibarSelectionDelta(
@@ -7347,6 +7459,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func dispatchBrowserOmnibarSelectionMove(delta: Int) {
         guard delta != 0 else { return }
         guard let panelId = browserAddressBarFocusedPanelId else { return }
+#if DEBUG
+        dlog(
+            "browser.focus.omnibar.selectionMove panel=\(panelId.uuidString.prefix(5)) " +
+            "delta=\(delta) repeatKey=\(browserOmnibarRepeatKeyCode.map(String.init) ?? "nil")"
+        )
+#endif
         NotificationCenter.default.post(
             name: .browserMoveOmnibarSelection,
             object: panelId,
@@ -7356,15 +7474,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func startBrowserOmnibarSelectionRepeatIfNeeded(keyCode: UInt16, delta: Int) {
         guard delta != 0 else { return }
-        guard browserAddressBarFocusedPanelId != nil else { return }
+        guard let panelId = browserAddressBarFocusedPanelId else {
+#if DEBUG
+            dlog(
+                "browser.focus.omnibar.repeat.start key=\(keyCode) delta=\(delta) " +
+                "result=skip_no_focused_address_bar"
+            )
+#endif
+            return
+        }
 
         if browserOmnibarRepeatKeyCode == keyCode, browserOmnibarRepeatDelta == delta {
+#if DEBUG
+            dlog(
+                "browser.focus.omnibar.repeat.start panel=\(panelId.uuidString.prefix(5)) " +
+                "key=\(keyCode) delta=\(delta) result=reuse"
+            )
+#endif
             return
         }
 
         stopBrowserOmnibarSelectionRepeat()
         browserOmnibarRepeatKeyCode = keyCode
         browserOmnibarRepeatDelta = delta
+#if DEBUG
+        dlog(
+            "browser.focus.omnibar.repeat.start panel=\(panelId.uuidString.prefix(5)) " +
+            "key=\(keyCode) delta=\(delta) result=armed"
+        )
+#endif
 
         let start = DispatchWorkItem { [weak self] in
             self?.scheduleBrowserOmnibarSelectionRepeatTick()
@@ -7375,12 +7513,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func scheduleBrowserOmnibarSelectionRepeatTick() {
         browserOmnibarRepeatStartWorkItem = nil
-        guard browserAddressBarFocusedPanelId != nil else {
+        guard let panelId = browserAddressBarFocusedPanelId else {
+#if DEBUG
+            dlog("browser.focus.omnibar.repeat.tick result=stop_no_focused_address_bar")
+#endif
             stopBrowserOmnibarSelectionRepeat()
             return
         }
         guard browserOmnibarRepeatKeyCode != nil else { return }
 
+#if DEBUG
+        dlog(
+            "browser.focus.omnibar.repeat.tick panel=\(panelId.uuidString.prefix(5)) " +
+            "delta=\(browserOmnibarRepeatDelta)"
+        )
+#endif
         dispatchBrowserOmnibarSelectionMove(delta: browserOmnibarRepeatDelta)
 
         let tick = DispatchWorkItem { [weak self] in
@@ -7391,12 +7538,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func stopBrowserOmnibarSelectionRepeat() {
+        let previousKeyCode = browserOmnibarRepeatKeyCode
+        let previousDelta = browserOmnibarRepeatDelta
         browserOmnibarRepeatStartWorkItem?.cancel()
         browserOmnibarRepeatTickWorkItem?.cancel()
         browserOmnibarRepeatStartWorkItem = nil
         browserOmnibarRepeatTickWorkItem = nil
         browserOmnibarRepeatKeyCode = nil
         browserOmnibarRepeatDelta = 0
+#if DEBUG
+        if previousKeyCode != nil || previousDelta != 0 {
+            dlog(
+                "browser.focus.omnibar.repeat.stop key=\(previousKeyCode.map(String.init) ?? "nil") " +
+                "delta=\(previousDelta)"
+            )
+        }
+#endif
     }
 
     private func handleBrowserOmnibarSelectionRepeatLifecycleEvent(_ event: NSEvent) {
@@ -7405,11 +7562,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         switch event.type {
         case .keyUp:
             if event.keyCode == browserOmnibarRepeatKeyCode {
+#if DEBUG
+                dlog(
+                    "browser.focus.omnibar.repeat.lifecycle event=keyUp key=\(event.keyCode) " +
+                    "action=stop"
+                )
+#endif
                 stopBrowserOmnibarSelectionRepeat()
             }
         case .flagsChanged:
             let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
             if !flags.contains(.command) {
+#if DEBUG
+                dlog(
+                    "browser.focus.omnibar.repeat.lifecycle event=flagsChanged " +
+                    "flags=\(flags.rawValue) action=stop"
+                )
+#endif
                 stopBrowserOmnibarSelectionRepeat()
             }
         default:
