@@ -1416,10 +1416,10 @@ final class BrowserPanel: Panel, ObservableObject {
     private static let addressBarFocusCaptureScript = """
     (() => {
       try {
+        const existing = window.__cmuxAddressBarFocusState;
         const active = document.activeElement;
         if (!active) {
-          window.__cmuxAddressBarFocusState = null;
-          return "none";
+          return (existing && existing.id) ? ("preserved:" + existing.id) : "none";
         }
 
         const tag = (active.tagName || "").toLowerCase();
@@ -1429,8 +1429,7 @@ final class BrowserPanel: Panel, ObservableObject {
           tag === "textarea" ||
           (tag === "input" && type !== "hidden");
         if (!isEditable) {
-          window.__cmuxAddressBarFocusState = null;
-          return "noneditable";
+          return (existing && existing.id) ? ("preserved:" + existing.id) : "noneditable";
         }
 
         let id = active.getAttribute("data-cmux-addressbar-focus-id");
@@ -1447,8 +1446,63 @@ final class BrowserPanel: Panel, ObservableObject {
         window.__cmuxAddressBarFocusState = state;
         return "captured:" + id;
       } catch (_) {
-        window.__cmuxAddressBarFocusState = null;
         return "error";
+      }
+    })();
+    """
+    private static let addressBarFocusTrackingBootstrapScript = """
+    (() => {
+      try {
+        if (window.__cmuxAddressBarFocusTrackerInstalled) return true;
+        window.__cmuxAddressBarFocusTrackerInstalled = true;
+
+        const isEditable = (el) => {
+          if (!el) return false;
+          const tag = (el.tagName || "").toLowerCase();
+          const type = (el.type || "").toLowerCase();
+          return !!el.isContentEditable || tag === "textarea" || (tag === "input" && type !== "hidden");
+        };
+
+        const ensureFocusId = (el) => {
+          let id = el.getAttribute("data-cmux-addressbar-focus-id");
+          if (!id) {
+            id = "cmux-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8);
+            el.setAttribute("data-cmux-addressbar-focus-id", id);
+          }
+          return id;
+        };
+
+        const snapshot = (el) => {
+          if (!isEditable(el)) return;
+          const state = {
+            id: ensureFocusId(el),
+            selectionStart: null,
+            selectionEnd: null
+          };
+          if (typeof el.selectionStart === "number" && typeof el.selectionEnd === "number") {
+            state.selectionStart = el.selectionStart;
+            state.selectionEnd = el.selectionEnd;
+          }
+          window.__cmuxAddressBarFocusState = state;
+        };
+
+        document.addEventListener("focusin", (ev) => {
+          snapshot(ev && ev.target ? ev.target : document.activeElement);
+        }, true);
+        document.addEventListener("selectionchange", () => {
+          snapshot(document.activeElement);
+        }, true);
+        document.addEventListener("input", () => {
+          snapshot(document.activeElement);
+        }, true);
+        window.addEventListener("beforeunload", () => {
+          window.__cmuxAddressBarFocusState = null;
+        }, true);
+
+        snapshot(document.activeElement);
+        return true;
+      } catch (_) {
+        return false;
       }
     })();
     """
@@ -1639,6 +1693,15 @@ final class BrowserPanel: Panel, ObservableObject {
         config.userContentController.addUserScript(
             WKUserScript(
                 source: Self.telemetryHookBootstrapScriptSource,
+                injectionTime: .atDocumentStart,
+                forMainFrameOnly: false
+            )
+        )
+        // Track the last editable focused element continuously so omnibar exit can
+        // restore page input focus even if capture runs after first-responder handoff.
+        config.userContentController.addUserScript(
+            WKUserScript(
+                source: Self.addressBarFocusTrackingBootstrapScript,
                 injectionTime: .atDocumentStart,
                 forMainFrameOnly: false
             )

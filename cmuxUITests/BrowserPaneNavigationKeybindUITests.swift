@@ -215,14 +215,25 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
             app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
         }
 
-        XCTAssertTrue(
-            waitForDataMatch(timeout: 6.0) { data in
-                data["webViewFocusedAfterAddressBarExit"] == "true" &&
-                    data["addressBarExitActiveElementId"] == expectedInputId &&
-                    data["addressBarExitActiveElementEditable"] == "true"
-            },
-            "Expected Escape to restore focus to the previously focused page input"
-        )
+        let restoredExpectedInput = waitForDataMatch(timeout: 6.0) { data in
+            data["webViewFocusedAfterAddressBarExit"] == "true" &&
+                data["addressBarExitActiveElementId"] == expectedInputId &&
+                data["addressBarExitActiveElementEditable"] == "true"
+        }
+        if !restoredExpectedInput {
+            let snapshot = loadData() ?? [:]
+            XCTFail(
+                "Expected Escape to restore focus to the previously focused page input. " +
+                "expectedInputId=\(expectedInputId) " +
+                "webViewFocusedAfterAddressBarExit=\(snapshot["webViewFocusedAfterAddressBarExit"] ?? "nil") " +
+                "addressBarExitActiveElementId=\(snapshot["addressBarExitActiveElementId"] ?? "nil") " +
+                "addressBarExitActiveElementTag=\(snapshot["addressBarExitActiveElementTag"] ?? "nil") " +
+                "addressBarExitActiveElementType=\(snapshot["addressBarExitActiveElementType"] ?? "nil") " +
+                "addressBarExitActiveElementEditable=\(snapshot["addressBarExitActiveElementEditable"] ?? "nil") " +
+                "addressBarFocusActiveElementId=\(snapshot["addressBarFocusActiveElementId"] ?? "nil") " +
+                "webInputFocusElementId=\(snapshot["webInputFocusElementId"] ?? "nil")"
+            )
+        }
     }
 
     func testCmdLOpensBrowserWhenTerminalFocused() {
