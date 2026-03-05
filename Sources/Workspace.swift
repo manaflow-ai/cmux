@@ -147,7 +147,7 @@ extension Workspace {
             SessionProgressSnapshot(value: progress.value, label: progress.label)
         }
         let gitBranchSnapshot = gitBranch.map { branch in
-            SessionGitBranchSnapshot(branch: branch.branch, isDirty: branch.isDirty)
+            SessionGitBranchSnapshot(branch: branch.branch, isDirty: branch.isDirty, changedCount: branch.changedCount, ahead: branch.ahead, behind: branch.behind)
         }
 
         return SessionWorkspaceSnapshot(
@@ -218,7 +218,7 @@ extension Workspace {
             )
         }
         progress = snapshot.progress.map { SidebarProgressState(value: $0.value, label: $0.label) }
-        gitBranch = snapshot.gitBranch.map { SidebarGitBranchState(branch: $0.branch, isDirty: $0.isDirty) }
+        gitBranch = snapshot.gitBranch.map { SidebarGitBranchState(branch: $0.branch, isDirty: $0.isDirty, changedCount: $0.changedCount, ahead: $0.ahead, behind: $0.behind) }
 
         recomputeListeningPorts()
 
@@ -300,7 +300,7 @@ extension Workspace {
         let isPinned = pinnedPanelIds.contains(panelId)
         let isManuallyUnread = manualUnreadPanelIds.contains(panelId)
         let branchSnapshot = panelGitBranches[panelId].map {
-            SessionGitBranchSnapshot(branch: $0.branch, isDirty: $0.isDirty)
+            SessionGitBranchSnapshot(branch: $0.branch, isDirty: $0.isDirty, changedCount: $0.changedCount, ahead: $0.ahead, behind: $0.behind)
         }
         let listeningPorts = (surfaceListeningPorts[panelId] ?? []).sorted()
         let ttyName = surfaceTTYNames[panelId]
@@ -557,7 +557,7 @@ extension Workspace {
         }
 
         if let branch = snapshot.gitBranch {
-            panelGitBranches[panelId] = SidebarGitBranchState(branch: branch.branch, isDirty: branch.isDirty)
+            panelGitBranches[panelId] = SidebarGitBranchState(branch: branch.branch, isDirty: branch.isDirty, changedCount: branch.changedCount, ahead: branch.ahead, behind: branch.behind)
         } else {
             panelGitBranches.removeValue(forKey: panelId)
         }
@@ -636,6 +636,17 @@ struct SidebarProgressState {
 struct SidebarGitBranchState {
     let branch: String
     let isDirty: Bool
+    let changedCount: Int?
+    let ahead: Int?
+    let behind: Int?
+
+    init(branch: String, isDirty: Bool, changedCount: Int? = nil, ahead: Int? = nil, behind: Int? = nil) {
+        self.branch = branch
+        self.isDirty = isDirty
+        self.changedCount = changedCount
+        self.ahead = ahead
+        self.behind = behind
+    }
 }
 
 enum SidebarPullRequestStatus: String {
@@ -655,12 +666,18 @@ enum SidebarBranchOrdering {
     struct BranchEntry: Equatable {
         let name: String
         let isDirty: Bool
+        let changedCount: Int?
+        let ahead: Int?
+        let behind: Int?
     }
 
     struct BranchDirectoryEntry: Equatable {
         let branch: String?
         let isDirty: Bool
         let directory: String?
+        let changedCount: Int?
+        let ahead: Int?
+        let behind: Int?
     }
 
     static func orderedPaneIds(tree: ExternalTreeNode) -> [String] {
@@ -703,31 +720,55 @@ enum SidebarBranchOrdering {
         panelBranches: [UUID: SidebarGitBranchState],
         fallbackBranch: SidebarGitBranchState?
     ) -> [BranchEntry] {
+        struct BranchMeta {
+            var isDirty: Bool
+            var changedCount: Int?
+            var ahead: Int?
+            var behind: Int?
+        }
+
         var orderedNames: [String] = []
-        var branchDirty: [String: Bool] = [:]
+        var branchMeta: [String: BranchMeta] = [:]
 
         for panelId in orderedPanelIds {
             guard let state = panelBranches[panelId] else { continue }
             let name = state.branch.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !name.isEmpty else { continue }
 
-            if branchDirty[name] == nil {
+            if branchMeta[name] == nil {
                 orderedNames.append(name)
-                branchDirty[name] = state.isDirty
-            } else if state.isDirty {
-                branchDirty[name] = true
+                branchMeta[name] = BranchMeta(
+                    isDirty: state.isDirty,
+                    changedCount: state.changedCount,
+                    ahead: state.ahead,
+                    behind: state.behind
+                )
+            } else {
+                if state.isDirty { branchMeta[name]?.isDirty = true }
+                if let c = state.changedCount { branchMeta[name]?.changedCount = c }
+                if let a = state.ahead { branchMeta[name]?.ahead = a }
+                if let b = state.behind { branchMeta[name]?.behind = b }
             }
         }
 
         if orderedNames.isEmpty, let fallbackBranch {
             let name = fallbackBranch.branch.trimmingCharacters(in: .whitespacesAndNewlines)
             if !name.isEmpty {
-                return [BranchEntry(name: name, isDirty: fallbackBranch.isDirty)]
+                return [BranchEntry(
+                    name: name, isDirty: fallbackBranch.isDirty,
+                    changedCount: fallbackBranch.changedCount,
+                    ahead: fallbackBranch.ahead, behind: fallbackBranch.behind
+                )]
             }
         }
 
         return orderedNames.map { name in
-            BranchEntry(name: name, isDirty: branchDirty[name] ?? false)
+            let meta = branchMeta[name]!
+            return BranchEntry(
+                name: name, isDirty: meta.isDirty,
+                changedCount: meta.changedCount,
+                ahead: meta.ahead, behind: meta.behind
+            )
         }
     }
 
@@ -806,6 +847,9 @@ enum SidebarBranchOrdering {
             var branch: String?
             var isDirty: Bool
             var directory: String?
+            var changedCount: Int?
+            var ahead: Int?
+            var behind: Int?
         }
 
         func normalized(_ text: String?) -> String? {
@@ -838,9 +882,13 @@ enum SidebarBranchOrdering {
             let directory = normalized(panelDirectories[panelId] ?? defaultDirectory)
             guard branch != nil || directory != nil else { continue }
 
+            let panelState = panelBranches[panelId]
             let panelDirty = panelBranch != nil
-                ? (panelBranches[panelId]?.isDirty ?? false)
+                ? (panelState?.isDirty ?? false)
                 : defaultBranchDirty
+            let panelChanged = panelBranch != nil ? panelState?.changedCount : nil
+            let panelAhead = panelBranch != nil ? panelState?.ahead : nil
+            let panelBehind = panelBranch != nil ? panelState?.behind : nil
 
             let key: EntryKey
             if let directoryKey = canonicalDirectoryKey(directory) {
@@ -857,6 +905,9 @@ enum SidebarBranchOrdering {
                     if let branch {
                         existing.branch = branch
                         existing.isDirty = panelDirty
+                        if let c = panelChanged { existing.changedCount = c }
+                        if let a = panelAhead { existing.ahead = a }
+                        if let b = panelBehind { existing.behind = b }
                     } else if existing.branch == nil {
                         existing.isDirty = panelDirty
                     }
@@ -866,11 +917,17 @@ enum SidebarBranchOrdering {
                     entries[key] = existing
                 } else if panelDirty {
                     existing.isDirty = true
+                    if let c = panelChanged { existing.changedCount = c }
+                    if let a = panelAhead { existing.ahead = a }
+                    if let b = panelBehind { existing.behind = b }
                     entries[key] = existing
                 }
             } else {
                 order.append(key)
-                entries[key] = MutableEntry(branch: branch, isDirty: panelDirty, directory: directory)
+                entries[key] = MutableEntry(
+                    branch: branch, isDirty: panelDirty, directory: directory,
+                    changedCount: panelChanged, ahead: panelAhead, behind: panelBehind
+                )
             }
         }
 
@@ -881,7 +938,10 @@ enum SidebarBranchOrdering {
                     BranchDirectoryEntry(
                         branch: normalizedFallbackBranch,
                         isDirty: fallbackBranch?.isDirty ?? false,
-                        directory: fallbackDirectory
+                        directory: fallbackDirectory,
+                        changedCount: fallbackBranch?.changedCount,
+                        ahead: fallbackBranch?.ahead,
+                        behind: fallbackBranch?.behind
                     )
                 ]
             }
@@ -892,7 +952,10 @@ enum SidebarBranchOrdering {
             return BranchDirectoryEntry(
                 branch: entry.branch,
                 isDirty: entry.isDirty,
-                directory: entry.directory
+                directory: entry.directory,
+                changedCount: entry.changedCount,
+                ahead: entry.ahead,
+                behind: entry.behind
             )
         }
     }
@@ -1590,10 +1653,18 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
-    func updatePanelGitBranch(panelId: UUID, branch: String, isDirty: Bool) {
-        let state = SidebarGitBranchState(branch: branch, isDirty: isDirty)
+    func updatePanelGitBranch(
+        panelId: UUID, branch: String, isDirty: Bool,
+        changedCount: Int? = nil, ahead: Int? = nil, behind: Int? = nil
+    ) {
+        let state = SidebarGitBranchState(
+            branch: branch, isDirty: isDirty,
+            changedCount: changedCount, ahead: ahead, behind: behind
+        )
         let existing = panelGitBranches[panelId]
-        if existing?.branch != branch || existing?.isDirty != isDirty {
+        if existing?.branch != branch || existing?.isDirty != isDirty
+            || existing?.changedCount != changedCount
+            || existing?.ahead != ahead || existing?.behind != behind {
             panelGitBranches[panelId] = state
         }
         if panelId == focusedPanelId {
@@ -1718,7 +1789,10 @@ final class Workspace: Identifiable, ObservableObject {
                 panelBranches: panelGitBranches,
                 fallbackBranch: gitBranch
             )
-            .map { SidebarGitBranchState(branch: $0.name, isDirty: $0.isDirty) }
+            .map { SidebarGitBranchState(
+                branch: $0.name, isDirty: $0.isDirty,
+                changedCount: $0.changedCount, ahead: $0.ahead, behind: $0.behind
+            ) }
     }
 
     func sidebarGitBranchesInDisplayOrder() -> [SidebarGitBranchState] {

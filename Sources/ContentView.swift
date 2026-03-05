@@ -7356,9 +7356,21 @@ private struct TabItemView: View {
         return lines.joined(separator: " | ")
     }
 
+    private static func gitStatusSuffix(_ state: SidebarGitBranchState) -> String {
+        var parts: [String] = []
+        if let count = state.changedCount, count > 0 {
+            parts.append("!\(count)")
+        } else if state.isDirty {
+            parts.append("*")
+        }
+        if let ahead = state.ahead, ahead > 0 { parts.append("⇡\(ahead)") }
+        if let behind = state.behind, behind > 0 { parts.append("⇣\(behind)") }
+        return parts.isEmpty ? "" : " " + parts.joined(separator: " ")
+    }
+
     private func gitBranchSummaryLines(orderedPanelIds: [UUID]) -> [String] {
         tab.sidebarGitBranchesInDisplayOrder(orderedPanelIds: orderedPanelIds).map { branch in
-            "\(branch.branch)\(branch.isDirty ? "*" : "")"
+            "\(branch.branch)\(Self.gitStatusSuffix(branch))"
         }
     }
 
@@ -7373,7 +7385,11 @@ private struct TabItemView: View {
         return entries.compactMap { entry in
             let branchText: String? = {
                 guard sidebarShowGitBranch, let branch = entry.branch else { return nil }
-                return "\(branch)\(entry.isDirty ? "*" : "")"
+                let suffix = Self.gitStatusSuffix(SidebarGitBranchState(
+                    branch: branch, isDirty: entry.isDirty,
+                    changedCount: entry.changedCount, ahead: entry.ahead, behind: entry.behind
+                ))
+                return "\(branch)\(suffix)"
             }()
 
             let directoryText: String? = {

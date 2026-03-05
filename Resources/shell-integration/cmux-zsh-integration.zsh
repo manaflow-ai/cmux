@@ -130,12 +130,26 @@ _cmux_report_git_branch_for_path() {
     [[ -n "$CMUX_TAB_ID" ]] || return 0
     [[ -n "$CMUX_PANEL_ID" ]] || return 0
 
-    local branch dirty_opt="" first
+    local branch dirty_opt="" count_opts=""
     branch="$(git -C "$repo_path" branch --show-current 2>/dev/null)"
     if [[ -n "$branch" ]]; then
-        first="$(git -C "$repo_path" status --porcelain -uno 2>/dev/null | head -1)"
-        [[ -n "$first" ]] && dirty_opt="--status=dirty"
-        _cmux_send "report_git_branch $branch $dirty_opt --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+        local porcelain changed_count
+        porcelain="$(git -C "$repo_path" status --porcelain 2>/dev/null)"
+        if [[ -n "$porcelain" ]]; then
+            dirty_opt="--status=dirty"
+            changed_count=$(echo "$porcelain" | wc -l | tr -d ' ')
+            count_opts="--changed=$changed_count"
+        fi
+        local lr
+        lr="$(git -C "$repo_path" rev-list --left-right --count @{upstream}...HEAD 2>/dev/null)"
+        if [[ -n "$lr" ]]; then
+            local behind_count ahead_count
+            behind_count="${lr%%	*}"
+            ahead_count="${lr##*	}"
+            [[ "$ahead_count" -gt 0 ]] 2>/dev/null && count_opts="$count_opts --ahead=$ahead_count"
+            [[ "$behind_count" -gt 0 ]] 2>/dev/null && count_opts="$count_opts --behind=$behind_count"
+        fi
+        _cmux_send "report_git_branch $branch $dirty_opt $count_opts --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
     else
         _cmux_send "clear_git_branch --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
     fi

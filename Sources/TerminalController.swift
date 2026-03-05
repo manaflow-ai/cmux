@@ -275,10 +275,15 @@ class TerminalController {
     nonisolated static func shouldReplaceGitBranch(
         current: SidebarGitBranchState?,
         branch: String,
-        isDirty: Bool
+        isDirty: Bool,
+        changedCount: Int?,
+        ahead: Int?,
+        behind: Int?
     ) -> Bool {
         guard let current else { return true }
         return current.branch != branch || current.isDirty != isDirty
+            || current.changedCount != changedCount
+            || current.ahead != ahead || current.behind != behind
     }
 
     nonisolated static func shouldReplacePullRequest(
@@ -9199,7 +9204,7 @@ class TerminalController {
           list_log [--limit=N] [--tab=X] - List log entries
           set_progress <0.0-1.0> [--label=X] [--tab=X] - Set progress bar
           clear_progress [--tab=X] - Clear progress bar
-          report_git_branch <branch> [--status=dirty] [--tab=X] [--panel=Y] - Report git branch
+          report_git_branch <branch> [--status=dirty] [--changed=N] [--ahead=N] [--behind=N] [--tab=X] [--panel=Y] - Report git branch
           clear_git_branch [--tab=X] [--panel=Y] - Clear git branch
           report_pr <number> <url> [--label=PR] [--state=open|merged|closed] [--tab=X] [--panel=Y] - Report pull request / review item
           report_review <number> <url> [--label=MR] [--state=open|merged|closed] [--tab=X] [--panel=Y] - Alias for provider-specific review item
@@ -12630,9 +12635,12 @@ class TerminalController {
     private func reportGitBranch(_ args: String) -> String {
         let parsed = parseOptions(args)
         guard let branch = parsed.positional.first else {
-            return "ERROR: Missing branch name — usage: report_git_branch <branch> [--status=dirty] [--tab=X] [--panel=Y]"
+            return "ERROR: Missing branch name — usage: report_git_branch <branch> [--status=dirty] [--changed=N] [--ahead=N] [--behind=N] [--tab=X] [--panel=Y]"
         }
         let isDirty = parsed.options["status"]?.lowercased() == "dirty"
+        let changedCount = parsed.options["changed"].flatMap { Int($0) }
+        let ahead = parsed.options["ahead"].flatMap { Int($0) }
+        let behind = parsed.options["behind"].flatMap { Int($0) }
 
         // Shell integration always includes explicit workspace/panel IDs.
         // Keep this telemetry path off-main so wake/main-thread stalls don't
@@ -12646,7 +12654,10 @@ class TerminalController {
                 let validSurfaceIds = Set(tab.panels.keys)
                 tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
                 guard validSurfaceIds.contains(scope.panelId) else { return }
-                tab.updatePanelGitBranch(panelId: scope.panelId, branch: branch, isDirty: isDirty)
+                tab.updatePanelGitBranch(
+                    panelId: scope.panelId, branch: branch, isDirty: isDirty,
+                    changedCount: changedCount, ahead: ahead, behind: behind
+                )
             }
             return "OK"
         }
@@ -12664,7 +12675,7 @@ class TerminalController {
             let surfaceId: UUID
             if let panelArg {
                 if panelArg.isEmpty {
-                    result = "ERROR: Missing panel id — usage: report_git_branch <branch> [--status=dirty] [--tab=X] [--panel=Y]"
+                    result = "ERROR: Missing panel id — usage: report_git_branch <branch> [--status=dirty] [--changed=N] [--ahead=N] [--behind=N] [--tab=X] [--panel=Y]"
                     return
                 }
                 guard let parsedId = UUID(uuidString: panelArg) else {
@@ -12685,7 +12696,10 @@ class TerminalController {
                 return
             }
 
-            tab.updatePanelGitBranch(panelId: surfaceId, branch: branch, isDirty: isDirty)
+            tab.updatePanelGitBranch(
+                panelId: surfaceId, branch: branch, isDirty: isDirty,
+                changedCount: changedCount, ahead: ahead, behind: behind
+            )
         }
         return result
     }
@@ -13161,7 +13175,11 @@ class TerminalController {
             }
 
             if let git = tab.gitBranch {
-                lines.append("git_branch=\(git.branch)\(git.isDirty ? " dirty" : " clean")")
+                var parts = [git.branch, git.isDirty ? "dirty" : "clean"]
+                if let c = git.changedCount { parts.append("changed=\(c)") }
+                if let a = git.ahead { parts.append("ahead=\(a)") }
+                if let b = git.behind { parts.append("behind=\(b)") }
+                lines.append("git_branch=\(parts.joined(separator: " "))")
             } else {
                 lines.append("git_branch=none")
             }
