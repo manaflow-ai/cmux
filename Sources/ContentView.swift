@@ -6282,13 +6282,9 @@ private struct SidebarHelpMenuButton: View {
                 }
             }
         } label: {
-            Image(systemName: "questionmark.circle")
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(.secondary)
-                .frame(width: 18, height: 18)
-                .contentShape(Rectangle())
+            Label(helpTitle, systemImage: "questionmark.circle")
+                .font(.system(size: 11, weight: .medium))
         }
-        .buttonStyle(.plain)
         .help(helpTitle)
         .accessibilityLabel(helpTitle)
         .accessibilityIdentifier("SidebarHelpMenuButton")

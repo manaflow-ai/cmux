@@ -30,7 +30,7 @@ final class SidebarHelpMenuUITests: XCTestCase {
 
         XCTAssertTrue(waitForWindowCount(atLeast: 1, app: app, timeout: 6.0))
 
-        let helpButton = app.buttons["Help"]
+        let helpButton = app.buttons["SidebarHelpMenuButton"]
         XCTAssertTrue(helpButton.waitForExistence(timeout: 6.0))
         helpButton.click()
 
@@ -52,7 +52,7 @@ final class SidebarHelpMenuUITests: XCTestCase {
 
         XCTAssertTrue(waitForWindowCount(atLeast: 1, app: app, timeout: 6.0))
 
-        let helpButton = app.buttons["Help"]
+        let helpButton = app.buttons["SidebarHelpMenuButton"]
         XCTAssertTrue(helpButton.waitForExistence(timeout: 6.0))
         helpButton.click()
 
