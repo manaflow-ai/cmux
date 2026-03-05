@@ -318,7 +318,10 @@ struct BrowserPanelView: View {
                 .allowsHitTesting(false)
         }
         .overlay {
-            if let searchState = panel.searchState {
+            // Keep Cmd+F usable when the browser is still in the empty new-tab
+            // state (no WKWebView mounted yet). WebView-backed cases are hosted
+            // in AppKit by WebViewRepresentable to avoid layering/clipping issues.
+            if !panel.shouldRenderWebView, let searchState = panel.searchState {
                 BrowserSearchOverlay(
                     panelId: panel.id,
                     searchState: searchState,
@@ -735,6 +738,7 @@ struct BrowserPanelView: View {
             if panel.shouldRenderWebView {
                 WebViewRepresentable(
                     panel: panel,
+                    browserSearchState: panel.searchState,
                     shouldAttachWebView: isVisibleInUI,
                     shouldFocusWebView: isFocused && !addressBarFocused,
                     isPanelFocused: isFocused,
@@ -3034,6 +3038,7 @@ private struct OmnibarSuggestionsView: View {
 /// NSViewRepresentable wrapper for WKWebView
 struct WebViewRepresentable: NSViewRepresentable {
     let panel: BrowserPanel
+    let browserSearchState: BrowserSearchState?
     let shouldAttachWebView: Bool
     let shouldFocusWebView: Bool
     let isPanelFocused: Bool
@@ -3047,6 +3052,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         var desiredPortalVisibleInUI: Bool = true
         var desiredPortalZPriority: Int = 0
         var lastPortalHostId: ObjectIdentifier?
+        var searchOverlayHostingView: NSHostingView<BrowserSearchOverlay>?
     }
 
     private final class HostContainerView: NSView {
@@ -3199,6 +3205,67 @@ struct WebViewRepresentable: NSViewRepresentable {
         host.onGeometryChanged = nil
     }
 
+    private static func removeSearchOverlay(from coordinator: Coordinator) {
+        coordinator.searchOverlayHostingView?.removeFromSuperview()
+        coordinator.searchOverlayHostingView = nil
+    }
+
+    private static func updateSearchOverlay(
+        panel: BrowserPanel,
+        coordinator: Coordinator,
+        containerView: NSView?
+    ) {
+        // Layering contract: keep browser Cmd+F UI in the portal-hosted AppKit layer.
+        // SwiftUI panel overlays can be covered by portal-hosted WKWebView content.
+        guard let searchState = panel.searchState,
+              let containerView else {
+            removeSearchOverlay(from: coordinator)
+            return
+        }
+
+        let rootView = BrowserSearchOverlay(
+            panelId: panel.id,
+            searchState: searchState,
+            onNext: { [weak panel] in
+                panel?.findNext()
+            },
+            onPrevious: { [weak panel] in
+                panel?.findPrevious()
+            },
+            onClose: { [weak panel] in
+                panel?.hideFind()
+            }
+        )
+
+        if let overlay = coordinator.searchOverlayHostingView {
+            overlay.rootView = rootView
+            if overlay.superview !== containerView {
+                overlay.removeFromSuperview()
+                containerView.addSubview(overlay, positioned: .above, relativeTo: nil)
+                NSLayoutConstraint.activate([
+                    overlay.topAnchor.constraint(equalTo: containerView.topAnchor),
+                    overlay.bottomAnchor.constraint(equalTo: containerView.bottomAnchor),
+                    overlay.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
+                    overlay.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
+                ])
+            } else if containerView.subviews.last !== overlay {
+                containerView.addSubview(overlay, positioned: .above, relativeTo: nil)
+            }
+            return
+        }
+
+        let overlay = NSHostingView(rootView: rootView)
+        overlay.translatesAutoresizingMaskIntoConstraints = false
+        containerView.addSubview(overlay, positioned: .above, relativeTo: nil)
+        NSLayoutConstraint.activate([
+            overlay.topAnchor.constraint(equalTo: containerView.topAnchor),
+            overlay.bottomAnchor.constraint(equalTo: containerView.bottomAnchor),
+            overlay.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
+            overlay.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
+        ])
+        coordinator.searchOverlayHostingView = overlay
+    }
+
     private func updateUsingWindowPortal(_ nsView: NSView, context: Context, webView: WKWebView) {
         guard let host = nsView as? HostContainerView else { return }
 
@@ -3223,6 +3290,13 @@ struct WebViewRepresentable: NSViewRepresentable {
             )
             BrowserWindowPortalRegistry.updatePaneDropContext(for: webView, context: paneDropContext)
             coordinator.lastPortalHostId = ObjectIdentifier(host)
+            if let panel = coordinator.panel {
+                Self.updateSearchOverlay(
+                    panel: panel,
+                    coordinator: coordinator,
+                    containerView: webView.superview
+                )
+            }
         }
         host.onGeometryChanged = { [weak host, weak coordinator] in
             guard let host, let coordinator else { return }
@@ -3254,6 +3328,11 @@ struct WebViewRepresentable: NSViewRepresentable {
                 coordinator.lastPortalHostId = hostId
             }
             BrowserWindowPortalRegistry.synchronizeForAnchor(host)
+            Self.updateSearchOverlay(
+                panel: panel,
+                coordinator: coordinator,
+                containerView: webView.superview
+            )
         } else {
             // Bind is deferred until host moves into a window. Keep the current
             // portal entry's desired state in sync so stale callbacks cannot keep
@@ -3263,6 +3342,7 @@ struct WebViewRepresentable: NSViewRepresentable {
                 visibleInUI: coordinator.desiredPortalVisibleInUI,
                 zPriority: coordinator.desiredPortalZPriority
             )
+            Self.removeSearchOverlay(from: coordinator)
         }
 
         BrowserWindowPortalRegistry.updateDropZoneOverlay(
@@ -3291,6 +3371,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         let webView = panel.webView
         let coordinator = context.coordinator
         if let previousWebView = coordinator.webView, previousWebView !== webView {
+            Self.removeSearchOverlay(from: coordinator)
             BrowserWindowPortalRegistry.detach(webView: previousWebView)
             coordinator.lastPortalHostId = nil
         }
@@ -3362,6 +3443,7 @@ struct WebViewRepresentable: NSViewRepresentable {
     static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
         coordinator.attachGeneration += 1
         clearPortalCallbacks(for: nsView)
+        removeSearchOverlay(from: coordinator)
 
         guard let webView = coordinator.webView else { return }
         let panel = coordinator.panel
