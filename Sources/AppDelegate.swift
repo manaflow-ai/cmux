@@ -4910,6 +4910,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private let debugStressTabsPerPane = 1
     private let debugStressYieldInterval = 4
 
+    var isDebugTypingPerfProbeEnabled: Bool {
+        debugStressLagProbeEnabled
+    }
+
+    static func debugTypingPerfThresholdMs(for event: NSEvent) -> Double {
+        let normalizedFlags = event.modifierFlags
+            .intersection(.deviceIndependentFlagsMask)
+            .subtracting([.numericPad, .function, .capsLock])
+        let isPlainTyping = normalizedFlags.isDisjoint(with: [.command, .control, .option])
+        return event.isARepeat ? 1.5 : (isPlainTyping ? 2.5 : 6.0)
+    }
+
     @objc func openDebugScrollbackTab(_ sender: Any?) {
         guard let tabManager else { return }
         let tab = tabManager.addTab()
@@ -5060,6 +5072,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 loadStats.attempts
             )
         }
+    }
+
+    @objc func dumpDebugTypingPerfSnapshot(_ sender: Any?) {
+        logDebugTypingPerfSnapshot(
+            phase: "manual",
+            event: nil,
+            elapsedMs: nil,
+            thresholdMs: nil,
+            force: true
+        )
     }
 
     private struct DebugStressSurfacePrimeStats {
@@ -5226,33 +5248,228 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return pending
     }
 
-    private func debugStressLagSnapshot() -> (
-        workspaceCount: Int,
-        terminalPanelCount: Int,
-        loadedSurfaceCount: Int,
-        selectedWorkspace: String
-    ) {
+    private struct DebugStressLagSnapshot {
+        let workspaceCount: Int
+        let terminalPanelCount: Int
+        let loadedSurfaceCount: Int
+        let pendingSurfaceCount: Int
+        let queuedBackgroundStartCount: Int
+        let attachedTerminalCount: Int
+        let visibleTerminalCount: Int
+        let selectedWorkspace: String
+        let selectedWorkspaceTerminalCount: Int
+        let selectedWorkspaceLoadedSurfaceCount: Int
+        let focusedPanel: String
+        let workspaceSwitchId: UInt64?
+        let workspaceSwitchAgeMs: Double?
+        let focusedRenderSummary: String
+    }
+
+    private func debugTerminalPanel(surfaceId: UUID?) -> TerminalPanel? {
+        guard let tabManager else { return nil }
+        if let surfaceId {
+            for workspace in tabManager.tabs {
+                if let terminalPanel = workspace.terminalPanel(for: surfaceId) {
+                    return terminalPanel
+                }
+            }
+            return nil
+        }
+        return tabManager.selectedWorkspace?.focusedTerminalPanel
+    }
+
+    private func debugShortId(_ id: UUID?) -> String {
+        guard let id else { return "nil" }
+        return String(id.uuidString.prefix(5))
+    }
+
+    private func debugPerfAgeMsText(_ timestamp: CFTimeInterval) -> String {
+        guard timestamp > 0 else { return "nil" }
+        return String(format: "%.2f", max(0, (CACurrentMediaTime() - timestamp) * 1000.0))
+    }
+
+    private func debugTypingPerfRenderSummary(
+        focusedSurfaceId: UUID?,
+        renderStats: GhosttySurfaceScrollView.DebugRenderStats?
+    ) -> String {
+        let terminalPanel = debugTerminalPanel(surfaceId: focusedSurfaceId)
+        let stats = renderStats ?? terminalPanel?.hostedView.debugRenderStats()
+        let backgroundState = terminalPanel?.surface.debugBackgroundStartState
+        let renderSurfaceId = focusedSurfaceId ?? terminalPanel?.surface.id
+
+        guard let stats else {
+            return [
+                "renderSurface=\(debugShortId(renderSurfaceId))",
+                "renderReady=\(terminalPanel?.surface.surface != nil ? 1 : 0)",
+                "renderQueued=\(backgroundState?.queued == true ? 1 : 0)",
+                "renderAttached=\(backgroundState?.hasAttachedView == true ? 1 : 0)",
+            ].joined(separator: " ")
+        }
+
+        return [
+            "renderSurface=\(debugShortId(renderSurfaceId))",
+            "renderReady=\(terminalPanel?.surface.surface != nil ? 1 : 0)",
+            "renderQueued=\(backgroundState?.queued == true ? 1 : 0)",
+            "renderAttached=\(backgroundState?.hasAttachedView == true ? 1 : 0)",
+            "renderAttachedInWindow=\(backgroundState?.attachedViewInWindow == true ? 1 : 0)",
+            "renderPendingTextBytes=\(backgroundState?.pendingTextBytes ?? 0)",
+            "renderDrawCount=\(stats.drawCount)",
+            "renderDrawIdleMs=\(debugPerfAgeMsText(stats.lastDrawTime))",
+            "renderPresentCount=\(stats.presentCount)",
+            "renderPresentIdleMs=\(debugPerfAgeMsText(stats.lastPresentTime))",
+            "renderDrawableCount=\(stats.metalDrawableCount)",
+            "renderDrawableIdleMs=\(debugPerfAgeMsText(stats.metalLastDrawableTime))",
+            "renderInWindow=\(stats.inWindow ? 1 : 0)",
+            "renderWindowKey=\(stats.windowIsKey ? 1 : 0)",
+            "renderVisible=\(stats.windowOcclusionVisible ? 1 : 0)",
+            "renderAppActive=\(stats.appIsActive ? 1 : 0)",
+            "renderActive=\(stats.isActive ? 1 : 0)",
+            "renderDesiredFocus=\(stats.desiredFocus ? 1 : 0)",
+            "renderFirstResponder=\(stats.isFirstResponder ? 1 : 0)",
+            "renderLayer=\(stats.layerClass)",
+        ].joined(separator: " ")
+    }
+
+    private func debugTypingPerfSnapshotFields(_ snapshot: DebugStressLagSnapshot) -> String {
+        [
+            "workspaces=\(snapshot.workspaceCount)",
+            "terminals=\(snapshot.terminalPanelCount)",
+            "surfacesReady=\(snapshot.loadedSurfaceCount)",
+            "surfacesPending=\(snapshot.pendingSurfaceCount)",
+            "bgQueued=\(snapshot.queuedBackgroundStartCount)",
+            "attached=\(snapshot.attachedTerminalCount)",
+            "visible=\(snapshot.visibleTerminalCount)",
+            "selected=\(snapshot.selectedWorkspace)",
+            "selectedTerminals=\(snapshot.selectedWorkspaceTerminalCount)",
+            "selectedReady=\(snapshot.selectedWorkspaceLoadedSurfaceCount)",
+            "focusedPanel=\(snapshot.focusedPanel)",
+            "wsSwitchId=\(snapshot.workspaceSwitchId.map(String.init) ?? "nil")",
+            "wsSwitchAgeMs=\(snapshot.workspaceSwitchAgeMs.map { String(format: "%.2f", $0) } ?? "nil")",
+            snapshot.focusedRenderSummary,
+        ].joined(separator: " ")
+    }
+
+    private func debugStressLagSnapshot(
+        focusedSurfaceId: UUID? = nil,
+        renderStats: GhosttySurfaceScrollView.DebugRenderStats? = nil
+    ) -> DebugStressLagSnapshot {
         guard let tabManager else {
-            return (0, 0, 0, "nil")
+            return DebugStressLagSnapshot(
+                workspaceCount: 0,
+                terminalPanelCount: 0,
+                loadedSurfaceCount: 0,
+                pendingSurfaceCount: 0,
+                queuedBackgroundStartCount: 0,
+                attachedTerminalCount: 0,
+                visibleTerminalCount: 0,
+                selectedWorkspace: "nil",
+                selectedWorkspaceTerminalCount: 0,
+                selectedWorkspaceLoadedSurfaceCount: 0,
+                focusedPanel: "nil",
+                workspaceSwitchId: nil,
+                workspaceSwitchAgeMs: nil,
+                focusedRenderSummary: "renderSurface=nil"
+            )
         }
         var terminalPanelCount = 0
         var loadedSurfaceCount = 0
+        var queuedBackgroundStartCount = 0
+        var attachedTerminalCount = 0
+        var visibleTerminalCount = 0
+        var selectedWorkspaceTerminalCount = 0
+        var selectedWorkspaceLoadedSurfaceCount = 0
+        let selectedWorkspaceId = tabManager.selectedTabId
         for workspace in tabManager.tabs {
+            let isSelectedWorkspace = workspace.id == selectedWorkspaceId
             for panel in workspace.panels.values {
                 guard let terminalPanel = panel as? TerminalPanel else { continue }
+                let backgroundState = terminalPanel.surface.debugBackgroundStartState
                 terminalPanelCount += 1
+                if backgroundState.queued {
+                    queuedBackgroundStartCount += 1
+                }
+                if backgroundState.hasAttachedView {
+                    attachedTerminalCount += 1
+                }
+                if terminalPanel.hostedView.window != nil,
+                   terminalPanel.hostedView.superview != nil,
+                   !terminalPanel.hostedView.isHiddenOrHasHiddenAncestor {
+                    visibleTerminalCount += 1
+                }
                 if terminalPanel.surface.surface != nil {
                     loadedSurfaceCount += 1
+                    if isSelectedWorkspace {
+                        selectedWorkspaceLoadedSurfaceCount += 1
+                    }
+                }
+                if isSelectedWorkspace {
+                    selectedWorkspaceTerminalCount += 1
                 }
             }
         }
         let selectedWorkspace = tabManager.selectedTabId.map { String($0.uuidString.prefix(5)) } ?? "nil"
-        return (
-            tabManager.tabs.count,
-            terminalPanelCount,
-            loadedSurfaceCount,
-            selectedWorkspace
+        let workspaceSwitchSnapshot = tabManager.debugCurrentWorkspaceSwitchSnapshot()
+        return DebugStressLagSnapshot(
+            workspaceCount: tabManager.tabs.count,
+            terminalPanelCount: terminalPanelCount,
+            loadedSurfaceCount: loadedSurfaceCount,
+            pendingSurfaceCount: max(0, terminalPanelCount - loadedSurfaceCount),
+            queuedBackgroundStartCount: queuedBackgroundStartCount,
+            attachedTerminalCount: attachedTerminalCount,
+            visibleTerminalCount: visibleTerminalCount,
+            selectedWorkspace: selectedWorkspace,
+            selectedWorkspaceTerminalCount: selectedWorkspaceTerminalCount,
+            selectedWorkspaceLoadedSurfaceCount: selectedWorkspaceLoadedSurfaceCount,
+            focusedPanel: debugShortId(focusedSurfaceId ?? tabManager.selectedWorkspace?.focusedPanelId),
+            workspaceSwitchId: workspaceSwitchSnapshot?.id,
+            workspaceSwitchAgeMs: workspaceSwitchSnapshot.map { max(0, (CACurrentMediaTime() - $0.startedAt) * 1000.0) },
+            focusedRenderSummary: debugTypingPerfRenderSummary(
+                focusedSurfaceId: focusedSurfaceId,
+                renderStats: renderStats
+            )
         )
+    }
+
+    func logDebugTypingPerfSnapshot(
+        phase: String,
+        event: NSEvent?,
+        elapsedMs: Double?,
+        thresholdMs: Double?,
+        handledByShortcut: Bool? = nil,
+        renderStats: GhosttySurfaceScrollView.DebugRenderStats? = nil,
+        focusedSurfaceId: UUID? = nil,
+        force: Bool = false
+    ) {
+        guard force || debugStressLagProbeEnabled else { return }
+        let snapshot = debugStressLagSnapshot(
+            focusedSurfaceId: focusedSurfaceId,
+            renderStats: renderStats
+        )
+        var parts: [String] = [
+            force ? "stress.snapshot" : "stress.inputLag",
+            "phase=\(phase)",
+        ]
+        if let elapsedMs {
+            parts.append("ms=\(String(format: "%.2f", elapsedMs))")
+        }
+        if let thresholdMs {
+            parts.append("threshold=\(String(format: "%.2f", thresholdMs))")
+        }
+        if let handledByShortcut {
+            parts.append("handled=\(handledByShortcut ? 1 : 0)")
+        }
+        if let event {
+            let normalizedFlags = event.modifierFlags
+                .intersection(.deviceIndependentFlagsMask)
+                .subtracting([.numericPad, .function, .capsLock])
+            let isPlainTyping = normalizedFlags.isDisjoint(with: [.command, .control, .option])
+            parts.append("plain=\(isPlainTyping ? 1 : 0)")
+            parts.append("repeat=\(event.isARepeat ? 1 : 0)")
+            parts.append("keyCode=\(event.keyCode)")
+            parts.append("mods=\(event.modifierFlags.rawValue)")
+        }
+        parts.append(debugTypingPerfSnapshotFields(snapshot))
+        dlog(parts.joined(separator: " "))
     }
 
     private func logSlowShortcutMonitorLatencyIfNeeded(
@@ -5260,24 +5477,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         handledByShortcut: Bool,
         elapsedMs: Double
     ) {
-        guard debugStressLagProbeEnabled else { return }
         guard event.type == .keyDown else { return }
 
-        let normalizedFlags = event.modifierFlags
-            .intersection(.deviceIndependentFlagsMask)
-            .subtracting([.numericPad, .function, .capsLock])
-        let isPlainTyping = normalizedFlags.isDisjoint(with: [.command, .control, .option])
-        let thresholdMs: Double = event.isARepeat ? 1.5 : (isPlainTyping ? 2.5 : 6.0)
+        let thresholdMs = Self.debugTypingPerfThresholdMs(for: event)
         guard elapsedMs >= thresholdMs else { return }
-
-        let snapshot = debugStressLagSnapshot()
-        dlog(
-            "stress.inputLag path=appMonitor ms=\(String(format: "%.2f", elapsedMs)) " +
-            "threshold=\(String(format: "%.2f", thresholdMs)) handled=\(handledByShortcut ? 1 : 0) " +
-            "plain=\(isPlainTyping ? 1 : 0) repeat=\(event.isARepeat ? 1 : 0) keyCode=\(event.keyCode) " +
-            "mods=\(event.modifierFlags.rawValue) workspaces=\(snapshot.workspaceCount) " +
-            "terminals=\(snapshot.terminalPanelCount) surfacesReady=\(snapshot.loadedSurfaceCount) " +
-            "selected=\(snapshot.selectedWorkspace)"
+        logDebugTypingPerfSnapshot(
+            phase: "appMonitor",
+            event: event,
+            elapsedMs: elapsedMs,
+            thresholdMs: thresholdMs,
+            handledByShortcut: handledByShortcut
         )
     }
 

@@ -2742,6 +2742,22 @@ final class TerminalSurface: Identifiable, ObservableObject {
         }
     }
 
+#if DEBUG
+    var debugBackgroundStartState: (
+        queued: Bool,
+        hasAttachedView: Bool,
+        attachedViewInWindow: Bool,
+        pendingTextBytes: Int
+    ) {
+        (
+            queued: backgroundSurfaceStartQueued,
+            hasAttachedView: attachedView != nil,
+            attachedViewInWindow: attachedView?.window != nil,
+            pendingTextBytes: pendingTextBytes
+        )
+    }
+#endif
+
     private func writeTextData(_ data: Data, to surface: ghostty_surface_t) {
         data.withUnsafeBytes { rawBuffer in
             guard let baseAddress = rawBuffer.baseAddress?.assumingMemoryBound(to: CChar.self) else { return }
@@ -3383,10 +3399,28 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if let surface = surface {
             return surface
         }
-        guard window != nil else { return nil }
+        guard window != nil else {
+#if DEBUG
+            if AppDelegate.shared?.isDebugTypingPerfProbeEnabled == true {
+                dlog(
+                    "stress.ensureSurfaceReady outcome=noWindow surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") " +
+                    "attached=\(terminalSurface?.debugBackgroundStartState.hasAttachedView == true ? 1 : 0)"
+                )
+            }
+#endif
+            return nil
+        }
         terminalSurface?.attachToView(self)
         updateSurfaceSize(size: bounds.size)
         applySurfaceColorScheme(force: true)
+#if DEBUG
+        if AppDelegate.shared?.isDebugTypingPerfProbeEnabled == true {
+            dlog(
+                "stress.ensureSurfaceReady outcome=\(surface != nil ? "attachedCreate" : "attachFailed") " +
+                "surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") inWindow=\(window != nil ? 1 : 0)"
+            )
+        }
+#endif
         return surface
     }
 
@@ -3823,11 +3857,25 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
 #if DEBUG
     private func recordKeyLatency(path: String, event: NSEvent) {
-        guard Self.keyLatencyProbeEnabled else { return }
+        let typingPerfProbeEnabled = AppDelegate.shared?.isDebugTypingPerfProbeEnabled == true
+        guard Self.keyLatencyProbeEnabled || typingPerfProbeEnabled else { return }
         guard event.timestamp > 0 else { return }
         let delayMs = max(0, (CACurrentMediaTime() - event.timestamp) * 1000)
-        let delayText = String(format: "%.2f", delayMs)
-        dlog("key.latency path=\(path) ms=\(delayText) keyCode=\(event.keyCode) mods=\(event.modifierFlags.rawValue) repeat=\(event.isARepeat ? 1 : 0)")
+        if Self.keyLatencyProbeEnabled {
+            let delayText = String(format: "%.2f", delayMs)
+            dlog("key.latency path=\(path) ms=\(delayText) keyCode=\(event.keyCode) mods=\(event.modifierFlags.rawValue) repeat=\(event.isARepeat ? 1 : 0)")
+        }
+        let thresholdMs = AppDelegate.debugTypingPerfThresholdMs(for: event)
+        if typingPerfProbeEnabled, delayMs >= thresholdMs {
+            AppDelegate.shared?.logDebugTypingPerfSnapshot(
+                phase: "terminal.\(path)",
+                event: event,
+                elapsedMs: delayMs,
+                thresholdMs: thresholdMs,
+                renderStats: terminalSurface?.hostedView.debugRenderStats(),
+                focusedSurfaceId: terminalSurface?.id
+            )
+        }
     }
 #endif
 

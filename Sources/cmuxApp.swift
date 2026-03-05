@@ -336,6 +336,13 @@ struct cmuxApp: App {
                     appDelegate.openDebugStressWorkspacesWithLoadedSurfaces(nil)
                 }
 
+                Button(String(
+                    localized: "menu.debug.dumpTypingPerfSnapshot",
+                    defaultValue: "Dump Typing Perf Snapshot"
+                )) {
+                    appDelegate.dumpDebugTypingPerfSnapshot(nil)
+                }
+
                 Divider()
                 Menu("Debug Windows") {
                     Button("Debug Window Controls…") {
