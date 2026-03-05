@@ -3788,10 +3788,9 @@ struct SettingsView: View {
 
     private func resetAllSettings() {
         isResettingSettings = true
-        let previousLanguage = appLanguage
         appLanguage = LanguageSettings.defaultLanguage.rawValue
         LanguageSettings.apply(.system)
-        if previousLanguage != LanguageSettings.languageAtLaunch.rawValue {
+        if appLanguage != LanguageSettings.languageAtLaunch.rawValue {
             showLanguageRestartAlert = true
         }
         appearanceMode = AppearanceSettings.defaultMode.rawValue
