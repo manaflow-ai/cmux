@@ -3334,11 +3334,6 @@ struct WebViewRepresentable: NSViewRepresentable {
             shouldFocusWebView: shouldFocusWebView,
             isPanelFocused: isPanelFocused
         )
-        Self.updateSearchOverlay(
-            panel: panel,
-            coordinator: coordinator,
-            containerView: webView.superview
-        )
     }
 
     private static func applyFocus(

@@ -2739,6 +2739,9 @@ extension BrowserPanel {
         if suppressWebViewFocusForAddressBar {
             return true
         }
+        if searchState != nil {
+            return true
+        }
         if let until = suppressWebViewFocusUntil {
             return Date() < until
         }

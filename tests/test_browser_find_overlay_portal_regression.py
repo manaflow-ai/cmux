@@ -43,7 +43,9 @@ def extract_block(source: str, signature: str) -> str:
 def main() -> int:
     root = repo_root()
     view_path = root / "Sources" / "Panels" / "BrowserPanelView.swift"
+    panel_path = root / "Sources" / "Panels" / "BrowserPanel.swift"
     source = view_path.read_text(encoding="utf-8")
+    panel_source = panel_path.read_text(encoding="utf-8")
     failures: list[str] = []
 
     try:
@@ -84,6 +86,24 @@ def main() -> int:
 
     if "browserSearchState: panel.searchState" not in source:
         failures.append("BrowserPanelView must pass panel.searchState into WebViewRepresentable")
+
+    try:
+        update_ns_view_block = extract_block(webview_repr_block, "func updateNSView(_ nsView: NSView, context: Context)")
+    except ValueError as error:
+        failures.append(str(error))
+        update_ns_view_block = ""
+
+    if "Self.updateSearchOverlay(" in update_ns_view_block:
+        failures.append("updateNSView must not re-run updateSearchOverlay outside portal lifecycle paths")
+
+    try:
+        suppress_focus_block = extract_block(panel_source, "func shouldSuppressWebViewFocus() -> Bool")
+    except ValueError as error:
+        failures.append(str(error))
+        suppress_focus_block = ""
+
+    if "if searchState != nil {" not in suppress_focus_block:
+        failures.append("BrowserPanel.shouldSuppressWebViewFocus must suppress focus while find-in-page is active")
 
     if failures:
         print("FAIL: browser find overlay portal regression guards failed")
