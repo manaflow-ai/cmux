@@ -44,7 +44,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un programa en ejecucion dentro de cmux desea usar tu microfono."
+            "value": "Un programa en ejecución dentro de cmux desea usar tu micrófono."
           }
         },
         "fr": {
@@ -62,7 +62,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Et program, der korer i cmux, vil gerne bruge din mikrofon."
+            "value": "Et program, der kører i cmux, vil gerne bruge din mikrofon."
           }
         },
         "pl": {
@@ -157,7 +157,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nuevo espacio de trabajo de $(PRODUCT_NAME) aqui"
+            "value": "Nuevo espacio de trabajo de $(PRODUCT_NAME) aquí"
           }
         },
         "fr": {
@@ -175,7 +175,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nyt $(PRODUCT_NAME)-arbejdsomrade her"
+            "value": "Nyt $(PRODUCT_NAME)-arbejdsområde her"
           }
         },
         "pl": {
@@ -270,7 +270,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nueva ventana de $(PRODUCT_NAME) aqui"
+            "value": "Nueva ventana de $(PRODUCT_NAME) aquí"
           }
         },
         "fr": {

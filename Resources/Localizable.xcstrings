@@ -157,7 +157,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Compilacion"
+            "value": "Compilación"
           }
         },
         "fr": {
@@ -383,7 +383,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un terminal basado en Ghostty con pestanas verticales\\ny un panel de notificaciones para macOS."
+            "value": "Un terminal basado en Ghostty con pestañas verticales\\ny un panel de notificaciones para macOS."
           }
         },
         "fr": {
@@ -401,7 +401,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "En Ghostty-baseret terminal med lodrette faner\\nog et notifikationspanel til macOS."
+            "value": "En Ghostty-baseret terminal med lodrette faner\nog et notifikationspanel til macOS."
           }
         },
         "pl": {
@@ -496,7 +496,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Documentacion"
+            "value": "Documentación"
           }
         },
         "fr": {
@@ -835,7 +835,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No se encontro el archivo de licencias."
+            "value": "No se encontró el archivo de licencias."
           }
         },
         "fr": {
@@ -1061,7 +1061,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Version"
+            "value": "Versión"
           }
         },
         "fr": {
@@ -1192,7 +1192,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@, arbejdsomrade %2$lld af %3$lld"
+            "value": "%1$@, arbejdsområde %2$lld af %3$lld"
           }
         },
         "pl": {
@@ -1644,7 +1644,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tilpasset arbejdsomradefarve"
+            "value": "Tilpasset arbejdsområdefarve"
           }
         },
         "pl": {
@@ -1852,7 +1852,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "\"%@\" no es un color hexadecimal valido. Usa #RRGGBB."
+            "value": "\"%@\" no es un color hexadecimal válido. Usa #RRGGBB."
           }
         },
         "fr": {
@@ -2078,7 +2078,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Color no valido"
+            "value": "Color no válido"
           }
         },
         "fr": {
@@ -2322,7 +2322,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Indtast et brugerdefineret navn til dette arbejdsomrade."
+            "value": "Indtast et brugerdefineret navn til dette arbejdsområde."
           }
         },
         "pl": {
@@ -2435,7 +2435,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Navn pa arbejdsomrade"
+            "value": "Navn på arbejdsområde"
           }
         },
         "pl": {
@@ -2548,7 +2548,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Omdob"
+            "value": "Omdøb"
           }
         },
         "pl": {
@@ -2661,7 +2661,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Omdob arbejdsomrade"
+            "value": "Omdøb arbejdsområde"
           }
         },
         "pl": {
@@ -2756,7 +2756,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Automatico"
+            "value": "Automático"
           }
         },
         "fr": {
@@ -2887,7 +2887,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mork"
+            "value": "Mørk"
           }
         },
         "pl": {
@@ -3095,7 +3095,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Automatico"
+            "value": "Automático"
           }
         },
         "fr": {
@@ -3226,7 +3226,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mork"
+            "value": "Mørk"
           }
         },
         "pl": {
@@ -3547,7 +3547,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "nueva pestana"
+            "value": "nueva pestaña"
           }
         },
         "fr": {
@@ -3678,7 +3678,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sog, eller indtast URL"
+            "value": "Søg eller indtast URL"
           }
         },
         "pl": {
@@ -3791,7 +3791,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Forslag i adresselinjen"
+            "value": "Forslag til adresselinjen"
           }
         },
         "pl": {
@@ -3904,7 +3904,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tillad altid denne vart i cmux"
+            "value": "Tillad altid denne vært i cmux"
           }
         },
         "pl": {
@@ -4017,7 +4017,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Abn link i standardbrowser"
+            "value": "Åbn link i standardbrowser"
           }
         },
         "pl": {
@@ -4112,7 +4112,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Abrir enlace en una nueva pestana"
+            "value": "Abrir enlace en una nueva pestaña"
           }
         },
         "fr": {
@@ -4130,7 +4130,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Abn link i ny fane"
+            "value": "Åbn link i ny fane"
           }
         },
         "pl": {
@@ -4225,7 +4225,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Esta pagina dice:"
+            "value": "Esta página dice:"
           }
         },
         "fr": {
@@ -4338,7 +4338,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "La pagina en %@ dice:"
+            "value": "La página en %@ dice:"
           }
         },
         "fr": {
@@ -4356,7 +4356,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Siden pa %@ siger:"
+            "value": "Siden på %@ siger:"
           }
         },
         "pl": {
@@ -4582,7 +4582,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Downloader..."
+            "value": "Downloader…"
           }
         },
         "pl": {
@@ -4677,7 +4677,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No se puede abrir esta pagina"
+            "value": "No se puede abrir esta página"
           }
         },
         "fr": {
@@ -4695,7 +4695,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kan ikke abne denne side"
+            "value": "Kan ikke åbne denne side"
           }
         },
         "pl": {
@@ -4790,7 +4790,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "El sitio rechazo la conexion. Comprueba que haya un servidor en ejecucion en esta direccion."
+            "value": "El sitio rechazó la conexión. Comprueba que haya un servidor en ejecución en esta dirección."
           }
         },
         "fr": {
@@ -4808,7 +4808,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Siden nagtede forbindelsen. Kontroller, at en server korer pa denne adresse."
+            "value": "Siden nægtede forbindelsen. Kontroller at en server kører på denne adresse."
           }
         },
         "pl": {
@@ -4903,7 +4903,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ rechazo la conexion. Comprueba que haya un servidor en ejecucion en esta direccion."
+            "value": "%@ rechazó la conexión. Comprueba que haya un servidor en ejecución en esta dirección."
           }
         },
         "fr": {
@@ -4921,7 +4921,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ nagtede forbindelsen. Kontroller, at en server korer pa denne adresse."
+            "value": "%@ nægtede forbindelsen. Kontroller at en server kører på denne adresse."
           }
         },
         "pl": {
@@ -5016,7 +5016,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No se puede acceder a esta pagina"
+            "value": "No se puede acceder a esta página"
           }
         },
         "fr": {
@@ -5034,7 +5034,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kan ikke na denne side"
+            "value": "Kan ikke nå denne side"
           }
         },
         "pl": {
@@ -5129,7 +5129,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Comprueba tu conexion de red e intentalo de nuevo."
+            "value": "Comprueba tu conexión de red e inténtalo de nuevo."
           }
         },
         "fr": {
@@ -5147,7 +5147,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kontroller din netvarkssforbindelse, og prov igen."
+            "value": "Kontroller din netværksforbindelse, og prøv igen."
           }
         },
         "pl": {
@@ -5260,7 +5260,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Indlasning af ramme blev afbrudt"
+            "value": "Indlæsning af ramme blev afbrudt"
           }
         },
         "pl": {
@@ -5355,7 +5355,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ usa HTTP sin cifrar, por lo que el trafico puede ser leido o modificado en la red.\n\nAbre esta URL en tu navegador predeterminado o continua en cmux."
+            "value": "%@ usa HTTP sin cifrar, por lo que el tráfico puede ser leído o modificado en la red.\n\nAbre esta URL en tu navegador predeterminado o continúa en cmux."
           }
         },
         "fr": {
@@ -5373,7 +5373,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ bruger almindelig HTTP, sa trafik kan lases eller andres pa netvarket.\n\nAbn denne URL i din standardbrowser, eller fortsat i cmux."
+            "value": "%@ bruger almindelig HTTP, så trafikken kan læses eller ændres på netværket.\n\nÅbn denne URL i din standardbrowser, eller fortsæt i cmux."
           }
         },
         "pl": {
@@ -5468,7 +5468,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "La conexion no es segura"
+            "value": "La conexión no es segura"
           }
         },
         "fr": {
@@ -5581,7 +5581,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "El certificado de este sitio no es valido."
+            "value": "El certificado de este sitio no es válido."
           }
         },
         "fr": {
@@ -5694,7 +5694,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sin conexion a internet"
+            "value": "Sin conexión a internet"
           }
         },
         "fr": {
@@ -5825,7 +5825,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Genindlas"
+            "value": "Genindlæs"
           }
         },
         "pl": {
@@ -5938,7 +5938,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ga tilbage"
+            "value": "Gå tilbage"
           }
         },
         "pl": {
@@ -6051,7 +6051,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ga frem"
+            "value": "Gå frem"
           }
         },
         "pl": {
@@ -6164,7 +6164,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "ga til URL"
+            "value": "gå til URL"
           }
         },
         "pl": {
@@ -6259,7 +6259,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nueva pestana"
+            "value": "Nueva pestaña"
           }
         },
         "fr": {
@@ -6390,7 +6390,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Abn i standardbrowser"
+            "value": "Åbn i standardbrowser"
           }
         },
         "pl": {
@@ -6503,7 +6503,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fortsat i cmux"
+            "value": "Fortsæt i cmux"
           }
         },
         "pl": {
@@ -6616,7 +6616,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Genindlas"
+            "value": "Genindlæs"
           }
         },
         "pl": {
@@ -6729,7 +6729,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sog"
+            "value": "Søg"
           }
         },
         "pl": {
@@ -6937,7 +6937,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cambiar a pestana"
+            "value": "Cambiar a pestaña"
           }
         },
         "fr": {
@@ -7068,7 +7068,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vis/skjul udviklervarktoj"
+            "value": "Slå udviklerværktøjer til/fra"
           }
         },
         "pl": {
@@ -7181,7 +7181,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Administratorrettigheder var nodvendige for at skrive til /usr/local/bin."
+            "value": "Administratorrettigheder var nødvendige for at skrive til /usr/local/bin."
           }
         },
         "pl": {
@@ -7276,7 +7276,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Enlace simbolico creado:\n\n%1$@ -> %2$@"
+            "value": "Enlace simbólico creado:\n\n%1$@ -> %2$@"
           }
         },
         "fr": {
@@ -7294,7 +7294,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Symbolsk link oprettet:\n\n%1$@ -> %2$@"
+            "value": "Symbolsk link oprettet:\n%1$@ -> %2$@"
           }
         },
         "pl": {
@@ -7633,7 +7633,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Administratorrettigheder var nodvendige for at andre /usr/local/bin."
+            "value": "Administratorrettigheder var nødvendige for at ændre /usr/local/bin."
           }
         },
         "pl": {
@@ -7728,7 +7728,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No se encontro ningun enlace simbolico de la CLI de cmux en %@."
+            "value": "No se encontró ningún enlace simbólico de la CLI de cmux en %@."
           }
         },
         "fr": {
@@ -7746,7 +7746,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Intet cmux CLI-symbolsk link blev fundet pa %@."
+            "value": "Intet cmux CLI symbolsk link blev fundet på %@."
           }
         },
         "pl": {
@@ -7841,7 +7841,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Se elimino %@."
+            "value": "Se eliminó %@."
           }
         },
         "fr": {
@@ -8293,7 +8293,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aplicar actualizacion (si esta disponible)"
+            "value": "Aplicar actualización (si está disponible)"
           }
         },
         "fr": {
@@ -8311,7 +8311,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Anvend opdatering (hvis tilgangelig)"
+            "value": "Anvend opdatering (hvis tilgængelig)"
           }
         },
         "pl": {
@@ -8519,7 +8519,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Intentar actualizacion"
+            "value": "Intentar actualización"
           }
         },
         "fr": {
@@ -8537,7 +8537,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Forsog opdatering"
+            "value": "Forsøg opdatering"
           }
         },
         "pl": {
@@ -8632,7 +8632,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Atras"
+            "value": "Atrás"
           }
         },
         "fr": {
@@ -9084,7 +9084,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Disposicion del navegador"
+            "value": "Disposición del navegador"
           }
         },
         "fr": {
@@ -9215,7 +9215,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dubler browser til hojre"
+            "value": "Dupliker browser til højre"
           }
         },
         "pl": {
@@ -9328,7 +9328,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fokuser pa adresselinjen"
+            "value": "Fokuser adresselinjen"
           }
         },
         "pl": {
@@ -9536,7 +9536,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Abrir pagina actual en el navegador predeterminado"
+            "value": "Abrir página actual en el navegador predeterminado"
           }
         },
         "fr": {
@@ -9554,7 +9554,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Abn aktuel side i standardbrowser"
+            "value": "Åbn aktuel side i standardbrowser"
           }
         },
         "pl": {
@@ -9649,7 +9649,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Recargar pagina"
+            "value": "Recargar página"
           }
         },
         "fr": {
@@ -9667,7 +9667,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Genindlas side"
+            "value": "Genindlæs side"
           }
         },
         "pl": {
@@ -9762,7 +9762,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Disposicion del navegador"
+            "value": "Disposición del navegador"
           }
         },
         "fr": {
@@ -9893,7 +9893,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Del browser nedad"
+            "value": "Opdel browser nedad"
           }
         },
         "pl": {
@@ -9988,7 +9988,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Disposicion del navegador"
+            "value": "Disposición del navegador"
           }
         },
         "fr": {
@@ -10119,7 +10119,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Del browser til hojre"
+            "value": "Opdel browser til højre"
           }
         },
         "pl": {
@@ -10232,7 +10232,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vis/skjul udviklervarktoj"
+            "value": "Slå udviklerværktøjer til/fra"
           }
         },
         "pl": {
@@ -10553,7 +10553,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tamano real"
+            "value": "Tamaño real"
           }
         },
         "fr": {
@@ -10571,7 +10571,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Faktisk storrelse"
+            "value": "Faktisk størrelse"
           }
         },
         "pl": {
@@ -10797,7 +10797,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sog efter opdateringer"
+            "value": "Søg efter opdateringer"
           }
         },
         "pl": {
@@ -10892,7 +10892,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Borrar nombre de pestana"
+            "value": "Borrar nombre de pestaña"
           }
         },
         "fr": {
@@ -11023,7 +11023,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ryd arbejdsomradenavn"
+            "value": "Ryd arbejdsområdenavn"
           }
         },
         "pl": {
@@ -11118,7 +11118,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pestana"
+            "value": "Pestaña"
           }
         },
         "fr": {
@@ -11231,7 +11231,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cerrar pestana"
+            "value": "Cerrar pestaña"
           }
         },
         "fr": {
@@ -11588,7 +11588,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Arbejdsomrade"
+            "value": "Arbejdsområde"
           }
         },
         "pl": {
@@ -11701,7 +11701,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Luk arbejdsomrade"
+            "value": "Luk arbejdsområde"
           }
         },
         "pl": {
@@ -12040,7 +12040,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shell-kommando: Installer 'cmux' i PATH"
+            "value": "Skalkommando: Installer 'cmux' i PATH"
           }
         },
         "pl": {
@@ -12248,7 +12248,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ir a la ultima no leida"
+            "value": "Ir a la última no leída"
           }
         },
         "fr": {
@@ -12266,7 +12266,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hop til seneste ulaste"
+            "value": "Gå til seneste ulæste"
           }
         },
         "pl": {
@@ -12361,7 +12361,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Marcar pestana como leida"
+            "value": "Marcar pestaña como leída"
           }
         },
         "fr": {
@@ -12379,7 +12379,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Marker fane som last"
+            "value": "Marker fane som læst"
           }
         },
         "pl": {
@@ -12474,7 +12474,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Marcar pestana como no leida"
+            "value": "Marcar pestaña como no leída"
           }
         },
         "fr": {
@@ -12492,7 +12492,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Marker fane som ulast"
+            "value": "Marker fane som ulæst"
           }
         },
         "pl": {
@@ -12587,7 +12587,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pestana"
+            "value": "Pestaña"
           }
         },
         "fr": {
@@ -12700,7 +12700,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nueva pestana (Navegador)"
+            "value": "Nueva pestaña (Navegador)"
           }
         },
         "fr": {
@@ -12813,7 +12813,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pestana"
+            "value": "Pestaña"
           }
         },
         "fr": {
@@ -12926,7 +12926,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nueva pestana (Terminal)"
+            "value": "Nueva pestaña (Terminal)"
           }
         },
         "fr": {
@@ -13283,7 +13283,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Arbejdsomrade"
+            "value": "Arbejdsområde"
           }
         },
         "pl": {
@@ -13396,7 +13396,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nyt arbejdsomrade"
+            "value": "Nyt arbejdsområde"
           }
         },
         "pl": {
@@ -13491,7 +13491,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Navegacion de pestanas"
+            "value": "Navegación de pestañas"
           }
         },
         "fr": {
@@ -13604,7 +13604,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Siguiente pestana en el panel"
+            "value": "Siguiente pestaña en el panel"
           }
         },
         "fr": {
@@ -13622,7 +13622,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Naste fane i rude"
+            "value": "Næste fane i panel"
           }
         },
         "pl": {
@@ -13717,7 +13717,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Navegacion de espacios de trabajo"
+            "value": "Navegación de espacios de trabajo"
           }
         },
         "fr": {
@@ -13735,7 +13735,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Arbejdsomradenavigation"
+            "value": "Arbejdsområdenavigation"
           }
         },
         "pl": {
@@ -13848,7 +13848,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Naste arbejdsomrade"
+            "value": "Næste arbejdsområde"
           }
         },
         "pl": {
@@ -13961,7 +13961,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Arbejdsomrade"
+            "value": "Arbejdsområde"
           }
         },
         "pl": {
@@ -14056,7 +14056,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Abrir carpeta..."
+            "value": "Abrir carpeta…"
           }
         },
         "fr": {
@@ -14074,7 +14074,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Abn mappe..."
+            "value": "Åbn mappe…"
           }
         },
         "pl": {
@@ -14300,7 +14300,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Abn indstillinger"
+            "value": "Åbn indstillinger"
           }
         },
         "pl": {
@@ -14413,7 +14413,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Abn alle PR-links for arbejdsomrade"
+            "value": "Åbn alle PR-links for arbejdsområde"
           }
         },
         "pl": {
@@ -14508,7 +14508,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fijar pestana"
+            "value": "Fijar pestaña"
           }
         },
         "fr": {
@@ -14526,7 +14526,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fastgor fane"
+            "value": "Fastgør fane"
           }
         },
         "pl": {
@@ -14639,7 +14639,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fastgor arbejdsomrade"
+            "value": "Fastgør arbejdsområde"
           }
         },
         "pl": {
@@ -14734,7 +14734,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Navegacion de pestanas"
+            "value": "Navegación de pestañas"
           }
         },
         "fr": {
@@ -14847,7 +14847,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pestana anterior en el panel"
+            "value": "Pestaña anterior en el panel"
           }
         },
         "fr": {
@@ -14865,7 +14865,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Forrige fane i rude"
+            "value": "Forrige fane i panel"
           }
         },
         "pl": {
@@ -14960,7 +14960,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Navegacion de espacios de trabajo"
+            "value": "Navegación de espacios de trabajo"
           }
         },
         "fr": {
@@ -14978,7 +14978,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Arbejdsomradenavigation"
+            "value": "Arbejdsområdenavigation"
           }
         },
         "pl": {
@@ -15091,7 +15091,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Forrige arbejdsomrade"
+            "value": "Forrige arbejdsområde"
           }
         },
         "pl": {
@@ -15186,7 +15186,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Renombrar pestana..."
+            "value": "Renombrar pestaña…"
           }
         },
         "fr": {
@@ -15204,7 +15204,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Omdob fane..."
+            "value": "Omdøb fane…"
           }
         },
         "pl": {
@@ -15299,7 +15299,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Renombrar espacio de trabajo..."
+            "value": "Renombrar espacio de trabajo…"
           }
         },
         "fr": {
@@ -15317,7 +15317,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Omdob arbejdsomrade..."
+            "value": "Omdøb arbejdsområde…"
           }
         },
         "pl": {
@@ -15525,7 +15525,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reabrir pestana del navegador cerrada"
+            "value": "Reabrir pestaña del navegador cerrada"
           }
         },
         "fr": {
@@ -15543,7 +15543,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Genabn lukket browserfane"
+            "value": "Genåbn lukket browserfane"
           }
         },
         "pl": {
@@ -16090,7 +16090,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Buscar..."
+            "value": "Buscar…"
           }
         },
         "fr": {
@@ -16108,7 +16108,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sog..."
+            "value": "Søg…"
           }
         },
         "pl": {
@@ -16221,7 +16221,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Find naste"
+            "value": "Find næste"
           }
         },
         "pl": {
@@ -16429,7 +16429,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ocultar barra de busqueda"
+            "value": "Ocultar barra de búsqueda"
           }
         },
         "fr": {
@@ -16447,7 +16447,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Skjul sogelinje"
+            "value": "Skjul søgelinje"
           }
         },
         "pl": {
@@ -16542,7 +16542,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Disposicion del terminal"
+            "value": "Disposición del terminal"
           }
         },
         "fr": {
@@ -16673,7 +16673,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Del browser nedad"
+            "value": "Opdel browser nedad"
           }
         },
         "pl": {
@@ -16768,7 +16768,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Disposicion del terminal"
+            "value": "Disposición del terminal"
           }
         },
         "fr": {
@@ -16899,7 +16899,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Del browser til hojre"
+            "value": "Opdel browser til højre"
           }
         },
         "pl": {
@@ -16994,7 +16994,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Disposicion del terminal"
+            "value": "Disposición del terminal"
           }
         },
         "fr": {
@@ -17125,7 +17125,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Del nedad"
+            "value": "Opdel nedad"
           }
         },
         "pl": {
@@ -17220,7 +17220,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Disposicion del terminal"
+            "value": "Disposición del terminal"
           }
         },
         "fr": {
@@ -17351,7 +17351,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Del til hojre"
+            "value": "Opdel til højre"
           }
         },
         "pl": {
@@ -17446,7 +17446,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usar seleccion para buscar"
+            "value": "Usar selección para buscar"
           }
         },
         "fr": {
@@ -17464,7 +17464,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Brug markering til sogning"
+            "value": "Brug markering til søgning"
           }
         },
         "pl": {
@@ -17690,7 +17690,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Skift fuldskarm"
+            "value": "Skift fuldskærm"
           }
         },
         "pl": {
@@ -17785,7 +17785,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Disposicion"
+            "value": "Disposición"
           }
         },
         "fr": {
@@ -17916,7 +17916,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vis/skjul sidebjalk"
+            "value": "Slå sidebjælke til/fra"
           }
         },
         "pl": {
@@ -18011,7 +18011,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Disposicion del terminal"
+            "value": "Disposición del terminal"
           }
         },
         "fr": {
@@ -18142,7 +18142,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vis/skjul rudezoom"
+            "value": "Slå panelzoom til/fra"
           }
         },
         "pl": {
@@ -18368,7 +18368,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Blink fokuseret panel"
+            "value": "Fremhæv fokuseret panel"
           }
         },
         "pl": {
@@ -18594,7 +18594,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shell-kommando: Afinstaller 'cmux' fra PATH"
+            "value": "Skalkommando: Afinstaller 'cmux' fra PATH"
           }
         },
         "pl": {
@@ -18689,7 +18689,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Desfijar pestana"
+            "value": "Desfijar pestaña"
           }
         },
         "fr": {
@@ -18707,7 +18707,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Frigiv fane"
+            "value": "Frigør fane"
           }
         },
         "pl": {
@@ -18820,7 +18820,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Frigiv arbejdsomrade"
+            "value": "Frigør arbejdsområde"
           }
         },
         "pl": {
@@ -18915,7 +18915,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reiniciar servidor en linea de VS Code"
+            "value": "Reiniciar servidor en línea de VS Code"
           }
         },
         "fr": {
@@ -18933,7 +18933,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Genstart VS Code inline-server"
+            "value": "Genstart VS Code Inline Server"
           }
         },
         "pl": {
@@ -19028,7 +19028,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Detener servidor en linea de VS Code"
+            "value": "Detener servidor en línea de VS Code"
           }
         },
         "fr": {
@@ -19046,7 +19046,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Stop VS Code inline-server"
+            "value": "Stop VS Code Inline Server"
           }
         },
         "pl": {
@@ -19159,7 +19159,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Arbejdsomrade"
+            "value": "Arbejdsområde"
           }
         },
         "pl": {
@@ -19367,7 +19367,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pulsa Intro para aplicar este nombre de pestana, o Escape para cancelar."
+            "value": "Pulsa Intro para aplicar este nombre de pestaña, o Escape para cancelar."
           }
         },
         "fr": {
@@ -19385,7 +19385,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tryk pa Enter for at anvende dette fanenavn, eller Escape for at annullere."
+            "value": "Tryk Enter for at anvende dette fanenavn, eller Escape for at annullere."
           }
         },
         "pl": {
@@ -19480,7 +19480,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Elige un nombre personalizado para la pestana."
+            "value": "Elige un nombre personalizado para la pestaña."
           }
         },
         "fr": {
@@ -19498,7 +19498,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Valg et brugerdefineret fanenavn."
+            "value": "Vælg et brugerdefineret fanenavn."
           }
         },
         "pl": {
@@ -19593,7 +19593,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Introduce un nombre de pestana. Pulsa Intro para renombrar, Escape para cancelar."
+            "value": "Introduce un nombre de pestaña. Pulsa Intro para renombrar, Escape para cancelar."
           }
         },
         "fr": {
@@ -19611,7 +19611,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Indtast et fanenavn. Tryk Enter for at omdobe, Escape for at annullere."
+            "value": "Indtast et fanenavn. Tryk Enter for at omdøbe, Escape for at annullere."
           }
         },
         "pl": {
@@ -19706,7 +19706,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nombre de pestana"
+            "value": "Nombre de pestaña"
           }
         },
         "fr": {
@@ -19819,7 +19819,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Renombrar pestana"
+            "value": "Renombrar pestaña"
           }
         },
         "fr": {
@@ -19837,7 +19837,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Omdob fane"
+            "value": "Omdøb fane"
           }
         },
         "pl": {
@@ -19950,7 +19950,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tryk pa Enter for at anvende dette arbejdsomradenavn, eller Escape for at annullere."
+            "value": "Tryk Enter for at anvende dette arbejdsområdenavn, eller Escape for at annullere."
           }
         },
         "pl": {
@@ -20063,7 +20063,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Valg et brugerdefineret arbejdsomradenavn."
+            "value": "Vælg et brugerdefineret arbejdsområdenavn."
           }
         },
         "pl": {
@@ -20176,7 +20176,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Indtast et arbejdsomradenavn. Tryk Enter for at omdobe, Escape for at annullere."
+            "value": "Indtast et arbejdsområdenavn. Tryk Enter for at omdøbe, Escape for at annullere."
           }
         },
         "pl": {
@@ -20289,7 +20289,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Navn pa arbejdsomrade"
+            "value": "Arbejdsområdenavn"
           }
         },
         "pl": {
@@ -20402,7 +20402,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Omdob arbejdsomrade"
+            "value": "Omdøb arbejdsområde"
           }
         },
         "pl": {
@@ -20497,7 +20497,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ningun comando coincide con tu busqueda."
+            "value": "Ningún comando coincide con tu búsqueda."
           }
         },
         "fr": {
@@ -20515,7 +20515,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ingen kommandoer matcher din sogning."
+            "value": "Ingen kommandoer matcher din søgning."
           }
         },
         "pl": {
@@ -20723,7 +20723,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ningun espacio de trabajo coincide con tu busqueda."
+            "value": "Ningún espacio de trabajo coincide con tu búsqueda."
           }
         },
         "fr": {
@@ -20741,7 +20741,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ingen arbejdsomrader matcher din sogning."
+            "value": "Ingen arbejdsområder matcher din søgning."
           }
         },
         "pl": {
@@ -20854,7 +20854,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sog i arbejdsomrader"
+            "value": "Søg i arbejdsområder"
           }
         },
         "pl": {
@@ -20967,7 +20967,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Browser - %@"
+            "value": "Browser • %@"
           }
         },
         "pl": {
@@ -21062,7 +21062,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pestana"
+            "value": "Pestaña"
           }
         },
         "fr": {
@@ -21175,7 +21175,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pestana • %@"
+            "value": "Pestaña • %@"
           }
         },
         "fr": {
@@ -21193,7 +21193,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fane - %@"
+            "value": "Fane • %@"
           }
         },
         "pl": {
@@ -21306,7 +21306,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Terminal - %@"
+            "value": "Terminal • %@"
           }
         },
         "pl": {
@@ -21419,7 +21419,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Arbejdsomrade"
+            "value": "Arbejdsområde"
           }
         },
         "pl": {
@@ -21532,7 +21532,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Arbejdsomrade - %@"
+            "value": "Arbejdsområde • %@"
           }
         },
         "pl": {
@@ -21758,7 +21758,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Arbejdsomrade"
+            "value": "Arbejdsområde"
           }
         },
         "pl": {
@@ -22531,7 +22531,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mas tarde"
+            "value": "Más tarde"
           }
         },
         "fr": {
@@ -22888,7 +22888,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Omdob"
+            "value": "Omdøb"
           }
         },
         "pl": {
@@ -22983,7 +22983,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reiniciar mas tarde"
+            "value": "Reiniciar más tarde"
           }
         },
         "fr": {
@@ -23227,7 +23227,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Prov igen"
+            "value": "Prøv igen"
           }
         },
         "pl": {
@@ -23435,7 +23435,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Elegir color personalizado..."
+            "value": "Elegir color personalizado…"
           }
         },
         "fr": {
@@ -23453,7 +23453,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Valg tilpasset farve..."
+            "value": "Vælg brugerdefineret farve…"
           }
         },
         "pl": {
@@ -23679,7 +23679,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Luk andre arbejdsomrader"
+            "value": "Luk andre arbejdsområder"
           }
         },
         "pl": {
@@ -23792,7 +23792,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Luk arbejdsomrade"
+            "value": "Luk arbejdsområde"
           }
         },
         "pl": {
@@ -23905,7 +23905,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Luk arbejdsomrader"
+            "value": "Luk arbejdsområder"
           }
         },
         "pl": {
@@ -24018,7 +24018,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Luk arbejdsomrader ovenover"
+            "value": "Luk arbejdsområder ovenfor"
           }
         },
         "pl": {
@@ -24131,7 +24131,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Luk arbejdsomrader nedenunder"
+            "value": "Luk arbejdsområder nedenfor"
           }
         },
         "pl": {
@@ -24226,7 +24226,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Marcar espacio de trabajo como leido"
+            "value": "Marcar espacio de trabajo como leído"
           }
         },
         "fr": {
@@ -24244,7 +24244,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Marker arbejdsomrade som last"
+            "value": "Marker arbejdsområde som læst"
           }
         },
         "pl": {
@@ -24339,7 +24339,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Marcar espacio de trabajo como no leido"
+            "value": "Marcar espacio de trabajo como no leído"
           }
         },
         "fr": {
@@ -24357,7 +24357,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Marker arbejdsomrade som ulast"
+            "value": "Marker arbejdsområde som ulæst"
           }
         },
         "pl": {
@@ -24452,7 +24452,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Marcar espacios de trabajo como leidos"
+            "value": "Marcar espacios de trabajo como leídos"
           }
         },
         "fr": {
@@ -24470,7 +24470,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Marker arbejdsomrader som laste"
+            "value": "Marker arbejdsområder som læste"
           }
         },
         "pl": {
@@ -24565,7 +24565,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Marcar espacios de trabajo como no leidos"
+            "value": "Marcar espacios de trabajo como no leídos"
           }
         },
         "fr": {
@@ -24583,7 +24583,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Marker arbejdsomrader som ulaste"
+            "value": "Marker arbejdsområder som ulæste"
           }
         },
         "pl": {
@@ -24809,7 +24809,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Flyt oVerst"
+            "value": "Flyt til toppen"
           }
         },
         "pl": {
@@ -25035,7 +25035,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Flyt arbejdsomrade til vindue"
+            "value": "Flyt arbejdsområde til vindue"
           }
         },
         "pl": {
@@ -25148,7 +25148,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Flyt arbejdsomrader til vindue"
+            "value": "Flyt arbejdsområder til vindue"
           }
         },
         "pl": {
@@ -25374,7 +25374,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fastgor arbejdsomrade"
+            "value": "Fastgør arbejdsområde"
           }
         },
         "pl": {
@@ -25487,7 +25487,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fastgor arbejdsomrader"
+            "value": "Fastgør arbejdsområder"
           }
         },
         "pl": {
@@ -25600,7 +25600,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fjern brugerdefineret arbejdsomradenavn"
+            "value": "Fjern brugerdefineret arbejdsområdenavn"
           }
         },
         "pl": {
@@ -25695,7 +25695,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Renombrar espacio de trabajo..."
+            "value": "Renombrar espacio de trabajo…"
           }
         },
         "fr": {
@@ -25713,7 +25713,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Omdob arbejdsomrade..."
+            "value": "Omdøb arbejdsområde…"
           }
         },
         "pl": {
@@ -25826,7 +25826,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Frigiv arbejdsomrade"
+            "value": "Frigør arbejdsområde"
           }
         },
         "pl": {
@@ -25939,7 +25939,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Frigiv arbejdsomrader"
+            "value": "Frigør arbejdsområder"
           }
         },
         "pl": {
@@ -26052,7 +26052,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Arbejdsomradefarve"
+            "value": "Arbejdsområdefarve"
           }
         },
         "pl": {
@@ -26147,7 +26147,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Esto cerrara la ultima pestana y cerrara la ventana."
+            "value": "Esto cerrará la última pestaña y cerrará la ventana."
           }
         },
         "fr": {
@@ -26260,7 +26260,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Esto cerrara la ultima pestana y cerrara su espacio de trabajo."
+            "value": "Esto cerrará la última pestaña y cerrará su espacio de trabajo."
           }
         },
         "fr": {
@@ -26278,7 +26278,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dette lukker den sidste fane og lukker dens arbejdsomrade."
+            "value": "Dette lukker den sidste fane og lukker dets arbejdsområde."
           }
         },
         "pl": {
@@ -26373,7 +26373,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Esto cerrara 1 pestana en este panel:\n%@"
+            "value": "Esto cerrará 1 pestaña en este panel:\n%@"
           }
         },
         "fr": {
@@ -26391,7 +26391,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dette lukker 1 fane i denne rude:\n%@"
+            "value": "Dette lukker 1 fane i dette panel:\n%@"
           }
         },
         "pl": {
@@ -26486,7 +26486,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Esto cerrara %1$lld pestanas en este panel:\n%2$@"
+            "value": "Esto cerrará %1$lld pestañas en este panel:\n%2$@"
           }
         },
         "fr": {
@@ -26504,7 +26504,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dette lukker %1$lld faner i denne rude:\n%2$@"
+            "value": "Dette lukker %1$lld faner i dette panel:\n%2$@"
           }
         },
         "pl": {
@@ -26599,7 +26599,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cerrar otras pestanas?"
+            "value": "¿Cerrar otras pestañas?"
           }
         },
         "fr": {
@@ -26825,7 +26825,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Esto cerrara la pestana actual."
+            "value": "Esto cerrará la pestaña actual."
           }
         },
         "fr": {
@@ -26938,7 +26938,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cerrar pestana?"
+            "value": "¿Cerrar pestaña?"
           }
         },
         "fr": {
@@ -27051,7 +27051,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Esto cerrara el espacio de trabajo y todos sus paneles."
+            "value": "Esto cerrará el espacio de trabajo y todos sus paneles."
           }
         },
         "fr": {
@@ -27069,7 +27069,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dette lukker arbejdsomradet og alle dets paneler."
+            "value": "Dette lukker arbejdsområdet og alle dets paneler."
           }
         },
         "pl": {
@@ -27164,7 +27164,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cerrar espacio de trabajo?"
+            "value": "¿Cerrar espacio de trabajo?"
           }
         },
         "fr": {
@@ -27182,7 +27182,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Luk arbejdsomrade?"
+            "value": "Luk arbejdsområde?"
           }
         },
         "pl": {
@@ -27390,7 +27390,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Las notificaciones estan desactivadas para cmux. Activalas en Ajustes del Sistema para ver alertas."
+            "value": "Las notificaciones están desactivadas para cmux. Actívalas en Ajustes del Sistema para ver alertas."
           }
         },
         "fr": {
@@ -27634,7 +27634,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Abn indstillinger"
+            "value": "Åbn indstillinger"
           }
         },
         "pl": {
@@ -27842,7 +27842,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux no pudo mover esta pestana al destino seleccionado."
+            "value": "cmux no pudo mover esta pestaña al destino seleccionado."
           }
         },
         "fr": {
@@ -28068,7 +28068,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Elige un destino para esta pestana."
+            "value": "Elige un destino para esta pestaña."
           }
         },
         "fr": {
@@ -28086,7 +28086,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Valg en destination for denne fane."
+            "value": "Vælg en destination for denne fane."
           }
         },
         "pl": {
@@ -28312,7 +28312,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nyt arbejdsomrade i nuvarende vindue"
+            "value": "Nyt arbejdsområde i nuværende vindue"
           }
         },
         "pl": {
@@ -28425,7 +28425,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Valgt arbejdsomrade i nyt vindue"
+            "value": "Valgt arbejdsområde i nyt vindue"
           }
         },
         "pl": {
@@ -28520,7 +28520,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mover pestana"
+            "value": "Mover pestaña"
           }
         },
         "fr": {
@@ -28633,7 +28633,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Esto cerrara todas las ventanas y espacios de trabajo."
+            "value": "Esto cerrará todas las ventanas y espacios de trabajo."
           }
         },
         "fr": {
@@ -28651,7 +28651,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dette lukker alle vinduer og arbejdsomrader."
+            "value": "Dette lukker alle vinduer og arbejdsområder."
           }
         },
         "pl": {
@@ -28859,7 +28859,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Salir de cmux?"
+            "value": "¿Salir de cmux?"
           }
         },
         "fr": {
@@ -28972,7 +28972,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Introduce un nombre personalizado para esta pestana."
+            "value": "Introduce un nombre personalizado para esta pestaña."
           }
         },
         "fr": {
@@ -29085,7 +29085,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nombre de pestana"
+            "value": "Nombre de pestaña"
           }
         },
         "fr": {
@@ -29198,7 +29198,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Renombrar pestana"
+            "value": "Renombrar pestaña"
           }
         },
         "fr": {
@@ -29216,7 +29216,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Omdob fane"
+            "value": "Omdøb fane"
           }
         },
         "pl": {
@@ -29329,7 +29329,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Indtast et brugerdefineret navn til dette arbejdsomrade."
+            "value": "Indtast et brugerdefineret navn til dette arbejdsområde."
           }
         },
         "pl": {
@@ -29442,7 +29442,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Navn pa arbejdsomrade"
+            "value": "Arbejdsområdenavn"
           }
         },
         "pl": {
@@ -29555,7 +29555,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Omdob arbejdsomrade"
+            "value": "Omdøb arbejdsområde"
           }
         },
         "pl": {
@@ -29668,7 +29668,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kunne ikke indlase en mappesti fra udklipsholderen."
+            "value": "Kunne ikke indlæse nogen mappesti fra udklipsholderen."
           }
         },
         "pl": {
@@ -29989,7 +29989,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Buscar actualizaciones..."
+            "value": "Buscar actualizaciones…"
           }
         },
         "fr": {
@@ -30007,7 +30007,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sog efter opdateringer..."
+            "value": "Søg efter opdateringer…"
           }
         },
         "pl": {
@@ -30102,7 +30102,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ajustes de Ghostty..."
+            "value": "Ajustes de Ghostty…"
           }
         },
         "fr": {
@@ -30120,7 +30120,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ghostty-indstillinger..."
+            "value": "Ghostty-indstillinger…"
           }
         },
         "pl": {
@@ -30215,7 +30215,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Recargar configuracion"
+            "value": "Recargar configuración"
           }
         },
         "fr": {
@@ -30233,7 +30233,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Genindlas konfiguration"
+            "value": "Genindlæs konfiguration"
           }
         },
         "pl": {
@@ -30328,7 +30328,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ajustes..."
+            "value": "Ajustes…"
           }
         },
         "fr": {
@@ -30346,7 +30346,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Indstillinger..."
+            "value": "Indstillinger…"
           }
         },
         "pl": {
@@ -30441,7 +30441,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Buscar actualizaciones..."
+            "value": "Buscar actualizaciones…"
           }
         },
         "fr": {
@@ -30459,7 +30459,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sog efter opdateringer..."
+            "value": "Søg efter opdateringer…"
           }
         },
         "pl": {
@@ -30572,7 +30572,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nuvarende vindue"
+            "value": "Nuværende vindue"
           }
         },
         "pl": {
@@ -30667,7 +30667,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cerrar otras pestanas del panel"
+            "value": "Cerrar otras pestañas del panel"
           }
         },
         "fr": {
@@ -30685,7 +30685,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Luk andre faner i rude"
+            "value": "Luk andre faner i panel"
           }
         },
         "pl": {
@@ -30780,7 +30780,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cerrar pestana"
+            "value": "Cerrar pestaña"
           }
         },
         "fr": {
@@ -30911,7 +30911,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Luk arbejdsomrade"
+            "value": "Luk arbejdsområde"
           }
         },
         "pl": {
@@ -31006,7 +31006,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Paleta de comandos..."
+            "value": "Paleta de comandos…"
           }
         },
         "fr": {
@@ -31024,7 +31024,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kommandopalette..."
+            "value": "Kommandopalette…"
           }
         },
         "pl": {
@@ -31119,7 +31119,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ir al espacio de trabajo..."
+            "value": "Ir al espacio de trabajo…"
           }
         },
         "fr": {
@@ -31137,7 +31137,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ga til arbejdsomrade..."
+            "value": "Gå til arbejdsområde…"
           }
         },
         "pl": {
@@ -31363,7 +31363,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nyt arbejdsomrade"
+            "value": "Nyt arbejdsområde"
           }
         },
         "pl": {
@@ -31458,7 +31458,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Abrir carpeta..."
+            "value": "Abrir carpeta…"
           }
         },
         "fr": {
@@ -31476,7 +31476,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Abn mappe..."
+            "value": "Åbn mappe…"
           }
         },
         "pl": {
@@ -31589,7 +31589,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Abn"
+            "value": "Åbn"
           }
         },
         "pl": {
@@ -31702,7 +31702,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Abn mappe"
+            "value": "Åbn mappe"
           }
         },
         "pl": {
@@ -31815,7 +31815,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Genabn lukket browserpanel"
+            "value": "Genåbn lukket browserpanel"
           }
         },
         "pl": {
@@ -31910,7 +31910,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Buscar..."
+            "value": "Buscar…"
           }
         },
         "fr": {
@@ -31928,7 +31928,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sog..."
+            "value": "Søg…"
           }
         },
         "pl": {
@@ -32041,7 +32041,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Find naste"
+            "value": "Find næste"
           }
         },
         "pl": {
@@ -32249,7 +32249,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ocultar barra de busqueda"
+            "value": "Ocultar barra de búsqueda"
           }
         },
         "fr": {
@@ -32267,7 +32267,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Skjul sogelinje"
+            "value": "Skjul søgelinje"
           }
         },
         "pl": {
@@ -32380,7 +32380,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sog"
+            "value": "Søg"
           }
         },
         "pl": {
@@ -32475,7 +32475,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usar seleccion para buscar"
+            "value": "Usar selección para buscar"
           }
         },
         "fr": {
@@ -32493,7 +32493,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Brug markering til sogning"
+            "value": "Brug markering til søgning"
           }
         },
         "pl": {
@@ -32701,7 +32701,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ir a la ultima no leida"
+            "value": "Ir a la última no leída"
           }
         },
         "fr": {
@@ -32719,7 +32719,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hop til seneste ulaste"
+            "value": "Gå til seneste ulæste"
           }
         },
         "pl": {
@@ -32814,7 +32814,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Marcar todo como leido"
+            "value": "Marcar todo como leído"
           }
         },
         "fr": {
@@ -32832,7 +32832,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Marker alle som laste"
+            "value": "Marker alle som læste"
           }
         },
         "pl": {
@@ -33171,7 +33171,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Abn aktuel mappe i Android Studio"
+            "value": "Åbn nuværende mappe i Android Studio"
           }
         },
         "pl": {
@@ -33284,7 +33284,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Abn aktuel mappe i Antigravity"
+            "value": "Åbn nuværende mappe i Antigravity"
           }
         },
         "pl": {
@@ -33397,7 +33397,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Abn aktuel mappe i Cursor"
+            "value": "Åbn nuværende mappe i Cursor"
           }
         },
         "pl": {
@@ -33510,7 +33510,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Abn aktuel mappe i Finder"
+            "value": "Åbn nuværende mappe i Finder"
           }
         },
         "pl": {
@@ -33623,7 +33623,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Abn aktuel mappe i Ghostty"
+            "value": "Åbn nuværende mappe i Ghostty"
           }
         },
         "pl": {
@@ -33736,7 +33736,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Abn aktuel mappe i iTerm2"
+            "value": "Åbn nuværende mappe i iTerm2"
           }
         },
         "pl": {
@@ -33849,7 +33849,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Abn aktuel mappe i Terminal"
+            "value": "Åbn nuværende mappe i Terminal"
           }
         },
         "pl": {
@@ -33962,7 +33962,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Abn aktuel mappe i Tower"
+            "value": "Åbn nuværende mappe i Tower"
           }
         },
         "pl": {
@@ -34057,7 +34057,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Abrir directorio actual en VS Code (en linea)"
+            "value": "Abrir directorio actual en VS Code (en línea)"
           }
         },
         "fr": {
@@ -34075,7 +34075,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Abn aktuel mappe i VS Code (inline)"
+            "value": "Åbn nuværende mappe i VS Code (Inline)"
           }
         },
         "pl": {
@@ -34188,7 +34188,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Abn aktuel mappe i Warp"
+            "value": "Åbn nuværende mappe i Warp"
           }
         },
         "pl": {
@@ -34301,7 +34301,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Abn aktuel mappe i Windsurf"
+            "value": "Åbn nuværende mappe i Windsurf"
           }
         },
         "pl": {
@@ -34414,7 +34414,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Abn aktuel mappe i Xcode"
+            "value": "Åbn nuværende mappe i Xcode"
           }
         },
         "pl": {
@@ -34527,7 +34527,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Abn aktuel mappe i Zed"
+            "value": "Åbn nuværende mappe i Zed"
           }
         },
         "pl": {
@@ -34622,7 +34622,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Preferencias..."
+            "value": "Preferencias…"
           }
         },
         "fr": {
@@ -34640,7 +34640,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Indstillinger..."
+            "value": "Indstillinger…"
           }
         },
         "pl": {
@@ -35074,7 +35074,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Copiar registros de actualizacion"
+            "value": "Copiar registros de actualización"
           }
         },
         "fr": {
@@ -35187,7 +35187,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Registros de actualizacion"
+            "value": "Registros de actualización"
           }
         },
         "fr": {
@@ -35300,7 +35300,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tamano real"
+            "value": "Tamaño real"
           }
         },
         "fr": {
@@ -35318,7 +35318,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Faktisk storrelse"
+            "value": "Faktisk størrelse"
           }
         },
         "pl": {
@@ -35413,7 +35413,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Atras"
+            "value": "Atrás"
           }
         },
         "fr": {
@@ -35752,7 +35752,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ir a la ultima no leida"
+            "value": "Ir a la última no leída"
           }
         },
         "fr": {
@@ -35770,7 +35770,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hop til seneste ulaste"
+            "value": "Gå til seneste ulæste"
           }
         },
         "pl": {
@@ -35883,7 +35883,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Naste overflade"
+            "value": "Næste overflade"
           }
         },
         "pl": {
@@ -35996,7 +35996,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Naste arbejdsomrade"
+            "value": "Næste arbejdsområde"
           }
         },
         "pl": {
@@ -36222,7 +36222,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Forrige arbejdsomrade"
+            "value": "Forrige arbejdsområde"
           }
         },
         "pl": {
@@ -36317,7 +36317,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Recargar pagina"
+            "value": "Recargar página"
           }
         },
         "fr": {
@@ -36335,7 +36335,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Genindlas side"
+            "value": "Genindlæs side"
           }
         },
         "pl": {
@@ -36430,7 +36430,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Renombrar espacio de trabajo..."
+            "value": "Renombrar espacio de trabajo…"
           }
         },
         "fr": {
@@ -36448,7 +36448,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Omdob arbejdsomrade..."
+            "value": "Omdøb arbejdsområde…"
           }
         },
         "pl": {
@@ -36787,7 +36787,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Del browser nedad"
+            "value": "Opdel browser nedad"
           }
         },
         "pl": {
@@ -36900,7 +36900,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Del browser til hojre"
+            "value": "Opdel browser til højre"
           }
         },
         "pl": {
@@ -37013,7 +37013,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Del nedad"
+            "value": "Opdel nedad"
           }
         },
         "pl": {
@@ -37126,7 +37126,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Del til hojre"
+            "value": "Opdel til højre"
           }
         },
         "pl": {
@@ -37239,7 +37239,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vis/skjul udviklervarktoj"
+            "value": "Slå udviklerværktøjer til/fra"
           }
         },
         "pl": {
@@ -37352,7 +37352,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vis/skjul sidebjalk"
+            "value": "Slå sidebjælke til/fra"
           }
         },
         "pl": {
@@ -37465,7 +37465,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Arbejdsomrade %lld"
+            "value": "Arbejdsområde %lld"
           }
         },
         "pl": {
@@ -38012,7 +38012,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Las notificaciones de escritorio apareceran aqui para su revision rapida."
+            "value": "Las notificaciones de escritorio aparecerán aquí para su revisión rápida."
           }
         },
         "fr": {
@@ -38125,7 +38125,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Las notificaciones de escritorio apareceran aqui."
+            "value": "Las notificaciones de escritorio aparecerán aquí."
           }
         },
         "fr": {
@@ -38238,7 +38238,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aun no hay notificaciones"
+            "value": "Aún no hay notificaciones"
           }
         },
         "fr": {
@@ -38351,7 +38351,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ir a la ultima no leida"
+            "value": "Ir a la última no leída"
           }
         },
         "fr": {
@@ -38369,7 +38369,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hop til seneste ulaste"
+            "value": "Gå til seneste ulæste"
           }
         },
         "pl": {
@@ -38577,7 +38577,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pestana"
+            "value": "Pestaña"
           }
         },
         "fr": {
@@ -38708,7 +38708,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Abn"
+            "value": "Åbn"
           }
         },
         "pl": {
@@ -38821,7 +38821,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Abn mappe"
+            "value": "Åbn mappe"
           }
         },
         "pl": {
@@ -39047,7 +39047,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Naste match (Return)"
+            "value": "Næste match (Return)"
           }
         },
         "pl": {
@@ -39160,7 +39160,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sog"
+            "value": "Søg"
           }
         },
         "pl": {
@@ -39368,7 +39368,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Icono de la app"
+            "value": "Ícono de la app"
           }
         },
         "fr": {
@@ -39499,7 +39499,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dock-markering"
+            "value": "Dock-badge"
           }
         },
         "pl": {
@@ -39594,7 +39594,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mostrar el recuento de no leidos en el icono de la app (Dock y Cmd+Tab)."
+            "value": "Mostrar el recuento de no leídos en el ícono de la app (Dock y Cmd+Tab)."
           }
         },
         "fr": {
@@ -39612,7 +39612,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vis antal ulaste pa appikonet (Dock og Cmd+Tab)."
+            "value": "Vis antal ulæste på appikonet (Dock og Cmd+Tab)."
           }
         },
         "pl": {
@@ -39933,7 +39933,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mas tarde"
+            "value": "Más tarde"
           }
         },
         "fr": {
@@ -40046,7 +40046,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reiniciar para aplicar el cambio de idioma?"
+            "value": "¿Reiniciar para aplicar el cambio de idioma?"
           }
         },
         "fr": {
@@ -40064,7 +40064,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Genstart for at anvende sprogandring?"
+            "value": "Genstart for at anvende sprogændring?"
           }
         },
         "pl": {
@@ -40272,7 +40272,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ubicacion de nuevo espacio de trabajo"
+            "value": "Ubicación de nuevo espacio de trabajo"
           }
         },
         "fr": {
@@ -40290,7 +40290,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Placering af nyt arbejdsomrade"
+            "value": "Placering af nyt arbejdsområde"
           }
         },
         "pl": {
@@ -40403,7 +40403,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Abn PR-links i sidebjalk i cmux-browser"
+            "value": "Åbn sidebjælkens PR-links i cmux-browser"
           }
         },
         "pl": {
@@ -40516,7 +40516,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Klik abner i din standardbrowser."
+            "value": "Klik åbner i din standardbrowser."
           }
         },
         "pl": {
@@ -40629,7 +40629,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Klik abner i cmux-browseren."
+            "value": "Klik åbner i cmux-browseren."
           }
         },
         "pl": {
@@ -40742,7 +40742,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Omdobning markerer eksisterende navn"
+            "value": "Omdøbning markerer eksisterende navn"
           }
         },
         "pl": {
@@ -40855,7 +40855,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Omdobning i kommandopaletten beholder markoren i slutningen."
+            "value": "Omdøbning i kommandopaletten beholder markøren til sidst."
           }
         },
         "pl": {
@@ -40968,7 +40968,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Omdobning i kommandopaletten starter med al tekst markeret."
+            "value": "Omdøbning i kommandopaletten starter med al tekst markeret."
           }
         },
         "pl": {
@@ -41063,7 +41063,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reordenar al recibir notificacion"
+            "value": "Reordenar al recibir notificación"
           }
         },
         "fr": {
@@ -41176,7 +41176,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mover espacios de trabajo al inicio cuando reciben una notificacion. Desactiva para posiciones de atajo estables."
+            "value": "Mover espacios de trabajo al inicio cuando reciben una notificación. Desactiva para posiciones de atajo estables."
           }
         },
         "fr": {
@@ -41194,7 +41194,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Flyt arbejdsomrader til toppen, nar de modtager en notifikation. Deaktiver for stabile genvejspositioner."
+            "value": "Flyt arbejdsområder til toppen, når de modtager en notifikation. Deaktiver for stabile genvejspositioner."
           }
         },
         "pl": {
@@ -41307,7 +41307,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vis gren + mappe i sidebjalk"
+            "value": "Vis gren + mappe i sidebjælke"
           }
         },
         "pl": {
@@ -41420,7 +41420,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vis den indbyggede git-gren og arbejdsmapperekke."
+            "value": "Vis den indbyggede git-gren og arbejdsmapperækken."
           }
         },
         "pl": {
@@ -41515,7 +41515,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mostrar ultimo registro en la barra lateral"
+            "value": "Mostrar último registro en la barra lateral"
           }
         },
         "fr": {
@@ -41533,7 +41533,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vis seneste log i sidebjalk"
+            "value": "Vis seneste log i sidebjælke"
           }
         },
         "pl": {
@@ -41628,7 +41628,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mostrar el ultimo mensaje imperativo de registro/estado."
+            "value": "Mostrar el último mensaje imperativo de registro/estado."
           }
         },
         "fr": {
@@ -41646,7 +41646,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vis den seneste imperative log-/statusmeddelelse."
+            "value": "Vis den seneste imperative log/statusmeddelelse."
           }
         },
         "pl": {
@@ -41759,7 +41759,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vis brugerdefinerede metadata i sidebjalk"
+            "value": "Vis brugerdefinerede metadata i sidebjælke"
           }
         },
         "pl": {
@@ -41985,7 +41985,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vis lyttende porte i sidebjalk"
+            "value": "Vis lyttende porte i sidebjælke"
           }
         },
         "pl": {
@@ -42098,7 +42098,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vis registrerede lyttende porte for det aktive arbejdsomrade."
+            "value": "Vis registrerede lyttende porte for det aktive arbejdsområde."
           }
         },
         "pl": {
@@ -42211,7 +42211,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vis fremgang i sidebjalk"
+            "value": "Vis fremskridt i sidebjælke"
           }
         },
         "pl": {
@@ -42324,7 +42324,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vis den indbyggede fremdriftslinje fra set_progress."
+            "value": "Vis den indbyggede fremskridtslinje fra set_progress."
           }
         },
         "pl": {
@@ -42437,7 +42437,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vis pull requests i sidebjalk"
+            "value": "Vis pull requests i sidebjælke"
           }
         },
         "pl": {
@@ -42532,7 +42532,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mostrar elementos de revision (PR/MR/etc.) con estado, numero y enlace interactivo."
+            "value": "Mostrar elementos de revisión (PR/MR/etc.) con estado, número y enlace interactivo."
           }
         },
         "fr": {
@@ -42645,7 +42645,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Disposicion de ramas en la barra lateral"
+            "value": "Disposición de ramas en la barra lateral"
           }
         },
         "fr": {
@@ -42663,7 +42663,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Grenlayout i sidebjalk"
+            "value": "Sidebjælkens grenlayout"
           }
         },
         "pl": {
@@ -42758,7 +42758,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "En linea"
+            "value": "En línea"
           }
         },
         "fr": {
@@ -42871,7 +42871,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "En linea: todas las ramas comparten una sola linea."
+            "value": "En línea: todas las ramas comparten una sola línea."
           }
         },
         "fr": {
@@ -42889,7 +42889,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Inline: alle grene deler en linje."
+            "value": "Inline: alle grene deler én linje."
           }
         },
         "pl": {
@@ -42984,7 +42984,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vertical: cada rama aparece en su propia linea."
+            "value": "Vertical: cada rama aparece en su propia línea."
           }
         },
         "fr": {
@@ -43002,7 +43002,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Lodret: hver gren vises pa sin egen linje."
+            "value": "Lodret: hver gren vises på sin egen linje."
           }
         },
         "pl": {
@@ -43210,7 +43210,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Enviar telemetria anonima"
+            "value": "Enviar telemetría anónima"
           }
         },
         "fr": {
@@ -43323,7 +43323,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Compartir datos anonimos de fallos y uso para ayudar a mejorar cmux."
+            "value": "Compartir datos anónimos de fallos y uso para ayudar a mejorar cmux."
           }
         },
         "fr": {
@@ -43341,7 +43341,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Del anonymiserede nedbrud- og brugsdata for at forbedre cmux."
+            "value": "Del anonymiserede nedbrud- og brugsdata for at hjælpe med at forbedre cmux."
           }
         },
         "pl": {
@@ -43436,7 +43436,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "El cambio se aplicara en el proximo inicio."
+            "value": "El cambio se aplicará en el próximo inicio."
           }
         },
         "fr": {
@@ -43454,7 +43454,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Andringen trader i kraft ved naste start."
+            "value": "Ændringen træder i kraft ved næste start."
           }
         },
         "pl": {
@@ -43680,7 +43680,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Advar for afslutning"
+            "value": "Advar før afslutning"
           }
         },
         "pl": {
@@ -43775,7 +43775,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cmd+Q sale inmediatamente sin confirmacion."
+            "value": "Cmd+Q sale inmediatamente sin confirmación."
           }
         },
         "fr": {
@@ -43793,7 +43793,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cmd+Q afslutter med det samme uden bekraftelse."
+            "value": "Cmd+Q afslutter øjeblikkeligt uden bekræftelse."
           }
         },
         "pl": {
@@ -43888,7 +43888,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mostrar una confirmacion antes de salir con Cmd+Q."
+            "value": "Mostrar una confirmación antes de salir con Cmd+Q."
           }
         },
         "fr": {
@@ -43906,7 +43906,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vis en bekraftelse for afslutning med Cmd+Q."
+            "value": "Vis en bekræftelse, før du afslutter med Cmd+Q."
           }
         },
         "pl": {
@@ -44001,7 +44001,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Integracion con Claude Code"
+            "value": "Integración con Claude Code"
           }
         },
         "fr": {
@@ -44114,7 +44114,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cuando esta activado, cmux envuelve el comando claude para inyectar seguimiento de sesion y hooks de notificacion. Desactiva si prefieres gestionar los hooks de Claude Code tu mismo."
+            "value": "Cuando está activado, cmux envuelve el comando claude para inyectar seguimiento de sesión y hooks de notificación. Desactiva si prefieres gestionar los hooks de Claude Code tú mismo."
           }
         },
         "fr": {
@@ -44132,7 +44132,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nar aktiveret, indpakker cmux claude-kommandoen for at injicere sessionssporing og notifikationshooks. Deaktiver, hvis du foretrakter at administrere Claude Code-hooks selv."
+            "value": "Når aktiveret, wrapper cmux claude-kommandoen for at injicere sessionssporing og notifikationshooks. Deaktiver, hvis du foretrækker at administrere Claude Code-hooks selv."
           }
         },
         "pl": {
@@ -44227,7 +44227,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude Code se ejecuta sin integracion con cmux."
+            "value": "Claude Code se ejecuta sin integración con cmux."
           }
         },
         "fr": {
@@ -44245,7 +44245,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude Code korer uden cmux-integration."
+            "value": "Claude Code kører uden cmux-integration."
           }
         },
         "pl": {
@@ -44340,7 +44340,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "La barra lateral muestra el estado de la sesion de Claude y las notificaciones."
+            "value": "La barra lateral muestra el estado de la sesión de Claude y las notificaciones."
           }
         },
         "fr": {
@@ -44358,7 +44358,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sidebjalk viser Claude-sessionsstatus og notifikationer."
+            "value": "Sidebjælken viser Claude-sessionsstatus og notifikationer."
           }
         },
         "pl": {
@@ -44584,7 +44584,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aktiver fuld aben adgang"
+            "value": "Aktiver fuld åben adgang"
           }
         },
         "pl": {
@@ -44679,7 +44679,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Esto desactiva las verificaciones de ascendencia y contrasena, y abre el socket a todos los usuarios locales. Activa solo si comprendes el riesgo."
+            "value": "Esto desactiva las verificaciones de ascendencia y contraseña, y abre el socket a todos los usuarios locales. Activa solo si comprendes el riesgo."
           }
         },
         "fr": {
@@ -44697,7 +44697,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dette deaktiverer oprindelses- og adgangskodekontroller og abner socket'en for alle lokale brugere. Aktiver kun, nar du forstar risikoen."
+            "value": "Dette deaktiverer herkomst- og adgangskodekontrol og åbner socketen for alle lokale brugere. Aktiver kun, når du forstår risikoen."
           }
         },
         "pl": {
@@ -44792,7 +44792,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Activar acceso abierto completo?"
+            "value": "¿Activar acceso abierto completo?"
           }
         },
         "fr": {
@@ -44810,7 +44810,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aktiver fuld aben adgang?"
+            "value": "Aktiver fuld åben adgang?"
           }
         },
         "pl": {
@@ -44905,7 +44905,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Advertencia: El acceso abierto completo hace que el socket de control sea legible/escribible para todos en este Mac y desactiva las verificaciones de autenticacion. Usa solo para depuracion local."
+            "value": "Advertencia: El acceso abierto completo hace que el socket de control sea legible/escribible para todos en este Mac y desactiva las verificaciones de autenticación. Usa solo para depuración local."
           }
         },
         "fr": {
@@ -44923,7 +44923,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Advarsel: Fuld aben adgang gor kontrolsocket'en verdenslasbar/-skrivbar pa denne Mac og deaktiverer godkendelseskontroller. Brug kun til lokal fejlfinding."
+            "value": "Advarsel: Fuld åben adgang gør kontrolsocketen læsbar/skrivbar for alle på denne Mac og deaktiverer autentifikationskontrol. Brug kun til lokal fejlsøgning."
           }
         },
         "pl": {
@@ -45036,7 +45036,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hvert arbejdsomrade far CMUX_PORT- og CMUX_PORT_END-miljovariable med et dedikeret portomrade. Nye terminaler arver disse vardier."
+            "value": "Hvert arbejdsområde får CMUX_PORT og CMUX_PORT_END miljøvariabler med et dedikeret portområde. Nye terminaler arver disse værdier."
           }
         },
         "pl": {
@@ -45262,7 +45262,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Startport for CMUX_PORT-miljovariabel."
+            "value": "Startport for CMUX_PORT-miljøvariabel."
           }
         },
         "pl": {
@@ -45357,7 +45357,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tamano del rango de puertos"
+            "value": "Tamaño del rango de puertos"
           }
         },
         "fr": {
@@ -45375,7 +45375,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Portomradestorrelse"
+            "value": "Portområdestørrelse"
           }
         },
         "pl": {
@@ -45470,7 +45470,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Numero de puertos por espacio de trabajo."
+            "value": "Número de puertos por espacio de trabajo."
           }
         },
         "fr": {
@@ -45488,7 +45488,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Antal porte pr. arbejdsomrade."
+            "value": "Antal porte pr. arbejdsområde."
           }
         },
         "pl": {
@@ -45696,7 +45696,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Controla el acceso al socket Unix local para control programatico. Elige un modo que coincida con tu modelo de amenazas."
+            "value": "Controla el acceso al socket Unix local para control programático. Elige un modo que coincida con tu modelo de amenazas."
           }
         },
         "fr": {
@@ -45714,7 +45714,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Styrer adgangen til den lokale Unix-socket til programmatisk kontrol. Valg en tilstand, der passer til din trusselsmodel."
+            "value": "Styrer adgangen til den lokale Unix-socket til programmatisk kontrol. Vælg en tilstand, der passer til din trusselsmodel."
           }
         },
         "pl": {
@@ -45827,7 +45827,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Overstyringer: CMUX_SOCKET_ENABLE, CMUX_SOCKET_MODE og CMUX_SOCKET_PATH (sat CMUX_ALLOW_SOCKET_OVERRIDE=1 for stable/nightly builds)."
+            "value": "Tilsidesættelser: CMUX_SOCKET_ENABLE, CMUX_SOCKET_MODE og CMUX_SOCKET_PATH (sæt CMUX_ALLOW_SOCKET_OVERRIDE=1 for stabile/nightly builds)."
           }
         },
         "pl": {
@@ -45922,7 +45922,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Contrasena del socket"
+            "value": "Contraseña del socket"
           }
         },
         "fr": {
@@ -46261,7 +46261,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No se pudo borrar la contrasena (%@)."
+            "value": "No se pudo borrar la contraseña (%@)."
           }
         },
         "fr": {
@@ -46374,7 +46374,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Contrasena borrada."
+            "value": "Contraseña borrada."
           }
         },
         "fr": {
@@ -46487,7 +46487,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Introduce una contrasena primero."
+            "value": "Introduce una contraseña primero."
           }
         },
         "fr": {
@@ -46505,7 +46505,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Indtast en adgangskode forst."
+            "value": "Indtast en adgangskode først."
           }
         },
         "pl": {
@@ -46600,7 +46600,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Contrasena"
+            "value": "Contraseña"
           }
         },
         "fr": {
@@ -46713,7 +46713,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No se pudo guardar la contrasena (%@)."
+            "value": "No se pudo guardar la contraseña (%@)."
           }
         },
         "fr": {
@@ -46826,7 +46826,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Contrasena guardada."
+            "value": "Contraseña guardada."
           }
         },
         "fr": {
@@ -46957,7 +46957,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Indstil"
+            "value": "Angiv"
           }
         },
         "pl": {
@@ -47165,7 +47165,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No se ha establecido contrasena. Los clientes externos seran bloqueados hasta que se configure una."
+            "value": "No se ha establecido contraseña. Los clientes externos serán bloqueados hasta que se configure una."
           }
         },
         "fr": {
@@ -47183,7 +47183,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ingen adgangskode indstillet. Eksterne klienter blokeres, indtil en er konfigureret."
+            "value": "Ingen adgangskode angivet. Eksterne klienter blokeres, indtil en er konfigureret."
           }
         },
         "pl": {
@@ -47278,7 +47278,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Detras de la ventana"
+            "value": "Detrás de la ventana"
           }
         },
         "fr": {
@@ -47409,7 +47409,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "I vinduet"
+            "value": "Inden i vindue"
           }
         },
         "pl": {
@@ -47522,7 +47522,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "URL'er der altid abnes eksternt"
+            "value": "URL'er der altid åbnes eksternt"
           }
         },
         "pl": {
@@ -47617,7 +47617,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Se aplica a clics en enlaces del terminal y llamadas interceptadas de `open https://...`. Una regla por linea. El texto plano coincide con cualquier subcadena de URL, o usa el prefijo `re:` para regex (por ejemplo: openai.com/usage, re:^https?://[^/]*\\\\.example\\\\.com/(billing|usage))."
+            "value": "Se aplica a clics en enlaces del terminal y llamadas interceptadas de `open https://...`. Una regla por línea. El texto plano coincide con cualquier subcadena de URL, o usa el prefijo `re:` para regex (por ejemplo: openai.com/usage, re:^https?://[^/]*\\\\.example\\\\.com/(billing|usage))."
           }
         },
         "fr": {
@@ -47635,7 +47635,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Galder for terminallinksklik og opfangede `open https://...`-kald. En regel pr. linje. Almindelig tekst matcher enhver URL-delstreng, eller brug `re:` som prafiks for regex (for eksempel: openai.com/usage, re:^https?://[^/]*\\\\.example\\\\.com/(billing|usage))."
+            "value": "Gælder for terminallinksklik og opfangede `open https://...`-kald. Én regel pr. linje. Almindelig tekst matcher enhver URL-delstreng, eller brug `re:` som præfiks for regex (f.eks.: openai.com/usage, re:^https?://[^/]*\\.example\\.com/(billing|usage))."
           }
         },
         "pl": {
@@ -47730,7 +47730,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Historial de navegacion"
+            "value": "Historial de navegación"
           }
         },
         "fr": {
@@ -47843,7 +47843,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Borrar historial..."
+            "value": "Borrar historial…"
           }
         },
         "fr": {
@@ -47861,7 +47861,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ryd historik..."
+            "value": "Ryd historik…"
           }
         },
         "pl": {
@@ -48182,7 +48182,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Esto elimina las sugerencias de paginas visitadas de la barra de direcciones del navegador."
+            "value": "Esto elimina las sugerencias de páginas visitadas de la barra de direcciones del navegador."
           }
         },
         "fr": {
@@ -48200,7 +48200,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dette fjerner forslag om bestogte sider fra browserens adresselinje."
+            "value": "Dette fjerner besøgte sideforslag fra browserens omnibar."
           }
         },
         "pl": {
@@ -48295,7 +48295,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Borrar historial del navegador?"
+            "value": "¿Borrar historial del navegador?"
           }
         },
         "fr": {
@@ -48408,7 +48408,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aun no hay paginas guardadas."
+            "value": "Aún no hay páginas guardadas."
           }
         },
         "fr": {
@@ -48521,7 +48521,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "%lld paginas guardadas aparecen en las sugerencias de la barra de direcciones."
+            "value": "%lld páginas guardadas aparecen en las sugerencias de la barra de direcciones."
           }
         },
         "fr": {
@@ -48539,7 +48539,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "%lld gemte sider vises i adresselinjens forslag."
+            "value": "%lld gemte sider vises i omnibar-forslag."
           }
         },
         "pl": {
@@ -48634,7 +48634,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "1 pagina guardada aparece en las sugerencias de la barra de direcciones."
+            "value": "1 página guardada aparece en las sugerencias de la barra de direcciones."
           }
         },
         "fr": {
@@ -48652,7 +48652,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "1 gemt side vises i adresselinjens forslag."
+            "value": "1 gemt side vises i omnibar-forslag."
           }
         },
         "pl": {
@@ -48765,7 +48765,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vartsnavne der abnes i indbygget browser"
+            "value": "Værter der åbnes i den indlejrede browser"
           }
         },
         "pl": {
@@ -48860,7 +48860,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Se aplica a clics en enlaces del terminal y llamadas interceptadas de `open https://...`. Solo estos hosts se abren en cmux. Los demas se abren en tu navegador predeterminado. Un host o comodin por linea (por ejemplo: example.com, *.internal.example). Dejalo vacio para abrir todos los hosts en cmux."
+            "value": "Se aplica a clics en enlaces del terminal y llamadas interceptadas de `open https://...`. Solo estos hosts se abren en cmux. Los demás se abren en tu navegador predeterminado. Un host o comodín por línea (por ejemplo: example.com, *.internal.example). Déjalo vacío para abrir todos los hosts en cmux."
           }
         },
         "fr": {
@@ -48878,7 +48878,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Galder for terminallinksklik og opfangede `open https://...`-kald. Kun disse vartsnavne abnes i cmux. Andre abnes i din standardbrowser. Et vartsnavn eller jokertegn pr. linje (for eksempel: example.com, *.internal.example). Lad feltet sta tomt for at abne alle vartsnavne i cmux."
+            "value": "Gælder for terminallinksklik og opfangede `open https://...`-kald. Kun disse værter åbnes i cmux. Andre åbnes i din standardbrowser. Én vært eller wildcard pr. linje (f.eks.: example.com, *.internal.example). Lad stå tomt for at åbne alle værter i cmux."
           }
         },
         "pl": {
@@ -48991,7 +48991,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "HTTP-vartsnavne tilladt i indbygget browser"
+            "value": "HTTP-værter tilladt i den indlejrede browser"
           }
         },
         "pl": {
@@ -49086,7 +49086,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Controla que hosts HTTP (no HTTPS) pueden abrirse en cmux sin un mensaje de advertencia. Los valores predeterminados incluyen localhost, 127.0.0.1, ::1, 0.0.0.0 y *.localtest.me."
+            "value": "Controla qué hosts HTTP (no HTTPS) pueden abrirse en cmux sin un mensaje de advertencia. Los valores predeterminados incluyen localhost, 127.0.0.1, ::1, 0.0.0.0 y *.localtest.me."
           }
         },
         "fr": {
@@ -49104,7 +49104,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Styrer hvilke HTTP-vartsnavne (ikke-HTTPS) der kan abnes i cmux uden en advarselsmeddelelse. Standard inkluderer localhost, 127.0.0.1, ::1, 0.0.0.0 og *.localtest.me."
+            "value": "Styrer hvilke HTTP-værter (ikke-HTTPS) der kan åbnes i cmux uden advarselsmeddelelse. Standardindstillinger inkluderer localhost, 127.0.0.1, ::1, 0.0.0.0 og *.localtest.me."
           }
         },
         "pl": {
@@ -49199,7 +49199,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un host o comodin por linea (por ejemplo: localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
+            "value": "Un host o comodín por línea (por ejemplo: localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
           }
         },
         "fr": {
@@ -49217,7 +49217,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Et vartsnavn eller jokertegn pr. linje (for eksempel: localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
+            "value": "Én vært eller wildcard pr. linje (f.eks.: localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."
           }
         },
         "pl": {
@@ -49538,7 +49538,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cuando esta desactivado, `open https://...` y `open http://...` siempre usan tu navegador predeterminado."
+            "value": "Cuando está desactivado, `open https://...` y `open http://...` siempre usan tu navegador predeterminado."
           }
         },
         "fr": {
@@ -49556,7 +49556,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nar deaktiveret, bruger `open https://...` og `open http://...` altid din standardbrowser."
+            "value": "Når deaktiveret, bruger `open https://...` og `open http://...` altid din standardbrowser."
           }
         },
         "pl": {
@@ -49669,7 +49669,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Abn terminallinks i cmux-browser"
+            "value": "Åbn terminallinks i cmux-browser"
           }
         },
         "pl": {
@@ -49764,7 +49764,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cuando esta desactivado, los enlaces en la salida del terminal se abren en tu navegador predeterminado."
+            "value": "Cuando está desactivado, los enlaces en la salida del terminal se abren en tu navegador predeterminado."
           }
         },
         "fr": {
@@ -49782,7 +49782,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nar deaktiveret, abnes links klikket i terminaloutput i din standardbrowser."
+            "value": "Når deaktiveret, åbnes links, der klikkes i terminaloutput, i din standardbrowser."
           }
         },
         "pl": {
@@ -49877,7 +49877,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Motor de busqueda predeterminado"
+            "value": "Motor de búsqueda predeterminado"
           }
         },
         "fr": {
@@ -49895,7 +49895,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Standard-sogemasskine"
+            "value": "Standardsøgemaskine"
           }
         },
         "pl": {
@@ -50008,7 +50008,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bruges af browserens adresselinje, nar input ikke er en URL."
+            "value": "Bruges af browserens adresselinje, når input ikke er en URL."
           }
         },
         "pl": {
@@ -50103,7 +50103,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mostrar sugerencias de busqueda"
+            "value": "Mostrar sugerencias de búsqueda"
           }
         },
         "fr": {
@@ -50121,7 +50121,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vis sogeforslag"
+            "value": "Vis søgeforslag"
           }
         },
         "pl": {
@@ -50329,7 +50329,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ fuerza ese esquema de colores para las paginas compatibles."
+            "value": "%@ fuerza ese esquema de colores para las páginas compatibles."
           }
         },
         "fr": {
@@ -50347,7 +50347,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ gennemtvinger det farveskema for kompatible sider."
+            "value": "%@ tvinger det farveskema for kompatible sider."
           }
         },
         "pl": {
@@ -50460,7 +50460,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "System folger app- og macOS-udseende."
+            "value": "System følger app- og macOS-udseende."
           }
         },
         "pl": {
@@ -50686,7 +50686,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fuldskarms-UI"
+            "value": "Fuldskærms-UI"
           }
         },
         "pl": {
@@ -50799,7 +50799,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Topvisning"
+            "value": "Headervisning"
           }
         },
         "pl": {
@@ -51120,7 +51120,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Menu"
+            "value": "Menú"
           }
         },
         "fr": {
@@ -51590,7 +51590,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sidebjalk"
+            "value": "Sidebjælke"
           }
         },
         "pl": {
@@ -51685,7 +51685,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Descripcion emergente"
+            "value": "Descripción emergente"
           }
         },
         "fr": {
@@ -51703,7 +51703,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Varktojstip"
+            "value": "Værktøjstip"
           }
         },
         "pl": {
@@ -52155,7 +52155,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Indbygget sidebjalk"
+            "value": "Indbygget sidebjælke"
           }
         },
         "pl": {
@@ -52381,7 +52381,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Raycast-gra"
+            "value": "Raycast-grå"
           }
         },
         "pl": {
@@ -52494,7 +52494,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Blod slorring"
+            "value": "Blød sløring"
           }
         },
         "pl": {
@@ -52928,7 +52928,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Automatizacion"
+            "value": "Automatización"
           }
         },
         "fr": {
@@ -53398,7 +53398,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Arbejdsomradefarver"
+            "value": "Arbejdsområdefarver"
           }
         },
         "pl": {
@@ -53511,7 +53511,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Klik pa en genvejsverdi for at optage en ny genvej."
+            "value": "Klik på en genvejsværdi for at optage en ny genvej."
           }
         },
         "pl": {
@@ -53737,7 +53737,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hold Cmd eller Ctrl nede for at holde genvejstip skjult."
+            "value": "At holde Cmd eller Ctrl holder genvejstip skjulte."
           }
         },
         "pl": {
@@ -53832,7 +53832,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mantener Cmd (barra lateral/barra de titulo) o Ctrl/Cmd (pestanas del panel) muestra las indicaciones de atajos."
+            "value": "Mantener Cmd (barra lateral/barra de título) o Ctrl/Cmd (pestañas del panel) muestra las indicaciones de atajos."
           }
         },
         "fr": {
@@ -53850,7 +53850,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hold Cmd (sidebjalk/titellinje) eller Ctrl/Cmd (fanefaner) nede for at vise genvejstip."
+            "value": "At holde Cmd (sidebjælke/titellinje) eller Ctrl/Cmd (panelfaner) viser genvejstip."
           }
         },
         "pl": {
@@ -54076,7 +54076,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Folg vindue"
+            "value": "Følg vindue"
           }
         },
         "pl": {
@@ -54641,7 +54641,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Arbejdsomrade farveindikator"
+            "value": "Arbejdsområdefarveindikator"
           }
         },
         "pl": {
@@ -54736,7 +54736,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Colores personalizados: ninguno aun. Usa \"Elegir color personalizado...\" desde el menu contextual de un espacio de trabajo."
+            "value": "Colores personalizados: ninguno aún. Usa \"Elegir color personalizado…\" desde el menú contextual de un espacio de trabajo."
           }
         },
         "fr": {
@@ -54754,7 +54754,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Brugerdefinerede farver: ingen endnu. Brug \"Valg tilpasset farve...\" fra en arbejdsomrade-kontekstmenu."
+            "value": "Brugerdefinerede farver: ingen endnu. Brug \"Vælg brugerdefineret farve...\" fra en arbejdsområdekontekstmenu."
           }
         },
         "pl": {
@@ -54849,7 +54849,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Personaliza la paleta de colores de espacios de trabajo usada en Barra lateral > Color del espacio de trabajo. Las entradas de \"Elegir color personalizado...\" se guardan a continuacion."
+            "value": "Personaliza la paleta de colores de espacios de trabajo usada en Barra lateral > Color del espacio de trabajo. Las entradas de \"Elegir color personalizado…\" se guardan a continuación."
           }
         },
         "fr": {
@@ -54867,7 +54867,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tilpas arbejdsomradets farvepalet, der bruges af Sidebjalk > Arbejdsomradefarve. \"Valg tilpasset farve...\"-poster gemmes nedenfor."
+            "value": "Tilpas arbejdsområdets farvepalette, der bruges af Sidebjælke > Arbejdsområdefarve. \"Vælg brugerdefineret farve...\"-poster gemmes nedenfor."
           }
         },
         "pl": {
@@ -55093,7 +55093,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nulstil palet"
+            "value": "Nulstil palette"
           }
         },
         "pl": {
@@ -55545,7 +55545,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Luk arbejdsomrade"
+            "value": "Luk arbejdsområde"
           }
         },
         "pl": {
@@ -55658,7 +55658,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Blink fokuseret panel"
+            "value": "Fremhæv fokuseret panel"
           }
         },
         "pl": {
@@ -55771,7 +55771,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fokus rude ned"
+            "value": "Fokuser panel nedad"
           }
         },
         "pl": {
@@ -55884,7 +55884,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fokus rude venstre"
+            "value": "Fokuser panel til venstre"
           }
         },
         "pl": {
@@ -55997,7 +55997,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fokus rude hojre"
+            "value": "Fokuser panel til højre"
           }
         },
         "pl": {
@@ -56110,7 +56110,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fokus rude op"
+            "value": "Fokuser panel opad"
           }
         },
         "pl": {
@@ -56205,7 +56205,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ir a la ultima no leida"
+            "value": "Ir a la última no leída"
           }
         },
         "fr": {
@@ -56223,7 +56223,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hop til seneste ulaste"
+            "value": "Gå til seneste ulæste"
           }
         },
         "pl": {
@@ -56562,7 +56562,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nyt arbejdsomrade"
+            "value": "Nyt arbejdsområde"
           }
         },
         "pl": {
@@ -56675,7 +56675,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Naste overflade"
+            "value": "Næste overflade"
           }
         },
         "pl": {
@@ -56788,7 +56788,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Naste arbejdsomrade"
+            "value": "Næste arbejdsområde"
           }
         },
         "pl": {
@@ -56901,7 +56901,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Abn browser"
+            "value": "Åbn browser"
           }
         },
         "pl": {
@@ -57014,7 +57014,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Abn mappe"
+            "value": "Åbn mappe"
           }
         },
         "pl": {
@@ -57109,7 +57109,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pulsa un atajo..."
+            "value": "Pulsa un atajo…"
           }
         },
         "fr": {
@@ -57127,7 +57127,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tryk genvej..."
+            "value": "Tryk genvej…"
           }
         },
         "pl": {
@@ -57353,7 +57353,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Forrige arbejdsomrade"
+            "value": "Forrige arbejdsområde"
           }
         },
         "pl": {
@@ -57448,7 +57448,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Renombrar pestana"
+            "value": "Renombrar pestaña"
           }
         },
         "fr": {
@@ -57466,7 +57466,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Omdob fane"
+            "value": "Omdøb fane"
           }
         },
         "pl": {
@@ -57579,7 +57579,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Omdob arbejdsomrade"
+            "value": "Omdøb arbejdsområde"
           }
         },
         "pl": {
@@ -57918,7 +57918,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Del browser nedad"
+            "value": "Opdel browser nedad"
           }
         },
         "pl": {
@@ -58031,7 +58031,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Del browser til hojre"
+            "value": "Opdel browser til højre"
           }
         },
         "pl": {
@@ -58144,7 +58144,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Del nedad"
+            "value": "Opdel nedad"
           }
         },
         "pl": {
@@ -58257,7 +58257,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Del til hojre"
+            "value": "Opdel til højre"
           }
         },
         "pl": {
@@ -58370,7 +58370,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vis/skjul browserudviklervarktoj"
+            "value": "Slå browserudviklerværktøjer til/fra"
           }
         },
         "pl": {
@@ -58483,7 +58483,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vis/skjul rudezoom"
+            "value": "Slå panelzoom til/fra"
           }
         },
         "pl": {
@@ -58596,7 +58596,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vis/skjul sidebjalk"
+            "value": "Slå sidebjælke til/fra"
           }
         },
         "pl": {
@@ -58709,7 +58709,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vis/skjul terminal-kopieringstilstand"
+            "value": "Slå terminalkopiertilstand til/fra"
           }
         },
         "pl": {
@@ -58822,7 +58822,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Luk arbejdsomrade"
+            "value": "Luk arbejdsområde"
           }
         },
         "pl": {
@@ -58935,7 +58935,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Trak for at abne i Finder eller en anden app"
+            "value": "Træk for at åbne i Finder eller et andet program"
           }
         },
         "pl": {
@@ -59143,7 +59143,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Relleno solido"
+            "value": "Relleno sólido"
           }
         },
         "fr": {
@@ -59161,7 +59161,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Massiv fyldning"
+            "value": "Solid udfyldning"
           }
         },
         "pl": {
@@ -59387,7 +59387,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vis farre detaljer"
+            "value": "Vis færre detaljer"
           }
         },
         "pl": {
@@ -59482,7 +59482,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mostrar mas"
+            "value": "Mostrar más"
           }
         },
         "fr": {
@@ -59595,7 +59595,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mostrar mas detalles"
+            "value": "Mostrar más detalles"
           }
         },
         "fr": {
@@ -59839,7 +59839,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Abn %1$@ #%2$lld"
+            "value": "Åbn %1$@ #%2$lld"
           }
         },
         "pl": {
@@ -60065,7 +60065,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "flettet"
+            "value": "sammenlagt"
           }
         },
         "pl": {
@@ -60178,7 +60178,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "aben"
+            "value": "åben"
           }
         },
         "pl": {
@@ -60291,7 +60291,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aktiver for at fokusere dette arbejdsomrade. Trak for at omarrangere, eller brug handlingerne Flyt op og Flyt ned."
+            "value": "Aktiver for at fokusere dette arbejdsområde. Træk for at omarrangere, eller brug handlingerne Flyt op og Flyt ned."
           }
         },
         "pl": {
@@ -60612,7 +60612,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Permitir que cualquier proceso y usuario local se conecte sin autenticacion. Inseguro."
+            "value": "Permitir que cualquier proceso y usuario local se conecte sin autenticación. Inseguro."
           }
         },
         "fr": {
@@ -60630,7 +60630,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tillad enhver lokal proces og bruger at oprette forbindelse uden godkendelse. Usikkert."
+            "value": "Tillad enhver lokal proces og bruger at forbinde uden autentifikation. Usikkert."
           }
         },
         "pl": {
@@ -60743,7 +60743,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fuld aben adgang"
+            "value": "Fuld åben adgang"
           }
         },
         "pl": {
@@ -60838,7 +60838,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Permitir clientes de automatizacion locales externos de este usuario de macOS (sin verificacion de ascendencia)."
+            "value": "Permitir clientes de automatización locales externos de este usuario de macOS (sin verificación de ascendencia)."
           }
         },
         "fr": {
@@ -60856,7 +60856,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tillad eksterne lokale automatiseringsklienter fra denne macOS-bruger (ingen oprindeLseskontrol)."
+            "value": "Tillad eksterne lokale automatiseringsklienter fra denne macOS-bruger (ingen herkomstkontrol)."
           }
         },
         "pl": {
@@ -60951,7 +60951,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Modo de automatizacion"
+            "value": "Modo de automatización"
           }
         },
         "fr": {
@@ -61082,7 +61082,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kun processer startet inde i cmux-terminaler kan sende kommandoer."
+            "value": "Kun processer startet i cmux-terminaler kan sende kommandoer."
           }
         },
         "pl": {
@@ -61290,7 +61290,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No se pudo resolver la ruta del archivo de contrasena del socket."
+            "value": "No se pudo resolver la ruta del archivo de contraseña del socket."
           }
         },
         "fr": {
@@ -61308,7 +61308,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kan ikke finde stien til socket-adgangskodefilen."
+            "value": "Kunne ikke bestemme stien til socket-adgangskodefilen."
           }
         },
         "pl": {
@@ -61629,7 +61629,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Requerir autenticacion del socket con una contrasena almacenada en un archivo local."
+            "value": "Requerir autenticación del socket con una contraseña almacenada en un archivo local."
           }
         },
         "fr": {
@@ -61647,7 +61647,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Krav socket-godkendelse med en adgangskode gemt i en lokal fil."
+            "value": "Kræv socket-autentifikation med en adgangskode gemt i en lokal fil."
           }
         },
         "pl": {
@@ -61742,7 +61742,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Modo de contrasena"
+            "value": "Modo de contraseña"
           }
         },
         "fr": {
@@ -61968,7 +61968,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ir a la ultima no leida"
+            "value": "Ir a la última no leída"
           }
         },
         "fr": {
@@ -61986,7 +61986,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hop til seneste ulaste"
+            "value": "Gå til seneste ulæste"
           }
         },
         "pl": {
@@ -62081,7 +62081,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Marcar todo como leido"
+            "value": "Marcar todo como leído"
           }
         },
         "fr": {
@@ -62099,7 +62099,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Marker alle som laste"
+            "value": "Marker alle som læste"
           }
         },
         "pl": {
@@ -62194,7 +62194,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sin notificaciones no leidas"
+            "value": "Sin notificaciones no leídas"
           }
         },
         "fr": {
@@ -62212,7 +62212,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ingen ulaste notifikationer"
+            "value": "Ingen ulæste notifikationer"
           }
         },
         "pl": {
@@ -62420,7 +62420,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "1 notificacion no leida"
+            "value": "1 notificación no leída"
           }
         },
         "fr": {
@@ -62438,7 +62438,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "1 ulast notifikation"
+            "value": "1 ulæst notifikation"
           }
         },
         "pl": {
@@ -62533,7 +62533,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "%lld notificaciones no leidas"
+            "value": "%lld notificaciones no leídas"
           }
         },
         "fr": {
@@ -62551,7 +62551,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "%lld ulaste notifikationer"
+            "value": "%lld ulæste notifikationer"
           }
         },
         "pl": {
@@ -62646,7 +62646,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "1 notificacion no leida"
+            "value": "1 notificación no leída"
           }
         },
         "fr": {
@@ -62664,7 +62664,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "1 ulast notifikation"
+            "value": "1 ulæst notifikation"
           }
         },
         "pl": {
@@ -62759,7 +62759,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "%lld notificaciones no leidas"
+            "value": "%lld notificaciones no leídas"
           }
         },
         "fr": {
@@ -62777,7 +62777,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "%lld ulaste notifikationer"
+            "value": "%lld ulæste notifikationer"
           }
         },
         "pl": {
@@ -62872,7 +62872,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pestana sin titulo"
+            "value": "Pestaña sin título"
           }
         },
         "fr": {
@@ -63003,7 +63003,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mork"
+            "value": "Mørk"
           }
         },
         "pl": {
@@ -63342,7 +63342,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nyt arbejdsomrade"
+            "value": "Nyt arbejdsområde"
           }
         },
         "pl": {
@@ -63455,7 +63455,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nyt arbejdsomrade"
+            "value": "Nyt arbejdsområde"
           }
         },
         "pl": {
@@ -63794,7 +63794,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vis/skjul sidebjalk"
+            "value": "Slå sidebjælke til/fra"
           }
         },
         "pl": {
@@ -63907,7 +63907,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vis eller skjul sidebjalk"
+            "value": "Vis eller skjul sidebjælken"
           }
         },
         "pl": {
@@ -64002,7 +64002,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Actualizacion disponible"
+            "value": "Actualización disponible"
           }
         },
         "fr": {
@@ -64020,7 +64020,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Opdatering tilgangelig"
+            "value": "Opdatering tilgængelig"
           }
         },
         "pl": {
@@ -64115,7 +64115,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Actualizacion disponible: %@"
+            "value": "Actualización disponible: %@"
           }
         },
         "fr": {
@@ -64133,7 +64133,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Opdatering tilgangelig: %@"
+            "value": "Opdatering tilgængelig: %@"
           }
         },
         "pl": {
@@ -64228,7 +64228,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Buscando actualizaciones..."
+            "value": "Buscando actualizaciones…"
           }
         },
         "fr": {
@@ -64246,7 +64246,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Soger efter opdateringer..."
+            "value": "Søger efter opdateringer…"
           }
         },
         "pl": {
@@ -64341,7 +64341,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Configurar preferencias de actualizacion automatica"
+            "value": "Configurar preferencias de actualización automática"
           }
         },
         "fr": {
@@ -64359,7 +64359,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Konfigurer praferencer for automatiske opdateringer"
+            "value": "Konfigurer præferencer for automatiske opdateringer"
           }
         },
         "pl": {
@@ -64454,7 +64454,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Descargar e instalar la ultima version"
+            "value": "Descargar e instalar la última versión"
           }
         },
         "fr": {
@@ -64680,7 +64680,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Descargando..."
+            "value": "Descargando…"
           }
         },
         "fr": {
@@ -64698,7 +64698,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Downloader..."
+            "value": "Downloader…"
           }
         },
         "pl": {
@@ -64793,7 +64793,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Descargando el paquete de actualizacion"
+            "value": "Descargando el paquete de actualización"
           }
         },
         "fr": {
@@ -64906,7 +64906,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Problema con la ubicacion de la app"
+            "value": "Problema con la ubicación de la app"
           }
         },
         "fr": {
@@ -65019,7 +65019,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Se perdio la conexion de red al buscar actualizaciones. Intentalo de nuevo."
+            "value": "Se perdió la conexión de red al buscar actualizaciones. Inténtalo de nuevo."
           }
         },
         "fr": {
@@ -65037,7 +65037,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Netvarkssforbindelsen gik tabt under sogning efter opdateringer. Prov igen."
+            "value": "Netværksforbindelsen gik tabt under søgning efter opdateringer. Prøv igen."
           }
         },
         "pl": {
@@ -65132,7 +65132,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Conexion perdida"
+            "value": "Conexión perdida"
           }
         },
         "fr": {
@@ -65150,7 +65150,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Forbindelse mistet"
+            "value": "Forbindelse tabt"
           }
         },
         "pl": {
@@ -65245,7 +65245,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No se pudo descargar la actualizacion"
+            "value": "No se pudo descargar la actualización"
           }
         },
         "fr": {
@@ -65358,7 +65358,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Error de actualizacion"
+            "value": "Error de actualización"
           }
         },
         "fr": {
@@ -65471,7 +65471,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux no pudo descargar la fuente de actualizaciones. Comprueba tu conexion e intentalo de nuevo."
+            "value": "cmux no pudo descargar la fuente de actualizaciones. Comprueba tu conexión e inténtalo de nuevo."
           }
         },
         "fr": {
@@ -65489,7 +65489,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux kunne ikke downloade opdateringsfeedet. Kontroller din forbindelse, og prov igen."
+            "value": "cmux kunne ikke downloade opdateringsfeedet. Kontroller din forbindelse, og prøv igen."
           }
         },
         "pl": {
@@ -65697,7 +65697,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No se pudo leer la fuente de actualizaciones. Intentalo de nuevo mas tarde."
+            "value": "No se pudo leer la fuente de actualizaciones. Inténtalo de nuevo más tarde."
           }
         },
         "fr": {
@@ -65715,7 +65715,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Opdateringsfeedet kunne ikke lases. Prov igen senere."
+            "value": "Opdateringsfeedet kunne ikke læses. Prøv igen senere."
           }
         },
         "pl": {
@@ -65828,7 +65828,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Opdateringsfeedet er usikkert. Kontakt venligst support."
+            "value": "Opdateringsfeedet er usikkert. Kontakt venligst supporten."
           }
         },
         "pl": {
@@ -66036,7 +66036,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "La URL de la fuente de actualizaciones no es valida. Contacta con soporte."
+            "value": "La URL de la fuente de actualizaciones no es válida. Contacta con soporte."
           }
         },
         "fr": {
@@ -66054,7 +66054,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Opdateringsfeedets URL er ugyldig. Kontakt venligst support."
+            "value": "URL'en til opdateringsfeedet er ugyldig. Kontakt venligst supporten."
           }
         },
         "pl": {
@@ -66149,7 +66149,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fuente de actualizaciones no valida"
+            "value": "Fuente de actualizaciones no válida"
           }
         },
         "fr": {
@@ -66262,7 +66262,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux no puede acceder al servidor de actualizaciones. Comprueba tu conexion a internet e intentalo de nuevo."
+            "value": "cmux no puede acceder al servidor de actualizaciones. Comprueba tu conexión a internet e inténtalo de nuevo."
           }
         },
         "fr": {
@@ -66280,7 +66280,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux kan ikke na opdateringsserveren. Kontroller din internetforbindelse, og prov igen."
+            "value": "cmux kan ikke nå opdateringsserveren. Kontroller din internetforbindelse, og prøv igen."
           }
         },
         "pl": {
@@ -66375,7 +66375,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sin conexion a internet"
+            "value": "Sin conexión a internet"
           }
         },
         "fr": {
@@ -66714,7 +66714,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No se pudo establecer una conexion segura con el servidor de actualizaciones. Intentalo de nuevo mas tarde."
+            "value": "No se pudo establecer una conexión segura con el servidor de actualizaciones. Inténtalo de nuevo más tarde."
           }
         },
         "fr": {
@@ -66732,7 +66732,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "En sikker forbindelse til opdateringsserveren kunne ikke oprettes. Prov igen senere."
+            "value": "En sikker forbindelse til opdateringsserveren kunne ikke oprettes. Prøv igen senere."
           }
         },
         "pl": {
@@ -66827,7 +66827,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Error de conexion segura"
+            "value": "Error de conexión segura"
           }
         },
         "fr": {
@@ -66940,7 +66940,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No se encuentra el servidor de actualizaciones. Comprueba tu conexion o intentalo de nuevo mas tarde."
+            "value": "No se encuentra el servidor de actualizaciones. Comprueba tu conexión o inténtalo de nuevo más tarde."
           }
         },
         "fr": {
@@ -66958,7 +66958,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Opdateringsserveren kan ikke findes. Kontroller din forbindelse, eller prov igen senere."
+            "value": "Opdateringsserveren kan ikke findes. Kontroller din forbindelse, eller prøv igen senere."
           }
         },
         "pl": {
@@ -67166,7 +67166,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux no pudo conectar con el servidor de actualizaciones. Comprueba tu conexion o intentalo de nuevo mas tarde."
+            "value": "cmux no pudo conectar con el servidor de actualizaciones. Comprueba tu conexión o inténtalo de nuevo más tarde."
           }
         },
         "fr": {
@@ -67184,7 +67184,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux kunne ikke oprette forbindelse til opdateringsserveren. Kontroller din forbindelse, eller prov igen senere."
+            "value": "cmux kunne ikke oprette forbindelse til opdateringsserveren. Kontroller din forbindelse, eller prøv igen senere."
           }
         },
         "pl": {
@@ -67297,7 +67297,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Server utilgangelig"
+            "value": "Server utilgængelig"
           }
         },
         "pl": {
@@ -67392,7 +67392,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No se pudo verificar la firma de la actualizacion. Intentalo de nuevo mas tarde."
+            "value": "No se pudo verificar la firma de la actualización. Inténtalo de nuevo más tarde."
           }
         },
         "fr": {
@@ -67410,7 +67410,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Opdateringens signatur kunne ikke verificeres. Prov igen senere."
+            "value": "Opdateringens signatur kunne ikke verificeres. Prøv igen senere."
           }
         },
         "pl": {
@@ -67505,7 +67505,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Error de firma de actualizacion"
+            "value": "Error de firma de actualización"
           }
         },
         "fr": {
@@ -67618,7 +67618,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "El servidor de actualizaciones tardo demasiado en responder. Intentalo de nuevo en un momento."
+            "value": "El servidor de actualizaciones tardó demasiado en responder. Inténtalo de nuevo en un momento."
           }
         },
         "fr": {
@@ -67636,7 +67636,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Opdateringsserveren var for lang tid om at svare. Prov igen om et ojeblik."
+            "value": "Opdateringsserveren var for lang tid om at svare. Prøv igen om et øjeblik."
           }
         },
         "pl": {
@@ -67957,7 +67957,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Instalar actualizacion y reiniciar"
+            "value": "Instalar actualización y reiniciar"
           }
         },
         "fr": {
@@ -68070,7 +68070,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Instalando..."
+            "value": "Instalando…"
           }
         },
         "fr": {
@@ -68088,7 +68088,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Installerer..."
+            "value": "Installerer…"
           }
         },
         "pl": {
@@ -68183,7 +68183,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Instalando la actualizacion y preparando el reinicio"
+            "value": "Instalando la actualización y preparando el reinicio"
           }
         },
         "fr": {
@@ -68296,7 +68296,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Estas ejecutando la ultima version"
+            "value": "Estás ejecutando la última versión"
           }
         },
         "fr": {
@@ -68314,7 +68314,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Du korer den seneste version"
+            "value": "Du kører den seneste version"
           }
         },
         "pl": {
@@ -68427,7 +68427,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ingen opdateringer tilgangelige"
+            "value": "Ingen tilgængelige opdateringer"
           }
         },
         "pl": {
@@ -68522,7 +68522,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Activar actualizaciones automaticas?"
+            "value": "¿Activar actualizaciones automáticas?"
           }
         },
         "fr": {
@@ -68653,7 +68653,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vent venligst, mens vi soger efter tilgangelige opdateringer"
+            "value": "Vent venligst, mens vi søger efter tilgængelige opdateringer"
           }
         },
         "pl": {
@@ -68748,7 +68748,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux puede buscar actualizaciones automaticamente en segundo plano."
+            "value": "cmux puede buscar actualizaciones automáticamente en segundo plano."
           }
         },
         "fr": {
@@ -68766,7 +68766,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux kan automatisk soge efter opdateringer i baggrunden."
+            "value": "cmux kan automatisk søge efter opdateringer i baggrunden."
           }
         },
         "pl": {
@@ -68861,7 +68861,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Buscando actualizaciones..."
+            "value": "Buscando actualizaciones…"
           }
         },
         "fr": {
@@ -68879,7 +68879,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Soger efter opdateringer..."
+            "value": "Søger efter opdateringer…"
           }
         },
         "pl": {
@@ -69087,7 +69087,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Descargando actualizacion"
+            "value": "Descargando actualización"
           }
         },
         "fr": {
@@ -69200,7 +69200,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Activar actualizaciones automaticas?"
+            "value": "¿Activar actualizaciones automáticas?"
           }
         },
         "fr": {
@@ -69426,7 +69426,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ya estas ejecutando la ultima version."
+            "value": "Ya estás ejecutando la última versión."
           }
         },
         "fr": {
@@ -69444,7 +69444,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Du korer allerede den seneste version."
+            "value": "Du kører allerede den seneste version."
           }
         },
         "pl": {
@@ -69539,7 +69539,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Preparando actualizacion"
+            "value": "Preparando actualización"
           }
         },
         "fr": {
@@ -69783,7 +69783,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Genstart pakravet"
+            "value": "Genstart påkrævet"
           }
         },
         "pl": {
@@ -69878,7 +69878,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "La actualizacion esta lista. Reinicia la aplicacion para completar la instalacion."
+            "value": "La actualización está lista. Reinicia la aplicación para completar la instalación."
           }
         },
         "fr": {
@@ -69896,7 +69896,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Opdateringen er klar. Genstart programmet for at fuldfare installationen."
+            "value": "Opdateringen er klar. Genstart programmet for at fuldføre installationen."
           }
         },
         "pl": {
@@ -69991,7 +69991,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tamano:"
+            "value": "Tamaño:"
           }
         },
         "fr": {
@@ -70009,7 +70009,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Storrelse:"
+            "value": "Størrelse:"
           }
         },
         "pl": {
@@ -70104,7 +70104,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Actualizacion disponible"
+            "value": "Actualización disponible"
           }
         },
         "fr": {
@@ -70122,7 +70122,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Opdatering tilgangelig"
+            "value": "Opdatering tilgængelig"
           }
         },
         "pl": {
@@ -70217,7 +70217,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Version:"
+            "value": "Versión:"
           }
         },
         "fr": {
@@ -70330,7 +70330,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Extrayendo y preparando la actualizacion"
+            "value": "Extrayendo y preparando la actualización"
           }
         },
         "fr": {
@@ -70443,7 +70443,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reiniciar para completar la actualizacion"
+            "value": "Reiniciar para completar la actualización"
           }
         },
         "fr": {
@@ -70461,7 +70461,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Genstart for at fuldfare opdatering"
+            "value": "Genstart for at fuldføre opdatering"
           }
         },
         "pl": {
@@ -70574,7 +70574,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vis GitHub-commit"
+            "value": "Vis GitHub Commit"
           }
         },
         "pl": {
@@ -70669,7 +70669,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ver notas de la version"
+            "value": "Ver notas de la versión"
           }
         },
         "fr": {
@@ -70800,7 +70800,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Arbejdsomrade"
+            "value": "Arbejdsområde"
           }
         },
         "pl": {
@@ -70895,7 +70895,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Despues del actual"
+            "value": "Después del actual"
           }
         },
         "fr": {
@@ -70913,7 +70913,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Efter nuvarende"
+            "value": "Efter nuværende"
           }
         },
         "pl": {
@@ -71008,7 +71008,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Insertar nuevos espacios de trabajo justo despues del espacio de trabajo activo."
+            "value": "Insertar nuevos espacios de trabajo justo después del espacio de trabajo activo."
           }
         },
         "fr": {
@@ -71026,7 +71026,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Indsatter nye arbejdsomrader lige efter det aktive arbejdsomrade."
+            "value": "Indsæt nye arbejdsområder direkte efter det aktive arbejdsområde."
           }
         },
         "pl": {
@@ -71139,7 +71139,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Slutningen"
+            "value": "Sidst"
           }
         },
         "pl": {
@@ -71252,7 +71252,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tilfojer nye arbejdsomrader nederst pa listen."
+            "value": "Tilføj nye arbejdsområder nederst på listen."
           }
         },
         "pl": {
@@ -71365,7 +71365,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Toppen"
+            "value": "Øverst"
           }
         },
         "pl": {
@@ -71478,7 +71478,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Indsatter nye arbejdsomrader overst pa listen."
+            "value": "Indsæt nye arbejdsområder øverst på listen."
           }
         },
         "pl": {
@@ -71817,7 +71817,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Del nedad"
+            "value": "Opdel nedad"
           }
         },
         "pl": {
@@ -71930,7 +71930,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Del til hojre"
+            "value": "Opdel til højre"
           }
         },
         "pl": {
