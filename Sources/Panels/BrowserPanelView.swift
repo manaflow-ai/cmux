@@ -211,6 +211,7 @@ struct BrowserPanelView: View {
     let portalPriority: Int
     let onRequestPanelFocus: () -> Void
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.paneDropZone) private var paneDropZone
     @State private var omnibarState = OmnibarState()
     @State private var addressBarFocused: Bool = false
     @AppStorage(BrowserSearchSettings.searchEngineKey) private var searchEngineRaw = BrowserSearchSettings.defaultSearchEngine.rawValue
@@ -737,7 +738,8 @@ struct BrowserPanelView: View {
                     shouldAttachWebView: isVisibleInUI,
                     shouldFocusWebView: isFocused && !addressBarFocused,
                     isPanelFocused: isFocused,
-                    portalZPriority: portalPriority
+                    portalZPriority: portalPriority,
+                    paneDropZone: paneDropZone
                 )
                 // Keep the host stable for normal pane churn, but force a remount when
                 // BrowserPanel replaces its underlying WKWebView after process termination.
@@ -3005,6 +3007,7 @@ struct WebViewRepresentable: NSViewRepresentable {
     let shouldFocusWebView: Bool
     let isPanelFocused: Bool
     let portalZPriority: Int
+    let paneDropZone: DropZone?
 
     final class Coordinator {
         weak var panel: BrowserPanel?
@@ -3175,6 +3178,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         coordinator.desiredPortalZPriority = portalZPriority
         coordinator.attachGeneration += 1
         let generation = coordinator.attachGeneration
+        let paneDropContext = shouldAttachWebView ? currentPaneDropContext() : nil
 
         host.onDidMoveToWindow = { [weak host, weak webView, weak coordinator] in
             guard let host, let webView, let coordinator else { return }
@@ -3186,6 +3190,7 @@ struct WebViewRepresentable: NSViewRepresentable {
                 visibleInUI: coordinator.desiredPortalVisibleInUI,
                 zPriority: coordinator.desiredPortalZPriority
             )
+            BrowserWindowPortalRegistry.updatePaneDropContext(for: webView, context: paneDropContext)
             coordinator.lastPortalHostId = ObjectIdentifier(host)
         }
         host.onGeometryChanged = { [weak host, weak coordinator] in
@@ -3228,6 +3233,15 @@ struct WebViewRepresentable: NSViewRepresentable {
                 zPriority: coordinator.desiredPortalZPriority
             )
         }
+
+        BrowserWindowPortalRegistry.updateDropZoneOverlay(
+            for: webView,
+            zone: shouldAttachWebView ? paneDropZone : nil
+        )
+        BrowserWindowPortalRegistry.updatePaneDropContext(
+            for: webView,
+            context: paneDropContext
+        )
 
         panel.restoreDeveloperToolsAfterAttachIfNeeded()
 
@@ -3341,7 +3355,24 @@ struct WebViewRepresentable: NSViewRepresentable {
                 window.makeFirstResponder(nil)
             }
         }
-        BrowserWindowPortalRegistry.detach(webView: webView)
+
+        // SwiftUI can transiently dismantle/rebuild the browser host view during split
+        // rearrangement. Do not detach the portal-hosted WKWebView here; explicit detach
+        // still happens on real web view replacement and panel teardown.
+        BrowserWindowPortalRegistry.updateDropZoneOverlay(for: webView, zone: nil)
+        BrowserWindowPortalRegistry.updatePaneDropContext(for: webView, context: nil)
         coordinator.lastPortalHostId = nil
+    }
+
+    private func currentPaneDropContext() -> BrowserPaneDropContext? {
+        guard let workspace = AppDelegate.shared?.tabManager?.tabs.first(where: { $0.id == panel.workspaceId }),
+              let paneId = workspace.paneId(forPanelId: panel.id) else {
+            return nil
+        }
+        return BrowserPaneDropContext(
+            workspaceId: panel.workspaceId,
+            panelId: panel.id,
+            paneId: paneId
+        )
     }
 }
