@@ -1456,15 +1456,15 @@ final class BrowserPanel: Panel, ObservableObject {
     (() => {
       try {
         const state = window.__cmuxAddressBarFocusState;
-        window.__cmuxAddressBarFocusState = null;
         if (!state || typeof state.id !== "string" || !state.id) {
-          return false;
+          return "no_state";
         }
 
         const selector = '[data-cmux-addressbar-focus-id="' + state.id + '"]';
         const target = document.querySelector(selector);
         if (!target || !target.isConnected) {
-          return false;
+          window.__cmuxAddressBarFocusState = null;
+          return "missing_target";
         }
 
         try {
@@ -1476,7 +1476,7 @@ final class BrowserPanel: Panel, ObservableObject {
         const active = document.activeElement;
         const focused = active === target || (active && typeof target.contains === "function" && target.contains(active));
         if (!focused) {
-          return false;
+          return "not_focused";
         }
 
         if (
@@ -1488,9 +1488,10 @@ final class BrowserPanel: Panel, ObservableObject {
             target.setSelectionRange(state.selectionStart, state.selectionEnd);
           } catch (_) {}
         }
-        return true;
+        window.__cmuxAddressBarFocusState = null;
+        return "restored";
       } catch (_) {
-        return false;
+        return "error";
       }
     })();
     """
@@ -2965,25 +2966,80 @@ extension BrowserPanel {
         }
     }
 
+    private enum AddressBarPageFocusRestoreStatus: String {
+        case restored
+        case noState = "no_state"
+        case missingTarget = "missing_target"
+        case notFocused = "not_focused"
+        case error
+    }
+
+    private static func addressBarPageFocusRestoreStatus(
+        from result: Any?,
+        error: Error?
+    ) -> AddressBarPageFocusRestoreStatus {
+        if error != nil { return .error }
+        guard let raw = result as? String else { return .error }
+        return AddressBarPageFocusRestoreStatus(rawValue: raw) ?? .error
+    }
+
     func restoreAddressBarPageFocusIfNeeded(completion: @escaping (Bool) -> Void) {
+        let delays: [TimeInterval] = [0.0, 0.03, 0.09, 0.2]
+        restoreAddressBarPageFocusAttemptIfNeeded(attempt: 0, delays: delays, completion: completion)
+    }
+
+    private func restoreAddressBarPageFocusAttemptIfNeeded(
+        attempt: Int,
+        delays: [TimeInterval],
+        completion: @escaping (Bool) -> Void
+    ) {
         webView.evaluateJavaScript(Self.addressBarFocusRestoreScript) { [weak self] result, error in
-            let restored = (result as? Bool) == true && error == nil
+            guard let self else {
+                completion(false)
+                return
+            }
+
+            let status = Self.addressBarPageFocusRestoreStatus(from: result, error: error)
+            let canRetry = (status == .notFocused || status == .error)
+            let hasNextAttempt = attempt + 1 < delays.count
+
 #if DEBUG
-            if let self {
-                if let error {
-                    dlog(
-                        "browser.focus.addressBar.restore panel=\(self.id.uuidString.prefix(5)) " +
-                        "result=error message=\(error.localizedDescription)"
-                    )
-                } else {
-                    dlog(
-                        "browser.focus.addressBar.restore panel=\(self.id.uuidString.prefix(5)) " +
-                        "result=\(restored ? 1 : 0)"
-                    )
-                }
+            if let error {
+                dlog(
+                    "browser.focus.addressBar.restore panel=\(self.id.uuidString.prefix(5)) " +
+                    "attempt=\(attempt) status=\(status.rawValue) " +
+                    "message=\(error.localizedDescription)"
+                )
+            } else {
+                dlog(
+                    "browser.focus.addressBar.restore panel=\(self.id.uuidString.prefix(5)) " +
+                    "attempt=\(attempt) status=\(status.rawValue)"
+                )
             }
 #endif
-            completion(restored)
+
+            if status == .restored {
+                completion(true)
+                return
+            }
+
+            if canRetry && hasNextAttempt {
+                let delay = delays[attempt + 1]
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                    guard let self else {
+                        completion(false)
+                        return
+                    }
+                    self.restoreAddressBarPageFocusAttemptIfNeeded(
+                        attempt: attempt + 1,
+                        delays: delays,
+                        completion: completion
+                    )
+                }
+                return
+            }
+
+            completion(false)
         }
     }
 

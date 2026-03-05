@@ -1437,16 +1437,33 @@ struct BrowserPanelView: View {
         }
         if effects.shouldBlurToWebView {
             hideSuggestions()
+            // This transition is stateful: drop omnibar focus suppression before
+            // attempting responder handoff so WKWebView can actually become first responder.
+            panel.endSuppressWebViewFocusForAddressBar()
+            syncWebViewResponderPolicyWithViewState(reason: "effects.blurToWebView.preHandoff")
             setAddressBarFocused(false, reason: "effects.blurToWebView")
             DispatchQueue.main.async {
                 guard isFocused else { return }
                 guard let window = panel.webView.window,
                       !panel.webView.isHiddenOrHasHiddenAncestor else { return }
+                syncWebViewResponderPolicyWithViewState(reason: "effects.blurToWebView.handoff")
                 panel.clearWebViewFocusSuppression()
-                _ = window.makeFirstResponder(panel.webView)
+                let focusedWebView = window.makeFirstResponder(panel.webView)
+#if DEBUG
+                dlog(
+                    "browser.focus.addressBar.exit.handoff panel=\(panel.id.uuidString.prefix(5)) " +
+                    "focusedWebView=\(focusedWebView ? 1 : 0)"
+                )
+#endif
                 panel.restoreAddressBarPageFocusIfNeeded { restored in
                     if !restored && !browserFocusResponderChainContains(window.firstResponder, target: panel.webView) {
-                        _ = window.makeFirstResponder(panel.webView)
+                        let fallbackFocusedWebView = window.makeFirstResponder(panel.webView)
+#if DEBUG
+                        dlog(
+                            "browser.focus.addressBar.exit.handoff panel=\(panel.id.uuidString.prefix(5)) " +
+                            "fallbackFocusedWebView=\(fallbackFocusedWebView ? 1 : 0)"
+                        )
+#endif
                     }
                     NotificationCenter.default.post(name: .browserDidExitAddressBar, object: panel.id)
                 }
