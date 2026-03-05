@@ -58,6 +58,8 @@ def main() -> int:
         failures.append("browser screenshot no longer merges global/local json output flags")
     if 'payload["url"] = screenshotURL' not in screenshot_block:
         failures.append("browser screenshot no longer attaches url to payload")
+    if 'outputPayload.removeValue(forKey: "png_base64")' not in screenshot_block:
+        failures.append("browser screenshot JSON output no longer strips png_base64")
     if 'print("OK \\(screenshotURL)")' not in screenshot_block:
         failures.append("browser screenshot no longer prints image URL in non-JSON mode")
 
@@ -68,6 +70,10 @@ def main() -> int:
         failures.append("browser.screenshot v2 response no longer includes screenshot path")
     if 'result["url"] = imageURL.absoluteString' not in v2_screenshot_block:
         failures.append("browser.screenshot v2 response no longer includes screenshot URL")
+
+    json_helper = extract_block(cli_source, "private func jsonString(_ object: Any) -> String")
+    if ".withoutEscapingSlashes" not in json_helper:
+        failures.append("json output no longer disables slash escaping")
 
     if failures:
         print("FAIL: browser screenshot CLI output regression guard failed")

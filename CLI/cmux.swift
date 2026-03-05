@@ -3108,7 +3108,14 @@ struct CMUXCLI {
             }
 
             if outputAsJSON {
-                print(jsonString(formatIDs(payload, mode: idFormat)))
+                let formattedPayload = formatIDs(payload, mode: idFormat)
+                if var outputPayload = formattedPayload as? [String: Any] {
+                    // Keep base64 for internal transport/write fallback, but keep CLI JSON concise.
+                    outputPayload.removeValue(forKey: "png_base64")
+                    print(jsonString(outputPayload))
+                } else {
+                    print(jsonString(formattedPayload))
+                }
             } else if let screenshotURL,
                       !screenshotURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 print("OK \(screenshotURL)")
@@ -5563,8 +5570,10 @@ struct CMUXCLI {
     }
 
     private func jsonString(_ object: Any) -> String {
+        var options: JSONSerialization.WritingOptions = [.prettyPrinted]
+        options.insert(.withoutEscapingSlashes)
         guard JSONSerialization.isValidJSONObject(object),
-              let data = try? JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted]),
+              let data = try? JSONSerialization.data(withJSONObject: object, options: options),
               let output = String(data: data, encoding: .utf8) else {
             return "{}"
         }
