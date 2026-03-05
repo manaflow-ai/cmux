@@ -59,12 +59,25 @@ def _wait_for_focused_cwd(
     client: cmux,
     expected: str,
     timeout: float = 12.0,
+    exclude_panel: str | None = None,
 ) -> dict[str, str]:
+    """Wait for focused_cwd to match expected.
+
+    If exclude_panel is given, also require that focused_panel differs from
+    that value — ensuring we're checking the *new* pane, not the original.
+    """
     def pred():
         state = _parse_sidebar_state(client.sidebar_state())
         cwd = state.get("focused_cwd", "")
-        return state if cwd == expected else None
-    return _wait_for(pred, timeout=timeout, interval=0.3, label=f"focused_cwd={expected!r}")
+        if cwd != expected:
+            return None
+        if exclude_panel and state.get("focused_panel", "") == exclude_panel:
+            return None
+        return state
+    label = f"focused_cwd={expected!r}"
+    if exclude_panel:
+        label += f" (panel != {exclude_panel})"
+    return _wait_for(pred, timeout=timeout, interval=0.3, label=label)
 
 
 def _send_cd_and_wait(
@@ -115,42 +128,58 @@ def main() -> int:
 
     # --- Test 1: New split inherits test_dir_a ---
     print("  [test1] creating right split from test_dir_a...")
+    # Record the original panel so we can verify focus moves to the NEW pane.
+    original_panel = state.get("focused_panel", "")
     split_result = client.new_split("right")
     check("split created", bool(split_result))
 
-    # Wait for the new pane's shell to start and report cwd.
-    # The split should inherit test_dir_a from the source pane.
+    # Wait for the NEW pane (different panel ID) to report test_dir_a.
     time.sleep(4)  # wait for new bash to start + run PROMPT_COMMAND
-
-    # Use report_pwd to manually seed the new pane's cwd if shell integration
-    # hasn't fired yet (macOS /bin/bash can be slow).
-    # Instead, just wait for sidebar to converge.
     try:
-        state = _wait_for_focused_cwd(client, test_dir_a, timeout=15.0)
+        state = _wait_for_focused_cwd(
+            client, test_dir_a, timeout=15.0, exclude_panel=original_panel,
+        )
+        new_panel = state.get("focused_panel", "")
+        check("test1: focus moved to new pane", new_panel != original_panel,
+              f"original={original_panel!r}, current={new_panel!r}")
         check("test1: split inherited test_dir_a", True)
-    except AssertionError as e:
-        # Check what we got instead
+    except AssertionError:
         state = _parse_sidebar_state(client.sidebar_state())
         check("test1: split inherited test_dir_a", False,
-              f"focused_cwd={state.get('focused_cwd')!r}")
+              f"focused_cwd={state.get('focused_cwd')!r}, focused_panel={state.get('focused_panel')!r}")
 
     # --- Test 2: New workspace tab inherits CWD ---
     # First cd to test_dir_b so we have a different dir to inherit
     print("  [test2] cd to test_dir_b, then creating new workspace tab...")
     _send_cd_and_wait(client, test_dir_b)
+    state = _parse_sidebar_state(client.sidebar_state())
+    original_tab = state.get("tab", "")
 
     tab_result = client.new_tab()
     check("new tab created", bool(tab_result))
 
-    # New workspace should inherit test_dir_b from the previous workspace
+    # New workspace should be a different tab AND inherit test_dir_b
     time.sleep(4)
     try:
-        state = _wait_for_focused_cwd(client, test_dir_b, timeout=15.0)
+        def _new_tab_with_cwd():
+            s = _parse_sidebar_state(client.sidebar_state())
+            tab_id = s.get("tab", "")
+            cwd = s.get("focused_cwd", "")
+            if tab_id != original_tab and cwd == test_dir_b:
+                return s
+            return None
+
+        state = _wait_for(
+            _new_tab_with_cwd, timeout=15.0, interval=0.3,
+            label=f"new tab with focused_cwd={test_dir_b!r}",
+        )
+        check("test2: focus moved to new tab", state.get("tab") != original_tab,
+              f"original={original_tab!r}, current={state.get('tab')!r}")
         check("test2: new workspace inherited test_dir_b", True)
-    except AssertionError as e:
+    except AssertionError:
         state = _parse_sidebar_state(client.sidebar_state())
         check("test2: new workspace inherited test_dir_b", False,
-              f"focused_cwd={state.get('focused_cwd')!r}")
+              f"focused_cwd={state.get('focused_cwd')!r}, tab={state.get('tab')!r}")
 
     print(f"\n{passed} passed, {failed} failed")
 
