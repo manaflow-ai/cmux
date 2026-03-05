@@ -58,11 +58,54 @@ final class CmuxWebView: WKWebView {
     /// Guard against background panes stealing first responder (e.g. page autofocus).
     /// BrowserPanelView updates this as pane focus state changes.
     var allowsFirstResponderAcquisition: Bool = true
+    private var trackingArea: NSTrackingArea?
     private var pointerFocusAllowanceDepth: Int = 0
     var allowsFirstResponderAcquisitionEffective: Bool {
         allowsFirstResponderAcquisition || pointerFocusAllowanceDepth > 0
     }
     var debugPointerFocusAllowanceDepth: Int { pointerFocusAllowanceDepth }
+
+    static func shouldRequestPanelFocusForMouseHover(
+        focusFollowsMouseEnabled: Bool,
+        pressedMouseButtons: Int,
+        appIsActive: Bool,
+        windowIsKey: Bool,
+        alreadyFirstResponder: Bool
+    ) -> Bool {
+        guard focusFollowsMouseEnabled else { return false }
+        guard pressedMouseButtons == 0 else { return false }
+        guard appIsActive, windowIsKey else { return false }
+        guard !alreadyFirstResponder else { return false }
+        return true
+    }
+
+    override func updateTrackingAreas() {
+        if let trackingArea {
+            removeTrackingArea(trackingArea)
+        }
+
+        let options: NSTrackingArea.Options = [
+            .inVisibleRect,
+            .activeAlways,
+            .mouseMoved,
+            .mouseEnteredAndExited,
+        ]
+        let next = NSTrackingArea(rect: .zero, options: options, owner: self, userInfo: nil)
+        addTrackingArea(next)
+        trackingArea = next
+
+        super.updateTrackingAreas()
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        maybeNotifyPanelHoverFocusIntent()
+        super.mouseMoved(with: event)
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        maybeNotifyPanelHoverFocusIntent()
+        super.mouseEntered(with: event)
+    }
 
     override func becomeFirstResponder() -> Bool {
         guard allowsFirstResponderAcquisitionEffective else {
@@ -172,6 +215,39 @@ final class CmuxWebView: WKWebView {
         withPointerFocusAllowance {
             super.mouseDown(with: event)
         }
+    }
+
+    private func responderChainContains(_ start: NSResponder?, target: NSResponder) -> Bool {
+        var responder = start
+        var hops = 0
+        while let current = responder, hops < 64 {
+            if current === target { return true }
+            responder = current.nextResponder
+            hops += 1
+        }
+        return false
+    }
+
+    private func maybeNotifyPanelHoverFocusIntent() {
+        guard let window else { return }
+        let alreadyFirstResponder = responderChainContains(window.firstResponder, target: self)
+        let shouldRequest = Self.shouldRequestPanelFocusForMouseHover(
+            focusFollowsMouseEnabled: GhosttyApp.shared.focusFollowsMouseEnabled(),
+            pressedMouseButtons: NSEvent.pressedMouseButtons,
+            appIsActive: NSApp.isActive,
+            windowIsKey: window.isKeyWindow,
+            alreadyFirstResponder: alreadyFirstResponder
+        )
+        guard shouldRequest else { return }
+
+#if DEBUG
+        dlog(
+            "browser.focus.hoverIntent web=\(ObjectIdentifier(self)) " +
+            "policy=\(allowsFirstResponderAcquisition ? 1 : 0) " +
+            "pointerDepth=\(pointerFocusAllowanceDepth)"
+        )
+#endif
+        NotificationCenter.default.post(name: .webViewDidReceiveHover, object: self)
     }
 
     // MARK: - Mouse back/forward buttons
