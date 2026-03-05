@@ -2728,6 +2728,11 @@ final class TerminalSurface: Identifiable, ObservableObject {
             let startedAt = ProcessInfo.processInfo.systemUptime
             #endif
             self.createSurface(for: view)
+            if self.surface != nil {
+                // Background priming bypasses normal AppKit lifecycle hooks.
+                // Apply the same baseline theme/background state immediately.
+                view.applyInitialThemeStateForBackgroundPrimedSurface()
+            }
             #if DEBUG
             let elapsedMs = (ProcessInfo.processInfo.systemUptime - startedAt) * 1000.0
             dlog(
@@ -3341,6 +3346,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     // Convenience accessor for the ghostty surface
     private var surface: ghostty_surface_t? {
         terminalSurface?.surface
+    }
+
+    fileprivate func applyInitialThemeStateForBackgroundPrimedSurface() {
+        applySurfaceBackground()
+        applySurfaceColorScheme(force: true)
     }
 
     private func applySurfaceColorScheme(force: Bool = false) {
