@@ -188,8 +188,8 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
                     "webInputFocusSeeded",
                     "webInputFocusElementId",
                     "webInputFocusSecondaryElementId",
-                    "webInputFocusSecondaryCenterX",
-                    "webInputFocusSecondaryCenterY"
+                    "webInputFocusSecondaryClickOffsetX",
+                    "webInputFocusSecondaryClickOffsetY"
                 ],
                 timeout: 12.0
             ),
@@ -212,14 +212,14 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
             XCTFail("Missing webInputFocusSecondaryElementId in setup data")
             return
         }
-        guard let secondaryCenterXRaw = setup["webInputFocusSecondaryCenterX"],
-              let secondaryCenterYRaw = setup["webInputFocusSecondaryCenterY"],
-              let secondaryCenterX = Double(secondaryCenterXRaw),
-              let secondaryCenterY = Double(secondaryCenterYRaw) else {
+        guard let secondaryClickOffsetXRaw = setup["webInputFocusSecondaryClickOffsetX"],
+              let secondaryClickOffsetYRaw = setup["webInputFocusSecondaryClickOffsetY"],
+              let secondaryClickOffsetX = Double(secondaryClickOffsetXRaw),
+              let secondaryClickOffsetY = Double(secondaryClickOffsetYRaw) else {
             XCTFail(
-                "Missing or invalid secondary input click coordinates in setup data. " +
-                "webInputFocusSecondaryCenterX=\(setup["webInputFocusSecondaryCenterX"] ?? "nil") " +
-                "webInputFocusSecondaryCenterY=\(setup["webInputFocusSecondaryCenterY"] ?? "nil")"
+                "Missing or invalid secondary input click offsets in setup data. " +
+                "webInputFocusSecondaryClickOffsetX=\(setup["webInputFocusSecondaryClickOffsetX"] ?? "nil") " +
+                "webInputFocusSecondaryClickOffsetY=\(setup["webInputFocusSecondaryClickOffsetY"] ?? "nil")"
             )
             return
         }
@@ -267,15 +267,16 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
             )
         }
 
-        let browserSurface = app.otherElements["BrowserWebViewSurface"].firstMatch
+        let window = app.windows.firstMatch
         XCTAssertTrue(
-            browserSurface.waitForExistence(timeout: 6.0),
-            "Expected browser webview surface for post-escape click regression check"
+            window.waitForExistence(timeout: 6.0),
+            "Expected app window for post-escape click regression check"
         )
 
         RunLoop.current.run(until: Date().addingTimeInterval(0.15))
-        browserSurface
-            .coordinate(withNormalizedOffset: CGVector(dx: secondaryCenterX, dy: secondaryCenterY))
+        window
+            .coordinate(withNormalizedOffset: CGVector(dx: 0.0, dy: 0.0))
+            .withOffset(CGVector(dx: secondaryClickOffsetX, dy: secondaryClickOffsetY))
             .click()
         RunLoop.current.run(until: Date().addingTimeInterval(0.15))
 

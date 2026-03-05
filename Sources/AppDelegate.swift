@@ -5860,6 +5860,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let trackerInstalled = (payload?["trackerInstalled"] as? Bool) ?? false
             let trackedStateId = (payload?["trackedStateId"] as? String) ?? ""
             let readyState = (payload?["readyState"] as? String) ?? ""
+            var secondaryClickOffsetX = -1.0
+            var secondaryClickOffsetY = -1.0
+            if let window = panel.webView.window {
+                let webFrame = panel.webView.convert(panel.webView.bounds, to: nil)
+                let contentHeight = Double(window.contentView?.bounds.height ?? 0)
+                if webFrame.width > 1,
+                   webFrame.height > 1,
+                   contentHeight > 1,
+                   secondaryCenterX > 0,
+                   secondaryCenterX < 1,
+                   secondaryCenterY > 0,
+                   secondaryCenterY < 1 {
+                    let xInContent = Double(webFrame.minX) + (secondaryCenterX * Double(webFrame.width))
+                    let yFromTopInWeb = secondaryCenterY * Double(webFrame.height)
+                    let yInContent = Double(webFrame.maxY) - yFromTopInWeb
+                    let yFromTopInContent = contentHeight - yInContent
+                    let titlebarHeight = max(0, Double(window.frame.height) - contentHeight)
+                    secondaryClickOffsetX = xInContent
+                    secondaryClickOffsetY = titlebarHeight + yFromTopInContent
+                }
+            }
             if focused,
                !inputId.isEmpty,
                !secondaryInputId.isEmpty,
@@ -5869,13 +5890,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                secondaryCenterX > 0,
                secondaryCenterX < 1,
                secondaryCenterY > 0,
-               secondaryCenterY < 1 {
+               secondaryCenterY < 1,
+               secondaryClickOffsetX > 0,
+               secondaryClickOffsetY > 0 {
                 self.writeGotoSplitTestData([
                     "webInputFocusSeeded": "true",
                     "webInputFocusElementId": inputId,
                     "webInputFocusSecondaryElementId": secondaryInputId,
                     "webInputFocusSecondaryCenterX": "\(secondaryCenterX)",
                     "webInputFocusSecondaryCenterY": "\(secondaryCenterY)",
+                    "webInputFocusSecondaryClickOffsetX": "\(secondaryClickOffsetX)",
+                    "webInputFocusSecondaryClickOffsetY": "\(secondaryClickOffsetY)",
                     "webInputFocusActiveElementId": activeId,
                     "webInputFocusTrackerInstalled": trackerInstalled ? "true" : "false",
                     "webInputFocusTrackedStateId": trackedStateId,
