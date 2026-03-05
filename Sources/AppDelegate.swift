@@ -1377,10 +1377,13 @@ func shouldSuppressWindowMoveForFolderDrag(window: NSWindow, event: NSEvent) -> 
 final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate, NSMenuItemValidation {
     static var shared: AppDelegate?
 
-    private func isRunningUnderXCTest(_ env: [String: String]) -> Bool {
-        // On some macOS/Xcode setups, the app-under-test process doesn't get
-        // `XCTestConfigurationFilePath`. Use a broader set of signals so UI tests
-        // can reliably skip heavyweight startup work and bring up a window.
+    private static let cachedIsRunningUnderXCTest = detectRunningUnderXCTest(ProcessInfo.processInfo.environment)
+
+    private var isRunningUnderXCTestCached: Bool {
+        Self.cachedIsRunningUnderXCTest
+    }
+
+    private static func detectRunningUnderXCTest(_ env: [String: String]) -> Bool {
         if env["XCTestConfigurationFilePath"] != nil { return true }
         if env["XCTestBundlePath"] != nil { return true }
         if env["XCTestSessionIdentifier"] != nil { return true }
@@ -1389,6 +1392,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if env["DYLD_INSERT_LIBRARIES"]?.contains("libXCTest") == true { return true }
         if env.keys.contains(where: { $0.hasPrefix("CMUX_UI_TEST_") }) { return true }
         return false
+    }
+
+    private func isRunningUnderXCTest(_ env: [String: String]) -> Bool {
+        // On some macOS/Xcode setups, the app-under-test process doesn't get
+        // `XCTestConfigurationFilePath`. Use a broader set of signals so UI tests
+        // can reliably skip heavyweight startup work and bring up a window.
+        Self.detectRunningUnderXCTest(env)
     }
 
     private final class MainWindowContext {
@@ -1794,10 +1804,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         sentryBreadcrumb("app.didBecomeActive", category: "lifecycle", data: [
             "tabCount": tabManager?.tabs.count ?? 0
         ])
-        let env = ProcessInfo.processInfo.environment
-        if TelemetrySettings.enabledForCurrentLaunch && !isRunningUnderXCTest(env) {
-            PostHogAnalytics.shared.trackDailyActive(reason: "didBecomeActive")
-            PostHogAnalytics.shared.trackHourlyActive(reason: "didBecomeActive")
+        if TelemetrySettings.enabledForCurrentLaunch && !isRunningUnderXCTestCached {
+            PostHogAnalytics.shared.trackActive(reason: "didBecomeActive")
         }
 
         guard let notificationStore else { return }
@@ -5474,6 +5482,60 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
+    private func isGotoSplitUITestRecordingEnabled() -> Bool {
+        let env = ProcessInfo.processInfo.environment
+        return env["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] == "1" || env["CMUX_UI_TEST_GOTO_SPLIT_RECORD_ONLY"] == "1"
+    }
+
+    private func gotoSplitUITestDataPath() -> String? {
+        guard isGotoSplitUITestRecordingEnabled() else { return nil }
+        let env = ProcessInfo.processInfo.environment
+        guard let path = env["CMUX_UI_TEST_GOTO_SPLIT_PATH"], !path.isEmpty else { return nil }
+        return path
+    }
+
+    private func gotoSplitFindStateSnapshot(for workspace: Workspace) -> [String: String] {
+        var updates: [String: String] = [
+            "focusedPaneId": workspace.bonsplitController.focusedPaneId?.description ?? ""
+        ]
+
+        if let focusedPanelId = workspace.focusedPanelId {
+            updates["focusedPanelId"] = focusedPanelId.uuidString
+            if let terminal = workspace.terminalPanel(for: focusedPanelId) {
+                updates["focusedPanelKind"] = "terminal"
+                updates["focusedTerminalFindNeedle"] = terminal.searchState?.needle ?? ""
+                updates["focusedBrowserFindNeedle"] = ""
+            } else if let browser = workspace.browserPanel(for: focusedPanelId) {
+                updates["focusedPanelKind"] = "browser"
+                updates["focusedBrowserFindNeedle"] = browser.searchState?.needle ?? ""
+                updates["focusedTerminalFindNeedle"] = ""
+            } else {
+                updates["focusedPanelKind"] = "other"
+                updates["focusedTerminalFindNeedle"] = ""
+                updates["focusedBrowserFindNeedle"] = ""
+            }
+        } else {
+            updates["focusedPanelId"] = ""
+            updates["focusedPanelKind"] = "none"
+            updates["focusedTerminalFindNeedle"] = ""
+            updates["focusedBrowserFindNeedle"] = ""
+        }
+
+        let terminalWithFind = workspace.panels.values
+            .compactMap { $0 as? TerminalPanel }
+            .first(where: { $0.searchState != nil })
+        updates["terminalFindPanelId"] = terminalWithFind?.id.uuidString ?? ""
+        updates["terminalFindNeedle"] = terminalWithFind?.searchState?.needle ?? ""
+
+        let browserWithFind = workspace.panels.values
+            .compactMap { $0 as? BrowserPanel }
+            .first(where: { $0.searchState != nil })
+        updates["browserFindPanelId"] = browserWithFind?.id.uuidString ?? ""
+        updates["browserFindNeedle"] = browserWithFind?.searchState?.needle ?? ""
+
+        return updates
+    }
+
     private func focusWebViewForGotoSplitUITest(tab: Workspace, browserPanelId: UUID, attempt: Int = 0) {
         let maxAttempts = 120
         guard attempt < maxAttempts else {
@@ -5595,10 +5657,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func recordGotoSplitMoveIfNeeded(direction: NavigationDirection) {
-        let env = ProcessInfo.processInfo.environment
-        guard env["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] == "1" else { return }
-        guard let tabManager,
-              let focusedPaneId = tabManager.selectedWorkspace?.bonsplitController.focusedPaneId else { return }
+        guard isGotoSplitUITestRecordingEnabled() else { return }
+        guard let tabManager, let workspace = tabManager.selectedWorkspace else { return }
 
         let directionValue: String
         switch direction {
@@ -5612,15 +5672,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             directionValue = "down"
         }
 
-        writeGotoSplitTestData([
-            "lastMoveDirection": directionValue,
-            "focusedPaneId": focusedPaneId.description
-        ])
+        var updates = gotoSplitFindStateSnapshot(for: workspace)
+        updates["lastMoveDirection"] = directionValue
+        writeGotoSplitTestData(updates)
     }
 
     private func recordGotoSplitSplitIfNeeded(direction: SplitDirection) {
-        let env = ProcessInfo.processInfo.environment
-        guard env["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] == "1" else { return }
+        guard isGotoSplitUITestRecordingEnabled() else { return }
         guard let workspace = tabManager?.selectedWorkspace else { return }
 
         let directionValue: String
@@ -5635,16 +5693,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             directionValue = "down"
         }
 
-        writeGotoSplitTestData([
-            "lastSplitDirection": directionValue,
-            "paneCountAfterSplit": String(workspace.bonsplitController.allPaneIds.count),
-            "focusedPaneId": workspace.bonsplitController.focusedPaneId?.description ?? ""
-        ])
+        var updates = gotoSplitFindStateSnapshot(for: workspace)
+        updates["lastSplitDirection"] = directionValue
+        updates["paneCountAfterSplit"] = String(workspace.bonsplitController.allPaneIds.count)
+        writeGotoSplitTestData(updates)
     }
 
     private func writeGotoSplitTestData(_ updates: [String: String]) {
-        let env = ProcessInfo.processInfo.environment
-        guard let path = env["CMUX_UI_TEST_GOTO_SPLIT_PATH"], !path.isEmpty else { return }
+        guard let path = gotoSplitUITestDataPath() else { return }
         var payload = loadGotoSplitTestData(at: path)
         for (key, value) in updates {
             payload[key] = value

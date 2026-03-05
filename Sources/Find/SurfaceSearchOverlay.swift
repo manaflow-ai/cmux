@@ -55,6 +55,7 @@ struct SurfaceSearchOverlay: View {
                         onNavigateSearch(action)
                     }
                 )
+                .accessibilityIdentifier("TerminalFindSearchTextField")
                 .frame(width: 180)
                 .padding(.leading, 8)
                 .padding(.trailing, 50)
@@ -303,6 +304,7 @@ private struct SearchTextFieldRepresentable: NSViewRepresentable {
         let field = SearchNativeTextField(frame: .zero)
         field.font = .systemFont(ofSize: NSFont.systemFontSize)
         field.placeholderString = String(localized: "search.placeholder", defaultValue: "Search")
+        field.setAccessibilityIdentifier("TerminalFindSearchTextField")
         field.delegate = context.coordinator
         field.stringValue = text
         context.coordinator.parentField = field
