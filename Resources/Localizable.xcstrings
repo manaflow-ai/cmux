@@ -567,6 +567,57 @@
         }
       }
     },
+    "sidebar.help.button": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Help"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ヘルプ"
+          }
+        }
+      }
+    },
+    "sidebar.help.changelog": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Changelog"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新履歴"
+          }
+        }
+      }
+    },
+    "sidebar.help.sendFeedback": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send Feedback"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フィードバックを送信"
+          }
+        }
+      }
+    },
     "about.github": {
       "extractionState": "manual",
       "localizations": {

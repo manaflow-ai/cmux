@@ -1775,7 +1775,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         fatalError("init(coder:) has not been implemented")
     }
 
-    func show() {
+    func show(navigationTarget: SettingsNavigationTarget? = nil) {
         guard let window else { return }
 #if DEBUG
         dlog("settings.window.show requested isVisible=\(window.isVisible ? 1 : 0) isKey=\(window.isKeyWindow ? 1 : 0)")
@@ -1785,9 +1785,36 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
             window.center()
         }
         window.makeKeyAndOrderFront(nil)
+        if let navigationTarget {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                SettingsNavigationRequest.post(navigationTarget)
+            }
+        }
 #if DEBUG
         dlog("settings.window.show completed isVisible=\(window.isVisible ? 1 : 0) isKey=\(window.isKeyWindow ? 1 : 0)")
 #endif
+    }
+}
+
+enum SettingsNavigationTarget: String {
+    case keyboardShortcuts
+}
+
+enum SettingsNavigationRequest {
+    static let notificationName = Notification.Name("cmux.settings.navigate")
+    private static let targetKey = "target"
+
+    static func post(_ target: SettingsNavigationTarget) {
+        NotificationCenter.default.post(
+            name: notificationName,
+            object: nil,
+            userInfo: [targetKey: target.rawValue]
+        )
+    }
+
+    static func target(from notification: Notification) -> SettingsNavigationTarget? {
+        guard let rawValue = notification.userInfo?[targetKey] as? String else { return nil }
+        return SettingsNavigationTarget(rawValue: rawValue)
     }
 }
 
@@ -3166,7 +3193,8 @@ struct SettingsView: View {
     }
 
     var body: some View {
-        ZStack(alignment: .top) {
+        ScrollViewReader { proxy in
+            ZStack(alignment: .top) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     SettingsSectionHeader(title: String(localized: "settings.section.app", defaultValue: "App"))
@@ -3862,6 +3890,8 @@ struct SettingsView: View {
                     }
 
                     SettingsSectionHeader(title: String(localized: "settings.section.keyboardShortcuts", defaultValue: "Keyboard Shortcuts"))
+                        .id(SettingsNavigationTarget.keyboardShortcuts)
+                        .accessibilityIdentifier("SettingsKeyboardShortcutsSection")
                     SettingsCard {
                         SettingsCardRow(
                             String(localized: "settings.shortcuts.showHints", defaultValue: "Show Cmd/Ctrl-Hold Shortcut Hints"),
@@ -4011,6 +4041,14 @@ struct SettingsView: View {
         .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
             reloadWorkspaceTabColorSettings()
         }
+        .onReceive(NotificationCenter.default.publisher(for: SettingsNavigationRequest.notificationName)) { notification in
+            guard let target = SettingsNavigationRequest.target(from: notification) else { return }
+            DispatchQueue.main.async {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    proxy.scrollTo(target, anchor: .top)
+                }
+            }
+        }
         .confirmationDialog(
             String(localized: "settings.browser.history.clearDialog.title", defaultValue: "Clear browser history?"),
             isPresented: $showClearBrowserHistoryConfirmation,
@@ -4058,6 +4096,7 @@ struct SettingsView: View {
             Button(String(localized: "common.ok", defaultValue: "OK"), role: .cancel) {}
         } message: {
             Text(notificationCustomSoundErrorAlertMessage)
+        }
         }
     }
 

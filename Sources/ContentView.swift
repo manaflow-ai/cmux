@@ -5696,15 +5696,8 @@ struct VerticalTabsSidebar: View {
                 .background(Color.clear)
                 .modifier(ClearScrollBackground())
             }
-#if DEBUG
-            SidebarDevFooter(updateViewModel: updateViewModel)
+            SidebarFooter(updateViewModel: updateViewModel)
                 .frame(maxWidth: .infinity, alignment: .leading)
-#else
-            UpdatePill(model: updateViewModel)
-                .padding(.horizontal, 10)
-                .padding(.bottom, 10)
-                .frame(maxWidth: .infinity, alignment: .leading)
-#endif
         }
         .accessibilityIdentifier("Sidebar")
         .ignoresSafeArea()
@@ -6218,13 +6211,97 @@ private final class SidebarCommandKeyMonitor: ObservableObject {
     }
 }
 
+private struct SidebarFooter: View {
+    @ObservedObject var updateViewModel: UpdateViewModel
+
+    var body: some View {
+#if DEBUG
+        SidebarDevFooter(updateViewModel: updateViewModel)
+#else
+        SidebarFooterButtons(updateViewModel: updateViewModel)
+            .padding(.horizontal, 10)
+            .padding(.bottom, 10)
+#endif
+    }
+}
+
+private struct SidebarFooterButtons: View {
+    @ObservedObject var updateViewModel: UpdateViewModel
+
+    var body: some View {
+        HStack(spacing: 8) {
+            SidebarHelpMenuButton()
+            UpdatePill(model: updateViewModel)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct SidebarHelpMenuButton: View {
+    private let docsURL = URL(string: "https://cmux.dev/docs")
+    private let changelogURL = URL(string: "https://cmux.dev/docs/changelog")
+    private let feedbackURL = URL(string: "mailto:founders@manaflow.com?subject=cmux%20feedback")
+    private let helpTitle = String(localized: "sidebar.help.button", defaultValue: "Help")
+
+    var body: some View {
+        Menu {
+            Button(String(localized: "settings.section.keyboardShortcuts", defaultValue: "Keyboard Shortcuts")) {
+                Task { @MainActor in
+                    if let appDelegate = AppDelegate.shared {
+                        appDelegate.openPreferencesWindow(
+                            debugSource: "sidebarHelpMenu.keyboardShortcuts",
+                            navigationTarget: .keyboardShortcuts
+                        )
+                    } else {
+                        AppDelegate.presentPreferencesWindow(navigationTarget: .keyboardShortcuts)
+                    }
+                }
+            }
+
+            if let docsURL {
+                Button(String(localized: "about.docs", defaultValue: "Docs")) {
+                    NSWorkspace.shared.open(docsURL)
+                }
+            }
+
+            if let changelogURL {
+                Button(String(localized: "sidebar.help.changelog", defaultValue: "Changelog")) {
+                    NSWorkspace.shared.open(changelogURL)
+                }
+            }
+
+            Button(String(localized: "command.checkForUpdates.title", defaultValue: "Check for Updates")) {
+                Task { @MainActor in
+                    AppDelegate.shared?.checkForUpdates(nil)
+                }
+            }
+
+            if let feedbackURL {
+                Button(String(localized: "sidebar.help.sendFeedback", defaultValue: "Send Feedback")) {
+                    NSWorkspace.shared.open(feedbackURL)
+                }
+            }
+        } label: {
+            Image(systemName: "questionmark.circle")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: 18, height: 18)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(helpTitle)
+        .accessibilityLabel(helpTitle)
+        .accessibilityIdentifier("SidebarHelpMenuButton")
+    }
+}
+
 #if DEBUG
 private struct SidebarDevFooter: View {
     @ObservedObject var updateViewModel: UpdateViewModel
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            UpdatePill(model: updateViewModel)
+            SidebarFooterButtons(updateViewModel: updateViewModel)
             Text("THIS IS A DEV BUILD")
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundColor(.red)
