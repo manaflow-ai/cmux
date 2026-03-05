@@ -739,9 +739,9 @@ struct BrowserPanelView: View {
                     isPanelFocused: isFocused,
                     portalZPriority: portalPriority
                 )
-                // Keep the representable identity stable across bonsplit structural updates.
-                // This reduces WKWebView reparenting churn (and the associated WebKit crashes).
-                .id(panel.id)
+                // Keep the host stable for normal pane churn, but force a remount when
+                // BrowserPanel replaces its underlying WKWebView after process termination.
+                .id(panel.webViewInstanceID)
                 .contentShape(Rectangle())
                 .simultaneousGesture(TapGesture().onEnded {
                     // Chrome-like behavior: clicking web content while editing the
@@ -3009,10 +3009,7 @@ struct WebViewRepresentable: NSViewRepresentable {
     final class Coordinator {
         weak var panel: BrowserPanel?
         weak var webView: WKWebView?
-        var attachRetryWorkItem: DispatchWorkItem?
-        var attachRetryCount: Int = 0
         var attachGeneration: Int = 0
-        var usesWindowPortal: Bool = false
         var desiredPortalVisibleInUI: Bool = true
         var desiredPortalZPriority: Int = 0
         var lastPortalHostId: ObjectIdentifier?
@@ -3239,350 +3236,29 @@ struct WebViewRepresentable: NSViewRepresentable {
             panel,
             event: "portal.update",
             generation: coordinator.attachGeneration,
-            retryCount: coordinator.attachRetryCount,
+            retryCount: 0,
             details: Self.attachContext(webView: webView, host: host)
         )
         #endif
     }
 
-    private static func attachWebView(_ webView: WKWebView, to host: NSView) {
-        // WebKit can crash if a WKWebView (or an internal first-responder object) stays first responder
-        // while being detached/reparented during bonsplit/SwiftUI structural updates.
-        if let window = webView.window {
-            let state = firstResponderResignState(window.firstResponder, webView: webView)
-            if state.needsResign {
-                window.makeFirstResponder(nil)
-            }
-        }
-
-        // The target host can already be in-window while the source host is tearing down.
-        // Re-check against the target window too (it can differ during split churn).
-        if let window = host.window {
-            let state = firstResponderResignState(window.firstResponder, webView: webView)
-            if state.needsResign {
-                window.makeFirstResponder(nil)
-            }
-        }
-
-        // Detach from any previous host (bonsplit/SwiftUI may rearrange views).
-        webView.removeFromSuperview()
-        host.subviews.forEach { $0.removeFromSuperview() }
-        host.addSubview(webView)
-
-        // Work around WebKit bug 272474 where Inspect Element can render blank/flicker
-        // when WKWebView is edge-pinned using Auto Layout constraints.
-        webView.translatesAutoresizingMaskIntoConstraints = true
-        webView.autoresizingMask = [.width, .height]
-        webView.frame = host.bounds
-
-        // Make reparenting resilient: WebKit can occasionally stay visually blank until forced to lay out.
-        webView.needsLayout = true
-        webView.layoutSubtreeIfNeeded()
-        webView.needsDisplay = true
-        webView.displayIfNeeded()
-    }
-
-    private static func scheduleAttachRetry(
-        _ webView: WKWebView,
-        panel: BrowserPanel,
-        to host: NSView,
-        coordinator: Coordinator,
-        generation: Int
-    ) {
-        let retryInterval: TimeInterval = 1.0 / 60.0
-        // Don't schedule multiple overlapping retries.
-        guard coordinator.attachRetryWorkItem == nil else { return }
-
-        let work = DispatchWorkItem { [weak host, weak webView] in
-            coordinator.attachRetryWorkItem = nil
-            guard let host, let webView else { return }
-            guard coordinator.attachGeneration == generation else { return }
-
-            // If already attached, we're done.
-            if webView.superview === host {
-                coordinator.attachRetryCount = 0
-                return
-            }
-
-            // Wait until the host is actually in a window. SwiftUI can create a new container before it
-            // is in a window during bonsplit tree updates; moving the webview too early can be flaky.
-            guard host.window != nil else {
-                coordinator.attachRetryCount += 1
-                #if DEBUG
-                if coordinator.attachRetryCount == 1 || coordinator.attachRetryCount % 20 == 0 {
-                    logDevToolsState(
-                        panel,
-                        event: "retry.waitingForWindow",
-                        generation: generation,
-                        retryCount: coordinator.attachRetryCount,
-                        details: attachContext(webView: webView, host: host)
-                    )
-                }
-                #endif
-                // Be generous here: bonsplit structural updates can keep a representable
-                // container off-window longer than a few seconds under load.
-                if coordinator.attachRetryCount < 400 {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + retryInterval) {
-                        scheduleAttachRetry(
-                            webView,
-                            panel: panel,
-                            to: host,
-                            coordinator: coordinator,
-                            generation: generation
-                        )
-                    }
-                }
-                return
-            }
-
-            coordinator.attachRetryCount = 0
-            #if DEBUG
-            logDevToolsState(
-                panel,
-                event: "retry.attach.begin",
-                generation: generation,
-                retryCount: 0,
-                details: attachContext(webView: webView, host: host)
-            )
-            #endif
-            attachWebView(webView, to: host)
-            panel.restoreDeveloperToolsAfterAttachIfNeeded()
-            #if DEBUG
-            logDevToolsState(
-                panel,
-                event: "retry.attached",
-                generation: generation,
-                retryCount: 0,
-                details: attachContext(webView: webView, host: host)
-            )
-            #endif
-        }
-
-        coordinator.attachRetryWorkItem = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + retryInterval, execute: work)
-    }
-
     func updateNSView(_ nsView: NSView, context: Context) {
         let webView = panel.webView
-        context.coordinator.panel = panel
-        context.coordinator.webView = webView
+        let coordinator = context.coordinator
+        if let previousWebView = coordinator.webView, previousWebView !== webView {
+            BrowserWindowPortalRegistry.detach(webView: previousWebView)
+            coordinator.lastPortalHostId = nil
+        }
+        coordinator.panel = panel
+        coordinator.webView = webView
         Self.applyWebViewFirstResponderPolicy(
             panel: panel,
             webView: webView,
             isPanelFocused: isPanelFocused
         )
 
-        let shouldUseWindowPortal = panel.shouldPreserveWebViewAttachmentDuringTransientHide()
-        if shouldUseWindowPortal {
-            context.coordinator.usesWindowPortal = true
-            Self.clearPortalCallbacks(for: nsView)
-            updateUsingWindowPortal(nsView, context: context, webView: webView)
-            Self.applyFocus(
-                panel: panel,
-                webView: webView,
-                nsView: nsView,
-                shouldFocusWebView: shouldFocusWebView,
-                isPanelFocused: isPanelFocused
-            )
-            return
-        }
-
-        if context.coordinator.usesWindowPortal {
-            BrowserWindowPortalRegistry.detach(webView: webView)
-            context.coordinator.usesWindowPortal = false
-            context.coordinator.lastPortalHostId = nil
-        }
         Self.clearPortalCallbacks(for: nsView)
-
-        // Bonsplit keepAllAlive keeps hidden tabs alive (opacity 0). WKWebView is fragile when left
-        // in the window hierarchy while hidden and rapidly switching focus between tabs. To reduce
-        // WebKit crashes, detach the WKWebView when this surface is not the selected tab in its pane.
-        if !shouldAttachWebView {
-            // Split/layout churn can briefly create an off-window phase while DevTools is open.
-            // Detaching here can blank inspector content even when visibility preference stays true.
-            if nsView.window == nil,
-               webView.superview != nil,
-               panel.shouldPreserveWebViewAttachmentDuringTransientHide() {
-                #if DEBUG
-                Self.logDevToolsState(
-                    panel,
-                    event: "detach.skipped.offWindowDevTools",
-                    generation: context.coordinator.attachGeneration,
-                    retryCount: context.coordinator.attachRetryCount,
-                    details: Self.attachContext(webView: webView, host: nsView)
-                )
-                #endif
-                return
-            }
-
-            #if DEBUG
-            Self.logDevToolsState(
-                panel,
-                event: "detach.beforeSync",
-                generation: context.coordinator.attachGeneration,
-                retryCount: context.coordinator.attachRetryCount,
-                details: Self.attachContext(webView: webView, host: nsView)
-            )
-            #endif
-            panel.syncDeveloperToolsPreferenceFromInspector(preserveVisibleIntent: true)
-            #if DEBUG
-            Self.logDevToolsState(
-                panel,
-                event: "detach.afterSync",
-                generation: context.coordinator.attachGeneration,
-                retryCount: context.coordinator.attachRetryCount,
-                details: Self.attachContext(webView: webView, host: nsView)
-            )
-            #endif
-            context.coordinator.attachRetryWorkItem?.cancel()
-            context.coordinator.attachRetryWorkItem = nil
-            context.coordinator.attachRetryCount = 0
-            context.coordinator.attachGeneration += 1
-
-            // Resign focus if WebKit currently owns first responder.
-            if let window = webView.window ?? nsView.window {
-                let state = Self.firstResponderResignState(window.firstResponder, webView: webView)
-                if state.needsResign {
-                    #if DEBUG
-                    Self.logDevToolsState(
-                        panel,
-                        event: "detach.resignFirstResponder",
-                        generation: context.coordinator.attachGeneration,
-                        retryCount: context.coordinator.attachRetryCount,
-                        details: Self.attachContext(webView: webView, host: nsView) + " " + state.flags
-                    )
-                    #endif
-                    window.makeFirstResponder(nil)
-                }
-            }
-
-            if webView.superview != nil {
-                webView.removeFromSuperview()
-            }
-            nsView.subviews.forEach { $0.removeFromSuperview() }
-            #if DEBUG
-            Self.logDevToolsState(
-                panel,
-                event: "detach.done",
-                generation: context.coordinator.attachGeneration,
-                retryCount: context.coordinator.attachRetryCount,
-                details: Self.attachContext(webView: webView, host: nsView)
-            )
-            #endif
-            return
-        }
-
-        if webView.superview !== nsView {
-            // Cancel any pending retry; we'll reschedule if needed.
-            context.coordinator.attachRetryWorkItem?.cancel()
-            context.coordinator.attachRetryWorkItem = nil
-            context.coordinator.attachGeneration += 1
-
-            if let window = webView.window ?? nsView.window {
-                let state = Self.firstResponderResignState(window.firstResponder, webView: webView)
-                if state.needsResign {
-                    #if DEBUG
-                    Self.logDevToolsState(
-                        panel,
-                        event: "attach.reparent.resignFirstResponder.begin",
-                        generation: context.coordinator.attachGeneration,
-                        retryCount: context.coordinator.attachRetryCount,
-                        details: Self.attachContext(webView: webView, host: nsView) + " " + state.flags
-                    )
-                    #endif
-                    let resigned = window.makeFirstResponder(nil)
-                    #if DEBUG
-                    Self.logDevToolsState(
-                        panel,
-                        event: "attach.reparent.resignFirstResponder.end",
-                        generation: context.coordinator.attachGeneration,
-                        retryCount: context.coordinator.attachRetryCount,
-                        details: Self.attachContext(webView: webView, host: nsView) + " " + state.flags + " resigned=\(resigned ? 1 : 0)"
-                    )
-                    #endif
-                }
-            }
-
-            if nsView.window == nil {
-                // Avoid attaching to off-window containers; during bonsplit structural updates SwiftUI
-                // can create containers that are never inserted into the window.
-                if panel.shouldPreserveWebViewAttachmentDuringTransientHide() {
-                    panel.requestDeveloperToolsRefreshAfterNextAttach(reason: "attach.defer.offWindow")
-                    #if DEBUG
-                    Self.logDevToolsState(
-                        panel,
-                        event: "attach.defer.requestRefresh",
-                        generation: context.coordinator.attachGeneration,
-                        retryCount: context.coordinator.attachRetryCount,
-                        details: Self.attachContext(webView: webView, host: nsView)
-                    )
-                    #endif
-                }
-                #if DEBUG
-                Self.logDevToolsState(
-                    panel,
-                    event: "attach.defer.offWindow",
-                    generation: context.coordinator.attachGeneration,
-                    retryCount: context.coordinator.attachRetryCount,
-                    details: Self.attachContext(webView: webView, host: nsView)
-                )
-                #endif
-                Self.scheduleAttachRetry(
-                    webView,
-                    panel: panel,
-                    to: nsView,
-                    coordinator: context.coordinator,
-                    generation: context.coordinator.attachGeneration
-                )
-            } else {
-                #if DEBUG
-                Self.logDevToolsState(
-                    panel,
-                    event: "attach.immediate.begin",
-                    generation: context.coordinator.attachGeneration,
-                    retryCount: context.coordinator.attachRetryCount,
-                    details: Self.attachContext(webView: webView, host: nsView)
-                )
-                #endif
-                Self.attachWebView(webView, to: nsView)
-                panel.restoreDeveloperToolsAfterAttachIfNeeded()
-                #if DEBUG
-                Self.logDevToolsState(
-                    panel,
-                    event: "attach.immediate",
-                    generation: context.coordinator.attachGeneration,
-                    retryCount: context.coordinator.attachRetryCount,
-                    details: Self.attachContext(webView: webView, host: nsView)
-                )
-                #endif
-            }
-        } else {
-            // Already attached; no need for any pending retry.
-            context.coordinator.attachRetryWorkItem?.cancel()
-            context.coordinator.attachRetryWorkItem = nil
-            context.coordinator.attachRetryCount = 0
-            context.coordinator.attachGeneration += 1
-            let hadPendingRefresh = panel.hasPendingDeveloperToolsRefreshAfterAttach()
-            panel.restoreDeveloperToolsAfterAttachIfNeeded()
-            #if DEBUG
-            if hadPendingRefresh {
-                Self.logDevToolsState(
-                    panel,
-                    event: "attach.alreadyAttached.consumePendingRefresh",
-                    generation: context.coordinator.attachGeneration,
-                    retryCount: context.coordinator.attachRetryCount,
-                    details: Self.attachContext(webView: webView, host: nsView)
-                )
-            }
-            Self.logDevToolsState(
-                panel,
-                event: "attach.alreadyAttached",
-                generation: context.coordinator.attachGeneration,
-                retryCount: context.coordinator.attachRetryCount,
-                details: Self.attachContext(webView: webView, host: nsView)
-            )
-            #endif
-        }
+        updateUsingWindowPortal(nsView, context: context, webView: webView)
 
         Self.applyFocus(
             panel: panel,
@@ -3639,37 +3315,11 @@ struct WebViewRepresentable: NSViewRepresentable {
     }
 
     static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
-        coordinator.attachRetryWorkItem?.cancel()
-        coordinator.attachRetryWorkItem = nil
-        coordinator.attachRetryCount = 0
         coordinator.attachGeneration += 1
         clearPortalCallbacks(for: nsView)
 
         guard let webView = coordinator.webView else { return }
         let panel = coordinator.panel
-
-        if coordinator.usesWindowPortal {
-            coordinator.usesWindowPortal = false
-            coordinator.lastPortalHostId = nil
-
-            // During split/layout churn we keep the WKWebView portal-hosted so DevTools
-            // does not lose state. BrowserPanel deinit explicitly detaches on real teardown.
-            if let panel, panel.shouldPreserveWebViewAttachmentDuringTransientHide() {
-                #if DEBUG
-                logDevToolsState(
-                    panel,
-                    event: "dismantle.portal.keepAttached",
-                    generation: coordinator.attachGeneration,
-                    retryCount: coordinator.attachRetryCount,
-                    details: attachContext(webView: webView, host: nsView)
-                )
-                #endif
-                return
-            }
-
-            BrowserWindowPortalRegistry.detach(webView: webView)
-            return
-        }
 
         // If we're being torn down while the WKWebView (or one of its subviews) is first responder,
         // resign it before detaching.
@@ -3683,7 +3333,7 @@ struct WebViewRepresentable: NSViewRepresentable {
                         panel,
                         event: "dismantle.resignFirstResponder",
                         generation: coordinator.attachGeneration,
-                        retryCount: coordinator.attachRetryCount,
+                        retryCount: 0,
                         details: attachContext(webView: webView, host: nsView) + " " + state.flags
                     )
                 }
@@ -3691,37 +3341,7 @@ struct WebViewRepresentable: NSViewRepresentable {
                 window.makeFirstResponder(nil)
             }
         }
-
-        // During split/layout churn, SwiftUI may tear down a host view while a new one is still
-        // coming online. When DevTools is intended open, avoid eagerly detaching here.
-        if let panel,
-           panel.shouldPreserveWebViewAttachmentDuringTransientHide(),
-           webView.superview === nsView {
-            #if DEBUG
-            logDevToolsState(
-                panel,
-                event: "dismantle.skipDetach.devTools",
-                generation: coordinator.attachGeneration,
-                retryCount: coordinator.attachRetryCount,
-                details: attachContext(webView: webView, host: nsView)
-            )
-            #endif
-            return
-        }
-
-        if webView.superview === nsView {
-            webView.removeFromSuperview()
-            #if DEBUG
-            if let panel {
-                logDevToolsState(
-                    panel,
-                    event: "dismantle.detached",
-                    generation: coordinator.attachGeneration,
-                    retryCount: coordinator.attachRetryCount,
-                    details: attachContext(webView: webView, host: nsView)
-                )
-            }
-            #endif
-        }
+        BrowserWindowPortalRegistry.detach(webView: webView)
+        coordinator.lastPortalHostId = nil
     }
 }
