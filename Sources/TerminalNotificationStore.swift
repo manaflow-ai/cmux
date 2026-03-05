@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import UserNotifications
+import Bonsplit
 
 // UNUserNotificationCenter.removeDeliveredNotifications(withIdentifiers:) and
 // removePendingNotificationRequests(withIdentifiers:) perform synchronous XPC to
@@ -31,6 +32,10 @@ extension UNUserNotificationCenter {
 enum NotificationSoundSettings {
     static let key = "notificationSound"
     static let defaultValue = "default"
+    static let customFileValue = "custom_file"
+    static let customFilePathKey = "notificationSoundCustomFilePath"
+    static let defaultCustomFilePath = ""
+    private static let stagedCustomSoundBaseName = "cmux-custom-notification-sound"
     static let customCommandKey = "notificationCustomCommand"
     static let defaultCustomCommand = ""
 
@@ -50,6 +55,7 @@ enum NotificationSoundSettings {
         ("Sosumi", "Sosumi"),
         ("Submarine", "Submarine"),
         ("Tink", "Tink"),
+        ("Custom File...", customFileValue),
         ("None", "none"),
     ]
 
@@ -60,8 +66,25 @@ enum NotificationSoundSettings {
             return .default
         case "none":
             return nil
+        case customFileValue:
+            guard let customSoundName = stagedCustomSoundName(defaults: defaults) else {
+                return nil
+            }
+            return UNNotificationSound(named: UNNotificationSoundName(rawValue: customSoundName))
         default:
             return UNNotificationSound(named: UNNotificationSoundName(rawValue: value))
+        }
+    }
+
+    static func usesSystemSound(defaults: UserDefaults = .standard) -> Bool {
+        let value = defaults.string(forKey: key) ?? defaultValue
+        switch value {
+        case "none":
+            return false
+        case customFileValue:
+            return customFileURL(defaults: defaults) != nil
+        default:
+            return true
         }
     }
 
@@ -69,15 +92,129 @@ enum NotificationSoundSettings {
         return (defaults.string(forKey: key) ?? defaultValue) == "none"
     }
 
-    static func previewSound(value: String) {
+    static func isCustomFileSelected(defaults: UserDefaults = .standard) -> Bool {
+        (defaults.string(forKey: key) ?? defaultValue) == customFileValue
+    }
+
+    static func stagedCustomSoundName(defaults: UserDefaults = .standard) -> String? {
+        guard let sourceURL = customFileURL(defaults: defaults) else { return nil }
+        let sourceExtension = sourceURL.pathExtension.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !sourceExtension.isEmpty else {
+            NSLog("Notification custom sound requires a file extension: \(sourceURL.path)")
+            return nil
+        }
+
+        let destinationDirectory = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+            .appendingPathComponent("Library", isDirectory: true)
+            .appendingPathComponent("Sounds", isDirectory: true)
+        let destinationFileName = "\(stagedCustomSoundBaseName).\(sourceExtension.lowercased())"
+        let destinationURL = destinationDirectory.appendingPathComponent(destinationFileName, isDirectory: false)
+        let fileManager = FileManager.default
+
+        do {
+            try fileManager.createDirectory(at: destinationDirectory, withIntermediateDirectories: true)
+            try copyStagedSoundIfNeeded(from: sourceURL, to: destinationURL, fileManager: fileManager)
+            try cleanupStaleStagedSoundFiles(
+                in: destinationDirectory,
+                keeping: destinationFileName,
+                preservingSourceURL: sourceURL,
+                fileManager: fileManager
+            )
+            return destinationFileName
+        } catch {
+            NSLog("Failed to stage custom notification sound: \(error)")
+            return nil
+        }
+    }
+
+    static func customFileURL(defaults: UserDefaults = .standard) -> URL? {
+        guard let path = normalizedCustomFilePath(defaults.string(forKey: customFilePathKey) ?? defaultCustomFilePath) else {
+            return nil
+        }
+        return URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
+    }
+
+    static func playCustomFileSound(defaults: UserDefaults = .standard) {
+        guard let url = customFileURL(defaults: defaults) else { return }
+        playSoundFile(at: url)
+    }
+
+    static func playCustomFileSound(path: String) {
+        guard let normalizedPath = normalizedCustomFilePath(path) else { return }
+        let url = URL(fileURLWithPath: (normalizedPath as NSString).expandingTildeInPath)
+        playSoundFile(at: url)
+    }
+
+    static func previewSound(value: String, defaults: UserDefaults = .standard) {
         switch value {
         case "default":
             NSSound.beep()
         case "none":
             break
+        case customFileValue:
+            playCustomFileSound(defaults: defaults)
         default:
             NSSound(named: NSSound.Name(value))?.play()
         }
+    }
+
+    private static func normalizedCustomFilePath(_ rawPath: String) -> String? {
+        let trimmed = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return trimmed
+    }
+
+    private static func playSoundFile(at url: URL) {
+        DispatchQueue.main.async {
+            guard let sound = NSSound(contentsOf: url, byReference: false) else {
+                NSLog("Notification custom sound failed to load from path: \(url.path)")
+                return
+            }
+            sound.play()
+        }
+    }
+
+    private static func cleanupStaleStagedSoundFiles(
+        in directoryURL: URL,
+        keeping fileName: String,
+        preservingSourceURL: URL,
+        fileManager: FileManager
+    ) throws {
+        let prefix = "\(stagedCustomSoundBaseName)."
+        let normalizedSource = preservingSourceURL.standardizedFileURL
+        for fileNameCandidate in try fileManager.contentsOfDirectory(atPath: directoryURL.path) {
+            guard fileNameCandidate.hasPrefix(prefix), fileNameCandidate != fileName else { continue }
+            let staleURL = directoryURL.appendingPathComponent(fileNameCandidate, isDirectory: false)
+            if staleURL.standardizedFileURL == normalizedSource {
+                continue
+            }
+            try? fileManager.removeItem(at: staleURL)
+        }
+    }
+
+    private static func copyStagedSoundIfNeeded(
+        from sourceURL: URL,
+        to destinationURL: URL,
+        fileManager: FileManager
+    ) throws {
+        let normalizedSource = sourceURL.standardizedFileURL
+        let normalizedDestination = destinationURL.standardizedFileURL
+        guard normalizedSource != normalizedDestination else { return }
+
+        if fileManager.fileExists(atPath: normalizedDestination.path) {
+            let sourceAttributes = try fileManager.attributesOfItem(atPath: normalizedSource.path)
+            let destinationAttributes = try fileManager.attributesOfItem(atPath: normalizedDestination.path)
+            let sourceSize = sourceAttributes[.size] as? NSNumber
+            let destinationSize = destinationAttributes[.size] as? NSNumber
+            let sourceDate = sourceAttributes[.modificationDate] as? Date
+            let destinationDate = destinationAttributes[.modificationDate] as? Date
+            if sourceSize == destinationSize && sourceDate == destinationDate {
+                return
+            }
+            try fileManager.removeItem(at: normalizedDestination)
+        }
+
+        try fileManager.copyItem(at: normalizedSource, to: normalizedDestination)
     }
 
     private static let customCommandQueue = DispatchQueue(
@@ -165,6 +302,39 @@ enum AppFocusState {
     }
 }
 
+enum NotificationAuthorizationState: Equatable {
+    case unknown
+    case notDetermined
+    case authorized
+    case denied
+    case provisional
+    case ephemeral
+
+    var statusLabel: String {
+        switch self {
+        case .unknown, .notDetermined:
+            return "Not Requested"
+        case .authorized:
+            return "Allowed"
+        case .denied:
+            return "Denied"
+        case .provisional:
+            return "Deliver Quietly"
+        case .ephemeral:
+            return "Temporary"
+        }
+    }
+
+    var allowsDelivery: Bool {
+        switch self {
+        case .authorized, .provisional, .ephemeral:
+            return true
+        case .unknown, .notDetermined, .denied:
+            return false
+        }
+    }
+}
+
 struct TerminalNotification: Identifiable, Hashable {
     let id: UUID
     let tabId: UUID
@@ -195,6 +365,11 @@ final class TerminalNotificationStore: ObservableObject {
 
     static let categoryIdentifier = "com.cmuxterm.app.userNotification"
     static let actionShowIdentifier = "com.cmuxterm.app.userNotification.show"
+    private enum AuthorizationRequestOrigin: String {
+        case notificationDelivery = "notification_delivery"
+        case settingsButton = "settings_button"
+        case settingsTest = "settings_test"
+    }
 
     @Published private(set) var notifications: [TerminalNotification] = [] {
         didSet {
@@ -202,9 +377,11 @@ final class TerminalNotificationStore: ObservableObject {
             refreshDockBadge()
         }
     }
+    @Published private(set) var authorizationState: NotificationAuthorizationState = .unknown
 
     private let center = UNUserNotificationCenter.current()
-    private var hasRequestedAuthorization = false
+    private var hasRequestedAutomaticAuthorization = false
+    private var hasDeferredAuthorizationRequest = false
     private var hasPromptedForSettings = false
     private var userDefaultsObserver: NSObjectProtocol?
     private let settingsPromptWindowRetryDelay: TimeInterval = 0.5
@@ -237,6 +414,7 @@ final class TerminalNotificationStore: ObservableObject {
             self?.refreshDockBadge()
         }
         refreshDockBadge()
+        refreshAuthorizationStatus()
     }
 
     deinit {
@@ -266,6 +444,98 @@ final class TerminalNotificationStore: ObservableObject {
 
     var unreadCount: Int {
         indexes.unreadCount
+    }
+
+    private func logAuthorization(_ message: String) {
+#if DEBUG
+        dlog("notification.auth \(message)")
+#endif
+        NSLog("notification.auth %@", message)
+    }
+
+    private static func authorizationStatusLabel(_ status: UNAuthorizationStatus) -> String {
+        switch status {
+        case .notDetermined:
+            return "notDetermined"
+        case .denied:
+            return "denied"
+        case .authorized:
+            return "authorized"
+        case .provisional:
+            return "provisional"
+        case .ephemeral:
+            return "ephemeral"
+        @unknown default:
+            return "unknown(\(status.rawValue))"
+        }
+    }
+
+    func refreshAuthorizationStatus() {
+        center.getNotificationSettings { [weak self] settings in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.authorizationState = Self.authorizationState(from: settings.authorizationStatus)
+                self.logAuthorization(
+                    "refresh status=\(Self.authorizationStatusLabel(settings.authorizationStatus)) mapped=\(self.authorizationState.statusLabel)"
+                )
+            }
+        }
+    }
+
+    func requestAuthorizationFromSettings() {
+        logAuthorization("settings request tapped state=\(authorizationState.statusLabel)")
+        ensureAuthorization(origin: .settingsButton) { _ in }
+    }
+
+    func openNotificationSettings() {
+        guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.notifications") else {
+            return
+        }
+        logAuthorization("open settings url=\(url.absoluteString)")
+        notificationSettingsURLOpener(url)
+    }
+
+    func sendSettingsTestNotification() {
+        logAuthorization("settings test tapped state=\(authorizationState.statusLabel)")
+        ensureAuthorization(origin: .settingsTest) { [weak self] authorized in
+            guard let self, authorized else { return }
+
+            let content = UNMutableNotificationContent()
+            content.title = "cmux test notification"
+            content.body = "Desktop notifications are enabled."
+            content.sound = NotificationSoundSettings.sound()
+            content.categoryIdentifier = Self.categoryIdentifier
+
+            let request = UNNotificationRequest(
+                identifier: "cmux.settings.test.\(UUID().uuidString)",
+                content: content,
+                trigger: nil
+            )
+
+            self.center.add(request) { error in
+                if let error {
+                    NSLog("Failed to schedule test notification: \(error)")
+                    self.logAuthorization("settings test schedule failed error=\(error.localizedDescription)")
+                } else {
+                    self.logAuthorization("settings test schedule succeeded")
+                    NotificationSoundSettings.runCustomCommand(
+                        title: content.title,
+                        subtitle: content.subtitle,
+                        body: content.body
+                    )
+                }
+            }
+        }
+    }
+
+    func handleApplicationDidBecomeActive() {
+        logAuthorization("app became active deferred=\(hasDeferredAuthorizationRequest)")
+        if hasDeferredAuthorizationRequest {
+            hasDeferredAuthorizationRequest = false
+            ensureAuthorization(origin: .settingsButton) { _ in }
+            return
+        }
+        refreshAuthorizationStatus()
     }
 
     func unreadCount(forTabId tabId: UUID) -> Int {
@@ -450,7 +720,7 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     private func scheduleUserNotification(_ notification: TerminalNotification) {
-        ensureAuthorization { [weak self] authorized in
+        ensureAuthorization(origin: .notificationDelivery) { [weak self] authorized in
             guard let self, authorized else { return }
 
             let content = UNMutableNotificationContent()
@@ -490,41 +760,90 @@ final class TerminalNotificationStore: ObservableObject {
         }
     }
 
-    private func ensureAuthorization(_ completion: @escaping (Bool) -> Void) {
+    private func ensureAuthorization(
+        origin: AuthorizationRequestOrigin,
+        _ completion: @escaping (Bool) -> Void
+    ) {
+        logAuthorization("ensure start origin=\(origin.rawValue)")
         center.getNotificationSettings { [weak self] settings in
-            guard let self else {
-                completion(false)
-                return
-            }
+            DispatchQueue.main.async {
+                guard let self else {
+                    completion(false)
+                    return
+                }
 
-            switch settings.authorizationStatus {
-            case .authorized, .provisional, .ephemeral:
-                completion(true)
-            case .denied:
-                self.promptToEnableNotifications()
-                completion(false)
-            case .notDetermined:
-                self.requestAuthorizationIfNeeded(completion)
-            @unknown default:
-                completion(false)
+                self.authorizationState = Self.authorizationState(from: settings.authorizationStatus)
+                self.logAuthorization(
+                    "ensure status origin=\(origin.rawValue) status=\(Self.authorizationStatusLabel(settings.authorizationStatus)) mapped=\(self.authorizationState.statusLabel) appActive=\(AppFocusState.isAppActive())"
+                )
+                switch settings.authorizationStatus {
+                case .authorized, .provisional, .ephemeral:
+                    completion(true)
+                case .denied:
+                    self.logAuthorization("ensure denied origin=\(origin.rawValue) prompting_settings")
+                    self.promptToEnableNotifications()
+                    completion(false)
+                case .notDetermined:
+                    if Self.shouldDeferAutomaticAuthorizationRequest(
+                        origin: origin,
+                        status: settings.authorizationStatus,
+                        isAppActive: AppFocusState.isAppActive()
+                    ) {
+                        self.logAuthorization("ensure deferred origin=\(origin.rawValue)")
+                        self.hasDeferredAuthorizationRequest = true
+                        completion(false)
+                    } else {
+                        self.requestAuthorizationIfNeeded(origin: origin, completion)
+                    }
+                @unknown default:
+                    self.logAuthorization("ensure unknown status origin=\(origin.rawValue)")
+                    completion(false)
+                }
             }
         }
     }
 
-    private func requestAuthorizationIfNeeded(_ completion: @escaping (Bool) -> Void) {
-        guard !hasRequestedAuthorization else {
+    private func requestAuthorizationIfNeeded(
+        origin: AuthorizationRequestOrigin,
+        _ completion: @escaping (Bool) -> Void
+    ) {
+        let isAutomaticRequest = origin == .notificationDelivery
+        guard Self.shouldRequestAuthorization(
+            isAutomaticRequest: isAutomaticRequest,
+            hasRequestedAutomaticAuthorization: hasRequestedAutomaticAuthorization
+        ) else {
+            logAuthorization(
+                "request blocked origin=\(origin.rawValue) automatic=\(isAutomaticRequest) hasRequestedAutomatic=\(hasRequestedAutomaticAuthorization)"
+            )
             completion(false)
             return
         }
-        hasRequestedAuthorization = true
-        center.requestAuthorization(options: [.alert, .sound]) { granted, _ in
-            completion(granted)
+        if isAutomaticRequest {
+            hasRequestedAutomaticAuthorization = true
+        }
+        hasDeferredAuthorizationRequest = false
+        logAuthorization(
+            "request starting origin=\(origin.rawValue) automatic=\(isAutomaticRequest) hasRequestedAutomatic=\(hasRequestedAutomaticAuthorization)"
+        )
+        center.requestAuthorization(options: [.alert, .sound]) { granted, error in
+            DispatchQueue.main.async {
+                if granted {
+                    self.authorizationState = .authorized
+                } else {
+                    self.refreshAuthorizationStatus()
+                }
+                self.logAuthorization(
+                    "request callback origin=\(origin.rawValue) granted=\(granted) error=\(error?.localizedDescription ?? "nil") mapped=\(self.authorizationState.statusLabel)"
+                )
+                completion(granted)
+            }
         }
     }
 
     private func promptToEnableNotifications() {
         DispatchQueue.main.async { [weak self] in
             guard let self, !self.hasPromptedForSettings else { return }
+            self.logAuthorization("prompt settings shown")
             self.hasPromptedForSettings = true
             self.presentNotificationSettingsPrompt(attempt: 0)
         }
@@ -550,12 +869,52 @@ final class TerminalNotificationStore: ObservableObject {
         alert.addButton(withTitle: String(localized: "dialog.enableNotifications.openSettings", defaultValue: "Open Settings"))
         alert.addButton(withTitle: String(localized: "dialog.enableNotifications.notNow", defaultValue: "Not Now"))
         alert.beginSheetModal(for: window) { [weak self] response in
-            guard response == .alertFirstButtonReturn,
-                  let url = URL(string: "x-apple.systempreferences:com.apple.preference.notifications") else {
+            guard response == .alertFirstButtonReturn else {
                 return
             }
-            self?.notificationSettingsURLOpener(url)
+            self?.openNotificationSettings()
         }
+    }
+
+    static func authorizationState(from status: UNAuthorizationStatus) -> NotificationAuthorizationState {
+        switch status {
+        case .authorized:
+            return .authorized
+        case .denied:
+            return .denied
+        case .notDetermined:
+            return .notDetermined
+        case .provisional:
+            return .provisional
+        case .ephemeral:
+            return .ephemeral
+        @unknown default:
+            return .unknown
+        }
+    }
+
+    static func shouldDeferAutomaticAuthorizationRequest(
+        status: UNAuthorizationStatus,
+        isAppActive: Bool
+    ) -> Bool {
+        status == .notDetermined && !isAppActive
+    }
+
+    static func shouldRequestAuthorization(
+        isAutomaticRequest: Bool,
+        hasRequestedAutomaticAuthorization: Bool
+    ) -> Bool {
+        guard isAutomaticRequest else { return true }
+        return !hasRequestedAutomaticAuthorization
+    }
+
+    private static func shouldDeferAutomaticAuthorizationRequest(
+        origin: AuthorizationRequestOrigin,
+        status: UNAuthorizationStatus,
+        isAppActive: Bool
+    ) -> Bool {
+        guard origin == .notificationDelivery else { return false }
+        return shouldDeferAutomaticAuthorizationRequest(status: status, isAppActive: isAppActive)
     }
 
     private static func buildIndexes(for notifications: [TerminalNotification]) -> NotificationIndexes {

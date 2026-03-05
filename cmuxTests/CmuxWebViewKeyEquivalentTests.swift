@@ -5,6 +5,7 @@ import WebKit
 import SwiftUI
 import ObjectiveC.runtime
 import Bonsplit
+import UserNotifications
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -6585,6 +6586,188 @@ final class NotificationDockBadgeTests: XCTestCase {
 
         defaults.set(true, forKey: NotificationBadgeSettings.dockBadgeEnabledKey)
         XCTAssertTrue(NotificationBadgeSettings.isDockBadgeEnabled(defaults: defaults))
+    }
+
+    func testNotificationSoundUsesSystemSoundForDefaultAndNamedSounds() {
+        let suiteName = "NotificationDockBadgeTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        XCTAssertTrue(NotificationSoundSettings.usesSystemSound(defaults: defaults))
+
+        defaults.set("Ping", forKey: NotificationSoundSettings.key)
+        XCTAssertTrue(NotificationSoundSettings.usesSystemSound(defaults: defaults))
+        XCTAssertNotNil(NotificationSoundSettings.sound(defaults: defaults))
+    }
+
+    func testNotificationSoundDisablesSystemSoundForNoneAndCustomFile() {
+        let suiteName = "NotificationDockBadgeTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        defaults.set("none", forKey: NotificationSoundSettings.key)
+        XCTAssertFalse(NotificationSoundSettings.usesSystemSound(defaults: defaults))
+        XCTAssertNil(NotificationSoundSettings.sound(defaults: defaults))
+
+        defaults.set(NotificationSoundSettings.customFileValue, forKey: NotificationSoundSettings.key)
+        XCTAssertFalse(NotificationSoundSettings.usesSystemSound(defaults: defaults))
+        XCTAssertNil(NotificationSoundSettings.sound(defaults: defaults))
+    }
+
+    func testNotificationCustomFileURLExpandsTildePath() {
+        let suiteName = "NotificationDockBadgeTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let rawPath = "~/Library/Sounds/my-custom.wav"
+        defaults.set(rawPath, forKey: NotificationSoundSettings.customFilePathKey)
+        let expectedPath = (rawPath as NSString).expandingTildeInPath
+        XCTAssertEqual(NotificationSoundSettings.customFileURL(defaults: defaults)?.path, expectedPath)
+    }
+
+    func testNotificationCustomFileSelectionMustBeExplicit() {
+        let suiteName = "NotificationDockBadgeTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        defaults.set("~/Library/Sounds/my-custom.wav", forKey: NotificationSoundSettings.customFilePathKey)
+
+        defaults.set("none", forKey: NotificationSoundSettings.key)
+        XCTAssertFalse(NotificationSoundSettings.isCustomFileSelected(defaults: defaults))
+
+        defaults.set("Ping", forKey: NotificationSoundSettings.key)
+        XCTAssertFalse(NotificationSoundSettings.isCustomFileSelected(defaults: defaults))
+
+        defaults.set(NotificationSoundSettings.customFileValue, forKey: NotificationSoundSettings.key)
+        XCTAssertTrue(NotificationSoundSettings.isCustomFileSelected(defaults: defaults))
+    }
+
+    func testNotificationCustomStagingPreservesSourceFileWithCmuxPrefix() {
+        let suiteName = "NotificationDockBadgeTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let fileManager = FileManager.default
+        let soundsDirectory = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+            .appendingPathComponent("Library", isDirectory: true)
+            .appendingPathComponent("Sounds", isDirectory: true)
+        do {
+            try fileManager.createDirectory(at: soundsDirectory, withIntermediateDirectories: true)
+        } catch {
+            XCTFail("Failed to create sounds directory: \(error)")
+            return
+        }
+
+        let sourceURL = soundsDirectory.appendingPathComponent(
+            "cmux-custom-notification-sound.source-\(UUID().uuidString).custtest",
+            isDirectory: false
+        )
+        let stagedURL = soundsDirectory.appendingPathComponent(
+            "cmux-custom-notification-sound.custtest",
+            isDirectory: false
+        )
+        defer {
+            try? fileManager.removeItem(at: sourceURL)
+            try? fileManager.removeItem(at: stagedURL)
+        }
+
+        do {
+            try Data("test".utf8).write(to: sourceURL, options: .atomic)
+        } catch {
+            XCTFail("Failed to write source custom sound file: \(error)")
+            return
+        }
+
+        defaults.set(NotificationSoundSettings.customFileValue, forKey: NotificationSoundSettings.key)
+        defaults.set(sourceURL.path, forKey: NotificationSoundSettings.customFilePathKey)
+
+        _ = NotificationSoundSettings.sound(defaults: defaults)
+
+        XCTAssertTrue(fileManager.fileExists(atPath: sourceURL.path))
+        XCTAssertTrue(fileManager.fileExists(atPath: stagedURL.path))
+    }
+
+    func testNotificationAuthorizationStateMappingCoversKnownUNAuthorizationStatuses() {
+        XCTAssertEqual(TerminalNotificationStore.authorizationState(from: .notDetermined), .notDetermined)
+        XCTAssertEqual(TerminalNotificationStore.authorizationState(from: .denied), .denied)
+        XCTAssertEqual(TerminalNotificationStore.authorizationState(from: .authorized), .authorized)
+        XCTAssertEqual(TerminalNotificationStore.authorizationState(from: .provisional), .provisional)
+    }
+
+    func testNotificationAuthorizationStateDeliveryCapability() {
+        XCTAssertFalse(NotificationAuthorizationState.unknown.allowsDelivery)
+        XCTAssertFalse(NotificationAuthorizationState.notDetermined.allowsDelivery)
+        XCTAssertFalse(NotificationAuthorizationState.denied.allowsDelivery)
+        XCTAssertTrue(NotificationAuthorizationState.authorized.allowsDelivery)
+        XCTAssertTrue(NotificationAuthorizationState.provisional.allowsDelivery)
+        XCTAssertTrue(NotificationAuthorizationState.ephemeral.allowsDelivery)
+    }
+
+    func testNotificationAuthorizationDefersFirstPromptWhileAppIsInactive() {
+        XCTAssertTrue(
+            TerminalNotificationStore.shouldDeferAutomaticAuthorizationRequest(
+                status: .notDetermined,
+                isAppActive: false
+            )
+        )
+        XCTAssertFalse(
+            TerminalNotificationStore.shouldDeferAutomaticAuthorizationRequest(
+                status: .notDetermined,
+                isAppActive: true
+            )
+        )
+        XCTAssertFalse(
+            TerminalNotificationStore.shouldDeferAutomaticAuthorizationRequest(
+                status: .authorized,
+                isAppActive: false
+            )
+        )
+    }
+
+    func testNotificationAuthorizationRequestGatingAllowsSettingsRetry() {
+        XCTAssertTrue(
+            TerminalNotificationStore.shouldRequestAuthorization(
+                isAutomaticRequest: false,
+                hasRequestedAutomaticAuthorization: true
+            )
+        )
+        XCTAssertTrue(
+            TerminalNotificationStore.shouldRequestAuthorization(
+                isAutomaticRequest: true,
+                hasRequestedAutomaticAuthorization: false
+            )
+        )
+        XCTAssertFalse(
+            TerminalNotificationStore.shouldRequestAuthorization(
+                isAutomaticRequest: true,
+                hasRequestedAutomaticAuthorization: true
+            )
+        )
     }
 
     func testNotificationSettingsPromptUsesSheetAndNeverRunsModal() {
