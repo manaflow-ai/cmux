@@ -30,14 +30,21 @@ def main() -> int:
         failures.append(str(error))
         body_block = ""
 
+    fallback_signature = (
+        "if !panel.shouldRenderWebView, let searchState = panel.searchState {"
+    )
+    fallback_block = ""
     if body_block:
-        if (
-            "if !panel.shouldRenderWebView, let searchState = panel.searchState {"
-            not in body_block
-        ):
+        try:
+            fallback_block = extract_block(body_block, fallback_signature)
+        except ValueError:
             failures.append(
                 "BrowserPanelView must provide BrowserSearchOverlay fallback for new-tab state "
                 "(when WKWebView is not mounted)"
+            )
+        if fallback_block and "BrowserSearchOverlay(" not in fallback_block:
+            failures.append(
+                "BrowserPanelView fallback branch must mount BrowserSearchOverlay for new-tab state"
             )
 
     try:
@@ -86,7 +93,7 @@ def main() -> int:
         failures.append(str(error))
         update_ns_view_block = ""
 
-    if "Self.updateSearchOverlay(" in update_ns_view_block:
+    if "updateSearchOverlay(" in update_ns_view_block:
         failures.append(
             "updateNSView must not re-run updateSearchOverlay outside portal lifecycle paths"
         )

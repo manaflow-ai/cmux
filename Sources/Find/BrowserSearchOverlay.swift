@@ -109,7 +109,9 @@ struct BrowserSearchOverlay: View {
             .onReceive(NotificationCenter.default.publisher(for: .browserSearchFocus)) { notification in
                 guard let notifiedPanelId = notification.object as? UUID,
                       notifiedPanelId == panelId else { return }
-                requestSearchFieldFocus()
+                DispatchQueue.main.async {
+                    requestSearchFieldFocus()
+                }
             }
             .background(
                 GeometryReader { barGeo in
