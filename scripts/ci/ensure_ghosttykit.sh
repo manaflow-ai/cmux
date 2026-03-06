@@ -14,19 +14,38 @@ RETRY_DELAY="${GHOSTTYKIT_DOWNLOAD_RETRY_DELAY:-20}"
 
 download_prebuilt() {
   local attempt
+  local http_code
 
   echo "Preparing GhosttyKit.xcframework for ghostty $GHOSTTY_SHA"
   echo "Trying pre-built release $TAG"
 
   for attempt in $(seq 1 "$MAX_RETRIES"); do
-    if curl -fSL -o "$ARCHIVE_PATH" "$URL"; then
+    http_code="$(
+      curl \
+        --silent \
+        --show-error \
+        --location \
+        --output "$ARCHIVE_PATH" \
+        --write-out "%{http_code}" \
+        "$URL" || true
+    )"
+
+    if [ "$http_code" = "200" ]; then
       echo "Download succeeded on attempt $attempt"
       return 0
     fi
+
+    rm -f "$ARCHIVE_PATH"
+
+    if [ "$http_code" = "401" ] || [ "$http_code" = "403" ] || [ "$http_code" = "404" ]; then
+      echo "Pre-built release unavailable (HTTP $http_code); falling back to local build"
+      break
+    fi
+
     if [ "$attempt" -eq "$MAX_RETRIES" ]; then
       break
     fi
-    echo "Attempt $attempt/$MAX_RETRIES failed, retrying in ${RETRY_DELAY}s..."
+    echo "Attempt $attempt/$MAX_RETRIES failed with HTTP ${http_code:-000}, retrying in ${RETRY_DELAY}s..."
     sleep "$RETRY_DELAY"
   done
 

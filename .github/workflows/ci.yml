@@ -51,25 +51,7 @@ jobs:
           echo "$OUTPUT"
           echo "$OUTPUT" >> "$GITHUB_OUTPUT"
 
-  web-typecheck:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: web
-    steps:
-      - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@3d267786b128fe76c2f16a390aa2448b815359f3 # v2
-
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-
-      - name: Typecheck
-        run: bun tsc --noEmit
-
-  tests:
+  prepare-ghosttykit:
     needs: classify-pr-scope
     if: needs.classify-pr-scope.outputs.run_heavy_macos == 'true'
     runs-on: macos-15
@@ -99,6 +81,78 @@ jobs:
 
       - name: Ensure GhosttyKit.xcframework
         run: bash scripts/ci/ensure_ghosttykit.sh
+
+      - name: Package GhosttyKit.xcframework artifact
+        run: |
+          set -euo pipefail
+          rm -f GhosttyKit.xcframework.tar.gz
+          tar czf GhosttyKit.xcframework.tar.gz GhosttyKit.xcframework
+
+      - name: Upload GhosttyKit.xcframework artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ghosttykit-xcframework
+          path: GhosttyKit.xcframework.tar.gz
+          compression-level: 0
+          if-no-files-found: error
+
+  web-typecheck:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@3d267786b128fe76c2f16a390aa2448b815359f3 # v2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck
+        run: bun tsc --noEmit
+
+  tests:
+    needs: [classify-pr-scope, prepare-ghosttykit]
+    if: needs.classify-pr-scope.outputs.run_heavy_macos == 'true'
+    runs-on: macos-15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          submodules: recursive
+
+      - name: Download GhosttyKit.xcframework artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: ghosttykit-xcframework
+
+      - name: Extract GhosttyKit.xcframework artifact
+        run: |
+          set -euo pipefail
+          rm -rf GhosttyKit.xcframework
+          tar xzf GhosttyKit.xcframework.tar.gz
+          rm -f GhosttyKit.xcframework.tar.gz
+
+      - name: Select Xcode
+        run: |
+          set -euo pipefail
+          XCODE_APP="$(ls -d /Applications/Xcode_*.app 2>/dev/null | sort | tail -n 1 || true)"
+          if [ -z "$XCODE_APP" ]; then
+            XCODE_APP="/Applications/Xcode.app"
+          fi
+          XCODE_DIR="$XCODE_APP/Contents/Developer"
+          if [ ! -d "$XCODE_DIR" ]; then
+            echo "No Xcode found under /Applications" >&2
+            exit 1
+          fi
+          echo "Selected: $XCODE_APP"
+          echo "DEVELOPER_DIR=$XCODE_DIR" >> "$GITHUB_ENV"
+          export DEVELOPER_DIR="$XCODE_DIR"
+          xcodebuild -version
+          xcrun --sdk macosx --show-sdk-path
 
       - name: Clean DerivedData
         run: |
@@ -173,7 +227,7 @@ jobs:
           fi
 
   tests-depot:
-    needs: classify-pr-scope
+    needs: [classify-pr-scope, prepare-ghosttykit]
     if: needs.classify-pr-scope.outputs.run_heavy_macos == 'true'
     runs-on: depot-macos-latest
     steps:
@@ -181,6 +235,18 @@ jobs:
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           submodules: recursive
+
+      - name: Download GhosttyKit.xcframework artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: ghosttykit-xcframework
+
+      - name: Extract GhosttyKit.xcframework artifact
+        run: |
+          set -euo pipefail
+          rm -rf GhosttyKit.xcframework
+          tar xzf GhosttyKit.xcframework.tar.gz
+          rm -f GhosttyKit.xcframework.tar.gz
 
       - name: Select Xcode
         run: |
@@ -199,9 +265,6 @@ jobs:
           echo "DEVELOPER_DIR=$XCODE_DIR" >> "$GITHUB_ENV"
           export DEVELOPER_DIR="$XCODE_DIR"
           xcodebuild -version
-
-      - name: Ensure GhosttyKit.xcframework
-        run: bash scripts/ci/ensure_ghosttykit.sh
 
       - name: Clean DerivedData
         run: rm -rf ~/Library/Developer/Xcode/DerivedData/GhosttyTabs-*
