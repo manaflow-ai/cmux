@@ -1100,14 +1100,10 @@ class GhosttyApp {
     }
 
     /// Checks whether the user's Ghostty config files already contain
-    /// a `font-codepoint-map` entry covering CJK ranges.
+    /// a `font-codepoint-map` entry covering CJK ranges. Also checks
+    /// application-support config paths that cmux may load at runtime.
     static func userConfigContainsCJKCodepointMap(
-        configPaths: [String] = [
-            "~/.config/ghostty/config",
-            "~/.config/ghostty/config.ghostty",
-            "~/Library/Application Support/com.mitchellh.ghostty/config",
-            "~/Library/Application Support/com.mitchellh.ghostty/config.ghostty",
-        ]
+        configPaths: [String] = defaultCJKScanPaths()
     ) -> Bool {
         var visited = Set<String>()
         for rawPath in configPaths {
@@ -1117,6 +1113,33 @@ class GhosttyApp {
             }
         }
         return false
+    }
+
+    /// Returns the default set of config paths to scan for existing
+    /// `font-codepoint-map` entries. Includes both the standard Ghostty
+    /// config locations and any app-support paths that cmux may load.
+    private static func defaultCJKScanPaths() -> [String] {
+        var paths = [
+            "~/.config/ghostty/config",
+            "~/.config/ghostty/config.ghostty",
+            "~/Library/Application Support/com.mitchellh.ghostty/config",
+            "~/Library/Application Support/com.mitchellh.ghostty/config.ghostty",
+        ]
+        if let appSupport = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first {
+            let releaseDir = appSupport.appendingPathComponent(releaseBundleIdentifier)
+            paths.append(releaseDir.appendingPathComponent("config").path)
+            paths.append(releaseDir.appendingPathComponent("config.ghostty").path)
+
+            if let bundleId = Bundle.main.bundleIdentifier, bundleId != releaseBundleIdentifier {
+                let currentDir = appSupport.appendingPathComponent(bundleId)
+                paths.append(currentDir.appendingPathComponent("config").path)
+                paths.append(currentDir.appendingPathComponent("config.ghostty").path)
+            }
+        }
+        return paths
     }
 
     /// Scans a single config file (and any files it includes) for
