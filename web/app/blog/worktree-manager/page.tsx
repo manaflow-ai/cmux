@@ -54,11 +54,18 @@ export default function WorktreeManagerPage() {
 
       <p className="mt-6">
         cmux intentionally does not have a builtin git worktree manager. cmux
-        intentionally has no opinion on worktrees. We tried building one and
-        realized we already had something better: a <code>CLAUDE.md</code> file
-        with a few paragraphs of instructions. Claude Code reads them, creates
-        worktrees, works in them, commits, pushes, opens PRs, and cleans up.
-        The worktree manager is just prose.
+        intentionally has no opinion on worktrees. There are plenty of dedicated
+        tools for this now:{" "}
+        <Link href="https://github.com/d-kuro/gwq">gwq</Link>,{" "}
+        <Link href="https://github.com/satococoa/wtp">wtp</Link>,{" "}
+        <Link href="https://github.com/max-sixty/worktrunk">worktrunk</Link>,{" "}
+        <Link href="https://github.com/coderabbitai/git-worktree-runner">
+          git-worktree-runner
+        </Link>
+        . We don&apos;t use any of them. We put a few paragraphs of instructions
+        in a <code>CLAUDE.md</code> and Claude Code handles the rest: creating
+        worktrees, working in them, committing, pushing, opening PRs, cleaning
+        up. The worktree manager is just prose.
       </p>
 
       <h2>What we actually do</h2>
