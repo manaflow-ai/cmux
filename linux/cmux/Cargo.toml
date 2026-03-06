@@ -1,0 +1,26 @@
+[package]
+name = "cmux"
+version = "0.1.0"
+edition.workspace = true
+description = "cmux terminal multiplexer for Linux (GTK4/libadwaita)"
+
+[[bin]]
+name = "cmux-app"
+path = "src/main.rs"
+
+[dependencies]
+ghostty-gtk = { path = "../ghostty-gtk" }
+ghostty-sys = { path = "../ghostty-sys" }
+gtk4 = { workspace = true }
+libadwaita = { workspace = true }
+glib = { workspace = true }
+gdk4 = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }
+dirs = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+anyhow = { workspace = true }
+libc = "0.2"

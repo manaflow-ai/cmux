@@ -1,0 +1,11 @@
+[package]
+name = "ghostty-sys"
+version = "0.1.0"
+edition.workspace = true
+description = "Raw FFI bindings to libghostty (embedded runtime)"
+
+[features]
+link-ghostty = []
+
+[build-dependencies]
+# bindgen = "0.70"  # TODO: enable when building against actual libghostty
