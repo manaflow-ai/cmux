@@ -1080,6 +1080,7 @@ final class BrowserRedockUITests: XCTestCase {
     private var socketPath = ""
     private var screenshotDir = ""
     private let launchTag = "ui-tests-browser-redock"
+    private let browserThemeModeKey = "browserThemeMode"
 
     override func setUp() {
         super.setUp()
@@ -1110,6 +1111,7 @@ final class BrowserRedockUITests: XCTestCase {
         app.launchEnvironment["CMUX_UI_TEST_BROWSER_REDOCK_URL"] = "https://example.com"
         app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
         app.launchEnvironment["CMUX_TAG"] = launchTag
+        app.launchArguments += ["-\(browserThemeModeKey)", "light"]
         launchAndEnsureForeground(app)
 
         XCTAssertTrue(
@@ -1178,7 +1180,7 @@ final class BrowserRedockUITests: XCTestCase {
         XCTAssertGreaterThan(
             brightestMean,
             120.0,
-            "Expected example.com to render bright page content after re-dock. stats=\(statsSummary) data=\(data)"
+            "Expected example.com to render bright page content after re-dock with forced light browser theme. stats=\(statsSummary) data=\(data)"
         )
     }
 

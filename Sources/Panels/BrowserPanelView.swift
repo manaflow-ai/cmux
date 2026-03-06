@@ -3320,6 +3320,13 @@ struct WebViewRepresentable: NSViewRepresentable {
                 )
                 BrowserWindowPortalRegistry.updatePaneDropContext(for: webView, context: paneDropContext)
                 coordinator.lastPortalHostId = ObjectIdentifier(host)
+                if let panel = coordinator.panel {
+                    Self.updateSearchOverlay(
+                        panel: panel,
+                        coordinator: coordinator,
+                        containerView: webView.superview
+                    )
+                }
             }
             BrowserWindowPortalRegistry.synchronizeForAnchor(host)
         }

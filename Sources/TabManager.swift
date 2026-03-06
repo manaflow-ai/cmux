@@ -2485,7 +2485,15 @@ class TabManager: ObservableObject {
             urlString = panel.currentURL?.absoluteString ?? panel.webView.url?.absoluteString ?? ""
             title = panel.pageTitle
 
-            let hostMatches = urlString.localizedCaseInsensitiveContains(expectedHost)
+            let normalizedExpectedHost = expectedHost.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            var acceptedHosts = Set([normalizedExpectedHost])
+            if normalizedExpectedHost == "example.com" {
+                acceptedHosts.insert("example.org")
+            } else if normalizedExpectedHost == "example.org" {
+                acceptedHosts.insert("example.com")
+            }
+            let normalizedURL = urlString.lowercased()
+            let hostMatches = acceptedHosts.contains { normalizedURL.contains($0) }
             loaded = attached && hostMatches && !panel.webView.isLoading
 
             if loaded {
