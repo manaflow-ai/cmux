@@ -32,8 +32,7 @@ jobs:
 
   build-ghosttykit:
     needs: classify-pr-scope
-    # Never run Depot jobs for fork pull requests (avoid billing on external PRs).
-    if: needs.classify-pr-scope.outputs.run_heavy_macos == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    if: needs.classify-pr-scope.outputs.run_heavy_macos == 'true'
     runs-on: depot-macos-latest
     steps:
       - name: Checkout
@@ -103,8 +102,21 @@ jobs:
           cp -R ghostty/macos/GhosttyKit.xcframework GhosttyKit.xcframework
           tar czf GhosttyKit.xcframework.tar.gz GhosttyKit.xcframework
 
-      - name: Upload xcframework release
+      - name: Detect release upload permission
         if: steps.check-release.outputs.exists == 'false'
+        id: upload-permission
+        env:
+          GHOSTTY_RELEASE_TOKEN: ${{ secrets.GHOSTTY_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -n "${GHOSTTY_RELEASE_TOKEN:-}" ]; then
+            echo "can_upload=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "can_upload=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload xcframework release
+        if: steps.check-release.outputs.exists == 'false' && steps.upload-permission.outputs.can_upload == 'true'
         env:
           GH_TOKEN: ${{ secrets.GHOSTTY_RELEASE_TOKEN }}
         run: |
@@ -116,3 +128,7 @@ jobs:
             --notes "Pre-built GhosttyKit.xcframework for commit ${{ steps.ghostty-sha.outputs.sha }}" \
             GhosttyKit.xcframework.tar.gz
           echo "Published release $TAG"
+
+      - name: Skip xcframework release upload
+        if: steps.check-release.outputs.exists == 'false' && steps.upload-permission.outputs.can_upload != 'true'
+        run: echo "GHOSTTY_RELEASE_TOKEN unavailable; skipping release publication for this run."
