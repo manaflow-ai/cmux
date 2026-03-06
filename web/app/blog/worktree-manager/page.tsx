@@ -152,16 +152,16 @@ AGENTS.md should contain instructions for the worktree workflow:
 - Push branches and open PRs. Never push to main directly.
 - Clean up when done: git worktree remove ../worktrees/<branch>
 
-Symlink CLAUDE.md to AGENTS.md so both Claude Code and other agents read the same instructions.`}</CodeBlock>
+Symlink CLAUDE.md to AGENTS.md so both Claude Code and other agents read the same instructions.
+
+Before writing AGENTS.md, interview me about my project: what language/framework it uses, how to build and test, any branch naming conventions I already follow, whether I use multiple repos, and anything else that would make the instructions more useful. Then write AGENTS.md tailored to my answers.`}</CodeBlock>
 
       <p>
-        Claude Code will set up the structure, write the instructions, and from
-        then on it knows how to create worktrees when you ask it to work on
-        something. The <code>AGENTS.md</code> / <code>CLAUDE.md</code> symlink
-        means the same instructions work for any agent that reads either
-        filename. You can add more over time (naming conventions, build
-        commands, test policies, multi-repo setup) and the workflow grows with
-        you.
+        Claude Code will ask you a few questions, set up the structure, and
+        write an <code>AGENTS.md</code> that actually fits your project. The{" "}
+        <code>CLAUDE.md</code> symlink means the same instructions work for any
+        agent that reads either filename. You can keep adding to it over time
+        and the workflow grows with you.
       </p>
     </>
   );
