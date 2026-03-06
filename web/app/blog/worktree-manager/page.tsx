@@ -129,35 +129,39 @@ export default function WorktreeManagerPage() {
         anything into a monorepo.
       </p>
 
-      <h2>Try it</h2>
-
-      <pre>
-        <code>{`mkdir my-project-hq && cd my-project-hq
-git init
-git clone https://github.com/you/your-project repo
-mkdir worktrees`}</code>
-      </pre>
+      <h2>Skills are just prompts</h2>
 
       <p>
-        Add a <code>CLAUDE.md</code>:
+        We have a Claude Code skill called <code>/issue-workspace-pr</code> that
+        takes a GitHub issue URL (or plain text task), creates a worktree,
+        implements the fix, pushes, and opens a PR. It sounds like a feature but
+        it&apos;s really just a prompt that tells Claude Code the steps. It
+        could live in the <code>CLAUDE.md</code> instead and work the same way.
+        Skills are just prompts you can invoke by name.
+      </p>
+
+      <h2>Try it</h2>
+
+      <p>
+        Open Claude Code in your project directory and paste this:
       </p>
 
       <pre>
-        <code>{`# my-project-hq
-
-- \`repo/\` is the primary checkout (main branch). Never edit it directly.
-- \`worktrees/\` contains one worktree per task.
-
-When starting work:
-1. cd repo && git fetch origin
-2. git worktree add ../worktrees/<branch> -b <branch> origin/main
-3. Work in the worktree. Push and PR when done.
-4. Clean up: git worktree remove ../worktrees/<branch>`}</code>
+        <code>{`I want to set up an HQ repo for this project so I can use git worktrees
+to work on multiple things in parallel. Create a new directory called
+<project>-hq one level up from here, git init it, move or clone this
+repo into <project>-hq/repo/, create a worktrees/ directory, and write
+a CLAUDE.md with instructions for the worktree workflow (never edit
+repo/ directly, always create a worktree first, fetch before branching,
+clean up when done, push branches and open PRs).`}</code>
       </pre>
 
       <p>
-        Start Claude Code from the HQ directory and ask it to work on something.
-        It handles the rest.
+        Claude Code will set up the structure, write the{" "}
+        <code>CLAUDE.md</code>, and from then on it knows how to create
+        worktrees when you ask it to work on something. You can add more
+        instructions over time (naming conventions, build commands, test
+        policies, multi-repo setup) and the workflow grows with you.
       </p>
     </>
   );
