@@ -2622,7 +2622,34 @@ struct CMUXCLI {
             throw CLIError(message: "browser requires a subcommand")
         }
 
-        let (surfaceOpt, argsWithoutSurfaceFlag) = parseOption(commandArgs, name: "--surface")
+        var effectiveJSONOutput = jsonOutput
+        var effectiveIDFormat = idFormat
+        var browserArgs = commandArgs
+
+        // Browser-skill examples often place output flags at the end of the command.
+        // Strip trailing display flags so they don't become part of a URL or selector.
+        while !browserArgs.isEmpty {
+            if browserArgs.last == "--json" {
+                effectiveJSONOutput = true
+                browserArgs.removeLast()
+                continue
+            }
+
+            if browserArgs.count >= 2,
+               browserArgs[browserArgs.count - 2] == "--id-format" {
+                let raw = browserArgs.last!
+                guard let parsed = try CLIIDFormat.parse(raw) else {
+                    throw CLIError(message: "--id-format must be one of: refs, uuids, both")
+                }
+                effectiveIDFormat = parsed
+                browserArgs.removeLast(2)
+                continue
+            }
+
+            break
+        }
+
+        let (surfaceOpt, argsWithoutSurfaceFlag) = parseOption(browserArgs, name: "--surface")
         var surfaceRaw = surfaceOpt
         var args = argsWithoutSurfaceFlag
 
@@ -2651,8 +2678,8 @@ struct CMUXCLI {
         }
 
         func output(_ payload: [String: Any], fallback: String) {
-            if jsonOutput {
-                print(jsonString(formatIDs(payload, mode: idFormat)))
+            if effectiveJSONOutput {
+                print(jsonString(formatIDs(payload, mode: effectiveIDFormat)))
                 return
             }
             print(fallback)
@@ -2808,8 +2835,8 @@ struct CMUXCLI {
                 }
             }
             let payload = try client.sendV2(method: "browser.open_split", params: params)
-            let surfaceText = formatHandle(payload, kind: "surface", idFormat: idFormat) ?? "unknown"
-            let paneText = formatHandle(payload, kind: "pane", idFormat: idFormat) ?? "unknown"
+            let surfaceText = formatHandle(payload, kind: "surface", idFormat: effectiveIDFormat) ?? "unknown"
+            let paneText = formatHandle(payload, kind: "pane", idFormat: effectiveIDFormat) ?? "unknown"
             let placement = ((payload["created_split"] as? Bool) == true) ? "split" : "reuse"
             output(payload, fallback: "OK surface=\(surfaceText) pane=\(paneText) placement=\(placement)")
             return
@@ -2854,8 +2881,8 @@ struct CMUXCLI {
         if subcommand == "url" || subcommand == "get-url" {
             let sid = try requireSurface()
             let payload = try client.sendV2(method: "browser.url.get", params: ["surface_id": sid])
-            if jsonOutput {
-                print(jsonString(formatIDs(payload, mode: idFormat)))
+            if effectiveJSONOutput {
+                print(jsonString(formatIDs(payload, mode: effectiveIDFormat)))
             } else {
                 print((payload["url"] as? String) ?? "")
             }
@@ -2872,8 +2899,8 @@ struct CMUXCLI {
         if ["is-webview-focused", "is_webview_focused"].contains(subcommand) {
             let sid = try requireSurface()
             let payload = try client.sendV2(method: "browser.is_webview_focused", params: ["surface_id": sid])
-            if jsonOutput {
-                print(jsonString(formatIDs(payload, mode: idFormat)))
+            if effectiveJSONOutput {
+                print(jsonString(formatIDs(payload, mode: effectiveIDFormat)))
             } else {
                 print((payload["focused"] as? Bool) == true ? "true" : "false")
             }
@@ -2906,8 +2933,8 @@ struct CMUXCLI {
             }
 
             let payload = try client.sendV2(method: "browser.snapshot", params: params)
-            if jsonOutput {
-                print(jsonString(formatIDs(payload, mode: idFormat)))
+            if effectiveJSONOutput {
+                print(jsonString(formatIDs(payload, mode: effectiveIDFormat)))
             } else {
                 print(displaySnapshotText(payload))
             }
@@ -3118,7 +3145,7 @@ struct CMUXCLI {
             let sid = try requireSurface()
             let (outPathOpt, _) = parseOption(subArgs, name: "--out")
             let localJSONOutput = hasFlag(subArgs, name: "--json")
-            let outputAsJSON = jsonOutput || localJSONOutput
+            let outputAsJSON = effectiveJSONOutput || localJSONOutput
             var payload = try client.sendV2(method: "browser.screenshot", params: ["surface_id": sid])
 
             func fileURL(fromPath rawPath: String) -> URL {
@@ -3233,7 +3260,7 @@ struct CMUXCLI {
             }
 
             if outputAsJSON {
-                let formattedPayload = formatIDs(payload, mode: idFormat)
+                let formattedPayload = formatIDs(payload, mode: effectiveIDFormat)
                 if var outputPayload = formattedPayload as? [String: Any] {
                     if hasText(screenshotPath) || hasText(screenshotURL) {
                         outputPayload.removeValue(forKey: "png_base64")
@@ -3307,8 +3334,8 @@ struct CMUXCLI {
                     "styles": "browser.get.styles",
                 ]
                 let payload = try client.sendV2(method: methodMap[getVerb]!, params: params)
-                if jsonOutput {
-                    print(jsonString(formatIDs(payload, mode: idFormat)))
+                if effectiveJSONOutput {
+                    print(jsonString(formatIDs(payload, mode: effectiveIDFormat)))
                 } else if let value = payload["value"] {
                     if let str = value as? String {
                         print(str)
@@ -3347,8 +3374,8 @@ struct CMUXCLI {
                 throw CLIError(message: "Unsupported browser is subcommand: \(isVerb)")
             }
             let payload = try client.sendV2(method: method, params: ["surface_id": sid, "selector": selector])
-            if jsonOutput {
-                print(jsonString(formatIDs(payload, mode: idFormat)))
+            if effectiveJSONOutput {
+                print(jsonString(formatIDs(payload, mode: effectiveIDFormat)))
             } else if let value = payload["value"] {
                 print("\(value)")
             } else {
