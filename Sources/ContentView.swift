@@ -6421,8 +6421,9 @@ private struct SidebarFooter: View {
         SidebarDevFooter(updateViewModel: updateViewModel)
 #else
         SidebarFooterButtons(updateViewModel: updateViewModel)
-            .padding(.horizontal, 10)
-            .padding(.bottom, 10)
+            .padding(.leading, 6)
+            .padding(.trailing, 10)
+            .padding(.bottom, 6)
 #endif
     }
 }
@@ -7028,8 +7029,9 @@ private struct SidebarDevFooter: View {
                     .foregroundColor(.red)
             }
         }
-        .padding(.horizontal, 10)
-        .padding(.bottom, 10)
+        .padding(.leading, 6)
+        .padding(.trailing, 10)
+        .padding(.bottom, 6)
     }
 }
 #endif
