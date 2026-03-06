@@ -7226,7 +7226,7 @@ private struct SidebarHelpMenuButton: View {
                     helpOptionTrailingIcon(systemName: trailingSystemImage)
                 }
                 if isExternalLink {
-                    helpOptionTrailingIcon(systemName: "arrow.up.right.square")
+                    helpOptionTrailingIcon(systemName: "arrow.up.right")
                 }
             }
             .padding(.horizontal, 8)
@@ -7241,7 +7241,7 @@ private struct SidebarHelpMenuButton: View {
         Image(systemName: systemName)
             .resizable()
             .scaledToFit()
-            .frame(width: 11, height: 11)
+            .frame(width: 13, height: 13)
             .foregroundStyle(Color(nsColor: .secondaryLabelColor))
     }
 
