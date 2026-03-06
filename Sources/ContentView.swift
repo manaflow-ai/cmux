@@ -1257,6 +1257,7 @@ struct ContentView: View {
     @State private var commandPaletteMode: CommandPaletteMode = .commands
     @State private var commandPaletteRenameDraft: String = ""
     @State private var commandPaletteSelectedResultIndex: Int = 0
+    @State private var commandPaletteSelectionAnchorCommandID: String?
     @State private var commandPaletteHoveredResultIndex: Int?
     @State private var commandPaletteScrollTargetIndex: Int?
     @State private var commandPaletteScrollTargetAnchor: UnitPoint?
@@ -1270,7 +1271,7 @@ struct ContentView: View {
     @State private var commandPaletteSearchRequestID: UInt64 = 0
     @State private var commandPaletteResolvedSearchRequestID: UInt64 = 0
     @State private var isCommandPaletteSearchPending = false
-    @State private var commandPaletteDeferredSubmitRequestID: UInt64?
+    @State private var commandPalettePendingActivation: CommandPalettePendingActivation?
     @State private var commandPaletteResultsRevision: UInt64 = 0
     @State private var commandPaletteUsageHistoryByCommandId: [String: CommandPaletteUsageEntry] = [:]
     @AppStorage(CommandPaletteRenameSelectionSettings.selectAllOnFocusKey)
@@ -1289,6 +1290,16 @@ struct ContentView: View {
     private enum CommandPaletteListScope: String {
         case commands
         case switcher
+    }
+
+    enum CommandPalettePendingActivation: Equatable {
+        case selected(requestID: UInt64, fallbackSelectedIndex: Int, preferredCommandID: String?)
+        case command(requestID: UInt64, commandID: String)
+    }
+
+    enum CommandPaletteResolvedActivation: Equatable {
+        case selected(index: Int)
+        case command(commandID: String)
     }
 
     private struct CommandPaletteRenameTarget: Equatable {
@@ -1412,6 +1423,13 @@ struct ContentView: View {
         func string(_ key: String) -> String? {
             stringValues[key]
         }
+
+        func fingerprint() -> Int {
+            ContentView.commandPaletteContextFingerprint(
+                boolValues: boolValues,
+                stringValues: stringValues
+            )
+        }
     }
 
     private enum CommandPaletteContextKeys {
@@ -1493,6 +1511,19 @@ struct ContentView: View {
         let tabManager: TabManager
         let selectedWorkspaceId: UUID?
         let windowLabel: String?
+    }
+
+    struct CommandPaletteSwitcherFingerprintWorkspace: Sendable {
+        let id: UUID
+        let displayName: String
+        let metadata: CommandPaletteSwitcherSearchMetadata
+    }
+
+    struct CommandPaletteSwitcherFingerprintContext: Sendable {
+        let windowId: UUID
+        let windowLabel: String?
+        let selectedWorkspaceId: UUID?
+        let workspaces: [CommandPaletteSwitcherFingerprintWorkspace]
     }
 
     private static let fixedSidebarResizeCursor = NSCursor(
@@ -2741,7 +2772,6 @@ struct ContentView: View {
 
     private var commandPaletteCommandListView: some View {
         let visibleResults = cachedCommandPaletteResults
-        let isSearchPending = isCommandPaletteSearchPending
         let selectedIndex = commandPaletteSelectedIndex(resultCount: visibleResults.count)
         let commandPaletteListMaxHeight: CGFloat = 450
         let commandPaletteRowHeight: CGFloat = 24
@@ -2780,11 +2810,6 @@ struct ContentView: View {
                     .backport.onKeyPress("k") { modifiers in
                         handleCommandPaletteControlNavigationKey(modifiers: modifiers, delta: -1)
                     }
-
-                if isSearchPending {
-                    ProgressView()
-                        .controlSize(.small)
-                }
             }
             .padding(.horizontal, 9)
             .padding(.vertical, 7)
@@ -2794,22 +2819,12 @@ struct ContentView: View {
             ScrollView {
                 LazyVStack(spacing: 0) {
                     if visibleResults.isEmpty {
-                        if isSearchPending {
-                            HStack {
-                                Spacer()
-                                ProgressView()
-                                    .controlSize(.small)
-                                Spacer()
-                            }
+                        Text(commandPaletteEmptyStateText)
+                            .font(.system(size: 13, weight: .regular))
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 12)
                             .padding(.vertical, 12)
-                        } else {
-                            Text(commandPaletteEmptyStateText)
-                                .font(.system(size: 13, weight: .regular))
-                                .foregroundStyle(.secondary)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 12)
-                        }
                     } else {
                         ForEach(Array(visibleResults.enumerated()), id: \.element.id) { index, result in
                             let isSelected = index == selectedIndex
@@ -2854,7 +2869,6 @@ struct ContentView: View {
                                 .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
-                            .disabled(isSearchPending)
                             .id(index)
                             .onHover { hovering in
                                 if hovering {
@@ -2900,6 +2914,7 @@ struct ContentView: View {
         }
         .onChange(of: commandPaletteQuery) { _ in
             commandPaletteSelectedResultIndex = 0
+            commandPaletteSelectionAnchorCommandID = nil
             commandPaletteHoveredResultIndex = nil
             commandPaletteScrollTargetIndex = nil
             commandPaletteScrollTargetAnchor = nil
@@ -2911,7 +2926,13 @@ struct ContentView: View {
             syncCommandPaletteDebugStateForObservedWindow()
         }
         .onChange(of: commandPaletteResultsRevision) { _ in
-            commandPaletteSelectedResultIndex = commandPaletteSelectedIndex(resultCount: cachedCommandPaletteResults.count)
+            let resultIDs = cachedCommandPaletteResults.map(\.id)
+            commandPaletteSelectedResultIndex = Self.commandPaletteResolvedSelectionIndex(
+                preferredCommandID: commandPaletteSelectionAnchorCommandID,
+                fallbackSelectedIndex: commandPaletteSelectedResultIndex,
+                resultIDs: resultIDs
+            )
+            syncCommandPaletteSelectionAnchorFromCurrentResults()
             updateCommandPaletteScrollTarget(resultCount: cachedCommandPaletteResults.count, animated: false)
             if let hoveredIndex = commandPaletteHoveredResultIndex, hoveredIndex >= cachedCommandPaletteResults.count {
                 commandPaletteHoveredResultIndex = nil
@@ -3098,34 +3119,76 @@ struct ContentView: View {
         commandPaletteSearchTask = nil
     }
 
+    nonisolated private static func commandPaletteResolvedSearchResults(
+        searchCorpus: [CommandPaletteSearchCorpusEntry<String>],
+        commandsByID: [String: CommandPaletteCommand],
+        query: String,
+        usageHistory: [String: CommandPaletteUsageEntry],
+        queryIsEmpty: Bool,
+        historyTimestamp: TimeInterval,
+        shouldCancel: @escaping () -> Bool = { false }
+    ) -> [CommandPaletteSearchResult] {
+        let results = CommandPaletteSearchEngine.search(
+            entries: searchCorpus,
+            query: query,
+            historyBoost: { commandId, _ in
+                Self.commandPaletteHistoryBoost(
+                    for: commandId,
+                    queryIsEmpty: queryIsEmpty,
+                    history: usageHistory,
+                    now: historyTimestamp
+                )
+            },
+            shouldCancel: shouldCancel
+        )
+
+        return results.compactMap { result in
+            guard let command = commandsByID[result.payload] else { return nil }
+            return CommandPaletteSearchResult(
+                command: command,
+                score: result.score,
+                titleMatchIndices: result.titleMatchIndices
+            )
+        }
+    }
+
     private func scheduleCommandPaletteResultsRefresh(forceSearchCorpusRefresh: Bool = false) {
         refreshCommandPaletteSearchCorpus(force: forceSearchCorpusRefresh)
 
         commandPaletteSearchRequestID &+= 1
         let requestID = commandPaletteSearchRequestID
-        commandPaletteDeferredSubmitRequestID = nil
-        isCommandPaletteSearchPending = true
         let query = commandPaletteQueryForMatching
         let scope = commandPaletteListScope
         let fingerprint = cachedCommandPaletteFingerprint
         let searchCorpus = commandPaletteSearchCorpus
+        let commandsByID = commandPaletteSearchCommandsByID
         let usageHistory = commandPaletteUsageHistoryByCommandId
         let queryIsEmpty = CommandPaletteFuzzyMatcher.preparedQuery(query).isEmpty
         let historyTimestamp = Date().timeIntervalSince1970
+        commandPalettePendingActivation = nil
+        if cachedCommandPaletteResults.isEmpty {
+            cachedCommandPaletteResults = Self.commandPaletteResolvedSearchResults(
+                searchCorpus: searchCorpus,
+                commandsByID: commandsByID,
+                query: query,
+                usageHistory: usageHistory,
+                queryIsEmpty: queryIsEmpty,
+                historyTimestamp: historyTimestamp
+            )
+            commandPaletteResolvedSearchRequestID = requestID
+            commandPaletteResultsRevision &+= 1
+        }
+        isCommandPaletteSearchPending = true
 
         cancelCommandPaletteSearch()
         commandPaletteSearchTask = Task.detached(priority: .userInitiated) {
-            let results = CommandPaletteSearchEngine.search(
-                entries: searchCorpus,
+            let results = Self.commandPaletteResolvedSearchResults(
+                searchCorpus: searchCorpus,
+                commandsByID: commandsByID,
                 query: query,
-                historyBoost: { commandId, _ in
-                    Self.commandPaletteHistoryBoost(
-                        for: commandId,
-                        queryIsEmpty: queryIsEmpty,
-                        history: usageHistory,
-                        now: historyTimestamp
-                    )
-                },
+                usageHistory: usageHistory,
+                queryIsEmpty: queryIsEmpty,
+                historyTimestamp: historyTimestamp,
                 shouldCancel: { Task.isCancelled }
             )
 
@@ -3140,26 +3203,25 @@ struct ContentView: View {
                     return
                 }
 
-                cachedCommandPaletteResults = results.compactMap { result in
-                    guard let command = commandPaletteSearchCommandsByID[result.payload] else { return nil }
-                    return CommandPaletteSearchResult(
-                        command: command,
-                        score: result.score,
-                        titleMatchIndices: result.titleMatchIndices
-                    )
-                }
+                cachedCommandPaletteResults = results
+                let resultIDs = cachedCommandPaletteResults.map(\.id)
+                let pendingActivation = commandPalettePendingActivation
+                let resolvedActivation = Self.commandPaletteResolvedPendingActivation(
+                    pendingActivation,
+                    requestID: requestID,
+                    resultIDs: resultIDs
+                )
                 commandPaletteResolvedSearchRequestID = requestID
                 isCommandPaletteSearchPending = false
-                let shouldRunDeferredSubmit = commandPaletteDeferredSubmitRequestID == requestID
-                if shouldRunDeferredSubmit {
-                    commandPaletteDeferredSubmitRequestID = nil
+                if Self.commandPalettePendingActivationRequestID(pendingActivation) == requestID {
+                    commandPalettePendingActivation = nil
                 }
                 commandPaletteResultsRevision &+= 1
                 if commandPaletteSearchRequestID == requestID {
                     commandPaletteSearchTask = nil
                 }
-                if shouldRunDeferredSubmit {
-                    runSelectedCommandPaletteResult()
+                if let resolvedActivation {
+                    runCommandPaletteResolvedActivation(resolvedActivation)
                 }
             }
         }
@@ -3175,51 +3237,29 @@ struct ContentView: View {
     }
 
     private func commandPaletteCommandsFingerprint() -> Int {
-        let panelContext = focusedPanelContext
-        let focusedDirectory: String? = {
-            guard let panelContext else { return nil }
-            if let directory = panelContext.workspace.panelDirectories[panelContext.panelId] {
-                return directory
-            }
-            return panelContext.workspace.currentDirectory
-        }()
         var hasher = Hasher()
-        hasher.combine(tabManager.sessionAutosaveFingerprint())
+        hasher.combine(commandPaletteContextSnapshot().fingerprint())
         hasher.combine(AppDelegate.shared?.isCmuxCLIInstalledInPATH() ?? false)
-        hasher.combine(panelContext?.panelId)
-        hasher.combine(panelContext?.panel.panelType.rawValue)
-        hasher.combine(panelContext?.workspace.id)
-        hasher.combine(panelContext?.workspace.manualUnreadPanelIds.count ?? 0)
-        hasher.combine(panelContext?.workspace.sidebarPullRequestsInDisplayOrder().count ?? 0)
-        hasher.combine(focusedDirectory)
-        hasher.combine(caseIsUpdateAvailable(updateViewModel.effectiveState))
-        let availableTargets = TerminalDirectoryOpenTarget.cachedLiveAvailableTargets
-            .map(\.rawValue)
-            .sorted()
-        for target in availableTargets {
-            hasher.combine(target)
-        }
         return hasher.finalize()
     }
 
     private func commandPaletteSwitcherEntriesFingerprint() -> Int {
         let windowContexts = commandPaletteSwitcherWindowContexts()
-        var hasher = Hasher()
-        hasher.combine(windowContexts.count)
-        for context in windowContexts {
-            hasher.combine(context.windowId)
-            hasher.combine(context.windowLabel)
-            hasher.combine(context.selectedWorkspaceId)
-            hasher.combine(context.tabManager.sessionAutosaveFingerprint())
+        let fingerprintContexts = windowContexts.map { context in
+            CommandPaletteSwitcherFingerprintContext(
+                windowId: context.windowId,
+                windowLabel: context.windowLabel,
+                selectedWorkspaceId: context.selectedWorkspaceId,
+                workspaces: commandPaletteOrderedSwitcherWorkspaces(for: context).map { workspace in
+                    CommandPaletteSwitcherFingerprintWorkspace(
+                        id: workspace.id,
+                        displayName: workspaceDisplayName(workspace),
+                        metadata: commandPaletteWorkspaceSearchMetadata(for: workspace)
+                    )
+                }
+            )
         }
-        return hasher.finalize()
-    }
-
-    private func caseIsUpdateAvailable(_ state: UpdateState) -> Bool {
-        if case .updateAvailable = state {
-            return true
-        }
-        return false
+        return Self.commandPaletteSwitcherFingerprint(windowContexts: fingerprintContexts)
     }
 
     private func commandPaletteHighlightedTitleText(_ title: String, matchedIndices: Set<Int>) -> Text {
@@ -3274,15 +3314,8 @@ struct ContentView: View {
         var nextRank = 0
 
         for context in windowContexts {
-            var workspaces = context.tabManager.tabs
+            let workspaces = commandPaletteOrderedSwitcherWorkspaces(for: context)
             guard !workspaces.isEmpty else { continue }
-
-            let selectedWorkspaceId = context.selectedWorkspaceId ?? context.tabManager.selectedTabId
-            if let selectedWorkspaceId,
-               let selectedIndex = workspaces.firstIndex(where: { $0.id == selectedWorkspaceId }) {
-                let selectedWorkspace = workspaces.remove(at: selectedIndex)
-                workspaces.insert(selectedWorkspace, at: 0)
-            }
 
             let windowId = context.windowId
             let windowTabManager = context.tabManager
@@ -3384,6 +3417,22 @@ struct ContentView: View {
     private func commandPaletteWindowKeywords(windowLabel: String?) -> [String] {
         guard let windowLabel else { return [] }
         return ["window", windowLabel.lowercased()]
+    }
+
+    private func commandPaletteOrderedSwitcherWorkspaces(
+        for context: CommandPaletteSwitcherWindowContext
+    ) -> [Workspace] {
+        var workspaces = context.tabManager.tabs
+        guard !workspaces.isEmpty else { return [] }
+
+        let selectedWorkspaceId = context.selectedWorkspaceId ?? context.tabManager.selectedTabId
+        if let selectedWorkspaceId,
+           let selectedIndex = workspaces.firstIndex(where: { $0.id == selectedWorkspaceId }) {
+            let selectedWorkspace = workspaces.remove(at: selectedIndex)
+            workspaces.insert(selectedWorkspace, at: 0)
+        }
+
+        return workspaces
     }
 
     private func focusCommandPaletteSwitcherTarget(
@@ -4537,6 +4586,107 @@ struct ContentView: View {
         return min(max(commandPaletteSelectedResultIndex, 0), resultCount - 1)
     }
 
+    static func commandPaletteResolvedSelectionIndex(
+        preferredCommandID: String?,
+        fallbackSelectedIndex: Int,
+        resultIDs: [String]
+    ) -> Int {
+        guard !resultIDs.isEmpty else { return 0 }
+        if let preferredCommandID,
+           let anchoredIndex = resultIDs.firstIndex(of: preferredCommandID) {
+            return anchoredIndex
+        }
+        return min(max(fallbackSelectedIndex, 0), resultIDs.count - 1)
+    }
+
+    static func commandPalettePendingActivationRequestID(
+        _ pendingActivation: CommandPalettePendingActivation?
+    ) -> UInt64? {
+        switch pendingActivation {
+        case .selected(let requestID, _, _):
+            return requestID
+        case .command(let requestID, _):
+            return requestID
+        case nil:
+            return nil
+        }
+    }
+
+    static func commandPaletteResolvedPendingActivation(
+        _ pendingActivation: CommandPalettePendingActivation?,
+        requestID: UInt64,
+        resultIDs: [String]
+    ) -> CommandPaletteResolvedActivation? {
+        switch pendingActivation {
+        case .selected(let activationRequestID, let fallbackSelectedIndex, let preferredCommandID):
+            guard activationRequestID == requestID else { return nil }
+            let resolvedIndex = commandPaletteResolvedSelectionIndex(
+                preferredCommandID: preferredCommandID,
+                fallbackSelectedIndex: fallbackSelectedIndex,
+                resultIDs: resultIDs
+            )
+            return .selected(index: resolvedIndex)
+        case .command(let activationRequestID, let commandID):
+            guard activationRequestID == requestID, resultIDs.contains(commandID) else { return nil }
+            return .command(commandID: commandID)
+        case nil:
+            return nil
+        }
+    }
+
+    static func commandPaletteContextFingerprint(
+        boolValues: [String: Bool],
+        stringValues: [String: String]
+    ) -> Int {
+        var hasher = Hasher()
+        for key in boolValues.keys.sorted() {
+            hasher.combine(key)
+            hasher.combine(boolValues[key] ?? false)
+        }
+        for key in stringValues.keys.sorted() {
+            hasher.combine(key)
+            hasher.combine(stringValues[key] ?? "")
+        }
+        return hasher.finalize()
+    }
+
+    static func commandPaletteSwitcherFingerprint(
+        windowContexts: [CommandPaletteSwitcherFingerprintContext]
+    ) -> Int {
+        var hasher = Hasher()
+        hasher.combine(windowContexts.count)
+        for context in windowContexts {
+            hasher.combine(context.windowId)
+            hasher.combine(context.windowLabel)
+            hasher.combine(context.selectedWorkspaceId)
+            hasher.combine(context.workspaces.count)
+            for workspace in context.workspaces {
+                hasher.combine(workspace.id)
+                hasher.combine(workspace.displayName)
+                combineCommandPaletteSwitcherSearchMetadata(workspace.metadata, into: &hasher)
+            }
+        }
+        return hasher.finalize()
+    }
+
+    static func combineCommandPaletteSwitcherSearchMetadata(
+        _ metadata: CommandPaletteSwitcherSearchMetadata,
+        into hasher: inout Hasher
+    ) {
+        hasher.combine(metadata.directories.count)
+        for directory in metadata.directories {
+            hasher.combine(directory)
+        }
+        hasher.combine(metadata.branches.count)
+        for branch in metadata.branches {
+            hasher.combine(branch)
+        }
+        hasher.combine(metadata.ports.count)
+        for port in metadata.ports {
+            hasher.combine(port)
+        }
+    }
+
     static func commandPaletteScrollPositionAnchor(
         selectedIndex: Int,
         resultCount: Int
@@ -4576,6 +4726,15 @@ struct ContentView: View {
         }
     }
 
+    private func syncCommandPaletteSelectionAnchorFromCurrentResults() {
+        guard !cachedCommandPaletteResults.isEmpty else {
+            commandPaletteSelectionAnchorCommandID = nil
+            return
+        }
+        let selectedIndex = commandPaletteSelectedIndex(resultCount: cachedCommandPaletteResults.count)
+        commandPaletteSelectionAnchorCommandID = cachedCommandPaletteResults[selectedIndex].id
+    }
+
     private func moveCommandPaletteSelection(by delta: Int) {
         let count = cachedCommandPaletteResults.count
         guard count > 0 else {
@@ -4584,6 +4743,9 @@ struct ContentView: View {
         }
         let current = commandPaletteSelectedIndex(resultCount: count)
         commandPaletteSelectedResultIndex = min(max(current + delta, 0), count - 1)
+        if commandPaletteHasCurrentResolvedResults {
+            syncCommandPaletteSelectionAnchorFromCurrentResults()
+        }
         syncCommandPaletteDebugStateForObservedWindow()
     }
 
@@ -4644,29 +4806,55 @@ struct ContentView: View {
         !isCommandPaletteSearchPending && commandPaletteResolvedSearchRequestID == commandPaletteSearchRequestID
     }
 
+    private func runCommandPaletteResolvedActivation(_ activation: CommandPaletteResolvedActivation) {
+        switch activation {
+        case .command(let commandID):
+            guard let command = cachedCommandPaletteResults.first(where: { $0.id == commandID })?.command else {
+                return
+            }
+            runCommandPaletteCommand(command)
+        case .selected(let fallbackIndex):
+            guard !cachedCommandPaletteResults.isEmpty else {
+                NSSound.beep()
+                return
+            }
+            let resolvedIndex = Self.commandPaletteResolvedSelectionIndex(
+                preferredCommandID: commandPaletteSelectionAnchorCommandID,
+                fallbackSelectedIndex: fallbackIndex,
+                resultIDs: cachedCommandPaletteResults.map(\.id)
+            )
+            commandPaletteSelectedResultIndex = resolvedIndex
+            syncCommandPaletteSelectionAnchorFromCurrentResults()
+            runCommandPaletteCommand(cachedCommandPaletteResults[resolvedIndex].command)
+        }
+    }
+
     private func runCommandPaletteResult(commandID: String) {
-        guard commandPaletteHasCurrentResolvedResults,
-              let command = cachedCommandPaletteResults.first(where: { $0.id == commandID })?.command else {
+        guard commandPaletteHasCurrentResolvedResults else {
+            if isCommandPalettePresented {
+                commandPalettePendingActivation = .command(
+                    requestID: commandPaletteSearchRequestID,
+                    commandID: commandID
+                )
+            }
             return
         }
-        runCommandPaletteCommand(command)
+        runCommandPaletteResolvedActivation(.command(commandID: commandID))
     }
 
     private func runSelectedCommandPaletteResult() {
         guard commandPaletteHasCurrentResolvedResults else {
             if isCommandPalettePresented {
-                commandPaletteDeferredSubmitRequestID = commandPaletteSearchRequestID
+                commandPalettePendingActivation = .selected(
+                    requestID: commandPaletteSearchRequestID,
+                    fallbackSelectedIndex: commandPaletteSelectedResultIndex,
+                    preferredCommandID: commandPaletteSelectionAnchorCommandID
+                )
             }
             return
         }
 
-        let visibleResults = cachedCommandPaletteResults
-        guard !visibleResults.isEmpty else {
-            NSSound.beep()
-            return
-        }
-        let index = commandPaletteSelectedIndex(resultCount: visibleResults.count)
-        runCommandPaletteCommand(visibleResults[index].command)
+        runCommandPaletteResolvedActivation(.selected(index: commandPaletteSelectedResultIndex))
     }
 
     private func handleCommandPaletteSubmitRequest() {
@@ -4820,6 +5008,7 @@ struct ContentView: View {
         commandPaletteQuery = initialQuery
         commandPaletteRenameDraft = ""
         commandPaletteSelectedResultIndex = 0
+        commandPaletteSelectionAnchorCommandID = nil
         commandPaletteHoveredResultIndex = nil
         commandPaletteScrollTargetIndex = nil
         commandPaletteScrollTargetAnchor = nil
@@ -4837,6 +5026,7 @@ struct ContentView: View {
         commandPaletteQuery = ""
         commandPaletteRenameDraft = ""
         commandPaletteSelectedResultIndex = 0
+        commandPaletteSelectionAnchorCommandID = nil
         commandPaletteHoveredResultIndex = nil
         commandPaletteScrollTargetIndex = nil
         commandPaletteScrollTargetAnchor = nil
@@ -4850,7 +5040,7 @@ struct ContentView: View {
         cachedCommandPaletteFingerprint = nil
         commandPaletteResolvedSearchRequestID = commandPaletteSearchRequestID
         isCommandPaletteSearchPending = false
-        commandPaletteDeferredSubmitRequestID = nil
+        commandPalettePendingActivation = nil
         commandPaletteResultsRevision &+= 1
         if let window = observedWindow {
             _ = window.makeFirstResponder(nil)
@@ -5242,7 +5432,7 @@ struct ContentView: View {
 #endif
 }
 
-struct CommandPaletteSwitcherSearchMetadata {
+struct CommandPaletteSwitcherSearchMetadata: Equatable, Sendable {
     let directories: [String]
     let branches: [String]
     let ports: [Int]
