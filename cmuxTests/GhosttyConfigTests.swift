@@ -1431,8 +1431,9 @@ final class GhosttyMouseFocusTests: XCTestCase {
     }
 
     func testUserConfigContainsCJKCodepointMapReturnsFalseForMissingFiles() {
+        let path = NSTemporaryDirectory() + "cmux-nonexistent-\(UUID().uuidString)/config"
         XCTAssertFalse(
-            GhosttyApp.userConfigContainsCJKCodepointMap(configPaths: ["/nonexistent/path/config"])
+            GhosttyApp.userConfigContainsCJKCodepointMap(configPaths: [path])
         )
     }
 
@@ -1451,5 +1452,56 @@ final class GhosttyMouseFocusTests: XCTestCase {
             .write(to: main, atomically: true, encoding: .utf8)
 
         XCTAssertTrue(GhosttyApp.userConfigContainsCJKCodepointMap(configPaths: [main.path]))
+    }
+
+    func testUserConfigContainsCJKCodepointMapFollowsRelativeIncludes() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-test-cjk-rel-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let included = dir.appendingPathComponent("fonts.conf")
+        try "font-codepoint-map = U+4E00-U+9FFF=Hiragino Sans\n"
+            .write(to: included, atomically: true, encoding: .utf8)
+
+        let main = dir.appendingPathComponent("config")
+        try "config-file = fonts.conf\n"
+            .write(to: main, atomically: true, encoding: .utf8)
+
+        XCTAssertTrue(GhosttyApp.userConfigContainsCJKCodepointMap(configPaths: [main.path]))
+    }
+
+    func testUserConfigContainsCJKCodepointMapHandlesOptionalInclude() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-test-cjk-opt-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let included = dir.appendingPathComponent("fonts.conf")
+        try "font-codepoint-map = U+4E00-U+9FFF=Hiragino Sans\n"
+            .write(to: included, atomically: true, encoding: .utf8)
+
+        let main = dir.appendingPathComponent("config")
+        try "config-file = \(included.path)?\n"
+            .write(to: main, atomically: true, encoding: .utf8)
+
+        XCTAssertTrue(GhosttyApp.userConfigContainsCJKCodepointMap(configPaths: [main.path]))
+    }
+
+    func testUserConfigContainsCJKCodepointMapHandlesCyclicIncludes() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-test-cjk-cycle-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let fileA = dir.appendingPathComponent("a.conf")
+        let fileB = dir.appendingPathComponent("b.conf")
+        try "config-file = \(fileB.path)\n"
+            .write(to: fileA, atomically: true, encoding: .utf8)
+        try "config-file = \(fileA.path)\n"
+            .write(to: fileB, atomically: true, encoding: .utf8)
+
+        // Should not hang; should return false since neither file has font-codepoint-map
+        XCTAssertFalse(GhosttyApp.userConfigContainsCJKCodepointMap(configPaths: [fileA.path]))
     }
 }
