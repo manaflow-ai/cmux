@@ -10151,16 +10151,18 @@ final class MarkdownPanelPointerObserverViewTests: XCTestCase {
 
         let overlay = MarkdownPanelPointerObserverView(frame: contentView.bounds)
         overlay.autoresizingMask = [.width, .height]
+        let focusExpectation = expectation(description: "observer forwards focus callback")
         var pointerDownCount = 0
         overlay.onPointerDown = {
             pointerDownCount += 1
+            focusExpectation.fulfill()
         }
         contentView.addSubview(overlay)
 
         _ = overlay.handleEventIfNeeded(
             makeMouseEvent(type: .leftMouseDown, location: NSPoint(x: 60, y: 60), window: window)
         )
-        RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        wait(for: [focusExpectation], timeout: 1.0)
 
         XCTAssertEqual(pointerDownCount, 1)
     }
@@ -10177,9 +10179,12 @@ final class MarkdownPanelPointerObserverViewTests: XCTestCase {
 
         let overlay = MarkdownPanelPointerObserverView(frame: contentView.bounds)
         overlay.autoresizingMask = [.width, .height]
+        let noFocusExpectation = expectation(description: "observer ignores invalid clicks")
+        noFocusExpectation.isInverted = true
         var pointerDownCount = 0
         overlay.onPointerDown = {
             pointerDownCount += 1
+            noFocusExpectation.fulfill()
         }
         contentView.addSubview(overlay)
 
@@ -10192,7 +10197,7 @@ final class MarkdownPanelPointerObserverViewTests: XCTestCase {
         _ = overlay.handleEventIfNeeded(
             makeMouseEvent(type: .leftMouseDragged, location: NSPoint(x: 60, y: 60), window: window, eventNumber: 3)
         )
-        RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        wait(for: [noFocusExpectation], timeout: 0.1)
 
         XCTAssertEqual(pointerDownCount, 0)
     }
