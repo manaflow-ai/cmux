@@ -3932,6 +3932,7 @@ struct SettingsView: View {
                         .font(.caption)
                         .foregroundColor(.secondary)
                         .padding(.leading, 2)
+                        .accessibilityIdentifier("ShortcutRecordingHint")
 
                     SettingsSectionHeader(title: String(localized: "settings.section.reset", defaultValue: "Reset"))
                     SettingsCard {

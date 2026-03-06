@@ -44,7 +44,7 @@ final class SidebarHelpMenuUITests: XCTestCase {
         )
         keyboardShortcutsItem.click()
 
-        XCTAssertTrue(app.staticTexts["Click a shortcut value to record a new shortcut."].waitForExistence(timeout: 6.0))
+        XCTAssertTrue(app.staticTexts["ShortcutRecordingHint"].waitForExistence(timeout: 6.0))
     }
 
     func testHelpMenuCheckForUpdatesTriggersSidebarUpdatePill() {
@@ -72,8 +72,9 @@ final class SidebarHelpMenuUITests: XCTestCase {
         )
         checkForUpdatesItem.click()
 
-        let updatePill = app.buttons["Update Available: 9.9.9"]
+        let updatePill = app.buttons["UpdatePill"]
         XCTAssertTrue(updatePill.waitForExistence(timeout: 6.0))
+        XCTAssertEqual(updatePill.label, "Update Available: 9.9.9")
     }
 
     func testHelpMenuSendFeedbackOpensComposerSheet() {
@@ -212,6 +213,10 @@ final class SidebarHelpMenuUITests: XCTestCase {
         if !activated {
             app.activate()
         }
+        XCTAssertTrue(
+            sidebarHelpPollUntil(timeout: 2.0) { app.state == .runningForeground },
+            "App did not reach runningForeground before UI interactions"
+        )
     }
 }
 
