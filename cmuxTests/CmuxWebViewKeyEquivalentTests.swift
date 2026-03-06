@@ -2534,7 +2534,6 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 
         let representable = WebViewRepresentable(
             panel: panel,
-            browserSearchState: nil,
             shouldAttachWebView: true,
             shouldFocusWebView: false,
             isPanelFocused: true,
@@ -2574,7 +2573,6 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 
         let representable = WebViewRepresentable(
             panel: panel,
-            browserSearchState: nil,
             shouldAttachWebView: true,
             shouldFocusWebView: false,
             isPanelFocused: true,
