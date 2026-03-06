@@ -7388,6 +7388,40 @@ final class NotificationDockBadgeTests: XCTestCase {
         XCTAssertEqual(store.unreadCount(forTabId: tab), 0)
         XCTAssertNil(store.latestNotification(forTabId: tab))
     }
+
+    func testOpenNotificationFromUserActionMarksReadWhenTargetCannotOpen() {
+        let tabId = UUID()
+        let notificationId = UUID()
+        let notification = TerminalNotification(
+            id: notificationId,
+            tabId: tabId,
+            surfaceId: nil,
+            title: "Unread",
+            subtitle: "",
+            body: "",
+            createdAt: Date(),
+            isRead: false
+        )
+
+        let store = TerminalNotificationStore.shared
+        store.replaceNotificationsForTesting([notification])
+        XCTAssertEqual(store.unreadCount, 1)
+
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        appDelegate.notificationStore = store
+
+        let opened = appDelegate.openNotificationFromUserAction(
+            tabId: tabId,
+            surfaceId: nil,
+            notificationId: notificationId
+        )
+        XCTAssertFalse(opened)
+        XCTAssertTrue(
+            store.notifications.contains(where: { $0.id == notificationId && $0.isRead }),
+            "User click should acknowledge stale notifications so unread count does not get stuck"
+        )
+        XCTAssertEqual(store.unreadCount, 0)
+    }
 }
 
 
