@@ -3054,6 +3054,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         var desiredPortalVisibleInUI: Bool = true
         var desiredPortalZPriority: Int = 0
         var lastPortalHostId: ObjectIdentifier?
+        var lastReattachToken: UInt64?
         var searchOverlayHostingView: NSHostingView<BrowserSearchOverlay>?
     }
 
@@ -3274,10 +3275,15 @@ struct WebViewRepresentable: NSViewRepresentable {
         let coordinator = context.coordinator
         let previousVisible = coordinator.desiredPortalVisibleInUI
         let previousZPriority = coordinator.desiredPortalZPriority
+        let previousReattachToken = coordinator.lastReattachToken
         coordinator.desiredPortalVisibleInUI = shouldAttachWebView
         coordinator.desiredPortalZPriority = portalZPriority
+        coordinator.lastReattachToken = reattachToken
         coordinator.attachGeneration += 1
         let generation = coordinator.attachGeneration
+        let reattachRequested =
+            previousReattachToken != nil &&
+            previousReattachToken != reattachToken
         let paneDropContext = shouldAttachWebView ? currentPaneDropContext() : nil
 
         host.onDidMoveToWindow = { [weak host, weak webView, weak coordinator] in
@@ -3300,10 +3306,21 @@ struct WebViewRepresentable: NSViewRepresentable {
                 )
             }
         }
-        host.onGeometryChanged = { [weak host, weak coordinator] in
-            guard let host, let coordinator else { return }
+        host.onGeometryChanged = { [weak host, weak webView, weak coordinator] in
+            guard let host, let webView, let coordinator else { return }
             guard coordinator.attachGeneration == generation else { return }
             guard coordinator.lastPortalHostId == ObjectIdentifier(host) else { return }
+            if host.window != nil,
+               !BrowserWindowPortalRegistry.isWebView(webView, boundTo: host) {
+                BrowserWindowPortalRegistry.bind(
+                    webView: webView,
+                    to: host,
+                    visibleInUI: coordinator.desiredPortalVisibleInUI,
+                    zPriority: coordinator.desiredPortalZPriority
+                )
+                BrowserWindowPortalRegistry.updatePaneDropContext(for: webView, context: paneDropContext)
+                coordinator.lastPortalHostId = ObjectIdentifier(host)
+            }
             BrowserWindowPortalRegistry.synchronizeForAnchor(host)
         }
 
@@ -3315,11 +3332,14 @@ struct WebViewRepresentable: NSViewRepresentable {
 
         if host.window != nil {
             let hostId = ObjectIdentifier(host)
+            let portalEntryMissing = !BrowserWindowPortalRegistry.isWebView(webView, boundTo: host)
             let shouldBindNow =
                 coordinator.lastPortalHostId != hostId ||
                 webView.superview == nil ||
                 previousVisible != shouldAttachWebView ||
-                previousZPriority != portalZPriority
+                previousZPriority != portalZPriority ||
+                reattachRequested ||
+                portalEntryMissing
             if shouldBindNow {
                 BrowserWindowPortalRegistry.bind(
                     webView: webView,

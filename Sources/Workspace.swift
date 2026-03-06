@@ -3476,13 +3476,13 @@ final class Workspace: Identifiable, ObservableObject {
     private func scheduleMovedBrowserRefresh(panelId: UUID) {
         guard browserPanel(for: panelId) != nil else { return }
 
-        // Mirror terminal move repair: force the representable to re-run portal binding after
-        // pane auto-close/reparent churn so the WKWebView reattaches to the surviving host.
-        browserPanel(for: panelId)?.requestViewReattach()
-
         let runRefreshPass: (TimeInterval) -> Void = { [weak self] delay in
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
                 guard let self, let panel = self.browserPanel(for: panelId) else { return }
+                // Mirror terminal move repair: force the representable to re-run portal binding
+                // after pane auto-close/reparent churn so the WKWebView reattaches to the
+                // surviving host on both the immediate and post-layout passes.
+                panel.requestViewReattach()
                 NSApp.windows.forEach { window in
                     window.contentView?.layoutSubtreeIfNeeded()
                     window.contentView?.displayIfNeeded()
