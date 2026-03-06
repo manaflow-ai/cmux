@@ -149,6 +149,7 @@ AGENTS.md should contain instructions for the worktree workflow:
 - Before creating a worktree, always fetch and pull main first: cd repo && git fetch origin && git pull origin main
 - Create worktrees with: git worktree add ../worktrees/<branch> -b <branch> origin/main
 - Name branches issue-<N>-<slug> for issues, feat-<slug> for features.
+- Before writing code in a worktree, read its AGENTS.md and CLAUDE.md if they exist (the project repo may have its own instructions).
 - Push branches and open PRs. Never push to main directly.
 - Clean up when done: git worktree remove ../worktrees/<branch>
 
