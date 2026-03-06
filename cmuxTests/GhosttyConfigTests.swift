@@ -1342,100 +1342,114 @@ final class GhosttyMouseFocusTests: XCTestCase {
 
     // MARK: - CJK Font Fallback
 
-    func testPreferredCJKFontFamilyReturnsHiraginoForJapanese() {
-        XCTAssertEqual(
-            GhosttyApp.preferredCJKFontFamily(preferredLanguages: ["ja-JP", "en-US"]),
-            "Hiragino Sans"
-        )
-        XCTAssertEqual(
-            GhosttyApp.preferredCJKFontFamily(preferredLanguages: ["ja"]),
-            "Hiragino Sans"
-        )
+    private func withTempConfig(
+        _ contents: String,
+        body: (String) -> Void
+    ) throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-test-cjk-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let file = dir.appendingPathComponent("config")
+        try contents.write(to: file, atomically: true, encoding: .utf8)
+        body(file.path)
     }
 
-    func testPreferredCJKFontFamilyReturnsAppleSDGothicNeoForKorean() {
-        XCTAssertEqual(
-            GhosttyApp.preferredCJKFontFamily(preferredLanguages: ["ko-KR", "en-US"]),
-            "Apple SD Gothic Neo"
-        )
+    // MARK: cjkFontMappings
+
+    func testCJKFontMappingsReturnsHiraginoWithKanaForJapanese() {
+        let mappings = GhosttyApp.cjkFontMappings(preferredLanguages: ["ja-JP", "en-US"])!
+        let fonts = Set(mappings.map(\.1))
+        let ranges = mappings.map(\.0)
+
+        XCTAssertTrue(fonts.contains("Hiragino Sans"))
+        XCTAssertTrue(ranges.contains("U+3040-U+309F"), "Should include Hiragana")
+        XCTAssertTrue(ranges.contains("U+30A0-U+30FF"), "Should include Katakana")
+        XCTAssertTrue(ranges.contains("U+4E00-U+9FFF"), "Should include CJK Ideographs")
+        XCTAssertFalse(ranges.contains("U+AC00-U+D7AF"), "Should NOT include Hangul")
     }
 
-    func testPreferredCJKFontFamilyReturnsPingFangForChinese() {
-        XCTAssertEqual(
-            GhosttyApp.preferredCJKFontFamily(preferredLanguages: ["zh-Hant-TW"]),
-            "PingFang TC"
-        )
-        XCTAssertEqual(
-            GhosttyApp.preferredCJKFontFamily(preferredLanguages: ["zh-Hans-CN"]),
-            "PingFang SC"
-        )
-        XCTAssertEqual(
-            GhosttyApp.preferredCJKFontFamily(preferredLanguages: ["zh-HK"]),
-            "PingFang TC"
-        )
+    func testCJKFontMappingsReturnsAppleSDGothicNeoWithHangulForKorean() {
+        let mappings = GhosttyApp.cjkFontMappings(preferredLanguages: ["ko-KR"])!
+        let fonts = Set(mappings.map(\.1))
+        let ranges = mappings.map(\.0)
+
+        XCTAssertTrue(fonts.contains("Apple SD Gothic Neo"))
+        XCTAssertTrue(ranges.contains("U+AC00-U+D7AF"), "Should include Hangul Syllables")
+        XCTAssertTrue(ranges.contains("U+1100-U+11FF"), "Should include Hangul Jamo")
+        XCTAssertTrue(ranges.contains("U+4E00-U+9FFF"), "Should include CJK Ideographs")
+        XCTAssertFalse(ranges.contains("U+3040-U+309F"), "Should NOT include Hiragana")
     }
 
-    func testPreferredCJKFontFamilyReturnsNilForNonCJKLanguages() {
-        XCTAssertNil(
-            GhosttyApp.preferredCJKFontFamily(preferredLanguages: ["en-US", "fr-FR"])
-        )
-        XCTAssertNil(
-            GhosttyApp.preferredCJKFontFamily(preferredLanguages: [])
-        )
+    func testCJKFontMappingsReturnsPingFangForChinese() {
+        let mappingsTW = GhosttyApp.cjkFontMappings(preferredLanguages: ["zh-Hant-TW"])!
+        XCTAssertTrue(mappingsTW.contains { $0.1 == "PingFang TC" })
+
+        let mappingsCN = GhosttyApp.cjkFontMappings(preferredLanguages: ["zh-Hans-CN"])!
+        XCTAssertTrue(mappingsCN.contains { $0.1 == "PingFang SC" })
+
+        let mappingsHK = GhosttyApp.cjkFontMappings(preferredLanguages: ["zh-HK"])!
+        XCTAssertTrue(mappingsHK.contains { $0.1 == "PingFang TC" })
     }
 
-    func testPreferredCJKFontFamilyUsesFirstCJKLanguageInList() {
-        XCTAssertEqual(
-            GhosttyApp.preferredCJKFontFamily(preferredLanguages: ["en-US", "ko-KR", "ja-JP"]),
-            "Apple SD Gothic Neo"
-        )
+    func testCJKFontMappingsReturnsNilForNonCJKLanguages() {
+        XCTAssertNil(GhosttyApp.cjkFontMappings(preferredLanguages: ["en-US", "fr-FR"]))
+        XCTAssertNil(GhosttyApp.cjkFontMappings(preferredLanguages: []))
     }
+
+    func testCJKFontMappingsMultiLanguageMapsScriptSpecificRanges() {
+        let mappings = GhosttyApp.cjkFontMappings(preferredLanguages: ["ja-JP", "ko-KR"])!
+
+        let hiraginoRanges = mappings.filter { $0.1 == "Hiragino Sans" }.map(\.0)
+        let sdGothicRanges = mappings.filter { $0.1 == "Apple SD Gothic Neo" }.map(\.0)
+
+        XCTAssertTrue(hiraginoRanges.contains("U+3040-U+309F"), "Hiragana → Hiragino")
+        XCTAssertTrue(hiraginoRanges.contains("U+4E00-U+9FFF"), "Shared CJK → first lang font")
+        XCTAssertTrue(sdGothicRanges.contains("U+AC00-U+D7AF"), "Hangul → Apple SD Gothic Neo")
+        XCTAssertFalse(hiraginoRanges.contains("U+AC00-U+D7AF"), "Hangul NOT in Hiragino")
+    }
+
+    // MARK: userConfigContainsCJKCodepointMap
 
     func testUserConfigContainsCJKCodepointMapDetectsPresence() throws {
-        let tmpDir = NSTemporaryDirectory() + "cmux-test-cjk-\(UUID().uuidString)/"
-        try FileManager.default.createDirectory(atPath: tmpDir, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(atPath: tmpDir) }
-
-        let configWithMap = tmpDir + "config-with-map"
-        try "font-family = Menlo\nfont-codepoint-map = U+3000-U+9FFF=Hiragino Sans\n"
-            .write(toFile: configWithMap, atomically: true, encoding: .utf8)
-
-        XCTAssertTrue(
-            GhosttyApp.userConfigContainsCJKCodepointMap(configPaths: [configWithMap])
-        )
+        try withTempConfig("font-family = Menlo\nfont-codepoint-map = U+3000-U+9FFF=Hiragino Sans\n") { path in
+            XCTAssertTrue(GhosttyApp.userConfigContainsCJKCodepointMap(configPaths: [path]))
+        }
     }
 
     func testUserConfigContainsCJKCodepointMapReturnsFalseWhenAbsent() throws {
-        let tmpDir = NSTemporaryDirectory() + "cmux-test-cjk-\(UUID().uuidString)/"
-        try FileManager.default.createDirectory(atPath: tmpDir, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(atPath: tmpDir) }
-
-        let configWithoutMap = tmpDir + "config-no-map"
-        try "font-family = Menlo\nfont-size = 14\n"
-            .write(toFile: configWithoutMap, atomically: true, encoding: .utf8)
-
-        XCTAssertFalse(
-            GhosttyApp.userConfigContainsCJKCodepointMap(configPaths: [configWithoutMap])
-        )
+        try withTempConfig("font-family = Menlo\nfont-size = 14\n") { path in
+            XCTAssertFalse(GhosttyApp.userConfigContainsCJKCodepointMap(configPaths: [path]))
+        }
     }
 
     func testUserConfigContainsCJKCodepointMapIgnoresComments() throws {
-        let tmpDir = NSTemporaryDirectory() + "cmux-test-cjk-\(UUID().uuidString)/"
-        try FileManager.default.createDirectory(atPath: tmpDir, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(atPath: tmpDir) }
-
-        let configCommented = tmpDir + "config-commented"
-        try "# font-codepoint-map = U+3000-U+9FFF=Hiragino Sans\n"
-            .write(toFile: configCommented, atomically: true, encoding: .utf8)
-
-        XCTAssertFalse(
-            GhosttyApp.userConfigContainsCJKCodepointMap(configPaths: [configCommented])
-        )
+        try withTempConfig("# font-codepoint-map = U+3000-U+9FFF=Hiragino Sans\n") { path in
+            XCTAssertFalse(GhosttyApp.userConfigContainsCJKCodepointMap(configPaths: [path]))
+        }
     }
 
     func testUserConfigContainsCJKCodepointMapReturnsFalseForMissingFiles() {
         XCTAssertFalse(
             GhosttyApp.userConfigContainsCJKCodepointMap(configPaths: ["/nonexistent/path/config"])
         )
+    }
+
+    func testUserConfigContainsCJKCodepointMapFollowsConfigFileIncludes() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-test-cjk-include-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let included = dir.appendingPathComponent("fonts.conf")
+        try "font-codepoint-map = U+3000-U+9FFF=Hiragino Sans\n"
+            .write(to: included, atomically: true, encoding: .utf8)
+
+        let main = dir.appendingPathComponent("config")
+        try "font-family = Menlo\nconfig-file = \(included.path)\n"
+            .write(to: main, atomically: true, encoding: .utf8)
+
+        XCTAssertTrue(GhosttyApp.userConfigContainsCJKCodepointMap(configPaths: [main.path]))
     }
 }
