@@ -3137,13 +3137,6 @@ struct WebViewRepresentable: NSViewRepresentable {
             String(format: "%.1f,%.1f %.1fx%.1f", rect.origin.x, rect.origin.y, rect.width, rect.height)
         }
 
-        private static func rectApproximatelyEqual(_ lhs: NSRect, _ rhs: NSRect, epsilon: CGFloat = 0.5) -> Bool {
-            abs(lhs.origin.x - rhs.origin.x) <= epsilon &&
-                abs(lhs.origin.y - rhs.origin.y) <= epsilon &&
-                abs(lhs.width - rhs.width) <= epsilon &&
-                abs(lhs.height - rhs.height) <= epsilon
-        }
-
         private func debugLogHostedInspectorFrames(
             stage: String,
             point: NSPoint? = nil,
@@ -3192,6 +3185,13 @@ struct WebViewRepresentable: NSViewRepresentable {
             debugLogHostedInspectorFrames(stage: "\(reason).layout", hit: hit)
         }
 #endif
+
+        private static func rectApproximatelyEqual(_ lhs: NSRect, _ rhs: NSRect, epsilon: CGFloat = 0.5) -> Bool {
+            abs(lhs.origin.x - rhs.origin.x) <= epsilon &&
+                abs(lhs.origin.y - rhs.origin.y) <= epsilon &&
+                abs(lhs.width - rhs.width) <= epsilon &&
+                abs(lhs.height - rhs.height) <= epsilon
+        }
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
