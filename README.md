@@ -117,7 +117,7 @@ The best developers have always built their own tools. Nobody has figured out th
 
 Give a million developers composable primitives and they'll collectively find the most efficient workflows faster than any product team could design top-down.
 
-For more info on how to configure cmux, [head over to our docs](https://cmux.dev/docs/getting-started?utm=readme).
+For more info on how to configure cmux, [head over to our docs](https://cmux.dev/docs/getting-started?utm_source=readme).
 
 ## Keyboard Shortcuts
 
