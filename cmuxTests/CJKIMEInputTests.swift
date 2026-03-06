@@ -285,6 +285,64 @@ final class CJKIMEMarkedTextTests: XCTestCase {
     }
 }
 
+final class CJKIMEKeyForwardingSuppressionTests: XCTestCase {
+    func testSuppressesTerminalForwardingWhenJapanesePreeditTextChanges() {
+        let view = GhosttyNSView(frame: .zero)
+
+        XCTAssertTrue(
+            view.shouldSuppressGhosttyKeyForwardingAfterIMEHandlingForTesting(
+                markedTextBefore: "にほん",
+                markedSelectionBefore: NSRange(location: 3, length: 0),
+                markedTextAfter: "にほ",
+                markedSelectionAfter: NSRange(location: 2, length: 0),
+                accumulatedText: []
+            )
+        )
+    }
+
+    func testSuppressesTerminalForwardingWhenJapaneseClauseSelectionMoves() {
+        let view = GhosttyNSView(frame: .zero)
+
+        XCTAssertTrue(
+            view.shouldSuppressGhosttyKeyForwardingAfterIMEHandlingForTesting(
+                markedTextBefore: "東京",
+                markedSelectionBefore: NSRange(location: 0, length: 1),
+                markedTextAfter: "東京",
+                markedSelectionAfter: NSRange(location: 1, length: 1),
+                accumulatedText: []
+            )
+        )
+    }
+
+    func testDoesNotSuppressCommittedIMEInsertText() {
+        let view = GhosttyNSView(frame: .zero)
+
+        XCTAssertFalse(
+            view.shouldSuppressGhosttyKeyForwardingAfterIMEHandlingForTesting(
+                markedTextBefore: "東京",
+                markedSelectionBefore: NSRange(location: 0, length: 1),
+                markedTextAfter: "",
+                markedSelectionAfter: NSRange(location: NSNotFound, length: 0),
+                accumulatedText: ["東京"]
+            )
+        )
+    }
+
+    func testDoesNotSuppressNormalTerminalKeyWhenIMEDidNothing() {
+        let view = GhosttyNSView(frame: .zero)
+
+        XCTAssertFalse(
+            view.shouldSuppressGhosttyKeyForwardingAfterIMEHandlingForTesting(
+                markedTextBefore: "",
+                markedSelectionBefore: NSRange(location: NSNotFound, length: 0),
+                markedTextAfter: "",
+                markedSelectionAfter: NSRange(location: NSNotFound, length: 0),
+                accumulatedText: []
+            )
+        )
+    }
+}
+
 // MARK: - performKeyEquivalent bypasses during IME composition
 
 /// Tests that performKeyEquivalent does not intercept key events when the
