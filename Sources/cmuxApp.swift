@@ -888,7 +888,7 @@ private enum SettingsAboutWindowKind: String, CaseIterable, Identifiable {
     var minimumSize: NSSize {
         switch self {
         case .settings:
-            return NSSize(width: 420, height: 360)
+            return NSSize(width: 760, height: 360)
         case .about:
             return NSSize(width: 360, height: 520)
         }
@@ -1755,7 +1755,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
 
     private init() {
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 640, height: 520),
+            contentRect: NSRect(x: 0, y: 0, width: 820, height: 520),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -2793,6 +2793,45 @@ enum TelemetrySettings {
     static let enabledForCurrentLaunch = isEnabled()
 }
 
+private enum SettingsSection: String, CaseIterable, Identifiable {
+    case app
+    case workspaceColors
+    case automation
+    case browser
+    case keyboardShortcuts
+    case reset
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .app:
+            return String(localized: "settings.section.app", defaultValue: "App")
+        case .workspaceColors:
+            return String(localized: "settings.section.workspaceColors", defaultValue: "Workspace Colors")
+        case .automation:
+            return String(localized: "settings.section.automation", defaultValue: "Automation")
+        case .browser:
+            return String(localized: "settings.section.browser", defaultValue: "Browser")
+        case .keyboardShortcuts:
+            return String(localized: "settings.section.keyboardShortcuts", defaultValue: "Keyboard Shortcuts")
+        case .reset:
+            return String(localized: "settings.section.reset", defaultValue: "Reset")
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .app: return "gearshape"
+        case .workspaceColors: return "paintpalette"
+        case .automation: return "bolt"
+        case .browser: return "globe"
+        case .keyboardShortcuts: return "keyboard"
+        case .reset: return "arrow.counterclockwise"
+        }
+    }
+}
+
 struct SettingsView: View {
     private let contentTopInset: CGFloat = 8
     private let pickerColumnWidth: CGFloat = 196
@@ -2843,10 +2882,10 @@ struct SettingsView: View {
     @AppStorage("sidebarShowProgress") private var sidebarShowProgress = true
     @AppStorage("sidebarShowStatusPills") private var sidebarShowMetadata = true
     @ObservedObject private var notificationStore = TerminalNotificationStore.shared
+    @State private var selectedSection: SettingsSection = .app
     @State private var shortcutResetToken = UUID()
     @State private var topBlurOpacity: Double = 0
     @State private var topBlurBaselineOffset: CGFloat?
-    @State private var settingsTitleLeadingInset: CGFloat = 92
     @State private var showClearBrowserHistoryConfirmation = false
     @State private var showOpenAccessConfirmation = false
     @State private var pendingOpenAccessMode: SocketControlMode?
@@ -3167,17 +3206,69 @@ struct SettingsView: View {
         }
     }
 
-    var body: some View {
-        ZStack(alignment: .top) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    SettingsSectionHeader(title: String(localized: "settings.section.app", defaultValue: "App"))
-                    SettingsCard {
-                        SettingsPickerRow(String(localized: "settings.app.theme", defaultValue: "Theme"), controlWidth: pickerColumnWidth, selection: $appearanceMode) {
-                            ForEach(AppearanceMode.visibleCases) { mode in
-                                Text(mode.displayName).tag(mode.rawValue)
-                            }
-                        }
+    // MARK: - Sidebar
+
+    private var settingsSidebar: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            ForEach(SettingsSection.allCases) { section in
+                Button {
+                    selectedSection = section
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: section.icon)
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(selectedSection == section ? .white : .secondary)
+                            .frame(width: 18, alignment: .center)
+                        Text(section.label)
+                            .font(.system(size: 13, weight: selectedSection == section ? .semibold : .regular))
+                            .foregroundStyle(selectedSection == section ? .white : .primary)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .fill(selectedSection == section ? Color.accentColor : Color.clear)
+                    )
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.top, contentTopInset + 36)
+        .frame(width: 180, alignment: .topLeading)
+        .frame(maxHeight: .infinity, alignment: .top)
+    }
+
+    // MARK: - Section Content
+
+    @ViewBuilder
+    private var sectionContent: some View {
+        switch selectedSection {
+        case .app:
+            appSectionContent
+        case .workspaceColors:
+            workspaceColorsSectionContent
+        case .automation:
+            automationSectionContent
+        case .browser:
+            browserSectionContent
+        case .keyboardShortcuts:
+            keyboardShortcutsSectionContent
+        case .reset:
+            resetSectionContent
+        }
+    }
+
+    @ViewBuilder
+    private var appSectionContent: some View {
+        SettingsCard {
+            SettingsPickerRow(String(localized: "settings.app.theme", defaultValue: "Theme"), controlWidth: pickerColumnWidth, selection: $appearanceMode) {
+                ForEach(AppearanceMode.visibleCases) { mode in
+                    Text(mode.displayName).tag(mode.rawValue)
+                }
+            }
 
                         SettingsCardDivider()
 
@@ -3487,12 +3578,14 @@ struct SettingsView: View {
                                 .labelsHidden()
                                 .controlSize(.small)
                         }
-                    }
+        }
+    }
 
-                    SettingsSectionHeader(title: String(localized: "settings.section.workspaceColors", defaultValue: "Workspace Colors"))
-                    SettingsCard {
-                        SettingsPickerRow(
-                            String(localized: "settings.workspaceColors.indicator", defaultValue: "Workspace Color Indicator"),
+    @ViewBuilder
+    private var workspaceColorsSectionContent: some View {
+        SettingsCard {
+            SettingsPickerRow(
+                String(localized: "settings.workspaceColors.indicator", defaultValue: "Workspace Color Indicator"),
                             controlWidth: pickerColumnWidth,
                             selection: sidebarIndicatorStyleSelection
                         ) {
@@ -3575,134 +3668,138 @@ struct SettingsView: View {
                             .buttonStyle(.bordered)
                             .controlSize(.small)
                         }
-                    }
+        }
+    }
 
-                    SettingsSectionHeader(title: String(localized: "settings.section.automation", defaultValue: "Automation"))
-                    SettingsCard {
-                        SettingsPickerRow(
-                            String(localized: "settings.automation.socketMode", defaultValue: "Socket Control Mode"),
-                            subtitle: selectedSocketControlMode.description,
-                            controlWidth: pickerColumnWidth,
-                            selection: socketModeSelection,
-                            accessibilityId: "AutomationSocketModePicker"
-                        ) {
-                            ForEach(SocketControlMode.uiCases) { mode in
-                                Text(mode.displayName).tag(mode.rawValue)
+    @ViewBuilder
+    private var automationSectionContent: some View {
+        SettingsCard {
+            SettingsPickerRow(
+                String(localized: "settings.automation.socketMode", defaultValue: "Socket Control Mode"),
+                subtitle: selectedSocketControlMode.description,
+                controlWidth: pickerColumnWidth,
+                selection: socketModeSelection,
+                accessibilityId: "AutomationSocketModePicker"
+            ) {
+                ForEach(SocketControlMode.uiCases) { mode in
+                    Text(mode.displayName).tag(mode.rawValue)
+                }
+            }
+
+            SettingsCardDivider()
+
+            SettingsCardNote(String(localized: "settings.automation.socketMode.note", defaultValue: "Controls access to the local Unix socket for programmatic control. Choose a mode that matches your threat model."))
+            if selectedSocketControlMode == .password {
+                SettingsCardDivider()
+                SettingsCardRow(
+                    String(localized: "settings.automation.socketPassword", defaultValue: "Socket Password"),
+                    subtitle: hasSocketPasswordConfigured
+                        ? String(localized: "settings.automation.socketPassword.subtitleSet", defaultValue: "Stored in Application Support.")
+                        : String(localized: "settings.automation.socketPassword.subtitleUnset", defaultValue: "No password set. External clients will be blocked until one is configured.")
+                ) {
+                    HStack(spacing: 8) {
+                        SecureField(String(localized: "settings.automation.socketPassword.placeholder", defaultValue: "Password"), text: $socketPasswordDraft)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 170)
+                        Button(hasSocketPasswordConfigured ? String(localized: "settings.automation.socketPassword.change", defaultValue: "Change") : String(localized: "settings.automation.socketPassword.set", defaultValue: "Set")) {
+                            saveSocketPassword()
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .disabled(socketPasswordDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        if hasSocketPasswordConfigured {
+                            Button(String(localized: "settings.automation.socketPassword.clear", defaultValue: "Clear")) {
+                                clearSocketPassword()
                             }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
                         }
-
-                        SettingsCardDivider()
-
-                        SettingsCardNote(String(localized: "settings.automation.socketMode.note", defaultValue: "Controls access to the local Unix socket for programmatic control. Choose a mode that matches your threat model."))
-                        if selectedSocketControlMode == .password {
-                            SettingsCardDivider()
-                            SettingsCardRow(
-                                String(localized: "settings.automation.socketPassword", defaultValue: "Socket Password"),
-                                subtitle: hasSocketPasswordConfigured
-                                    ? String(localized: "settings.automation.socketPassword.subtitleSet", defaultValue: "Stored in Application Support.")
-                                    : String(localized: "settings.automation.socketPassword.subtitleUnset", defaultValue: "No password set. External clients will be blocked until one is configured.")
-                            ) {
-                                HStack(spacing: 8) {
-                                    SecureField(String(localized: "settings.automation.socketPassword.placeholder", defaultValue: "Password"), text: $socketPasswordDraft)
-                                        .textFieldStyle(.roundedBorder)
-                                        .frame(width: 170)
-                                    Button(hasSocketPasswordConfigured ? String(localized: "settings.automation.socketPassword.change", defaultValue: "Change") : String(localized: "settings.automation.socketPassword.set", defaultValue: "Set")) {
-                                        saveSocketPassword()
-                                    }
-                                    .buttonStyle(.bordered)
-                                    .controlSize(.small)
-                                    .disabled(socketPasswordDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                                    if hasSocketPasswordConfigured {
-                                        Button(String(localized: "settings.automation.socketPassword.clear", defaultValue: "Clear")) {
-                                            clearSocketPassword()
-                                        }
-                                        .buttonStyle(.bordered)
-                                        .controlSize(.small)
-                                    }
-                                }
-                            }
-                            if let message = socketPasswordStatusMessage {
-                                Text(message)
-                                    .font(.caption)
-                                    .foregroundStyle(socketPasswordStatusIsError ? Color.red : Color.secondary)
-                                    .padding(.horizontal, 14)
-                                    .padding(.bottom, 8)
-                            }
-                        }
-                        if selectedSocketControlMode == .allowAll {
-                            SettingsCardDivider()
-                            Text(String(localized: "settings.automation.openAccessWarning", defaultValue: "Warning: Full open access makes the control socket world-readable/writable on this Mac and disables auth checks. Use only for local debugging."))
-                                .font(.caption)
-                                .foregroundStyle(.red)
-                                .padding(.horizontal, 14)
-                                .padding(.vertical, 8)
-                        }
-                        SettingsCardNote(String(localized: "settings.automation.socketOverrides.note", defaultValue: "Overrides: CMUX_SOCKET_ENABLE, CMUX_SOCKET_MODE, and CMUX_SOCKET_PATH (set CMUX_ALLOW_SOCKET_OVERRIDE=1 for stable/nightly builds)."))
                     }
+                }
+                if let message = socketPasswordStatusMessage {
+                    Text(message)
+                        .font(.caption)
+                        .foregroundStyle(socketPasswordStatusIsError ? Color.red : Color.secondary)
+                        .padding(.horizontal, 14)
+                        .padding(.bottom, 8)
+                }
+            }
+            if selectedSocketControlMode == .allowAll {
+                SettingsCardDivider()
+                Text(String(localized: "settings.automation.openAccessWarning", defaultValue: "Warning: Full open access makes the control socket world-readable/writable on this Mac and disables auth checks. Use only for local debugging."))
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+            }
+            SettingsCardNote(String(localized: "settings.automation.socketOverrides.note", defaultValue: "Overrides: CMUX_SOCKET_ENABLE, CMUX_SOCKET_MODE, and CMUX_SOCKET_PATH (set CMUX_ALLOW_SOCKET_OVERRIDE=1 for stable/nightly builds)."))
+        }
 
-                    SettingsCard {
-                        SettingsCardRow(
-                            String(localized: "settings.automation.claudeCode", defaultValue: "Claude Code Integration"),
-                            subtitle: claudeCodeHooksEnabled
-                                ? String(localized: "settings.automation.claudeCode.subtitleOn", defaultValue: "Sidebar shows Claude session status and notifications.")
-                                : String(localized: "settings.automation.claudeCode.subtitleOff", defaultValue: "Claude Code runs without cmux integration.")
-                        ) {
-                            Toggle("", isOn: $claudeCodeHooksEnabled)
-                                .labelsHidden()
-                                .controlSize(.small)
-                                .accessibilityIdentifier("SettingsClaudeCodeHooksToggle")
-                        }
+        SettingsCard {
+            SettingsCardRow(
+                String(localized: "settings.automation.claudeCode", defaultValue: "Claude Code Integration"),
+                subtitle: claudeCodeHooksEnabled
+                    ? String(localized: "settings.automation.claudeCode.subtitleOn", defaultValue: "Sidebar shows Claude session status and notifications.")
+                    : String(localized: "settings.automation.claudeCode.subtitleOff", defaultValue: "Claude Code runs without cmux integration.")
+            ) {
+                Toggle("", isOn: $claudeCodeHooksEnabled)
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .accessibilityIdentifier("SettingsClaudeCodeHooksToggle")
+            }
 
-                        SettingsCardDivider()
+            SettingsCardDivider()
 
-                        SettingsCardNote(String(localized: "settings.automation.claudeCode.note", defaultValue: "When enabled, cmux wraps the claude command to inject session tracking and notification hooks. Disable if you prefer to manage Claude Code hooks yourself."))
-                    }
+            SettingsCardNote(String(localized: "settings.automation.claudeCode.note", defaultValue: "When enabled, cmux wraps the claude command to inject session tracking and notification hooks. Disable if you prefer to manage Claude Code hooks yourself."))
+        }
 
-                    SettingsCard {
-                        SettingsCardRow(String(localized: "settings.automation.portBase", defaultValue: "Port Base"), subtitle: String(localized: "settings.automation.portBase.subtitle", defaultValue: "Starting port for CMUX_PORT env var."), controlWidth: pickerColumnWidth) {
-                            TextField("", value: $cmuxPortBase, format: .number)
-                                .textFieldStyle(.roundedBorder)
-                                .multilineTextAlignment(.trailing)
-                        }
+        SettingsCard {
+            SettingsCardRow(String(localized: "settings.automation.portBase", defaultValue: "Port Base"), subtitle: String(localized: "settings.automation.portBase.subtitle", defaultValue: "Starting port for CMUX_PORT env var."), controlWidth: pickerColumnWidth) {
+                TextField("", value: $cmuxPortBase, format: .number)
+                    .textFieldStyle(.roundedBorder)
+                    .multilineTextAlignment(.trailing)
+            }
 
-                        SettingsCardDivider()
+            SettingsCardDivider()
 
-                        SettingsCardRow(String(localized: "settings.automation.portRange", defaultValue: "Port Range Size"), subtitle: String(localized: "settings.automation.portRange.subtitle", defaultValue: "Number of ports per workspace."), controlWidth: pickerColumnWidth) {
-                            TextField("", value: $cmuxPortRange, format: .number)
-                                .textFieldStyle(.roundedBorder)
-                                .multilineTextAlignment(.trailing)
-                        }
+            SettingsCardRow(String(localized: "settings.automation.portRange", defaultValue: "Port Range Size"), subtitle: String(localized: "settings.automation.portRange.subtitle", defaultValue: "Number of ports per workspace."), controlWidth: pickerColumnWidth) {
+                TextField("", value: $cmuxPortRange, format: .number)
+                    .textFieldStyle(.roundedBorder)
+                    .multilineTextAlignment(.trailing)
+            }
 
-                        SettingsCardDivider()
+            SettingsCardDivider()
 
-                        SettingsCardNote(String(localized: "settings.automation.port.note", defaultValue: "Each workspace gets CMUX_PORT and CMUX_PORT_END env vars with a dedicated port range. New terminals inherit these values."))
-                    }
+            SettingsCardNote(String(localized: "settings.automation.port.note", defaultValue: "Each workspace gets CMUX_PORT and CMUX_PORT_END env vars with a dedicated port range. New terminals inherit these values."))
+        }
+    }
 
-                    SettingsSectionHeader(title: String(localized: "settings.section.browser", defaultValue: "Browser"))
-                    SettingsCard {
-                        SettingsPickerRow(
-                            String(localized: "settings.browser.searchEngine", defaultValue: "Default Search Engine"),
-                            subtitle: String(localized: "settings.browser.searchEngine.subtitle", defaultValue: "Used by the browser address bar when input is not a URL."),
-                            controlWidth: pickerColumnWidth,
-                            selection: $browserSearchEngine
-                        ) {
-                            ForEach(BrowserSearchEngine.allCases) { engine in
-                                Text(engine.displayName).tag(engine.rawValue)
-                            }
-                        }
+    @ViewBuilder
+    private var browserSectionContent: some View {
+        SettingsCard {
+            SettingsPickerRow(
+                String(localized: "settings.browser.searchEngine", defaultValue: "Default Search Engine"),
+                subtitle: String(localized: "settings.browser.searchEngine.subtitle", defaultValue: "Used by the browser address bar when input is not a URL."),
+                controlWidth: pickerColumnWidth,
+                selection: $browserSearchEngine
+            ) {
+                ForEach(BrowserSearchEngine.allCases) { engine in
+                    Text(engine.displayName).tag(engine.rawValue)
+                }
+            }
 
-                        SettingsCardDivider()
+            SettingsCardDivider()
 
-                        SettingsCardRow(String(localized: "settings.browser.searchSuggestions", defaultValue: "Show Search Suggestions")) {
-                            Toggle("", isOn: $browserSearchSuggestionsEnabled)
-                                .labelsHidden()
-                                .controlSize(.small)
-                        }
+            SettingsCardRow(String(localized: "settings.browser.searchSuggestions", defaultValue: "Show Search Suggestions")) {
+                Toggle("", isOn: $browserSearchSuggestionsEnabled)
+                    .labelsHidden()
+                    .controlSize(.small)
+            }
 
-                        SettingsCardDivider()
+            SettingsCardDivider()
 
-                        SettingsPickerRow(
-                            String(localized: "settings.browser.theme", defaultValue: "Browser Theme"),
+            SettingsPickerRow(
+                String(localized: "settings.browser.theme", defaultValue: "Browser Theme"),
                             subtitle: selectedBrowserThemeMode == .system
                                 ? String(localized: "settings.browser.theme.subtitleSystem", defaultValue: "System follows app and macOS appearance.")
                                 : String(localized: "settings.browser.theme.subtitleForced", defaultValue: "\(selectedBrowserThemeMode.displayName) forces that color scheme for compatible pages."),
@@ -3861,12 +3958,14 @@ struct SettingsView: View {
                             .controlSize(.small)
                             .disabled(browserHistoryEntryCount == 0)
                         }
-                    }
+        }
+    }
 
-                    SettingsSectionHeader(title: String(localized: "settings.section.keyboardShortcuts", defaultValue: "Keyboard Shortcuts"))
-                    SettingsCard {
-                        SettingsCardRow(
-                            String(localized: "settings.shortcuts.showHints", defaultValue: "Show Cmd/Ctrl-Hold Shortcut Hints"),
+    @ViewBuilder
+    private var keyboardShortcutsSectionContent: some View {
+        SettingsCard {
+            SettingsCardRow(
+                String(localized: "settings.shortcuts.showHints", defaultValue: "Show Cmd/Ctrl-Hold Shortcut Hints"),
                             subtitle: showShortcutHintsOnCommandHold
                                 ? String(localized: "settings.shortcuts.showHints.subtitleOn", defaultValue: "Holding Cmd (sidebar/titlebar) or Ctrl/Cmd (pane tabs) shows shortcut hint pills.")
                                 : String(localized: "settings.shortcuts.showHints.subtitleOff", defaultValue: "Holding Cmd or Ctrl keeps shortcut hint pills hidden.")
@@ -3887,53 +3986,70 @@ struct SettingsView: View {
                                 SettingsCardDivider()
                             }
                         }
-                    }
-                    .id(shortcutResetToken)
+        }
+        .id(shortcutResetToken)
 
-                    Text(String(localized: "settings.shortcuts.recordHint", defaultValue: "Click a shortcut value to record a new shortcut."))
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .padding(.leading, 2)
+        Text(String(localized: "settings.shortcuts.recordHint", defaultValue: "Click a shortcut value to record a new shortcut."))
+            .font(.caption)
+            .foregroundColor(.secondary)
+            .padding(.leading, 2)
+    }
 
-                    SettingsSectionHeader(title: String(localized: "settings.section.reset", defaultValue: "Reset"))
-                    SettingsCard {
-                        HStack {
-                            Spacer(minLength: 0)
-                            Button(String(localized: "settings.reset.resetAll", defaultValue: "Reset All Settings")) {
-                                resetAllSettings()
-                            }
-                            .buttonStyle(.bordered)
-                            .controlSize(.regular)
-                            Spacer(minLength: 0)
-                        }
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
-                    }
+    @ViewBuilder
+    private var resetSectionContent: some View {
+        SettingsCard {
+            HStack {
+                Spacer(minLength: 0)
+                Button(String(localized: "settings.reset.resetAll", defaultValue: "Reset All Settings")) {
+                    resetAllSettings()
                 }
-                .padding(.horizontal, 20)
-                .padding(.bottom, 20)
-                .padding(.top, contentTopInset)
-                .background(
-                    GeometryReader { proxy in
-                        Color.clear.preference(
-                            key: SettingsTopOffsetPreferenceKey.self,
-                            value: proxy.frame(in: .named("SettingsScrollArea")).minY
-                        )
-                    }
-                )
+                .buttonStyle(.bordered)
+                .controlSize(.regular)
+                Spacer(minLength: 0)
             }
-            .coordinateSpace(name: "SettingsScrollArea")
-            .onPreferenceChange(SettingsTopOffsetPreferenceKey.self) { value in
-                if topBlurBaselineOffset == nil {
-                    topBlurBaselineOffset = value
-                }
-                topBlurOpacity = blurOpacity(forContentOffset: value)
-            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+        }
+    }
+
+    // MARK: - Body
+
+    var body: some View {
+        HStack(spacing: 0) {
+            settingsSidebar
+                .background(Color(nsColor: .windowBackgroundColor))
+
+            Rectangle()
+                .fill(Color(nsColor: .separatorColor).opacity(0.3))
+                .frame(width: 1)
 
             ZStack(alignment: .top) {
-                SettingsTitleLeadingInsetReader(inset: $settingsTitleLeadingInset)
-                    .frame(width: 0, height: 0)
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 14) {
+                        sectionContent
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 20)
+                    .padding(.top, contentTopInset)
+                    .background(
+                        GeometryReader { proxy in
+                            Color.clear.preference(
+                                key: SettingsTopOffsetPreferenceKey.self,
+                                value: proxy.frame(in: .named("SettingsScrollArea")).minY
+                            )
+                        }
+                    )
+                }
+                .id(selectedSection)
+                .coordinateSpace(name: "SettingsScrollArea")
+                .onPreferenceChange(SettingsTopOffsetPreferenceKey.self) { value in
+                    if topBlurBaselineOffset == nil {
+                        topBlurBaselineOffset = value
+                    }
+                    topBlurOpacity = blurOpacity(forContentOffset: value)
+                }
 
+            ZStack(alignment: .top) {
                 AboutVisualEffectBackground(material: .underWindowBackground, blendingMode: .withinWindow)
                     .mask(
                         LinearGradient(
@@ -3965,12 +4081,12 @@ struct SettingsView: View {
                     .opacity(0.14 + (topBlurOpacity * 0.86))
 
                 HStack {
-                    Text(String(localized: "settings.title", defaultValue: "Settings"))
+                    Text(selectedSection.label)
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundColor(.primary.opacity(0.92))
                     Spacer(minLength: 0)
                 }
-                .padding(.leading, settingsTitleLeadingInset)
+                .padding(.leading, 20)
                 .padding(.top, 12)
             }
                 .frame(height: 62)
@@ -3983,6 +4099,7 @@ struct SettingsView: View {
                     alignment: .bottom
                 )
                 .allowsHitTesting(false)
+            }
         }
         .background(Color(nsColor: .windowBackgroundColor).ignoresSafeArea())
         .toggleStyle(.switch)
@@ -3994,6 +4111,10 @@ struct SettingsView: View {
             browserInsecureHTTPAllowlistDraft = browserInsecureHTTPAllowlist
             reloadWorkspaceTabColorSettings()
             refreshNotificationCustomSoundStatus()
+        }
+        .onChange(of: selectedSection) { _, _ in
+            topBlurBaselineOffset = nil
+            topBlurOpacity = 0
         }
         .onChange(of: notificationSound) { _, _ in
             refreshNotificationCustomSoundStatus()
@@ -4180,29 +4301,6 @@ private struct SettingsTopOffsetPreferenceKey: PreferenceKey {
 
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
         value = nextValue()
-    }
-}
-
-private struct SettingsTitleLeadingInsetReader: NSViewRepresentable {
-    @Binding var inset: CGFloat
-
-    func makeNSView(context: Context) -> NSView {
-        let view = NSView(frame: .zero)
-        return view
-    }
-
-    func updateNSView(_ nsView: NSView, context: Context) {
-        DispatchQueue.main.async {
-            guard let window = nsView.window else { return }
-            let buttons: [NSWindow.ButtonType] = [.closeButton, .miniaturizeButton, .zoomButton]
-            let maxX = buttons
-                .compactMap { window.standardWindowButton($0)?.frame.maxX }
-                .max() ?? 78
-            let nextInset = maxX + 14
-            if abs(nextInset - inset) > 0.5 {
-                inset = nextInset
-            }
-        }
     }
 }
 
