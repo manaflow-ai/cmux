@@ -1111,6 +1111,23 @@ private final class WindowCommandPaletteOverlayController: NSObject {
             containerView.isHidden = true
         }
     }
+
+    func underlyingResponder(atWindowPoint windowPoint: NSPoint) -> NSResponder? {
+        guard let window,
+              let contentView = window.contentView,
+              let themeFrame = contentView.superview else {
+            return nil
+        }
+
+        let previousCapturesMouseEvents = containerView.capturesMouseEvents
+        containerView.capturesMouseEvents = false
+        defer {
+            containerView.capturesMouseEvents = previousCapturesMouseEvents
+        }
+
+        let pointInTheme = themeFrame.convert(windowPoint, from: nil)
+        return themeFrame.hitTest(pointInTheme)
+    }
 }
 
 @MainActor
@@ -1121,6 +1138,39 @@ private func commandPaletteWindowOverlayController(for window: NSWindow) -> Wind
     let controller = WindowCommandPaletteOverlayController(window: window)
     objc_setAssociatedObject(window, &commandPaletteWindowOverlayKey, controller, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
     return controller
+}
+
+private func commandPaletteOwningWebView(for responder: NSResponder?) -> WKWebView? {
+    guard let responder else { return nil }
+
+    if let webView = responder as? WKWebView {
+        return webView
+    }
+
+    if let view = responder as? NSView {
+        var current: NSView? = view
+        while let candidate = current {
+            if let webView = candidate as? WKWebView {
+                return webView
+            }
+            current = candidate.superview
+        }
+    }
+
+    if let textView = responder as? NSTextView,
+       let delegateView = textView.delegate as? NSView {
+        return commandPaletteOwningWebView(for: delegateView)
+    }
+
+    var currentResponder = responder.nextResponder
+    while let next = currentResponder {
+        if let webView = commandPaletteOwningWebView(for: next) {
+            return webView
+        }
+        currentResponder = next.nextResponder
+    }
+
+    return nil
 }
 
 enum WorkspaceMountPolicy {
@@ -2694,9 +2744,18 @@ struct ContentView: View {
                 Color.clear
                     .ignoresSafeArea()
                     .contentShape(Rectangle())
-                    .onTapGesture {
-                        dismissCommandPalette()
-                    }
+                    .gesture(
+                        DragGesture(minimumDistance: 0)
+                            .onEnded { value in
+                                handleCommandPaletteBackdropClick(atContentPoint: value.location)
+                            }
+                    )
+
+                Color.clear
+                    .ignoresSafeArea()
+                    .contentShape(Rectangle())
+                    .allowsHitTesting(false)
+                    .accessibilityIdentifier("CommandPaletteBackdrop")
 
                 VStack(spacing: 0) {
                     switch commandPaletteMode {
@@ -2745,6 +2804,7 @@ struct ContentView: View {
                     .font(.system(size: 13, weight: .regular))
                     .tint(Color(nsColor: sidebarActiveForegroundNSColor(opacity: 1.0)))
                     .focused($isCommandPaletteSearchFocused)
+                    .accessibilityIdentifier("CommandPaletteSearchField")
                     .onSubmit {
                         runSelectedCommandPaletteResult(visibleResults: visibleResults)
                     }
@@ -2898,6 +2958,7 @@ struct ContentView: View {
                 .font(.system(size: 13, weight: .regular))
                 .tint(Color(nsColor: sidebarActiveForegroundNSColor(opacity: 1.0)))
                 .focused($isCommandPaletteRenameFocused)
+                .accessibilityIdentifier("CommandPaletteRenameField")
                 .backport.onKeyPress(.delete) { modifiers in
                     handleCommandPaletteRenameDeleteBackward(modifiers: modifiers)
                 }
@@ -4658,7 +4719,14 @@ struct ContentView: View {
     }
 
     private func dismissCommandPalette(restoreFocus: Bool = true) {
-        let focusTarget = commandPaletteRestoreFocusTarget
+        dismissCommandPalette(restoreFocus: restoreFocus, preferredFocusTarget: nil)
+    }
+
+    private func dismissCommandPalette(
+        restoreFocus: Bool,
+        preferredFocusTarget: CommandPaletteRestoreFocusTarget?
+    ) {
+        let focusTarget = preferredFocusTarget ?? commandPaletteRestoreFocusTarget
         isCommandPalettePresented = false
         commandPaletteMode = .commands
         commandPaletteQuery = ""
@@ -4677,6 +4745,117 @@ struct ContentView: View {
 
         guard restoreFocus, let focusTarget else { return }
         restoreCommandPaletteFocus(target: focusTarget, attemptsRemaining: 6)
+    }
+
+    private func handleCommandPaletteBackdropClick(atContentPoint contentPoint: CGPoint) {
+        let clickedFocusTarget = commandPaletteBackdropFocusTarget(atContentPoint: contentPoint)
+#if DEBUG
+        if let clickedFocusTarget {
+            dlog(
+                "palette.dismiss.backdrop focusTarget panel=\(clickedFocusTarget.panelId.uuidString.prefix(5)) " +
+                "workspace=\(clickedFocusTarget.workspaceId.uuidString.prefix(5)) intent=\(clickedFocusTarget.intent == .browserAddressBar ? "addressBar" : "panel")"
+            )
+        } else {
+            dlog("palette.dismiss.backdrop focusTarget=nil")
+        }
+#endif
+        dismissCommandPalette(restoreFocus: true, preferredFocusTarget: clickedFocusTarget)
+    }
+
+    private func commandPaletteBackdropFocusTarget(atContentPoint contentPoint: CGPoint) -> CommandPaletteRestoreFocusTarget? {
+        guard let window = observedWindow,
+              let contentView = window.contentView else {
+            return nil
+        }
+
+        let contentPoint = NSPoint(x: contentPoint.x, y: contentPoint.y)
+        let windowPoint = contentView.convert(contentPoint, to: nil)
+        return commandPaletteBackdropFocusTarget(atWindowPoint: windowPoint, in: window)
+    }
+
+    private func commandPaletteBackdropFocusTarget(
+        atWindowPoint windowPoint: NSPoint,
+        in window: NSWindow
+    ) -> CommandPaletteRestoreFocusTarget? {
+        let overlayController = commandPaletteWindowOverlayController(for: window)
+        if let responder = overlayController.underlyingResponder(atWindowPoint: windowPoint),
+           let target = commandPaletteBackdropFocusTarget(for: responder) {
+            return target
+        }
+
+        if let webView = BrowserWindowPortalRegistry.webViewAtWindowPoint(windowPoint, in: window),
+           let target = commandPaletteBrowserFocusTarget(for: webView) {
+            return target
+        }
+
+        if let terminalView = TerminalWindowPortalRegistry.terminalViewAtWindowPoint(windowPoint, in: window),
+           let workspaceId = terminalView.tabId,
+           let panelId = terminalView.terminalSurface?.id,
+           tabManager.tabs.contains(where: { $0.id == workspaceId }) {
+            return CommandPaletteRestoreFocusTarget(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                intent: .panel
+            )
+        }
+
+        return nil
+    }
+
+    private func commandPaletteBackdropFocusTarget(for responder: NSResponder) -> CommandPaletteRestoreFocusTarget? {
+        if let terminalView = cmuxOwningGhosttyView(for: responder),
+           let workspaceId = terminalView.tabId,
+           let panelId = terminalView.terminalSurface?.id,
+           tabManager.tabs.contains(where: { $0.id == workspaceId }) {
+            return CommandPaletteRestoreFocusTarget(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                intent: .panel
+            )
+        }
+
+        if let webView = commandPaletteOwningWebView(for: responder),
+           let target = commandPaletteBrowserFocusTarget(for: webView) {
+            return target
+        }
+
+        return nil
+    }
+
+    private func commandPaletteBrowserFocusTarget(for webView: WKWebView) -> CommandPaletteRestoreFocusTarget? {
+        if let selectedWorkspace = tabManager.selectedWorkspace,
+           let target = commandPaletteBrowserFocusTarget(in: selectedWorkspace, for: webView) {
+            return target
+        }
+
+        let selectedWorkspaceId = tabManager.selectedTabId
+        for workspace in tabManager.tabs where workspace.id != selectedWorkspaceId {
+            if let target = commandPaletteBrowserFocusTarget(in: workspace, for: webView) {
+                return target
+            }
+        }
+
+        return nil
+    }
+
+    private func commandPaletteBrowserFocusTarget(
+        in workspace: Workspace,
+        for webView: WKWebView
+    ) -> CommandPaletteRestoreFocusTarget? {
+        for (panelId, panel) in workspace.panels {
+            guard let browserPanel = panel as? BrowserPanel,
+                  browserPanel.webView === webView else {
+                continue
+            }
+
+            return CommandPaletteRestoreFocusTarget(
+                workspaceId: workspace.id,
+                panelId: panelId,
+                intent: .panel
+            )
+        }
+
+        return nil
     }
 
     private func restoreCommandPaletteFocus(
