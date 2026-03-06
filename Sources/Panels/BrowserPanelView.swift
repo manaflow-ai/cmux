@@ -3055,44 +3055,360 @@ struct WebViewRepresentable: NSViewRepresentable {
         var searchOverlayHostingView: NSHostingView<BrowserSearchOverlay>?
     }
 
-    private final class HostContainerView: NSView {
+    final class HostContainerView: NSView {
         var onDidMoveToWindow: (() -> Void)?
         var onGeometryChanged: (() -> Void)?
+        private struct HostedInspectorDividerHit {
+            let containerView: NSView
+            let pageView: NSView
+            let inspectorView: NSView
+        }
+
+        private struct HostedInspectorDividerDragState {
+            let containerView: NSView
+            let pageView: NSView
+            let inspectorView: NSView
+            let initialWindowX: CGFloat
+            let initialPageFrame: NSRect
+            let initialInspectorFrame: NSRect
+        }
+
+        private enum DividerCursorKind: Equatable {
+            case vertical
+
+            var cursor: NSCursor { .resizeLeftRight }
+        }
+
+        private static let hostedInspectorDividerHitExpansion: CGFloat = 6
+        private static let minimumHostedInspectorWidth: CGFloat = 120
+        private var trackingArea: NSTrackingArea?
+        private var activeDividerCursorKind: DividerCursorKind?
+        private var hostedInspectorDividerDrag: HostedInspectorDividerDragState?
+        private var preferredHostedInspectorWidth: CGFloat?
+        private var isApplyingHostedInspectorLayout = false
+#if DEBUG
+        private var lastLoggedHostedInspectorFrames: (page: NSRect, inspector: NSRect)?
+        private var hasLoggedMissingHostedInspectorCandidate = false
+#endif
+
+#if DEBUG
+        private static func shouldLogPointerEvent(_ event: NSEvent?) -> Bool {
+            switch event?.type {
+            case .leftMouseDown, .leftMouseDragged, .leftMouseUp:
+                return true
+            default:
+                return false
+            }
+        }
+
+        private func debugLogHitTest(stage: String, point: NSPoint, passThrough: Bool, hitView: NSView?) {
+            let event = NSApp.currentEvent
+            guard Self.shouldLogPointerEvent(event) else { return }
+
+            let hitDesc: String = {
+                guard let hitView else { return "nil" }
+                let token = Unmanaged.passUnretained(hitView).toOpaque()
+                return "\(type(of: hitView))@\(token)"
+            }()
+            let hostRectInContent: NSRect = {
+                guard let window, let contentView = window.contentView else { return .zero }
+                return contentView.convert(bounds, from: self)
+            }()
+            dlog(
+                "browser.panel.host stage=\(stage) event=\(String(describing: event?.type)) " +
+                "point=\(String(format: "%.1f,%.1f", point.x, point.y)) pass=\(passThrough ? 1 : 0) " +
+                "hostFrameInContent=\(String(format: "%.1f,%.1f %.1fx%.1f", hostRectInContent.origin.x, hostRectInContent.origin.y, hostRectInContent.width, hostRectInContent.height)) " +
+                "hit=\(hitDesc)"
+            )
+        }
+
+        private static func debugObjectID(_ object: AnyObject?) -> String {
+            guard let object else { return "nil" }
+            return String(describing: Unmanaged.passUnretained(object).toOpaque())
+        }
+
+        private static func debugRect(_ rect: NSRect) -> String {
+            String(format: "%.1f,%.1f %.1fx%.1f", rect.origin.x, rect.origin.y, rect.width, rect.height)
+        }
+
+        private static func rectApproximatelyEqual(_ lhs: NSRect, _ rhs: NSRect, epsilon: CGFloat = 0.5) -> Bool {
+            abs(lhs.origin.x - rhs.origin.x) <= epsilon &&
+                abs(lhs.origin.y - rhs.origin.y) <= epsilon &&
+                abs(lhs.width - rhs.width) <= epsilon &&
+                abs(lhs.height - rhs.height) <= epsilon
+        }
+
+        private func debugLogHostedInspectorFrames(
+            stage: String,
+            point: NSPoint? = nil,
+            hit: HostedInspectorDividerHit
+        ) {
+            let pointDesc = point.map { String(format: "%.1f,%.1f", $0.x, $0.y) } ?? "nil"
+            let preferredWidthDesc = preferredHostedInspectorWidth.map { String(format: "%.1f", $0) } ?? "nil"
+            dlog(
+                "browser.panel.hostedInspector stage=\(stage) point=\(pointDesc) " +
+                "host=\(Self.debugObjectID(self)) container=\(Self.debugObjectID(hit.containerView)) " +
+                "page=\(Self.debugObjectID(hit.pageView)) inspector=\(Self.debugObjectID(hit.inspectorView)) " +
+                "preferredWidth=\(preferredWidthDesc) " +
+                "hostFrame=\(Self.debugRect(frame)) hostBounds=\(Self.debugRect(bounds)) " +
+                "containerBounds=\(Self.debugRect(hit.containerView.bounds)) " +
+                "pageFrame=\(Self.debugRect(hit.pageView.frame)) " +
+                "inspectorFrame=\(Self.debugRect(hit.inspectorView.frame))"
+            )
+        }
+
+        private func debugLogHostedInspectorLayoutIfNeeded(reason: String) {
+            guard let hit = hostedInspectorDividerCandidate() else {
+                if !hasLoggedMissingHostedInspectorCandidate,
+                   lastLoggedHostedInspectorFrames != nil || preferredHostedInspectorWidth != nil {
+                    let preferredWidthDesc = preferredHostedInspectorWidth.map {
+                        String(format: "%.1f", $0)
+                    } ?? "nil"
+                    lastLoggedHostedInspectorFrames = nil
+                    hasLoggedMissingHostedInspectorCandidate = true
+                    dlog(
+                        "browser.panel.hostedInspector stage=\(reason).candidateMissing " +
+                        "host=\(Self.debugObjectID(self)) preferredWidth=\(preferredWidthDesc)"
+                    )
+                }
+                return
+            }
+            hasLoggedMissingHostedInspectorCandidate = false
+
+            let nextFrames = (page: hit.pageView.frame, inspector: hit.inspectorView.frame)
+            if let lastLoggedHostedInspectorFrames,
+               Self.rectApproximatelyEqual(lastLoggedHostedInspectorFrames.page, nextFrames.page),
+               Self.rectApproximatelyEqual(lastLoggedHostedInspectorFrames.inspector, nextFrames.inspector) {
+                return
+            }
+
+            lastLoggedHostedInspectorFrames = nextFrames
+            debugLogHostedInspectorFrames(stage: "\(reason).layout", hit: hit)
+        }
+#endif
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
+            if window == nil {
+                clearActiveDividerCursor(restoreArrow: false)
+            } else {
+                reapplyHostedInspectorDividerIfNeeded(reason: "viewDidMoveToWindow")
+            }
+            window?.invalidateCursorRects(for: self)
             onDidMoveToWindow?()
             onGeometryChanged?()
+#if DEBUG
+            debugLogHostedInspectorLayoutIfNeeded(reason: "viewDidMoveToWindow")
+#endif
         }
 
         override func viewDidMoveToSuperview() {
             super.viewDidMoveToSuperview()
+            reapplyHostedInspectorDividerIfNeeded(reason: "viewDidMoveToSuperview")
             onGeometryChanged?()
+#if DEBUG
+            debugLogHostedInspectorLayoutIfNeeded(reason: "viewDidMoveToSuperview")
+#endif
         }
 
         override func layout() {
             super.layout()
+            reapplyHostedInspectorDividerIfNeeded(reason: "layout")
             onGeometryChanged?()
+#if DEBUG
+            debugLogHostedInspectorLayoutIfNeeded(reason: "layout")
+#endif
         }
 
         override func setFrameOrigin(_ newOrigin: NSPoint) {
             super.setFrameOrigin(newOrigin)
+            window?.invalidateCursorRects(for: self)
+            reapplyHostedInspectorDividerIfNeeded(reason: "setFrameOrigin")
             onGeometryChanged?()
+#if DEBUG
+            debugLogHostedInspectorLayoutIfNeeded(reason: "setFrameOrigin")
+#endif
         }
 
         override func setFrameSize(_ newSize: NSSize) {
             super.setFrameSize(newSize)
+            window?.invalidateCursorRects(for: self)
+            reapplyHostedInspectorDividerIfNeeded(reason: "setFrameSize")
             onGeometryChanged?()
+#if DEBUG
+            debugLogHostedInspectorLayoutIfNeeded(reason: "setFrameSize")
+#endif
+        }
+
+        override func resetCursorRects() {
+            super.resetCursorRects()
+            guard let hostedInspectorHit = hostedInspectorDividerCandidate() else { return }
+            let clipped = hostedInspectorDividerHitRect(for: hostedInspectorHit).intersection(bounds)
+            guard !clipped.isNull, clipped.width > 0, clipped.height > 0 else { return }
+            addCursorRect(clipped, cursor: NSCursor.resizeLeftRight)
+        }
+
+        override func updateTrackingAreas() {
+            if let trackingArea {
+                removeTrackingArea(trackingArea)
+            }
+            let options: NSTrackingArea.Options = [
+                .inVisibleRect,
+                .activeAlways,
+                .cursorUpdate,
+                .mouseMoved,
+                .mouseEnteredAndExited,
+                .enabledDuringMouseDrag,
+            ]
+            let next = NSTrackingArea(rect: .zero, options: options, owner: self, userInfo: nil)
+            addTrackingArea(next)
+            trackingArea = next
+            super.updateTrackingAreas()
+        }
+
+        override func cursorUpdate(with event: NSEvent) {
+            updateDividerCursor(at: convert(event.locationInWindow, from: nil))
+        }
+
+        override func mouseMoved(with event: NSEvent) {
+            updateDividerCursor(at: convert(event.locationInWindow, from: nil))
+        }
+
+        override func mouseExited(with event: NSEvent) {
+            clearActiveDividerCursor(restoreArrow: true)
         }
 
         override func hitTest(_ point: NSPoint) -> NSView? {
-            if shouldPassThroughToSidebarResizer(at: point) {
+            let hostedInspectorHit = hostedInspectorDividerHit(at: point)
+            updateDividerCursor(at: point, hostedInspectorHit: hostedInspectorHit)
+            let passThrough = shouldPassThroughToSidebarResizer(at: point, hostedInspectorHit: hostedInspectorHit)
+            if passThrough {
+#if DEBUG
+                debugLogHitTest(stage: "hitTest.pass", point: point, passThrough: true, hitView: nil)
+#endif
                 return nil
             }
-            return super.hitTest(point)
+            if let hostedInspectorHit {
+                if let nativeHit = nativeHostedInspectorHit(at: point, hostedInspectorHit: hostedInspectorHit) {
+#if DEBUG
+                    debugLogHitTest(stage: "hitTest.hostedInspectorNative", point: point, passThrough: false, hitView: nativeHit)
+#endif
+                    return nativeHit
+                }
+#if DEBUG
+                debugLogHitTest(stage: "hitTest.hostedInspectorManual", point: point, passThrough: false, hitView: hostedInspectorHit.inspectorView)
+#endif
+                return self
+            }
+            let hit = super.hitTest(point)
+#if DEBUG
+            debugLogHitTest(stage: "hitTest.result", point: point, passThrough: false, hitView: hit)
+#endif
+            return hit
         }
 
-        private func shouldPassThroughToSidebarResizer(at point: NSPoint) -> Bool {
+        override func mouseDown(with event: NSEvent) {
+            let point = convert(event.locationInWindow, from: nil)
+            guard let hostedInspectorHit = hostedInspectorDividerHit(at: point) else {
+                super.mouseDown(with: event)
+                return
+            }
+
+            hostedInspectorDividerDrag = HostedInspectorDividerDragState(
+                containerView: hostedInspectorHit.containerView,
+                pageView: hostedInspectorHit.pageView,
+                inspectorView: hostedInspectorHit.inspectorView,
+                initialWindowX: event.locationInWindow.x,
+                initialPageFrame: hostedInspectorHit.pageView.frame,
+                initialInspectorFrame: hostedInspectorHit.inspectorView.frame
+            )
+#if DEBUG
+            debugLogHostedInspectorFrames(stage: "drag.start", point: point, hit: hostedInspectorHit)
+#endif
+        }
+
+        override func mouseDragged(with event: NSEvent) {
+            guard let dragState = hostedInspectorDividerDrag else {
+                super.mouseDragged(with: event)
+                return
+            }
+
+            let containerBounds = dragState.containerView.bounds
+            let minimumInspectorWidth = min(
+                Self.minimumHostedInspectorWidth,
+                max(60, dragState.initialInspectorFrame.width)
+            )
+            let minDividerX = max(containerBounds.minX, dragState.initialPageFrame.minX)
+            let maxDividerX = max(minDividerX, containerBounds.maxX - minimumInspectorWidth)
+            let proposedDividerX = dragState.initialInspectorFrame.minX + (event.locationInWindow.x - dragState.initialWindowX)
+            let clampedDividerX = max(minDividerX, min(maxDividerX, proposedDividerX))
+            let inspectorWidth = max(0, containerBounds.maxX - clampedDividerX)
+            preferredHostedInspectorWidth = inspectorWidth
+            _ = applyHostedInspectorDividerWidth(
+                inspectorWidth,
+                to: HostedInspectorDividerHit(
+                    containerView: dragState.containerView,
+                    pageView: dragState.pageView,
+                    inspectorView: dragState.inspectorView
+                ),
+                reason: "drag"
+            )
+#if DEBUG
+            debugLogHostedInspectorFrames(
+                stage: "drag.update",
+                point: convert(event.locationInWindow, from: nil),
+                hit: HostedInspectorDividerHit(
+                    containerView: dragState.containerView,
+                    pageView: dragState.pageView,
+                    inspectorView: dragState.inspectorView
+                )
+            )
+#endif
+            updateDividerCursor(
+                at: convert(event.locationInWindow, from: nil),
+                hostedInspectorHit: HostedInspectorDividerHit(
+                    containerView: dragState.containerView,
+                    pageView: dragState.pageView,
+                    inspectorView: dragState.inspectorView
+                )
+            )
+        }
+
+        override func mouseUp(with event: NSEvent) {
+            let finalDragState = hostedInspectorDividerDrag
+            hostedInspectorDividerDrag = nil
+            updateDividerCursor(at: convert(event.locationInWindow, from: nil))
+            scheduleHostedInspectorDividerReapply(reason: "dragEndAsync")
+#if DEBUG
+            if let finalDragState {
+                let finalHit = HostedInspectorDividerHit(
+                    containerView: finalDragState.containerView,
+                    pageView: finalDragState.pageView,
+                    inspectorView: finalDragState.inspectorView
+                )
+                debugLogHostedInspectorFrames(
+                    stage: "drag.end",
+                    point: convert(event.locationInWindow, from: nil),
+                    hit: finalHit
+                )
+                DispatchQueue.main.async { [weak self] in
+                    guard let self else { return }
+                    self.reapplyHostedInspectorDividerIfNeeded(reason: "drag.end.async")
+                    self.debugLogHostedInspectorFrames(stage: "drag.end.async", hit: finalHit)
+                    self.debugLogHostedInspectorLayoutIfNeeded(reason: "dragEndAsync")
+                }
+            }
+#endif
+            super.mouseUp(with: event)
+        }
+
+        private func shouldPassThroughToSidebarResizer(
+            at point: NSPoint,
+            hostedInspectorHit: HostedInspectorDividerHit? = nil
+        ) -> Bool {
+            if hostedInspectorHit != nil {
+                return false
+            }
             // Pass through a narrow leading-edge band so the shared sidebar divider
             // handle can receive hover/click even when WKWebView is attached here.
             // Keeping this deterministic avoids flicker from dynamic left-edge scans.
@@ -3104,6 +3420,250 @@ struct WebViewRepresentable: NSViewRepresentable {
             }
             let hostRectInContent = contentView.convert(bounds, from: self)
             return hostRectInContent.minX > 1
+        }
+
+        private func updateDividerCursor(
+            at point: NSPoint,
+            hostedInspectorHit: HostedInspectorDividerHit? = nil
+        ) {
+            let resolvedHostedInspectorHit = hostedInspectorHit ?? hostedInspectorDividerHit(at: point)
+            if shouldPassThroughToSidebarResizer(at: point, hostedInspectorHit: resolvedHostedInspectorHit) {
+                clearActiveDividerCursor(restoreArrow: false)
+                return
+            }
+            guard resolvedHostedInspectorHit != nil else {
+                clearActiveDividerCursor(restoreArrow: true)
+                return
+            }
+            activeDividerCursorKind = .vertical
+            NSCursor.resizeLeftRight.set()
+        }
+
+        private func clearActiveDividerCursor(restoreArrow: Bool) {
+            guard activeDividerCursorKind != nil else { return }
+            window?.invalidateCursorRects(for: self)
+            activeDividerCursorKind = nil
+            if restoreArrow {
+                NSCursor.arrow.set()
+            }
+        }
+
+        private func nativeHostedInspectorHit(
+            at point: NSPoint,
+            hostedInspectorHit: HostedInspectorDividerHit
+        ) -> NSView? {
+            guard let nativeHit = super.hitTest(point), nativeHit !== self else { return nil }
+            if nativeHit === hostedInspectorHit.pageView ||
+                nativeHit.isDescendant(of: hostedInspectorHit.pageView) {
+                return nil
+            }
+            if nativeHit === hostedInspectorHit.inspectorView ||
+                nativeHit.isDescendant(of: hostedInspectorHit.inspectorView) {
+                return nativeHit
+            }
+            if hostedInspectorHit.inspectorView.isDescendant(of: nativeHit),
+               !(hostedInspectorHit.pageView === nativeHit || hostedInspectorHit.pageView.isDescendant(of: nativeHit)) {
+                return nativeHit
+            }
+            return nil
+        }
+
+        private func hostedInspectorDividerHit(at point: NSPoint) -> HostedInspectorDividerHit? {
+            guard let hit = hostedInspectorDividerCandidate(),
+                  hostedInspectorDividerHitRect(for: hit).contains(point) else {
+                return nil
+            }
+            return hit
+        }
+
+        private func hostedInspectorDividerCandidate() -> HostedInspectorDividerHit? {
+            let inspectorCandidates = Self.visibleDescendants(in: self)
+                .filter { Self.isVisibleHostedInspectorCandidate($0) && Self.isInspectorView($0) }
+                .sorted { lhs, rhs in
+                    let lhsFrame = convert(lhs.bounds, from: lhs)
+                    let rhsFrame = convert(rhs.bounds, from: rhs)
+                    return lhsFrame.minX < rhsFrame.minX
+                }
+
+            var bestHit: HostedInspectorDividerHit?
+            var bestScore = -CGFloat.greatestFiniteMagnitude
+
+            for inspectorCandidate in inspectorCandidates {
+                guard let candidate = hostedInspectorDividerCandidate(startingAt: inspectorCandidate) else {
+                    continue
+                }
+                let score = hostedInspectorDividerCandidateScore(candidate)
+                if score > bestScore {
+                    bestScore = score
+                    bestHit = candidate
+                }
+            }
+
+            return bestHit
+        }
+
+        private func hostedInspectorDividerHitRect(for hit: HostedInspectorDividerHit) -> NSRect {
+            let pageFrame = convert(hit.pageView.bounds, from: hit.pageView)
+            let inspectorFrame = convert(hit.inspectorView.bounds, from: hit.inspectorView)
+            let minY = max(bounds.minY, min(pageFrame.minY, inspectorFrame.minY))
+            let maxY = min(bounds.maxY, max(pageFrame.maxY, inspectorFrame.maxY))
+            return NSRect(
+                x: inspectorFrame.minX - Self.hostedInspectorDividerHitExpansion,
+                y: minY,
+                width: Self.hostedInspectorDividerHitExpansion * 2,
+                height: max(0, maxY - minY)
+            )
+        }
+
+        private func hostedInspectorDividerCandidate(startingAt inspectorLeaf: NSView) -> HostedInspectorDividerHit? {
+            var current: NSView? = inspectorLeaf
+            var bestHit: HostedInspectorDividerHit?
+
+            while let inspectorView = current, inspectorView !== self {
+                guard let containerView = inspectorView.superview else { break }
+
+                let pageCandidates = containerView.subviews.filter { candidate in
+                    guard Self.isVisibleHostedInspectorSiblingCandidate(candidate) else { return false }
+                    guard candidate !== inspectorView else { return false }
+                    guard candidate.frame.maxX <= inspectorView.frame.minX + 1 else { return false }
+                    return Self.verticalOverlap(between: candidate.frame, and: inspectorView.frame) > 8
+                }
+
+                if let pageView = pageCandidates.max(by: {
+                    hostedInspectorPageCandidateScore($0, inspectorView: inspectorView)
+                        < hostedInspectorPageCandidateScore($1, inspectorView: inspectorView)
+                }) {
+                    bestHit = HostedInspectorDividerHit(
+                        containerView: containerView,
+                        pageView: pageView,
+                        inspectorView: inspectorView
+                    )
+                }
+
+                current = containerView
+            }
+
+            return bestHit
+        }
+
+        private func hostedInspectorDividerCandidateScore(_ hit: HostedInspectorDividerHit) -> CGFloat {
+            let pageFrame = convert(hit.pageView.bounds, from: hit.pageView)
+            let inspectorFrame = convert(hit.inspectorView.bounds, from: hit.inspectorView)
+            let overlap = Self.verticalOverlap(between: pageFrame, and: inspectorFrame)
+            let coverageWidth = max(pageFrame.maxX, inspectorFrame.maxX) - min(pageFrame.minX, inspectorFrame.minX)
+            return (overlap * 1_000) + coverageWidth + pageFrame.width
+        }
+
+        private func hostedInspectorPageCandidateScore(_ pageView: NSView, inspectorView: NSView) -> CGFloat {
+            let overlap = Self.verticalOverlap(between: pageView.frame, and: inspectorView.frame)
+            let coverageWidth = max(pageView.frame.maxX, inspectorView.frame.maxX) - min(pageView.frame.minX, inspectorView.frame.minX)
+            return (overlap * 1_000) + coverageWidth + pageView.frame.width
+        }
+
+        private func scheduleHostedInspectorDividerReapply(reason: String) {
+            guard preferredHostedInspectorWidth != nil else { return }
+            DispatchQueue.main.async { [weak self] in
+                self?.reapplyHostedInspectorDividerIfNeeded(reason: reason)
+            }
+        }
+
+        private func reapplyHostedInspectorDividerIfNeeded(reason: String) {
+            guard !isApplyingHostedInspectorLayout else { return }
+            guard let preferredWidth = preferredHostedInspectorWidth else { return }
+            guard let hit = hostedInspectorDividerCandidate() else {
+#if DEBUG
+                if !hasLoggedMissingHostedInspectorCandidate {
+                    hasLoggedMissingHostedInspectorCandidate = true
+                    dlog(
+                        "browser.panel.hostedInspector stage=\(reason).reapplyMissingCandidate " +
+                        "host=\(Self.debugObjectID(self)) preferredWidth=\(String(format: "%.1f", preferredWidth))"
+                    )
+                }
+#endif
+                return
+            }
+#if DEBUG
+            hasLoggedMissingHostedInspectorCandidate = false
+#endif
+            _ = applyHostedInspectorDividerWidth(preferredWidth, to: hit, reason: reason)
+        }
+
+        @discardableResult
+        private func applyHostedInspectorDividerWidth(
+            _ preferredWidth: CGFloat,
+            to hit: HostedInspectorDividerHit,
+            reason: String
+        ) -> (pageFrame: NSRect, inspectorFrame: NSRect) {
+            let containerBounds = hit.containerView.bounds
+            let maximumInspectorWidth = max(0, containerBounds.maxX - hit.pageView.frame.minX)
+            let clampedInspectorWidth = max(0, min(maximumInspectorWidth, preferredWidth))
+            let dividerX = max(hit.pageView.frame.minX, containerBounds.maxX - clampedInspectorWidth)
+
+            var pageFrame = hit.pageView.frame
+            pageFrame.size.width = max(0, dividerX - pageFrame.minX)
+
+            var inspectorFrame = hit.inspectorView.frame
+            inspectorFrame.origin.x = dividerX
+            inspectorFrame.size.width = max(0, containerBounds.maxX - dividerX)
+
+            let pageChanged = !Self.rectApproximatelyEqual(pageFrame, hit.pageView.frame, epsilon: 0.5)
+            let inspectorChanged = !Self.rectApproximatelyEqual(inspectorFrame, hit.inspectorView.frame, epsilon: 0.5)
+            guard pageChanged || inspectorChanged else {
+                return (pageFrame, inspectorFrame)
+            }
+
+            isApplyingHostedInspectorLayout = true
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            hit.pageView.frame = pageFrame
+            hit.inspectorView.frame = inspectorFrame
+            CATransaction.commit()
+            isApplyingHostedInspectorLayout = false
+
+            hit.pageView.needsLayout = true
+            hit.inspectorView.needsLayout = true
+            hit.containerView.needsLayout = true
+            needsLayout = true
+#if DEBUG
+            dlog(
+                "browser.panel.hostedInspector stage=\(reason).reapply " +
+                "host=\(Self.debugObjectID(self)) preferredWidth=\(String(format: "%.1f", preferredWidth)) " +
+                "container=\(Self.debugObjectID(hit.containerView)) " +
+                "pageFrame=\(Self.debugRect(pageFrame)) inspectorFrame=\(Self.debugRect(inspectorFrame))"
+            )
+#endif
+            return (pageFrame, inspectorFrame)
+        }
+
+        private static func visibleDescendants(in root: NSView) -> [NSView] {
+            var descendants: [NSView] = []
+            var stack = Array(root.subviews.reversed())
+            while let view = stack.popLast() {
+                descendants.append(view)
+                stack.append(contentsOf: view.subviews.reversed())
+            }
+            return descendants
+        }
+
+        private static func isInspectorView(_ view: NSView) -> Bool {
+            String(describing: type(of: view)).contains("WKInspector")
+        }
+
+        private static func isVisibleHostedInspectorCandidate(_ view: NSView) -> Bool {
+            !view.isHidden &&
+                view.alphaValue > 0 &&
+                view.frame.width > 1 &&
+                view.frame.height > 1
+        }
+
+        private static func isVisibleHostedInspectorSiblingCandidate(_ view: NSView) -> Bool {
+            !view.isHidden &&
+                view.alphaValue > 0 &&
+                view.frame.height > 1
+        }
+
+        private static func verticalOverlap(between lhs: NSRect, and rhs: NSRect) -> CGFloat {
+            max(0, min(lhs.maxY, rhs.maxY) - max(lhs.minY, rhs.minY))
         }
     }
 

@@ -9314,10 +9314,30 @@ private extension NSWindow {
             if let webView = candidate as? CmuxWebView {
                 return webView
             }
+            if String(describing: type(of: candidate)).contains("WindowBrowserSlotView"),
+               let portalWebView = cmuxUniqueBrowserWebView(in: candidate) {
+                return portalWebView
+            }
             current = candidate.superview
         }
 
         return nil
+    }
+
+    private static func cmuxUniqueBrowserWebView(in root: NSView) -> CmuxWebView? {
+        var stack: [NSView] = [root]
+        var found: CmuxWebView?
+        while let current = stack.popLast() {
+            if let webView = current as? CmuxWebView {
+                if found == nil {
+                    found = webView
+                } else if found !== webView {
+                    return nil
+                }
+            }
+            stack.append(contentsOf: current.subviews)
+        }
+        return found
     }
 
     private static func cmuxCurrentEvent(for _: NSWindow) -> NSEvent? {
@@ -9335,7 +9355,22 @@ private extension NSWindow {
             return override
         }
 #endif
-        return window.contentView?.hitTest(event.locationInWindow)
+        guard let contentView = window.contentView else { return nil }
+
+        if contentView.className == "NSGlassEffectView" {
+            let pointInContent = contentView.convert(event.locationInWindow, from: nil)
+            return contentView.hitTest(pointInContent)
+        }
+
+        if let themeFrame = contentView.superview {
+            let pointInTheme = themeFrame.convert(event.locationInWindow, from: nil)
+            if let hit = themeFrame.hitTest(pointInTheme) {
+                return hit
+            }
+        }
+
+        let pointInContent = contentView.convert(event.locationInWindow, from: nil)
+        return contentView.hitTest(pointInContent)
     }
 
     private static func cmuxTrackFieldEditor(_ fieldEditor: NSTextView, owningWebView webView: CmuxWebView?) {
