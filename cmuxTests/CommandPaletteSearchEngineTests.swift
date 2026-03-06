@@ -93,6 +93,29 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         }
     }
 
+    private func makeFinderCommandEntries() -> [FixtureEntry] {
+        [
+            FixtureEntry(
+                id: "command.find",
+                rank: 0,
+                title: "Find...",
+                searchableTexts: ["Find...", "Search", "find", "search"]
+            ),
+            FixtureEntry(
+                id: "command.finder",
+                rank: 1,
+                title: "Open Current Directory in Finder",
+                searchableTexts: ["Open Current Directory in Finder", "Terminal", "finder", "directory", "open"]
+            ),
+            FixtureEntry(
+                id: "command.filter",
+                rank: 2,
+                title: "Filter Sidebar Items",
+                searchableTexts: ["Filter Sidebar Items", "Sidebar", "filter", "sidebar", "items"]
+            ),
+        ]
+    }
+
     private func optimizedResults(
         entries: [FixtureEntry],
         query: String
@@ -256,23 +279,46 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
     }
 
     func testSearchMatchesSingleOmittedCharacterInCommandWordPrefix() {
-        let entries = [
-            FixtureEntry(
-                id: "command.find",
-                rank: 0,
-                title: "Find...",
-                searchableTexts: ["Find...", "Search", "find", "search"]
-            ),
-            FixtureEntry(
-                id: "command.finder",
-                rank: 1,
-                title: "Open Current Directory in Finder",
-                searchableTexts: ["Open Current Directory in Finder", "Terminal", "finder", "directory", "open"]
-            ),
-        ]
+        let entries = makeFinderCommandEntries()
 
         XCTAssertEqual(
             optimizedResults(entries: entries, query: "findr").first?.id,
+            "command.finder"
+        )
+    }
+
+    func testSearchMatchesSingleInsertedCharacterInCommandWordPrefix() {
+        let entries = makeFinderCommandEntries()
+
+        XCTAssertEqual(
+            optimizedResults(entries: entries, query: "findder").first?.id,
+            "command.finder"
+        )
+    }
+
+    func testSearchMatchesSingleSubstitutedCharacterInCommandWordPrefix() {
+        let entries = makeFinderCommandEntries()
+
+        XCTAssertEqual(
+            optimizedResults(entries: entries, query: "fander").first?.id,
+            "command.finder"
+        )
+    }
+
+    func testSearchMatchesSingleTransposedCharacterInCommandWordPrefix() {
+        let entries = makeFinderCommandEntries()
+
+        XCTAssertEqual(
+            optimizedResults(entries: entries, query: "fidner").first?.id,
+            "command.finder"
+        )
+    }
+
+    func testSearchRejectsMultipleEditsInCommandWordPrefix() {
+        let entries = makeFinderCommandEntries()
+
+        XCTAssertNotEqual(
+            optimizedResults(entries: entries, query: "fadnr").first?.id,
             "command.finder"
         )
     }
