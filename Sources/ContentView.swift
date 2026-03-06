@@ -1598,6 +1598,7 @@ struct ContentView: View {
     private static let commandPaletteUsageDefaultsKey = "commandPalette.commandUsage.v1"
     private static let commandPaletteCommandsPrefix = ">"
     private static let commandPaletteVisiblePreviewResultLimit = 48
+    private static let commandPaletteVisiblePreviewCandidateLimit = 192
     private static let minimumSidebarWidth: CGFloat = 186
     private static let maximumSidebarWidthRatio: CGFloat = 1.0 / 3.0
 
@@ -3374,7 +3375,10 @@ struct ContentView: View {
         let candidateCommandIDs: [String]
         if commandPaletteVisibleResultsScope == scope,
            commandPaletteVisibleResultsFingerprint == fingerprint {
-            candidateCommandIDs = commandPaletteVisibleResults.map(\.id)
+            candidateCommandIDs = Self.commandPalettePreviewCandidateCommandIDs(
+                resultIDs: commandPaletteVisibleResults.map(\.id),
+                limit: Self.commandPaletteVisiblePreviewCandidateLimit
+            )
         } else {
             candidateCommandIDs = []
         }
@@ -3477,6 +3481,22 @@ struct ContentView: View {
         ).map(\.commandID)
     }
 
+    static func commandPalettePreviewCandidateCommandIDs(
+        resultIDs: [String],
+        limit: Int
+    ) -> [String] {
+        guard limit > 0 else { return [] }
+        guard resultIDs.count > limit else { return resultIDs }
+        return Array(resultIDs.prefix(limit))
+    }
+
+    static func commandPaletteShouldSynchronouslySeedResults(
+        visibleResultsScope: CommandPaletteListScope?,
+        nextScope: CommandPaletteListScope
+    ) -> Bool {
+        visibleResultsScope != nextScope
+    }
+
     private func scheduleCommandPaletteResultsRefresh(forceSearchCorpusRefresh: Bool = false) {
         refreshCommandPaletteSearchCorpus(force: forceSearchCorpusRefresh)
 
@@ -3492,7 +3512,10 @@ struct ContentView: View {
         let historyTimestamp = Date().timeIntervalSince1970
         commandPalettePendingActivation = nil
         cancelCommandPaletteSearch()
-        if cachedCommandPaletteResults.isEmpty {
+        if Self.commandPaletteShouldSynchronouslySeedResults(
+            visibleResultsScope: commandPaletteVisibleResultsScope,
+            nextScope: scope
+        ) {
             let matches = Self.commandPaletteResolvedSearchMatches(
                 searchCorpus: searchCorpus,
                 query: query,
@@ -4953,6 +4976,15 @@ struct ContentView: View {
         return min(max(fallbackSelectedIndex, 0), resultIDs.count - 1)
     }
 
+    static func commandPaletteSelectionAnchorCommandID(
+        selectedIndex: Int,
+        resultIDs: [String]
+    ) -> String? {
+        guard !resultIDs.isEmpty else { return nil }
+        let resolvedIndex = min(max(selectedIndex, 0), resultIDs.count - 1)
+        return resultIDs[resolvedIndex]
+    }
+
     static func commandPalettePendingActivationRequestID(
         _ pendingActivation: CommandPalettePendingActivation?
     ) -> UInt64? {
@@ -5080,13 +5112,19 @@ struct ContentView: View {
         }
     }
 
+    private func syncCommandPaletteSelectionAnchor(resultIDs: [String]) {
+        commandPaletteSelectionAnchorCommandID = Self.commandPaletteSelectionAnchorCommandID(
+            selectedIndex: commandPaletteSelectedResultIndex,
+            resultIDs: resultIDs
+        )
+    }
+
     private func syncCommandPaletteSelectionAnchorFromCurrentResults() {
-        guard !cachedCommandPaletteResults.isEmpty else {
-            commandPaletteSelectionAnchorCommandID = nil
-            return
-        }
-        let selectedIndex = commandPaletteSelectedIndex(resultCount: cachedCommandPaletteResults.count)
-        commandPaletteSelectionAnchorCommandID = cachedCommandPaletteResults[selectedIndex].id
+        syncCommandPaletteSelectionAnchor(resultIDs: cachedCommandPaletteResults.map(\.id))
+    }
+
+    private func syncCommandPaletteSelectionAnchorFromVisibleResults() {
+        syncCommandPaletteSelectionAnchor(resultIDs: commandPaletteVisibleResults.map(\.id))
     }
 
     private func moveCommandPaletteSelection(by delta: Int) {
@@ -5099,6 +5137,8 @@ struct ContentView: View {
         commandPaletteSelectedResultIndex = min(max(current + delta, 0), count - 1)
         if commandPaletteHasCurrentResolvedResults {
             syncCommandPaletteSelectionAnchorFromCurrentResults()
+        } else {
+            syncCommandPaletteSelectionAnchorFromVisibleResults()
         }
         syncCommandPaletteDebugStateForObservedWindow()
     }
