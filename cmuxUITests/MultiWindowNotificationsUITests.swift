@@ -207,19 +207,44 @@ final class MultiWindowNotificationsUITests: XCTestCase {
             "Expected app to launch for notify focus regression test. state=\(app.state.rawValue)"
         )
         XCTAssertTrue(
-            waitForData(keys: ["tabId2"], timeout: 15.0),
-            "Expected multi-window notification setup data"
+            waitForDataMatch(timeout: 20.0) { data in
+                let tabId2 = data["tabId2"] ?? ""
+                let socketReady = data["socketReady"] ?? ""
+                return !tabId2.isEmpty && !socketReady.isEmpty && socketReady != "pending"
+            },
+            "Expected multi-window notification setup data and socket readiness"
         )
 
-        guard let tabId2 = loadData()?["tabId2"], !tabId2.isEmpty else {
+        guard let setup = loadData() else {
+            XCTFail("Missing setup data")
+            return
+        }
+        guard let tabId2 = setup["tabId2"], !tabId2.isEmpty else {
             XCTFail("Missing setup workspace id")
+            return
+        }
+        if let expectedSocketPath = setup["socketExpectedPath"], !expectedSocketPath.isEmpty {
+            socketPath = expectedSocketPath
+        }
+        if setup["socketReady"] != "1" {
+            XCTFail(
+                "Control socket unavailable in this test environment. expected=\(socketPath) " +
+                "mode=\(setup["socketMode"] ?? "") running=\(setup["socketIsRunning"] ?? "") " +
+                "acceptLoopAlive=\(setup["socketAcceptLoopAlive"] ?? "") pathMatches=\(setup["socketPathMatches"] ?? "") " +
+                "pathExists=\(setup["socketPathExists"] ?? "") signals=\(setup["socketFailureSignals"] ?? "")"
+            )
             return
         }
 
         XCTAssertTrue(waitForWindowCount(atLeast: 2, app: app, timeout: 6.0))
 
-        guard let resolvedPath = resolveSocketPath(timeout: 20.0, requiredWorkspaceId: tabId2) else {
-            XCTFail("Control socket unavailable in this test environment. requested=\(socketPath)")
+        guard let resolvedPath = resolveSocketPath(timeout: 5.0, requiredWorkspaceId: tabId2) else {
+            XCTFail(
+                "Control socket unavailable in this test environment. requested=\(socketPath) " +
+                "mode=\(setup["socketMode"] ?? "") running=\(setup["socketIsRunning"] ?? "") " +
+                "acceptLoopAlive=\(setup["socketAcceptLoopAlive"] ?? "") pathMatches=\(setup["socketPathMatches"] ?? "") " +
+                "pathExists=\(setup["socketPathExists"] ?? "") signals=\(setup["socketFailureSignals"] ?? "")"
+            )
             return
         }
         socketPath = resolvedPath
@@ -337,6 +362,20 @@ final class MultiWindowNotificationsUITests: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         }
         if let data = loadData(), keys.allSatisfy({ (data[$0] ?? "").isEmpty == false }) {
+            return true
+        }
+        return false
+    }
+
+    private func waitForDataMatch(timeout: TimeInterval, predicate: ([String: String]) -> Bool) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if let data = loadData(), predicate(data) {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        if let data = loadData(), predicate(data) {
             return true
         }
         return false
