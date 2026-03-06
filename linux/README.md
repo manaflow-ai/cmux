@@ -39,6 +39,6 @@ Line-delimited JSON v2 protocol. Compatible with macOS cmux socket API.
 
 ## Reference
 
-- macOS cmux source: `~/cmux/`
-- ghostty C API: `~/cmux/ghostty.h`
-- GTK4 patterns: `~/koe/src/ui/`
+- macOS cmux source: root of this repository (Swift/AppKit)
+- ghostty C API: `ghostty.h` in the repo root
+- Ghostty GTK runtime: `ghostty/src/apprt/gtk/` (reference for GL/input integration)
