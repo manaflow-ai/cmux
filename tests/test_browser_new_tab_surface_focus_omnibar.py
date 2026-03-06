@@ -4,7 +4,8 @@ Regression test:
 1. Focusing a blank browser surface should focus the omnibar.
 2. Focusing a pane that contains a blank browser should focus the omnibar.
 3. If command palette is open, focusing that blank browser surface must not steal input.
-4. Cmd+P switcher focusing an existing blank browser surface should focus the omnibar.
+4. Cmd+P switcher should list only workspaces, then switching to a workspace with a
+   focused blank browser should focus the omnibar.
 """
 
 import json
@@ -281,24 +282,47 @@ def main() -> int:
         workspace_ids.remove(workspace_id)
         time.sleep(0.3)
 
-        # Scenario 4: Cmd+P switcher selecting an existing blank browser surface should focus omnibar.
-        workspace_id = client.new_workspace()
-        workspace_ids.append(workspace_id)
-        client.select_workspace(workspace_id)
+        # Scenario 4: Cmd+P switcher should only list workspaces, and switching to a workspace
+        # that has a focused blank browser should focus the omnibar.
+        target_workspace_id = client.new_workspace()
+        workspace_ids.append(target_workspace_id)
+        client.select_workspace(target_workspace_id)
         time.sleep(0.4)
         window_id = current_window_id(client)
         if not set_command_palette_visible(client, window_id, False):
-            raise cmuxError("Failed to reset command palette before scenario 4")
+            raise cmuxError("Failed to reset command palette before scenario 4 (target setup)")
 
         switcher_browser_id = client.new_surface(panel_type="browser")
         time.sleep(0.3)
+        client.focus_surface_by_panel(switcher_browser_id)
 
-        switcher_surfaces = client.list_surfaces()
-        switcher_terminal_id = next((surface_id for _, surface_id, _ in switcher_surfaces if surface_id != switcher_browser_id), None)
-        if not switcher_terminal_id:
-            raise cmuxError("Missing terminal surface for Cmd+P switcher scenario")
+        did_focus_target_browser = wait_for(
+            lambda: bool(
+                browser_address_bar_focus_state(
+                    client,
+                    surface_id=switcher_browser_id,
+                    request_id="browser-focus-switcher-target-setup"
+                ).get("focused")
+            ),
+            timeout_s=3.0,
+            interval_s=0.1
+        )
+        if not did_focus_target_browser:
+            raise cmuxError("Failed to focus omnibar on target workspace browser before Cmd+P switch")
 
-        client.focus_surface_by_panel(switcher_terminal_id)
+        source_workspace_id = client.new_workspace()
+        workspace_ids.append(source_workspace_id)
+        client.select_workspace(source_workspace_id)
+        time.sleep(0.4)
+        window_id = current_window_id(client)
+        if not set_command_palette_visible(client, window_id, False):
+            raise cmuxError("Failed to reset command palette before scenario 4 (source setup)")
+
+        source_surfaces = client.list_surfaces()
+        source_terminal_id = next((surface_id for _, surface_id, _ in source_surfaces), None)
+        if not source_terminal_id:
+            raise cmuxError("Missing terminal surface for Cmd+P workspace switcher scenario")
+        client.focus_surface_by_panel(source_terminal_id)
         time.sleep(0.2)
 
         client.simulate_shortcut("cmd+p")
@@ -316,11 +340,13 @@ def main() -> int:
         ):
             raise cmuxError("Cmd+P did not open command palette switcher")
 
-        client.simulate_type("new tab")
-        time.sleep(0.2)
+        switcher_results = command_palette_results(client, window_id, limit=100)
+        switcher_ids = [row.get("command_id") for row in switcher_results if isinstance(row.get("command_id"), str)]
+        has_surface_rows = any(command_id.startswith("switcher.surface.") for command_id in switcher_ids)
+        if has_surface_rows:
+            raise cmuxError("Cmd+P switcher listed unexpected surface rows; expected workspace-only results")
 
-        target_command_id = f"switcher.surface.{workspace_id.lower()}.{switcher_browser_id.lower()}"
-        switcher_results = command_palette_results(client, window_id, limit=50)
+        target_command_id = f"switcher.workspace.{target_workspace_id.lower()}"
         target_index = next(
             (
                 idx for idx, row in enumerate(switcher_results)
@@ -329,7 +355,7 @@ def main() -> int:
             None
         )
         if target_index is None:
-            raise cmuxError(f"Cmd+P switcher did not list target surface command {target_command_id}")
+            raise cmuxError(f"Cmd+P switcher did not list target workspace command {target_command_id}")
 
         if not move_command_palette_selection_to_index(client, window_id, target_index):
             raise cmuxError(f"Failed to move Cmd+P selection to result index {target_index}")
@@ -358,9 +384,50 @@ def main() -> int:
             interval_s=0.1
         )
         if not did_focus_switcher_target:
-            raise cmuxError("Cmd+P switcher focus to blank browser did not focus omnibar")
+            raise cmuxError("Cmd+P workspace switch did not restore blank browser omnibar focus")
 
-        print("PASS: blank-browser focus paths (surface, pane, and Cmd+P switcher) drive omnibar, while command palette visibility blocks focus stealing")
+        # Scenario 5: Cmd+P switcher should dismiss on Escape reliably.
+        client.select_workspace(source_workspace_id)
+        time.sleep(0.4)
+        window_id = current_window_id(client)
+        if not set_command_palette_visible(client, window_id, False):
+            raise cmuxError("Failed to reset command palette before scenario 5")
+
+        client.focus_surface_by_panel(source_terminal_id)
+        time.sleep(0.2)
+
+        client.simulate_shortcut("cmd+p")
+        if not wait_for(
+            lambda: bool(
+                v2_call(
+                    client,
+                    "debug.command_palette.visible",
+                    {"window_id": window_id},
+                    request_id="palette-visible-switcher-open-escape"
+                ).get("visible")
+            ),
+            timeout_s=2.0,
+            interval_s=0.1
+        ):
+            raise cmuxError("Cmd+P did not open command palette switcher before Escape scenario")
+
+        client.simulate_shortcut("escape")
+        did_dismiss_switcher_on_escape = wait_for(
+            lambda: not bool(
+                v2_call(
+                    client,
+                    "debug.command_palette.visible",
+                    {"window_id": window_id},
+                    request_id="palette-visible-switcher-after-escape"
+                ).get("visible")
+            ),
+            timeout_s=3.0,
+            interval_s=0.1
+        )
+        if not did_dismiss_switcher_on_escape:
+            raise cmuxError("Cmd+P Escape did not dismiss command palette switcher")
+
+        print("PASS: blank-browser focus paths (surface, pane, Cmd+P Enter switcher, and Cmd+P Escape dismiss) drive omnibar, while command palette visibility blocks focus stealing")
         return 0
 
     except cmuxError as exc:

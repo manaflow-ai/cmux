@@ -258,6 +258,52 @@ final class GhosttyConfigTests: XCTestCase {
         )
     }
 
+    func testReleaseAppSupportFallbackLoadsForDebugWhenOnlyReleaseConfigExists() {
+        XCTAssertTrue(
+            GhosttyApp.shouldLoadReleaseAppSupportGhosttyConfig(
+                currentBundleIdentifier: "com.cmuxterm.app.debug",
+                currentConfigFileSize: nil,
+                currentLegacyConfigFileSize: nil,
+                releaseConfigFileSize: 128,
+                releaseLegacyConfigFileSize: nil
+            )
+        )
+    }
+
+    func testReleaseAppSupportFallbackSkipsWhenDebugConfigAlreadyExists() {
+        XCTAssertFalse(
+            GhosttyApp.shouldLoadReleaseAppSupportGhosttyConfig(
+                currentBundleIdentifier: "com.cmuxterm.app.debug.issue-829",
+                currentConfigFileSize: nil,
+                currentLegacyConfigFileSize: 64,
+                releaseConfigFileSize: 128,
+                releaseLegacyConfigFileSize: nil
+            )
+        )
+    }
+
+    func testReleaseAppSupportFallbackSkipsForNonDebugBundleOrMissingReleaseConfig() {
+        XCTAssertFalse(
+            GhosttyApp.shouldLoadReleaseAppSupportGhosttyConfig(
+                currentBundleIdentifier: "com.cmuxterm.app",
+                currentConfigFileSize: nil,
+                currentLegacyConfigFileSize: nil,
+                releaseConfigFileSize: 128,
+                releaseLegacyConfigFileSize: nil
+            )
+        )
+
+        XCTAssertFalse(
+            GhosttyApp.shouldLoadReleaseAppSupportGhosttyConfig(
+                currentBundleIdentifier: "com.cmuxterm.app.debug",
+                currentConfigFileSize: nil,
+                currentLegacyConfigFileSize: nil,
+                releaseConfigFileSize: nil,
+                releaseLegacyConfigFileSize: 0
+            )
+        )
+    }
+
     func testDefaultBackgroundUpdateScopePrioritizesSurfaceOverAppAndUnscoped() {
         XCTAssertTrue(
             GhosttyApp.shouldApplyDefaultBackgroundUpdate(
@@ -610,6 +656,96 @@ final class WindowTransparencyDecisionTests: XCTestCase {
         } else {
             defaults.removeObject(forKey: key)
         }
+    }
+}
+
+final class WindowBackgroundSelectionGateTests: XCTestCase {
+    func testShouldApplyWindowBackgroundUsesOwningWindowSelectionWhenAvailable() {
+        let tabId = UUID()
+        let activeSelectedTabId = UUID()
+
+        XCTAssertTrue(
+            GhosttyNSView.shouldApplyWindowBackground(
+                surfaceTabId: tabId,
+                owningManagerExists: true,
+                owningSelectedTabId: tabId,
+                activeSelectedTabId: activeSelectedTabId
+            )
+        )
+    }
+
+    func testShouldApplyWindowBackgroundRejectsWhenOwningSelectionDiffers() {
+        let tabId = UUID()
+
+        XCTAssertFalse(
+            GhosttyNSView.shouldApplyWindowBackground(
+                surfaceTabId: tabId,
+                owningManagerExists: true,
+                owningSelectedTabId: UUID(),
+                activeSelectedTabId: tabId
+            )
+        )
+    }
+
+    func testShouldApplyWindowBackgroundAllowsWhenOwningManagerSelectionIsTemporarilyNil() {
+        let tabId = UUID()
+
+        XCTAssertTrue(
+            GhosttyNSView.shouldApplyWindowBackground(
+                surfaceTabId: tabId,
+                owningManagerExists: true,
+                owningSelectedTabId: nil,
+                activeSelectedTabId: UUID()
+            )
+        )
+    }
+
+    func testShouldApplyWindowBackgroundFallsBackToActiveSelection() {
+        let tabId = UUID()
+
+        XCTAssertTrue(
+            GhosttyNSView.shouldApplyWindowBackground(
+                surfaceTabId: tabId,
+                owningManagerExists: false,
+                owningSelectedTabId: nil,
+                activeSelectedTabId: tabId
+            )
+        )
+        XCTAssertFalse(
+            GhosttyNSView.shouldApplyWindowBackground(
+                surfaceTabId: tabId,
+                owningManagerExists: false,
+                owningSelectedTabId: nil,
+                activeSelectedTabId: UUID()
+            )
+        )
+    }
+
+    func testShouldApplyWindowBackgroundAllowsWhenNoSelectionContext() {
+        XCTAssertTrue(
+            GhosttyNSView.shouldApplyWindowBackground(
+                surfaceTabId: UUID(),
+                owningManagerExists: false,
+                owningSelectedTabId: nil,
+                activeSelectedTabId: nil
+            )
+        )
+        XCTAssertTrue(
+            GhosttyNSView.shouldApplyWindowBackground(
+                surfaceTabId: nil,
+                owningManagerExists: false,
+                owningSelectedTabId: nil,
+                activeSelectedTabId: nil
+            )
+        )
+        XCTAssertTrue(
+            GhosttyNSView.shouldApplyWindowBackground(
+                surfaceTabId: nil,
+                owningManagerExists: true,
+                owningSelectedTabId: UUID(),
+                activeSelectedTabId: UUID()
+            )
+        )
     }
 }
 
@@ -1122,6 +1258,12 @@ final class PostHogAnalyticsPropertiesTests: XCTestCase {
         XCTAssertEqual(dailyProperties["reason"] as? String, "activeTimer")
         XCTAssertNil(dailyProperties["app_version"])
         XCTAssertNil(dailyProperties["app_build"])
+    }
+
+    func testFlushPolicyIncludesDailyAndHourlyActiveEvents() {
+        XCTAssertTrue(PostHogAnalytics.shouldFlushAfterCapture(event: "cmux_daily_active"))
+        XCTAssertTrue(PostHogAnalytics.shouldFlushAfterCapture(event: "cmux_hourly_active"))
+        XCTAssertFalse(PostHogAnalytics.shouldFlushAfterCapture(event: "cmux_other_event"))
     }
 }
 

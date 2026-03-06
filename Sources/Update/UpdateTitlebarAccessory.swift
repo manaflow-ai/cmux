@@ -320,8 +320,8 @@ struct TitlebarControlsView: View {
                 iconLabel(systemName: "sidebar.left", config: config)
             }
             .accessibilityIdentifier("titlebarControl.toggleSidebar")
-            .accessibilityLabel("Toggle Sidebar")
-            .help(KeyboardShortcutSettings.Action.toggleSidebar.tooltip("Show or hide the sidebar"))
+            .accessibilityLabel(String(localized: "titlebar.sidebar.accessibilityLabel", defaultValue: "Toggle Sidebar"))
+            .help(KeyboardShortcutSettings.Action.toggleSidebar.tooltip(String(localized: "titlebar.sidebar.tooltip", defaultValue: "Show or hide the sidebar")))
 
             TitlebarControlButton(config: config, action: {
                 #if DEBUG
@@ -347,8 +347,8 @@ struct TitlebarControlsView: View {
             }
             .accessibilityIdentifier("titlebarControl.showNotifications")
             .background(NotificationsAnchorView { viewModel.notificationsAnchorView = $0 })
-            .accessibilityLabel("Notifications")
-            .help(KeyboardShortcutSettings.Action.showNotifications.tooltip("Show notifications"))
+            .accessibilityLabel(String(localized: "titlebar.notifications.accessibilityLabel", defaultValue: "Notifications"))
+            .help(KeyboardShortcutSettings.Action.showNotifications.tooltip(String(localized: "titlebar.notifications.tooltip", defaultValue: "Show notifications")))
 
             TitlebarControlButton(config: config, action: {
                 #if DEBUG
@@ -359,8 +359,8 @@ struct TitlebarControlsView: View {
                 iconLabel(systemName: "plus", config: config)
             }
             .accessibilityIdentifier("titlebarControl.newTab")
-            .accessibilityLabel("New Workspace")
-            .help(KeyboardShortcutSettings.Action.newTab.tooltip("New workspace"))
+            .accessibilityLabel(String(localized: "titlebar.newWorkspace.accessibilityLabel", defaultValue: "New Workspace"))
+            .help(KeyboardShortcutSettings.Action.newTab.tooltip(String(localized: "titlebar.newWorkspace.tooltip", defaultValue: "New workspace")))
         }
 
         let paddedContent = content.padding(config.groupPadding)
@@ -901,11 +901,11 @@ private struct NotificationsPopoverView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Text("Notifications")
+                Text(String(localized: "notifications.title", defaultValue: "Notifications"))
                     .font(.headline)
                 Spacer()
                 if !notificationStore.notifications.isEmpty {
-                    Button("Clear All") {
+                    Button(String(localized: "notifications.clearAll", defaultValue: "Clear All")) {
                         notificationStore.clearAll()
                     }
                     .buttonStyle(.bordered)
@@ -921,9 +921,9 @@ private struct NotificationsPopoverView: View {
                     Image(systemName: "bell.slash")
                         .font(.system(size: 28))
                         .foregroundColor(.secondary)
-                    Text("No notifications yet")
+                    Text(String(localized: "notifications.empty.title", defaultValue: "No notifications yet"))
                         .font(.headline)
-                    Text("Desktop notifications will appear here.")
+                    Text(String(localized: "notifications.empty.subtitle", defaultValue: "Desktop notifications will appear here."))
                         .font(.subheadline)
                         .foregroundColor(.secondary)
                 }

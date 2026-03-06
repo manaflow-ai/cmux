@@ -1,9 +1,8 @@
 name: Nightly macOS build
 
 on:
-  schedule:
-    # Every hour at :30. The 'decide' job skips if main has no new commits.
-    - cron: "30 * * * *"
+  push:
+    branches: [main]
   workflow_dispatch:
     inputs:
       force:
@@ -11,6 +10,10 @@ on:
         required: false
         default: false
         type: boolean
+
+concurrency:
+  group: nightly-build
+  cancel-in-progress: true
 
 permissions:
   contents: write
@@ -81,7 +84,7 @@ jobs:
   build-sign-notarize-nightly:
     needs: decide
     if: needs.decide.outputs.should_build == 'true'
-    runs-on: depot-macos-latest
+    runs-on: macos-15
     steps:
       - name: Checkout main
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -361,12 +364,3 @@ jobs:
         run: |
           security delete-keychain build.keychain >/dev/null 2>&1 || true
           rm -f /tmp/cert.p12
-
-  skipped:
-    needs: decide
-    if: needs.decide.outputs.should_build != 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - name: No nightly build needed
-        run: |
-          echo "No changes on main since last nightly tag; skipping build."

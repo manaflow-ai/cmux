@@ -18,8 +18,36 @@ find_real_claude() {
     return 1
 }
 
-# Pass through if not in a cmux terminal or hooks are disabled.
-if [[ -z "$CMUX_SURFACE_ID" || "$CMUX_CLAUDE_HOOKS_DISABLED" == "1" ]]; then
+# Return 0 only when CMUX_SOCKET_PATH points to a live cmux socket.
+cmux_socket_available() {
+    local socket="${CMUX_SOCKET_PATH:-}"
+    [[ -n "$socket" && -S "$socket" ]] || return 1
+
+    local self_dir cmux_bin
+    self_dir="$(cd "$(dirname "$0")" && pwd)"
+    cmux_bin="$self_dir/cmux"
+    [[ -x "$cmux_bin" ]] || cmux_bin="$(command -v cmux || true)"
+    [[ -n "$cmux_bin" ]] || return 1
+
+    # Keep stale/hung socket checks bounded so claude startup does not block
+    # behind the CLI default timeout (15s).
+    CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=0.75 \
+        "$cmux_bin" --socket "$socket" ping >/dev/null 2>&1
+}
+
+# Pass through if not in a cmux terminal, hooks are disabled, or the cmux
+# socket is unavailable (stale env / app not running).
+IN_CMUX=0
+if [[ -n "$CMUX_SURFACE_ID" ]]; then
+    IN_CMUX=1
+fi
+
+if [[ "$IN_CMUX" == "0" || "$CMUX_CLAUDE_HOOKS_DISABLED" == "1" ]] || ! cmux_socket_available; then
+    # In cmux-launched shells, preserve old behavior and always clear nested
+    # Claude session markers, even when we must pass through due to stale socket.
+    if [[ "$IN_CMUX" == "1" ]]; then
+        unset CLAUDECODE
+    fi
     REAL_CLAUDE="$(find_real_claude)" || { echo "Error: claude not found in PATH" >&2; exit 127; }
     exec "$REAL_CLAUDE" "$@"
 fi
