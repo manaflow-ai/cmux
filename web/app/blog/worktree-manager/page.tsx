@@ -70,7 +70,7 @@ export default async function WorktreeManagerPage() {
         I personally like a different approach, which is just putting a few
         paragraphs of instructions in a <code>CLAUDE.md</code>. Claude Code
         handles the rest: creating worktrees, working in them, committing,
-        pushing, opening PRs, cleaning up. The worktree manager is just prose.
+        pushing, opening PRs, cleaning up.
       </p>
 
       <h2>cmux HQ</h2>
