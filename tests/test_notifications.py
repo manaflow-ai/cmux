@@ -215,8 +215,8 @@ def test_rxvt_notification_osc777(client: cmux) -> TestResult:
     return result
 
 
-def test_mark_read_on_focus_change(client: cmux) -> TestResult:
-    result = TestResult("Mark Read On Panel Focus")
+def test_preserve_unread_on_focus_change(client: cmux) -> TestResult:
+    result = TestResult("Preserve Unread On Panel Focus")
     try:
         client.clear_notifications()
         client.reset_flash_counts()
@@ -239,21 +239,21 @@ def test_mark_read_on_focus_change(client: cmux) -> TestResult:
         target = next((n for n in items if n["surface_id"] == other[1]), None)
         if target is None:
             result.failure("Expected notification for target surface")
-        elif not target["is_read"]:
-            result.failure("Expected notification to be marked read on focus")
+        elif target["is_read"]:
+            result.failure("Expected notification to remain unread on focus")
         else:
             count = wait_for_flash_count(client, other[1], minimum=1, timeout=2.0)
             if count < 1:
-                result.failure("Expected flash on panel focus dismissal")
+                result.failure("Expected flash on panel focus")
             else:
-                result.success("Notification marked read on focus")
+                result.success("Notification persisted across panel focus")
     except Exception as e:
         result.failure(f"Exception: {e}")
     return result
 
 
-def test_mark_read_on_app_active(client: cmux) -> TestResult:
-    result = TestResult("Mark Read On App Active")
+def test_preserve_unread_on_app_active(client: cmux) -> TestResult:
+    result = TestResult("Preserve Unread On App Active")
     try:
         client.clear_notifications()
         client.set_app_focus(False)
@@ -271,17 +271,17 @@ def test_mark_read_on_app_active(client: cmux) -> TestResult:
         items = client.list_notifications()
         if not items:
             result.failure("Expected notification to remain after activation")
-        elif not items[0]["is_read"]:
-            result.failure("Expected notification to be marked read on app active")
+        elif items[0]["is_read"]:
+            result.failure("Expected notification to remain unread on app active")
         else:
-            result.success("Notification marked read on app active")
+            result.success("Notification persisted across app activation")
     except Exception as e:
         result.failure(f"Exception: {e}")
     return result
 
 
-def test_mark_read_on_tab_switch(client: cmux) -> TestResult:
-    result = TestResult("Mark Read On Tab Switch")
+def test_preserve_unread_on_tab_switch(client: cmux) -> TestResult:
+    result = TestResult("Preserve Unread On Tab Switch")
     try:
         client.clear_notifications()
         client.set_app_focus(False)
@@ -300,10 +300,10 @@ def test_mark_read_on_tab_switch(client: cmux) -> TestResult:
         target = next((n for n in items if n["workspace_id"] == tab1), None)
         if target is None:
             result.failure("Expected notification for original tab")
-        elif not target["is_read"]:
-            result.failure("Expected notification to be marked read on tab switch")
+        elif target["is_read"]:
+            result.failure("Expected notification to remain unread on tab switch")
         else:
-            result.success("Notification marked read on tab switch")
+            result.success("Notification persisted across tab switch")
     except Exception as e:
         result.failure(f"Exception: {e}")
     return result
@@ -371,11 +371,20 @@ def test_focus_on_notification_click(client: cmux) -> TestResult:
             result.failure("Expected notification surface to be focused")
             return result
 
+        items = client.list_notifications()
+        notification = next((n for n in items if n["surface_id"] == other[1]), None)
+        if notification is None:
+            result.failure("Expected notification to remain listed after notification click")
+            return result
+        if notification["is_read"]:
+            result.failure("Expected notification click to preserve unread state")
+            return result
+
         count = wait_for_flash_count(client, other[1], minimum=1, timeout=2.0)
         if count < 1:
             result.failure(f"Expected flash count >= 1, got {count}")
         else:
-            result.success("Notification click focuses and flashes panel")
+            result.success("Notification click focuses, flashes, and preserves unread state")
     except Exception as e:
         result.failure(f"Exception: {e}")
     return result
@@ -455,9 +464,9 @@ def run_tests() -> int:
         results.append(test_kitty_notification_simple(client))
         results.append(test_kitty_notification_chunked(client))
         results.append(test_rxvt_notification_osc777(client))
-        results.append(test_mark_read_on_focus_change(client))
-        results.append(test_mark_read_on_app_active(client))
-        results.append(test_mark_read_on_tab_switch(client))
+        results.append(test_preserve_unread_on_focus_change(client))
+        results.append(test_preserve_unread_on_app_active(client))
+        results.append(test_preserve_unread_on_tab_switch(client))
         results.append(test_flash_on_tab_switch(client))
         results.append(test_focus_on_notification_click(client))
         results.append(test_restore_focus_on_tab_switch(client))
