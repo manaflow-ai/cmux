@@ -53,153 +53,71 @@ export default function WorktreeManagerPage() {
       </time>
 
       <p className="mt-6">
-        We run 10+ agents in parallel on the same codebase. Each agent needs its
-        own working directory so they don&apos;t step on each other&apos;s files.
-        Git worktrees solve this perfectly, and we don&apos;t use a dedicated
-        worktree tool. We just put instructions in a <code>CLAUDE.md</code> and
-        let Claude Code manage them.
+        cmux intentionally does not have a builtin git worktree manager. cmux
+        intentionally has no opinion on worktrees. We tried building one and
+        realized we already had something better: a <code>CLAUDE.md</code> file
+        with a few paragraphs of instructions. Claude Code reads them, creates
+        worktrees, works in them, commits, pushes, opens PRs, and cleans up.
+        The worktree manager is just prose.
       </p>
 
-      <h2>The HQ pattern</h2>
+      <h2>What we actually do</h2>
 
       <p>
-        The setup is a dedicated repo we call <code>cmuxterm-hq</code>. It sits
-        outside the main project repo and contains two things: a primary
-        checkout and a folder of worktrees.
+        We have a repo called <code>cmuxterm-hq</code> that sits outside the
+        cmux source repo. It contains a primary checkout, a folder of worktrees,
+        and the <code>CLAUDE.md</code> that tells agents how to use them.
       </p>
 
       <pre>
-        <code>{`cmuxterm-hq/          # its own git repo
-  repo/               # primary checkout of manaflow-ai/cmux (main branch)
+        <code>{`cmuxterm-hq/
+  repo/               # primary checkout (stays on main, never edited directly)
   worktrees/
     issue-537-notif-crash/
     issue-541-keychain/
     feat-sidebar-ports/
-  CLAUDE.md           # instructions for the orchestrator agent
-  scripts/            # shared automation (spawn agents, wait for results, notify)`}</code>
+  CLAUDE.md
+  scripts/`}</code>
       </pre>
 
       <p>
-        The <code>repo/</code> directory stays on <code>main</code> and is never
-        edited directly. It&apos;s the base for creating worktrees. When an
-        agent picks up a task, it runs:
-      </p>
-
-      <pre>
-        <code>{`cd repo
-git worktree add ../worktrees/issue-537-notif-crash -b issue-537-notif-crash origin/main`}</code>
-      </pre>
-
-      <p>
-        Each worktree is a full working copy with its own branch. Agents can
-        build, test, and commit independently. When the work is done, the
-        worktree gets cleaned up.
-      </p>
-
-      <h2>Why a separate repo?</h2>
-
-      <p>
-        The HQ repo is not the project repo. This is intentional. The HQ holds
-        orchestration scripts, shared skills, board state, and a{" "}
-        <code>CLAUDE.md</code> with project-wide conventions. It&apos;s the
-        control plane. The worktrees are the data plane.
+        When an agent picks up a task, it creates a worktree off <code>main</code>,
+        does the work there, and cleans up when done. Each worktree is a full
+        working copy with its own branch, so agents can build and test in
+        parallel without conflicts.
       </p>
 
       <p>
-        Because the HQ is its own repo, it can version its own automation
-        independently. You can iterate on your agent workflow (scripts,
-        prompts, conventions) without polluting your project&apos;s commit
-        history.
+        The HQ being its own repo is nice because you can version your
+        automation, scripts, and agent conventions separately from your
+        project&apos;s commit history. Skills defined in the HQ are available
+        to every agent regardless of which worktree they&apos;re in.
       </p>
 
-      <h2>Multi-repo conditioning</h2>
+      <h2>Multiple codebases</h2>
 
       <p>
-        This pattern scales beyond a single project. If you have an iOS app in
-        one repo and a backend in another, the HQ can hold both:
+        This also works across repos. If you have an iOS app and a backend in
+        separate repos, one HQ can hold both checkouts and a single{" "}
+        <code>CLAUDE.md</code> that spans them.
       </p>
 
       <pre>
         <code>{`my-hq/
-  ios-repo/             # primary checkout of the iOS app
-  backend-repo/         # primary checkout of the backend
+  ios-repo/
+  backend-repo/
   worktrees/
     ios-issue-42-auth/
     backend-feat-api-v2/
-  CLAUDE.md             # instructions that span both codebases`}</code>
+  CLAUDE.md`}</code>
       </pre>
 
       <p>
-        The agent sees one <code>CLAUDE.md</code> that knows about both
-        codebases. It can reason across them: &quot;the iOS app calls{" "}
-        <code>/api/v1/users</code>, the backend is migrating to v2, update
-        both.&quot; This is the monorepo benefit without actually merging repos.
+        The agent can reason across both codebases from one place. Monorepo
+        benefits without merging repos.
       </p>
 
-      <h2>Claude Code as the worktree manager</h2>
-
-      <p>
-        We don&apos;t use a separate tool to manage worktrees. The{" "}
-        <code>CLAUDE.md</code> in the HQ repo contains the rules:
-      </p>
-
-      <ul>
-        <li>Never edit code directly in <code>repo/</code></li>
-        <li>
-          Always create a worktree first, named{" "}
-          <code>issue-&lt;N&gt;-&lt;slug&gt;</code>
-        </li>
-        <li>Fetch and sync before branching</li>
-        <li>Clean up worktrees when done</li>
-        <li>Push branches, never push to main</li>
-      </ul>
-
-      <p>
-        Claude Code follows these instructions reliably. It creates worktrees,
-        works in them, commits, pushes, opens PRs, and cleans up. The
-        &quot;worktree manager&quot; is just a paragraph in a markdown file.
-      </p>
-
-      <h2>Shared skills and scripts</h2>
-
-      <p>
-        The HQ repo is also where shared automation lives. We have scripts for
-        spawning agents into{" "}
-        <Link href="https://cmux.dev">cmux</Link> workspaces, waiting for them
-        to finish, running review loops, and sending notifications. These
-        scripts work across any worktree because they live in the HQ, not in the
-        project.
-      </p>
-
-      <p>
-        Claude Code skills defined in the HQ are available to any task,
-        regardless of which worktree the agent is working in. The HQ is the
-        shared context that ties everything together.
-      </p>
-
-      <h2>How to replicate this</h2>
-
-      <p>
-        You don&apos;t need cmux to use this pattern (though it helps for
-        running many agents visually). Here&apos;s the minimal setup:
-      </p>
-
-      <ol>
-        <li>
-          Create a new directory and <code>git init</code> it. This is your HQ.
-        </li>
-        <li>
-          Clone your project into <code>repo/</code> inside it.
-        </li>
-        <li>
-          Add a <code>CLAUDE.md</code> to the HQ root with your worktree
-          conventions and any cross-repo instructions.
-        </li>
-        <li>
-          Start Claude Code from the HQ directory. Ask it to work on an issue.
-          It will create the worktree and do the work there.
-        </li>
-      </ol>
+      <h2>Try it</h2>
 
       <pre>
         <code>{`mkdir my-project-hq && cd my-project-hq
@@ -209,7 +127,7 @@ mkdir worktrees`}</code>
       </pre>
 
       <p>
-        Add a <code>CLAUDE.md</code> like this:
+        Add a <code>CLAUDE.md</code>:
       </p>
 
       <pre>
@@ -226,8 +144,8 @@ When starting work:
       </pre>
 
       <p>
-        That&apos;s it. Claude Code reads the instructions, follows them, and
-        you get isolated branches for parallel work with no extra tooling.
+        Start Claude Code from the HQ directory and ask it to work on something.
+        It handles the rest.
       </p>
     </>
   );
