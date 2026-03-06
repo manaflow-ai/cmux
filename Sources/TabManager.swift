@@ -564,6 +564,7 @@ class TabManager: ObservableObject {
 
     @Published var tabs: [Workspace] = []
     @Published private(set) var isWorkspaceCycleHot: Bool = false
+    @Published private(set) var pendingBackgroundWorkspaceLoadIds: Set<UUID> = []
 
     /// Global monotonically increasing counter for CMUX_PORT ordinal assignment.
     /// Static so port ranges don't overlap across multiple windows (each window has its own TabManager).
@@ -799,6 +800,7 @@ class TabManager: ObservableObject {
     func addWorkspace(
         workingDirectory overrideWorkingDirectory: String? = nil,
         select: Bool = true,
+        eagerLoadTerminal: Bool = false,
         placementOverride: NewWorkspacePlacement? = nil
     ) -> Workspace {
         sentryBreadcrumb("workspace.create", data: ["tabCount": tabs.count + 1])
@@ -819,6 +821,10 @@ class TabManager: ObservableObject {
         } else {
             tabs.append(newWorkspace)
         }
+        if eagerLoadTerminal {
+            requestBackgroundWorkspaceLoad(for: newWorkspace.id)
+            newWorkspace.requestBackgroundTerminalSurfaceStartIfNeeded()
+        }
         if select {
             selectedTabId = newWorkspace.id
             NotificationCenter.default.post(
@@ -837,9 +843,25 @@ class TabManager: ObservableObject {
         return newWorkspace
     }
 
+    func requestBackgroundWorkspaceLoad(for workspaceId: UUID) {
+        guard pendingBackgroundWorkspaceLoadIds.insert(workspaceId).inserted else { return }
+    }
+
+    func completeBackgroundWorkspaceLoad(for workspaceId: UUID) {
+        guard pendingBackgroundWorkspaceLoadIds.remove(workspaceId) != nil else { return }
+    }
+
+    func pruneBackgroundWorkspaceLoads(existingIds: Set<UUID>) {
+        let pruned = pendingBackgroundWorkspaceLoadIds.intersection(existingIds)
+        guard pruned != pendingBackgroundWorkspaceLoadIds else { return }
+        pendingBackgroundWorkspaceLoadIds = pruned
+    }
+
     // Keep addTab as convenience alias
     @discardableResult
-    func addTab(select: Bool = true) -> Workspace { addWorkspace(select: select) }
+    func addTab(select: Bool = true, eagerLoadTerminal: Bool = false) -> Workspace {
+        addWorkspace(select: select, eagerLoadTerminal: eagerLoadTerminal)
+    }
 
     func terminalPanelForWorkspaceConfigInheritanceSource() -> TerminalPanel? {
         guard let workspace = selectedWorkspace else { return nil }
