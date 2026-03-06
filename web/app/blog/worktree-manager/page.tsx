@@ -149,19 +149,31 @@ export default function WorktreeManagerPage() {
       <pre>
         <code>{`I want to set up an HQ repo for this project so I can use git worktrees
 to work on multiple things in parallel. Create a new directory called
-<project>-hq one level up from here, git init it, move or clone this
-repo into <project>-hq/repo/, create a worktrees/ directory, and write
-a CLAUDE.md with instructions for the worktree workflow (never edit
-repo/ directly, always create a worktree first, fetch before branching,
-clean up when done, push branches and open PRs).`}</code>
+<project>-hq one level up from here, git init it, clone this repo into
+<project>-hq/repo/, create a worktrees/ directory, and set up the
+following files:
+
+<project>-hq/
+  repo/               # clone of this project (stays on main)
+  worktrees/          # one worktree per task/issue
+  CLAUDE.md           # symlink to AGENTS.md
+  AGENTS.md           # worktree workflow instructions
+
+AGENTS.md should contain instructions for the worktree workflow: never
+edit repo/ directly, always create a worktree first, fetch before
+branching, clean up when done, push branches and open PRs. Symlink
+CLAUDE.md to AGENTS.md so both Claude Code and other agents read the
+same instructions.`}</code>
       </pre>
 
       <p>
-        Claude Code will set up the structure, write the{" "}
-        <code>CLAUDE.md</code>, and from then on it knows how to create
-        worktrees when you ask it to work on something. You can add more
-        instructions over time (naming conventions, build commands, test
-        policies, multi-repo setup) and the workflow grows with you.
+        Claude Code will set up the structure, write the instructions, and from
+        then on it knows how to create worktrees when you ask it to work on
+        something. The <code>AGENTS.md</code> / <code>CLAUDE.md</code> symlink
+        means the same instructions work for any agent that reads either
+        filename. You can add more over time (naming conventions, build
+        commands, test policies, multi-repo setup) and the workflow grows with
+        you.
       </p>
     </>
   );
