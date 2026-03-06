@@ -635,6 +635,7 @@ class TabManager: ObservableObject {
         qos: .utility
     )
     private var initialWorkspaceGitProbeGenerationByWorkspace: [UUID: UUID] = [:]
+    private var initialWorkspaceGitProbeTimersByWorkspace: [UUID: [DispatchSourceTimer]] = [:]
 
     // Recent tab history for back/forward navigation (like browser history)
     private var tabHistory: [UUID] = []
@@ -870,6 +871,7 @@ class TabManager: ObservableObject {
     ) {
         let normalizedDirectory = normalizeDirectory(directory)
         let generation = UUID()
+        cancelInitialWorkspaceGitProbeTimers(workspaceId: workspaceId)
         initialWorkspaceGitProbeGenerationByWorkspace[workspaceId] = generation
 
 #if DEBUG
@@ -880,9 +882,12 @@ class TabManager: ObservableObject {
 #endif
 
         let delays = Self.initialWorkspaceGitProbeDelays
+        var timers: [DispatchSourceTimer] = []
         for (index, delay) in delays.enumerated() {
             let isLastAttempt = index == delays.count - 1
-            initialWorkspaceGitProbeQueue.asyncAfter(deadline: .now() + delay) {
+            let timer = DispatchSource.makeTimerSource(queue: initialWorkspaceGitProbeQueue)
+            timer.schedule(deadline: .now() + delay, repeating: .never)
+            timer.setEventHandler { [weak self] in
                 let snapshot = Self.initialWorkspaceGitMetadataSnapshot(for: normalizedDirectory)
                 Task { @MainActor [weak self] in
                     self?.applyInitialWorkspaceGitMetadataSnapshot(
@@ -895,7 +900,25 @@ class TabManager: ObservableObject {
                     )
                 }
             }
+            timers.append(timer)
+            timer.resume()
         }
+        initialWorkspaceGitProbeTimersByWorkspace[workspaceId] = timers
+    }
+
+    private func cancelInitialWorkspaceGitProbeTimers(workspaceId: UUID) {
+        guard let timers = initialWorkspaceGitProbeTimersByWorkspace.removeValue(forKey: workspaceId) else {
+            return
+        }
+        for timer in timers {
+            timer.setEventHandler {}
+            timer.cancel()
+        }
+    }
+
+    private func clearInitialWorkspaceGitProbe(workspaceId: UUID) {
+        initialWorkspaceGitProbeGenerationByWorkspace.removeValue(forKey: workspaceId)
+        cancelInitialWorkspaceGitProbeTimers(workspaceId: workspaceId)
     }
 
     private func applyInitialWorkspaceGitMetadataSnapshot(
@@ -909,17 +932,17 @@ class TabManager: ObservableObject {
         defer {
             if isLastAttempt,
                initialWorkspaceGitProbeGenerationByWorkspace[workspaceId] == generation {
-                initialWorkspaceGitProbeGenerationByWorkspace.removeValue(forKey: workspaceId)
+                clearInitialWorkspaceGitProbe(workspaceId: workspaceId)
             }
         }
 
         guard initialWorkspaceGitProbeGenerationByWorkspace[workspaceId] == generation else { return }
         guard let workspace = tabs.first(where: { $0.id == workspaceId }) else {
-            initialWorkspaceGitProbeGenerationByWorkspace.removeValue(forKey: workspaceId)
+            clearInitialWorkspaceGitProbe(workspaceId: workspaceId)
             return
         }
         guard workspace.panels[panelId] != nil else {
-            initialWorkspaceGitProbeGenerationByWorkspace.removeValue(forKey: workspaceId)
+            clearInitialWorkspaceGitProbe(workspaceId: workspaceId)
             return
         }
 
@@ -927,7 +950,7 @@ class TabManager: ObservableObject {
             workspace.panelDirectories[panelId] ?? workspace.currentDirectory
         )
         if let currentDirectory, currentDirectory != expectedDirectory {
-            initialWorkspaceGitProbeGenerationByWorkspace.removeValue(forKey: workspaceId)
+            clearInitialWorkspaceGitProbe(workspaceId: workspaceId)
 #if DEBUG
             dlog(
                 "workspace.gitProbe.skip workspace=\(workspaceId.uuidString.prefix(5)) " +
@@ -980,7 +1003,7 @@ class TabManager: ObservableObject {
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         process.arguments = ["git", "-C", directory] + arguments
         process.standardOutput = stdout
-        process.standardError = Pipe()
+        process.standardError = FileHandle.nullDevice
 
         do {
             try process.run()
@@ -988,12 +1011,13 @@ class TabManager: ObservableObject {
             return nil
         }
 
+        // Drain stdout while the subprocess is active so large repos cannot fill the pipe buffer.
+        let data = stdout.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
         guard process.terminationStatus == 0 else {
             return nil
         }
 
-        let data = stdout.fileHandleForReading.readDataToEndOfFile()
         return String(data: data, encoding: .utf8)
     }
 
@@ -1196,7 +1220,7 @@ class TabManager: ObservableObject {
         guard tabs.count > 1 else { return }
         guard let index = tabs.firstIndex(where: { $0.id == workspace.id }) else { return }
         sentryBreadcrumb("workspace.close", data: ["tabCount": tabs.count - 1])
-        initialWorkspaceGitProbeGenerationByWorkspace.removeValue(forKey: workspace.id)
+        clearInitialWorkspaceGitProbe(workspaceId: workspace.id)
 
         AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: workspace.id)
         unwireClosedBrowserTracking(for: workspace)
@@ -1218,7 +1242,7 @@ class TabManager: ObservableObject {
     @discardableResult
     func detachWorkspace(tabId: UUID) -> Workspace? {
         guard let index = tabs.firstIndex(where: { $0.id == tabId }) else { return nil }
-        initialWorkspaceGitProbeGenerationByWorkspace.removeValue(forKey: tabId)
+        clearInitialWorkspaceGitProbe(workspaceId: tabId)
 
         let removed = tabs.remove(at: index)
         unwireClosedBrowserTracking(for: removed)

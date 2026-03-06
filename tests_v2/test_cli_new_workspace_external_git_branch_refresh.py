@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import glob
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -16,7 +17,16 @@ sys.path.insert(0, str(Path(__file__).parent))
 from cmux import cmux, cmuxError
 
 
-SOCKET_PATH = os.environ.get("CMUX_SOCKET", "/tmp/cmux-debug.sock")
+def _resolve_socket_path() -> str:
+    socket_path = os.environ.get("CMUX_SOCKET", "").strip()
+    if not socket_path:
+        raise cmuxError("CMUX_SOCKET is required (expected /tmp/cmux-debug-<tag>.sock)")
+    if not re.fullmatch(r"/tmp/cmux-debug-[^/]+\.sock", socket_path):
+        raise cmuxError(f"CMUX_SOCKET must be a tagged debug socket, got: {socket_path!r}")
+    return socket_path
+
+
+SOCKET_PATH = _resolve_socket_path()
 
 
 def _must(cond: bool, msg: str) -> None:
