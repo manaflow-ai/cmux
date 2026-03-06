@@ -10830,6 +10830,110 @@ final class FileDropOverlayViewTests: XCTestCase {
     }
 }
 
+@MainActor
+final class MarkdownPanelPointerObserverViewTests: XCTestCase {
+    private func makeWindow() -> NSWindow {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 180),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        window.contentView?.layoutSubtreeIfNeeded()
+        return window
+    }
+
+    private func makeMouseEvent(
+        type: NSEvent.EventType,
+        location: NSPoint,
+        window: NSWindow,
+        eventNumber: Int = 1
+    ) -> NSEvent {
+        guard let event = NSEvent.mouseEvent(
+            with: type,
+            location: location,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: eventNumber,
+            clickCount: 1,
+            pressure: 1.0
+        ) else {
+            fatalError("Expected to create mouse event")
+        }
+        return event
+    }
+
+    func testObserverTriggersFocusForVisibleLeftClickInsideBounds() {
+        let window = makeWindow()
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let overlay = MarkdownPanelPointerObserverView(frame: contentView.bounds)
+        overlay.autoresizingMask = [.width, .height]
+        let focusExpectation = expectation(description: "observer forwards focus callback")
+        var pointerDownCount = 0
+        overlay.onPointerDown = {
+            pointerDownCount += 1
+            focusExpectation.fulfill()
+        }
+        contentView.addSubview(overlay)
+
+        _ = overlay.handleEventIfNeeded(
+            makeMouseEvent(type: .leftMouseDown, location: NSPoint(x: 60, y: 60), window: window)
+        )
+        wait(for: [focusExpectation], timeout: 1.0)
+
+        XCTAssertEqual(pointerDownCount, 1)
+    }
+
+    func testObserverIgnoresOutsideOrForeignWindowClicks() {
+        let window = makeWindow()
+        defer { window.orderOut(nil) }
+        let otherWindow = makeWindow()
+        defer { otherWindow.orderOut(nil) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let overlay = MarkdownPanelPointerObserverView(frame: contentView.bounds)
+        overlay.autoresizingMask = [.width, .height]
+        let noFocusExpectation = expectation(description: "observer ignores invalid clicks")
+        noFocusExpectation.isInverted = true
+        var pointerDownCount = 0
+        overlay.onPointerDown = {
+            pointerDownCount += 1
+            noFocusExpectation.fulfill()
+        }
+        contentView.addSubview(overlay)
+
+        _ = overlay.handleEventIfNeeded(
+            makeMouseEvent(type: .leftMouseDown, location: NSPoint(x: 400, y: 400), window: window)
+        )
+        _ = overlay.handleEventIfNeeded(
+            makeMouseEvent(type: .leftMouseDown, location: NSPoint(x: 60, y: 60), window: otherWindow, eventNumber: 2)
+        )
+        _ = overlay.handleEventIfNeeded(
+            makeMouseEvent(type: .leftMouseDragged, location: NSPoint(x: 60, y: 60), window: window, eventNumber: 3)
+        )
+        wait(for: [noFocusExpectation], timeout: 0.1)
+
+        XCTAssertEqual(pointerDownCount, 0)
+    }
+
+    func testObserverDoesNotParticipateInHitTesting() {
+        let overlay = MarkdownPanelPointerObserverView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
+        XCTAssertNil(overlay.hitTest(NSPoint(x: 40, y: 30)))
+    }
+}
+
 final class BrowserLinkOpenSettingsTests: XCTestCase {
     private var suiteName: String!
     private var defaults: UserDefaults!
