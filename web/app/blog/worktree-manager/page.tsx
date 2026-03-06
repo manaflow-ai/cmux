@@ -62,7 +62,7 @@ export default function WorktreeManagerPage() {
         <Link href="https://github.com/coderabbitai/git-worktree-runner">
           git-worktree-runner
         </Link>
-        . We don&apos;t use any of them. We put a few paragraphs of instructions
+        . We ended up not needing one. A few paragraphs of instructions
         in a <code>CLAUDE.md</code> and Claude Code handles the rest: creating
         worktrees, working in them, committing, pushing, opening PRs, cleaning
         up. The worktree manager is just prose.
