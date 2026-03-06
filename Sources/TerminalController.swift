@@ -6391,12 +6391,9 @@ class TerminalController {
     private func v2BrowserWait(params: [String: Any]) -> V2CallResult {
         let timeoutMs = max(1, v2Int(params, "timeout_ms") ?? 5_000)
         let timeout = Double(timeoutMs) / 1000.0
+        let selectorRaw = v2BrowserSelector(params)
 
-        let conditionScript: String = {
-            if let selector = v2BrowserSelector(params) {
-                let literal = v2JSONLiteral(selector)
-                return "document.querySelector(\(literal)) !== null"
-            }
+        let conditionScriptBase: String = {
             if let urlContains = v2String(params, "url_contains") {
                 let literal = v2JSONLiteral(urlContains)
                 return "String(location.href || '').includes(\(literal))"
@@ -6457,6 +6454,17 @@ class TerminalController {
         }
         guard let workspaceId, let surfaceIdOut, let webView else {
             return .err(code: "internal_error", message: "Failed to resolve browser surface", data: nil)
+        }
+
+        let conditionScript: String
+        if let selectorRaw {
+            guard let selector = v2BrowserResolveSelector(selectorRaw, surfaceId: surfaceIdOut) else {
+                return .err(code: "not_found", message: "Element reference not found", data: ["selector": selectorRaw])
+            }
+            let literal = v2JSONLiteral(selector)
+            conditionScript = "document.querySelector(\(literal)) !== null"
+        } else {
+            conditionScript = conditionScriptBase
         }
 
         let deadline = Date().addingTimeInterval(timeout)

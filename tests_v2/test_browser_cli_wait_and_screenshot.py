@@ -89,6 +89,22 @@ def main() -> int:
         )
         _must(wait_proc.stdout.strip() == "OK", f"Expected browser wait OK output: {wait_proc.stdout!r}")
 
+        snapshot_payload = c._call("browser.snapshot", {"surface_id": target}) or {}
+        refs = snapshot_payload.get("refs") or {}
+        _must(isinstance(refs, dict) and len(refs) > 0, f"Expected snapshot refs for ref-based wait coverage: {snapshot_payload}")
+        ref_selector = str(next(iter(refs.keys())))
+        ref_wait_proc = _run_cli(
+            cli,
+            "browser",
+            target,
+            "wait",
+            "--selector",
+            ref_selector,
+            "--timeout-ms",
+            "2000",
+        )
+        _must(ref_wait_proc.stdout.strip() == "OK", f"Expected browser wait to resolve snapshot refs: {ref_wait_proc.stdout!r}")
+
         snapshot_proc = _run_cli(cli, "browser", target, "snapshot", "--compact")
         _must(
             snapshot_proc.stdout.strip().startswith("- document"),

@@ -6960,7 +6960,7 @@ struct CMUXCLI {
           browser press|keydown|keyup <key> [--snapshot-after]
           browser select <selector> <value> [--snapshot-after]
           browser scroll [--selector <css>] [--dx <n>] [--dy <n>] [--snapshot-after]
-          browser screenshot [--out <path>]
+          browser screenshot [--out <path>] [--json]
           browser get <url|title|text|html|value|attr|count|box|styles> [...]
           browser is <visible|enabled|checked> <selector>
           browser find <role|text|label|placeholder|alt|title|testid|first|last|nth> ...
