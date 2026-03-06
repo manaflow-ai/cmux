@@ -3403,7 +3403,7 @@ final class ShortcutHintModifierPolicyTests: XCTestCase {
             defaults.set(false, forKey: ShortcutHintDebugSettings.showHintsOnCommandHoldKey)
 
             XCTAssertFalse(ShortcutHintModifierPolicy.shouldShowHints(for: [.command], defaults: defaults))
-            XCTAssertTrue(ShortcutHintModifierPolicy.shouldShowHints(for: [.control], defaults: defaults))
+            XCTAssertFalse(ShortcutHintModifierPolicy.shouldShowHints(for: [.control], defaults: defaults))
         }
     }
 

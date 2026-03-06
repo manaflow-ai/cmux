@@ -5782,11 +5782,10 @@ enum ShortcutHintModifierPolicy {
         defaults: UserDefaults = .standard
     ) -> Bool {
         let normalized = modifierFlags.intersection(.deviceIndependentFlagsMask)
-        if normalized == [.control] {
-            return true
+        guard normalized == [.command] || normalized == [.control] else {
+            return false
         }
-        return ShortcutHintDebugSettings.showHintsOnCommandHoldEnabled(defaults: defaults) &&
-            normalized == [.command]
+        return ShortcutHintDebugSettings.showHintsOnCommandHoldEnabled(defaults: defaults)
     }
 
     static func isCurrentWindow(
