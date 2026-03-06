@@ -7226,7 +7226,7 @@ private struct SidebarHelpMenuButton: View {
                     helpOptionTrailingIcon(systemName: trailingSystemImage)
                 }
                 if isExternalLink {
-                    helpOptionTrailingIcon(systemName: "arrow.up.right", size: 11)
+                    helpOptionTrailingIcon(systemName: "arrow.up.right", size: 10)
                 }
             }
             .padding(.horizontal, 8)
