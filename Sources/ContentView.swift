@@ -3380,6 +3380,8 @@ struct ContentView: View {
         }
 
         let previewMatches = Self.commandPalettePreviewSearchMatches(
+            scope: scope,
+            searchCorpus: commandPaletteSearchCorpus,
             candidateCommandIDs: candidateCommandIDs,
             searchCorpusByID: commandPaletteSearchCorpusByID,
             query: query,
@@ -3400,6 +3402,8 @@ struct ContentView: View {
     }
 
     nonisolated private static func commandPalettePreviewSearchMatches(
+        scope: CommandPaletteListScope,
+        searchCorpus: [CommandPaletteSearchCorpusEntry<String>],
         candidateCommandIDs: [String],
         searchCorpusByID: [String: CommandPaletteSearchCorpusEntry<String>],
         query: String,
@@ -3408,7 +3412,25 @@ struct ContentView: View {
         historyTimestamp: TimeInterval,
         resultLimit: Int
     ) -> [CommandPaletteResolvedSearchMatch] {
-        guard !candidateCommandIDs.isEmpty, resultLimit > 0 else {
+        guard resultLimit > 0 else {
+            return []
+        }
+
+        if scope == .commands {
+            let matches = commandPaletteResolvedSearchMatches(
+                searchCorpus: searchCorpus,
+                query: query,
+                usageHistory: usageHistory,
+                queryIsEmpty: queryIsEmpty,
+                historyTimestamp: historyTimestamp
+            )
+            guard matches.count > resultLimit else {
+                return matches
+            }
+            return Array(matches.prefix(resultLimit))
+        }
+
+        guard !candidateCommandIDs.isEmpty else {
             return []
         }
 
@@ -3443,6 +3465,8 @@ struct ContentView: View {
     ) -> [String] {
         let preparedQuery = CommandPaletteFuzzyMatcher.preparedQuery(query)
         return commandPalettePreviewSearchMatches(
+            scope: .commands,
+            searchCorpus: searchCorpus,
             candidateCommandIDs: candidateCommandIDs,
             searchCorpusByID: searchCorpusByID,
             query: query,
