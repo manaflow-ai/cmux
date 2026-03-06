@@ -270,15 +270,6 @@ struct cmuxApp: App {
             }
 #endif
 
-            CommandMenu(String(localized: "menu.updateLogs.title", defaultValue: "Update Logs")) {
-                Button(String(localized: "menu.updateLogs.copyUpdateLogs", defaultValue: "Copy Update Logs")) {
-                    appDelegate.copyUpdateLogs(nil)
-                }
-                Button(String(localized: "menu.updateLogs.copyFocusLogs", defaultValue: "Copy Focus Logs")) {
-                    appDelegate.copyFocusLogs(nil)
-                }
-            }
-
             CommandMenu(String(localized: "menu.notifications.title", defaultValue: "Notifications")) {
                 let snapshot = notificationMenuSnapshot
 
@@ -373,6 +364,15 @@ struct cmuxApp: App {
                     ForEach(TitlebarControlsStyle.allCases) { style in
                         Text(style.menuTitle).tag(style.rawValue)
                     }
+                }
+
+                Divider()
+
+                Button(String(localized: "menu.updateLogs.copyUpdateLogs", defaultValue: "Copy Update Logs")) {
+                    appDelegate.copyUpdateLogs(nil)
+                }
+                Button(String(localized: "menu.updateLogs.copyFocusLogs", defaultValue: "Copy Focus Logs")) {
+                    appDelegate.copyFocusLogs(nil)
                 }
 
                 Divider()
