@@ -55,7 +55,7 @@ export default function WorktreeManagerPage() {
       <p className="mt-6">
         cmux intentionally does not have a builtin git worktree manager. cmux
         intentionally has no opinion on worktrees. There are plenty of dedicated
-        tools for this now:{" "}
+        tools for this:{" "}
         <Link href="https://github.com/d-kuro/gwq">gwq</Link>,{" "}
         <Link href="https://github.com/satococoa/wtp">wtp</Link>,{" "}
         <Link href="https://github.com/max-sixty/worktrunk">worktrunk</Link>,{" "}
