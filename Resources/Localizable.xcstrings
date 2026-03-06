@@ -726,13 +726,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Up to 10 images. Large images will be optimized before sending."
+            "value": "Up to 10 images."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "画像は最大10枚まで添付できます。大きな画像は送信前に最適化されます。"
+            "value": "画像は最大10枚まで添付できます。"
           }
         }
       }
@@ -981,13 +981,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "A human will read this! You can also reach us at founders@manaflow.com."
+            "value": "You can also reach us at founders@manaflow.com."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "人間がこれを読みます。founders@manaflow.com 宛てに直接ご連絡いただくこともできます。"
+            "value": "founders@manaflow.com 宛てに直接ご連絡いただくこともできます。"
           }
         }
       }
@@ -1049,13 +1049,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "A human will read this! You can also reach us at founders@manaflow.com."
+            "value": "You can also reach us at founders@manaflow.com."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "人間がこれを読みます。founders@manaflow.com 宛てに直接ご連絡いただくこともできます。"
+            "value": "founders@manaflow.com 宛てに直接ご連絡いただくこともできます。"
           }
         }
       }

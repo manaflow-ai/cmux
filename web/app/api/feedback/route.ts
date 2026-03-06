@@ -103,7 +103,7 @@ export async function POST(request: Request) {
   const resend = new Resend(feedbackConfig.resendApiKey);
 
   const { error } = await resend.emails.send({
-    from: `cmux feedback <${feedbackConfig.fromEmail}>`,
+    from: `Manaflow <${feedbackConfig.fromEmail}>`,
     to: [feedbackRecipient],
     replyTo: email,
     subject,
