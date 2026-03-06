@@ -130,6 +130,20 @@ final class SidebarHelpMenuUITests: XCTestCase {
                 "A human will read this! You can also reach us at founders@manaflow.com."
             ].waitForExistence(timeout: 2.0)
         )
+
+        let messageEditor = requireElement(
+            candidates: [
+                app.textViews["SidebarFeedbackMessageEditor"],
+                app.scrollViews["SidebarFeedbackMessageEditor"],
+                app.otherElements["SidebarFeedbackMessageEditor"],
+                app.textViews["Message"],
+            ],
+            timeout: 2.0,
+            description: "feedback message editor"
+        )
+        messageEditor.click()
+        app.typeText("hello")
+        XCTAssertTrue(app.staticTexts["5/4000"].waitForExistence(timeout: 2.0))
     }
 
     private func waitForWindowCount(atLeast count: Int, app: XCUIApplication, timeout: TimeInterval) -> Bool {

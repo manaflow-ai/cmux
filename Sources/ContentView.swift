@@ -6621,12 +6621,27 @@ private struct FeedbackComposerMessageEditor: NSViewRepresentable {
     }
 }
 
+private final class FeedbackComposerPassthroughLabel: NSTextField {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}
+
+private final class FeedbackComposerMessageScrollView: NSScrollView {
+    weak var focusTextView: NSTextView?
+
+    override func mouseDown(with event: NSEvent) {
+        if let focusTextView {
+            _ = window?.makeFirstResponder(focusTextView)
+        }
+        super.mouseDown(with: event)
+    }
+}
+
 private final class FeedbackComposerMessageEditorView: NSView {
     private static let textInset = NSSize(width: 10, height: 10)
 
-    let scrollView = NSScrollView()
+    let scrollView = FeedbackComposerMessageScrollView()
     let textView = NSTextView()
-    private let placeholderField = NSTextField(labelWithString: "")
+    private let placeholderField = FeedbackComposerPassthroughLabel(labelWithString: "")
 
     var placeholder: String = "" {
         didSet {
@@ -6649,8 +6664,11 @@ private final class FeedbackComposerMessageEditorView: NSView {
         scrollView.drawsBackground = false
         scrollView.automaticallyAdjustsContentInsets = false
         scrollView.hasVerticalScroller = true
+        scrollView.focusTextView = textView
 
         textView.translatesAutoresizingMaskIntoConstraints = false
+        textView.isEditable = true
+        textView.isSelectable = true
         textView.isRichText = false
         textView.importsGraphics = false
         textView.isHorizontallyResizable = false
@@ -6711,6 +6729,11 @@ private final class FeedbackComposerMessageEditorView: NSView {
         updatePlaceholderVisibility()
     }
 
+    override func layout() {
+        super.layout()
+        syncTextViewFrameToContentSize()
+    }
+
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
@@ -6726,6 +6749,25 @@ private final class FeedbackComposerMessageEditorView: NSView {
 
     private func updatePlaceholderVisibility() {
         placeholderField.isHidden = textView.string.isEmpty == false
+    }
+
+    private func syncTextViewFrameToContentSize() {
+        let contentSize = scrollView.contentSize
+        guard contentSize.width > 0, contentSize.height > 0 else { return }
+
+        textView.minSize = NSSize(width: 0, height: contentSize.height)
+        textView.textContainer?.containerSize = NSSize(
+            width: contentSize.width,
+            height: CGFloat.greatestFiniteMagnitude
+        )
+
+        let targetSize = NSSize(
+            width: contentSize.width,
+            height: max(textView.frame.height, contentSize.height)
+        )
+        if textView.frame.size != targetSize {
+            textView.frame = NSRect(origin: .zero, size: targetSize)
+        }
     }
 }
 
