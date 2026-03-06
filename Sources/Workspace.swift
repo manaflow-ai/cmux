@@ -1956,11 +1956,21 @@ final class Workspace: Identifiable, ObservableObject {
         guard let paneId = sourcePaneId else { return nil }
         let inheritedConfig = inheritedTerminalConfig(preferredPanelId: panelId, inPane: paneId)
 
+        // Inherit working directory: prefer the source panel's reported cwd,
+        // fall back to the workspace's current directory.
+        let splitWorkingDirectory: String? = panelDirectories[panelId]
+            ?? (currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? nil : currentDirectory)
+#if DEBUG
+        dlog("split.cwd panelId=\(panelId.uuidString.prefix(5)) panelDir=\(panelDirectories[panelId] ?? "nil") currentDir=\(currentDirectory) resolved=\(splitWorkingDirectory ?? "nil")")
+#endif
+
         // Create the new terminal panel.
         let newPanel = TerminalPanel(
             workspaceId: id,
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: inheritedConfig,
+            workingDirectory: splitWorkingDirectory,
             portOrdinal: portOrdinal
         )
         panels[newPanel.id] = newPanel
@@ -3074,7 +3084,14 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         if let browserPanel = panels[panelId] as? BrowserPanel {
-            maybeAutoFocusBrowserAddressBarOnPanelFocus(browserPanel, trigger: trigger)
+            // Keep browser find focus behavior aligned with terminal find behavior.
+            // When switching back to a pane with an already-open find bar, reassert
+            // focus to that field instead of leaving first responder stale.
+            if browserPanel.searchState != nil {
+                browserPanel.startFind()
+            } else {
+                maybeAutoFocusBrowserAddressBarOnPanelFocus(browserPanel, trigger: trigger)
+            }
         }
     }
 

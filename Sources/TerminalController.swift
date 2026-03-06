@@ -13,6 +13,9 @@ class TerminalController {
         let acceptLoopAlive: Bool
         let socketPathMatches: Bool
         let socketPathExists: Bool
+        let socketProbePerformed: Bool
+        let socketConnectable: Bool?
+        let socketConnectErrno: Int32?
 
         var failureSignals: [String] {
             var signals: [String] = []
@@ -20,6 +23,9 @@ class TerminalController {
             if !acceptLoopAlive { signals.append("accept_loop_dead") }
             if !socketPathMatches { signals.append("socket_path_mismatch") }
             if !socketPathExists { signals.append("socket_missing") }
+            if socketProbePerformed && isRunning && acceptLoopAlive && socketPathMatches && socketPathExists && socketConnectable == false {
+                signals.append("socket_unreachable")
+            }
             return signals
         }
 
@@ -51,6 +57,14 @@ class TerminalController {
     private nonisolated static let acceptFailureMaxBackoffMs = 5_000
     private nonisolated static let acceptFailureMinimumRearmDelayMs = 100
     private nonisolated static let acceptFailureRearmThreshold = 50
+    private nonisolated static let socketProbePollTimeoutMs: Int32 = 100
+    private nonisolated static let socketProbePollAttempts = 3
+    private nonisolated static let socketProbePollRetryBackoffUs: useconds_t = 50_000
+    private nonisolated static let unixSocketPathMaxLength: Int = {
+        var addr = sockaddr_un()
+        // Reserve one byte for the null terminator.
+        return MemoryLayout.size(ofValue: addr.sun_path) - 1
+    }()
 
     private struct ListenerStateSnapshot {
         let socketPath: String
@@ -508,6 +522,99 @@ class TerminalController {
         return !isRunning && activeGeneration == 0
     }
 
+    private nonisolated static func unixSocketAddress(path: String) -> sockaddr_un? {
+        var addr = sockaddr_un()
+        addr.sun_family = sa_family_t(AF_UNIX)
+
+        let maxLength = unixSocketPathMaxLength + 1
+        var didFit = false
+        path.withCString { source in
+            let sourceLength = strlen(source)
+            guard sourceLength < maxLength else { return }
+
+            _ = withUnsafeMutableBytes(of: &addr.sun_path) { buffer in
+                buffer.initializeMemory(as: UInt8.self, repeating: 0)
+            }
+            withUnsafeMutablePointer(to: &addr.sun_path) { pathPtr in
+                let destination = UnsafeMutableRawPointer(pathPtr).assumingMemoryBound(to: CChar.self)
+                strncpy(destination, source, maxLength - 1)
+            }
+            didFit = true
+        }
+        return didFit ? addr : nil
+    }
+
+    private nonisolated static func bindUnixSocket(_ socket: Int32, path: String) -> Int32? {
+        guard var addr = unixSocketAddress(path: path) else { return nil }
+        return withUnsafePointer(to: &addr) { ptr in
+            ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                bind(socket, sockaddrPtr, socklen_t(MemoryLayout<sockaddr_un>.size))
+            }
+        }
+    }
+
+    private nonisolated static func probeSocketConnectability(path: String) -> (isConnectable: Bool?, errnoCode: Int32?) {
+        let probeSocket = socket(AF_UNIX, SOCK_STREAM, 0)
+        guard probeSocket >= 0 else {
+            return (false, errno)
+        }
+        defer { close(probeSocket) }
+
+        let existingFlags = fcntl(probeSocket, F_GETFL, 0)
+        if existingFlags >= 0 {
+            _ = fcntl(probeSocket, F_SETFL, existingFlags | O_NONBLOCK)
+        }
+
+        guard var addr = unixSocketAddress(path: path) else {
+            return (false, ENAMETOOLONG)
+        }
+        let connectResult = withUnsafePointer(to: &addr) { ptr in
+            ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                connect(probeSocket, sockaddrPtr, socklen_t(MemoryLayout<sockaddr_un>.size))
+            }
+        }
+        if connectResult == 0 {
+            return (true, nil)
+        }
+        let connectErrno = errno
+        if connectErrno == EINPROGRESS {
+            var pollDescriptor = pollfd(fd: probeSocket, events: Int16(POLLOUT), revents: 0)
+            for attempt in 0..<Self.socketProbePollAttempts {
+                pollDescriptor.revents = 0
+                let pollResult = poll(&pollDescriptor, 1, Self.socketProbePollTimeoutMs)
+                if pollResult > 0 {
+                    var socketError: Int32 = 0
+                    var socketErrorLength = socklen_t(MemoryLayout<Int32>.size)
+                    let status = getsockopt(
+                        probeSocket,
+                        SOL_SOCKET,
+                        SO_ERROR,
+                        &socketError,
+                        &socketErrorLength
+                    )
+                    if status == 0 && socketError == 0 {
+                        return (true, nil)
+                    }
+                    if status == 0 {
+                        return (false, socketError)
+                    }
+                    return (false, errno)
+                }
+
+                let pollErrno = errno
+                if pollResult == 0 || pollErrno == EINTR {
+                    if attempt + 1 < Self.socketProbePollAttempts {
+                        usleep(Self.socketProbePollRetryBackoffUs)
+                        continue
+                    }
+                    return (false, pollResult == 0 ? ETIMEDOUT : pollErrno)
+                }
+                return (false, pollErrno)
+            }
+        }
+        return (false, connectErrno)
+    }
+
     func start(tabManager: TabManager, socketPath: String, accessMode: SocketControlMode) {
         self.tabManager = tabManager
         self.accessMode = accessMode
@@ -556,19 +663,18 @@ class TerminalController {
         }
 
         // Bind to path
-        var addr = sockaddr_un()
-        addr.sun_family = sa_family_t(AF_UNIX)
-        socketPath.withCString { ptr in
-            withUnsafeMutablePointer(to: &addr.sun_path) { pathPtr in
-                let pathBuf = UnsafeMutableRawPointer(pathPtr).assumingMemoryBound(to: CChar.self)
-                strcpy(pathBuf, ptr)
-            }
-        }
-
-        let bindResult = withUnsafePointer(to: &addr) { ptr in
-            ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
-                bind(newServerSocket, sockaddrPtr, socklen_t(MemoryLayout<sockaddr_un>.size))
-            }
+        guard let bindResult = Self.bindUnixSocket(newServerSocket, path: socketPath) else {
+            close(newServerSocket)
+            reportSocketListenerFailure(
+                message: "socket.listener.start.failed",
+                stage: "bind_path_too_long",
+                errnoCode: ENAMETOOLONG,
+                extra: [
+                    "pathLength": socketPath.utf8.count,
+                    "maxPathLength": Self.unixSocketPathMaxLength
+                ]
+            )
+            return
         }
 
         guard bindResult >= 0 else {
@@ -653,12 +759,19 @@ class TerminalController {
 
         var st = stat()
         let exists = lstat(expectedSocketPath, &st) == 0 && (st.st_mode & S_IFMT) == S_IFSOCK
+        let shouldProbeConnection = snapshot.isRunning && snapshot.acceptLoopAlive && pathMatches && exists
+        let connectability = shouldProbeConnection
+            ? Self.probeSocketConnectability(path: expectedSocketPath)
+            : (isConnectable: nil, errnoCode: nil)
 
         return SocketListenerHealth(
             isRunning: snapshot.isRunning,
             acceptLoopAlive: snapshot.acceptLoopAlive,
             socketPathMatches: pathMatches,
-            socketPathExists: exists
+            socketPathExists: exists,
+            socketProbePerformed: shouldProbeConnection,
+            socketConnectable: connectability.isConnectable,
+            socketConnectErrno: connectability.errnoCode
         )
     }
 
@@ -5284,41 +5397,70 @@ class TerminalController {
         _ webView: WKWebView,
         script: String,
         timeout: TimeInterval = 5.0,
-        preferAsync: Bool = false
+        preferAsync: Bool = false,
+        contentWorld: WKContentWorld
     ) -> V2JavaScriptResult {
+        let timeoutSeconds = max(0.01, timeout)
+        let resultLock = NSLock()
+        let completionSignal = DispatchSemaphore(value: 0)
         var done = false
         var resultValue: Any?
         var resultError: String?
 
-        if preferAsync, #available(macOS 11.0, *) {
-            webView.callAsyncJavaScript(script, arguments: [:], in: nil, in: .page) { result in
-                switch result {
-                case .success(let value):
-                    resultValue = value
-                case .failure(let error):
-                    resultError = error.localizedDescription
-                }
+        let finish: (_ value: Any?, _ error: String?) -> Void = { value, error in
+            resultLock.lock()
+            if !done {
                 done = true
+                resultValue = value
+                resultError = error
+                completionSignal.signal()
+            }
+            resultLock.unlock()
+        }
+
+        let evaluator = {
+            if preferAsync, #available(macOS 11.0, *) {
+                webView.callAsyncJavaScript(script, arguments: [:], in: nil, in: contentWorld) { result in
+                    switch result {
+                    case .success(let value):
+                        finish(value, nil)
+                    case .failure(let error):
+                        finish(nil, error.localizedDescription)
+                    }
+                }
+            } else {
+                webView.evaluateJavaScript(script) { value, error in
+                    if let error {
+                        finish(nil, error.localizedDescription)
+                    } else {
+                        finish(value, nil)
+                    }
+                }
+            }
+        }
+
+        if Thread.isMainThread {
+            evaluator()
+            let deadline = Date().addingTimeInterval(timeoutSeconds)
+            while true {
+                resultLock.lock()
+                let isDone = done
+                resultLock.unlock()
+                if isDone {
+                    break
+                }
+                if Date() >= deadline {
+                    return .failure("Timed out waiting for JavaScript result")
+                }
+                _ = RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
             }
         } else {
-            webView.evaluateJavaScript(script) { value, error in
-                if let error {
-                    resultError = error.localizedDescription
-                } else {
-                    resultValue = value
-                }
-                done = true
+            DispatchQueue.main.async(execute: evaluator)
+            if completionSignal.wait(timeout: .now() + timeoutSeconds) == .timedOut {
+                return .failure("Timed out waiting for JavaScript result")
             }
         }
 
-        let deadline = Date().addingTimeInterval(timeout)
-        while !done && Date() < deadline {
-            _ = RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
-        }
-
-        if !done {
-            return .failure("Timed out waiting for JavaScript result")
-        }
         if let resultError {
             return .failure(resultError)
         }
@@ -5368,7 +5510,8 @@ class TerminalController {
         _ webView: WKWebView,
         surfaceId: UUID,
         script: String,
-        timeout: TimeInterval = 5.0
+        timeout: TimeInterval = 5.0,
+        useEval: Bool = true
     ) -> V2JavaScriptResult {
         let scriptLiteral = v2JSONLiteral(script)
         let framePrelude: String
@@ -5387,6 +5530,13 @@ class TerminalController {
             framePrelude = "const __cmuxDoc = document;"
         }
 
+        let executionBlock: String
+        if useEval {
+            executionBlock = "const __r = eval(\(scriptLiteral));"
+        } else {
+            executionBlock = "const __r = \(script);"
+        }
+
         let asyncFunctionBody = """
         \(framePrelude)
 
@@ -5399,7 +5549,7 @@ class TerminalController {
 
         const __cmuxEvalInFrame = async function() {
           const document = __cmuxDoc;
-          const __r = eval(\(scriptLiteral));
+          \(executionBlock)
           const __value = await __cmuxMaybeAwait(__r);
           return {
             __cmux_t: (typeof __value === 'undefined') ? 'undefined' : 'value',
@@ -5410,16 +5560,40 @@ class TerminalController {
         return await __cmuxEvalInFrame();
         """
 
-        let rawResult: V2JavaScriptResult
+        var rawResult: V2JavaScriptResult
         if #available(macOS 11.0, *) {
-            rawResult = v2RunJavaScript(webView, script: asyncFunctionBody, timeout: timeout, preferAsync: true)
+            rawResult = v2RunJavaScript(
+                webView,
+                script: asyncFunctionBody,
+                timeout: timeout,
+                preferAsync: true,
+                contentWorld: .page
+            )
         } else {
             let evaluateFallback = """
             (async () => {
               \(asyncFunctionBody)
             })()
             """
-            rawResult = v2RunJavaScript(webView, script: evaluateFallback, timeout: timeout)
+            rawResult = v2RunJavaScript(webView, script: evaluateFallback, timeout: timeout, contentWorld: .page)
+        }
+
+        if !useEval, case .failure(let pageMessage) = rawResult, #available(macOS 11.0, *) {
+            let isolatedResult = v2RunJavaScript(
+                webView,
+                script: asyncFunctionBody,
+                timeout: timeout,
+                preferAsync: true,
+                contentWorld: .defaultClient
+            )
+            switch isolatedResult {
+            case .success:
+                rawResult = isolatedResult
+            case .failure(let isolatedMessage):
+                if isolatedMessage != pageMessage {
+                    rawResult = .failure("\(pageMessage) (isolated-world retry: \(isolatedMessage))")
+                }
+            }
         }
 
         switch rawResult {
@@ -5520,36 +5694,39 @@ class TerminalController {
         }
     }
 
-    private func v2BrowserWaitForCondition(
-        _ conditionScript: String,
-        webView: WKWebView,
-        surfaceId: UUID? = nil,
-        timeout: TimeInterval = 5.0,
-        pollInterval: TimeInterval = 0.05
-    ) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            let wrapped = "(() => { try { return !!(\(conditionScript)); } catch (_) { return false; } })()"
-            let jsResult: V2JavaScriptResult
-            if let surfaceId {
-                jsResult = v2RunBrowserJavaScript(webView, surfaceId: surfaceId, script: wrapped, timeout: max(0.5, pollInterval + 0.25))
-            } else {
-                jsResult = v2RunJavaScript(webView, script: wrapped, timeout: max(0.5, pollInterval + 0.25))
-            }
-            if case let .success(value) = jsResult,
-               let ok = value as? Bool,
-               ok {
-                return true
-            }
-            _ = RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(pollInterval))
-        }
-        return false
-    }
-
     private func v2PNGData(from image: NSImage) -> Data? {
         guard let tiff = image.tiffRepresentation,
               let rep = NSBitmapImageRep(data: tiff) else { return nil }
         return rep.representation(using: .png, properties: [:])
+    }
+
+    private func bestEffortPruneTemporaryFiles(
+        in directoryURL: URL,
+        keepingMostRecent maxCount: Int = 50,
+        maxAge: TimeInterval = 24 * 60 * 60
+    ) {
+        guard let entries = try? FileManager.default.contentsOfDirectory(
+            at: directoryURL,
+            includingPropertiesForKeys: [.isRegularFileKey, .contentModificationDateKey, .creationDateKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return
+        }
+
+        let now = Date()
+        let datedEntries = entries.compactMap { url -> (url: URL, date: Date)? in
+            guard let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .contentModificationDateKey, .creationDateKey]),
+                  values.isRegularFile == true else {
+                return nil
+            }
+            return (url, values.contentModificationDate ?? values.creationDate ?? .distantPast)
+        }.sorted { $0.date > $1.date }
+
+        for (index, entry) in datedEntries.enumerated() {
+            if index >= maxCount || now.timeIntervalSince(entry.date) > maxAge {
+                try? FileManager.default.removeItem(at: entry.url)
+            }
+        }
     }
 
     // MARK: - Markdown
@@ -5972,7 +6149,7 @@ class TerminalController {
             let retryAttempts = max(1, v2Int(params, "retry_attempts") ?? 3)
 
             for attempt in 1...retryAttempts {
-                switch v2RunBrowserJavaScript(browserPanel.webView, surfaceId: surfaceId, script: script) {
+                switch v2RunBrowserJavaScript(browserPanel.webView, surfaceId: surfaceId, script: script, useEval: false) {
                 case .failure(let message):
                     return .err(code: "js_error", message: message, data: ["action": actionName, "selector": selector])
                 case .success(let value):
@@ -6230,7 +6407,7 @@ class TerminalController {
             })()
             """
 
-            switch v2RunBrowserJavaScript(browserPanel.webView, surfaceId: surfaceId, script: script, timeout: 10.0) {
+            switch v2RunBrowserJavaScript(browserPanel.webView, surfaceId: surfaceId, script: script, timeout: 10.0, useEval: false) {
             case .failure(let message):
                 return .err(code: "js_error", message: message, data: nil)
             case .success(let value):
@@ -6327,42 +6504,120 @@ class TerminalController {
     private func v2BrowserWait(params: [String: Any]) -> V2CallResult {
         let timeoutMs = max(1, v2Int(params, "timeout_ms") ?? 5_000)
         let timeout = Double(timeoutMs) / 1000.0
+        let selectorRaw = v2BrowserSelector(params)
 
-        return v2BrowserWithPanel(params: params) { _, ws, surfaceId, browserPanel in
-            let conditionScript: String = {
-                if let selector = v2BrowserSelector(params) {
-                    let literal = v2JSONLiteral(selector)
-                    return "document.querySelector(\(literal)) !== null"
+        let conditionScriptBase: String = {
+            if let urlContains = v2String(params, "url_contains") {
+                let literal = v2JSONLiteral(urlContains)
+                return "String(location.href || '').includes(\(literal))"
+            }
+            if let textContains = v2String(params, "text_contains") {
+                let literal = v2JSONLiteral(textContains)
+                return "(document.body && String(document.body.innerText || '').includes(\(literal)))"
+            }
+            if let loadState = v2String(params, "load_state") {
+                let normalizedLoadState = loadState.lowercased()
+                if normalizedLoadState == "interactive" {
+                    return """
+                    (() => {
+                      const __state = String(document.readyState || '').toLowerCase();
+                      return __state === 'interactive' || __state === 'complete';
+                    })()
+                    """
                 }
-                if let urlContains = v2String(params, "url_contains") {
-                    let literal = v2JSONLiteral(urlContains)
-                    return "String(location.href || '').includes(\(literal))"
-                }
-                if let textContains = v2String(params, "text_contains") {
-                    let literal = v2JSONLiteral(textContains)
-                    return "(document.body && String(document.body.innerText || '').includes(\(literal)))"
-                }
-                if let loadState = v2String(params, "load_state") {
-                    let literal = v2JSONLiteral(loadState.lowercased())
-                    return "String(document.readyState || '').toLowerCase() === \(literal)"
-                }
-                if let fn = v2String(params, "function") {
-                    return "(() => { return !!(\(fn)); })()"
-                }
-                return "document.readyState === 'complete'"
-            }()
+                let literal = v2JSONLiteral(normalizedLoadState)
+                return "String(document.readyState || '').toLowerCase() === \(literal)"
+            }
+            if let fn = v2String(params, "function") {
+                return "(() => { return !!(\(fn)); })()"
+            }
+            return "document.readyState === 'complete'"
+        }()
 
-            let ok = v2BrowserWaitForCondition(conditionScript, webView: browserPanel.webView, surfaceId: surfaceId, timeout: timeout)
-            if !ok {
+        var setupResult: V2CallResult?
+        var workspaceId: UUID?
+        var surfaceIdOut: UUID?
+        var webView: WKWebView?
+
+        v2MainSync {
+            guard let tabManager = self.v2ResolveTabManager(params: params) else {
+                setupResult = .err(code: "unavailable", message: "TabManager not available", data: nil)
+                return
+            }
+            guard let ws = self.v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+                setupResult = .err(code: "not_found", message: "Workspace not found", data: nil)
+                return
+            }
+            let surfaceId = self.v2UUID(params, "surface_id") ?? ws.focusedPanelId
+            guard let surfaceId else {
+                setupResult = .err(code: "not_found", message: "No focused browser surface", data: nil)
+                return
+            }
+            guard let browserPanel = ws.browserPanel(for: surfaceId) else {
+                setupResult = .err(code: "invalid_params", message: "Surface is not a browser", data: ["surface_id": surfaceId.uuidString])
+                return
+            }
+            workspaceId = ws.id
+            surfaceIdOut = surfaceId
+            webView = browserPanel.webView
+        }
+
+        if let setupResult {
+            return setupResult
+        }
+        guard let workspaceId, let surfaceIdOut, let webView else {
+            return .err(code: "internal_error", message: "Failed to resolve browser surface", data: nil)
+        }
+
+        let conditionScript: String
+        if let selectorRaw {
+            guard let selector = v2BrowserResolveSelector(selectorRaw, surfaceId: surfaceIdOut) else {
+                return .err(code: "not_found", message: "Element reference not found", data: ["selector": selectorRaw])
+            }
+            let literal = v2JSONLiteral(selector)
+            conditionScript = "document.querySelector(\(literal)) !== null"
+        } else {
+            conditionScript = conditionScriptBase
+        }
+
+        let deadline = Date().addingTimeInterval(timeout)
+        let pollInterval = 0.05
+        let wrappedScript = "(() => { try { return !!(\(conditionScript)); } catch (_) { return false; } })()"
+
+        while true {
+            switch v2RunBrowserJavaScript(
+                webView,
+                surfaceId: surfaceIdOut,
+                script: wrappedScript,
+                timeout: max(0.5, pollInterval + 0.25),
+                useEval: false
+            ) {
+            case .success(let value):
+                if let b = value as? Bool, b {
+                    return .ok([
+                        "workspace_id": workspaceId.uuidString,
+                        "workspace_ref": self.v2Ref(kind: .workspace, uuid: workspaceId),
+                        "surface_id": surfaceIdOut.uuidString,
+                        "surface_ref": self.v2Ref(kind: .surface, uuid: surfaceIdOut),
+                        "waited": true
+                    ])
+                }
+            case .failure(let message):
+                return .err(
+                    code: "js_error",
+                    message: message,
+                    data: [
+                        "condition": conditionScript,
+                        "timeout_ms": timeoutMs
+                    ]
+                )
+            }
+
+            if Date() >= deadline {
                 return .err(code: "timeout", message: "Condition not met before timeout", data: ["timeout_ms": timeoutMs])
             }
-            return .ok([
-                "workspace_id": ws.id.uuidString,
-                "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
-                "surface_id": surfaceId.uuidString,
-                "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
-                "waited": true
-            ])
+
+            Thread.sleep(forTimeInterval: pollInterval)
         }
     }
 
@@ -6707,13 +6962,31 @@ class TerminalController {
                 return .err(code: "internal_error", message: "Failed to capture snapshot", data: nil)
             }
 
-            return .ok([
+            var result: [String: Any] = [
                 "workspace_id": ws.id.uuidString,
                 "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
                 "surface_id": surfaceId.uuidString,
                 "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
                 "png_base64": imageData.base64EncodedString()
-            ])
+            ]
+
+            // Best effort: keep screenshot data available even when temp-file writes fail.
+            let screenshotsDirectory = FileManager.default.temporaryDirectory
+                .appendingPathComponent("cmux-browser-screenshots", isDirectory: true)
+            if (try? FileManager.default.createDirectory(at: screenshotsDirectory, withIntermediateDirectories: true)) != nil {
+                bestEffortPruneTemporaryFiles(in: screenshotsDirectory)
+                let timestampMs = Int(Date().timeIntervalSince1970 * 1000)
+                let shortSurfaceId = String(surfaceId.uuidString.prefix(8))
+                let shortRandomId = String(UUID().uuidString.prefix(8))
+                let filename = "surface-\(shortSurfaceId)-\(timestampMs)-\(shortRandomId).png"
+                let imageURL = screenshotsDirectory.appendingPathComponent(filename, isDirectory: false)
+                if (try? imageData.write(to: imageURL, options: .atomic)) != nil {
+                    result["path"] = imageURL.path
+                    result["url"] = imageURL.absoluteString
+                }
+            }
+
+            return .ok(result)
         }
     }
 
@@ -7543,7 +7816,8 @@ class TerminalController {
         _ = v2RunJavaScript(
             browserPanel.webView,
             script: BrowserPanel.telemetryHookBootstrapScriptSource,
-            timeout: 5.0
+            timeout: 5.0,
+            contentWorld: .page
         )
     }
 
@@ -7551,7 +7825,8 @@ class TerminalController {
         _ = v2RunJavaScript(
             browserPanel.webView,
             script: BrowserPanel.dialogTelemetryHookBootstrapScriptSource,
-            timeout: 5.0
+            timeout: 5.0,
+            contentWorld: .page
         )
     }
 
@@ -7583,7 +7858,7 @@ class TerminalController {
             })()
             """
 
-            switch v2RunJavaScript(browserPanel.webView, script: script, timeout: 5.0) {
+            switch v2RunJavaScript(browserPanel.webView, script: script, timeout: 5.0, contentWorld: .page) {
             case .failure(let message):
                 return .err(code: "js_error", message: message, data: nil)
             case .success(let value):
@@ -8178,7 +8453,7 @@ class TerminalController {
               return { ok: true, items };
             })()
             """
-            switch v2RunJavaScript(browserPanel.webView, script: script, timeout: 5.0) {
+            switch v2RunJavaScript(browserPanel.webView, script: script, timeout: 5.0, contentWorld: .page) {
             case .failure(let message):
                 return .err(code: "js_error", message: message, data: nil)
             case .success(let value):
@@ -8216,7 +8491,7 @@ class TerminalController {
               return { ok: true, items };
             })()
             """
-            switch v2RunJavaScript(browserPanel.webView, script: script, timeout: 5.0) {
+            switch v2RunJavaScript(browserPanel.webView, script: script, timeout: 5.0, contentWorld: .page) {
             case .failure(let message):
                 return .err(code: "js_error", message: message, data: nil)
             case .success(let value):
