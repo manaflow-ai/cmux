@@ -5776,11 +5776,83 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                         "expectedLatestWindowId": window1.windowId.uuidString,
                         "expectedLatestTabId": tabId1.uuidString,
                     ], at: path)
+                    self.prepareMultiWindowNotificationSourceTerminalIfNeeded(
+                        at: path,
+                        windowId: window1.windowId,
+                        tabManager: window1.tabManager,
+                        tabId: tabId1,
+                        surfaceId: surfaceId1
+                    )
                     self.publishMultiWindowNotificationSocketStateIfNeeded(at: path)
                 }
                 }
             }
         }
+    }
+
+    private func prepareMultiWindowNotificationSourceTerminalIfNeeded(
+        at path: String,
+        windowId: UUID,
+        tabManager: TabManager,
+        tabId: UUID,
+        surfaceId: UUID
+    ) {
+        let env = ProcessInfo.processInfo.environment
+        guard env["CMUX_UI_TEST_NOTIFY_SOURCE_TERMINAL_READY"] == "1" else { return }
+
+        writeMultiWindowNotificationTestData([
+            "sourceTerminalReady": "pending",
+            "sourceTerminalFocusFailure": "",
+        ], at: path)
+
+        let deadline = Date().addingTimeInterval(8.0)
+
+        func publish(ready: Bool, failure: String = "") {
+            writeMultiWindowNotificationTestData([
+                "sourceTerminalReady": ready ? "1" : "0",
+                "sourceTerminalFocusFailure": failure,
+            ], at: path)
+        }
+
+        func poll() {
+            guard let workspace = tabManager.tabs.first(where: { $0.id == tabId }) else {
+                publish(ready: false, failure: "workspace_missing")
+                return
+            }
+            guard let terminalPanel = workspace.terminalPanel(for: surfaceId) else {
+                publish(ready: false, failure: "terminal_missing")
+                return
+            }
+
+            let isWindowFrontmost = {
+                guard let window = self.mainWindow(for: windowId) else { return false }
+                return NSApp.keyWindow === window || NSApp.mainWindow === window
+            }()
+            if isWindowFrontmost && terminalPanel.hostedView.isSurfaceViewFirstResponder() {
+                publish(ready: true)
+                return
+            }
+
+            guard Date() < deadline else {
+                publish(
+                    ready: false,
+                    failure: isWindowFrontmost ? "terminal_not_first_responder" : "window_not_frontmost"
+                )
+                return
+            }
+
+            _ = self.focusMainWindow(windowId: windowId)
+            if let tab = tabManager.tabs.first(where: { $0.id == tabId }) {
+                tabManager.selectTab(tab)
+                tabManager.focusSurface(tabId: tabId, surfaceId: surfaceId)
+            }
+
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                poll()
+            }
+        }
+
+        poll()
     }
 
     private func publishMultiWindowNotificationSocketStateIfNeeded(at path: String) {
