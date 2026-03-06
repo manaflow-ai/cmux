@@ -6035,11 +6035,33 @@ enum CommandPaletteSwitcherSearchIndexer {
 enum CommandPaletteFuzzyMatcher {
     private static let tokenBoundaryChars: Set<Character> = [" ", "-", "_", "/", ".", ":"]
 
-    private struct SingleOmittedCharacterWordPrefixMatch {
+    private enum SingleEditWordPrefixEditKind {
+        case candidateExtraCharacter
+        case tokenExtraCharacter
+        case substitutedCharacter
+        case transposedCharacters
+
+        var basePenalty: Int {
+            switch self {
+            case .candidateExtraCharacter:
+                return 0
+            case .tokenExtraCharacter:
+                return 10
+            case .transposedCharacters:
+                return 24
+            case .substitutedCharacter:
+                return 40
+            }
+        }
+    }
+
+    private struct SingleEditWordPrefixMatch {
         let matchedIndices: Set<Int>
         let segmentStart: Int
         let segmentLength: Int
-        let omittedIndex: Int
+        let prefixLength: Int
+        let editPosition: Int
+        let editKind: SingleEditWordPrefixEditKind
     }
 
     struct PreparedQuery {
@@ -6127,8 +6149,8 @@ enum CommandPaletteFuzzyMatcher {
                 continue
             }
 
-            if let omittedCharacterPrefix = singleOmittedCharacterWordPrefixMatch(token: token, candidate: loweredCandidate) {
-                matched.formUnion(omittedCharacterPrefix.matchedIndices)
+            if let singleEditPrefix = singleEditWordPrefixMatch(token: token, candidate: loweredCandidate) {
+                matched.formUnion(singleEditPrefix.matchedIndices)
                 continue
             }
 
@@ -6172,11 +6194,11 @@ enum CommandPaletteFuzzyMatcher {
         if let wordPrefixScore = bestWordScore(tokenChars: tokenChars, candidateChars: candidateChars, requireExactWord: false) {
             bestScore = max(bestScore ?? wordPrefixScore, wordPrefixScore)
         }
-        if let omittedCharacterPrefixScore = singleOmittedCharacterWordPrefixScore(
+        if let singleEditPrefixScore = singleEditWordPrefixScore(
             tokenChars: tokenChars,
             candidateChars: candidateChars
         ) {
-            bestScore = max(bestScore ?? omittedCharacterPrefixScore, omittedCharacterPrefixScore)
+            bestScore = max(bestScore ?? singleEditPrefixScore, singleEditPrefixScore)
         }
 
         if let range = candidate.range(of: token) {
@@ -6238,31 +6260,33 @@ enum CommandPaletteFuzzyMatcher {
         return best
     }
 
-    private static func singleOmittedCharacterWordPrefixScore(
+    private static func singleEditWordPrefixScore(
         tokenChars: [Character],
         candidateChars: [Character]
     ) -> Int? {
-        guard tokenChars.count >= 4 else { return nil }
-
-        var best: Int?
-        for segment in wordSegments(candidateChars) {
-            guard let match = singleOmittedCharacterWordPrefixMatch(
-                tokenChars: tokenChars,
-                candidateChars: candidateChars,
-                segment: segment
-            ) else {
-                continue
-            }
-
-            let lengthPenalty = max(0, match.segmentLength - tokenChars.count - 1) * 6
-            let distancePenalty = match.segmentStart * 8
-            let trailingPenalty = max(0, candidateChars.count - match.segmentLength)
-            let omissionPenalty = max(0, match.omittedIndex - match.segmentStart) * 10
-            let score = 5000 - distancePenalty - lengthPenalty - trailingPenalty - omissionPenalty
-            best = max(best ?? score, score)
+        guard let match = singleEditWordPrefixMatch(
+            tokenChars: tokenChars,
+            candidateChars: candidateChars
+        ) else {
+            return nil
         }
+        return singleEditWordPrefixScore(match: match, candidateLength: candidateChars.count)
+    }
 
-        return best
+    private static func singleEditWordPrefixScore(
+        match: SingleEditWordPrefixMatch,
+        candidateLength: Int
+    ) -> Int {
+        let lengthPenalty = max(0, match.segmentLength - match.prefixLength) * 6
+        let distancePenalty = match.segmentStart * 8
+        let trailingPenalty = max(0, candidateLength - match.segmentLength)
+        let editPositionPenalty = max(0, match.editPosition - match.segmentStart) * 10
+        return 5000
+            - match.editKind.basePenalty
+            - distancePenalty
+            - lengthPenalty
+            - trailingPenalty
+            - editPositionPenalty
     }
 
     private static func initialismScore(tokenChars: [Character], candidateChars: [Character]) -> Int? {
@@ -6299,9 +6323,10 @@ enum CommandPaletteFuzzyMatcher {
         candidateChars: [Character],
         candidateStart: Int
     ) -> Bool {
-        guard length > 0 else { return false }
+        guard length >= 0 else { return false }
         guard tokenStart + length <= tokenChars.count else { return false }
         guard candidateStart + length <= candidateChars.count else { return false }
+        guard length > 0 else { return true }
 
         for offset in 0..<length where tokenChars[tokenStart + offset] != candidateChars[candidateStart + offset] {
             return false
@@ -6432,27 +6457,27 @@ enum CommandPaletteFuzzyMatcher {
         return matchedIndices
     }
 
-    private static func singleOmittedCharacterWordPrefixMatch(
+    private static func singleEditWordPrefixMatch(
         token: String,
         candidate: String
-    ) -> SingleOmittedCharacterWordPrefixMatch? {
-        singleOmittedCharacterWordPrefixMatch(
+    ) -> SingleEditWordPrefixMatch? {
+        singleEditWordPrefixMatch(
             tokenChars: Array(token),
             candidateChars: Array(candidate)
         )
     }
 
-    private static func singleOmittedCharacterWordPrefixMatch(
+    private static func singleEditWordPrefixMatch(
         tokenChars: [Character],
         candidateChars: [Character]
-    ) -> SingleOmittedCharacterWordPrefixMatch? {
+    ) -> SingleEditWordPrefixMatch? {
         guard tokenChars.count >= 4 else { return nil }
 
-        var bestMatch: SingleOmittedCharacterWordPrefixMatch?
+        var bestMatch: SingleEditWordPrefixMatch?
         var bestScore: Int?
 
         for segment in wordSegments(candidateChars) {
-            guard let match = singleOmittedCharacterWordPrefixMatch(
+            guard let match = singleEditWordPrefixMatch(
                 tokenChars: tokenChars,
                 candidateChars: candidateChars,
                 segment: segment
@@ -6460,12 +6485,7 @@ enum CommandPaletteFuzzyMatcher {
                 continue
             }
 
-            let score = 5000
-                - (match.segmentStart * 8)
-                - (max(0, match.segmentLength - tokenChars.count - 1) * 6)
-                - (max(0, candidateChars.count - match.segmentLength))
-                - (max(0, match.omittedIndex - match.segmentStart) * 10)
-
+            let score = singleEditWordPrefixScore(match: match, candidateLength: candidateChars.count)
             if let bestScore, score <= bestScore {
                 continue
             }
@@ -6476,49 +6496,139 @@ enum CommandPaletteFuzzyMatcher {
         return bestMatch
     }
 
-    private static func singleOmittedCharacterWordPrefixMatch(
+    private static func singleEditWordPrefixMatch(
         tokenChars: [Character],
         candidateChars: [Character],
         segment: (start: Int, end: Int)
-    ) -> SingleOmittedCharacterWordPrefixMatch? {
+    ) -> SingleEditWordPrefixMatch? {
         guard tokenChars.count >= 4 else { return nil }
 
         let segmentLength = segment.end - segment.start
-        guard segmentLength >= tokenChars.count + 1 else { return nil }
+        guard segmentLength + 1 >= tokenChars.count else { return nil }
 
-        var tokenIndex = 0
-        var candidateIndex = segment.start
-        var omittedIndex: Int?
-        var matchedIndices: Set<Int> = []
-
-        while tokenIndex < tokenChars.count, candidateIndex < segment.end {
-            if candidateChars[candidateIndex] == tokenChars[tokenIndex] {
-                matchedIndices.insert(candidateIndex)
-                tokenIndex += 1
-                candidateIndex += 1
-                continue
-            }
-
-            guard omittedIndex == nil else { return nil }
-            omittedIndex = candidateIndex
-            candidateIndex += 1
+        let exactPrefixLength = min(tokenChars.count, segmentLength)
+        var mismatchOffset = 0
+        while mismatchOffset < exactPrefixLength,
+            candidateChars[segment.start + mismatchOffset] == tokenChars[mismatchOffset]
+        {
+            mismatchOffset += 1
         }
 
-        guard tokenIndex == tokenChars.count else { return nil }
-        let resolvedOmittedIndex: Int
-        if let omittedIndex {
-            resolvedOmittedIndex = omittedIndex
-        } else {
-            guard candidateIndex < segment.end else { return nil }
-            resolvedOmittedIndex = candidateIndex
+        if mismatchOffset == tokenChars.count {
+            let prefixLength = tokenChars.count + 1
+            guard segmentLength >= prefixLength else { return nil }
+            return SingleEditWordPrefixMatch(
+                matchedIndices: Set(segment.start..<(segment.start + tokenChars.count)),
+                segmentStart: segment.start,
+                segmentLength: segmentLength,
+                prefixLength: prefixLength,
+                editPosition: segment.start + tokenChars.count,
+                editKind: .candidateExtraCharacter
+            )
         }
 
-        return SingleOmittedCharacterWordPrefixMatch(
-            matchedIndices: matchedIndices,
-            segmentStart: segment.start,
-            segmentLength: segmentLength,
-            omittedIndex: resolvedOmittedIndex
-        )
+        if mismatchOffset == segmentLength {
+            let prefixLength = tokenChars.count - 1
+            guard prefixLength > 0 else { return nil }
+            guard tokenChars.count == segmentLength + 1 else { return nil }
+            return SingleEditWordPrefixMatch(
+                matchedIndices: Set(segment.start..<(segment.start + prefixLength)),
+                segmentStart: segment.start,
+                segmentLength: segmentLength,
+                prefixLength: prefixLength,
+                editPosition: segment.start + prefixLength,
+                editKind: .tokenExtraCharacter
+            )
+        }
+
+        let mismatchCandidateIndex = segment.start + mismatchOffset
+
+        if segmentLength >= tokenChars.count + 1,
+            tokenPrefixMatches(
+                tokenChars: tokenChars,
+                tokenStart: mismatchOffset,
+                length: tokenChars.count - mismatchOffset,
+                candidateChars: candidateChars,
+                candidateStart: mismatchCandidateIndex + 1
+            )
+        {
+            var matchedIndices = Set(segment.start..<(segment.start + tokenChars.count + 1))
+            matchedIndices.remove(mismatchCandidateIndex)
+            return SingleEditWordPrefixMatch(
+                matchedIndices: matchedIndices,
+                segmentStart: segment.start,
+                segmentLength: segmentLength,
+                prefixLength: tokenChars.count + 1,
+                editPosition: mismatchCandidateIndex,
+                editKind: .candidateExtraCharacter
+            )
+        }
+
+        if tokenChars.count >= 2,
+            segmentLength >= tokenChars.count - 1,
+            tokenPrefixMatches(
+                tokenChars: tokenChars,
+                tokenStart: mismatchOffset + 1,
+                length: tokenChars.count - mismatchOffset - 1,
+                candidateChars: candidateChars,
+                candidateStart: mismatchCandidateIndex
+            )
+        {
+            return SingleEditWordPrefixMatch(
+                matchedIndices: Set(segment.start..<(segment.start + tokenChars.count - 1)),
+                segmentStart: segment.start,
+                segmentLength: segmentLength,
+                prefixLength: tokenChars.count - 1,
+                editPosition: mismatchCandidateIndex,
+                editKind: .tokenExtraCharacter
+            )
+        }
+
+        if segmentLength >= tokenChars.count,
+            tokenPrefixMatches(
+                tokenChars: tokenChars,
+                tokenStart: mismatchOffset + 1,
+                length: tokenChars.count - mismatchOffset - 1,
+                candidateChars: candidateChars,
+                candidateStart: mismatchCandidateIndex + 1
+            )
+        {
+            var matchedIndices = Set(segment.start..<(segment.start + tokenChars.count))
+            matchedIndices.remove(mismatchCandidateIndex)
+            return SingleEditWordPrefixMatch(
+                matchedIndices: matchedIndices,
+                segmentStart: segment.start,
+                segmentLength: segmentLength,
+                prefixLength: tokenChars.count,
+                editPosition: mismatchCandidateIndex,
+                editKind: .substitutedCharacter
+            )
+        }
+
+        if segmentLength >= tokenChars.count,
+            mismatchOffset + 1 < tokenChars.count,
+            mismatchCandidateIndex + 1 < segment.end,
+            tokenChars[mismatchOffset] == candidateChars[mismatchCandidateIndex + 1],
+            tokenChars[mismatchOffset + 1] == candidateChars[mismatchCandidateIndex],
+            tokenPrefixMatches(
+                tokenChars: tokenChars,
+                tokenStart: mismatchOffset + 2,
+                length: tokenChars.count - mismatchOffset - 2,
+                candidateChars: candidateChars,
+                candidateStart: mismatchCandidateIndex + 2
+            )
+        {
+            return SingleEditWordPrefixMatch(
+                matchedIndices: Set(segment.start..<(segment.start + tokenChars.count)),
+                segmentStart: segment.start,
+                segmentLength: segmentLength,
+                prefixLength: tokenChars.count,
+                editPosition: mismatchCandidateIndex,
+                editKind: .transposedCharacters
+            )
+        }
+
+        return nil
     }
 
     private static func wordSegments(_ candidateChars: [Character]) -> [(start: Int, end: Int)] {
