@@ -31,9 +31,11 @@ struct MarkdownPanelView: View {
                 .padding(FocusFlashPattern.ringInset)
                 .allowsHitTesting(false)
         }
-        .contentShape(Rectangle())
-        .onTapGesture {
-            onRequestPanelFocus()
+        .overlay {
+            // Selection-enabled markdown text can consume pointer events before the
+            // outer SwiftUI tap gesture sees them. Capture primary-button mouse
+            // input at the AppKit layer, focus the pane, then forward the event.
+            MarkdownPointerPassthrough(onPointerDown: onRequestPanelFocus)
         }
         .onChange(of: panel.focusFlashToken) { _ in
             triggerFocusFlashAnimation()
@@ -285,10 +287,107 @@ struct MarkdownPanelView: View {
     }
 }
 
+private struct MarkdownPointerPassthrough: NSViewRepresentable {
+    let onPointerDown: () -> Void
+
+    func makeNSView(context: Context) -> MarkdownPanelPointerPassthroughView {
+        let view = MarkdownPanelPointerPassthroughView()
+        view.onPointerDown = onPointerDown
+        return view
+    }
+
+    func updateNSView(_ nsView: MarkdownPanelPointerPassthroughView, context: Context) {
+        nsView.onPointerDown = onPointerDown
+    }
+}
+
 final class MarkdownPanelPointerPassthroughView: NSView {
     var onPointerDown: (() -> Void)?
 
+    private weak var activeMouseTarget: NSView?
+    private var isForwardingEvent = false
+
+    override var mouseDownCanMoveWindow: Bool { false }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        true
+    }
+
     static func shouldCaptureHitTesting(eventType: NSEvent.EventType?) -> Bool {
-        false
+        switch eventType {
+        case .leftMouseDown, .leftMouseDragged, .leftMouseUp:
+            return true
+        default:
+            return false
+        }
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard bounds.contains(point),
+              Self.shouldCaptureHitTesting(eventType: NSApp.currentEvent?.type) else { return nil }
+        return self
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        onPointerDown?()
+        forwardPrimaryMouseEvent(event, trackTarget: true, clearTarget: false)
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        forwardPrimaryMouseEvent(event, trackTarget: false, clearTarget: false)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        forwardPrimaryMouseEvent(event, trackTarget: false, clearTarget: true)
+    }
+
+    private func forwardPrimaryMouseEvent(
+        _ event: NSEvent,
+        trackTarget: Bool,
+        clearTarget: Bool
+    ) {
+        guard !isForwardingEvent,
+              let window,
+              let contentView = window.contentView else {
+            if clearTarget {
+                activeMouseTarget = nil
+            }
+            return
+        }
+
+        isForwardingEvent = true
+        isHidden = true
+        defer {
+            isHidden = false
+            isForwardingEvent = false
+            if clearTarget {
+                activeMouseTarget = nil
+            }
+        }
+
+        let target: NSView?
+        if let activeMouseTarget, activeMouseTarget.window != nil {
+            target = activeMouseTarget
+        } else {
+            let point = contentView.convert(event.locationInWindow, from: nil)
+            target = contentView.hitTest(point)
+        }
+
+        guard let target, target !== self else { return }
+
+        if trackTarget {
+            activeMouseTarget = target
+        }
+
+        switch event.type {
+        case .leftMouseDown:
+            target.mouseDown(with: event)
+        case .leftMouseDragged:
+            target.mouseDragged(with: event)
+        case .leftMouseUp:
+            target.mouseUp(with: event)
+        default:
+            break
+        }
     }
 }
