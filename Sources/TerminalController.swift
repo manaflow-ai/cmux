@@ -10583,7 +10583,13 @@ class TerminalController {
 
         var result = "OK"
         DispatchQueue.main.sync {
-            guard let tab = resolveTab(from: tabArg, tabManager: tabManager) else {
+            let tab: Tab?
+            if let tabId = UUID(uuidString: tabArg) {
+                tab = tabForSidebarMutation(id: tabId)
+            } else {
+                tab = resolveTab(from: tabArg, tabManager: tabManager)
+            }
+            guard let tab else {
                 result = "ERROR: Tab not found"
                 return
             }
