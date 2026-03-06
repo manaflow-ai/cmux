@@ -10104,6 +10104,107 @@ final class FileDropOverlayViewTests: XCTestCase {
     }
 }
 
+@MainActor
+final class MarkdownPanelPointerPassthroughViewTests: XCTestCase {
+    private final class CapturingView: NSView {
+        var mouseDownCount = 0
+        var mouseDraggedCount = 0
+        var mouseUpCount = 0
+
+        override func hitTest(_ point: NSPoint) -> NSView? {
+            bounds.contains(point) ? self : nil
+        }
+
+        override func mouseDown(with event: NSEvent) {
+            mouseDownCount += 1
+        }
+
+        override func mouseDragged(with event: NSEvent) {
+            mouseDraggedCount += 1
+        }
+
+        override func mouseUp(with event: NSEvent) {
+            mouseUpCount += 1
+        }
+    }
+
+    private func makeWindow() -> NSWindow {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 180),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        window.contentView?.layoutSubtreeIfNeeded()
+        return window
+    }
+
+    private func makeMouseEvent(
+        type: NSEvent.EventType,
+        location: NSPoint,
+        window: NSWindow,
+        eventNumber: Int = 1
+    ) -> NSEvent {
+        guard let event = NSEvent.mouseEvent(
+            with: type,
+            location: location,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: eventNumber,
+            clickCount: 1,
+            pressure: 1.0
+        ) else {
+            fatalError("Expected to create mouse event")
+        }
+        return event
+    }
+
+    func testPassthroughViewFocusesAndForwardsPrimaryMouseSequence() {
+        let window = makeWindow()
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let target = CapturingView(frame: contentView.bounds)
+        target.autoresizingMask = [.width, .height]
+        contentView.addSubview(target)
+
+        let overlay = MarkdownPanelPointerPassthroughView(frame: contentView.bounds)
+        overlay.autoresizingMask = [.width, .height]
+        var pointerDownCount = 0
+        overlay.onPointerDown = {
+            pointerDownCount += 1
+        }
+        contentView.addSubview(overlay)
+
+        overlay.mouseDown(with: makeMouseEvent(type: .leftMouseDown, location: NSPoint(x: 60, y: 60), window: window))
+        overlay.mouseDragged(with: makeMouseEvent(type: .leftMouseDragged, location: NSPoint(x: 90, y: 60), window: window, eventNumber: 2))
+        overlay.mouseUp(with: makeMouseEvent(type: .leftMouseUp, location: NSPoint(x: 120, y: 60), window: window, eventNumber: 3))
+
+        XCTAssertEqual(pointerDownCount, 1)
+        XCTAssertEqual(target.mouseDownCount, 1)
+        XCTAssertEqual(target.mouseDraggedCount, 1)
+        XCTAssertEqual(target.mouseUpCount, 1)
+    }
+
+    func testPassthroughViewCapturesOnlyPrimaryMouseSequence() {
+        XCTAssertTrue(MarkdownPanelPointerPassthroughView.shouldCaptureHitTesting(eventType: .leftMouseDown))
+        XCTAssertTrue(MarkdownPanelPointerPassthroughView.shouldCaptureHitTesting(eventType: .leftMouseDragged))
+        XCTAssertTrue(MarkdownPanelPointerPassthroughView.shouldCaptureHitTesting(eventType: .leftMouseUp))
+
+        XCTAssertFalse(MarkdownPanelPointerPassthroughView.shouldCaptureHitTesting(eventType: .rightMouseDown))
+        XCTAssertFalse(MarkdownPanelPointerPassthroughView.shouldCaptureHitTesting(eventType: .otherMouseDown))
+        XCTAssertFalse(MarkdownPanelPointerPassthroughView.shouldCaptureHitTesting(eventType: .scrollWheel))
+        XCTAssertFalse(MarkdownPanelPointerPassthroughView.shouldCaptureHitTesting(eventType: nil))
+    }
+}
+
 final class BrowserLinkOpenSettingsTests: XCTestCase {
     private var suiteName: String!
     private var defaults: UserDefaults!

@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import MarkdownUI
 
@@ -281,5 +282,13 @@ struct MarkdownPanelView: View {
         case .easeOut:
             return .easeOut(duration: duration)
         }
+    }
+}
+
+final class MarkdownPanelPointerPassthroughView: NSView {
+    var onPointerDown: (() -> Void)?
+
+    static func shouldCaptureHitTesting(eventType: NSEvent.EventType?) -> Bool {
+        false
     }
 }
