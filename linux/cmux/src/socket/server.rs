@@ -43,7 +43,7 @@ pub fn socket_path() -> String {
             );
         }
     }
-    "/tmp/cmux.sock".to_string()
+    format!("/tmp/cmux-{}.sock", unsafe { libc::getuid() })
 }
 
 /// Run the socket server. This should be called from a tokio runtime
@@ -51,17 +51,27 @@ pub fn socket_path() -> String {
 pub async fn run_socket_server(state: Arc<SharedState>) -> anyhow::Result<()> {
     let control_mode = auth::SocketControlMode::from_env();
     tracing::info!("Socket control mode: {:?}", control_mode);
+    if control_mode == auth::SocketControlMode::CmuxOnly {
+        tracing::warn!(
+            "CmuxOnly mode: descendant-PID check not yet implemented, falling back to same-UID"
+        );
+    }
 
     let path = socket_path();
 
-    // Remove stale socket file
-    let _ = std::fs::remove_file(&path);
+    // Check if an existing socket is live before removing
+    if std::path::Path::new(&path).exists() {
+        if std::os::unix::net::UnixStream::connect(&path).is_ok() {
+            anyhow::bail!("Another cmux instance is already running on {}", path);
+        }
+        // Socket is stale — safe to remove
+        let _ = std::fs::remove_file(&path);
+    }
 
     let listener = UnixListener::bind(&path)?;
     tracing::info!("Socket server listening on {}", path);
 
     // Set socket permissions (readable/writable by owner only)
-    #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
@@ -141,6 +151,13 @@ async fn handle_client(
             }
             match available.iter().position(|&b| b == b'\n') {
                 Some(pos) => {
+                    if line_buf.len() + pos > MAX_REQUEST_LEN {
+                        tracing::warn!(
+                            "Client sent oversized request ({} bytes), disconnecting",
+                            line_buf.len() + pos
+                        );
+                        return Ok(());
+                    }
                     line_buf.extend_from_slice(&available[..pos]);
                     reader.consume(pos + 1);
                     break false;
@@ -189,10 +206,9 @@ async fn handle_client(
             v2::dispatch(&trimmed_owned, &state_clone)
         })
         .await?;
-        let response_json = serde_json::to_string(&response)?;
-
+        let mut response_json = serde_json::to_string(&response)?;
+        response_json.push('\n');
         writer.write_all(response_json.as_bytes()).await?;
-        writer.write_all(b"\n").await?;
         writer.flush().await?;
 
         if eof {

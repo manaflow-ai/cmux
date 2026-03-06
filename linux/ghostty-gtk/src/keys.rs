@@ -7,6 +7,8 @@ use ghostty_sys::ghostty_input_key_e::{self, *};
 /// Convert a GDK keyval (u32) to a ghostty key code.
 ///
 /// Returns `None` if the keyval has no ghostty equivalent.
+/// Currently unused — will be needed for keybinding checks (ghostty_app_key_is_binding).
+#[allow(dead_code)]
 pub fn gdk_keyval_to_ghostty(keyval: u32) -> Option<ghostty_input_key_e> {
     // GDK key constants (from gdk/gdkkeysyms.h)
     // We use raw u32 values to avoid API differences between gtk4-rs versions.
@@ -190,6 +192,9 @@ pub fn gdk_button_to_ghostty(button: u32) -> ghostty_sys::ghostty_input_mouse_bu
 
 /// Get the hardware keycode mapping for physical key translation.
 /// This maps X11/evdev keycodes to ghostty physical keys.
+///
+/// Currently unused — will be needed for physical key layout support (Phase 0 integration).
+#[allow(dead_code)]
 pub fn hardware_keycode_to_ghostty(keycode: u32) -> Option<ghostty_input_key_e> {
     // evdev keycodes (X11 keycode = evdev + 8)
     let evdev_code = if keycode >= 8 { keycode - 8 } else { return None };

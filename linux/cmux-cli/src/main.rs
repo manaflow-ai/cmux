@@ -25,7 +25,7 @@ fn default_socket_path() -> String {
             }
         }
     }
-    "/tmp/cmux.sock".to_string()
+    format!("/tmp/cmux-{}.sock", unsafe { libc::getuid() })
 }
 
 #[derive(Parser)]

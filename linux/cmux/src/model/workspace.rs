@@ -67,6 +67,18 @@ pub struct Progress {
     pub label: Option<String>,
 }
 
+/// Truncate a string to at most `max_bytes` bytes without splitting a UTF-8 character.
+pub fn truncate_str(s: &str, max_bytes: usize) -> &str {
+    if s.len() <= max_bytes {
+        return s;
+    }
+    let mut end = max_bytes;
+    while end > 0 && !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    &s[..end]
+}
+
 impl Workspace {
     /// Create a new workspace with a single terminal panel.
     pub fn new() -> Self {
@@ -188,8 +200,18 @@ impl Workspace {
         self.panels.is_empty()
     }
 
+    /// Maximum number of distinct status keys per workspace.
+    const MAX_STATUS_ENTRIES: usize = 100;
+    /// Maximum length for status key/value strings.
+    const MAX_STATUS_KEY_LEN: usize = 256;
+    const MAX_STATUS_VALUE_LEN: usize = 4096;
+
     /// Update the status entry for a key, creating it if it doesn't exist.
     pub fn set_status(&mut self, key: &str, value: &str, icon: Option<&str>, color: Option<&str>) {
+        let key = truncate_str(key, Self::MAX_STATUS_KEY_LEN);
+        let value = truncate_str(value, Self::MAX_STATUS_VALUE_LEN);
+        let icon = icon.map(|s| truncate_str(s, 256));
+        let color = color.map(|s| truncate_str(s, 64));
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
@@ -201,6 +223,19 @@ impl Workspace {
             entry.color = color.map(|s| s.to_string());
             entry.timestamp = now;
         } else {
+            // Enforce upper bound on distinct status keys
+            if self.status_entries.len() >= Self::MAX_STATUS_ENTRIES {
+                // Evict oldest entry
+                if let Some(oldest_idx) = self
+                    .status_entries
+                    .iter()
+                    .enumerate()
+                    .min_by(|a, b| a.1.timestamp.partial_cmp(&b.1.timestamp).unwrap_or(std::cmp::Ordering::Equal))
+                    .map(|(i, _)| i)
+                {
+                    self.status_entries.swap_remove(oldest_idx);
+                }
+            }
             self.status_entries.push(StatusEntry {
                 key: key.to_string(),
                 value: value.to_string(),
@@ -214,8 +249,14 @@ impl Workspace {
     /// Maximum number of log entries retained per workspace.
     const MAX_LOG_ENTRIES: usize = 1000;
 
+    /// Maximum length for a single log message.
+    const MAX_LOG_MESSAGE_LEN: usize = 8192;
+
     /// Append a log entry, evicting the oldest if at capacity.
     pub fn append_log(&mut self, message: &str, level: &str, source: Option<&str>) {
+        let message = truncate_str(message, Self::MAX_LOG_MESSAGE_LEN);
+        let level = truncate_str(level, 64);
+        let source = source.map(|s| truncate_str(s, 256));
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
@@ -276,5 +317,42 @@ mod tests {
         ws.set_status("agent", "claude-code v2", None, None);
         assert_eq!(ws.status_entries.len(), 1);
         assert_eq!(ws.status_entries[0].value, "claude-code v2");
+    }
+
+    #[test]
+    fn test_truncate_str_ascii() {
+        assert_eq!(truncate_str("hello", 3), "hel");
+        assert_eq!(truncate_str("hello", 10), "hello");
+        assert_eq!(truncate_str("hello", 5), "hello");
+        assert_eq!(truncate_str("", 5), "");
+    }
+
+    #[test]
+    fn test_truncate_str_utf8() {
+        // Each CJK char is 3 bytes in UTF-8
+        assert_eq!(truncate_str("こんにちは", 3), "こ");
+        assert_eq!(truncate_str("こんにちは", 6), "こん");
+        // Truncate at non-boundary should round down
+        assert_eq!(truncate_str("こんにちは", 4), "こ");
+        assert_eq!(truncate_str("こんにちは", 5), "こ");
+        assert_eq!(truncate_str("こんにちは", 0), "");
+    }
+
+    #[test]
+    fn test_status_eviction() {
+        let mut ws = Workspace::new();
+        for i in 0..Workspace::MAX_STATUS_ENTRIES + 10 {
+            ws.set_status(&format!("key{}", i), "val", None, None);
+        }
+        assert!(ws.status_entries.len() <= Workspace::MAX_STATUS_ENTRIES);
+    }
+
+    #[test]
+    fn test_log_eviction() {
+        let mut ws = Workspace::new();
+        for _ in 0..Workspace::MAX_LOG_ENTRIES + 10 {
+            ws.append_log("msg", "info", None);
+        }
+        assert!(ws.log_entries.len() <= Workspace::MAX_LOG_ENTRIES);
     }
 }

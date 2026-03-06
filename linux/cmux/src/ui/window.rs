@@ -55,8 +55,10 @@ pub fn create_window(
         let content_box = content_box.clone();
         let sidebar_list = sidebar_list.clone();
         new_ws_btn.connect_clicked(move |_| {
-            let ws = crate::model::Workspace::new();
-            state.tab_manager().add_workspace(ws);
+            {
+                let ws = crate::model::Workspace::new();
+                state.tab_manager().add_workspace(ws);
+            } // MutexGuard dropped before refresh/rebuild re-acquire lock
             sidebar::refresh_sidebar(&sidebar_list, &state);
             rebuild_content(&content_box, &state);
             tracing::debug!("New workspace added");
@@ -71,8 +73,12 @@ pub fn create_window(
         let state = state.clone();
         let content_box = content_box.clone();
         split_h_btn.connect_clicked(move |_| {
-            if let Some(ws) = state.tab_manager().selected_mut() {
-                ws.split(SplitOrientation::Horizontal, PanelType::Terminal);
+            let did_split = {
+                state.tab_manager().selected_mut().map(|ws| {
+                    ws.split(SplitOrientation::Horizontal, PanelType::Terminal);
+                }).is_some()
+            }; // MutexGuard dropped
+            if did_split {
                 rebuild_content(&content_box, &state);
             }
         });
@@ -86,8 +92,12 @@ pub fn create_window(
         let state = state.clone();
         let content_box = content_box.clone();
         split_v_btn.connect_clicked(move |_| {
-            if let Some(ws) = state.tab_manager().selected_mut() {
-                ws.split(SplitOrientation::Vertical, PanelType::Terminal);
+            let did_split = {
+                state.tab_manager().selected_mut().map(|ws| {
+                    ws.split(SplitOrientation::Vertical, PanelType::Terminal);
+                }).is_some()
+            }; // MutexGuard dropped
+            if did_split {
                 rebuild_content(&content_box, &state);
             }
         });
@@ -114,12 +124,16 @@ pub fn rebuild_content(content_box: &gtk4::Box, state: &Rc<AppState>) {
         content_box.remove(&child);
     }
 
-    let tm = state.tab_manager();
-    if let Some(ws) = tm.selected() {
-        let widget = split_view::build_layout(&ws.layout, &ws.panels, state);
+    // Clone layout data under lock, release before GTK widget construction
+    let ws_data = {
+        let tm = state.tab_manager();
+        tm.selected().map(|ws| (ws.layout.clone(), ws.panels.clone()))
+    }; // MutexGuard dropped
+
+    if let Some((layout, panels)) = ws_data {
+        let widget = split_view::build_layout(&layout, &panels, state);
         content_box.append(&widget);
     } else {
-        // Empty state
         let label = gtk4::Label::new(Some("No workspace selected"));
         label.add_css_class("dim-label");
         content_box.append(&label);
@@ -147,37 +161,48 @@ fn setup_shortcuts(
         match (keyval, ctrl, shift) {
             // Ctrl+Shift+T: new workspace
             (gdk4::Key::T, true, true) => {
-                let ws = crate::model::Workspace::new();
-                state.tab_manager().add_workspace(ws);
+                {
+                    let ws = crate::model::Workspace::new();
+                    state.tab_manager().add_workspace(ws);
+                } // MutexGuard dropped before refresh/rebuild
                 sidebar::refresh_sidebar(&sidebar_list, &state);
                 rebuild_content(&content_box, &state);
                 glib::Propagation::Stop
             }
             // Ctrl+Shift+W: close workspace
             (gdk4::Key::W, true, true) => {
-                let mut tm = state.tab_manager();
-                if let Some(idx) = tm.selected_index() {
-                    tm.remove(idx);
-                }
-                drop(tm);
+                {
+                    let mut tm = state.tab_manager();
+                    if let Some(idx) = tm.selected_index() {
+                        tm.remove(idx);
+                    }
+                } // MutexGuard dropped before refresh/rebuild
                 sidebar::refresh_sidebar(&sidebar_list, &state);
                 rebuild_content(&content_box, &state);
                 glib::Propagation::Stop
             }
             // Ctrl+Shift+D: horizontal split
             (gdk4::Key::D, true, true) => {
-                if let Some(ws) = state.tab_manager().selected_mut() {
-                    ws.split(SplitOrientation::Horizontal, PanelType::Terminal);
+                let did_split = {
+                    state.tab_manager().selected_mut().map(|ws| {
+                        ws.split(SplitOrientation::Horizontal, PanelType::Terminal);
+                    }).is_some()
+                }; // MutexGuard dropped
+                if did_split {
+                    rebuild_content(&content_box, &state);
                 }
-                rebuild_content(&content_box, &state);
                 glib::Propagation::Stop
             }
             // Ctrl+Shift+E: vertical split
             (gdk4::Key::E, true, true) => {
-                if let Some(ws) = state.tab_manager().selected_mut() {
-                    ws.split(SplitOrientation::Vertical, PanelType::Terminal);
+                let did_split = {
+                    state.tab_manager().selected_mut().map(|ws| {
+                        ws.split(SplitOrientation::Vertical, PanelType::Terminal);
+                    }).is_some()
+                }; // MutexGuard dropped
+                if did_split {
+                    rebuild_content(&content_box, &state);
                 }
-                rebuild_content(&content_box, &state);
                 glib::Propagation::Stop
             }
             _ => glib::Propagation::Proceed,

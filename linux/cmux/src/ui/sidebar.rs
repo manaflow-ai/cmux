@@ -36,9 +36,10 @@ pub fn create_sidebar(
                 let i = row.index();
                 if i >= 0 {
                     let index = i as usize;
-                    state.tab_manager().select(index);
-                    super::window::rebuild_content(&content_box, &state);
-                    tracing::debug!("Workspace selected: index={}", index);
+                    if state.tab_manager().select(index) {
+                        super::window::rebuild_content(&content_box, &state);
+                        tracing::debug!("Workspace selected: index={}", index);
+                    }
                 }
             }
         });

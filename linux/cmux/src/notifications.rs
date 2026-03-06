@@ -1,4 +1,8 @@
 //! Notification store and desktop notification integration.
+//!
+//! Currently unused — will be wired up in Phase 3 (notifications + agent integration).
+
+#![allow(dead_code)]
 
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -44,6 +48,9 @@ impl NotificationStore {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs_f64();
+
+        let title = crate::model::workspace::truncate_str(title, 1024);
+        let body = crate::model::workspace::truncate_str(body, 8192);
 
         let notification = Notification {
             id: Uuid::new_v4(),

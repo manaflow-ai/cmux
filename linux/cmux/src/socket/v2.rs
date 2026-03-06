@@ -111,11 +111,23 @@ pub fn dispatch(json_line: &str, state: &Arc<SharedState>) -> Response {
         // Notification commands
         "notification.create" => handle_notification_create(id, &req.params, state),
 
-        _ => Response::error(
-            id,
-            "unknown_method",
-            &format!("Unknown method: {}", req.method),
-        ),
+        _ => {
+            let method_display = if req.method.len() > 200 {
+                // Truncate at a char boundary to avoid panic on multi-byte UTF-8
+                let mut end = 200;
+                while end > 0 && !req.method.is_char_boundary(end) {
+                    end -= 1;
+                }
+                &req.method[..end]
+            } else {
+                &req.method
+            };
+            Response::error(
+                id,
+                "unknown_method",
+                &format!("Unknown method: {}", method_display),
+            )
+        }
     }
 }
 
@@ -140,8 +152,8 @@ fn handle_capabilities(id: Value) -> Response {
         "workspace.set_progress",
         "workspace.append_log",
         "pane.new",
-        // "surface.send_input" — not yet implemented (requires ghostty integration)
-        // "notification.create" — placeholder (desktop notification dispatch pending)
+        // surface.send_input and notification.create are recognized but not yet
+        // implemented — omitted from capabilities until functional (Phase 0/3).
     ];
     Response::success(id, serde_json::json!({"methods": methods}))
 }
@@ -151,18 +163,36 @@ fn handle_capabilities(id: Value) -> Response {
 // -----------------------------------------------------------------------
 
 fn handle_workspace_list(id: Value, state: &Arc<SharedState>) -> Response {
-    let tm = state.lock_tab_manager();
-    let workspaces: Vec<Value> = tm
-        .iter()
-        .enumerate()
-        .map(|(i, ws)| {
+    // Collect workspace data under lock, then release before JSON serialization
+    let (ws_data, selected) = {
+        let tm = state.lock_tab_manager();
+        let selected = tm.selected_index();
+        let data: Vec<(usize, String, String, String, usize)> = tm
+            .iter()
+            .enumerate()
+            .map(|(i, ws)| {
+                (
+                    i,
+                    ws.id.to_string(),
+                    ws.display_title().to_string(),
+                    ws.current_directory.clone(),
+                    ws.panels.len(),
+                )
+            })
+            .collect();
+        (data, selected)
+    }; // MutexGuard dropped
+
+    let workspaces: Vec<Value> = ws_data
+        .into_iter()
+        .map(|(i, id_str, title, directory, panel_count)| {
             serde_json::json!({
                 "index": i,
-                "id": ws.id.to_string(),
-                "title": ws.display_title(),
-                "directory": ws.current_directory,
-                "panel_count": ws.panels.len(),
-                "selected": tm.selected_index() == Some(i),
+                "id": id_str,
+                "title": title,
+                "directory": directory,
+                "panel_count": panel_count,
+                "selected": selected == Some(i),
             })
         })
         .collect();
@@ -171,8 +201,10 @@ fn handle_workspace_list(id: Value, state: &Arc<SharedState>) -> Response {
 }
 
 fn handle_workspace_new(id: Value, params: &Value, state: &Arc<SharedState>) -> Response {
-    let directory = params.get("directory").and_then(|v| v.as_str());
-    let title = params.get("title").and_then(|v| v.as_str());
+    let directory = params.get("directory").and_then(|v| v.as_str())
+        .map(|s| crate::model::workspace::truncate_str(s, 4096));
+    let title = params.get("title").and_then(|v| v.as_str())
+        .map(|s| crate::model::workspace::truncate_str(s, 1024));
 
     let mut ws = if let Some(dir) = directory {
         Workspace::with_directory(dir)
@@ -297,6 +329,7 @@ fn handle_workspace_report_git(id: Value, params: &Value, state: &Arc<SharedStat
     let Some(branch) = branch else {
         return Response::error(id, "invalid_params", "Provide 'branch'");
     };
+    let branch = crate::model::workspace::truncate_str(branch, 256);
 
     let mut tm = state.lock_tab_manager();
     let ws = if let Some(wid) = ws_id {
@@ -322,7 +355,19 @@ fn handle_workspace_set_progress(id: Value, params: &Value, state: &Arc<SharedSt
         .and_then(|v| v.as_str())
         .and_then(|s| uuid::Uuid::parse_str(s).ok());
     let value = params.get("value").and_then(|v| v.as_f64());
-    let label = params.get("label").and_then(|v| v.as_str());
+    let label = params.get("label").and_then(|v| v.as_str())
+        .map(|s| crate::model::workspace::truncate_str(s, 1024));
+
+    // Validate progress value before acquiring lock
+    if let Some(value) = value {
+        if !value.is_finite() || value < 0.0 || value > 1.0 {
+            return Response::error(
+                id,
+                "invalid_params",
+                "Progress value must be a finite number between 0.0 and 1.0",
+            );
+        }
+    }
 
     let mut tm = state.lock_tab_manager();
     let ws = if let Some(wid) = ws_id {
@@ -358,6 +403,8 @@ fn handle_workspace_append_log(id: Value, params: &Value, state: &Arc<SharedStat
     let Some(message) = message else {
         return Response::error(id, "invalid_params", "Provide 'message'");
     };
+
+    // level/source are truncated inside append_log for defense-in-depth
 
     let mut tm = state.lock_tab_manager();
     let ws = if let Some(wid) = ws_id {
@@ -416,7 +463,11 @@ fn handle_notification_create(id: Value, params: &Value, _state: &Arc<SharedStat
     let body = params.get("body").and_then(|v| v.as_str()).unwrap_or("");
 
     // TODO: Add to notification store + send desktop notification (Phase 3)
-    tracing::info!("Notification: {} - {}", title, body);
+    tracing::info!("Notification (stub): {} - {}", title, body);
 
-    Response::success(id, serde_json::json!({"notified": true}))
+    Response::error(
+        id,
+        "not_implemented",
+        "notification.create is not yet implemented (Phase 3)",
+    )
 }

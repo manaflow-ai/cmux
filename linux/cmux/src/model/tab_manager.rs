@@ -191,8 +191,8 @@ impl TabManager {
 
     /// Move a workspace from one index to another.
     pub fn move_workspace(&mut self, from: usize, to: usize) -> bool {
-        if from >= self.workspaces.len() || to >= self.workspaces.len() {
-            return false;
+        if from >= self.workspaces.len() || to >= self.workspaces.len() || from == to {
+            return from == to && from < self.workspaces.len();
         }
         let ws = self.workspaces.remove(from);
         self.workspaces.insert(to, ws);

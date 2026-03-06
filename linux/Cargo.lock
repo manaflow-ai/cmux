@@ -179,14 +179,12 @@ dependencies = [
  "gdk4",
  "ghostty-gtk",
  "ghostty-sys",
- "gio",
  "glib",
  "gtk4",
  "libadwaita",
  "libc",
  "serde",
  "serde_json",
- "thiserror",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -202,7 +200,6 @@ dependencies = [
  "libc",
  "serde",
  "serde_json",
- "tokio",
 ]
 
 [[package]]

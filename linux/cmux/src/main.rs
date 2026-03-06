@@ -1,6 +1,7 @@
 mod app;
 mod model;
 mod notifications;
+#[allow(dead_code)] // Phase 5: session persistence
 mod session;
 mod socket;
 mod ui;

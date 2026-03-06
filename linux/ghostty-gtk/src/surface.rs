@@ -7,7 +7,7 @@
 //! - Manages the ghostty_surface_t lifecycle
 
 use ghostty_sys::*;
-use glib::translate::IntoGlib;
+use glib::translate::{FromGlib, IntoGlib};
 use gtk4::glib;
 use gtk4::prelude::*;
 use gtk4::subclass::prelude::*;
@@ -164,9 +164,25 @@ impl GhosttyGlSurface {
             return;
         }
 
+        // Guard against re-realize: don't leak existing surface
+        if !self.imp().surface.get().is_null() {
+            tracing::debug!("Surface already created, skipping re-create");
+            return;
+        }
+
         #[cfg(feature = "link-ghostty")]
         {
             let mut config = unsafe { ghostty_surface_config_new() };
+
+            // Explicitly zero out optional fields (ghostty_surface_config_new
+            // may not zero-initialize all fields)
+            config.working_directory = ptr::null();
+            config.command = ptr::null();
+            config.env_vars = ptr::null_mut();
+            config.env_var_count = 0;
+            config.initial_input = ptr::null();
+            config.font_size = 0.0;
+            config.wait_after_command = false;
 
             // Set platform to Linux with our GtkGLArea
             config.platform_tag = ghostty_platform_e::GHOSTTY_PLATFORM_LINUX;
@@ -321,8 +337,11 @@ impl GhosttyGlSurface {
         }
 
         let mods = keys::gdk_mods_to_ghostty(state);
-        let ghostty_key = keys::gdk_keyval_to_ghostty(keyval)
-            .unwrap_or(ghostty_input_key_e::GHOSTTY_KEY_UNIDENTIFIED);
+
+        // Derive unshifted codepoint: use to_lower() to strip Shift from the keyval,
+        // e.g. Shift+a yields keyval 'A' → to_lower() gives 'a' → codepoint 0x61.
+        let gdk_key = unsafe { gdk4::Key::from_glib(keyval) };
+        let unshifted_codepoint = gdk_key.to_lower().to_unicode().map(|c| c as u32).unwrap_or(0);
 
         let key_event = ghostty_input_key_s {
             action,
@@ -330,7 +349,7 @@ impl GhosttyGlSurface {
             consumed_mods: 0,
             keycode,
             text: ptr::null(),
-            unshifted_codepoint: 0,
+            unshifted_codepoint,
             composing: false,
         };
 

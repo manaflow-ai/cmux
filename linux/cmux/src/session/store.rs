@@ -8,7 +8,10 @@ use crate::session::snapshot::*;
 fn session_path() -> PathBuf {
     let data_dir = dirs::data_dir()
         .or_else(|| dirs::home_dir().map(|h| h.join(".local/share")))
-        .unwrap_or_else(|| PathBuf::from(".local/share"))
+        .unwrap_or_else(|| {
+            let uid = unsafe { libc::getuid() };
+            PathBuf::from(format!("/tmp/cmux-{}", uid))
+        })
         .join("cmux");
     data_dir.join("session.json")
 }
@@ -24,7 +27,9 @@ pub fn save_session(snapshot: &AppSessionSnapshot) -> anyhow::Result<()> {
     // Atomic write: write to tmp file then rename to prevent corruption on crash
     let tmp_path = path.with_extension("json.tmp");
     std::fs::write(&tmp_path, json)?;
-    std::fs::rename(&tmp_path, &path)?;
+    std::fs::rename(&tmp_path, &path).inspect_err(|_| {
+        let _ = std::fs::remove_file(&tmp_path);
+    })?;
 
     tracing::debug!("Session saved to {}", path.display());
     Ok(())
@@ -38,21 +43,39 @@ pub fn load_session() -> anyhow::Result<Option<AppSessionSnapshot>> {
     }
 
     let json = std::fs::read_to_string(&path)?;
-    let snapshot: AppSessionSnapshot = serde_json::from_str(&json)?;
-
-    tracing::debug!("Session loaded from {}", path.display());
-    Ok(Some(snapshot))
+    match serde_json::from_str::<AppSessionSnapshot>(&json) {
+        Ok(snapshot) => {
+            tracing::debug!("Session loaded from {}", path.display());
+            Ok(Some(snapshot))
+        }
+        Err(e) => {
+            tracing::warn!("Corrupt session file at {}, ignoring: {}", path.display(), e);
+            let backup = path.with_extension("json.corrupt");
+            let _ = std::fs::rename(&path, &backup);
+            Ok(None)
+        }
+    }
 }
 
 /// Create a snapshot from the current application state.
+///
+/// Minimizes lock scope: clones workspace data under lock, then builds
+/// the snapshot structures after releasing the mutex.
 pub fn create_snapshot(state: &crate::app::AppState) -> AppSessionSnapshot {
-    let tm = state.tab_manager();
+    // Clone workspace data under lock, then release immediately
+    let (workspace_data, selected_index) = {
+        let tm = state.tab_manager();
+        let data: Vec<_> = tm.iter().cloned().collect();
+        let idx = tm.selected_index();
+        (data, idx)
+    }; // MutexGuard dropped here
+
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs_f64();
 
-    let workspaces: Vec<SessionWorkspaceSnapshot> = tm
+    let workspaces: Vec<SessionWorkspaceSnapshot> = workspace_data
         .iter()
         .map(|ws| {
             let panels: Vec<SessionPanelSnapshot> = ws
@@ -84,7 +107,7 @@ pub fn create_snapshot(state: &crate::app::AppState) -> AppSessionSnapshot {
         windows: vec![SessionWindowSnapshot {
             frame: None,
             tab_manager: SessionTabManagerSnapshot {
-                selected_workspace_index: tm.selected_index(),
+                selected_workspace_index: selected_index,
                 workspaces,
             },
             sidebar: SessionSidebarSnapshot {
