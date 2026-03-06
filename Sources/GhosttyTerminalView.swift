@@ -999,8 +999,98 @@ class GhosttyApp {
         ghostty_config_load_default_files(config)
         loadReleaseAppSupportGhosttyConfigIfNeeded(config)
         loadLegacyGhosttyConfigIfNeeded(config)
+        loadCJKFontFallbackIfNeeded(config)
         ghostty_config_load_recursive_files(config)
         ghostty_config_finalize(config)
+    }
+
+    /// When the user has not configured `font-codepoint-map` for CJK ranges,
+    /// macOS Core Text may pick an inappropriate fallback font (e.g. LingWai,
+    /// a decorative calligraphic font) for CJK characters. This injects a
+    /// sensible default based on the system's preferred languages.
+    ///
+    /// See: https://github.com/manaflow-ai/cmux/issues/XXX
+    private func loadCJKFontFallbackIfNeeded(_ config: ghostty_config_t) {
+        if Self.userConfigContainsCJKCodepointMap() { return }
+
+        guard let fontFamily = Self.preferredCJKFontFamily() else { return }
+
+        let lines = Self.cjkUnicodeRanges.map { range in
+            "font-codepoint-map = \(range)=\(fontFamily)"
+        }.joined(separator: "\n")
+
+        let tmpPath = NSTemporaryDirectory() + "cmux-cjk-font-fallback.conf"
+        do {
+            try lines.write(toFile: tmpPath, atomically: true, encoding: .utf8)
+            tmpPath.withCString { path in
+                ghostty_config_load_file(config, path)
+            }
+            try? FileManager.default.removeItem(atPath: tmpPath)
+        } catch {
+            #if DEBUG
+            Self.initLog("failed to write CJK font fallback config: \(error)")
+            #endif
+        }
+    }
+
+    /// Unicode ranges that cover CJK characters, kana, and fullwidth forms.
+    private static let cjkUnicodeRanges = [
+        "U+3000-U+303F",  // CJK Symbols and Punctuation
+        "U+3040-U+309F",  // Hiragana
+        "U+30A0-U+30FF",  // Katakana
+        "U+4E00-U+9FFF",  // CJK Unified Ideographs
+        "U+F900-U+FAFF",  // CJK Compatibility Ideographs
+        "U+FF00-U+FFEF",  // Halfwidth and Fullwidth Forms
+        "U+AC00-U+D7AF",  // Hangul Syllables
+        "U+1100-U+11FF",  // Hangul Jamo
+        "U+3400-U+4DBF",  // CJK Unified Ideographs Extension A
+    ]
+
+    /// Returns a suitable CJK font family name based on the user's preferred
+    /// system language, or nil if no CJK language is detected.
+    static func preferredCJKFontFamily(
+        preferredLanguages: [String] = Locale.preferredLanguages
+    ) -> String? {
+        for lang in preferredLanguages {
+            let lower = lang.lowercased()
+            if lower.hasPrefix("ja") {
+                return "Hiragino Sans"
+            }
+            if lower.hasPrefix("ko") {
+                return "Apple SD Gothic Neo"
+            }
+            if lower.hasPrefix("zh-hant") || lower.hasPrefix("zh-tw") || lower.hasPrefix("zh-hk") {
+                return "PingFang TC"
+            }
+            if lower.hasPrefix("zh") {
+                return "PingFang SC"
+            }
+        }
+        return nil
+    }
+
+    /// Checks whether the user's Ghostty config files already contain
+    /// a `font-codepoint-map` entry covering CJK ranges.
+    static func userConfigContainsCJKCodepointMap(
+        configPaths: [String] = [
+            "~/.config/ghostty/config",
+            "~/.config/ghostty/config.ghostty",
+            "~/Library/Application Support/com.mitchellh.ghostty/config",
+            "~/Library/Application Support/com.mitchellh.ghostty/config.ghostty",
+        ]
+    ) -> Bool {
+        for rawPath in configPaths {
+            let path = NSString(string: rawPath).expandingTildeInPath
+            guard let contents = try? String(contentsOfFile: path, encoding: .utf8) else { continue }
+            for line in contents.components(separatedBy: .newlines) {
+                let trimmed = line.trimmingCharacters(in: .whitespaces)
+                if trimmed.hasPrefix("#") { continue }
+                if trimmed.hasPrefix("font-codepoint-map") {
+                    return true
+                }
+            }
+        }
+        return false
     }
 
     static func shouldLoadLegacyGhosttyConfig(
