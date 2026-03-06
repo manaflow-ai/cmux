@@ -616,6 +616,7 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         let fileManager = FileManager.default
         let env = ProcessInfo.processInfo.environment
         var candidates: [String] = []
+        var productDirectories: [String] = []
 
         for key in ["CMUX_UI_TEST_CLI_PATH", "CMUXTERM_CLI"] {
             if let value = env[key], !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -624,9 +625,7 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         }
 
         if let builtProductsDir = env["BUILT_PRODUCTS_DIR"], !builtProductsDir.isEmpty {
-            candidates.append("\(builtProductsDir)/cmux DEV.app/Contents/Resources/bin/cmux")
-            candidates.append("\(builtProductsDir)/cmux.app/Contents/Resources/bin/cmux")
-            candidates.append("\(builtProductsDir)/cmux")
+            productDirectories.append(builtProductsDir)
         }
 
         if let hostPath = env["TEST_HOST"], !hostPath.isEmpty {
@@ -637,22 +636,72 @@ final class MultiWindowNotificationsUITests: XCTestCase {
                 .deletingLastPathComponent()
                 .deletingLastPathComponent()
                 .path
-            candidates.append("\(productsDir)/cmux DEV.app/Contents/Resources/bin/cmux")
-            candidates.append("\(productsDir)/cmux.app/Contents/Resources/bin/cmux")
-            candidates.append("\(productsDir)/cmux")
+            productDirectories.append(productsDir)
+        }
+
+        productDirectories.append(contentsOf: inferredBuildProductsDirectories())
+        for productsDir in uniquePaths(productDirectories) {
+            appendCLIPathCandidates(fromProductsDirectory: productsDir, to: &candidates)
         }
 
         candidates.append("/tmp/cmux-\(launchTag)/Build/Products/Debug/cmux DEV.app/Contents/Resources/bin/cmux")
         candidates.append("/tmp/cmux-\(launchTag)/Build/Products/Debug/cmux.app/Contents/Resources/bin/cmux")
         candidates.append("/tmp/cmux-\(launchTag)/Build/Products/Debug/cmux")
 
-        for path in candidates {
+        for path in uniquePaths(candidates) {
             if fileManager.isExecutableFile(atPath: path) {
                 return URL(fileURLWithPath: path).resolvingSymlinksInPath().path
             }
         }
 
         return nil
+    }
+
+    private func inferredBuildProductsDirectories() -> [String] {
+        let bundleURLs = [
+            Bundle.main.bundleURL,
+            Bundle(for: Self.self).bundleURL,
+        ]
+
+        return bundleURLs.compactMap { bundleURL in
+            let standardizedPath = bundleURL.standardizedFileURL.path
+            let components = standardizedPath.split(separator: "/")
+            guard let productsIndex = components.firstIndex(of: "Products"),
+                  productsIndex + 1 < components.count else {
+                return nil
+            }
+            let prefixComponents = components.prefix(productsIndex + 2)
+            return "/" + prefixComponents.joined(separator: "/")
+        }
+    }
+
+    private func appendCLIPathCandidates(fromProductsDirectory productsDir: String, to candidates: inout [String]) {
+        candidates.append("\(productsDir)/cmux DEV.app/Contents/Resources/bin/cmux")
+        candidates.append("\(productsDir)/cmux.app/Contents/Resources/bin/cmux")
+        candidates.append("\(productsDir)/cmux")
+
+        guard let entries = try? FileManager.default.contentsOfDirectory(atPath: productsDir) else {
+            return
+        }
+
+        for entry in entries.sorted() where entry.hasSuffix(".app") {
+            let cliPath = URL(fileURLWithPath: productsDir)
+                .appendingPathComponent(entry)
+                .appendingPathComponent("Contents/Resources/bin/cmux")
+                .path
+            candidates.append(cliPath)
+        }
+    }
+
+    private func uniquePaths(_ paths: [String]) -> [String] {
+        var unique: [String] = []
+        var seen = Set<String>()
+        for path in paths {
+            if seen.insert(path).inserted {
+                unique.append(path)
+            }
+        }
+        return unique
     }
 
     private func resolveSocketPath(timeout: TimeInterval, requiredWorkspaceId: String? = nil) -> String? {
