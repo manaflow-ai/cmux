@@ -999,8 +999,8 @@ class GhosttyApp {
         ghostty_config_load_default_files(config)
         loadReleaseAppSupportGhosttyConfigIfNeeded(config)
         loadLegacyGhosttyConfigIfNeeded(config)
-        loadCJKFontFallbackIfNeeded(config)
         ghostty_config_load_recursive_files(config)
+        loadCJKFontFallbackIfNeeded(config)
         ghostty_config_finalize(config)
     }
 
@@ -1009,23 +1009,24 @@ class GhosttyApp {
     /// a decorative calligraphic font) for CJK characters. This injects a
     /// sensible default based on the system's preferred languages.
     ///
-    /// See: https://github.com/manaflow-ai/cmux/issues/XXX
+    /// See: https://github.com/manaflow-ai/cmux/pull/1017
     private func loadCJKFontFallbackIfNeeded(_ config: ghostty_config_t) {
         if Self.userConfigContainsCJKCodepointMap() { return }
 
-        guard let fontFamily = Self.preferredCJKFontFamily() else { return }
+        guard let mappings = Self.cjkFontMappings() else { return }
 
-        let lines = Self.cjkUnicodeRanges.map { range in
-            "font-codepoint-map = \(range)=\(fontFamily)"
+        let lines = mappings.map { range, font in
+            "font-codepoint-map = \(range)=\(font)"
         }.joined(separator: "\n")
 
-        let tmpPath = NSTemporaryDirectory() + "cmux-cjk-font-fallback.conf"
+        let tmpURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-cjk-font-fallback-\(UUID().uuidString).conf")
         do {
-            try lines.write(toFile: tmpPath, atomically: true, encoding: .utf8)
-            tmpPath.withCString { path in
+            try lines.write(to: tmpURL, atomically: true, encoding: .utf8)
+            defer { try? FileManager.default.removeItem(at: tmpURL) }
+            tmpURL.path.withCString { path in
                 ghostty_config_load_file(config, path)
             }
-            try? FileManager.default.removeItem(atPath: tmpPath)
         } catch {
             #if DEBUG
             Self.initLog("failed to write CJK font fallback config: \(error)")
@@ -1033,40 +1034,69 @@ class GhosttyApp {
         }
     }
 
-    /// Unicode ranges that cover CJK characters, kana, and fullwidth forms.
-    private static let cjkUnicodeRanges = [
+    /// Unicode ranges shared by all CJK languages (Han ideographs, symbols, fullwidth forms).
+    private static let sharedCJKRanges = [
         "U+3000-U+303F",  // CJK Symbols and Punctuation
-        "U+3040-U+309F",  // Hiragana
-        "U+30A0-U+30FF",  // Katakana
         "U+4E00-U+9FFF",  // CJK Unified Ideographs
         "U+F900-U+FAFF",  // CJK Compatibility Ideographs
         "U+FF00-U+FFEF",  // Halfwidth and Fullwidth Forms
-        "U+AC00-U+D7AF",  // Hangul Syllables
-        "U+1100-U+11FF",  // Hangul Jamo
         "U+3400-U+4DBF",  // CJK Unified Ideographs Extension A
     ]
 
-    /// Returns a suitable CJK font family name based on the user's preferred
-    /// system language, or nil if no CJK language is detected.
-    static func preferredCJKFontFamily(
+    /// Unicode ranges specific to Japanese (kana).
+    private static let japaneseRanges = [
+        "U+3040-U+309F",  // Hiragana
+        "U+30A0-U+30FF",  // Katakana
+    ]
+
+    /// Unicode ranges specific to Korean (Hangul).
+    private static let koreanRanges = [
+        "U+AC00-U+D7AF",  // Hangul Syllables
+        "U+1100-U+11FF",  // Hangul Jamo
+    ]
+
+    /// Returns (range, font) pairs for CJK font fallback based on the system's
+    /// preferred languages, or nil if no CJK language is detected. Each language
+    /// only maps its own script ranges to avoid assigning glyphs to a font that
+    /// lacks coverage (e.g. Hangul to Hiragino Sans).
+    static func cjkFontMappings(
         preferredLanguages: [String] = Locale.preferredLanguages
-    ) -> String? {
+    ) -> [(String, String)]? {
+        var mappings: [(String, String)] = []
+        var coveredShared = false
+
         for lang in preferredLanguages {
             let lower = lang.lowercased()
+            let font: String
+            var langRanges: [String] = []
+
             if lower.hasPrefix("ja") {
-                return "Hiragino Sans"
+                font = "Hiragino Sans"
+                langRanges = japaneseRanges
+            } else if lower.hasPrefix("ko") {
+                font = "Apple SD Gothic Neo"
+                langRanges = koreanRanges
+            } else if lower.hasPrefix("zh-hant") || lower.hasPrefix("zh-tw") || lower.hasPrefix("zh-hk") {
+                font = "PingFang TC"
+            } else if lower.hasPrefix("zh") {
+                font = "PingFang SC"
+            } else {
+                continue
             }
-            if lower.hasPrefix("ko") {
-                return "Apple SD Gothic Neo"
+
+            if !coveredShared {
+                for range in sharedCJKRanges {
+                    mappings.append((range, font))
+                }
+                coveredShared = true
             }
-            if lower.hasPrefix("zh-hant") || lower.hasPrefix("zh-tw") || lower.hasPrefix("zh-hk") {
-                return "PingFang TC"
-            }
-            if lower.hasPrefix("zh") {
-                return "PingFang SC"
+
+            for range in langRanges {
+                mappings.append((range, font))
             }
         }
-        return nil
+
+        return mappings.isEmpty ? nil : mappings
     }
 
     /// Checks whether the user's Ghostty config files already contain
@@ -1081,12 +1111,35 @@ class GhosttyApp {
     ) -> Bool {
         for rawPath in configPaths {
             let path = NSString(string: rawPath).expandingTildeInPath
-            guard let contents = try? String(contentsOfFile: path, encoding: .utf8) else { continue }
-            for line in contents.components(separatedBy: .newlines) {
-                let trimmed = line.trimmingCharacters(in: .whitespaces)
-                if trimmed.hasPrefix("#") { continue }
-                if trimmed.hasPrefix("font-codepoint-map") {
-                    return true
+            if Self.configFileContainsCodepointMap(atPath: path) {
+                return true
+            }
+        }
+        return false
+    }
+
+    /// Scans a single config file (and any files it includes) for
+    /// `font-codepoint-map` entries.
+    private static func configFileContainsCodepointMap(atPath path: String) -> Bool {
+        guard let contents = try? String(contentsOfFile: path, encoding: .utf8) else {
+            return false
+        }
+        for line in contents.components(separatedBy: .newlines) {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("#") { continue }
+            if trimmed.hasPrefix("font-codepoint-map") {
+                return true
+            }
+            if trimmed.hasPrefix("config-file") {
+                let parts = trimmed.split(separator: "=", maxSplits: 1)
+                if parts.count == 2 {
+                    let includePath = parts[1]
+                        .trimmingCharacters(in: .whitespaces)
+                        .trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+                    let resolved = NSString(string: includePath).expandingTildeInPath
+                    if configFileContainsCodepointMap(atPath: resolved) {
+                        return true
+                    }
                 }
             }
         }
