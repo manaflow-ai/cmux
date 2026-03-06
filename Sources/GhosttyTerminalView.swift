@@ -3381,15 +3381,33 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     private func dismissNotificationIfPresent() {
+        #if DEBUG
+        dlog("dismissNotificationIfPresent: checking tabId=\(tabId?.uuidString.prefix(8) ?? "nil") surfaceId=\(terminalSurface?.id.uuidString.prefix(8) ?? "nil")")
+        #endif
+
         guard let tabId,
               let surfaceId = terminalSurface?.id,
               let notificationStore = AppDelegate.shared?.notificationStore,
               let tabManager = AppDelegate.shared?.tabManager else {
+            #if DEBUG
+            dlog("dismissNotificationIfPresent: early return - missing required objects")
+            #endif
             return
         }
-        guard notificationStore.hasUnreadNotification(forTabId: tabId, surfaceId: surfaceId) else {
+
+        let hasUnread = notificationStore.hasUnreadNotification(forTabId: tabId, surfaceId: surfaceId)
+        #if DEBUG
+        dlog("dismissNotificationIfPresent: hasUnread=\(hasUnread) for tab=\(tabId.uuidString.prefix(8)) surface=\(surfaceId.uuidString.prefix(8))")
+        #endif
+
+        guard hasUnread else {
             return
         }
+
+        #if DEBUG
+        dlog("dismissNotificationIfPresent: dismissing notification and triggering flash")
+        #endif
+
         if let workspace = tabManager.tabs.first(where: { $0.id == tabId }) {
             workspace.triggerNotificationFocusFlash(panelId: surfaceId, requiresSplit: false, shouldFocus: false)
         }
