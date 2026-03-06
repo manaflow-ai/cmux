@@ -7226,7 +7226,7 @@ private struct SidebarHelpMenuButton: View {
                     helpOptionTrailingIcon(systemName: trailingSystemImage)
                 }
                 if isExternalLink {
-                    helpOptionTrailingIcon(systemName: "arrow.up.right")
+                    helpOptionTrailingIcon(systemName: "arrow.up.right", size: 11)
                 }
             }
             .padding(.horizontal, 8)
@@ -7237,11 +7237,11 @@ private struct SidebarHelpMenuButton: View {
         .accessibilityIdentifier(accessibilityIdentifier)
     }
 
-    private func helpOptionTrailingIcon(systemName: String) -> some View {
+    private func helpOptionTrailingIcon(systemName: String, size: CGFloat = 13) -> some View {
         Image(systemName: systemName)
             .resizable()
             .scaledToFit()
-            .frame(width: 13, height: 13)
+            .frame(width: size, height: size)
             .foregroundStyle(Color(nsColor: .secondaryLabelColor))
     }
 
