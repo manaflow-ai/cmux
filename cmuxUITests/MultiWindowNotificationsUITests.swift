@@ -564,44 +564,38 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         arguments: [String],
         responseTimeoutSeconds: Double = 3.0
     ) -> (terminationStatus: Int32, stdout: String, stderr: String) {
-        let process = Process()
-        let cliPath = resolveCmuxCLIPath()
         var args = ["--socket", socketPath]
         args.append(contentsOf: arguments)
-        if let cliPath {
-            process.executableURL = URL(fileURLWithPath: cliPath)
-        } else {
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-            args.insert("cmux", at: 0)
-        }
-        process.arguments = args
         var environment = ProcessInfo.processInfo.environment
         environment["CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC"] = String(responseTimeoutSeconds)
-        process.environment = environment
 
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
-
-        do {
-            try process.run()
-            process.waitUntilExit()
-        } catch {
-            return (
-                terminationStatus: -1,
-                stdout: "",
-                stderr: "Failed to run cmux command: \(error.localizedDescription) (cliPath=\(cliPath ?? "env:cmux"))"
+        var lastPermissionFailure: (terminationStatus: Int32, stdout: String, stderr: String)?
+        for cliPath in resolveCmuxCLIPaths() {
+            let result = executeCmuxCommand(
+                executablePath: cliPath,
+                arguments: args,
+                environment: environment
             )
+            if result.terminationStatus == 0 {
+                return result
+            }
+            if result.stderr.localizedCaseInsensitiveContains("operation not permitted") {
+                lastPermissionFailure = result
+                continue
+            }
+            return result
         }
 
-        let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-        let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-        let stdout = String(data: stdoutData, encoding: .utf8)?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let stderr = String(data: stderrData, encoding: .utf8)?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return (process.terminationStatus, stdout, stderr)
+        let fallbackArgs = ["cmux"] + args
+        let fallbackResult = executeCmuxCommand(
+            executablePath: "/usr/bin/env",
+            arguments: fallbackArgs,
+            environment: environment
+        )
+        if fallbackResult.terminationStatus == 0 || lastPermissionFailure == nil {
+            return fallbackResult
+        }
+        return lastPermissionFailure ?? fallbackResult
     }
 
     private func socketDiagnostics(from data: [String: String]) -> String {
@@ -612,7 +606,7 @@ final class MultiWindowNotificationsUITests: XCTestCase {
             "signals=\(data["socketFailureSignals"] ?? "")"
     }
 
-    private func resolveCmuxCLIPath() -> String? {
+    private func resolveCmuxCLIPaths() -> [String] {
         let fileManager = FileManager.default
         let env = ProcessInfo.processInfo.environment
         var candidates: [String] = []
@@ -648,13 +642,12 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         candidates.append("/tmp/cmux-\(launchTag)/Build/Products/Debug/cmux.app/Contents/Resources/bin/cmux")
         candidates.append("/tmp/cmux-\(launchTag)/Build/Products/Debug/cmux")
 
+        var resolvedPaths: [String] = []
         for path in uniquePaths(candidates) {
-            if fileManager.isExecutableFile(atPath: path) {
-                return URL(fileURLWithPath: path).resolvingSymlinksInPath().path
-            }
+            guard fileManager.isExecutableFile(atPath: path) else { continue }
+            resolvedPaths.append(URL(fileURLWithPath: path).resolvingSymlinksInPath().path)
         }
-
-        return nil
+        return uniquePaths(resolvedPaths)
     }
 
     private func inferredBuildProductsDirectories() -> [String] {
@@ -676,14 +669,20 @@ final class MultiWindowNotificationsUITests: XCTestCase {
     }
 
     private func appendCLIPathCandidates(fromProductsDirectory productsDir: String, to candidates: inout [String]) {
+        candidates.append("\(productsDir)/cmux")
         candidates.append("\(productsDir)/cmux DEV.app/Contents/Resources/bin/cmux")
         candidates.append("\(productsDir)/cmux.app/Contents/Resources/bin/cmux")
-        candidates.append("\(productsDir)/cmux")
 
         guard let entries = try? FileManager.default.contentsOfDirectory(atPath: productsDir) else {
             return
         }
 
+        for entry in entries.sorted() where entry == "cmux" {
+            let cliPath = URL(fileURLWithPath: productsDir)
+                .appendingPathComponent(entry)
+                .path
+            candidates.append(cliPath)
+        }
         for entry in entries.sorted() where entry.hasSuffix(".app") {
             let cliPath = URL(fileURLWithPath: productsDir)
                 .appendingPathComponent(entry)
@@ -691,6 +690,42 @@ final class MultiWindowNotificationsUITests: XCTestCase {
                 .path
             candidates.append(cliPath)
         }
+    }
+
+    private func executeCmuxCommand(
+        executablePath: String,
+        arguments: [String],
+        environment: [String: String]
+    ) -> (terminationStatus: Int32, stdout: String, stderr: String) {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: executablePath)
+        process.arguments = arguments
+        process.environment = environment
+
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+
+        do {
+            try process.run()
+            process.waitUntilExit()
+        } catch {
+            return (
+                terminationStatus: -1,
+                stdout: "",
+                stderr: "Failed to run cmux command: \(error.localizedDescription) (cliPath=\(executablePath))"
+            )
+        }
+
+        let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+        let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+        let stdout = String(data: stdoutData, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let rawStderr = String(data: stderrData, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let stderr = rawStderr.isEmpty ? "" : "\(rawStderr) (cliPath=\(executablePath))"
+        return (process.terminationStatus, stdout, stderr)
     }
 
     private func uniquePaths(_ paths: [String]) -> [String] {
