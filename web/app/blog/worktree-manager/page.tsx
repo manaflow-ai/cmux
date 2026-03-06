@@ -124,8 +124,9 @@ export default function WorktreeManagerPage() {
       </pre>
 
       <p>
-        The agent can reason across both codebases from one place. Monorepo
-        benefits without merging repos.
+        The agent sees one <code>CLAUDE.md</code> that knows about both
+        projects, so it can reason across them without you having to merge
+        anything into a monorepo.
       </p>
 
       <h2>Try it</h2>
