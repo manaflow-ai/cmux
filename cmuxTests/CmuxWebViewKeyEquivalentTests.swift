@@ -3590,6 +3590,35 @@ final class ShortcutHintDebugSettingsTests: XCTestCase {
     }
 }
 
+final class DevBuildBannerDebugSettingsTests: XCTestCase {
+    func testShowSidebarBannerDefaultsToVisible() {
+        let suiteName = "DevBuildBannerDebugSettingsTests.Default.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.removeObject(forKey: DevBuildBannerDebugSettings.sidebarBannerVisibleKey)
+        XCTAssertTrue(DevBuildBannerDebugSettings.showSidebarBanner(defaults: defaults))
+    }
+
+    func testShowSidebarBannerRespectsStoredValue() {
+        let suiteName = "DevBuildBannerDebugSettingsTests.Stored.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set(false, forKey: DevBuildBannerDebugSettings.sidebarBannerVisibleKey)
+        XCTAssertFalse(DevBuildBannerDebugSettings.showSidebarBanner(defaults: defaults))
+
+        defaults.set(true, forKey: DevBuildBannerDebugSettings.sidebarBannerVisibleKey)
+        XCTAssertTrue(DevBuildBannerDebugSettings.showSidebarBanner(defaults: defaults))
+    }
+}
+
 final class ShortcutHintLanePlannerTests: XCTestCase {
     func testAssignLanesKeepsSeparatedIntervalsOnSingleLane() {
         let intervals: [ClosedRange<CGFloat>] = [0...20, 28...40, 48...64]
