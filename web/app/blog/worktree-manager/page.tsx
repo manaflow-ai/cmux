@@ -3,7 +3,7 @@ import Link from "next/link";
 import { CodeBlock } from "../../components/code-block";
 
 export const metadata: Metadata = {
-  title: "The best git worktree manager",
+  title: "The best git worktree manager is Claude Code",
   description:
     "How we use a dedicated HQ repo with git worktrees to run parallel agents across codebases, and how you can replicate it.",
   keywords: [
@@ -18,7 +18,7 @@ export const metadata: Metadata = {
     "macOS",
   ],
   openGraph: {
-    title: "The best git worktree manager",
+    title: "The best git worktree manager is Claude Code",
     description:
       "How we use a dedicated HQ repo with git worktrees to run parallel agents across codebases, and how you can replicate it.",
     type: "article",
@@ -27,7 +27,7 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary",
-    title: "The best git worktree manager",
+    title: "The best git worktree manager is Claude Code",
     description:
       "How we use a dedicated HQ repo with git worktrees to run parallel agents across codebases, and how you can replicate it.",
   },
@@ -48,7 +48,7 @@ export default async function WorktreeManagerPage() {
         </Link>
       </div>
 
-      <h1>The best git worktree manager</h1>
+      <h1>The best git worktree manager is Claude Code</h1>
       <time dateTime="2026-03-06" className="text-sm text-muted">
         March 6, 2026
       </time>
