@@ -41,6 +41,9 @@ _CMUX_GIT_LAST_PWD="${_CMUX_GIT_LAST_PWD:-}"
 _CMUX_GIT_LAST_RUN="${_CMUX_GIT_LAST_RUN:-0}"
 _CMUX_GIT_JOB_PID="${_CMUX_GIT_JOB_PID:-}"
 _CMUX_GIT_JOB_STARTED_AT="${_CMUX_GIT_JOB_STARTED_AT:-0}"
+_CMUX_GIT_HEAD_LAST_PWD="${_CMUX_GIT_HEAD_LAST_PWD:-}"
+_CMUX_GIT_HEAD_PATH="${_CMUX_GIT_HEAD_PATH:-}"
+_CMUX_GIT_HEAD_SIGNATURE="${_CMUX_GIT_HEAD_SIGNATURE:-}"
 _CMUX_PR_LAST_PWD="${_CMUX_PR_LAST_PWD:-}"
 _CMUX_PR_LAST_RUN="${_CMUX_PR_LAST_RUN:-0}"
 _CMUX_PR_JOB_PID="${_CMUX_PR_JOB_PID:-}"
@@ -50,6 +53,41 @@ _CMUX_ASYNC_JOB_TIMEOUT="${_CMUX_ASYNC_JOB_TIMEOUT:-20}"
 _CMUX_PORTS_LAST_RUN="${_CMUX_PORTS_LAST_RUN:-0}"
 _CMUX_TTY_NAME="${_CMUX_TTY_NAME:-}"
 _CMUX_TTY_REPORTED="${_CMUX_TTY_REPORTED:-0}"
+
+_cmux_git_resolve_head_path() {
+    # Resolve the HEAD file path without invoking git (fast; works for worktrees).
+    local dir="$PWD"
+    while :; do
+        if [[ -d "$dir/.git" ]]; then
+            printf '%s\n' "$dir/.git/HEAD"
+            return 0
+        fi
+        if [[ -f "$dir/.git" ]]; then
+            local line gitdir
+            IFS= read -r line < "$dir/.git" || line=""
+            if [[ "$line" == gitdir:* ]]; then
+                gitdir="${line#gitdir:}"
+                gitdir="${gitdir## }"
+                gitdir="${gitdir%% }"
+                [[ -n "$gitdir" ]] || return 1
+                [[ "$gitdir" != /* ]] && gitdir="$dir/$gitdir"
+                printf '%s\n' "$gitdir/HEAD"
+                return 0
+            fi
+        fi
+        [[ "$dir" == "/" || -z "$dir" ]] && break
+        dir="$(dirname "$dir")"
+    done
+    return 1
+}
+
+_cmux_git_head_signature() {
+    local head_path="$1"
+    [[ -n "$head_path" && -r "$head_path" ]] || return 1
+    local line
+    IFS= read -r line < "$head_path" || return 1
+    printf '%s\n' "$line"
+}
 
 _cmux_report_tty_once() {
     # Send the TTY name to the app once per session so the batched port scanner
@@ -62,7 +100,7 @@ _cmux_report_tty_once() {
     _CMUX_TTY_REPORTED=1
     {
         _cmux_send "report_tty $_CMUX_TTY_NAME --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
-    } >/dev/null 2>&1 &
+    } >/dev/null 2>&1 & disown
 }
 
 _cmux_ports_kick() {
@@ -74,7 +112,7 @@ _cmux_ports_kick() {
     _CMUX_PORTS_LAST_RUN=$SECONDS
     {
         _cmux_send "ports_kick --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
-    } >/dev/null 2>&1 &
+    } >/dev/null 2>&1 & disown
 }
 
 _cmux_prompt_command() {
@@ -123,7 +161,26 @@ _cmux_prompt_command() {
         {
             local qpwd="${pwd//\"/\\\"}"
             _cmux_send "report_pwd \"${qpwd}\" --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
-        } >/dev/null 2>&1 &
+        } >/dev/null 2>&1 & disown
+    fi
+
+    # Branch can change via aliases/tools while an older probe is still in flight.
+    # Track .git/HEAD content so we can restart stale probes immediately.
+    local git_head_changed=0
+    if [[ "$pwd" != "$_CMUX_GIT_HEAD_LAST_PWD" ]]; then
+        _CMUX_GIT_HEAD_LAST_PWD="$pwd"
+        _CMUX_GIT_HEAD_PATH="$(_cmux_git_resolve_head_path 2>/dev/null || true)"
+        _CMUX_GIT_HEAD_SIGNATURE=""
+    fi
+    if [[ -n "$_CMUX_GIT_HEAD_PATH" ]]; then
+        local head_signature
+        head_signature="$(_cmux_git_head_signature "$_CMUX_GIT_HEAD_PATH" 2>/dev/null || true)"
+        if [[ -n "$head_signature" && "$head_signature" != "$_CMUX_GIT_HEAD_SIGNATURE" ]]; then
+            _CMUX_GIT_HEAD_SIGNATURE="$head_signature"
+            git_head_changed=1
+            # Also invalidate the PR probe so it refreshes with the new branch.
+            _CMUX_PR_LAST_RUN=0
+        fi
     fi
 
     # Git branch/dirty can change without a directory change (e.g. `git checkout`),
@@ -131,7 +188,7 @@ _cmux_prompt_command() {
     # When pwd changes (cd into a different repo), kill the old probe and start fresh
     # so the sidebar picks up the new branch immediately.
     if [[ -n "$_CMUX_GIT_JOB_PID" ]] && kill -0 "$_CMUX_GIT_JOB_PID" 2>/dev/null; then
-        if [[ "$pwd" != "$_CMUX_GIT_LAST_PWD" ]]; then
+        if [[ "$pwd" != "$_CMUX_GIT_LAST_PWD" || "$git_head_changed" == "1" ]]; then
             kill "$_CMUX_GIT_JOB_PID" >/dev/null 2>&1 || true
             _CMUX_GIT_JOB_PID=""
             _CMUX_GIT_JOB_STARTED_AT=0
@@ -154,20 +211,21 @@ _cmux_prompt_command() {
             fi
         } >/dev/null 2>&1 &
         _CMUX_GIT_JOB_PID=$!
+        disown
         _CMUX_GIT_JOB_STARTED_AT=$now
     fi
 
     # Pull request metadata (number/state/url):
-    # refresh on cwd change and periodically to avoid stale status.
+    # refresh on cwd change, HEAD change, and periodically to avoid stale status.
     if [[ -n "$_CMUX_PR_JOB_PID" ]] && kill -0 "$_CMUX_PR_JOB_PID" 2>/dev/null; then
-        if [[ "$pwd" != "$_CMUX_PR_LAST_PWD" ]]; then
+        if [[ "$pwd" != "$_CMUX_PR_LAST_PWD" || "$git_head_changed" == "1" ]]; then
             kill "$_CMUX_PR_JOB_PID" >/dev/null 2>&1 || true
             _CMUX_PR_JOB_PID=""
             _CMUX_PR_JOB_STARTED_AT=0
         fi
     fi
 
-    if [[ "$pwd" != "$_CMUX_PR_LAST_PWD" ]] || (( now - _CMUX_PR_LAST_RUN >= 60 )); then
+    if [[ "$pwd" != "$_CMUX_PR_LAST_PWD" || "$git_head_changed" == "1" ]] || (( now - _CMUX_PR_LAST_RUN >= 60 )); then
         if [[ -z "$_CMUX_PR_JOB_PID" ]] || ! kill -0 "$_CMUX_PR_JOB_PID" 2>/dev/null; then
             _CMUX_PR_LAST_PWD="$pwd"
             _CMUX_PR_LAST_RUN=$now
@@ -197,6 +255,7 @@ _cmux_prompt_command() {
                 fi
             } >/dev/null 2>&1 &
             _CMUX_PR_JOB_PID=$!
+            disown
             _CMUX_PR_JOB_STARTED_AT=$now
         fi
     fi
@@ -205,6 +264,7 @@ _cmux_prompt_command() {
     if (( now - _CMUX_PORTS_LAST_RUN >= 10 )); then
         _cmux_ports_kick
     fi
+
 }
 
 _cmux_install_prompt_command() {
