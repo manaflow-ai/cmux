@@ -255,6 +255,28 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         XCTAssertEqual(previewCommandIDs.first, "command.finder")
     }
 
+    func testSearchMatchesSingleOmittedCharacterInCommandWordPrefix() {
+        let entries = [
+            FixtureEntry(
+                id: "command.find",
+                rank: 0,
+                title: "Find...",
+                searchableTexts: ["Find...", "Search", "find", "search"]
+            ),
+            FixtureEntry(
+                id: "command.finder",
+                rank: 1,
+                title: "Open Current Directory in Finder",
+                searchableTexts: ["Open Current Directory in Finder", "Terminal", "finder", "directory", "open"]
+            ),
+        ]
+
+        XCTAssertEqual(
+            optimizedResults(entries: entries, query: "findr").first?.id,
+            "command.finder"
+        )
+    }
+
     func testResolvedSelectionIndexPrefersAnchoredCommand() {
         let resultIDs = ["command.0", "command.1", "command.2"]
 
