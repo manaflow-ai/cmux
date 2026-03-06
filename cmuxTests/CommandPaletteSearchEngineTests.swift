@@ -193,6 +193,32 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         }
     }
 
+    func testSearchCancellationReturnsNoResults() {
+        let entries = makeCommandEntries(count: 512)
+        let corpus = entries.map { entry in
+            CommandPaletteSearchCorpusEntry(
+                payload: entry.id,
+                rank: entry.rank,
+                title: entry.title,
+                searchableTexts: entry.searchableTexts
+            )
+        }
+        var cancellationChecks = 0
+
+        let results = CommandPaletteSearchEngine.search(
+            entries: corpus,
+            query: "rename"
+        ) { _, _ in
+            0
+        } shouldCancel: {
+            cancellationChecks += 1
+            return cancellationChecks >= 4
+        }
+
+        XCTAssertTrue(results.isEmpty)
+        XCTAssertGreaterThanOrEqual(cancellationChecks, 4)
+    }
+
     func testCommandSearchBenchmarkBeatsLegacyPipeline() {
         let entries = makeCommandEntries(count: 900)
         let corpus = entries.map { entry in
