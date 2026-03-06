@@ -3867,12 +3867,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
         let thresholdMs = AppDelegate.debugTypingPerfThresholdMs(for: event)
         if typingPerfProbeEnabled, delayMs >= thresholdMs {
-            AppDelegate.shared?.logDebugTypingPerfSnapshot(
+            AppDelegate.shared?.logDebugTypingPerfLagEvent(
                 phase: "terminal.\(path)",
                 event: event,
                 elapsedMs: delayMs,
                 thresholdMs: thresholdMs,
-                renderStats: terminalSurface?.hostedView.debugRenderStats(),
                 focusedSurfaceId: terminalSurface?.id
             )
         }

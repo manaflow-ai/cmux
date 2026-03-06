@@ -5411,6 +5411,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ].joined(separator: " ")
     }
 
+    private func debugTypingPerfEventParts(
+        prefix: String,
+        phase: String,
+        event: NSEvent?,
+        elapsedMs: Double?,
+        thresholdMs: Double?,
+        handledByShortcut: Bool?,
+        focusedSurfaceId: UUID?
+    ) -> [String] {
+        var parts: [String] = [
+            prefix,
+            "phase=\(phase)",
+        ]
+        if let elapsedMs {
+            parts.append("ms=\(String(format: "%.2f", elapsedMs))")
+        }
+        if let thresholdMs {
+            parts.append("threshold=\(String(format: "%.2f", thresholdMs))")
+        }
+        if let handledByShortcut {
+            parts.append("handled=\(handledByShortcut ? 1 : 0)")
+        }
+        if let event {
+            let normalizedFlags = event.modifierFlags
+                .intersection(.deviceIndependentFlagsMask)
+                .subtracting([.numericPad, .function, .capsLock])
+            let isPlainTyping = normalizedFlags.isDisjoint(with: [.command, .control, .option])
+            parts.append("plain=\(isPlainTyping ? 1 : 0)")
+            parts.append("repeat=\(event.isARepeat ? 1 : 0)")
+            parts.append("keyCode=\(event.keyCode)")
+            parts.append("mods=\(event.modifierFlags.rawValue)")
+        }
+        if let focusedSurfaceId {
+            parts.append("focusedSurface=\(debugShortId(focusedSurfaceId))")
+        }
+        return parts
+    }
+
     private func debugStressLagSnapshot(
         focusedSurfaceId: UUID? = nil,
         renderStats: GhosttySurfaceScrollView.DebugRenderStats? = nil
@@ -5503,34 +5541,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         force: Bool = false
     ) {
         guard force || debugStressLagProbeEnabled else { return }
+        var parts = debugTypingPerfEventParts(
+            prefix: force ? "stress.snapshot" : "stress.inputLag",
+            phase: phase,
+            event: event,
+            elapsedMs: elapsedMs,
+            thresholdMs: thresholdMs,
+            handledByShortcut: handledByShortcut,
+            focusedSurfaceId: focusedSurfaceId
+        )
         let snapshot = debugStressLagSnapshot(
             focusedSurfaceId: focusedSurfaceId,
             renderStats: renderStats
         )
-        var parts: [String] = [
-            force ? "stress.snapshot" : "stress.inputLag",
-            "phase=\(phase)",
-        ]
-        if let elapsedMs {
-            parts.append("ms=\(String(format: "%.2f", elapsedMs))")
-        }
-        if let thresholdMs {
-            parts.append("threshold=\(String(format: "%.2f", thresholdMs))")
-        }
-        if let handledByShortcut {
-            parts.append("handled=\(handledByShortcut ? 1 : 0)")
-        }
-        if let event {
-            let normalizedFlags = event.modifierFlags
-                .intersection(.deviceIndependentFlagsMask)
-                .subtracting([.numericPad, .function, .capsLock])
-            let isPlainTyping = normalizedFlags.isDisjoint(with: [.command, .control, .option])
-            parts.append("plain=\(isPlainTyping ? 1 : 0)")
-            parts.append("repeat=\(event.isARepeat ? 1 : 0)")
-            parts.append("keyCode=\(event.keyCode)")
-            parts.append("mods=\(event.modifierFlags.rawValue)")
-        }
         parts.append(debugTypingPerfSnapshotFields(snapshot))
+        dlog(parts.joined(separator: " "))
+    }
+
+    func logDebugTypingPerfLagEvent(
+        phase: String,
+        event: NSEvent?,
+        elapsedMs: Double?,
+        thresholdMs: Double?,
+        handledByShortcut: Bool? = nil,
+        focusedSurfaceId: UUID? = nil
+    ) {
+        guard debugStressLagProbeEnabled else { return }
+        let parts = debugTypingPerfEventParts(
+            prefix: "stress.inputLag",
+            phase: phase,
+            event: event,
+            elapsedMs: elapsedMs,
+            thresholdMs: thresholdMs,
+            handledByShortcut: handledByShortcut,
+            focusedSurfaceId: focusedSurfaceId
+        )
         dlog(parts.joined(separator: " "))
     }
 
@@ -5543,7 +5588,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         let thresholdMs = Self.debugTypingPerfThresholdMs(for: event)
         guard elapsedMs >= thresholdMs else { return }
-        logDebugTypingPerfSnapshot(
+        logDebugTypingPerfLagEvent(
             phase: "appMonitor",
             event: event,
             elapsedMs: elapsedMs,
