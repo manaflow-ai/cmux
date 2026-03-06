@@ -1242,33 +1242,6 @@ func shouldRouteTerminalFontZoomShortcutToGhostty(
     ) != nil
 }
 
-func shouldRouteTerminalCommandShortcutToGhostty(
-    flags: NSEvent.ModifierFlags,
-    chars: String,
-    keyCode: UInt16,
-    terminalHasSelection: Bool
-) -> Bool {
-    let normalizedFlags = flags
-        .intersection(.deviceIndependentFlagsMask)
-        .subtracting([.numericPad, .function, .capsLock])
-    guard normalizedFlags.contains(.command) else { return false }
-
-    let normalizedChars = chars.lowercased()
-    if normalizedFlags == [.command] {
-        // Keep Preferences (Cmd+,) menu-routed even when a terminal is focused.
-        if normalizedChars == "," || keyCode == 43 {
-            return false
-        }
-
-        // Preserve standard copy behavior when text is selected in the terminal.
-        if (normalizedChars == "c" || keyCode == 8), terminalHasSelection {
-            return false
-        }
-    }
-
-    return true
-}
-
 func cmuxOwningGhosttyView(for responder: NSResponder?) -> GhosttyNSView? {
     guard let responder else { return nil }
     if let ghosttyView = responder as? GhosttyNSView {
@@ -9221,23 +9194,6 @@ private extension NSWindow {
         if AppDelegate.shared?.handleBrowserSurfaceKeyEquivalent(event) == true {
 #if DEBUG
             dlog("  → consumed by handleBrowserSurfaceKeyEquivalent")
-#endif
-            return true
-        }
-
-        // Support custom tmux prefixes (for example Cmd+C): when the terminal is focused
-        // and no app-level shortcut matched, prefer forwarding Command-key input to the
-        // terminal rather than consuming it as a menu key equivalent.
-        if let ghosttyView = firstResponderGhosttyView,
-           shouldRouteTerminalCommandShortcutToGhostty(
-               flags: event.modifierFlags,
-               chars: event.charactersIgnoringModifiers ?? "",
-               keyCode: event.keyCode,
-               terminalHasSelection: ghosttyView.terminalSurface?.hasSelection() ?? false
-           ) {
-            ghosttyView.keyDown(with: event)
-#if DEBUG
-            dlog("  → ghostty command passthrough")
 #endif
             return true
         }
