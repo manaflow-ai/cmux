@@ -22,7 +22,7 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from cmux import cmux, cmuxError  # noqa: E402
+from cmux import cmux  # noqa: E402
 
 
 def _parse_sidebar_state(text: str) -> dict[str, str]:
@@ -131,7 +131,12 @@ def main() -> int:
     # Record the original panel so we can verify focus moves to the NEW pane.
     original_panel = state.get("focused_panel", "")
     split_result = client.new_split("right")
-    check("split created", bool(split_result))
+    if not split_result:
+        check("split created", False)
+        print(f"\n{passed} passed, {failed} failed")
+        client.close()
+        return 1
+    check("split created", True)
 
     # Wait for the NEW pane (different panel ID) to report test_dir_a.
     time.sleep(4)  # wait for new bash to start + run PROMPT_COMMAND
@@ -142,7 +147,9 @@ def main() -> int:
         new_panel = state.get("focused_panel", "")
         check("test1: focus moved to new pane", new_panel != original_panel,
               f"original={original_panel!r}, current={new_panel!r}")
-        check("test1: split inherited test_dir_a", True)
+        check("test1: split inherited test_dir_a",
+              state.get("focused_cwd") == test_dir_a,
+              f"focused_cwd={state.get('focused_cwd')!r}")
     except AssertionError:
         state = _parse_sidebar_state(client.sidebar_state())
         check("test1: split inherited test_dir_a", False,
@@ -156,7 +163,12 @@ def main() -> int:
     original_tab = state.get("tab", "")
 
     tab_result = client.new_tab()
-    check("new tab created", bool(tab_result))
+    if not tab_result:
+        check("new tab created", False)
+        print(f"\n{passed} passed, {failed} failed")
+        client.close()
+        return 1
+    check("new tab created", True)
 
     # New workspace should be a different tab AND inherit test_dir_b
     time.sleep(4)
@@ -175,7 +187,9 @@ def main() -> int:
         )
         check("test2: focus moved to new tab", state.get("tab") != original_tab,
               f"original={original_tab!r}, current={state.get('tab')!r}")
-        check("test2: new workspace inherited test_dir_b", True)
+        check("test2: new workspace inherited test_dir_b",
+              state.get("focused_cwd") == test_dir_b,
+              f"focused_cwd={state.get('focused_cwd')!r}")
     except AssertionError:
         state = _parse_sidebar_state(client.sidebar_state())
         check("test2: new workspace inherited test_dir_b", False,
