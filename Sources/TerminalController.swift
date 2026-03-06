@@ -1247,9 +1247,6 @@ class TerminalController {
         case "send_key":
             return sendKey(args)
 
-        case "send_workspace":
-            return sendInputToWorkspace(args)
-
         case "send_surface":
             return sendInputToSurface(args)
 
@@ -1360,6 +1357,9 @@ class TerminalController {
 
 
 #if DEBUG
+        case "send_workspace":
+            return sendInputToWorkspace(args)
+
         case "set_shortcut":
             return setShortcut(args)
 
@@ -9270,7 +9270,6 @@ class TerminalController {
         Input commands:
           send <text>                     - Send text to current terminal
           send_key <key>                  - Send special key (ctrl-c, ctrl-d, enter, tab, escape)
-          send_workspace <workspace_id> <text> - Send text to a workspace's focused terminal
           send_surface <id|idx> <text>    - Send text to a specific terminal
           send_key_surface <id|idx> <key> - Send special key to a specific terminal
           read_screen [id|idx] [--scrollback] [--lines N] - Read terminal text (plain text)
@@ -9346,6 +9345,7 @@ class TerminalController {
           sidebar_overlay_gate [active|inactive] - Return true/false if sidebar outside-drop overlay would capture (test-only)
           terminal_drop_overlay_probe [deferred|direct] - Trigger focused terminal drop-overlay show path and report animation counts (test-only)
           activate_app                    - Bring app + main window to front (test-only)
+          send_workspace <workspace_id> <text> - Send text to a workspace's focused terminal (test-only)
           is_terminal_focused <id|idx>    - Return true/false if terminal surface is first responder (test-only)
           read_terminal_text [id|idx]     - Read visible terminal text (base64, test-only)
           render_stats [id|idx]           - Read terminal render stats (draw counters, test-only)
