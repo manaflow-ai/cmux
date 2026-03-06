@@ -1318,6 +1318,9 @@ struct ContentView: View {
     @State private var commandPaletteSearchCorpusByID: [String: CommandPaletteSearchCorpusEntry<String>] = [:]
     @State private var commandPaletteSearchCommandsByID: [String: CommandPaletteCommand] = [:]
     @State private var cachedCommandPaletteResults: [CommandPaletteSearchResult] = []
+    @State private var commandPaletteVisibleResults: [CommandPaletteSearchResult] = []
+    @State private var commandPaletteVisibleResultsScope: CommandPaletteListScope?
+    @State private var commandPaletteVisibleResultsFingerprint: Int?
     @State private var cachedCommandPaletteScope: CommandPaletteListScope?
     @State private var cachedCommandPaletteFingerprint: Int?
     @State private var commandPaletteSearchTask: Task<Void, Never>?
@@ -1325,7 +1328,6 @@ struct ContentView: View {
     @State private var commandPaletteResolvedSearchRequestID: UInt64 = 0
     @State private var commandPaletteResolvedSearchScope: CommandPaletteListScope?
     @State private var commandPaletteResolvedSearchFingerprint: Int?
-    @State private var commandPaletteSearchHistoryTimestamp: TimeInterval = 0
     @State private var isCommandPaletteSearchPending = false
     @State private var commandPalettePendingActivation: CommandPalettePendingActivation?
     @State private var commandPaletteResultsRevision: UInt64 = 0
@@ -1595,7 +1597,6 @@ struct ContentView: View {
     )
     private static let commandPaletteUsageDefaultsKey = "commandPalette.commandUsage.v1"
     private static let commandPaletteCommandsPrefix = ">"
-    private static let commandPaletteVisiblePreviewCandidateLimit = 256
     private static let commandPaletteVisiblePreviewResultLimit = 48
     private static let minimumSidebarWidth: CGFloat = 186
     private static let maximumSidebarWidthRatio: CGFloat = 1.0 / 3.0
@@ -3270,43 +3271,6 @@ struct ContentView: View {
         }
     }
 
-    private var commandPaletteResolvedResultsMatchCurrentSearchContext: Bool {
-        commandPaletteResolvedSearchScope == commandPaletteListScope &&
-        commandPaletteResolvedSearchFingerprint == cachedCommandPaletteFingerprint
-    }
-
-    private var commandPaletteVisibleResults: [CommandPaletteSearchResult] {
-        if commandPaletteHasCurrentResolvedResults {
-            return cachedCommandPaletteResults
-        }
-
-        guard !commandPaletteSearchCorpus.isEmpty else {
-            return []
-        }
-
-        let prioritizedCommandIDs = commandPaletteResolvedResultsMatchCurrentSearchContext
-            ? cachedCommandPaletteResults.map(\.id)
-            : []
-        let query = commandPaletteQueryForMatching
-        let queryIsEmpty = CommandPaletteFuzzyMatcher.preparedQuery(query).isEmpty
-        let previewMatches = Self.commandPalettePreviewSearchMatches(
-            searchCorpus: commandPaletteSearchCorpus,
-            searchCorpusByID: commandPaletteSearchCorpusByID,
-            prioritizedCommandIDs: prioritizedCommandIDs,
-            query: query,
-            usageHistory: commandPaletteUsageHistoryByCommandId,
-            queryIsEmpty: queryIsEmpty,
-            historyTimestamp: commandPaletteSearchHistoryTimestamp,
-            candidateLimit: Self.commandPaletteVisiblePreviewCandidateLimit,
-            resultLimit: Self.commandPaletteVisiblePreviewResultLimit
-        )
-
-        return Self.commandPaletteMaterializedSearchResults(
-            matches: previewMatches,
-            commandsByID: commandPaletteSearchCommandsByID
-        )
-    }
-
     private func commandPaletteEntries(for scope: CommandPaletteListScope) -> [CommandPaletteCommand] {
         switch scope {
         case .commands:
@@ -3389,44 +3353,72 @@ struct ContentView: View {
         }
     }
 
+    private func setCommandPaletteVisibleResults(
+        _ results: [CommandPaletteSearchResult],
+        scope: CommandPaletteListScope,
+        fingerprint: Int?
+    ) {
+        commandPaletteVisibleResults = results
+        commandPaletteVisibleResultsScope = scope
+        commandPaletteVisibleResultsFingerprint = fingerprint
+    }
+
+    private func refreshPendingCommandPaletteVisibleResults(
+        scope: CommandPaletteListScope,
+        fingerprint: Int?,
+        query: String,
+        usageHistory: [String: CommandPaletteUsageEntry],
+        queryIsEmpty: Bool,
+        historyTimestamp: TimeInterval
+    ) {
+        let candidateCommandIDs: [String]
+        if commandPaletteVisibleResultsScope == scope,
+           commandPaletteVisibleResultsFingerprint == fingerprint {
+            candidateCommandIDs = commandPaletteVisibleResults.map(\.id)
+        } else {
+            candidateCommandIDs = []
+        }
+
+        let previewMatches = Self.commandPalettePreviewSearchMatches(
+            candidateCommandIDs: candidateCommandIDs,
+            searchCorpusByID: commandPaletteSearchCorpusByID,
+            query: query,
+            usageHistory: usageHistory,
+            queryIsEmpty: queryIsEmpty,
+            historyTimestamp: historyTimestamp,
+            resultLimit: Self.commandPaletteVisiblePreviewResultLimit
+        )
+        let previewResults = Self.commandPaletteMaterializedSearchResults(
+            matches: previewMatches,
+            commandsByID: commandPaletteSearchCommandsByID
+        )
+        setCommandPaletteVisibleResults(
+            previewResults,
+            scope: scope,
+            fingerprint: fingerprint
+        )
+    }
+
     nonisolated private static func commandPalettePreviewSearchMatches(
-        searchCorpus: [CommandPaletteSearchCorpusEntry<String>],
+        candidateCommandIDs: [String],
         searchCorpusByID: [String: CommandPaletteSearchCorpusEntry<String>],
-        prioritizedCommandIDs: [String],
         query: String,
         usageHistory: [String: CommandPaletteUsageEntry],
         queryIsEmpty: Bool,
         historyTimestamp: TimeInterval,
-        candidateLimit: Int,
         resultLimit: Int
     ) -> [CommandPaletteResolvedSearchMatch] {
-        guard !searchCorpus.isEmpty, candidateLimit > 0, resultLimit > 0 else {
+        guard !candidateCommandIDs.isEmpty, resultLimit > 0 else {
             return []
         }
 
-        var previewEntries: [CommandPaletteSearchCorpusEntry<String>] = []
-        previewEntries.reserveCapacity(min(candidateLimit, searchCorpus.count))
         var seenCommandIDs: Set<String> = []
-
-        for commandID in prioritizedCommandIDs {
-            guard seenCommandIDs.insert(commandID).inserted,
-                  let entry = searchCorpusByID[commandID] else {
-                continue
-            }
-            previewEntries.append(entry)
-            if previewEntries.count == candidateLimit {
-                break
-            }
+        let previewEntries: [CommandPaletteSearchCorpusEntry<String>] = candidateCommandIDs.compactMap { commandID in
+            guard seenCommandIDs.insert(commandID).inserted else { return nil }
+            return searchCorpusByID[commandID]
         }
-
-        if previewEntries.count < candidateLimit {
-            for entry in searchCorpus {
-                guard seenCommandIDs.insert(entry.payload).inserted else { continue }
-                previewEntries.append(entry)
-                if previewEntries.count == candidateLimit {
-                    break
-                }
-            }
+        guard !previewEntries.isEmpty else {
+            return []
         }
 
         let matches = commandPaletteResolvedSearchMatches(
@@ -3455,7 +3447,6 @@ struct ContentView: View {
         let usageHistory = commandPaletteUsageHistoryByCommandId
         let queryIsEmpty = CommandPaletteFuzzyMatcher.preparedQuery(query).isEmpty
         let historyTimestamp = Date().timeIntervalSince1970
-        commandPaletteSearchHistoryTimestamp = historyTimestamp
         commandPalettePendingActivation = nil
         cancelCommandPaletteSearch()
         if cachedCommandPaletteResults.isEmpty {
@@ -3474,9 +3465,22 @@ struct ContentView: View {
             commandPaletteResolvedSearchScope = scope
             commandPaletteResolvedSearchFingerprint = fingerprint
             isCommandPaletteSearchPending = false
+            setCommandPaletteVisibleResults(
+                cachedCommandPaletteResults,
+                scope: scope,
+                fingerprint: fingerprint
+            )
             commandPaletteResultsRevision &+= 1
             return
         }
+        refreshPendingCommandPaletteVisibleResults(
+            scope: scope,
+            fingerprint: fingerprint,
+            query: query,
+            usageHistory: usageHistory,
+            queryIsEmpty: queryIsEmpty,
+            historyTimestamp: historyTimestamp
+        )
         isCommandPaletteSearchPending = true
 
         commandPaletteSearchTask = Task.detached(priority: .userInitiated) {
@@ -3515,6 +3519,11 @@ struct ContentView: View {
                 commandPaletteResolvedSearchScope = scope
                 commandPaletteResolvedSearchFingerprint = fingerprint
                 isCommandPaletteSearchPending = false
+                setCommandPaletteVisibleResults(
+                    cachedCommandPaletteResults,
+                    scope: scope,
+                    fingerprint: fingerprint
+                )
                 if Self.commandPalettePendingActivationRequestID(pendingActivation) == requestID {
                     commandPalettePendingActivation = nil
                 }
@@ -5352,12 +5361,14 @@ struct ContentView: View {
         commandPaletteSearchCorpusByID = [:]
         commandPaletteSearchCommandsByID = [:]
         cachedCommandPaletteResults = []
+        commandPaletteVisibleResults = []
+        commandPaletteVisibleResultsScope = nil
+        commandPaletteVisibleResultsFingerprint = nil
         cachedCommandPaletteScope = nil
         cachedCommandPaletteFingerprint = nil
         commandPaletteResolvedSearchRequestID = commandPaletteSearchRequestID
         commandPaletteResolvedSearchScope = nil
         commandPaletteResolvedSearchFingerprint = nil
-        commandPaletteSearchHistoryTimestamp = 0
         isCommandPaletteSearchPending = false
         commandPalettePendingActivation = nil
         commandPaletteResultsRevision &+= 1
