@@ -229,34 +229,37 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         if setup["socketReady"] != "1" {
             XCTFail(
                 "Control socket unavailable in this test environment. expected=\(socketPath) " +
-                "mode=\(setup["socketMode"] ?? "") running=\(setup["socketIsRunning"] ?? "") " +
-                "acceptLoopAlive=\(setup["socketAcceptLoopAlive"] ?? "") pathMatches=\(setup["socketPathMatches"] ?? "") " +
-                "pathExists=\(setup["socketPathExists"] ?? "") signals=\(setup["socketFailureSignals"] ?? "")"
+                socketDiagnostics(from: setup)
             )
             return
         }
 
         XCTAssertTrue(waitForWindowCount(atLeast: 2, app: app, timeout: 6.0))
 
-        let pingResponse = waitForSocketPong(timeout: 20.0)
-        if pingResponse != "PONG",
+        let pingResult = waitForCmuxPing(timeout: 20.0)
+        if pingResult.stdout != "PONG",
            let resolvedPath = resolveSocketPath(timeout: 5.0, requiredWorkspaceId: tabId2) {
             socketPath = resolvedPath
         }
 
-        let confirmedPingResponse = pingResponse == "PONG" ? pingResponse : waitForSocketPong(timeout: 5.0)
-        guard confirmedPingResponse == "PONG" else {
+        let confirmedPingResult = pingResult.stdout == "PONG" ? pingResult : waitForCmuxPing(timeout: 5.0)
+        guard confirmedPingResult.stdout == "PONG" else {
+            let failureSetup = loadData() ?? setup
             XCTFail(
-                "Control socket did not respond in time. path=\(socketPath) response=\(confirmedPingResponse ?? "<nil>") " +
-                "mode=\(setup["socketMode"] ?? "") running=\(setup["socketIsRunning"] ?? "") " +
-                "acceptLoopAlive=\(setup["socketAcceptLoopAlive"] ?? "") pathMatches=\(setup["socketPathMatches"] ?? "") " +
-                "pathExists=\(setup["socketPathExists"] ?? "") signals=\(setup["socketFailureSignals"] ?? "")"
+                "Control socket did not respond in time. path=\(socketPath) response=\(confirmedPingResult.stdout ?? "<nil>") " +
+                "stderr=\(confirmedPingResult.stderr ?? "<nil>") " +
+                socketDiagnostics(from: failureSetup)
             )
             return
         }
 
-        guard let surfaceId = waitForSurfaceId(forWorkspaceId: tabId2, timeout: 12.0) else {
-            XCTFail("Expected at least one surface in workspace \(tabId2). socket=\(socketPath)")
+        guard let surfaceId = waitForSurfaceIdViaCLI(forWorkspaceId: tabId2, timeout: 12.0)
+            ?? waitForSurfaceId(forWorkspaceId: tabId2, timeout: 3.0) else {
+            let failureSetup = loadData() ?? setup
+            XCTFail(
+                "Expected at least one surface in workspace \(tabId2). socket=\(socketPath) " +
+                socketDiagnostics(from: failureSetup)
+            )
             return
         }
 
@@ -395,6 +398,40 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         return socketCommand("ping") ?? lastResponse
     }
 
+    private func waitForCmuxPing(timeout: TimeInterval) -> (stdout: String?, stderr: String?) {
+        let deadline = Date().addingTimeInterval(timeout)
+        var lastStdout: String?
+        var lastStderr: String?
+        while Date() < deadline {
+            let result = runCmuxCommand(
+                socketPath: socketPath,
+                arguments: ["ping"],
+                responseTimeoutSeconds: 2.0
+            )
+            let stdout = result.stdout.isEmpty ? nil : result.stdout
+            let stderr = result.stderr.isEmpty ? nil : result.stderr
+            if let stdout {
+                lastStdout = stdout
+            }
+            if let stderr {
+                lastStderr = stderr
+            }
+            if result.terminationStatus == 0, stdout == "PONG" {
+                return ("PONG", stderr)
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+
+        let result = runCmuxCommand(
+            socketPath: socketPath,
+            arguments: ["ping"],
+            responseTimeoutSeconds: 2.0
+        )
+        let stdout = result.stdout.isEmpty ? nil : result.stdout
+        let stderr = result.stderr.isEmpty ? nil : result.stderr
+        return (stdout ?? lastStdout, stderr ?? lastStderr)
+    }
+
     private func waitForAppToLeaveForeground(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
@@ -436,29 +473,101 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         return firstSurfaceId(forWorkspaceId: workspaceId)
     }
 
+    private func waitForSurfaceIdViaCLI(forWorkspaceId workspaceId: String, timeout: TimeInterval) -> String? {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if let surfaceId = firstSurfaceIdViaCLI(forWorkspaceId: workspaceId) {
+                return surfaceId
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        return firstSurfaceIdViaCLI(forWorkspaceId: workspaceId)
+    }
+
+    private func firstSurfaceIdViaCLI(forWorkspaceId workspaceId: String) -> String? {
+        guard let paneId = firstPaneIdViaCLI(forWorkspaceId: workspaceId) else {
+            return nil
+        }
+        let result = runCmuxCommand(
+            socketPath: socketPath,
+            arguments: [
+                "list-pane-surfaces",
+                "--workspace",
+                workspaceId,
+                "--pane",
+                paneId,
+                "--id-format",
+                "uuids"
+            ],
+            responseTimeoutSeconds: 3.0
+        )
+        guard result.terminationStatus == 0 else { return nil }
+        return firstHandle(in: result.stdout)
+    }
+
+    private func firstPaneIdViaCLI(forWorkspaceId workspaceId: String) -> String? {
+        let result = runCmuxCommand(
+            socketPath: socketPath,
+            arguments: [
+                "list-panes",
+                "--workspace",
+                workspaceId,
+                "--id-format",
+                "uuids"
+            ],
+            responseTimeoutSeconds: 3.0
+        )
+        guard result.terminationStatus == 0 else { return nil }
+        return firstHandle(in: result.stdout)
+    }
+
+    private func firstHandle(in output: String) -> String? {
+        for rawLine in output.split(separator: "\n", omittingEmptySubsequences: true) {
+            var line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !line.isEmpty, !line.hasPrefix("No ") else { continue }
+            if line.hasPrefix("* ") || line.hasPrefix("  ") {
+                line = String(line.dropFirst(2))
+            }
+            guard let token = line.split(whereSeparator: \.isWhitespace).first else { continue }
+            return String(token)
+        }
+        return nil
+    }
+
     private func runCmuxNotify(
         socketPath: String,
         workspaceId: String,
         surfaceId: String,
         title: String
     ) -> (terminationStatus: Int32, stdout: String, stderr: String) {
+        runCmuxCommand(
+            socketPath: socketPath,
+            arguments: [
+                "notify",
+                "--workspace",
+                workspaceId,
+                "--surface",
+                surfaceId,
+                "--title",
+                title,
+                "--subtitle",
+                "ui-test",
+                "--body",
+                "focus-regression"
+            ],
+            responseTimeoutSeconds: 4.0
+        )
+    }
+
+    private func runCmuxCommand(
+        socketPath: String,
+        arguments: [String],
+        responseTimeoutSeconds: Double = 3.0
+    ) -> (terminationStatus: Int32, stdout: String, stderr: String) {
         let process = Process()
         let cliPath = resolveCmuxCLIPath()
-        var args = [
-            "--socket",
-            socketPath,
-            "notify",
-            "--workspace",
-            workspaceId,
-            "--surface",
-            surfaceId,
-            "--title",
-            title,
-            "--subtitle",
-            "ui-test",
-            "--body",
-            "focus-regression"
-        ]
+        var args = ["--socket", socketPath]
+        args.append(contentsOf: arguments)
         if let cliPath {
             process.executableURL = URL(fileURLWithPath: cliPath)
         } else {
@@ -466,6 +575,9 @@ final class MultiWindowNotificationsUITests: XCTestCase {
             args.insert("cmux", at: 0)
         }
         process.arguments = args
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC"] = String(responseTimeoutSeconds)
+        process.environment = environment
 
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()
@@ -479,7 +591,7 @@ final class MultiWindowNotificationsUITests: XCTestCase {
             return (
                 terminationStatus: -1,
                 stdout: "",
-                stderr: "Failed to run cmux notify: \(error.localizedDescription) (cliPath=\(cliPath ?? "env:cmux"))"
+                stderr: "Failed to run cmux command: \(error.localizedDescription) (cliPath=\(cliPath ?? "env:cmux"))"
             )
         }
 
@@ -490,6 +602,14 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         let stderr = String(data: stderrData, encoding: .utf8)?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return (process.terminationStatus, stdout, stderr)
+    }
+
+    private func socketDiagnostics(from data: [String: String]) -> String {
+        let pingResponse = data["socketPingResponse"].flatMap { $0.isEmpty ? nil : $0 } ?? "<nil>"
+        return "mode=\(data["socketMode"] ?? "") running=\(data["socketIsRunning"] ?? "") " +
+            "acceptLoopAlive=\(data["socketAcceptLoopAlive"] ?? "") pathMatches=\(data["socketPathMatches"] ?? "") " +
+            "pathExists=\(data["socketPathExists"] ?? "") ping=\(pingResponse) " +
+            "signals=\(data["socketFailureSignals"] ?? "")"
     }
 
     private func resolveCmuxCLIPath() -> String? {
