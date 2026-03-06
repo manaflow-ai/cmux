@@ -7492,9 +7492,12 @@ private struct SidebarHelpMenuButton: View {
         }
         .buttonStyle(SidebarFooterIconButtonStyle())
         .frame(width: buttonSize, height: buttonSize, alignment: .center)
-        .popover(isPresented: $isPopoverPresented, arrowEdge: .bottom) {
+        .background(ArrowlessPopoverAnchor(
+            isPresented: $isPopoverPresented,
+            preferredEdge: .maxY
+        ) {
             helpPopover
-        }
+        })
         .accessibilityElement(children: .ignore)
         .help(helpTitle)
         .accessibilityLabel(helpTitle)
@@ -7652,6 +7655,75 @@ private struct SidebarHelpMenuButton: View {
             return fallback
         }
         return shortcut
+    }
+}
+
+/// Presents an NSPopover without an arrow using the shouldHideAnchor KVC trick.
+private struct ArrowlessPopoverAnchor<PopoverContent: View>: NSViewRepresentable {
+    @Binding var isPresented: Bool
+    let preferredEdge: NSRectEdge
+    @ViewBuilder let content: () -> PopoverContent
+
+    func makeNSView(context: Context) -> NSView {
+        NSView()
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        if isPresented {
+            guard context.coordinator.popover == nil else { return }
+
+            let popover = NSPopover()
+            popover.behavior = .semitransient
+            popover.animates = true
+            popover.setValue(true, forKeyPath: "shouldHideAnchor")
+            popover.contentViewController = NSHostingController(rootView: content())
+            popover.delegate = context.coordinator
+            context.coordinator.popover = popover
+
+            // Show relative to a rect shifted toward the preferred edge to close
+            // the gap left by the hidden arrow (~13pt arrow height).
+            let arrowCompensation: CGFloat = 13
+            var rect = nsView.bounds
+            switch preferredEdge {
+            case .maxY:
+                rect = NSRect(x: rect.minX, y: rect.maxY - arrowCompensation, width: rect.width, height: arrowCompensation)
+            case .minY:
+                rect = NSRect(x: rect.minX, y: rect.minY, width: rect.width, height: arrowCompensation)
+            case .maxX:
+                rect = NSRect(x: rect.maxX - arrowCompensation, y: rect.minY, width: arrowCompensation, height: rect.height)
+            case .minX:
+                rect = NSRect(x: rect.minX, y: rect.minY, width: arrowCompensation, height: rect.height)
+            default: break
+            }
+            popover.show(relativeTo: rect, of: nsView, preferredEdge: preferredEdge)
+        } else {
+            context.coordinator.dismiss()
+        }
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(isPresented: $isPresented)
+    }
+
+    final class Coordinator: NSObject, NSPopoverDelegate {
+        @Binding var isPresented: Bool
+        var popover: NSPopover?
+
+        init(isPresented: Binding<Bool>) {
+            _isPresented = isPresented
+        }
+
+        func dismiss() {
+            popover?.performClose(nil)
+            popover = nil
+        }
+
+        func popoverDidClose(_ notification: Notification) {
+            popover = nil
+            if isPresented {
+                isPresented = false
+            }
+        }
     }
 }
 
