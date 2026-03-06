@@ -1466,6 +1466,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     weak var sidebarState: SidebarState?
     weak var fullscreenControlsViewModel: TitlebarControlsViewModel?
     weak var sidebarSelectionState: SidebarSelectionState?
+    var shortcutLayoutCharacterProvider: (UInt16) -> String? = KeyboardLayout.character(forKeyCode:)
     private var workspaceObserver: NSObjectProtocol?
     private var lifecycleSnapshotObservers: [NSObjectProtocol] = []
     private var windowKeyObserver: NSObjectProtocol?
@@ -7529,8 +7530,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         // Match using the current keyboard layout so Command shortcuts stay character-based
         // across layouts (QWERTY, Dvorak, etc.) instead of being tied to ANSI physical keys.
+        let layoutCharacter = shortcutLayoutCharacterProvider(event.keyCode)
         if shortcutCharacterMatches(
-            eventCharacter: KeyboardLayout.character(forKeyCode: event.keyCode),
+            eventCharacter: layoutCharacter,
             shortcutKey: shortcutKey,
             applyShiftSymbolNormalization: false,
             eventKeyCode: event.keyCode
@@ -7545,7 +7547,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let allowANSIKeyCodeFallback = flags.contains(.control)
             || (flags.contains(.command)
                 && !flags.contains(.control)
-                && !shouldRequireCharacterMatchForCommandShortcut(shortcutKey: shortcutKey))
+                && (
+                    !shouldRequireCharacterMatchForCommandShortcut(shortcutKey: shortcutKey)
+                        || (!hasEventChars && (layoutCharacter?.isEmpty ?? true))
+                ))
         if allowANSIKeyCodeFallback, let expectedKeyCode = keyCodeForShortcutKey(shortcutKey) {
             return event.keyCode == expectedKeyCode
         }
