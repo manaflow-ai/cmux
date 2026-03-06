@@ -7204,6 +7204,7 @@ final class NotificationDockBadgeTests: XCTestCase {
         appDelegate.tabManager = tabManager
         appDelegate.notificationStore = store
         AppDelegate.shared = appDelegate
+        AppFocusState.overrideIsFocused = true
 
         guard let tabId = tabManager.selectedTabId,
               let surfaceId = tabManager.focusedSurfaceId(for: tabId) else {
@@ -7304,7 +7305,7 @@ final class NotificationDockBadgeTests: XCTestCase {
         tabManager.focusTabFromNotification(tabId, surfaceId: surfaceId)
 
         let drained = expectation(description: "notification focus drained")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { drained.fulfill() }
+        DispatchQueue.main.async { drained.fulfill() }
         wait(for: [drained], timeout: 1.0)
 
         XCTAssertTrue(store.hasUnreadNotification(forTabId: tabId, surfaceId: surfaceId))

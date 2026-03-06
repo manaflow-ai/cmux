@@ -855,7 +855,9 @@ final class TerminalNotificationStore: ObservableObject {
             center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
             center.removePendingNotificationRequestsOffMain(withIdentifiers: idsToClear)
         }
-        if !suppressNativeDelivery {
+        if suppressNativeDelivery {
+            Self.runNotificationCustomCommand(notification)
+        } else {
             scheduleUserNotification(notification)
         }
     }
@@ -988,10 +990,7 @@ final class TerminalNotificationStore: ObservableObject {
             guard let self, authorized else { return }
 
             let content = UNMutableNotificationContent()
-            let appName = Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
-                ?? Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String
-                ?? "cmux"
-            content.title = notification.title.isEmpty ? appName : notification.title
+            content.title = Self.notificationDisplayTitle(notification)
             content.subtitle = notification.subtitle
             content.body = notification.body
             content.sound = NotificationSoundSettings.sound()
@@ -1014,14 +1013,25 @@ final class TerminalNotificationStore: ObservableObject {
                 if let error {
                     NSLog("Failed to schedule notification: \(error)")
                 } else {
-                    NotificationSoundSettings.runCustomCommand(
-                        title: content.title,
-                        subtitle: content.subtitle,
-                        body: content.body
-                    )
+                    Self.runNotificationCustomCommand(notification)
                 }
             }
         }
+    }
+
+    nonisolated private static func notificationDisplayTitle(_ notification: TerminalNotification) -> String {
+        let appName = Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
+            ?? Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String
+            ?? "cmux"
+        return notification.title.isEmpty ? appName : notification.title
+    }
+
+    nonisolated private static func runNotificationCustomCommand(_ notification: TerminalNotification) {
+        NotificationSoundSettings.runCustomCommand(
+            title: notificationDisplayTitle(notification),
+            subtitle: notification.subtitle,
+            body: notification.body
+        )
     }
 
     private func ensureAuthorization(

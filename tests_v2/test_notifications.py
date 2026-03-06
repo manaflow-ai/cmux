@@ -58,6 +58,15 @@ def wait_for_flash_count(client: cmux, surface: str, minimum: int = 1, timeout: 
     return last
 
 
+def wait_for_current_workspace(client: cmux, expected: str, timeout: float = 2.0) -> bool:
+    start = time.time()
+    while time.time() - start < timeout:
+        if client.current_workspace() == expected:
+            return True
+        time.sleep(0.05)
+    return client.current_workspace() == expected
+
+
 def ensure_two_surfaces(client: cmux) -> list[tuple[int, str, bool]]:
     surfaces = client.list_surfaces()
     if len(surfaces) < 2:
@@ -229,11 +238,18 @@ def test_preserve_unread_on_focus_change(client: cmux) -> TestResult:
 
         client.set_app_focus(False)
         client.notify_surface(other[0], "focusread")
-        time.sleep(0.1)
+        items = wait_for_notifications(client, 1)
+        target = next((n for n in items if n["surface_id"] == other[1]), None)
+        if target is None or target["is_read"]:
+            result.failure("Expected unread notification for target surface before focus")
+            return result
 
         client.set_app_focus(True)
         client.focus_surface(other[0])
-        time.sleep(0.1)
+        count = wait_for_flash_count(client, other[1], minimum=1, timeout=2.0)
+        if count < 1:
+            result.failure("Expected flash on panel focus")
+            return result
 
         items = client.list_notifications()
         target = next((n for n in items if n["surface_id"] == other[1]), None)
@@ -242,11 +258,7 @@ def test_preserve_unread_on_focus_change(client: cmux) -> TestResult:
         elif target["is_read"]:
             result.failure("Expected notification to remain unread on focus")
         else:
-            count = wait_for_flash_count(client, other[1], minimum=1, timeout=2.0)
-            if count < 1:
-                result.failure("Expected flash on panel focus")
-            else:
-                result.success("Notification persisted across panel focus")
+            result.success("Notification persisted across panel focus")
     except Exception as e:
         result.failure(f"Exception: {e}")
     return result
@@ -258,17 +270,13 @@ def test_preserve_unread_on_app_active(client: cmux) -> TestResult:
         client.clear_notifications()
         client.set_app_focus(False)
         client.notify("activate")
-        time.sleep(0.1)
-
-        items = client.list_notifications()
+        items = wait_for_notifications(client, 1)
         if not items or items[0]["is_read"]:
             result.failure("Expected unread notification before activation")
             return result
 
         client.simulate_app_active()
-        time.sleep(0.1)
-
-        items = client.list_notifications()
+        items = wait_for_notifications(client, 1)
         if not items:
             result.failure("Expected notification to remain after activation")
         elif items[0]["is_read"]:
@@ -287,16 +295,24 @@ def test_preserve_unread_on_tab_switch(client: cmux) -> TestResult:
         client.set_app_focus(False)
         tab1 = client.current_workspace()
         client.notify("tabswitch")
-        time.sleep(0.1)
+        items = wait_for_notifications(client, 1)
+        target = next((n for n in items if n["workspace_id"] == tab1), None)
+        if target is None or target["is_read"]:
+            result.failure("Expected unread notification for original tab before switching")
+            return result
 
         tab2 = client.new_workspace()
-        time.sleep(0.1)
+        if not wait_for_current_workspace(client, tab2):
+            result.failure("Expected new workspace to become selected")
+            return result
 
         client.set_app_focus(True)
         client.select_workspace(tab1)
-        time.sleep(0.1)
+        if not wait_for_current_workspace(client, tab1):
+            result.failure("Expected original workspace to become selected again")
+            return result
 
-        items = client.list_notifications()
+        items = wait_for_notifications(client, 1)
         target = next((n for n in items if n["workspace_id"] == tab1), None)
         if target is None:
             result.failure("Expected notification for original tab")

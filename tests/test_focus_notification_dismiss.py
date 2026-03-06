@@ -74,8 +74,12 @@ def main() -> int:
             client.send("x")
             time.sleep(0.2)
 
-            if not wait_for_notification(client, surface_id, is_read=False, timeout=2.0):
-                print("FAIL: Notification did not remain unread after focus")
+            if wait_for_notification(client, surface_id, is_read=True, timeout=2.0):
+                print("FAIL: Notification became read after focus")
+                return 1
+            items = client.list_notifications()
+            if not any(item["surface_id"] == surface_id and not item["is_read"] for item in items):
+                print("FAIL: Notification did not remain present and unread after focus")
                 return 1
 
             final_flash = client.flash_count(term_b)
