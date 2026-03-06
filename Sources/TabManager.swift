@@ -2650,6 +2650,14 @@ class TabManager: ObservableObject {
                     return
                 }
 
+                self.writeBrowserRedockTestData([
+                    "browserAttachedBeforeMove": "1",
+                    "browserLoadedBeforeMove": "1",
+                    "browserSnapshotBeforeMove": "1",
+                    "browserURLBeforeMove": browserReadiness.url,
+                    "browserTitleBeforeMove": browserReadiness.title
+                ], at: path)
+
                 guard let firstSplitTabId = tab.surfaceIdFromPanelId(browserPanel.id),
                       tab.bonsplitController.splitPane(
                         initialPaneId,

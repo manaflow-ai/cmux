@@ -1140,9 +1140,12 @@ final class BrowserRedockUITests: XCTestCase {
         XCTAssertEqual(data["finalBrowserSelected"], "1", "Expected browser to remain selected after re-dock. data=\(data)")
         XCTAssertEqual(data["finalBrowserAttached"], "1", "Expected browser web view to stay attached after re-dock. data=\(data)")
         XCTAssertNotEqual(data["finalBrowserHidden"], "1", "Expected browser web view to stay visible after re-dock. data=\(data)")
-        XCTAssertTrue(
-            (data["finalBrowserURL"] ?? "").localizedCaseInsensitiveContains("example.com"),
-            "Expected browser to remain on example.com after re-dock. data=\(data)"
+        let browserURLBeforeMove = data["browserURLBeforeMove"] ?? ""
+        XCTAssertFalse(browserURLBeforeMove.isEmpty, "Expected pre-move browser URL to be recorded. data=\(data)")
+        XCTAssertEqual(
+            data["finalBrowserURL"],
+            browserURLBeforeMove,
+            "Expected browser to preserve the loaded URL across re-dock. data=\(data)"
         )
 
         guard let crop = normalizedWebCrop(from: data) else {
