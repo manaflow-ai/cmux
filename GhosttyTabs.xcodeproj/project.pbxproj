@@ -90,6 +90,7 @@
 					F7000000A1B2C3D4E5F60718 /* WorkspaceContentViewVisibilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7000001A1B2C3D4E5F60718 /* WorkspaceContentViewVisibilityTests.swift */; };
 					F8000000A1B2C3D4E5F60718 /* SocketControlPasswordStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8000001A1B2C3D4E5F60718 /* SocketControlPasswordStoreTests.swift */; };
 					A5008381 /* BrowserFindJavaScriptTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5008380 /* BrowserFindJavaScriptTests.swift */; };
+					A5008383 /* CommandPaletteSearchEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5008382 /* CommandPaletteSearchEngineTests.swift */; };
 		DA7A10CA710E000000000003 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = DA7A10CA710E000000000001 /* Localizable.xcstrings */; };
 		DA7A10CA710E000000000004 /* InfoPlist.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = DA7A10CA710E000000000002 /* InfoPlist.xcstrings */; };
 			/* End PBXBuildFile section */
@@ -228,6 +229,7 @@
 				F7000001A1B2C3D4E5F60718 /* WorkspaceContentViewVisibilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceContentViewVisibilityTests.swift; sourceTree = "<group>"; };
 				F8000001A1B2C3D4E5F60718 /* SocketControlPasswordStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketControlPasswordStoreTests.swift; sourceTree = "<group>"; };
 				A5008380 /* BrowserFindJavaScriptTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserFindJavaScriptTests.swift; sourceTree = "<group>"; };
+				A5008382 /* CommandPaletteSearchEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPaletteSearchEngineTests.swift; sourceTree = "<group>"; };
 					DA7A10CA710E000000000001 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		DA7A10CA710E000000000002 /* InfoPlist.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = InfoPlist.xcstrings; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -453,6 +455,7 @@
 					F7000001A1B2C3D4E5F60718 /* WorkspaceContentViewVisibilityTests.swift */,
 					F8000001A1B2C3D4E5F60718 /* SocketControlPasswordStoreTests.swift */,
 					A5008380 /* BrowserFindJavaScriptTests.swift */,
+					A5008382 /* CommandPaletteSearchEngineTests.swift */,
 				);
 				path = cmuxTests;
 				sourceTree = "<group>";
@@ -687,6 +690,7 @@
 					F7000000A1B2C3D4E5F60718 /* WorkspaceContentViewVisibilityTests.swift in Sources */,
 					F8000000A1B2C3D4E5F60718 /* SocketControlPasswordStoreTests.swift in Sources */,
 					A5008381 /* BrowserFindJavaScriptTests.swift in Sources */,
+					A5008383 /* CommandPaletteSearchEngineTests.swift in Sources */,
 				);
 				runOnlyForDeploymentPostprocessing = 0;
 			};
