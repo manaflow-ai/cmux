@@ -238,19 +238,20 @@ final class MultiWindowNotificationsUITests: XCTestCase {
 
         XCTAssertTrue(waitForWindowCount(atLeast: 2, app: app, timeout: 6.0))
 
-        guard let resolvedPath = resolveSocketPath(timeout: 5.0, requiredWorkspaceId: tabId2) else {
+        let pingResponse = waitForSocketPong(timeout: 20.0)
+        if pingResponse != "PONG",
+           let resolvedPath = resolveSocketPath(timeout: 5.0, requiredWorkspaceId: tabId2) {
+            socketPath = resolvedPath
+        }
+
+        let confirmedPingResponse = pingResponse == "PONG" ? pingResponse : waitForSocketPong(timeout: 5.0)
+        guard confirmedPingResponse == "PONG" else {
             XCTFail(
-                "Control socket unavailable in this test environment. requested=\(socketPath) " +
+                "Control socket did not respond in time. path=\(socketPath) response=\(confirmedPingResponse ?? "<nil>") " +
                 "mode=\(setup["socketMode"] ?? "") running=\(setup["socketIsRunning"] ?? "") " +
                 "acceptLoopAlive=\(setup["socketAcceptLoopAlive"] ?? "") pathMatches=\(setup["socketPathMatches"] ?? "") " +
                 "pathExists=\(setup["socketPathExists"] ?? "") signals=\(setup["socketFailureSignals"] ?? "")"
             )
-            return
-        }
-        socketPath = resolvedPath
-        let pingResponse = waitForSocketPong(timeout: 20.0)
-        guard pingResponse == "PONG" else {
-            XCTFail("Control socket did not respond in time. path=\(socketPath) response=\(pingResponse ?? "<nil>")")
             return
         }
 
