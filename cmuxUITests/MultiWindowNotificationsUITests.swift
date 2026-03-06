@@ -236,25 +236,23 @@ final class MultiWindowNotificationsUITests: XCTestCase {
 
         XCTAssertTrue(waitForWindowCount(atLeast: 2, app: app, timeout: 6.0))
 
-        let pingResult = waitForCmuxPing(timeout: 20.0)
-        if pingResult.stdout != "PONG",
+        let pingResponse = waitForSocketPong(timeout: 20.0)
+        if pingResponse != "PONG",
            let resolvedPath = resolveSocketPath(timeout: 5.0, requiredWorkspaceId: tabId2) {
             socketPath = resolvedPath
         }
 
-        let confirmedPingResult = pingResult.stdout == "PONG" ? pingResult : waitForCmuxPing(timeout: 5.0)
-        guard confirmedPingResult.stdout == "PONG" else {
+        let confirmedPingResponse = pingResponse == "PONG" ? pingResponse : waitForSocketPong(timeout: 5.0)
+        guard confirmedPingResponse == "PONG" else {
             let failureSetup = loadData() ?? setup
             XCTFail(
-                "Control socket did not respond in time. path=\(socketPath) response=\(confirmedPingResult.stdout ?? "<nil>") " +
-                "stderr=\(confirmedPingResult.stderr ?? "<nil>") " +
+                "Control socket did not respond in time. path=\(socketPath) response=\(confirmedPingResponse ?? "<nil>") " +
                 socketDiagnostics(from: failureSetup)
             )
             return
         }
 
-        guard let surfaceId = waitForSurfaceIdViaCLI(forWorkspaceId: tabId2, timeout: 12.0)
-            ?? waitForSurfaceId(forWorkspaceId: tabId2, timeout: 3.0) else {
+        guard let surfaceId = waitForSurfaceId(forWorkspaceId: tabId2, timeout: 12.0) else {
             let failureSetup = loadData() ?? setup
             XCTFail(
                 "Expected at least one surface in workspace \(tabId2). socket=\(socketPath) " +
@@ -419,6 +417,10 @@ final class MultiWindowNotificationsUITests: XCTestCase {
             if result.terminationStatus == 0, stdout == "PONG" {
                 return ("PONG", stderr)
             }
+            if isSocketPermissionFailure(stderr),
+               waitForSocketPong(timeout: 0.5) == "PONG" {
+                return ("PONG", stderr)
+            }
             RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         }
 
@@ -429,6 +431,10 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         )
         let stdout = result.stdout.isEmpty ? nil : result.stdout
         let stderr = result.stderr.isEmpty ? nil : result.stderr
+        if isSocketPermissionFailure(stderr),
+           waitForSocketPong(timeout: 0.5) == "PONG" {
+            return ("PONG", stderr)
+        }
         return (stdout ?? lastStdout, stderr ?? lastStderr)
     }
 
@@ -486,7 +492,7 @@ final class MultiWindowNotificationsUITests: XCTestCase {
 
     private func firstSurfaceIdViaCLI(forWorkspaceId workspaceId: String) -> String? {
         guard let paneId = firstPaneIdViaCLI(forWorkspaceId: workspaceId) else {
-            return nil
+            return firstSurfaceId(forWorkspaceId: workspaceId)
         }
         let result = runCmuxCommand(
             socketPath: socketPath,
@@ -501,7 +507,12 @@ final class MultiWindowNotificationsUITests: XCTestCase {
             ],
             responseTimeoutSeconds: 3.0
         )
-        guard result.terminationStatus == 0 else { return nil }
+        guard result.terminationStatus == 0 else {
+            if isSocketPermissionFailure(result.stderr) {
+                return firstSurfaceId(forWorkspaceId: workspaceId)
+            }
+            return nil
+        }
         return firstHandle(in: result.stdout)
     }
 
@@ -517,7 +528,12 @@ final class MultiWindowNotificationsUITests: XCTestCase {
             ],
             responseTimeoutSeconds: 3.0
         )
-        guard result.terminationStatus == 0 else { return nil }
+        guard result.terminationStatus == 0 else {
+            if isSocketPermissionFailure(result.stderr) {
+                return nil
+            }
+            return nil
+        }
         return firstHandle(in: result.stdout)
     }
 
@@ -540,7 +556,7 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         surfaceId: String,
         title: String
     ) -> (terminationStatus: Int32, stdout: String, stderr: String) {
-        runCmuxCommand(
+        let result = runCmuxCommand(
             socketPath: socketPath,
             arguments: [
                 "notify",
@@ -556,6 +572,19 @@ final class MultiWindowNotificationsUITests: XCTestCase {
                 "focus-regression"
             ],
             responseTimeoutSeconds: 4.0
+        )
+        if result.terminationStatus == 0 || !isSocketPermissionFailure(result.stderr) {
+            return result
+        }
+
+        let response = socketCommand("notify_target \(workspaceId) \(surfaceId) \(title)|ui-test|focus-regression") ?? ""
+        let succeeded = response == "OK"
+        return (
+            terminationStatus: succeeded ? 0 : 1,
+            stdout: response,
+            stderr: succeeded
+                ? "\(result.stderr) raw-socket-fallback"
+                : "\(result.stderr) raw-socket-fallback-response=\(response)"
         )
     }
 
@@ -726,6 +755,12 @@ final class MultiWindowNotificationsUITests: XCTestCase {
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let stderr = rawStderr.isEmpty ? "" : "\(rawStderr) (cliPath=\(executablePath))"
         return (process.terminationStatus, stdout, stderr)
+    }
+
+    private func isSocketPermissionFailure(_ stderr: String?) -> Bool {
+        guard let stderr, !stderr.isEmpty else { return false }
+        return stderr.localizedCaseInsensitiveContains("failed to connect to socket") &&
+            stderr.localizedCaseInsensitiveContains("operation not permitted")
     }
 
     private func uniquePaths(_ paths: [String]) -> [String] {
