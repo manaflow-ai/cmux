@@ -219,3 +219,31 @@ Notes:
 - README download button points to `releases/latest/download/cmux-macos.dmg`.
 - Versioning: bump the minor version for updates unless explicitly asked otherwise.
 - Changelog: update `CHANGELOG.md`; docs changelog is rendered from it.
+
+## Cursor Cloud specific instructions
+
+This is a macOS-native app (Swift/AppKit/SwiftUI + Ghostty). The main app **cannot be built or run on Linux** — it requires macOS with Xcode and Zig. On Cursor Cloud (Linux), the achievable development scope is:
+
+### What works on Linux (Cloud VM)
+
+- **Web component** (`web/`): Next.js 16 marketing/docs site. Fully buildable and runnable.
+  - Install: `cd web && bun install`
+  - Dev server: `bun run dev` (port 3777)
+  - Lint: `bun run lint`
+  - Build: `bun run build`
+- **Git submodules**: `git submodule update --init --recursive` initializes ghostty, bonsplit, and homebrew-cmux.
+- **Python socket tests** (`tests_v2/`): Syntax-checkable but require a running macOS cmux instance socket to execute.
+
+### What does NOT work on Linux
+
+- **Main macOS app build** (`xcodebuild`, `./scripts/reload.sh`): Requires macOS + Xcode + Zig with macOS SDK.
+- **GhosttyKit.xcframework build** (`zig build -Demit-xcframework=true`): Targets macOS; Zig cross-compilation for xcframework is not supported on Linux.
+- **E2E/UI tests**: Require a running cmux macOS app instance.
+
+### Package manager
+
+The web component uses **Bun** as primary package manager (`bun.lock`). A `package-lock.json` also exists for npm compatibility. Prefer `bun install` over `npm install`.
+
+### Pre-existing lint issues
+
+`bun run lint` in `web/` has 3 pre-existing errors and 6 warnings (unescaped entities, setState in effect, unused import). These are not regressions — do not attempt to fix them unless explicitly asked.
