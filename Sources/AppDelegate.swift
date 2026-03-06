@@ -33,13 +33,6 @@ fileprivate func debugTypingPerfEndIntervalIfNeeded(
     debugTypingPerfSignposter.endInterval(name, state)
 }
 
-fileprivate func debugTypingPerfEmitEventIfNeeded(
-    enabled: Bool,
-    _ name: StaticString
-) {
-    guard enabled else { return }
-    debugTypingPerfSignposter.emitEvent(name)
-}
 #endif
 
 enum FinderServicePathResolver {
@@ -1491,6 +1484,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var browserOmnibarRepeatDelta: Int = 0
     private var browserAddressBarFocusObserver: NSObjectProtocol?
     private var browserAddressBarBlurObserver: NSObjectProtocol?
+    private var pendingGhosttyConfigSurfaceRefreshWorkItem: DispatchWorkItem?
+    private var pendingGhosttyConfigSurfaceRefreshSource: String?
+    private var pendingGhosttyConfigSurfaceRefreshRequestCount = 0
+    private let coalescedGhosttyConfigSurfaceRefreshDelay: TimeInterval = 0.4
     private let updateController = UpdateController()
     private lazy var titlebarAccessoryController = UpdateTitlebarAccessoryController(viewModel: updateViewModel)
     private let windowDecorationsController = WindowDecorationsController()
@@ -3694,7 +3691,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return nil
     }
 
-    func refreshTerminalSurfacesAfterGhosttyConfigReload(source: String) {
+    private func performTerminalSurfaceRefreshAfterGhosttyConfigReload(source: String) {
         var refreshedCount = 0
         forEachTerminalPanel { terminalPanel in
             terminalPanel.hostedView.reconcileGeometryNow()
@@ -3704,6 +3701,55 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
         dlog("reload.config.surfaceRefresh source=\(source) count=\(refreshedCount)")
 #endif
+    }
+
+    func refreshTerminalSurfacesAfterGhosttyConfigReload(
+        source: String,
+        policy: GhosttyApp.SurfaceRefreshPolicy = .immediateGlobal
+    ) {
+        switch policy {
+        case .immediateGlobal:
+            let pendingCount = pendingGhosttyConfigSurfaceRefreshRequestCount
+            pendingGhosttyConfigSurfaceRefreshWorkItem?.cancel()
+            pendingGhosttyConfigSurfaceRefreshWorkItem = nil
+            pendingGhosttyConfigSurfaceRefreshSource = nil
+            pendingGhosttyConfigSurfaceRefreshRequestCount = 0
+
+            let effectiveSource: String
+            if pendingCount > 0 {
+                effectiveSource = "\(source) flushedCoalesced=\(pendingCount)"
+            } else {
+                effectiveSource = source
+            }
+            performTerminalSurfaceRefreshAfterGhosttyConfigReload(source: effectiveSource)
+        case .coalescedGlobal:
+            pendingGhosttyConfigSurfaceRefreshRequestCount += 1
+            pendingGhosttyConfigSurfaceRefreshSource = source
+            pendingGhosttyConfigSurfaceRefreshWorkItem?.cancel()
+
+            let workItem = DispatchWorkItem { [weak self] in
+                guard let self else { return }
+                let latestSource = self.pendingGhosttyConfigSurfaceRefreshSource ?? source
+                let pendingCount = self.pendingGhosttyConfigSurfaceRefreshRequestCount
+                self.pendingGhosttyConfigSurfaceRefreshWorkItem = nil
+                self.pendingGhosttyConfigSurfaceRefreshSource = nil
+                self.pendingGhosttyConfigSurfaceRefreshRequestCount = 0
+                self.performTerminalSurfaceRefreshAfterGhosttyConfigReload(
+                    source: "coalesced.latest=\(latestSource) count=\(pendingCount)"
+                )
+            }
+
+            pendingGhosttyConfigSurfaceRefreshWorkItem = workItem
+#if DEBUG
+            dlog(
+                "reload.config.surfaceRefresh.coalesced source=\(source) pendingCount=\(pendingGhosttyConfigSurfaceRefreshRequestCount) delayMs=\(String(format: "%.0f", coalescedGhosttyConfigSurfaceRefreshDelay * 1000.0))"
+            )
+#endif
+            DispatchQueue.main.asyncAfter(
+                deadline: .now() + coalescedGhosttyConfigSurfaceRefreshDelay,
+                execute: workItem
+            )
+        }
     }
 
     private func forEachTerminalPanel(_ body: (TerminalPanel) -> Void) {
@@ -4123,10 +4169,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }()
 
 #if DEBUG
-        let beforeManagerToken = debugManagerToken(tabManager)
-        dlog(
-            "shortcut.sync.pre source=\(source) preferred={\(debugWindowToken(preferredWindow))} chosen={\(debugContextToken(context))} \(debugShortcutRouteSnapshot())"
-        )
+        let debugHotPathLogsEnabled = self.debugHotPathLogsEnabled
+        let beforeManagerToken = debugHotPathLogsEnabled ? debugManagerToken(tabManager) : ""
+        if debugHotPathLogsEnabled {
+            dlog(
+                "shortcut.sync.pre source=\(source) preferred={\(debugWindowToken(preferredWindow))} chosen={\(debugContextToken(context))} \(debugShortcutRouteSnapshot())"
+            )
+        }
 #endif
         guard let context else { return tabManager }
         let alreadyActive =
@@ -4135,9 +4184,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             && sidebarSelectionState === context.sidebarSelectionState
         if alreadyActive {
 #if DEBUG
-            dlog(
-                "shortcut.sync.post source=\(source) beforeMgr=\(beforeManagerToken) afterMgr=\(debugManagerToken(tabManager)) chosen={\(debugContextToken(context))} nochange=1 \(debugShortcutRouteSnapshot())"
-            )
+            if debugHotPathLogsEnabled {
+                dlog(
+                    "shortcut.sync.post source=\(source) beforeMgr=\(beforeManagerToken) afterMgr=\(debugManagerToken(tabManager)) chosen={\(debugContextToken(context))} nochange=1 \(debugShortcutRouteSnapshot())"
+                )
+            }
 #endif
             return context.tabManager
         }
@@ -4934,21 +4985,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         pasteboard.setString(payload, forType: .string)
     }
 
+    private(set) var lastKeyDownUptime: TimeInterval = 0
+
 #if DEBUG
     private let debugColorWorkspaceTitlePrefix = "Debug Color - "
     private let debugPerfWorkspaceTitlePrefix = "Debug Perf - "
     private var debugStressWorkspaceCreationInProgress = false
     private var debugStressLagProbeEnabled = false
-    private var debugStressLastInputUptime: TimeInterval = 0
+    private var debugStressLagLastLogUptimeByPhase: [String: TimeInterval] = [:]
+    private var debugStressLagSuppressedCountByPhase: [String: Int] = [:]
     private let debugStressWorkspaceCount = 20
     private let debugStressPaneCount = 4
     private let debugStressTabsPerPane = 1
     private let debugStressYieldInterval = 4
-    private let debugStressPrimeIdleThresholdMs = 400.0
-    private let debugStressPrimeMaxInputDeferrals = 24
-    private let debugStressPrimeMaxStartAttempts = 4
-    private let debugStressPrimePollIntervalNs: UInt64 = 75_000_000
-    private let debugStressPrimeSurfaceReadyTimeoutNs: UInt64 = 300_000_000
+    private let debugStressLagLogMinIntervalMs = 250.0
+
+    var debugHotPathLogsEnabled: Bool {
+        ProcessInfo.processInfo.environment["CMUX_HOT_PATH_DEBUG_LOGS"] == "1"
+    }
 
     var isDebugTypingPerfProbeEnabled: Bool {
         debugStressLagProbeEnabled
@@ -5016,6 +5070,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard let tabManager else { return }
 
         debugStressLagProbeEnabled = true
+        resetDebugTypingPerfLagLogBudget()
         debugStressWorkspaceCreationInProgress = true
         Task { @MainActor [weak self] in
             guard let self else { return }
@@ -5144,32 +5199,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         let primeStart = ProcessInfo.processInfo.systemUptime
         var activatedTabs = 0
-        var inputDeferrals = 0
 
         for (index, terminalSurface) in terminalSurfaces.enumerated() {
             activatedTabs += 1
-            var startAttempts = 0
             let signpostState = debugTypingPerfBeginIntervalIfNeeded(
                 enabled: debugStressLagProbeEnabled,
                 "StressPrimeSurface"
             )
 
-            while terminalSurface.surface == nil, startAttempts < debugStressPrimeMaxStartAttempts {
-                inputDeferrals += await waitForDebugStressPrimeIdle(index: index, total: terminalSurfaces.count)
-                terminalSurface.requestBackgroundSurfaceStartIfNeeded()
-                startAttempts += 1
-                if await waitForDebugStressSurfaceReady(terminalSurface) {
-                    break
-                }
-            }
+            terminalSurface.requestBackgroundSurfaceStartIfNeeded()
 
             debugTypingPerfEndIntervalIfNeeded("StressPrimeSurface", signpostState)
 
             if (index + 1) % debugStressYieldInterval == 0 || index == terminalSurfaces.count - 1 {
                 dlog(
                     "stress.setup.mount idx=\(index + 1)/\(terminalSurfaces.count) activatedTabs=\(activatedTabs) " +
-                    "pending=\(pendingDebugTerminalSurfaceCount(in: workspaces)) inputDeferrals=\(inputDeferrals) " +
-                    "attempts=\(startAttempts)"
+                    "pending=\(pendingDebugTerminalSurfaceCount(in: workspaces))"
                 )
             }
             await Task.yield()
@@ -5178,7 +5223,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let elapsedMs = (ProcessInfo.processInfo.systemUptime - primeStart) * 1000.0
         return DebugStressSurfacePrimeStats(
             activatedTabs: activatedTabs,
-            inputDeferrals: inputDeferrals,
+            inputDeferrals: 0,
             pendingSurfaces: pendingDebugTerminalSurfaceCount(in: workspaces),
             elapsedMs: elapsedMs
         )
@@ -5252,49 +5297,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
         return surfaces
-    }
-
-    private func waitForDebugStressPrimeIdle(index: Int, total: Int) async -> Int {
-        var deferrals = 0
-
-        while true {
-            let ageMs = (ProcessInfo.processInfo.systemUptime - debugStressLastInputUptime) * 1000.0
-            if debugStressLastInputUptime <= 0 || ageMs >= debugStressPrimeIdleThresholdMs {
-                return deferrals
-            }
-
-            deferrals += 1
-            if deferrals >= debugStressPrimeMaxInputDeferrals {
-                dlog(
-                    "stress.setup.mount.defer.cap idx=\(index + 1)/\(total) recentInputAgeMs=\(String(format: "%.2f", ageMs)) " +
-                    "thresholdMs=\(String(format: "%.2f", debugStressPrimeIdleThresholdMs)) deferrals=\(deferrals)"
-                )
-                return deferrals
-            }
-            if deferrals == 1 {
-                debugTypingPerfEmitEventIfNeeded(
-                    enabled: debugStressLagProbeEnabled,
-                    "StressPrimeDeferred"
-                )
-            }
-            if deferrals == 1 || (deferrals % debugStressYieldInterval) == 0 {
-                dlog(
-                    "stress.setup.mount.defer idx=\(index + 1)/\(total) recentInputAgeMs=\(String(format: "%.2f", ageMs)) " +
-                    "thresholdMs=\(String(format: "%.2f", debugStressPrimeIdleThresholdMs)) deferrals=\(deferrals)"
-                )
-            }
-            try? await Task.sleep(nanoseconds: debugStressPrimePollIntervalNs)
-        }
-    }
-
-    private func waitForDebugStressSurfaceReady(_ terminalSurface: TerminalSurface) async -> Bool {
-        let timeoutS = Double(debugStressPrimeSurfaceReadyTimeoutNs) / 1_000_000_000
-        let deadline = ProcessInfo.processInfo.systemUptime + timeoutS
-
-        while terminalSurface.surface == nil, ProcessInfo.processInfo.systemUptime < deadline {
-            try? await Task.sleep(nanoseconds: debugStressPrimePollIntervalNs)
-        }
-        return terminalSurface.surface != nil
     }
 
     private func pendingDebugTerminalSurfaceCount(in workspaces: [Workspace]) -> Int {
@@ -5449,6 +5451,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return parts
     }
 
+    private func resetDebugTypingPerfLagLogBudget() {
+        debugStressLagLastLogUptimeByPhase.removeAll(keepingCapacity: true)
+        debugStressLagSuppressedCountByPhase.removeAll(keepingCapacity: true)
+    }
+
+    private func consumeDebugTypingPerfLagSuppressedCount(phase: String) -> Int? {
+        let now = ProcessInfo.processInfo.systemUptime
+        let lastLogUptime = debugStressLagLastLogUptimeByPhase[phase] ?? 0
+        let elapsedSinceLastLogMs = max(0, (now - lastLogUptime) * 1000.0)
+        let shouldEmit = lastLogUptime <= 0 || elapsedSinceLastLogMs >= debugStressLagLogMinIntervalMs
+
+        guard shouldEmit else {
+            debugStressLagSuppressedCountByPhase[phase, default: 0] += 1
+            return nil
+        }
+
+        debugStressLagLastLogUptimeByPhase[phase] = now
+        let suppressedCount = debugStressLagSuppressedCountByPhase.removeValue(forKey: phase) ?? 0
+        return suppressedCount
+    }
+
     private func debugStressLagSnapshot(
         focusedSurfaceId: UUID? = nil,
         renderStats: GhosttySurfaceScrollView.DebugRenderStats? = nil
@@ -5567,6 +5590,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         focusedSurfaceId: UUID? = nil
     ) {
         guard debugStressLagProbeEnabled else { return }
+        guard let suppressedCount = consumeDebugTypingPerfLagSuppressedCount(phase: phase) else {
+            return
+        }
         let parts = debugTypingPerfEventParts(
             prefix: "stress.inputLag",
             phase: phase,
@@ -5576,7 +5602,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             handledByShortcut: handledByShortcut,
             focusedSurfaceId: focusedSurfaceId
         )
-        dlog(parts.joined(separator: " "))
+        var finalParts = parts
+        if suppressedCount > 0 {
+            finalParts.append("suppressed=\(suppressedCount)")
+        }
+        dlog(finalParts.joined(separator: " "))
     }
 
     private func logSlowShortcutMonitorLatencyIfNeeded(
@@ -6188,9 +6218,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         shortcutMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp, .flagsChanged]) { [weak self] event in
             guard let self else { return event }
             if event.type == .keyDown {
-#if DEBUG
-                self.debugStressLastInputUptime = ProcessInfo.processInfo.systemUptime
-#endif
+                self.lastKeyDownUptime = ProcessInfo.processInfo.systemUptime
+                TerminalSurface.lastObservedKeyDownUptime = self.lastKeyDownUptime
 #if DEBUG
                 if (ProcessInfo.processInfo.environment["CMUX_KEY_LATENCY_PROBE"] == "1"
                     || UserDefaults.standard.bool(forKey: "cmuxKeyLatencyProbe")),
@@ -9291,8 +9320,11 @@ private extension NSWindow {
         #endif
 
 #if DEBUG
-        let frType = self.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
-        dlog("performKeyEquiv: \(Self.keyDescription(event)) fr=\(frType)")
+        let debugHotPathLogsEnabled = ProcessInfo.processInfo.environment["CMUX_HOT_PATH_DEBUG_LOGS"] == "1"
+        if debugHotPathLogsEnabled {
+            let frType = self.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
+            dlog("performKeyEquiv: \(Self.keyDescription(event)) fr=\(frType)")
+        }
 #endif
 
         // When the terminal surface is the first responder, prevent SwiftUI's
@@ -9327,7 +9359,9 @@ private extension NSWindow {
             if !flags.contains(.command) {
                 let result = ghosttyView.performKeyEquivalent(with: event)
 #if DEBUG
-                dlog("  → ghostty direct: \(result)")
+                if debugHotPathLogsEnabled {
+                    dlog("  → ghostty direct: \(result)")
+                }
 #endif
                 return result
             }
@@ -9395,7 +9429,9 @@ private extension NSWindow {
            ) {
             ghosttyView.keyDown(with: event)
 #if DEBUG
-            dlog("  → ghostty command passthrough")
+            if debugHotPathLogsEnabled {
+                dlog("  → ghostty command passthrough")
+            }
 #endif
             return true
         }

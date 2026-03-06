@@ -1163,7 +1163,16 @@ class GhosttyApp {
         }
     }
 
-    func reloadConfiguration(soft: Bool = false, source: String = "unspecified") {
+    enum SurfaceRefreshPolicy {
+        case immediateGlobal
+        case coalescedGlobal
+    }
+
+    func reloadConfiguration(
+        soft: Bool = false,
+        source: String = "unspecified",
+        surfaceRefreshPolicy: SurfaceRefreshPolicy = .immediateGlobal
+    ) {
         guard let app else {
             logThemeAction("reload skipped source=\(source) soft=\(soft) reason=no_app")
             return
@@ -1174,7 +1183,10 @@ class GhosttyApp {
             ghostty_app_update_config(app, config)
             lastAppearanceColorScheme = GhosttyConfig.currentColorSchemePreference()
             NotificationCenter.default.post(name: .ghosttyConfigDidReload, object: nil)
-            scheduleSurfaceRefreshAfterConfigurationReload(source: source)
+            scheduleSurfaceRefreshAfterConfigurationReload(
+                source: source,
+                policy: surfaceRefreshPolicy
+            )
             logThemeAction("reload end source=\(source) soft=\(soft) mode=soft")
             return
         }
@@ -1199,13 +1211,22 @@ class GhosttyApp {
         config = newConfig
         lastAppearanceColorScheme = GhosttyConfig.currentColorSchemePreference()
         NotificationCenter.default.post(name: .ghosttyConfigDidReload, object: nil)
-        scheduleSurfaceRefreshAfterConfigurationReload(source: source)
+        scheduleSurfaceRefreshAfterConfigurationReload(
+            source: source,
+            policy: surfaceRefreshPolicy
+        )
         logThemeAction("reload end source=\(source) soft=\(soft) mode=full")
     }
 
-    private func scheduleSurfaceRefreshAfterConfigurationReload(source: String) {
+    private func scheduleSurfaceRefreshAfterConfigurationReload(
+        source: String,
+        policy: SurfaceRefreshPolicy
+    ) {
         DispatchQueue.main.async {
-            AppDelegate.shared?.refreshTerminalSurfacesAfterGhosttyConfigReload(source: source)
+            AppDelegate.shared?.refreshTerminalSurfacesAfterGhosttyConfigReload(
+                source: source,
+                policy: policy
+            )
         }
     }
 
@@ -1787,7 +1808,8 @@ class GhosttyApp {
                 // Keep all runtime theme/default-background state in the same path.
                 GhosttyApp.shared.reloadConfiguration(
                     soft: soft,
-                    source: "action.reload_config.surface tab=\(surfaceView.tabId?.uuidString ?? "nil") surface=\(surfaceView.terminalSurface?.id.uuidString ?? "nil")"
+                    source: "action.reload_config.surface tab=\(surfaceView.tabId?.uuidString ?? "nil") surface=\(surfaceView.terminalSurface?.id.uuidString ?? "nil")",
+                    surfaceRefreshPolicy: .coalescedGlobal
                 )
                 return true
             }
@@ -2011,8 +2033,21 @@ final class TerminalSurface: Identifiable, ObservableObject {
         }
     }
 
+    static var lastBackgroundSurfaceStartUptime: TimeInterval = 0
+    static var lastObservedKeyDownUptime: TimeInterval = 0
+    private struct PendingBackgroundSurfaceStart {
+        weak var surface: TerminalSurface?
+    }
+    private static var pendingBackgroundSurfaceStarts: [PendingBackgroundSurfaceStart] = []
+    private static var backgroundSurfaceStartPumpWorkItem: DispatchWorkItem?
+    private static let backgroundSurfaceStartInterItemDelay: TimeInterval = 0.08
+    private static let backgroundSurfaceStartInputRetryDelay: TimeInterval = 0.20
+    private static let backgroundSurfaceStartIdleThresholdMs = 400.0
+
     private(set) var surface: ghostty_surface_t?
     private weak var attachedView: GhosttyNSView?
+    private var lastAttachedWindowNumber: Int?
+    private var lastAttachedDisplayID: CGDirectDisplayID?
     /// Whether the terminal surface view is currently attached to a window.
     ///
     /// Use the hosted view rather than the inner surface view, since the surface can be
@@ -2112,6 +2147,55 @@ final class TerminalSurface: Identifiable, ObservableObject {
         self.hostedView = GhosttySurfaceScrollView(surfaceView: view)
         // Surface is created when attached to a view
         hostedView.attachSurface(self)
+    }
+
+    private var needsBackgroundSurfaceStart: Bool {
+        surface == nil && attachedView != nil
+    }
+
+    private static func recentKeyInputAgeMs(now: TimeInterval) -> Double? {
+        guard lastObservedKeyDownUptime > 0 else { return nil }
+        return max(0, (now - lastObservedKeyDownUptime) * 1000.0)
+    }
+
+    private static func scheduleBackgroundSurfaceStartPump(after delay: TimeInterval) {
+        guard backgroundSurfaceStartPumpWorkItem == nil else { return }
+        let workItem = DispatchWorkItem {
+            backgroundSurfaceStartPumpWorkItem = nil
+            processPendingBackgroundSurfaceStarts()
+        }
+        backgroundSurfaceStartPumpWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
+    }
+
+    private static func dequeueNextPendingBackgroundSurfaceStart() -> TerminalSurface? {
+        while !pendingBackgroundSurfaceStarts.isEmpty {
+            let pending = pendingBackgroundSurfaceStarts.removeFirst()
+            guard let surface = pending.surface else { continue }
+            guard surface.needsBackgroundSurfaceStart else {
+                surface.backgroundSurfaceStartQueued = false
+                continue
+            }
+            return surface
+        }
+        return nil
+    }
+
+    private static func processPendingBackgroundSurfaceStarts() {
+        let now = ProcessInfo.processInfo.systemUptime
+        if let inputAgeMs = recentKeyInputAgeMs(now: now),
+           inputAgeMs < backgroundSurfaceStartIdleThresholdMs {
+            scheduleBackgroundSurfaceStartPump(after: backgroundSurfaceStartInputRetryDelay)
+            return
+        }
+
+        guard let surface = dequeueNextPendingBackgroundSurfaceStart() else { return }
+        surface.backgroundSurfaceStartQueued = false
+        surface.performBackgroundSurfaceStartIfNeeded()
+
+        if !pendingBackgroundSurfaceStarts.isEmpty {
+            scheduleBackgroundSurfaceStartPump(after: backgroundSurfaceStartInterItemDelay)
+        }
     }
 
 
@@ -2263,16 +2347,27 @@ final class TerminalSurface: Identifiable, ObservableObject {
         // Ghostty's vsync-driven renderer depends on having a valid display id; if it is missing
         // or stale, the surface can appear visually frozen until a focus/visibility change.
         if attachedView === view && surface != nil {
+            let windowNumber = view.window?.windowNumber
+            let displayID = (view.window?.screen ?? NSScreen.main)?.displayID
+            let debugHotPathLogsEnabled = ProcessInfo.processInfo.environment["CMUX_HOT_PATH_DEBUG_LOGS"] == "1"
 #if DEBUG
-            dlog("surface.attach.reuse surface=\(id.uuidString.prefix(5)) view=\(Unmanaged.passUnretained(view).toOpaque())")
+            if debugHotPathLogsEnabled {
+                dlog("surface.attach.reuse surface=\(id.uuidString.prefix(5)) view=\(Unmanaged.passUnretained(view).toOpaque())")
+            }
 #endif
-            if let screen = view.window?.screen ?? NSScreen.main,
-               let displayID = screen.displayID,
+            if let displayID,
                displayID != 0,
                let s = surface {
                 ghostty_surface_set_display_id(s, displayID)
             }
-            view.forceRefreshSurface()
+            let contextChanged =
+                windowNumber != lastAttachedWindowNumber
+                || displayID != lastAttachedDisplayID
+            lastAttachedWindowNumber = windowNumber
+            lastAttachedDisplayID = displayID
+            if contextChanged {
+                view.forceRefreshSurface()
+            }
             return
         }
 
@@ -2317,6 +2412,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
             dlog("surface.attach.displayId surface=\(id.uuidString.prefix(5)) display=\(displayID)")
 #endif
         }
+        lastAttachedWindowNumber = view.window?.windowNumber
+        lastAttachedDisplayID = (view.window?.screen ?? NSScreen.main)?.displayID
     }
 
     private func createSurface(for view: GhosttyNSView) {
@@ -2719,27 +2816,29 @@ final class TerminalSurface: Identifiable, ObservableObject {
         guard surface == nil, attachedView != nil else { return }
         guard !backgroundSurfaceStartQueued else { return }
         backgroundSurfaceStartQueued = true
+        Self.pendingBackgroundSurfaceStarts.append(PendingBackgroundSurfaceStart(surface: self))
+        Self.scheduleBackgroundSurfaceStartPump(after: 0)
+    }
 
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            self.backgroundSurfaceStartQueued = false
-            guard self.surface == nil, let view = self.attachedView else { return }
-            #if DEBUG
-            let startedAt = ProcessInfo.processInfo.systemUptime
-            #endif
-            self.createSurface(for: view)
-            if self.surface != nil {
-                // Background priming bypasses normal AppKit lifecycle hooks.
-                // Apply the same baseline theme/background state immediately.
-                view.applyInitialThemeStateForBackgroundPrimedSurface()
-            }
-            #if DEBUG
-            let elapsedMs = (ProcessInfo.processInfo.systemUptime - startedAt) * 1000.0
-            dlog(
-                "surface.background_start surface=\(self.id.uuidString.prefix(8)) inWindow=\(view.window != nil ? 1 : 0) ready=\(self.surface != nil ? 1 : 0) ms=\(String(format: "%.2f", elapsedMs))"
-            )
-            #endif
+    private func performBackgroundSurfaceStartIfNeeded() {
+        guard surface == nil, let view = attachedView else { return }
+        TerminalSurface.lastBackgroundSurfaceStartUptime = ProcessInfo.processInfo.systemUptime
+
+        #if DEBUG
+        let startedAt = ProcessInfo.processInfo.systemUptime
+        #endif
+        createSurface(for: view)
+        if self.surface != nil {
+            // Background priming bypasses normal AppKit lifecycle hooks.
+            // Apply the same baseline theme/background state immediately.
+            view.applyInitialThemeStateForBackgroundPrimedSurface()
         }
+        #if DEBUG
+        let elapsedMs = (ProcessInfo.processInfo.systemUptime - startedAt) * 1000.0
+        dlog(
+            "surface.background_start surface=\(self.id.uuidString.prefix(8)) inWindow=\(view.window != nil ? 1 : 0) ready=\(self.surface != nil ? 1 : 0) ms=\(String(format: "%.2f", elapsedMs))"
+        )
+        #endif
     }
 
 #if DEBUG
@@ -3135,12 +3234,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     func attachSurface(_ surface: TerminalSurface) {
-        appliedColorScheme = nil
+        let isSameSurface = terminalSurface === surface
         terminalSurface = surface
         tabId = surface.tabId
         surface.attachToView(self)
         surface.setKeyboardCopyModeActive(keyboardCopyModeActive)
         updateSurfaceSize()
+        guard !isSameSurface else { return }
+        appliedColorScheme = nil
         applySurfaceBackground()
         applySurfaceColorScheme(force: true)
     }
@@ -4070,12 +4171,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                     return ghostty_surface_key(surface, keyEvent)
                 }
             }
+            let debugHotPathLogsEnabled = ProcessInfo.processInfo.environment["CMUX_HOT_PATH_DEBUG_LOGS"] == "1"
 #if DEBUG
-            dlog(
-                "key.ctrl path=ghostty surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") " +
-                "handled=\(handled ? 1 : 0) keyCode=\(event.keyCode) chars=\(cmuxScalarHex(event.characters)) " +
-                "ign=\(cmuxScalarHex(event.charactersIgnoringModifiers)) mods=\(event.modifierFlags.rawValue)"
-            )
+            if debugHotPathLogsEnabled {
+                dlog(
+                    "key.ctrl path=ghostty surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") " +
+                    "handled=\(handled ? 1 : 0) keyCode=\(event.keyCode) chars=\(cmuxScalarHex(event.characters)) " +
+                    "ign=\(cmuxScalarHex(event.charactersIgnoringModifiers)) mods=\(event.modifierFlags.rawValue)"
+                )
+            }
 #endif
             // If Ghostty handled the key (action/encoding), we're done.
             // If not (e.g. `ignore` keybind), fall through to interpretKeyEvents
@@ -5462,6 +5566,8 @@ final class GhosttySurfaceScrollView: NSView {
         guard let terminalSurface = surfaceView.terminalSurface,
               let searchState else {
             let hadOverlay = searchOverlayHostingView != nil
+            let focusTargetChanged = searchFocusTarget != .searchField
+            guard hadOverlay || focusTargetChanged else { return }
 #if DEBUG
             dlog("find.setSearchOverlay REMOVE surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") hadOverlay=\(hadOverlay)")
 #endif

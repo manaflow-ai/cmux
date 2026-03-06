@@ -1426,15 +1426,17 @@ final class WindowTerminalPortal: NSObject {
         }
 
 #if DEBUG
-        dlog(
-            "portal.sync.result hosted=\(portalDebugToken(hostedView)) " +
-            "anchor=\(portalDebugToken(anchorView)) host=\(portalDebugToken(hostView)) " +
-            "hostWin=\(hostView.window?.windowNumber ?? -1) " +
-            "old=\(portalDebugFrame(oldFrame)) raw=\(portalDebugFrame(frameInHost)) " +
-            "target=\(portalDebugFrame(targetFrame)) hide=\(shouldHide ? 1 : 0) " +
-            "entryVisible=\(entry.visibleInUI ? 1 : 0) hostedHidden=\(hostedView.isHidden ? 1 : 0) " +
-            "hostBounds=\(portalDebugFrame(hostBounds))"
-        )
+        if ProcessInfo.processInfo.environment["CMUX_HOT_PATH_DEBUG_LOGS"] == "1" {
+            dlog(
+                "portal.sync.result hosted=\(portalDebugToken(hostedView)) " +
+                "anchor=\(portalDebugToken(anchorView)) host=\(portalDebugToken(hostView)) " +
+                "hostWin=\(hostView.window?.windowNumber ?? -1) " +
+                "old=\(portalDebugFrame(oldFrame)) raw=\(portalDebugFrame(frameInHost)) " +
+                "target=\(portalDebugFrame(targetFrame)) hide=\(shouldHide ? 1 : 0) " +
+                "entryVisible=\(entry.visibleInUI ? 1 : 0) hostedHidden=\(hostedView.isHidden ? 1 : 0) " +
+                "hostBounds=\(portalDebugFrame(hostBounds))"
+            )
+        }
 #endif
 
         ensureDividerOverlayOnTop()
