@@ -13,6 +13,9 @@ class TerminalController {
         let acceptLoopAlive: Bool
         let socketPathMatches: Bool
         let socketPathExists: Bool
+        let socketProbePerformed: Bool
+        let socketConnectable: Bool?
+        let socketConnectErrno: Int32?
 
         var failureSignals: [String] {
             var signals: [String] = []
@@ -20,6 +23,9 @@ class TerminalController {
             if !acceptLoopAlive { signals.append("accept_loop_dead") }
             if !socketPathMatches { signals.append("socket_path_mismatch") }
             if !socketPathExists { signals.append("socket_missing") }
+            if socketProbePerformed && isRunning && acceptLoopAlive && socketPathMatches && socketPathExists && socketConnectable == false {
+                signals.append("socket_unreachable")
+            }
             return signals
         }
 
@@ -51,6 +57,14 @@ class TerminalController {
     private nonisolated static let acceptFailureMaxBackoffMs = 5_000
     private nonisolated static let acceptFailureMinimumRearmDelayMs = 100
     private nonisolated static let acceptFailureRearmThreshold = 50
+    private nonisolated static let socketProbePollTimeoutMs: Int32 = 100
+    private nonisolated static let socketProbePollAttempts = 3
+    private nonisolated static let socketProbePollRetryBackoffUs: useconds_t = 50_000
+    private nonisolated static let unixSocketPathMaxLength: Int = {
+        var addr = sockaddr_un()
+        // Reserve one byte for the null terminator.
+        return MemoryLayout.size(ofValue: addr.sun_path) - 1
+    }()
 
     private struct ListenerStateSnapshot {
         let socketPath: String
@@ -508,6 +522,99 @@ class TerminalController {
         return !isRunning && activeGeneration == 0
     }
 
+    private nonisolated static func unixSocketAddress(path: String) -> sockaddr_un? {
+        var addr = sockaddr_un()
+        addr.sun_family = sa_family_t(AF_UNIX)
+
+        let maxLength = unixSocketPathMaxLength + 1
+        var didFit = false
+        path.withCString { source in
+            let sourceLength = strlen(source)
+            guard sourceLength < maxLength else { return }
+
+            _ = withUnsafeMutableBytes(of: &addr.sun_path) { buffer in
+                buffer.initializeMemory(as: UInt8.self, repeating: 0)
+            }
+            withUnsafeMutablePointer(to: &addr.sun_path) { pathPtr in
+                let destination = UnsafeMutableRawPointer(pathPtr).assumingMemoryBound(to: CChar.self)
+                strncpy(destination, source, maxLength - 1)
+            }
+            didFit = true
+        }
+        return didFit ? addr : nil
+    }
+
+    private nonisolated static func bindUnixSocket(_ socket: Int32, path: String) -> Int32? {
+        guard var addr = unixSocketAddress(path: path) else { return nil }
+        return withUnsafePointer(to: &addr) { ptr in
+            ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                bind(socket, sockaddrPtr, socklen_t(MemoryLayout<sockaddr_un>.size))
+            }
+        }
+    }
+
+    private nonisolated static func probeSocketConnectability(path: String) -> (isConnectable: Bool?, errnoCode: Int32?) {
+        let probeSocket = socket(AF_UNIX, SOCK_STREAM, 0)
+        guard probeSocket >= 0 else {
+            return (false, errno)
+        }
+        defer { close(probeSocket) }
+
+        let existingFlags = fcntl(probeSocket, F_GETFL, 0)
+        if existingFlags >= 0 {
+            _ = fcntl(probeSocket, F_SETFL, existingFlags | O_NONBLOCK)
+        }
+
+        guard var addr = unixSocketAddress(path: path) else {
+            return (false, ENAMETOOLONG)
+        }
+        let connectResult = withUnsafePointer(to: &addr) { ptr in
+            ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                connect(probeSocket, sockaddrPtr, socklen_t(MemoryLayout<sockaddr_un>.size))
+            }
+        }
+        if connectResult == 0 {
+            return (true, nil)
+        }
+        let connectErrno = errno
+        if connectErrno == EINPROGRESS {
+            var pollDescriptor = pollfd(fd: probeSocket, events: Int16(POLLOUT), revents: 0)
+            for attempt in 0..<Self.socketProbePollAttempts {
+                pollDescriptor.revents = 0
+                let pollResult = poll(&pollDescriptor, 1, Self.socketProbePollTimeoutMs)
+                if pollResult > 0 {
+                    var socketError: Int32 = 0
+                    var socketErrorLength = socklen_t(MemoryLayout<Int32>.size)
+                    let status = getsockopt(
+                        probeSocket,
+                        SOL_SOCKET,
+                        SO_ERROR,
+                        &socketError,
+                        &socketErrorLength
+                    )
+                    if status == 0 && socketError == 0 {
+                        return (true, nil)
+                    }
+                    if status == 0 {
+                        return (false, socketError)
+                    }
+                    return (false, errno)
+                }
+
+                let pollErrno = errno
+                if pollResult == 0 || pollErrno == EINTR {
+                    if attempt + 1 < Self.socketProbePollAttempts {
+                        usleep(Self.socketProbePollRetryBackoffUs)
+                        continue
+                    }
+                    return (false, pollResult == 0 ? ETIMEDOUT : pollErrno)
+                }
+                return (false, pollErrno)
+            }
+        }
+        return (false, connectErrno)
+    }
+
     func start(tabManager: TabManager, socketPath: String, accessMode: SocketControlMode) {
         self.tabManager = tabManager
         self.accessMode = accessMode
@@ -556,19 +663,18 @@ class TerminalController {
         }
 
         // Bind to path
-        var addr = sockaddr_un()
-        addr.sun_family = sa_family_t(AF_UNIX)
-        socketPath.withCString { ptr in
-            withUnsafeMutablePointer(to: &addr.sun_path) { pathPtr in
-                let pathBuf = UnsafeMutableRawPointer(pathPtr).assumingMemoryBound(to: CChar.self)
-                strcpy(pathBuf, ptr)
-            }
-        }
-
-        let bindResult = withUnsafePointer(to: &addr) { ptr in
-            ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
-                bind(newServerSocket, sockaddrPtr, socklen_t(MemoryLayout<sockaddr_un>.size))
-            }
+        guard let bindResult = Self.bindUnixSocket(newServerSocket, path: socketPath) else {
+            close(newServerSocket)
+            reportSocketListenerFailure(
+                message: "socket.listener.start.failed",
+                stage: "bind_path_too_long",
+                errnoCode: ENAMETOOLONG,
+                extra: [
+                    "pathLength": socketPath.utf8.count,
+                    "maxPathLength": Self.unixSocketPathMaxLength
+                ]
+            )
+            return
         }
 
         guard bindResult >= 0 else {
@@ -653,12 +759,19 @@ class TerminalController {
 
         var st = stat()
         let exists = lstat(expectedSocketPath, &st) == 0 && (st.st_mode & S_IFMT) == S_IFSOCK
+        let shouldProbeConnection = snapshot.isRunning && snapshot.acceptLoopAlive && pathMatches && exists
+        let connectability = shouldProbeConnection
+            ? Self.probeSocketConnectability(path: expectedSocketPath)
+            : (isConnectable: nil, errnoCode: nil)
 
         return SocketListenerHealth(
             isRunning: snapshot.isRunning,
             acceptLoopAlive: snapshot.acceptLoopAlive,
             socketPathMatches: pathMatches,
-            socketPathExists: exists
+            socketPathExists: exists,
+            socketProbePerformed: shouldProbeConnection,
+            socketConnectable: connectability.isConnectable,
+            socketConnectErrno: connectability.errnoCode
         )
     }
 
