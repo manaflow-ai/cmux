@@ -1559,6 +1559,12 @@ struct ContentView: View {
         var id: String { command.id }
     }
 
+    private struct CommandPaletteResolvedSearchMatch: Sendable {
+        let commandID: String
+        let score: Int
+        let titleMatchIndices: Set<Int>
+    }
+
     private struct CommandPaletteSwitcherWindowContext {
         let windowId: UUID
         let tabManager: TabManager
@@ -3284,15 +3290,14 @@ struct ContentView: View {
         commandPaletteSearchTask = nil
     }
 
-    nonisolated private static func commandPaletteResolvedSearchResults(
+    nonisolated private static func commandPaletteResolvedSearchMatches(
         searchCorpus: [CommandPaletteSearchCorpusEntry<String>],
-        commandsByID: [String: CommandPaletteCommand],
         query: String,
         usageHistory: [String: CommandPaletteUsageEntry],
         queryIsEmpty: Bool,
         historyTimestamp: TimeInterval,
         shouldCancel: @escaping () -> Bool = { false }
-    ) -> [CommandPaletteSearchResult] {
+    ) -> [CommandPaletteResolvedSearchMatch] {
         let results = CommandPaletteSearchEngine.search(
             entries: searchCorpus,
             query: query,
@@ -3307,12 +3312,25 @@ struct ContentView: View {
             shouldCancel: shouldCancel
         )
 
-        return results.compactMap { result in
-            guard let command = commandsByID[result.payload] else { return nil }
-            return CommandPaletteSearchResult(
-                command: command,
+        return results.map { result in
+            CommandPaletteResolvedSearchMatch(
+                commandID: result.payload,
                 score: result.score,
                 titleMatchIndices: result.titleMatchIndices
+            )
+        }
+    }
+
+    private static func commandPaletteMaterializedSearchResults(
+        matches: [CommandPaletteResolvedSearchMatch],
+        commandsByID: [String: CommandPaletteCommand]
+    ) -> [CommandPaletteSearchResult] {
+        matches.compactMap { match in
+            guard let command = commandsByID[match.commandID] else { return nil }
+            return CommandPaletteSearchResult(
+                command: command,
+                score: match.score,
+                titleMatchIndices: match.titleMatchIndices
             )
         }
     }
@@ -3331,25 +3349,29 @@ struct ContentView: View {
         let queryIsEmpty = CommandPaletteFuzzyMatcher.preparedQuery(query).isEmpty
         let historyTimestamp = Date().timeIntervalSince1970
         commandPalettePendingActivation = nil
+        cancelCommandPaletteSearch()
         if cachedCommandPaletteResults.isEmpty {
-            cachedCommandPaletteResults = Self.commandPaletteResolvedSearchResults(
+            let matches = Self.commandPaletteResolvedSearchMatches(
                 searchCorpus: searchCorpus,
-                commandsByID: commandsByID,
                 query: query,
                 usageHistory: usageHistory,
                 queryIsEmpty: queryIsEmpty,
                 historyTimestamp: historyTimestamp
             )
+            cachedCommandPaletteResults = Self.commandPaletteMaterializedSearchResults(
+                matches: matches,
+                commandsByID: commandsByID
+            )
             commandPaletteResolvedSearchRequestID = requestID
+            isCommandPaletteSearchPending = false
             commandPaletteResultsRevision &+= 1
+            return
         }
         isCommandPaletteSearchPending = true
 
-        cancelCommandPaletteSearch()
         commandPaletteSearchTask = Task.detached(priority: .userInitiated) {
-            let results = Self.commandPaletteResolvedSearchResults(
+            let matches = Self.commandPaletteResolvedSearchMatches(
                 searchCorpus: searchCorpus,
-                commandsByID: commandsByID,
                 query: query,
                 usageHistory: usageHistory,
                 queryIsEmpty: queryIsEmpty,
@@ -3368,7 +3390,10 @@ struct ContentView: View {
                     return
                 }
 
-                cachedCommandPaletteResults = results
+                cachedCommandPaletteResults = Self.commandPaletteMaterializedSearchResults(
+                    matches: matches,
+                    commandsByID: commandPaletteSearchCommandsByID
+                )
                 let resultIDs = cachedCommandPaletteResults.map(\.id)
                 let pendingActivation = commandPalettePendingActivation
                 let resolvedActivation = Self.commandPaletteResolvedPendingActivation(
