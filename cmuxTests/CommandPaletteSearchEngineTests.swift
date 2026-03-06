@@ -424,20 +424,12 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
     func testSynchronousSeedRunsOnlyWhenScopeChanges() {
         XCTAssertTrue(
             ContentView.commandPaletteShouldSynchronouslySeedResults(
-                visibleResultsScope: nil,
-                nextScope: .commands
+                hasVisibleResultsForScope: false
             )
         )
         XCTAssertFalse(
             ContentView.commandPaletteShouldSynchronouslySeedResults(
-                visibleResultsScope: .commands,
-                nextScope: .commands
-            )
-        )
-        XCTAssertTrue(
-            ContentView.commandPaletteShouldSynchronouslySeedResults(
-                visibleResultsScope: .commands,
-                nextScope: .switcher
+                hasVisibleResultsForScope: true
             )
         )
     }

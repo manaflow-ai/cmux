@@ -3491,10 +3491,9 @@ struct ContentView: View {
     }
 
     static func commandPaletteShouldSynchronouslySeedResults(
-        visibleResultsScope: CommandPaletteListScope?,
-        nextScope: CommandPaletteListScope
+        hasVisibleResultsForScope: Bool
     ) -> Bool {
-        visibleResultsScope != nextScope
+        !hasVisibleResultsForScope
     }
 
     private func scheduleCommandPaletteResultsRefresh(forceSearchCorpusRefresh: Bool = false) {
@@ -3513,8 +3512,7 @@ struct ContentView: View {
         commandPalettePendingActivation = nil
         cancelCommandPaletteSearch()
         if Self.commandPaletteShouldSynchronouslySeedResults(
-            visibleResultsScope: commandPaletteVisibleResultsScope,
-            nextScope: scope
+            hasVisibleResultsForScope: commandPaletteVisibleResultsScope == scope
         ) {
             let matches = Self.commandPaletteResolvedSearchMatches(
                 searchCorpus: searchCorpus,
