@@ -5670,14 +5670,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         try? FileManager.default.removeItem(atPath: path)
 
-        let deadline = Date().addingTimeInterval(8.0)
+        let contextDeadline = Date().addingTimeInterval(8.0)
         func waitForContexts(minCount: Int, _ completion: @escaping () -> Void) {
             if mainWindowContexts.count >= minCount,
                mainWindowContexts.values.allSatisfy({ $0.window != nil }) {
                 completion()
                 return
             }
-            guard Date() < deadline else { return }
+            guard Date() < contextDeadline else { return }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
                 waitForContexts(minCount: minCount, completion)
             }
@@ -5686,16 +5686,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         func waitForSurfaceId(
             on tabManager: TabManager,
             tabId: UUID,
+            timeout: TimeInterval = 8.0,
             _ completion: @escaping (UUID) -> Void
         ) {
-            if let surfaceId = tabManager.focusedPanelId(for: tabId) {
-                completion(surfaceId)
-                return
+            let deadline = Date().addingTimeInterval(timeout)
+
+            func poll() {
+                if let surfaceId = tabManager.focusedPanelId(for: tabId) {
+                    completion(surfaceId)
+                    return
+                }
+                guard Date() < deadline else { return }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                    poll()
+                }
             }
-            guard Date() < deadline else { return }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                waitForSurfaceId(on: tabManager, tabId: tabId, completion)
-            }
+
+            poll()
         }
 
         waitForContexts(minCount: 1) { [weak self] in
