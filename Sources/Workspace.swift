@@ -1486,6 +1486,98 @@ final class Workspace: Identifiable, ObservableObject {
         return resolvedPanelTitle(panelId: panelId, fallback: fallback)
     }
 
+    private func normalizedHookDirectory(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return trimmed
+    }
+
+    private func representativePanelIdForHook() -> UUID? {
+        if let focusedPanelId, panels[focusedPanelId] != nil {
+            return focusedPanelId
+        }
+        return panels.keys.sorted(by: { $0.uuidString < $1.uuidString }).first
+    }
+
+    func hookContext(for event: TmuxCompatHookEvent) -> TmuxCompatHookContext {
+        let representativePanelId = representativePanelIdForHook()
+        let workspaceDirectory = normalizedHookDirectory(currentDirectory)
+        let surfaceDirectory = representativePanelId.flatMap { normalizedHookDirectory(panelDirectories[$0]) }
+        let orderedPanelIds = panels.keys.sorted(by: { $0.uuidString < $1.uuidString })
+        let closedSurfaceIDs = event == .workspaceClose ? orderedPanelIds : []
+        let closedSurfaceDirectories = event == .workspaceClose
+            ? orderedPanelIds.compactMap { normalizedHookDirectory(panelDirectories[$0]) }
+            : []
+
+        return TmuxCompatHookContext(
+            event: event,
+            workspaceId: id,
+            workspaceTitle: title,
+            workspaceDirectory: workspaceDirectory,
+            paneId: representativePanelId.flatMap { paneId(forPanelId: $0)?.id },
+            surfaceId: representativePanelId,
+            surfaceTitle: representativePanelId.flatMap { panelTitle(panelId: $0) },
+            surfaceDirectory: surfaceDirectory,
+            surfaceKind: representativePanelId.flatMap { panelKind(panelId: $0) },
+            surfaceTTY: representativePanelId.flatMap { surfaceTTYNames[$0] },
+            workingDirectory: surfaceDirectory ?? workspaceDirectory,
+            closedSurfaceIDs: closedSurfaceIDs,
+            closedSurfaceDirectories: closedSurfaceDirectories,
+            remainingPanes: event == .workspaceClose ? 0 : bonsplitController.allPaneIds.count,
+            remainingSurfaces: event == .workspaceClose ? 0 : panels.count
+        )
+    }
+
+    func hookContextForSurfaceClose(panelId: UUID) -> TmuxCompatHookContext? {
+        guard panels[panelId] != nil else { return nil }
+        let workspaceDirectory = normalizedHookDirectory(currentDirectory)
+        let surfaceDirectory = normalizedHookDirectory(panelDirectories[panelId])
+
+        return TmuxCompatHookContext(
+            event: .surfaceClose,
+            workspaceId: id,
+            workspaceTitle: title,
+            workspaceDirectory: workspaceDirectory,
+            paneId: paneId(forPanelId: panelId)?.id,
+            surfaceId: panelId,
+            surfaceTitle: panelTitle(panelId: panelId),
+            surfaceDirectory: surfaceDirectory,
+            surfaceKind: panelKind(panelId: panelId),
+            surfaceTTY: surfaceTTYNames[panelId],
+            workingDirectory: surfaceDirectory ?? workspaceDirectory,
+            closedSurfaceIDs: [panelId],
+            closedSurfaceDirectories: surfaceDirectory.map { [$0] } ?? [],
+            remainingPanes: bonsplitController.allPaneIds.count,
+            remainingSurfaces: max(0, panels.count - 1)
+        )
+    }
+
+    func hookContextForPaneClose(paneId: PaneID, closedPanelIds: [UUID]) -> TmuxCompatHookContext {
+        let orderedClosedPanelIds = closedPanelIds.sorted(by: { $0.uuidString < $1.uuidString })
+        let representativePanelId = orderedClosedPanelIds.first ?? representativePanelIdForHook()
+        let workspaceDirectory = normalizedHookDirectory(currentDirectory)
+        let surfaceDirectory = representativePanelId.flatMap { normalizedHookDirectory(panelDirectories[$0]) }
+
+        return TmuxCompatHookContext(
+            event: .paneClose,
+            workspaceId: id,
+            workspaceTitle: title,
+            workspaceDirectory: workspaceDirectory,
+            paneId: paneId.id,
+            surfaceId: representativePanelId,
+            surfaceTitle: representativePanelId.flatMap { panelTitle(panelId: $0) },
+            surfaceDirectory: surfaceDirectory,
+            surfaceKind: representativePanelId.flatMap { panelKind(panelId: $0) },
+            surfaceTTY: representativePanelId.flatMap { surfaceTTYNames[$0] },
+            workingDirectory: surfaceDirectory ?? workspaceDirectory,
+            closedSurfaceIDs: orderedClosedPanelIds,
+            closedSurfaceDirectories: orderedClosedPanelIds.compactMap { normalizedHookDirectory(panelDirectories[$0]) },
+            remainingPanes: bonsplitController.allPaneIds.count,
+            remainingSurfaces: max(0, panels.count - orderedClosedPanelIds.count)
+        )
+    }
+
     func setPanelPinned(panelId: UUID, pinned: Bool) {
         guard panels[panelId] != nil else { return }
         let wasPinned = pinnedPanelIds.contains(panelId)
@@ -4002,6 +4094,18 @@ extension Workspace: BonsplitDelegate {
         )
 #endif
 
+        let paneClosedViaTabClose = !isDetaching
+            && !controller.allPaneIds.contains(pane)
+            && pendingPaneClosePanelIds[pane.id] == nil
+        if !isDetaching, let hookContext = hookContextForSurfaceClose(panelId: panelId) {
+            TmuxCompatHookDispatcher.shared.fire(hookContext)
+        }
+        if paneClosedViaTabClose {
+            TmuxCompatHookDispatcher.shared.fire(
+                hookContextForPaneClose(paneId: pane, closedPanelIds: [panelId])
+            )
+        }
+
         if isDetaching, let panel {
             let browserPanel = panel as? BrowserPanel
             let cachedTitle = panelTitles[panelId]
@@ -4191,6 +4295,12 @@ extension Workspace: BonsplitDelegate {
     func splitTabBar(_ controller: BonsplitController, didClosePane paneId: PaneID) {
         let closedPanelIds = pendingPaneClosePanelIds.removeValue(forKey: paneId.id) ?? []
         let shouldScheduleFocusReconcile = !isDetachingCloseTransaction
+        let surfaceHookContexts = !isDetachingCloseTransaction
+            ? closedPanelIds.compactMap { hookContextForSurfaceClose(panelId: $0) }
+            : []
+        let paneHookContext = !isDetachingCloseTransaction && !closedPanelIds.isEmpty
+            ? hookContextForPaneClose(paneId: paneId, closedPanelIds: closedPanelIds)
+            : nil
 #if DEBUG
         dlog(
             "surface.didClosePane.begin pane=\(paneId.id.uuidString.prefix(5)) " +
@@ -4199,6 +4309,12 @@ extension Workspace: BonsplitDelegate {
 #endif
 
         if !closedPanelIds.isEmpty {
+            for hookContext in surfaceHookContexts {
+                TmuxCompatHookDispatcher.shared.fire(hookContext)
+            }
+            if let paneHookContext {
+                TmuxCompatHookDispatcher.shared.fire(paneHookContext)
+            }
             for panelId in closedPanelIds {
 #if DEBUG
                 dlog(

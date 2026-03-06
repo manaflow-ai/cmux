@@ -5,6 +5,220 @@ import Bonsplit
 import CoreVideo
 import Combine
 
+private func cmuxShellQuoted(_ value: String) -> String {
+    "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
+}
+
+enum TmuxCompatHookEvent: String {
+    case workspaceCreated = "workspace-created"
+    case workspaceClose = "workspace-close"
+    case surfaceClose = "surface-close"
+    case paneClose = "pane-close"
+}
+
+struct TmuxCompatHookContext {
+    let event: TmuxCompatHookEvent
+    let workspaceId: UUID?
+    let workspaceTitle: String?
+    let workspaceDirectory: String?
+    let paneId: UUID?
+    let surfaceId: UUID?
+    let surfaceTitle: String?
+    let surfaceDirectory: String?
+    let surfaceKind: String?
+    let surfaceTTY: String?
+    let workingDirectory: String?
+    let closedSurfaceIDs: [UUID]
+    let closedSurfaceDirectories: [String]
+    let remainingPanes: Int?
+    let remainingSurfaces: Int?
+
+    func environment(socketPath: String) -> [String: String] {
+        var env: [String: String] = [
+            "CMUX_HOOK_EVENT": event.rawValue,
+            "CMUX_SOCKET_PATH": socketPath
+        ]
+        if let workspaceId {
+            env["CMUX_WORKSPACE_ID"] = workspaceId.uuidString
+        }
+        if let workspaceTitle, !workspaceTitle.isEmpty {
+            env["CMUX_WORKSPACE_TITLE"] = workspaceTitle
+        }
+        if let workspaceDirectory, !workspaceDirectory.isEmpty {
+            env["CMUX_WORKSPACE_DIRECTORY"] = workspaceDirectory
+        }
+        if let paneId {
+            env["CMUX_PANE_ID"] = paneId.uuidString
+        }
+        if let surfaceId {
+            env["CMUX_SURFACE_ID"] = surfaceId.uuidString
+        }
+        if let surfaceTitle, !surfaceTitle.isEmpty {
+            env["CMUX_SURFACE_TITLE"] = surfaceTitle
+        }
+        if let surfaceDirectory, !surfaceDirectory.isEmpty {
+            env["CMUX_SURFACE_DIRECTORY"] = surfaceDirectory
+        }
+        if let surfaceKind, !surfaceKind.isEmpty {
+            env["CMUX_SURFACE_KIND"] = surfaceKind
+        }
+        if let surfaceTTY, !surfaceTTY.isEmpty {
+            env["CMUX_SURFACE_TTY"] = surfaceTTY
+        }
+        if let workingDirectory, !workingDirectory.isEmpty {
+            env["CMUX_HOOK_CWD"] = workingDirectory
+        }
+        if !closedSurfaceIDs.isEmpty {
+            env["CMUX_CLOSED_SURFACE_IDS"] = closedSurfaceIDs.map(\.uuidString).joined(separator: ",")
+        }
+        if !closedSurfaceDirectories.isEmpty {
+            env["CMUX_CLOSED_SURFACE_DIRECTORIES"] = closedSurfaceDirectories.joined(separator: ":")
+        }
+        if let remainingPanes {
+            env["CMUX_REMAINING_PANES"] = String(remainingPanes)
+        }
+        if let remainingSurfaces {
+            env["CMUX_REMAINING_SURFACES"] = String(remainingSurfaces)
+        }
+        return env
+    }
+}
+
+final class TmuxCompatHookDispatcher {
+    static let shared = TmuxCompatHookDispatcher()
+
+    private struct TmuxCompatStore: Codable {
+        var buffers: [String: String] = [:]
+        var hooks: [String: String] = [:]
+    }
+
+    private let queue = DispatchQueue(label: "com.cmuxterm.tmux-compat-hooks", qos: .utility)
+
+    func fire(_ context: TmuxCompatHookContext) {
+        guard let command = command(for: context.event) else { return }
+#if DEBUG
+        dlog(
+            "hook.fire event=\(context.event.rawValue) workspace=\(context.workspaceId?.uuidString.prefix(5) ?? "nil") " +
+            "pane=\(context.paneId?.uuidString.prefix(5) ?? "nil") surface=\(context.surfaceId?.uuidString.prefix(5) ?? "nil")"
+        )
+#endif
+        queue.async {
+            self.run(command: command, context: context)
+        }
+    }
+
+    private func command(for event: TmuxCompatHookEvent) -> String? {
+        let url = tmuxCompatStoreURL()
+        guard let data = try? Data(contentsOf: url),
+              let store = try? JSONDecoder().decode(TmuxCompatStore.self, from: data) else {
+            return nil
+        }
+        let command = store.hooks[event.rawValue]?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let command, !command.isEmpty else { return nil }
+        return command
+    }
+
+    private func tmuxCompatStoreURL() -> URL {
+        let root = NSString(string: "~/.cmuxterm").expandingTildeInPath
+        return URL(fileURLWithPath: root).appendingPathComponent("tmux-compat-store.json")
+    }
+
+    private func run(command: String, context: TmuxCompatHookContext) {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+        process.arguments = [
+            "-e", "on run argv",
+            "-e", "do shell script (item 1 of argv)",
+            "-e", "end run",
+            renderedCommand(command: command, context: context)
+        ]
+
+        let stdout = Pipe()
+        let stderr = Pipe()
+        process.standardOutput = stdout
+        process.standardError = stderr
+
+        do {
+            try process.run()
+            process.waitUntilExit()
+        } catch {
+            NSLog("tmux hook %@ failed to launch via osascript: %@", context.event.rawValue, String(describing: error))
+#if DEBUG
+            dlog("hook.exec.fail event=\(context.event.rawValue) reason=launch")
+#endif
+            return
+        }
+
+        guard process.terminationStatus == 0 else {
+            let stderrText = String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let stdoutText = String(data: stdout.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let details = stderrText.isEmpty ? stdoutText : stderrText
+            NSLog(
+                "tmux hook %@ failed (%d): %@",
+                context.event.rawValue,
+                process.terminationStatus,
+                details
+            )
+#if DEBUG
+            dlog("hook.exec.fail event=\(context.event.rawValue) reason=exit status=\(process.terminationStatus)")
+#endif
+            return
+        }
+#if DEBUG
+        dlog("hook.exec.ok event=\(context.event.rawValue)")
+#endif
+    }
+
+    private func renderedCommand(command: String, context: TmuxCompatHookContext) -> String {
+        var shellCommand = command
+        if let workingDirectory = context.workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !workingDirectory.isEmpty {
+            shellCommand = "cd \(cmuxShellQuoted(workingDirectory)) && \(shellCommand)"
+        }
+
+        var env = context.environment(socketPath: SocketControlSettings.socketPath())
+        if let currentHome = ProcessInfo.processInfo.environment["HOME"], !currentHome.isEmpty {
+            env["HOME"] = currentHome
+        }
+        if let currentTmpDir = ProcessInfo.processInfo.environment["TMPDIR"], !currentTmpDir.isEmpty {
+            env["TMPDIR"] = currentTmpDir
+        }
+        if let currentUser = ProcessInfo.processInfo.environment["USER"], !currentUser.isEmpty {
+            env["USER"] = currentUser
+        }
+        if let currentLogname = ProcessInfo.processInfo.environment["LOGNAME"], !currentLogname.isEmpty {
+            env["LOGNAME"] = currentLogname
+        }
+        if let currentShell = ProcessInfo.processInfo.environment["SHELL"], !currentShell.isEmpty {
+            env["SHELL"] = currentShell
+        }
+
+        let inheritedPath = ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
+        if let bundledBinPath = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true).path,
+           !bundledBinPath.isEmpty {
+            if inheritedPath.isEmpty {
+                env["PATH"] = bundledBinPath
+            } else if inheritedPath.split(separator: ":").contains(Substring(bundledBinPath)) {
+                env["PATH"] = inheritedPath
+            } else {
+                env["PATH"] = bundledBinPath + ":" + inheritedPath
+            }
+        } else {
+            env["PATH"] = inheritedPath
+        }
+
+        let assignments = env.keys.sorted().compactMap { key -> String? in
+            guard let value = env[key], !value.isEmpty else { return nil }
+            return "\(key)=\(cmuxShellQuoted(value))"
+        }
+
+        let envPrefix = assignments.isEmpty ? "" : assignments.joined(separator: " ") + " "
+        return "/usr/bin/env \(envPrefix)/bin/sh -c \(cmuxShellQuoted(shellCommand))"
+    }
+}
+
 // MARK: - Tab Type Alias for Backwards Compatibility
 // The old Tab class is replaced by Workspace
 typealias Tab = Workspace
@@ -827,6 +1041,7 @@ class TabManager: ObservableObject {
                 userInfo: [GhosttyNotificationKey.tabId: newWorkspace.id]
             )
         }
+        fireWorkspaceHook(.workspaceCreated, workspace: newWorkspace)
 #if DEBUG
         UITestRecorder.incrementInt("addTabInvocations")
         UITestRecorder.record([
@@ -1011,10 +1226,25 @@ class TabManager: ObservableObject {
         return trimmed
     }
 
+    func fireWorkspaceHook(_ event: TmuxCompatHookEvent, workspace: Workspace) {
+        TmuxCompatHookDispatcher.shared.fire(workspace.hookContext(for: event))
+    }
+
+    func fireWorkspaceCloseHookIfPresent(tabId: UUID) {
+        guard let workspace = tabs.first(where: { $0.id == tabId }) else { return }
+        fireWorkspaceHook(.workspaceClose, workspace: workspace)
+    }
+
+    func fireSurfaceCloseHook(workspace: Workspace, panelId: UUID) {
+        guard let context = workspace.hookContextForSurfaceClose(panelId: panelId) else { return }
+        TmuxCompatHookDispatcher.shared.fire(context)
+    }
+
     func closeWorkspace(_ workspace: Workspace) {
         guard tabs.count > 1 else { return }
         guard let index = tabs.firstIndex(where: { $0.id == workspace.id }) else { return }
         sentryBreadcrumb("workspace.close", data: ["tabCount": tabs.count - 1])
+        fireWorkspaceHook(.workspaceClose, workspace: workspace)
 
         AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: workspace.id)
         unwireClosedBrowserTracking(for: workspace)
@@ -1250,6 +1480,7 @@ class TabManager: ObservableObject {
         let effectiveSurfaceCount = max(tab.panels.count, bonsplitTabCount)
         let isLastTabInWorkspace = effectiveSurfaceCount <= 1
         if isLastTabInWorkspace {
+            fireSurfaceCloseHook(workspace: tab, panelId: panelId)
             let willCloseWindow = tabs.count <= 1
             let needsConfirm = workspaceNeedsConfirmClose(tab)
             if needsConfirm {
@@ -1389,6 +1620,7 @@ class TabManager: ObservableObject {
         // Child-exit on the last panel should collapse the workspace, matching explicit close
         // semantics (and close the window when it was the last workspace).
         if tab.panels.count <= 1 {
+            fireSurfaceCloseHook(workspace: tab, panelId: surfaceId)
             if tabs.count <= 1 {
                 if let app = AppDelegate.shared {
                     app.notificationStore?.clearNotifications(forTabId: tabId)
