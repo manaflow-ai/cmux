@@ -2034,15 +2034,15 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     static var lastBackgroundSurfaceStartUptime: TimeInterval = 0
-    static var lastObservedKeyDownUptime: TimeInterval = 0
+    static var lastObservedUserInputUptime: TimeInterval = 0
     private struct PendingBackgroundSurfaceStart {
         weak var surface: TerminalSurface?
     }
     private static var pendingBackgroundSurfaceStarts: [PendingBackgroundSurfaceStart] = []
     private static var backgroundSurfaceStartPumpWorkItem: DispatchWorkItem?
     private static let backgroundSurfaceStartInterItemDelay: TimeInterval = 0.08
-    private static let backgroundSurfaceStartInputRetryDelay: TimeInterval = 0.20
-    private static let backgroundSurfaceStartIdleThresholdMs = 400.0
+    private static let backgroundSurfaceStartInputRetryDelay: TimeInterval = 0.35
+    private static let backgroundSurfaceStartIdleThresholdMs = 750.0
 
     private(set) var surface: ghostty_surface_t?
     private weak var attachedView: GhosttyNSView?
@@ -2154,8 +2154,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     private static func recentKeyInputAgeMs(now: TimeInterval) -> Double? {
-        guard lastObservedKeyDownUptime > 0 else { return nil }
-        return max(0, (now - lastObservedKeyDownUptime) * 1000.0)
+        guard lastObservedUserInputUptime > 0 else { return nil }
+        return max(0, (now - lastObservedUserInputUptime) * 1000.0)
     }
 
     private static func scheduleBackgroundSurfaceStartPump(after delay: TimeInterval) {

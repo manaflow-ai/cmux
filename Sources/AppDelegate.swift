@@ -4986,6 +4986,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private(set) var lastKeyDownUptime: TimeInterval = 0
+    private(set) var lastUserInteractionUptime: TimeInterval = 0
 
 #if DEBUG
     private let debugColorWorkspaceTitlePrefix = "Debug Color - "
@@ -6215,11 +6216,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func installShortcutMonitor() {
         // Local monitor only receives events when app is active (not global)
-        shortcutMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp, .flagsChanged]) { [weak self] event in
+        shortcutMonitor = NSEvent.addLocalMonitorForEvents(
+            matching: [.keyDown, .keyUp, .flagsChanged, .leftMouseDown, .rightMouseDown, .otherMouseDown]
+        ) { [weak self] event in
             guard let self else { return event }
+            if event.type == .keyDown || event.type == .leftMouseDown || event.type == .rightMouseDown || event.type == .otherMouseDown {
+                self.lastUserInteractionUptime = ProcessInfo.processInfo.systemUptime
+                TerminalSurface.lastObservedUserInputUptime = self.lastUserInteractionUptime
+            }
             if event.type == .keyDown {
-                self.lastKeyDownUptime = ProcessInfo.processInfo.systemUptime
-                TerminalSurface.lastObservedKeyDownUptime = self.lastKeyDownUptime
+                self.lastKeyDownUptime = self.lastUserInteractionUptime
 #if DEBUG
                 if (ProcessInfo.processInfo.environment["CMUX_KEY_LATENCY_PROBE"] == "1"
                     || UserDefaults.standard.bool(forKey: "cmuxKeyLatencyProbe")),
