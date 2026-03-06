@@ -6432,7 +6432,7 @@ private struct SidebarFooterButtons: View {
     @ObservedObject var updateViewModel: UpdateViewModel
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 4) {
             SidebarHelpMenuButton()
             UpdatePill(model: updateViewModel)
         }
