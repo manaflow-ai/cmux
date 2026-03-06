@@ -4887,6 +4887,7 @@ final class GhosttySurfaceScrollView: NSView {
 	    private var isLiveScrolling = false
     private var lastSentRow: Int?
     private var isActive = true
+    private var visibilityMutationGeneration: UInt64 = 0
     private var activeDropZone: DropZone?
     private var pendingDropZone: DropZone?
     private var dropZoneOverlayAnimationGeneration: UInt64 = 0
@@ -5676,8 +5677,13 @@ final class GhosttySurfaceScrollView: NSView {
 
     func setVisibleInUI(_ visible: Bool) {
         let wasVisible = surfaceView.isVisibleInUI
+        let targetHidden = !visible
+
         surfaceView.setVisibleInUI(visible)
-        isHidden = !visible
+        // Deferring host view hidden-state mutation avoids AppKit constraint recursion when
+        // SwiftUI updates visibility in the middle of an active layout/update-constraints pass.
+        visibilityMutationGeneration &+= 1
+        let generation = visibilityMutationGeneration
 #if DEBUG
         if wasVisible != visible {
             let transition = "\(wasVisible ? 1 : 0)->\(visible ? 1 : 0)"
@@ -5688,14 +5694,24 @@ final class GhosttySurfaceScrollView: NSView {
             )
         }
 #endif
-        if !visible {
-            // If we were focused, yield first responder.
-            if let window, let fr = window.firstResponder as? NSView,
-               fr === surfaceView || fr.isDescendant(of: surfaceView) {
-                window.makeFirstResponder(nil)
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            guard self.visibilityMutationGeneration == generation else { return }
+
+            let hiddenChanged = self.isHidden != targetHidden
+            if hiddenChanged {
+                self.isHidden = targetHidden
             }
-        } else {
-            applyFirstResponderIfNeeded()
+
+            if !visible {
+                // If we were focused, yield first responder.
+                if let window = self.window, let fr = window.firstResponder as? NSView,
+                   fr === self.surfaceView || fr.isDescendant(of: self.surfaceView) {
+                    window.makeFirstResponder(nil)
+                }
+            } else if wasVisible != visible || hiddenChanged {
+                self.applyFirstResponderIfNeeded()
+            }
         }
     }
 
