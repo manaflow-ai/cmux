@@ -2758,6 +2758,52 @@ final class FullScreenShortcutTests: XCTestCase {
             shouldToggleMainWindowFullScreenForCommandControlFShortcut(
                 flags: [.command, .control],
                 chars: "",
+                keyCode: 3,
+                layoutCharacterProvider: { _, _ in nil }
+            )
+        )
+    }
+
+    func testDoesNotFallbackToANSIWhenLayoutTranslationReturnsNonFCharacter() {
+        XCTAssertFalse(
+            shouldToggleMainWindowFullScreenForCommandControlFShortcut(
+                flags: [.command, .control],
+                chars: "",
+                keyCode: 3,
+                layoutCharacterProvider: { _, _ in "u" }
+            )
+        )
+    }
+
+    func testMatchesCommandControlFWhenCommandAwareLayoutTranslationProvidesF() {
+        XCTAssertTrue(
+            shouldToggleMainWindowFullScreenForCommandControlFShortcut(
+                flags: [.command, .control],
+                chars: "",
+                keyCode: 3,
+                layoutCharacterProvider: { _, modifierFlags in
+                    modifierFlags.contains(.command) ? "f" : "u"
+                }
+            )
+        )
+    }
+
+    func testMatchesCommandControlFWhenCharsAreControlSequence() {
+        XCTAssertTrue(
+            shouldToggleMainWindowFullScreenForCommandControlFShortcut(
+                flags: [.command, .control],
+                chars: "\u{06}",
+                keyCode: 3,
+                layoutCharacterProvider: { _, _ in nil }
+            )
+        )
+    }
+
+    func testRejectsPhysicalFWhenCharacterRepresentsDifferentLayoutKey() {
+        XCTAssertFalse(
+            shouldToggleMainWindowFullScreenForCommandControlFShortcut(
+                flags: [.command, .control],
+                chars: "u",
                 keyCode: 3
             )
         )
@@ -3349,16 +3395,19 @@ final class CommandPaletteSelectionScrollBehaviorTests: XCTestCase {
     }
 }
 
-final class SidebarCommandHintPolicyTests: XCTestCase {
-    func testCommandHintRequiresCommandOnlyModifier() {
+final class ShortcutHintModifierPolicyTests: XCTestCase {
+    func testShortcutHintRequiresEnabledCommandOnlyModifier() {
         withDefaultsSuite { defaults in
             defaults.set(true, forKey: ShortcutHintDebugSettings.showHintsOnCommandHoldKey)
 
-            XCTAssertTrue(SidebarCommandHintPolicy.shouldShowHints(for: [.command], defaults: defaults))
-            XCTAssertFalse(SidebarCommandHintPolicy.shouldShowHints(for: [], defaults: defaults))
-            XCTAssertFalse(SidebarCommandHintPolicy.shouldShowHints(for: [.command, .shift], defaults: defaults))
-            XCTAssertFalse(SidebarCommandHintPolicy.shouldShowHints(for: [.command, .option], defaults: defaults))
-            XCTAssertFalse(SidebarCommandHintPolicy.shouldShowHints(for: [.command, .control], defaults: defaults))
+            XCTAssertTrue(ShortcutHintModifierPolicy.shouldShowHints(for: [.command], defaults: defaults))
+            XCTAssertFalse(ShortcutHintModifierPolicy.shouldShowHints(for: [.control], defaults: defaults))
+            XCTAssertFalse(ShortcutHintModifierPolicy.shouldShowHints(for: [], defaults: defaults))
+            XCTAssertFalse(ShortcutHintModifierPolicy.shouldShowHints(for: [.command, .shift], defaults: defaults))
+            XCTAssertFalse(ShortcutHintModifierPolicy.shouldShowHints(for: [.control, .shift], defaults: defaults))
+            XCTAssertFalse(ShortcutHintModifierPolicy.shouldShowHints(for: [.command, .option], defaults: defaults))
+            XCTAssertFalse(ShortcutHintModifierPolicy.shouldShowHints(for: [.control, .option], defaults: defaults))
+            XCTAssertFalse(ShortcutHintModifierPolicy.shouldShowHints(for: [.command, .control], defaults: defaults))
         }
     }
 
@@ -3366,7 +3415,8 @@ final class SidebarCommandHintPolicyTests: XCTestCase {
         withDefaultsSuite { defaults in
             defaults.set(false, forKey: ShortcutHintDebugSettings.showHintsOnCommandHoldKey)
 
-            XCTAssertFalse(SidebarCommandHintPolicy.shouldShowHints(for: [.command], defaults: defaults))
+            XCTAssertFalse(ShortcutHintModifierPolicy.shouldShowHints(for: [.command], defaults: defaults))
+            XCTAssertFalse(ShortcutHintModifierPolicy.shouldShowHints(for: [.control], defaults: defaults))
         }
     }
 
@@ -3374,17 +3424,18 @@ final class SidebarCommandHintPolicyTests: XCTestCase {
         withDefaultsSuite { defaults in
             defaults.removeObject(forKey: ShortcutHintDebugSettings.showHintsOnCommandHoldKey)
 
-            XCTAssertTrue(SidebarCommandHintPolicy.shouldShowHints(for: [.command], defaults: defaults))
+            XCTAssertTrue(ShortcutHintModifierPolicy.shouldShowHints(for: [.command], defaults: defaults))
+            XCTAssertFalse(ShortcutHintModifierPolicy.shouldShowHints(for: [.control], defaults: defaults))
         }
     }
 
-    func testCommandHintUsesIntentionalHoldDelay() {
-        XCTAssertGreaterThanOrEqual(SidebarCommandHintPolicy.intentionalHoldDelay, 0.25)
+    func testShortcutHintUsesIntentionalHoldDelay() {
+        XCTAssertEqual(ShortcutHintModifierPolicy.intentionalHoldDelay, 0.30, accuracy: 0.001)
     }
 
     func testCurrentWindowRequiresHostWindowToBeKeyAndMatchEventWindow() {
         XCTAssertTrue(
-            SidebarCommandHintPolicy.isCurrentWindow(
+            ShortcutHintModifierPolicy.isCurrentWindow(
                 hostWindowNumber: 42,
                 hostWindowIsKey: true,
                 eventWindowNumber: 42,
@@ -3393,7 +3444,7 @@ final class SidebarCommandHintPolicyTests: XCTestCase {
         )
 
         XCTAssertFalse(
-            SidebarCommandHintPolicy.isCurrentWindow(
+            ShortcutHintModifierPolicy.isCurrentWindow(
                 hostWindowNumber: 42,
                 hostWindowIsKey: true,
                 eventWindowNumber: 7,
@@ -3402,7 +3453,7 @@ final class SidebarCommandHintPolicyTests: XCTestCase {
         )
 
         XCTAssertFalse(
-            SidebarCommandHintPolicy.isCurrentWindow(
+            ShortcutHintModifierPolicy.isCurrentWindow(
                 hostWindowNumber: 42,
                 hostWindowIsKey: false,
                 eventWindowNumber: 42,
@@ -3411,12 +3462,12 @@ final class SidebarCommandHintPolicyTests: XCTestCase {
         )
     }
 
-    func testWindowScopedCommandHintsUseKeyWindowWhenNoEventWindowIsAvailable() {
+    func testWindowScopedShortcutHintsUseKeyWindowWhenNoEventWindowIsAvailable() {
         withDefaultsSuite { defaults in
             defaults.set(true, forKey: ShortcutHintDebugSettings.showHintsOnCommandHoldKey)
 
             XCTAssertTrue(
-                SidebarCommandHintPolicy.shouldShowHints(
+                ShortcutHintModifierPolicy.shouldShowHints(
                     for: [.command],
                     hostWindowNumber: 42,
                     hostWindowIsKey: true,
@@ -3427,7 +3478,7 @@ final class SidebarCommandHintPolicyTests: XCTestCase {
             )
 
             XCTAssertFalse(
-                SidebarCommandHintPolicy.shouldShowHints(
+                ShortcutHintModifierPolicy.shouldShowHints(
                     for: [.command],
                     hostWindowNumber: 42,
                     hostWindowIsKey: true,
@@ -3436,11 +3487,33 @@ final class SidebarCommandHintPolicyTests: XCTestCase {
                     defaults: defaults
                 )
             )
+
+            XCTAssertTrue(
+                ShortcutHintModifierPolicy.shouldShowHints(
+                    for: [.command],
+                    hostWindowNumber: 42,
+                    hostWindowIsKey: true,
+                    eventWindowNumber: nil,
+                    keyWindowNumber: 42,
+                    defaults: defaults
+                )
+            )
+
+            XCTAssertFalse(
+                ShortcutHintModifierPolicy.shouldShowHints(
+                    for: [.control],
+                    hostWindowNumber: 42,
+                    hostWindowIsKey: true,
+                    eventWindowNumber: nil,
+                    keyWindowNumber: 42,
+                    defaults: defaults
+                )
+            )
         }
     }
 
     private func withDefaultsSuite(_ body: (UserDefaults) -> Void) {
-        let suiteName = "SidebarCommandHintPolicyTests-\(UUID().uuidString)"
+        let suiteName = "ShortcutHintModifierPolicyTests-\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {
             XCTFail("Failed to create defaults suite")
             return
@@ -3489,6 +3562,31 @@ final class ShortcutHintDebugSettingsTests: XCTestCase {
 
         defaults.set(true, forKey: ShortcutHintDebugSettings.showHintsOnCommandHoldKey)
         XCTAssertTrue(ShortcutHintDebugSettings.showHintsOnCommandHoldEnabled(defaults: defaults))
+    }
+
+    func testResetVisibilityDefaultsRestoresAlwaysShowAndCommandHoldFlags() {
+        let suiteName = "ShortcutHintDebugSettingsTests-\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create defaults suite")
+            return
+        }
+
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set(true, forKey: ShortcutHintDebugSettings.alwaysShowHintsKey)
+        defaults.set(false, forKey: ShortcutHintDebugSettings.showHintsOnCommandHoldKey)
+
+        ShortcutHintDebugSettings.resetVisibilityDefaults(defaults: defaults)
+
+        XCTAssertEqual(
+            defaults.object(forKey: ShortcutHintDebugSettings.alwaysShowHintsKey) as? Bool,
+            ShortcutHintDebugSettings.defaultAlwaysShowHints
+        )
+        XCTAssertEqual(
+            defaults.object(forKey: ShortcutHintDebugSettings.showHintsOnCommandHoldKey) as? Bool,
+            ShortcutHintDebugSettings.defaultShowHintsOnCommandHold
+        )
     }
 }
 
@@ -6658,6 +6756,8 @@ final class NotificationDockBadgeTests: XCTestCase {
     }
 
     override func tearDown() {
+        AppFocusState.overrideIsFocused = nil
+        AppDelegate.shared = nil
         TerminalNotificationStore.shared.resetNotificationSettingsPromptHooksForTesting()
         TerminalNotificationStore.shared.replaceNotificationsForTesting([])
         super.tearDown()
@@ -7159,6 +7259,155 @@ final class NotificationDockBadgeTests: XCTestCase {
         XCTAssertTrue(store.hasUnreadNotification(forTabId: tabB, surfaceId: nil))
         XCTAssertEqual(store.latestNotification(forTabId: tabA)?.id, notificationAUnread.id)
         XCTAssertEqual(store.latestNotification(forTabId: tabB)?.id, notificationBUnread.id)
+    }
+
+    func testFocusedTabNotificationIsStoredWhenNativeDeliveryIsSuppressed() {
+        let store = TerminalNotificationStore.shared
+        store.replaceNotificationsForTesting([])
+
+        let appDelegate = AppDelegate()
+        let tabManager = TabManager()
+        appDelegate.tabManager = tabManager
+        AppDelegate.shared = appDelegate
+        AppFocusState.overrideIsFocused = true
+
+        guard let tabId = tabManager.selectedTabId else {
+            XCTFail("Expected selected tab for notification test")
+            return
+        }
+
+        store.addNotification(
+            tabId: tabId,
+            surfaceId: nil,
+            title: "Needs input",
+            subtitle: "",
+            body: "agent requires user action"
+        )
+
+        XCTAssertEqual(store.unreadCount(forTabId: tabId), 1)
+        guard let latest = store.latestNotification(forTabId: tabId) else {
+            XCTFail("Expected notification to be stored for focused tab")
+            return
+        }
+        XCTAssertEqual(latest.tabId, tabId)
+        XCTAssertEqual(latest.title, "Needs input")
+        XCTAssertEqual(latest.body, "agent requires user action")
+        XCTAssertFalse(latest.isRead)
+    }
+
+    func testApplicationDidBecomeActiveDoesNotMarkFocusedNotificationRead() {
+        let store = TerminalNotificationStore.shared
+        let appDelegate = AppDelegate()
+        let tabManager = TabManager()
+        appDelegate.tabManager = tabManager
+        appDelegate.notificationStore = store
+        AppDelegate.shared = appDelegate
+        AppFocusState.overrideIsFocused = true
+
+        guard let tabId = tabManager.selectedTabId,
+              let surfaceId = tabManager.focusedSurfaceId(for: tabId) else {
+            XCTFail("Expected selected tab and focused surface for activation test")
+            return
+        }
+
+        let notification = TerminalNotification(
+            id: UUID(),
+            tabId: tabId,
+            surfaceId: surfaceId,
+            title: "Unread",
+            subtitle: "",
+            body: "should persist across app activation",
+            createdAt: Date(),
+            isRead: false
+        )
+        store.replaceNotificationsForTesting([notification])
+
+        appDelegate.applicationDidBecomeActive(
+            Notification(name: NSApplication.didBecomeActiveNotification)
+        )
+
+        XCTAssertTrue(store.hasUnreadNotification(forTabId: tabId, surfaceId: surfaceId))
+        XCTAssertFalse(store.notifications[0].isRead)
+    }
+
+    func testSelectingWorkspaceDoesNotMarkFocusedNotificationRead() {
+        let store = TerminalNotificationStore.shared
+        let appDelegate = AppDelegate()
+        let tabManager = TabManager()
+        appDelegate.tabManager = tabManager
+        appDelegate.notificationStore = store
+        AppDelegate.shared = appDelegate
+        AppFocusState.overrideIsFocused = true
+
+        guard let originalTabId = tabManager.selectedTabId,
+              let originalSurfaceId = tabManager.focusedSurfaceId(for: originalTabId) else {
+            XCTFail("Expected selected tab and focused surface for workspace selection test")
+            return
+        }
+        guard let originalWorkspace = tabManager.tabs.first(where: { $0.id == originalTabId }) else {
+            XCTFail("Expected original workspace for workspace selection test")
+            return
+        }
+
+        let notification = TerminalNotification(
+            id: UUID(),
+            tabId: originalTabId,
+            surfaceId: originalSurfaceId,
+            title: "Unread",
+            subtitle: "",
+            body: "should persist across workspace selection",
+            createdAt: Date(),
+            isRead: false
+        )
+        store.replaceNotificationsForTesting([notification])
+
+        _ = tabManager.addWorkspace(select: true)
+        tabManager.selectWorkspace(originalWorkspace)
+
+        let drained = expectation(description: "workspace selection side effects drained")
+        DispatchQueue.main.async { drained.fulfill() }
+        wait(for: [drained], timeout: 1.0)
+
+        XCTAssertEqual(tabManager.selectedTabId, originalTabId)
+        XCTAssertTrue(store.hasUnreadNotification(forTabId: originalTabId, surfaceId: originalSurfaceId))
+        XCTAssertFalse(store.notifications[0].isRead)
+    }
+
+    func testNotificationFocusNavigationDoesNotMarkNotificationRead() {
+        let store = TerminalNotificationStore.shared
+        let appDelegate = AppDelegate()
+        let tabManager = TabManager()
+        appDelegate.tabManager = tabManager
+        appDelegate.notificationStore = store
+        AppDelegate.shared = appDelegate
+        AppFocusState.overrideIsFocused = true
+
+        guard let tabId = tabManager.selectedTabId,
+              let surfaceId = tabManager.focusedSurfaceId(for: tabId) else {
+            XCTFail("Expected selected tab and focused surface for notification focus test")
+            return
+        }
+
+        let notification = TerminalNotification(
+            id: UUID(),
+            tabId: tabId,
+            surfaceId: surfaceId,
+            title: "Unread",
+            subtitle: "",
+            body: "should persist after notification focus",
+            createdAt: Date(),
+            isRead: false
+        )
+        store.replaceNotificationsForTesting([notification])
+
+        tabManager.focusTabFromNotification(tabId, surfaceId: surfaceId)
+
+        let drained = expectation(description: "notification focus drained")
+        DispatchQueue.main.async { drained.fulfill() }
+        wait(for: [drained], timeout: 1.0)
+
+        XCTAssertTrue(store.hasUnreadNotification(forTabId: tabId, surfaceId: surfaceId))
+        XCTAssertFalse(store.notifications[0].isRead)
     }
 
     func testNotificationIndexesUpdateAfterReadAndClearMutations() {
@@ -10483,6 +10732,7 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
         return fd
     }
 
+    @MainActor
     func testSocketListenerHealthRecognizesSocketPath() throws {
         let path = makeTempSocketPath()
         let fd = try bindUnixSocket(at: path)
@@ -10496,6 +10746,7 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
         XCTAssertFalse(health.isHealthy)
     }
 
+    @MainActor
     func testSocketListenerHealthRejectsRegularFile() throws {
         let path = makeTempSocketPath()
         let url = URL(fileURLWithPath: path)
@@ -10512,10 +10763,16 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
             isRunning: true,
             acceptLoopAlive: true,
             socketPathMatches: true,
-            socketPathExists: true
+            socketPathExists: true,
+            socketProbePerformed: true,
+            socketConnectable: true,
+            socketConnectErrno: nil
         )
         XCTAssertTrue(health.isHealthy)
-        XCTAssertEqual(health.failureSignals, [])
+        XCTAssertTrue(health.failureSignals.isEmpty)
+        XCTAssertTrue(health.socketProbePerformed)
+        XCTAssertEqual(health.socketConnectable, true)
+        XCTAssertNil(health.socketConnectErrno)
     }
 
     func testSocketListenerHealthFailureSignalsIncludeAllDetectedProblems() {
@@ -10523,9 +10780,15 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
             isRunning: false,
             acceptLoopAlive: false,
             socketPathMatches: false,
-            socketPathExists: false
+            socketPathExists: false,
+            socketProbePerformed: false,
+            socketConnectable: nil,
+            socketConnectErrno: nil
         )
         XCTAssertFalse(health.isHealthy)
+        XCTAssertFalse(health.socketProbePerformed)
+        XCTAssertNil(health.socketConnectable)
+        XCTAssertNil(health.socketConnectErrno)
         XCTAssertEqual(
             health.failureSignals,
             ["not_running", "accept_loop_dead", "socket_path_mismatch", "socket_missing"]
