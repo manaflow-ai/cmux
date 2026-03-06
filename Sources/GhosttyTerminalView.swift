@@ -3380,6 +3380,22 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return surface
     }
 
+    private func dismissNotificationIfPresent() {
+        guard let tabId,
+              let surfaceId = terminalSurface?.id,
+              let notificationStore = AppDelegate.shared?.notificationStore,
+              let tabManager = AppDelegate.shared?.tabManager else {
+            return
+        }
+        guard notificationStore.hasUnreadNotification(forTabId: tabId, surfaceId: surfaceId) else {
+            return
+        }
+        if let workspace = tabManager.tabs.first(where: { $0.id == tabId }) {
+            workspace.triggerNotificationFocusFlash(panelId: surfaceId, requiresSplit: false, shouldFocus: false)
+        }
+        notificationStore.markRead(forTabId: tabId, surfaceId: surfaceId)
+    }
+
     func performBindingAction(_ action: String) -> Bool {
         guard let surface = surface else { return false }
         return action.withCString { cString in
@@ -3955,6 +3971,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func keyDown(with event: NSEvent) {
+        dismissNotificationIfPresent()
         guard let surface = ensureSurfaceReadyForInput() else {
             super.keyDown(with: event)
             return
@@ -4401,6 +4418,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let debugPoint = convert(event.locationInWindow, from: nil)
         dlog("terminal.mouseDown surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") mods=[\(debugModifierString(event.modifierFlags))] clickCount=\(event.clickCount) point=(\(String(format: "%.0f", debugPoint.x)),\(String(format: "%.0f", debugPoint.y)))")
         #endif
+        dismissNotificationIfPresent()
         window?.makeFirstResponder(self)
         guard let surface = surface else { return }
         let point = convert(event.locationInWindow, from: nil)
