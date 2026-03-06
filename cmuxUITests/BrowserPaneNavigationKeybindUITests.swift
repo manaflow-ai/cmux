@@ -275,6 +275,69 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         )
     }
 
+    func testClickingBrowserDismissesCommandPaletteAndKeepsBrowserFocus() {
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
+        app.launchEnvironment["CMUX_UI_TEST_FOCUS_SHORTCUTS"] = "1"
+        launchAndEnsureForeground(app)
+
+        XCTAssertTrue(
+            waitForData(keys: ["browserPanelId", "terminalPaneId", "webViewFocused"], timeout: 10.0),
+            "Expected goto_split setup data to be written"
+        )
+
+        guard let setup = loadData() else {
+            XCTFail("Missing goto_split setup data")
+            return
+        }
+
+        guard let expectedBrowserPanelId = setup["browserPanelId"] else {
+            XCTFail("Missing browserPanelId in goto_split setup data")
+            return
+        }
+
+        guard let expectedTerminalPaneId = setup["terminalPaneId"] else {
+            XCTFail("Missing terminalPaneId in goto_split setup data")
+            return
+        }
+
+        // Move focus away from browser to terminal first so Cmd+R opens the rename overlay.
+        app.typeKey("h", modifierFlags: [.command, .control])
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 5.0) { data in
+                data["lastMoveDirection"] == "left" && data["focusedPaneId"] == expectedTerminalPaneId
+            },
+            "Expected Cmd+Ctrl+H to move focus to left pane (terminal)"
+        )
+
+        let renameField = app.textFields["CommandPaletteRenameField"].firstMatch
+        app.typeKey("r", modifierFlags: [.command])
+        XCTAssertTrue(
+            renameField.waitForExistence(timeout: 5.0),
+            "Expected Cmd+R to open the rename command palette while terminal is focused"
+        )
+
+        let window = app.windows.firstMatch
+        XCTAssertTrue(window.waitForExistence(timeout: 2.0), "Expected main window for browser-pane click")
+        window.coordinate(withNormalizedOffset: CGVector(dx: 0.82, dy: 0.78)).click()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+        XCTAssertFalse(renameField.exists, "Expected clicking the browser pane to dismiss the command palette")
+
+        // Cmd+L behavior is context-aware:
+        // - If terminal is still focused: opens a new browser in that pane.
+        // - If the original browser took focus: focuses that existing browser's omnibar.
+        app.typeKey("l", modifierFlags: [.command])
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 5.0) { data in
+                guard data["webViewFocusedAfterAddressBarFocus"] == "false" else { return false }
+                return data["webViewFocusedAfterAddressBarFocusPanelId"] == expectedBrowserPanelId
+            },
+            "Expected clicking browser content to dismiss the palette and keep focus on the existing browser pane"
+        )
+    }
+
     func testCmdDSplitsRightWhenWebViewFocused() {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
