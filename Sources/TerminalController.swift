@@ -775,6 +775,100 @@ class TerminalController {
         )
     }
 
+    nonisolated static func probeSocketCommand(
+        _ command: String,
+        at socketPath: String,
+        timeout: TimeInterval
+    ) -> String? {
+        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+        guard fd >= 0 else { return nil }
+        defer { close(fd) }
+
+#if os(macOS)
+        var noSigPipe: Int32 = 1
+        _ = withUnsafePointer(to: &noSigPipe) { ptr in
+            setsockopt(
+                fd,
+                SOL_SOCKET,
+                SO_NOSIGPIPE,
+                ptr,
+                socklen_t(MemoryLayout<Int32>.size)
+            )
+        }
+#endif
+
+        var addr = sockaddr_un()
+        memset(&addr, 0, MemoryLayout<sockaddr_un>.size)
+        addr.sun_family = sa_family_t(AF_UNIX)
+
+        let maxLen = MemoryLayout.size(ofValue: addr.sun_path)
+        let pathBytes = Array(socketPath.utf8CString)
+        guard pathBytes.count <= maxLen else { return nil }
+        withUnsafeMutablePointer(to: &addr.sun_path) { ptr in
+            let raw = UnsafeMutableRawPointer(ptr).assumingMemoryBound(to: CChar.self)
+            memset(raw, 0, maxLen)
+            for index in 0..<pathBytes.count {
+                raw[index] = pathBytes[index]
+            }
+        }
+
+        let pathOffset = MemoryLayout<sockaddr_un>.offset(of: \.sun_path) ?? 0
+        let addrLen = socklen_t(pathOffset + pathBytes.count)
+#if os(macOS)
+        addr.sun_len = UInt8(min(Int(addrLen), 255))
+#endif
+
+        let connectResult = withUnsafePointer(to: &addr) { ptr in
+            ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                connect(fd, sockaddrPtr, addrLen)
+            }
+        }
+        guard connectResult == 0 else { return nil }
+
+        let payload = command + "\n"
+        let wroteAll = payload.withCString { cString in
+            var remaining = strlen(cString)
+            var pointer = UnsafeRawPointer(cString)
+            while remaining > 0 {
+                let written = write(fd, pointer, remaining)
+                if written <= 0 { return false }
+                remaining -= written
+                pointer = pointer.advanced(by: written)
+            }
+            return true
+        }
+        guard wroteAll else { return nil }
+
+        let deadline = Date().addingTimeInterval(timeout)
+        var buffer = [UInt8](repeating: 0, count: 4096)
+        var response = ""
+
+        while Date() < deadline {
+            var pollDescriptor = pollfd(fd: fd, events: Int16(POLLIN), revents: 0)
+            let ready = poll(&pollDescriptor, 1, 100)
+            if ready < 0 {
+                return nil
+            }
+            if ready == 0 {
+                continue
+            }
+
+            let count = read(fd, &buffer, buffer.count)
+            if count <= 0 {
+                break
+            }
+            if let chunk = String(bytes: buffer[0..<count], encoding: .utf8) {
+                response.append(chunk)
+                if let newlineIndex = response.firstIndex(of: "\n") {
+                    return String(response[..<newlineIndex])
+                }
+            }
+        }
+
+        let trimmed = response.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
     nonisolated func stop() {
         let (socketToClose, socketPathToUnlink) = withListenerState {
             isRunning = false
@@ -1376,6 +1470,9 @@ class TerminalController {
 
 
 #if DEBUG
+        case "send_workspace":
+            return sendInputToWorkspace(args)
+
         case "set_shortcut":
             return setShortcut(args)
 
@@ -2800,10 +2897,11 @@ class TerminalController {
         let startedAt = ProcessInfo.processInfo.systemUptime
         #endif
         v2MainSync {
-            let ws = tabManager.addWorkspace(workingDirectory: cwd, select: shouldFocus)
-            if !shouldFocus, let terminalPanel = ws.focusedTerminalPanel {
-                terminalPanel.surface.requestBackgroundSurfaceStartIfNeeded()
-            }
+            let ws = tabManager.addWorkspace(
+                workingDirectory: cwd,
+                select: shouldFocus,
+                eagerLoadTerminal: !shouldFocus
+            )
             newId = ws.id
         }
         #if DEBUG
@@ -9523,6 +9621,7 @@ class TerminalController {
           sidebar_overlay_gate [active|inactive] - Return true/false if sidebar outside-drop overlay would capture (test-only)
           terminal_drop_overlay_probe [deferred|direct] - Trigger focused terminal drop-overlay show path and report animation counts (test-only)
           activate_app                    - Bring app + main window to front (test-only)
+          send_workspace <workspace_id> <text> - Send text to a workspace's selected terminal (test-only)
           is_terminal_focused <id|idx>    - Return true/false if terminal surface is first responder (test-only)
           read_terminal_text [id|idx]     - Read visible terminal text (base64, test-only)
           render_stats [id|idx]           - Read terminal render stats (draw counters, test-only)
@@ -10574,10 +10673,7 @@ class TerminalController {
         let startedAt = ProcessInfo.processInfo.systemUptime
         #endif
         DispatchQueue.main.sync {
-            let workspace = tabManager.addTab(select: focus)
-            if !focus, let terminalPanel = workspace.focusedTerminalPanel {
-                terminalPanel.surface.requestBackgroundSurfaceStartIfNeeded()
-            }
+            let workspace = tabManager.addTab(select: focus, eagerLoadTerminal: !focus)
             newTabId = workspace.id
         }
         #if DEBUG
@@ -10760,7 +10856,13 @@ class TerminalController {
 
         var result = "OK"
         DispatchQueue.main.sync {
-            guard let tab = resolveTab(from: tabArg, tabManager: tabManager) else {
+            let tab: Tab?
+            if let tabId = UUID(uuidString: tabArg) {
+                tab = tabForSidebarMutation(id: tabId)
+            } else {
+                tab = resolveTab(from: tabArg, tabManager: tabManager)
+            }
+            guard let tab else {
                 result = "ERROR: Tab not found"
                 return
             }
@@ -11773,6 +11875,97 @@ class TerminalController {
         }
         if let error { return error }
         return success ? "OK" : "ERROR: Failed to send input"
+    }
+
+    private func sendInputToWorkspace(_ args: String) -> String {
+        guard let tabManager else { return "ERROR: TabManager not available" }
+        let parts = args.split(separator: " ", maxSplits: 1).map(String.init)
+        guard parts.count == 2 else { return "ERROR: Usage: send_workspace <workspace_id> <text>" }
+
+        let workspaceArg = parts[0].trimmingCharacters(in: .whitespacesAndNewlines)
+        let text = parts[1]
+        guard let workspaceId = UUID(uuidString: workspaceArg) else {
+            return "ERROR: Invalid workspace ID"
+        }
+
+        var success = false
+        var error: String?
+        DispatchQueue.main.sync {
+            guard let targetManager = AppDelegate.shared?.tabManagerFor(tabId: workspaceId)
+                ?? (tabManager.tabs.contains(where: { $0.id == workspaceId }) ? tabManager : nil) else {
+                error = "ERROR: Workspace not found"
+                return
+            }
+            guard let tab = targetManager.tabs.first(where: { $0.id == workspaceId }) else {
+                error = "ERROR: Workspace not found"
+                return
+            }
+
+            guard let terminalPanel = sendableWorkspaceTerminalPanel(in: tab) else {
+                error = "ERROR: No selected terminal in workspace"
+                return
+            }
+
+            let unescaped = text
+                .replacingOccurrences(of: "\\n", with: "\r")
+                .replacingOccurrences(of: "\\r", with: "\r")
+                .replacingOccurrences(of: "\\t", with: "\t")
+
+            // This DEBUG-only command is used by UI tests to enqueue shell work in an
+            // existing workspace. Return once the input is queued on main so a long
+            // payload does not hold the control-socket response open in CI.
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                if let surface = terminalPanel.surface.surface {
+                    self.sendSocketText(unescaped, surface: surface)
+                } else {
+                    terminalPanel.sendText(unescaped)
+                    terminalPanel.surface.requestBackgroundSurfaceStartIfNeeded()
+                }
+            }
+            success = true
+        }
+
+        if let error { return error }
+        return success ? "OK" : "ERROR: Failed to send input"
+    }
+
+    private func sendableWorkspaceTerminalPanel(in workspace: Workspace) -> TerminalPanel? {
+        func selectedTerminalPanel(in paneId: PaneID) -> TerminalPanel? {
+            guard let selectedTab = workspace.bonsplitController.selectedTab(inPane: paneId),
+                  let panelId = workspace.panelIdFromSurfaceId(selectedTab.id),
+                  let terminalPanel = workspace.panels[panelId] as? TerminalPanel else {
+                return nil
+            }
+            return terminalPanel
+        }
+
+        func isSelectedTerminalPanel(_ terminalPanel: TerminalPanel) -> Bool {
+            guard let surfaceId = workspace.surfaceIdFromPanelId(terminalPanel.id) else {
+                return false
+            }
+            return workspace.bonsplitController.allPaneIds.contains { paneId in
+                workspace.bonsplitController.selectedTab(inPane: paneId)?.id == surfaceId
+            }
+        }
+
+        if let focusedPane = workspace.bonsplitController.focusedPaneId,
+           let terminalPanel = selectedTerminalPanel(in: focusedPane) {
+            return terminalPanel
+        }
+
+        if let rememberedTerminal = workspace.lastRememberedTerminalPanelForConfigInheritance(),
+           isSelectedTerminalPanel(rememberedTerminal) {
+            return rememberedTerminal
+        }
+
+        for paneId in workspace.bonsplitController.allPaneIds {
+            if let terminalPanel = selectedTerminalPanel(in: paneId) {
+                return terminalPanel
+            }
+        }
+
+        return nil
     }
 
     private func sendInputToSurface(_ args: String) -> String {

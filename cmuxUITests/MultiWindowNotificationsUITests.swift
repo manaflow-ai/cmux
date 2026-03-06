@@ -190,6 +190,159 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         XCTAssertFalse(after.contains(marker), "Expected typing to be blocked while empty notifications popover is open")
     }
 
+    func testNotifyCLIDoesNotStealFocusAcrossWindows() throws {
+        let app = XCUIApplication()
+        app.launchArguments += ["-socketControlMode", "allowAll"]
+        app.launchEnvironment["CMUX_UI_TEST_MULTI_WINDOW_NOTIF_SETUP"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_MULTI_WINDOW_NOTIF_PATH"] = dataPath
+        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        app.launchEnvironment["CMUX_SOCKET_MODE"] = "allowAll"
+        app.launchEnvironment["CMUX_SOCKET_ENABLE"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_SOCKET_SANITY"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_NOTIFY_SOURCE_TERMINAL_READY"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_ENABLE_DUPLICATE_LAUNCH_OBSERVER"] = "1"
+        app.launchEnvironment["CMUX_TAG"] = launchTag
+        app.launch()
+        XCTAssertTrue(
+            ensureForegroundAfterLaunch(app, timeout: 12.0),
+            "Expected app to launch for notify focus regression test. state=\(app.state.rawValue)"
+        )
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 20.0) { data in
+                let tabId2 = data["tabId2"] ?? ""
+                let surfaceId2 = data["surfaceId2"] ?? ""
+                let socketReady = data["socketReady"] ?? ""
+                let sourceTerminalReady = data["sourceTerminalReady"] ?? ""
+                return !tabId2.isEmpty &&
+                    !surfaceId2.isEmpty &&
+                    !socketReady.isEmpty &&
+                    socketReady != "pending" &&
+                    !sourceTerminalReady.isEmpty &&
+                    sourceTerminalReady != "pending"
+            },
+            "Expected multi-window notification setup data, socket readiness, and source terminal focus"
+        )
+
+        guard let setup = loadData() else {
+            XCTFail("Missing setup data")
+            return
+        }
+        guard let tabId2 = setup["tabId2"], !tabId2.isEmpty else {
+            XCTFail("Missing setup workspace id")
+            return
+        }
+        if let expectedSocketPath = setup["socketExpectedPath"], !expectedSocketPath.isEmpty {
+            socketPath = expectedSocketPath
+        }
+        if setup["socketReady"] != "1" {
+            XCTFail(
+                "Control socket unavailable in this test environment. expected=\(socketPath) " +
+                socketDiagnostics(from: setup)
+            )
+            return
+        }
+        guard setup["socketPingResponse"] == "PONG" else {
+            XCTFail(
+                "Control socket ping sanity check failed. path=\(socketPath) " +
+                socketDiagnostics(from: setup)
+            )
+            return
+        }
+        guard let surfaceId = setup["surfaceId2"], !surfaceId.isEmpty else {
+            XCTFail("Missing target surface id for workspace \(tabId2)")
+            return
+        }
+        guard setup["sourceTerminalReady"] == "1" else {
+            XCTFail(
+                "Expected source terminal to be focused before typing. " +
+                "failure=\(setup["sourceTerminalFocusFailure"] ?? "<unknown>")"
+            )
+            return
+        }
+
+        XCTAssertTrue(waitForWindowCount(atLeast: 2, app: app, timeout: 6.0))
+
+        let title = "focus-regression-\(UUID().uuidString.prefix(8))"
+        let commandResultStem = UUID().uuidString
+        let commandStatusPath = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ui-test-notify-\(commandResultStem).status")
+            .path
+        let commandStdoutPath = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ui-test-notify-\(commandResultStem).stdout")
+            .path
+        let commandStderrPath = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ui-test-notify-\(commandResultStem).stderr")
+            .path
+        let commandScriptPath = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ui-test-notify-\(commandResultStem).sh")
+            .path
+        defer {
+            try? FileManager.default.removeItem(atPath: commandStatusPath)
+            try? FileManager.default.removeItem(atPath: commandStdoutPath)
+            try? FileManager.default.removeItem(atPath: commandStderrPath)
+            try? FileManager.default.removeItem(atPath: commandScriptPath)
+        }
+
+        guard let bundledCLIPath = resolveCmuxCLIPaths(strategy: .bundledOnly).first else {
+            XCTFail("Failed to locate bundled cmux CLI for notify regression test")
+            return
+        }
+
+        let notifyScript = [
+            "#!/bin/sh",
+            "sleep 1",
+            "rm -f \(shellSingleQuote(commandStatusPath)) \(shellSingleQuote(commandStdoutPath)) \(shellSingleQuote(commandStderrPath))",
+            "\(shellSingleQuote(bundledCLIPath)) --socket \(shellSingleQuote(socketPath)) notify --workspace \(shellSingleQuote(tabId2)) --surface \(shellSingleQuote(surfaceId)) --title \(shellSingleQuote(title)) --subtitle \(shellSingleQuote("ui-test")) --body \(shellSingleQuote("focus-regression")) >\(shellSingleQuote(commandStdoutPath)) 2>\(shellSingleQuote(commandStderrPath))",
+            "printf '%s' $? >\(shellSingleQuote(commandStatusPath))"
+        ].joined(separator: "\n")
+        do {
+            try notifyScript.write(toFile: commandScriptPath, atomically: true, encoding: .utf8)
+        } catch {
+            XCTFail(
+                "Failed to write delayed bundled `cmux notify` script. " +
+                "path=\(commandScriptPath) error=\(error)"
+            )
+            return
+        }
+
+        app.typeText("sh \(commandScriptPath)")
+        app.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [])
+
+        let finder = XCUIApplication(bundleIdentifier: "com.apple.finder")
+        finder.activate()
+        XCTAssertTrue(
+            waitForAppToLeaveForeground(app, timeout: 8.0),
+            "Expected cmux to move to background before delayed notify command runs. state=\(app.state.rawValue)"
+        )
+
+        XCTAssertTrue(
+            waitForCommandCompletionWhileBackgrounded(
+                statusPath: commandStatusPath,
+                app: app,
+                timeout: 15.0
+            ),
+            "Expected delayed bundled `cmux notify` command to finish without foregrounding cmux. state=\(app.state.rawValue)"
+        )
+
+        let notifyExitStatus = readTrimmedFile(atPath: commandStatusPath) ?? "<missing>"
+        let notifyStdout = readTrimmedFile(atPath: commandStdoutPath) ?? ""
+        let notifyStderr = readTrimmedFile(atPath: commandStderrPath) ?? ""
+
+        RunLoop.current.run(until: Date().addingTimeInterval(0.5))
+        XCTAssertFalse(
+            app.state == .runningForeground,
+            "Expected cmux to remain in background after bundled `cmux notify`. state=\(app.state.rawValue) stderr=\(notifyStderr)"
+        )
+        guard notifyExitStatus == "0" else {
+            XCTFail(
+                "Expected bundled `cmux notify` launched from the in-app shell to succeed. " +
+                "status=\(notifyExitStatus) stdout=\(notifyStdout) stderr=\(notifyStderr)"
+            )
+            return
+        }
+        XCTAssertTrue(notifyStdout.contains("OK"), "Expected notify command to return OK. stdout=\(notifyStdout) stderr=\(notifyStderr)")
+    }
+
     private func clickNotificationPopoverRowAndWaitForFocusChange(
         button: XCUIElement,
         app: XCUIApplication,
@@ -274,6 +427,20 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         return false
     }
 
+    private func waitForDataMatch(timeout: TimeInterval, predicate: ([String: String]) -> Bool) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if let data = loadData(), predicate(data) {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        if let data = loadData(), predicate(data) {
+            return true
+        }
+        return false
+    }
+
     private func waitForSocketPong(timeout: TimeInterval) -> String? {
         let deadline = Date().addingTimeInterval(timeout)
         var lastResponse: String?
@@ -287,33 +454,549 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         return socketCommand("ping") ?? lastResponse
     }
 
-    private func resolveSocketPath(timeout: TimeInterval) -> String? {
+    private func waitForTerminalFocus(surfaceId: String, timeout: TimeInterval) -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
-            for candidate in expectedSocketCandidates() {
-                guard FileManager.default.fileExists(atPath: candidate) else { continue }
-                if socketRespondsToPing(at: candidate) {
-                    return candidate
-                }
+            if socketCommand("is_terminal_focused \(surfaceId)") == "true" {
+                return true
             }
             RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         }
-        for candidate in expectedSocketCandidates() {
-            guard FileManager.default.fileExists(atPath: candidate) else { continue }
-            if socketRespondsToPing(at: candidate) {
+        return socketCommand("is_terminal_focused \(surfaceId)") == "true"
+    }
+
+    private func waitForCmuxPing(timeout: TimeInterval) -> (stdout: String?, stderr: String?) {
+        let deadline = Date().addingTimeInterval(timeout)
+        var lastStdout: String?
+        var lastStderr: String?
+        while Date() < deadline {
+            let result = runCmuxCommand(
+                socketPath: socketPath,
+                arguments: ["ping"],
+                responseTimeoutSeconds: 2.0
+            )
+            let stdout = result.stdout.isEmpty ? nil : result.stdout
+            let stderr = result.stderr.isEmpty ? nil : result.stderr
+            if let stdout {
+                lastStdout = stdout
+            }
+            if let stderr {
+                lastStderr = stderr
+            }
+            if result.terminationStatus == 0, stdout == "PONG" {
+                return ("PONG", stderr)
+            }
+            if isSocketPermissionFailure(stderr),
+               waitForSocketPong(timeout: 0.5) == "PONG" {
+                return ("PONG", stderr)
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+
+        let result = runCmuxCommand(
+            socketPath: socketPath,
+            arguments: ["ping"],
+            responseTimeoutSeconds: 2.0
+        )
+        let stdout = result.stdout.isEmpty ? nil : result.stdout
+        let stderr = result.stderr.isEmpty ? nil : result.stderr
+        if isSocketPermissionFailure(stderr),
+           waitForSocketPong(timeout: 0.5) == "PONG" {
+            return ("PONG", stderr)
+        }
+        return (stdout ?? lastStdout, stderr ?? lastStderr)
+    }
+
+    private func waitForCommandCompletionWhileBackgrounded(
+        statusPath: String,
+        app: XCUIApplication,
+        timeout: TimeInterval
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        var sawCompletion = false
+        while Date() < deadline {
+            if app.state == .runningForeground {
+                return false
+            }
+            if FileManager.default.fileExists(atPath: statusPath) {
+                sawCompletion = true
+                break
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        guard sawCompletion || FileManager.default.fileExists(atPath: statusPath) else {
+            return false
+        }
+
+        let postCompletionDeadline = Date().addingTimeInterval(0.75)
+        while Date() < postCompletionDeadline {
+            if app.state == .runningForeground {
+                return false
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        return app.state != .runningForeground
+    }
+
+    private func waitForAppToLeaveForeground(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if app.state != .runningForeground {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        return app.state != .runningForeground
+    }
+
+    private func firstSurfaceId(forWorkspaceId workspaceId: String) -> String? {
+        guard let response = socketCommand("list_surfaces \(workspaceId)"),
+              !response.isEmpty,
+              !response.hasPrefix("ERROR"),
+              response != "No surfaces" else {
+            return nil
+        }
+
+        for line in response.split(separator: "\n", omittingEmptySubsequences: true) {
+            let parts = line.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
+            guard parts.count == 2 else { continue }
+            let candidate = String(parts[1]).trimmingCharacters(in: .whitespacesAndNewlines)
+            if UUID(uuidString: candidate) != nil {
                 return candidate
             }
         }
         return nil
     }
 
-    private func expectedSocketCandidates() -> [String] {
+    private func waitForSurfaceId(forWorkspaceId workspaceId: String, timeout: TimeInterval) -> String? {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if let surfaceId = firstSurfaceId(forWorkspaceId: workspaceId) {
+                return surfaceId
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        return firstSurfaceId(forWorkspaceId: workspaceId)
+    }
+
+    private func waitForSurfaceIdViaCLI(forWorkspaceId workspaceId: String, timeout: TimeInterval) -> String? {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if let surfaceId = firstSurfaceIdViaCLI(forWorkspaceId: workspaceId) {
+                return surfaceId
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        return firstSurfaceIdViaCLI(forWorkspaceId: workspaceId)
+    }
+
+    private func firstSurfaceIdViaCLI(forWorkspaceId workspaceId: String) -> String? {
+        guard let paneId = firstPaneIdViaCLI(forWorkspaceId: workspaceId) else {
+            return firstSurfaceId(forWorkspaceId: workspaceId)
+        }
+        let result = runCmuxCommand(
+            socketPath: socketPath,
+            arguments: [
+                "list-pane-surfaces",
+                "--workspace",
+                workspaceId,
+                "--pane",
+                paneId,
+                "--id-format",
+                "uuids"
+            ],
+            responseTimeoutSeconds: 3.0
+        )
+        guard result.terminationStatus == 0 else {
+            if isSocketPermissionFailure(result.stderr) {
+                return firstSurfaceId(forWorkspaceId: workspaceId)
+            }
+            return nil
+        }
+        return firstHandle(in: result.stdout)
+    }
+
+    private func firstPaneIdViaCLI(forWorkspaceId workspaceId: String) -> String? {
+        let result = runCmuxCommand(
+            socketPath: socketPath,
+            arguments: [
+                "list-panes",
+                "--workspace",
+                workspaceId,
+                "--id-format",
+                "uuids"
+            ],
+            responseTimeoutSeconds: 3.0
+        )
+        guard result.terminationStatus == 0 else {
+            if isSocketPermissionFailure(result.stderr) {
+                return nil
+            }
+            return nil
+        }
+        return firstHandle(in: result.stdout)
+    }
+
+    private func firstHandle(in output: String) -> String? {
+        for rawLine in output.split(separator: "\n", omittingEmptySubsequences: true) {
+            var line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !line.isEmpty, !line.hasPrefix("No ") else { continue }
+            if line.hasPrefix("* ") || line.hasPrefix("  ") {
+                line = String(line.dropFirst(2))
+            }
+            guard let token = line.split(whereSeparator: \.isWhitespace).first else { continue }
+            return String(token)
+        }
+        return nil
+    }
+
+    private func runCmuxNotify(
+        socketPath: String,
+        workspaceId: String,
+        surfaceId: String,
+        title: String
+    ) -> (terminationStatus: Int32, stdout: String, stderr: String) {
+        runCmuxCommand(
+            socketPath: socketPath,
+            arguments: [
+                "notify",
+                "--workspace",
+                workspaceId,
+                "--surface",
+                surfaceId,
+                "--title",
+                title,
+                "--subtitle",
+                "ui-test",
+                "--body",
+                "focus-regression"
+            ],
+            responseTimeoutSeconds: 4.0,
+            cliStrategy: .bundledOnly
+        )
+    }
+
+    private func runCmuxCommand(
+        socketPath: String,
+        arguments: [String],
+        responseTimeoutSeconds: Double = 3.0,
+        cliStrategy: CmuxCLIStrategy = .any
+    ) -> (terminationStatus: Int32, stdout: String, stderr: String) {
+        var args = ["--socket", socketPath]
+        args.append(contentsOf: arguments)
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC"] = String(responseTimeoutSeconds)
+
+        let cliPaths = resolveCmuxCLIPaths(strategy: cliStrategy)
+        if cliPaths.isEmpty, cliStrategy == .bundledOnly {
+            return (
+                terminationStatus: -1,
+                stdout: "",
+                stderr: "Failed to locate bundled cmux CLI"
+            )
+        }
+
+        var lastPermissionFailure: (terminationStatus: Int32, stdout: String, stderr: String)?
+        for cliPath in cliPaths {
+            let result = executeCmuxCommand(
+                executablePath: cliPath,
+                arguments: args,
+                environment: environment
+            )
+            if result.terminationStatus == 0 {
+                return result
+            }
+            if result.stderr.localizedCaseInsensitiveContains("operation not permitted") {
+                lastPermissionFailure = result
+                continue
+            }
+            return result
+        }
+
+        if cliStrategy == .bundledOnly {
+            return lastPermissionFailure ?? (
+                terminationStatus: -1,
+                stdout: "",
+                stderr: "Bundled cmux CLI command failed without an executable path"
+            )
+        }
+
+        let fallbackArgs = ["cmux"] + args
+        let fallbackResult = executeCmuxCommand(
+            executablePath: "/usr/bin/env",
+            arguments: fallbackArgs,
+            environment: environment
+        )
+        if fallbackResult.terminationStatus == 0 || lastPermissionFailure == nil {
+            return fallbackResult
+        }
+        return lastPermissionFailure ?? fallbackResult
+    }
+
+    private enum CmuxCLIStrategy: Equatable {
+        case any
+        case bundledOnly
+    }
+
+    private func socketDiagnostics(from data: [String: String]) -> String {
+        let pingResponse = data["socketPingResponse"].flatMap { $0.isEmpty ? nil : $0 } ?? "<nil>"
+        return "mode=\(data["socketMode"] ?? "") running=\(data["socketIsRunning"] ?? "") " +
+            "acceptLoopAlive=\(data["socketAcceptLoopAlive"] ?? "") pathMatches=\(data["socketPathMatches"] ?? "") " +
+            "pathExists=\(data["socketPathExists"] ?? "") ping=\(pingResponse) " +
+            "signals=\(data["socketFailureSignals"] ?? "")"
+    }
+
+    private func resolveCmuxCLIPaths(strategy: CmuxCLIStrategy) -> [String] {
+        let fileManager = FileManager.default
+        let env = ProcessInfo.processInfo.environment
+        var candidates: [String] = []
+        var productDirectories: [String] = []
+
+        if strategy == .any {
+            for key in ["CMUX_UI_TEST_CLI_PATH", "CMUXTERM_CLI"] {
+                if let value = env[key], !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    candidates.append(value)
+                }
+            }
+        }
+
+        if let builtProductsDir = env["BUILT_PRODUCTS_DIR"], !builtProductsDir.isEmpty {
+            productDirectories.append(builtProductsDir)
+        }
+
+        if let hostPath = env["TEST_HOST"], !hostPath.isEmpty {
+            let hostURL = URL(fileURLWithPath: hostPath)
+            let productsDir = hostURL
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .path
+            productDirectories.append(productsDir)
+        }
+
+        productDirectories.append(contentsOf: inferredBuildProductsDirectories())
+        for productsDir in uniquePaths(productDirectories) {
+            appendCLIPathCandidates(fromProductsDirectory: productsDir, strategy: strategy, to: &candidates)
+        }
+
+        candidates.append("/tmp/cmux-\(launchTag)/Build/Products/Debug/cmux DEV.app/Contents/Resources/bin/cmux")
+        candidates.append("/tmp/cmux-\(launchTag)/Build/Products/Debug/cmux.app/Contents/Resources/bin/cmux")
+        if strategy == .any {
+            candidates.append("/tmp/cmux-\(launchTag)/Build/Products/Debug/cmux")
+        }
+
+        var resolvedPaths: [String] = []
+        for path in uniquePaths(candidates) {
+            guard fileManager.isExecutableFile(atPath: path) else { continue }
+            resolvedPaths.append(URL(fileURLWithPath: path).resolvingSymlinksInPath().path)
+        }
+        return uniquePaths(resolvedPaths)
+    }
+
+    private func inferredBuildProductsDirectories() -> [String] {
+        let bundleURLs = [
+            Bundle.main.bundleURL,
+            Bundle(for: Self.self).bundleURL,
+        ]
+
+        return bundleURLs.compactMap { bundleURL in
+            let standardizedPath = bundleURL.standardizedFileURL.path
+            let components = standardizedPath.split(separator: "/")
+            guard let productsIndex = components.firstIndex(of: "Products"),
+                  productsIndex + 1 < components.count else {
+                return nil
+            }
+            let prefixComponents = components.prefix(productsIndex + 2)
+            return "/" + prefixComponents.joined(separator: "/")
+        }
+    }
+
+    private func appendCLIPathCandidates(
+        fromProductsDirectory productsDir: String,
+        strategy: CmuxCLIStrategy,
+        to candidates: inout [String]
+    ) {
+        candidates.append("\(productsDir)/cmux DEV.app/Contents/Resources/bin/cmux")
+        candidates.append("\(productsDir)/cmux.app/Contents/Resources/bin/cmux")
+        if strategy == .any {
+            candidates.append("\(productsDir)/cmux")
+        }
+
+        guard let entries = try? FileManager.default.contentsOfDirectory(atPath: productsDir) else {
+            return
+        }
+
+        for entry in entries.sorted() where entry.hasSuffix(".app") {
+            let cliPath = URL(fileURLWithPath: productsDir)
+                .appendingPathComponent(entry)
+                .appendingPathComponent("Contents/Resources/bin/cmux")
+                .path
+            candidates.append(cliPath)
+        }
+        if strategy == .any {
+            for entry in entries.sorted() where entry == "cmux" {
+                let cliPath = URL(fileURLWithPath: productsDir)
+                    .appendingPathComponent(entry)
+                    .path
+                candidates.append(cliPath)
+            }
+        }
+    }
+
+    private func executeCmuxCommand(
+        executablePath: String,
+        arguments: [String],
+        environment: [String: String]
+    ) -> (terminationStatus: Int32, stdout: String, stderr: String) {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: executablePath)
+        process.arguments = arguments
+        process.environment = environment
+
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+
+        do {
+            try process.run()
+            process.waitUntilExit()
+        } catch {
+            return (
+                terminationStatus: -1,
+                stdout: "",
+                stderr: "Failed to run cmux command: \(error.localizedDescription) (cliPath=\(executablePath))"
+            )
+        }
+
+        let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+        let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+        let stdout = String(data: stdoutData, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let rawStderr = String(data: stderrData, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let stderr = rawStderr.isEmpty ? "" : "\(rawStderr) (cliPath=\(executablePath))"
+        return (process.terminationStatus, stdout, stderr)
+    }
+
+    private func isSocketPermissionFailure(_ stderr: String?) -> Bool {
+        guard let stderr, !stderr.isEmpty else { return false }
+        return stderr.localizedCaseInsensitiveContains("failed to connect to socket") &&
+            stderr.localizedCaseInsensitiveContains("operation not permitted")
+    }
+
+    private func uniquePaths(_ paths: [String]) -> [String] {
+        var unique: [String] = []
+        var seen = Set<String>()
+        for path in paths {
+            if seen.insert(path).inserted {
+                unique.append(path)
+            }
+        }
+        return unique
+    }
+
+    private func resolveSocketPath(timeout: TimeInterval, requiredWorkspaceId: String? = nil) -> String? {
+        let primaryCandidates = expectedSocketCandidates(includeGlobalFallback: false)
+        let fallbackCandidates: [String]
+        if let requiredWorkspaceId, !requiredWorkspaceId.isEmpty {
+            fallbackCandidates = expectedSocketCandidates(includeGlobalFallback: true)
+                .filter { !primaryCandidates.contains($0) }
+        } else {
+            fallbackCandidates = []
+        }
+
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            for candidate in primaryCandidates {
+                guard FileManager.default.fileExists(atPath: candidate) else { continue }
+                // Primary candidate is the explicitly requested CMUX_SOCKET_PATH. If it responds,
+                // prefer it even before workspace contents are fully initialized.
+                if socketRespondsToPing(at: candidate) {
+                    return candidate
+                }
+            }
+            for candidate in fallbackCandidates {
+                guard FileManager.default.fileExists(atPath: candidate) else { continue }
+                if socketRespondsToPing(at: candidate),
+                   socketMatchesRequiredWorkspace(candidate, workspaceId: requiredWorkspaceId) {
+                    return candidate
+                }
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        for candidate in primaryCandidates {
+            guard FileManager.default.fileExists(atPath: candidate) else { continue }
+            if socketRespondsToPing(at: candidate) {
+                return candidate
+            }
+        }
+        for candidate in fallbackCandidates {
+            guard FileManager.default.fileExists(atPath: candidate) else { continue }
+            if socketRespondsToPing(at: candidate),
+               socketMatchesRequiredWorkspace(candidate, workspaceId: requiredWorkspaceId) {
+                return candidate
+            }
+        }
+        return nil
+    }
+
+    private func expectedSocketCandidates(includeGlobalFallback: Bool) -> [String] {
         var candidates = [socketPath]
         let taggedDebugSocket = "/tmp/cmux-debug-\(launchTag).sock"
-        if taggedDebugSocket != socketPath {
+        if !taggedDebugSocket.isEmpty {
             candidates.append(taggedDebugSocket)
         }
-        return candidates
+        if includeGlobalFallback {
+            candidates.append(contentsOf: discoverTmpSocketCandidates(limit: 12))
+            candidates.append("/tmp/cmux-debug.sock")
+            candidates.append("/tmp/cmux.sock")
+        }
+
+        var unique: [String] = []
+        var seen = Set<String>()
+        for candidate in candidates {
+            if seen.insert(candidate).inserted {
+                unique.append(candidate)
+            }
+        }
+        return unique
+    }
+
+    private func socketMatchesRequiredWorkspace(_ candidatePath: String, workspaceId: String?) -> Bool {
+        guard let workspaceId, !workspaceId.isEmpty else { return true }
+        let originalPath = socketPath
+        socketPath = candidatePath
+        defer { socketPath = originalPath }
+
+        guard let response = socketCommand("list_surfaces \(workspaceId)"),
+              !response.isEmpty,
+              !response.hasPrefix("ERROR"),
+              response != "No surfaces" else {
+            return false
+        }
+        return true
+    }
+
+    private func discoverTmpSocketCandidates(limit: Int) -> [String] {
+        let tmpPath = "/tmp"
+        guard let entries = try? FileManager.default.contentsOfDirectory(atPath: tmpPath) else {
+            return []
+        }
+
+        let matches = entries.filter { $0.hasPrefix("cmux") && $0.hasSuffix(".sock") }
+        let sorted = matches.compactMap { entry -> (path: String, mtime: Date)? in
+            let fullPath = (tmpPath as NSString).appendingPathComponent(entry)
+            guard let attrs = try? FileManager.default.attributesOfItem(atPath: fullPath) else {
+                return nil
+            }
+            let mtime = (attrs[.modificationDate] as? Date) ?? .distantPast
+            return (fullPath, mtime)
+        }
+        .sorted { $0.mtime > $1.mtime }
+
+        return Array(sorted.prefix(limit)).map(\.path)
     }
 
     private func socketRespondsToPing(at path: String) -> Bool {
@@ -323,20 +1006,21 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         return socketCommand("ping") == "PONG"
     }
 
-    private func socketCommand(_ cmd: String) -> String? {
-        if let response = ControlSocketClient(path: socketPath).sendLine(cmd) {
+    private func socketCommand(_ cmd: String, responseTimeout: TimeInterval = 2.0) -> String? {
+        if let response = ControlSocketClient(path: socketPath, responseTimeout: responseTimeout).sendLine(cmd) {
             return response
         }
-        return socketCommandViaNetcat(cmd)
+        return socketCommandViaNetcat(cmd, responseTimeout: responseTimeout)
     }
 
-    private func socketCommandViaNetcat(_ cmd: String) -> String? {
+    private func socketCommandViaNetcat(_ cmd: String, responseTimeout: TimeInterval = 2.0) -> String? {
         let nc = "/usr/bin/nc"
         guard FileManager.default.isExecutableFile(atPath: nc) else { return nil }
 
         let proc = Process()
         proc.executableURL = URL(fileURLWithPath: "/bin/sh")
-        let script = "printf '%s\\n' \(shellSingleQuote(cmd)) | \(nc) -U \(shellSingleQuote(socketPath)) -w 2 2>/dev/null"
+        let timeoutSeconds = max(1, Int(ceil(responseTimeout)))
+        let script = "printf '%s\\n' \(shellSingleQuote(cmd)) | \(nc) -U \(shellSingleQuote(socketPath)) -w \(timeoutSeconds) 2>/dev/null"
         proc.arguments = ["-lc", script]
 
         let outPipe = Pipe()
@@ -364,11 +1048,21 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         return "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
     }
 
+    private func readTrimmedFile(atPath path: String) -> String? {
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
+              let value = String(data: data, encoding: .utf8) else {
+            return nil
+        }
+        return value.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     private final class ControlSocketClient {
         private let path: String
+        private let responseTimeout: TimeInterval
 
-        init(path: String) {
+        init(path: String, responseTimeout: TimeInterval = 2.0) {
             self.path = path
+            self.responseTimeout = responseTimeout
         }
 
         func sendLine(_ line: String) -> String? {
@@ -431,9 +1125,18 @@ final class MultiWindowNotificationsUITests: XCTestCase {
             }
             guard wrote else { return nil }
 
+            let deadline = Date().addingTimeInterval(responseTimeout)
             var buf = [UInt8](repeating: 0, count: 4096)
             var accum = ""
-            while true {
+            while Date() < deadline {
+                var pollDescriptor = pollfd(fd: fd, events: Int16(POLLIN), revents: 0)
+                let ready = poll(&pollDescriptor, 1, 100)
+                if ready < 0 {
+                    return nil
+                }
+                if ready == 0 {
+                    continue
+                }
                 let n = read(fd, &buf, buf.count)
                 if n <= 0 { break }
                 if let chunk = String(bytes: buf[0..<n], encoding: .utf8) {

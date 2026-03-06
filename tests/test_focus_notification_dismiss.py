@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-E2E: focusing a panel preserves its notification and triggers a flash.
+E2E: focusing a panel clears its notification and triggers a flash.
 
 Note: This uses the socket focus command (no assistive access needed).
 """
@@ -74,12 +74,8 @@ def main() -> int:
             client.send("x")
             time.sleep(0.2)
 
-            if wait_for_notification(client, surface_id, is_read=True, timeout=2.0):
-                print("FAIL: Notification became read after focus")
-                return 1
-            items = client.list_notifications()
-            if not any(item["surface_id"] == surface_id and not item["is_read"] for item in items):
-                print("FAIL: Notification did not remain present and unread after focus")
+            if not wait_for_notification(client, surface_id, is_read=True, timeout=2.0):
+                print("FAIL: Notification did not become read after focus")
                 return 1
 
             final_flash = client.flash_count(term_b)
@@ -97,7 +93,7 @@ def main() -> int:
                 except Exception:
                     pass
 
-            print("PASS: Focus preserves notification and flashes panel")
+            print("PASS: Focus clears notification and flashes panel")
             return 0
     except (cmuxError, RuntimeError) as exc:
         print(f"FAIL: {exc}")
