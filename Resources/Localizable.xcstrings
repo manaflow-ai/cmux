@@ -15835,6 +15835,40 @@
         }
       }
     },
+    "command.moveTabToLeftPane.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move to Left Pane"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "左のペインへ移動"
+          }
+        }
+      }
+    },
+    "command.moveTabToRightPane.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move to Right Pane"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右のペインへ移動"
+          }
+        }
+      }
+    },
     "command.renameWorkspace.title": {
       "extractionState": "manual",
       "localizations": {
