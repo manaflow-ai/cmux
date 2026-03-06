@@ -5725,8 +5725,58 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     "expectedLatestWindowId": window1.windowId.uuidString,
                     "expectedLatestTabId": tabId1.uuidString,
                 ], at: path)
+                self.publishMultiWindowNotificationSocketStateIfNeeded(at: path)
             }
         }
+    }
+
+    private func publishMultiWindowNotificationSocketStateIfNeeded(at path: String) {
+        let env = ProcessInfo.processInfo.environment
+        guard env["CMUX_UI_TEST_SOCKET_SANITY"] == "1" else { return }
+
+        guard let config = socketListenerConfigurationIfEnabled() else {
+            writeMultiWindowNotificationTestData([
+                "socketExpectedPath": env["CMUX_SOCKET_PATH"] ?? "",
+                "socketMode": "off",
+                "socketReady": "0",
+                "socketIsRunning": "0",
+                "socketAcceptLoopAlive": "0",
+                "socketPathMatches": "0",
+                "socketPathExists": "0",
+                "socketFailureSignals": "socket_disabled",
+            ], at: path)
+            return
+        }
+
+        writeMultiWindowNotificationTestData([
+            "socketExpectedPath": config.path,
+            "socketMode": config.mode.rawValue,
+            "socketReady": "pending",
+        ], at: path)
+
+        restartSocketListenerIfEnabled(source: "uiTest.multiWindowNotifications.setup")
+
+        let deadline = Date().addingTimeInterval(12.0)
+        func publish() {
+            let health = TerminalController.shared.socketListenerHealth(expectedSocketPath: config.path)
+            let isTimedOut = Date() >= deadline
+            writeMultiWindowNotificationTestData([
+                "socketExpectedPath": config.path,
+                "socketMode": config.mode.rawValue,
+                "socketReady": health.isHealthy ? "1" : (isTimedOut ? "0" : "pending"),
+                "socketIsRunning": health.isRunning ? "1" : "0",
+                "socketAcceptLoopAlive": health.acceptLoopAlive ? "1" : "0",
+                "socketPathMatches": health.socketPathMatches ? "1" : "0",
+                "socketPathExists": health.socketPathExists ? "1" : "0",
+                "socketFailureSignals": health.failureSignals.joined(separator: ","),
+            ], at: path)
+            guard !health.isHealthy, !isTimedOut else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                publish()
+            }
+        }
+
+        publish()
     }
 
     private func writeMultiWindowNotificationTestData(_ updates: [String: String], at path: String) {
