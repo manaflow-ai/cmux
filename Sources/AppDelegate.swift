@@ -1242,33 +1242,6 @@ func shouldRouteTerminalFontZoomShortcutToGhostty(
     ) != nil
 }
 
-func shouldRouteTerminalCommandShortcutToGhostty(
-    flags: NSEvent.ModifierFlags,
-    chars: String,
-    keyCode: UInt16,
-    terminalHasSelection: Bool
-) -> Bool {
-    let normalizedFlags = flags
-        .intersection(.deviceIndependentFlagsMask)
-        .subtracting([.numericPad, .function, .capsLock])
-    guard normalizedFlags.contains(.command) else { return false }
-
-    let normalizedChars = chars.lowercased()
-    if normalizedFlags == [.command] {
-        // Keep Preferences (Cmd+,) menu-routed even when a terminal is focused.
-        if normalizedChars == "," || keyCode == 43 {
-            return false
-        }
-
-        // Preserve standard copy behavior when text is selected in the terminal.
-        if (normalizedChars == "c" || keyCode == 8), terminalHasSelection {
-            return false
-        }
-    }
-
-    return true
-}
-
 func cmuxOwningGhosttyView(for responder: NSResponder?) -> GhosttyNSView? {
     guard let responder else { return nil }
     if let ghosttyView = responder as? GhosttyNSView {
@@ -1721,6 +1694,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             PostHogAnalytics.shared.startIfNeeded()
         }
 
+        let forceDuplicateLaunchObserver = env["CMUX_UI_TEST_ENABLE_DUPLICATE_LAUNCH_OBSERVER"] == "1"
+
         // UI tests frequently time out waiting for the main window if we do heavyweight
         // LaunchServices registration / single-instance enforcement synchronously at startup.
         // Skip these during XCTest (the app-under-test) so the window can appear quickly.
@@ -1730,6 +1705,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 self.scheduleLaunchServicesBundleRegistration()
                 self.enforceSingleInstance()
                 self.observeDuplicateLaunches()
+            }
+        } else if forceDuplicateLaunchObserver {
+            // Some UI regressions specifically exercise launch-observer behavior while still
+            // running under XCTest. Allow an explicit opt-in for those cases only.
+            DispatchQueue.main.async { [weak self] in
+                self?.observeDuplicateLaunches()
             }
         }
         NSWindow.allowsAutomaticWindowTabbing = false
@@ -1838,6 +1819,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
            let tab = tabManager.tabs.first(where: { $0.id == tabId }) {
             tab.triggerNotificationFocusFlash(panelId: surfaceId, requiresSplit: false, shouldFocus: false)
         }
+        notificationStore.markRead(forTabId: tabId, surfaceId: surfaceId)
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
@@ -4858,8 +4840,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @MainActor
     static func presentPreferencesWindow(
-        showFallbackSettingsWindow: @MainActor () -> Void = {
-            SettingsWindowController.shared.show()
+        navigationTarget: SettingsNavigationTarget? = nil,
+        showFallbackSettingsWindow: @MainActor (SettingsNavigationTarget?) -> Void = { target in
+            SettingsWindowController.shared.show(navigationTarget: target)
         },
         activateApplication: @MainActor () -> Void = {
             NSApp.activate(ignoringOtherApps: true)
@@ -4868,7 +4851,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
         dlog("settings.open.present path=customWindowDirect")
 #endif
-        showFallbackSettingsWindow()
+        showFallbackSettingsWindow(navigationTarget)
         activateApplication()
 #if DEBUG
         dlog("settings.open.present activate=1")
@@ -4876,11 +4859,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @MainActor
-    func openPreferencesWindow(debugSource: String) {
+    func openPreferencesWindow(debugSource: String, navigationTarget: SettingsNavigationTarget? = nil) {
 #if DEBUG
         dlog("settings.open.request source=\(debugSource)")
 #endif
-        Self.presentPreferencesWindow()
+        Self.presentPreferencesWindow(navigationTarget: navigationTarget)
     }
 
     @objc func openPreferencesWindow() {
@@ -5777,17 +5760,62 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         try? FileManager.default.removeItem(atPath: path)
 
-        let deadline = Date().addingTimeInterval(8.0)
+        let contextDeadline = Date().addingTimeInterval(8.0)
         func waitForContexts(minCount: Int, _ completion: @escaping () -> Void) {
             if mainWindowContexts.count >= minCount,
                mainWindowContexts.values.allSatisfy({ $0.window != nil }) {
                 completion()
                 return
             }
-            guard Date() < deadline else { return }
+            guard Date() < contextDeadline else { return }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
                 waitForContexts(minCount: minCount, completion)
             }
+        }
+
+        func waitForSurfaceId(
+            on tabManager: TabManager,
+            tabId: UUID,
+            timeout: TimeInterval = 8.0,
+            _ completion: @escaping (UUID) -> Void
+        ) {
+            let deadline = Date().addingTimeInterval(timeout)
+
+            func resolvedSurfaceId() -> UUID? {
+                if let surfaceId = tabManager.focusedPanelId(for: tabId) {
+                    return surfaceId
+                }
+
+                guard let workspace = tabManager.tabs.first(where: { $0.id == tabId }) else {
+                    return nil
+                }
+
+                if let terminalPanelId = workspace.focusedTerminalPanel?.id {
+                    return terminalPanelId
+                }
+
+                if let terminalPanelId = workspace.terminalPanelForConfigInheritance()?.id {
+                    return terminalPanelId
+                }
+
+                return workspace.panels.values
+                    .compactMap { ($0 as? TerminalPanel)?.id }
+                    .sorted(by: { $0.uuidString < $1.uuidString })
+                    .first
+            }
+
+            func poll() {
+                if let surfaceId = resolvedSurfaceId() {
+                    completion(surfaceId)
+                    return
+                }
+                guard Date() < deadline else { return }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                    poll()
+                }
+            }
+
+            poll()
         }
 
         waitForContexts(minCount: 1) { [weak self] in
@@ -5803,37 +5831,191 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 let contexts = Array(self.mainWindowContexts.values)
                 guard let window2 = contexts.first(where: { $0.windowId != window1.windowId }) else { return }
                 guard let tabId2 = window2.tabManager.selectedTabId ?? window2.tabManager.tabs.first?.id else { return }
-                guard let store = self.notificationStore else { return }
+                waitForSurfaceId(on: window1.tabManager, tabId: tabId1) { [weak self] surfaceId1 in
+                    guard let self else { return }
+                    waitForSurfaceId(on: window2.tabManager, tabId: tabId2) { [weak self] surfaceId2 in
+                    guard let self else { return }
+                    guard let store = self.notificationStore else { return }
 
-                // Ensure the target window is currently showing the Notifications overlay,
-                // so opening a notification must switch it back to the terminal UI.
-                window2.sidebarSelectionState.selection = .notifications
+                    // Ensure the target window is currently showing the Notifications overlay,
+                    // so opening a notification must switch it back to the terminal UI.
+                    window2.sidebarSelectionState.selection = .notifications
 
-                // Create notifications for both windows. Ensure W2 isn't suppressed just because it's focused.
-                let prevOverride = AppFocusState.overrideIsFocused
-                AppFocusState.overrideIsFocused = false
-                store.addNotification(tabId: tabId2, surfaceId: nil, title: "W2", subtitle: "multiwindow", body: "")
-                AppFocusState.overrideIsFocused = prevOverride
+                    // Create notifications for both windows. Ensure W2 isn't suppressed just because it's focused.
+                    let prevOverride = AppFocusState.overrideIsFocused
+                    AppFocusState.overrideIsFocused = false
+                    store.addNotification(tabId: tabId2, surfaceId: nil, title: "W2", subtitle: "multiwindow", body: "")
+                    AppFocusState.overrideIsFocused = prevOverride
 
-                // Insert after W2 so it becomes "latest unread" (first in list).
-                store.addNotification(tabId: tabId1, surfaceId: nil, title: "W1", subtitle: "multiwindow", body: "")
+                    // Insert after W2 so it becomes "latest unread" (first in list).
+                    store.addNotification(tabId: tabId1, surfaceId: nil, title: "W1", subtitle: "multiwindow", body: "")
 
-                let notif1 = store.notifications.first(where: { $0.tabId == tabId1 && $0.title == "W1" })
-                let notif2 = store.notifications.first(where: { $0.tabId == tabId2 && $0.title == "W2" })
+                    let notif1 = store.notifications.first(where: { $0.tabId == tabId1 && $0.title == "W1" })
+                    let notif2 = store.notifications.first(where: { $0.tabId == tabId2 && $0.title == "W2" })
 
-                self.writeMultiWindowNotificationTestData([
-                    "window1Id": window1.windowId.uuidString,
-                    "window2Id": window2.windowId.uuidString,
-                    "window2InitialSidebarSelection": "notifications",
-                    "tabId1": tabId1.uuidString,
-                    "tabId2": tabId2.uuidString,
-                    "notifId1": notif1?.id.uuidString ?? "",
-                    "notifId2": notif2?.id.uuidString ?? "",
-                    "expectedLatestWindowId": window1.windowId.uuidString,
-                    "expectedLatestTabId": tabId1.uuidString,
-                ], at: path)
+                    self.writeMultiWindowNotificationTestData([
+                        "window1Id": window1.windowId.uuidString,
+                        "window2Id": window2.windowId.uuidString,
+                        "window2InitialSidebarSelection": "notifications",
+                        "tabId1": tabId1.uuidString,
+                        "tabId2": tabId2.uuidString,
+                        "surfaceId1": surfaceId1.uuidString,
+                        "surfaceId2": surfaceId2.uuidString,
+                        "notifId1": notif1?.id.uuidString ?? "",
+                        "notifId2": notif2?.id.uuidString ?? "",
+                        "expectedLatestWindowId": window1.windowId.uuidString,
+                        "expectedLatestTabId": tabId1.uuidString,
+                    ], at: path)
+                    self.prepareMultiWindowNotificationSourceTerminalIfNeeded(
+                        at: path,
+                        windowId: window1.windowId,
+                        tabManager: window1.tabManager,
+                        tabId: tabId1,
+                        surfaceId: surfaceId1
+                    )
+                    self.publishMultiWindowNotificationSocketStateIfNeeded(at: path)
+                }
+                }
             }
         }
+    }
+
+    private func prepareMultiWindowNotificationSourceTerminalIfNeeded(
+        at path: String,
+        windowId: UUID,
+        tabManager: TabManager,
+        tabId: UUID,
+        surfaceId: UUID
+    ) {
+        let env = ProcessInfo.processInfo.environment
+        guard env["CMUX_UI_TEST_NOTIFY_SOURCE_TERMINAL_READY"] == "1" else { return }
+
+        writeMultiWindowNotificationTestData([
+            "sourceTerminalReady": "pending",
+            "sourceTerminalFocusFailure": "",
+        ], at: path)
+
+        let deadline = Date().addingTimeInterval(8.0)
+
+        func publish(ready: Bool, failure: String = "") {
+            writeMultiWindowNotificationTestData([
+                "sourceTerminalReady": ready ? "1" : "0",
+                "sourceTerminalFocusFailure": failure,
+            ], at: path)
+        }
+
+        func poll() {
+            guard let workspace = tabManager.tabs.first(where: { $0.id == tabId }) else {
+                publish(ready: false, failure: "workspace_missing")
+                return
+            }
+            guard let terminalPanel = workspace.terminalPanel(for: surfaceId) else {
+                publish(ready: false, failure: "terminal_missing")
+                return
+            }
+
+            let isWindowFrontmost = {
+                guard let window = self.mainWindow(for: windowId) else { return false }
+                return NSApp.keyWindow === window || NSApp.mainWindow === window
+            }()
+            if isWindowFrontmost && terminalPanel.hostedView.isSurfaceViewFirstResponder() {
+                publish(ready: true)
+                return
+            }
+
+            guard Date() < deadline else {
+                publish(
+                    ready: false,
+                    failure: isWindowFrontmost ? "terminal_not_first_responder" : "window_not_frontmost"
+                )
+                return
+            }
+
+            _ = self.focusMainWindow(windowId: windowId)
+            if let tab = tabManager.tabs.first(where: { $0.id == tabId }) {
+                tabManager.selectTab(tab)
+                tabManager.focusSurface(tabId: tabId, surfaceId: surfaceId)
+            }
+
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                poll()
+            }
+        }
+
+        poll()
+    }
+
+    private func publishMultiWindowNotificationSocketStateIfNeeded(at path: String) {
+        let env = ProcessInfo.processInfo.environment
+        guard env["CMUX_UI_TEST_SOCKET_SANITY"] == "1" else { return }
+
+        guard let config = socketListenerConfigurationIfEnabled() else {
+            writeMultiWindowNotificationTestData([
+                "socketExpectedPath": env["CMUX_SOCKET_PATH"] ?? "",
+                "socketMode": "off",
+                "socketReady": "0",
+                "socketPingResponse": "",
+                "socketIsRunning": "0",
+                "socketAcceptLoopAlive": "0",
+                "socketPathMatches": "0",
+                "socketPathExists": "0",
+                "socketFailureSignals": "socket_disabled",
+            ], at: path)
+            return
+        }
+
+        writeMultiWindowNotificationTestData([
+            "socketExpectedPath": config.path,
+            "socketMode": config.mode.rawValue,
+            "socketReady": "pending",
+            "socketPingResponse": "",
+        ], at: path)
+
+        restartSocketListenerIfEnabled(source: "uiTest.multiWindowNotifications.setup")
+
+        let deadline = Date().addingTimeInterval(20.0)
+        func publish() {
+            let health = TerminalController.shared.socketListenerHealth(expectedSocketPath: config.path)
+            let isTimedOut = Date() >= deadline
+            let socketPath = config.path
+            let socketMode = config.mode.rawValue
+            let dataPath = path
+
+            DispatchQueue.global(qos: .utility).async { [weak self] in
+                let pingResponse = health.isHealthy
+                    ? TerminalController.probeSocketCommand("ping", at: socketPath, timeout: 1.0)
+                    : nil
+                let isReady = health.isHealthy && pingResponse == "PONG"
+                let failureSignals = {
+                    var signals = health.failureSignals
+                    if health.isHealthy && pingResponse != "PONG" {
+                        signals.append("ping_timeout")
+                    }
+                    return signals.joined(separator: ",")
+                }()
+
+                DispatchQueue.main.async { [weak self] in
+                    guard let self else { return }
+                    self.writeMultiWindowNotificationTestData([
+                        "socketExpectedPath": socketPath,
+                        "socketMode": socketMode,
+                        "socketReady": isReady ? "1" : (isTimedOut ? "0" : "pending"),
+                        "socketPingResponse": pingResponse ?? "",
+                        "socketIsRunning": health.isRunning ? "1" : "0",
+                        "socketAcceptLoopAlive": health.acceptLoopAlive ? "1" : "0",
+                        "socketPathMatches": health.socketPathMatches ? "1" : "0",
+                        "socketPathExists": health.socketPathExists ? "1" : "0",
+                        "socketFailureSignals": failureSignals,
+                    ], at: dataPath)
+                    guard !isTimedOut, !isReady else { return }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                        publish()
+                    }
+                }
+            }
+        }
+
+        publish()
     }
 
     private func writeMultiWindowNotificationTestData(_ updates: [String: String], at path: String) {
@@ -6607,6 +6789,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Check Show Notifications shortcut
         if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .showNotifications)) {
             toggleNotificationsPopover(animated: false, anchorView: fullscreenControlsViewModel?.notificationsAnchorView)
+            return true
+        }
+
+        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .sendFeedback)) {
+            guard let targetContext = preferredMainWindowContextForShortcuts(event: event),
+                  let targetWindow = targetContext.window ?? windowForMainWindowId(targetContext.windowId) else {
+                return false
+            }
+            setActiveMainWindow(targetWindow)
+            bringToFront(targetWindow)
+            NotificationCenter.default.post(name: .feedbackComposerRequested, object: targetWindow)
             return true
         }
 
@@ -7850,6 +8043,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func observeDuplicateLaunches() {
         guard let bundleId = Bundle.main.bundleIdentifier else { return }
+        let embeddedCLIURL = Bundle.main.bundleURL
+            .appendingPathComponent("Contents/Resources/bin/cmux", isDirectory: false)
+            .standardizedFileURL
+            .resolvingSymlinksInPath()
         let currentPid = ProcessInfo.processInfo.processIdentifier
 
         workspaceObserver = NSWorkspace.shared.notificationCenter.addObserver(
@@ -7860,6 +8057,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             guard self != nil else { return }
             guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
             guard app.bundleIdentifier == bundleId, app.processIdentifier != currentPid else { return }
+            if let executableURL = app.executableURL?
+                   .standardizedFileURL
+                   .resolvingSymlinksInPath(),
+               executableURL == embeddedCLIURL {
+                return
+            }
 
             app.terminate()
             if !app.isTerminated {
@@ -8155,6 +8358,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
 #endif
 
+        if let notificationId, let store = notificationStore {
+            markReadIfFocused(
+                notificationId: notificationId,
+                tabId: tabId,
+                surfaceId: surfaceId,
+                tabManager: context.tabManager,
+                notificationStore: store
+            )
+        }
+
 #if DEBUG
         recordMultiWindowNotificationFocusIfNeeded(
             windowId: context.windowId,
@@ -8208,6 +8421,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
 #endif
 
+        if let notificationId, let store = notificationStore {
+            markReadIfFocused(
+                notificationId: notificationId,
+                tabId: tabId,
+                surfaceId: surfaceId,
+                tabManager: tabManager,
+                notificationStore: store
+            )
+        }
 #if DEBUG
         if ProcessInfo.processInfo.environment["CMUX_UI_TEST_JUMP_UNREAD_SETUP"] == "1" {
             writeJumpUnreadTestData(["jumpUnreadOpenInFallback": "1", "jumpUnreadOpenResult": "1"])
@@ -8265,6 +8487,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         window.makeKeyAndOrderFront(nil)
         // Improve reliability across Spaces / when other helper panels are key.
         NSRunningApplication.current.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+    }
+
+    private func markReadIfFocused(
+        notificationId: UUID,
+        tabId: UUID,
+        surfaceId: UUID?,
+        tabManager: TabManager,
+        notificationStore: TerminalNotificationStore
+    ) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            guard tabManager.selectedTabId == tabId else { return }
+            if let surfaceId {
+                guard tabManager.focusedSurfaceId(for: tabId) == surfaceId else { return }
+            }
+            notificationStore.markRead(id: notificationId)
+        }
     }
 
 #if DEBUG
@@ -9177,23 +9415,6 @@ private extension NSWindow {
             return true
         }
 
-        // Support custom tmux prefixes (for example Cmd+C): when the terminal is focused
-        // and no app-level shortcut matched, prefer forwarding Command-key input to the
-        // terminal rather than consuming it as a menu key equivalent.
-        if let ghosttyView = firstResponderGhosttyView,
-           shouldRouteTerminalCommandShortcutToGhostty(
-               flags: event.modifierFlags,
-               chars: event.charactersIgnoringModifiers ?? "",
-               keyCode: event.keyCode,
-               terminalHasSelection: ghosttyView.terminalSurface?.hasSelection() ?? false
-           ) {
-            ghosttyView.keyDown(with: event)
-#if DEBUG
-            dlog("  → ghostty command passthrough")
-#endif
-            return true
-        }
-
         // When the terminal is focused, skip the full NSWindow.performKeyEquivalent
         // (which walks the SwiftUI content view hierarchy) and dispatch Command-key
         // events directly to the main menu. This avoids the broken SwiftUI focus path.
@@ -9302,10 +9523,30 @@ private extension NSWindow {
             if let webView = candidate as? CmuxWebView {
                 return webView
             }
+            if String(describing: type(of: candidate)).contains("WindowBrowserSlotView"),
+               let portalWebView = cmuxUniqueBrowserWebView(in: candidate) {
+                return portalWebView
+            }
             current = candidate.superview
         }
 
         return nil
+    }
+
+    private static func cmuxUniqueBrowserWebView(in root: NSView) -> CmuxWebView? {
+        var stack: [NSView] = [root]
+        var found: CmuxWebView?
+        while let current = stack.popLast() {
+            if let webView = current as? CmuxWebView {
+                if found == nil {
+                    found = webView
+                } else if found !== webView {
+                    return nil
+                }
+            }
+            stack.append(contentsOf: current.subviews)
+        }
+        return found
     }
 
     private static func cmuxCurrentEvent(for _: NSWindow) -> NSEvent? {
@@ -9323,7 +9564,22 @@ private extension NSWindow {
             return override
         }
 #endif
-        return window.contentView?.hitTest(event.locationInWindow)
+        guard let contentView = window.contentView else { return nil }
+
+        if contentView.className == "NSGlassEffectView" {
+            let pointInContent = contentView.convert(event.locationInWindow, from: nil)
+            return contentView.hitTest(pointInContent)
+        }
+
+        if let themeFrame = contentView.superview {
+            let pointInTheme = themeFrame.convert(event.locationInWindow, from: nil)
+            if let hit = themeFrame.hitTest(pointInTheme) {
+                return hit
+            }
+        }
+
+        let pointInContent = contentView.convert(event.locationInWindow, from: nil)
+        return contentView.hitTest(pointInContent)
     }
 
     private static func cmuxTrackFieldEditor(_ fieldEditor: NSTextView, owningWebView webView: CmuxWebView?) {

@@ -17,5 +17,4 @@ if [[ -z "${APP_PATH}" ]]; then
 fi
 # Dev shells (including CI/Codex) often force-disable paging by exporting these.
 # Don't leak that into cmux, otherwise `git diff` won't page even with PAGER=less.
-env -u GIT_PAGER -u GH_PAGER open "$APP_PATH"
-osascript -e 'tell application "cmux" to activate' || true
+env -u GIT_PAGER -u GH_PAGER open -g "$APP_PATH"

@@ -558,16 +558,23 @@ fileprivate func cmuxVsyncIOSurfaceTimelineCallback(
 
 @MainActor
 class TabManager: ObservableObject {
+    private struct InitialWorkspaceGitMetadataSnapshot: Equatable {
+        let branch: String?
+        let isDirty: Bool
+    }
+
     /// The window that owns this TabManager. Set by AppDelegate.registerMainWindow().
     /// Used to apply title updates to the correct window instead of NSApp.keyWindow.
     weak var window: NSWindow?
 
     @Published var tabs: [Workspace] = []
     @Published private(set) var isWorkspaceCycleHot: Bool = false
+    @Published private(set) var pendingBackgroundWorkspaceLoadIds: Set<UUID> = []
 
     /// Global monotonically increasing counter for CMUX_PORT ordinal assignment.
     /// Static so port ranges don't overlap across multiple windows (each window has its own TabManager).
     private static var nextPortOrdinal: Int = 0
+    private static let initialWorkspaceGitProbeDelays: [TimeInterval] = [0, 0.5, 1.5, 3.0, 6.0, 10.0]
     @Published var selectedTabId: UUID? {
         didSet {
             guard selectedTabId != oldValue else { return }
@@ -599,7 +606,7 @@ class TabManager: ObservableObject {
                 self.focusSelectedTabPanel(previousTabId: previousTabId)
                 self.updateWindowTitleForSelectedTab()
                 if let selectedTabId = self.selectedTabId {
-                    self.flashFocusedPanelIfUnreadAndActive(tabId: selectedTabId)
+                    self.markFocusedPanelReadIfActive(tabId: selectedTabId)
                 }
 #if DEBUG
                 let dtMs = self.debugWorkspaceSwitchStartTime > 0
@@ -623,6 +630,12 @@ class TabManager: ObservableObject {
     private var pendingPanelTitleUpdates: [PanelTitleUpdateKey: String] = [:]
     private let panelTitleUpdateCoalescer = NotificationBurstCoalescer(delay: 1.0 / 30.0)
     private var recentlyClosedBrowsers = RecentlyClosedBrowserStack(capacity: 20)
+    private let initialWorkspaceGitProbeQueue = DispatchQueue(
+        label: "com.cmux.initial-workspace-git-probe",
+        qos: .utility
+    )
+    private var initialWorkspaceGitProbeGenerationByWorkspace: [UUID: UUID] = [:]
+    private var initialWorkspaceGitProbeTimersByWorkspace: [UUID: [DispatchSourceTimer]] = [:]
 
     // Recent tab history for back/forward navigation (like browser history)
     private var tabHistory: [UUID] = []
@@ -671,7 +684,7 @@ class TabManager: ObservableObject {
                 guard let self else { return }
                 guard let tabId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID else { return }
                 guard let surfaceId = notification.userInfo?[GhosttyNotificationKey.surfaceId] as? UUID else { return }
-                flashPanelIfUnreadAndActive(tabId: tabId, panelId: surfaceId)
+                markPanelReadOnFocusIfActive(tabId: tabId, panelId: surfaceId)
             }
         })
 
@@ -799,10 +812,12 @@ class TabManager: ObservableObject {
     func addWorkspace(
         workingDirectory overrideWorkingDirectory: String? = nil,
         select: Bool = true,
+        eagerLoadTerminal: Bool = false,
         placementOverride: NewWorkspacePlacement? = nil
     ) -> Workspace {
         sentryBreadcrumb("workspace.create", data: ["tabCount": tabs.count + 1])
-        let workingDirectory = normalizedWorkingDirectory(overrideWorkingDirectory) ?? preferredWorkingDirectoryForNewTab()
+        let explicitWorkingDirectory = normalizedWorkingDirectory(overrideWorkingDirectory)
+        let workingDirectory = explicitWorkingDirectory ?? preferredWorkingDirectoryForNewTab()
         let inheritedConfig = inheritedTerminalConfigForNewWorkspace()
         let ordinal = Self.nextPortOrdinal
         Self.nextPortOrdinal += 1
@@ -818,6 +833,18 @@ class TabManager: ObservableObject {
             tabs.insert(newWorkspace, at: insertIndex)
         } else {
             tabs.append(newWorkspace)
+        }
+        if let explicitWorkingDirectory,
+           let terminalPanel = newWorkspace.focusedTerminalPanel {
+            scheduleInitialWorkspaceGitMetadataRefresh(
+                workspaceId: newWorkspace.id,
+                panelId: terminalPanel.id,
+                directory: explicitWorkingDirectory
+            )
+        }
+        if eagerLoadTerminal {
+            requestBackgroundWorkspaceLoad(for: newWorkspace.id)
+            newWorkspace.requestBackgroundTerminalSurfaceStartIfNeeded()
         }
         if select {
             selectedTabId = newWorkspace.id
@@ -837,9 +864,187 @@ class TabManager: ObservableObject {
         return newWorkspace
     }
 
+    private func scheduleInitialWorkspaceGitMetadataRefresh(
+        workspaceId: UUID,
+        panelId: UUID,
+        directory: String
+    ) {
+        let normalizedDirectory = normalizeDirectory(directory)
+        let generation = UUID()
+        cancelInitialWorkspaceGitProbeTimers(workspaceId: workspaceId)
+        initialWorkspaceGitProbeGenerationByWorkspace[workspaceId] = generation
+
+#if DEBUG
+        dlog(
+            "workspace.gitProbe.schedule workspace=\(workspaceId.uuidString.prefix(5)) " +
+            "panel=\(panelId.uuidString.prefix(5)) dir=\(normalizedDirectory)"
+        )
+#endif
+
+        let delays = Self.initialWorkspaceGitProbeDelays
+        var timers: [DispatchSourceTimer] = []
+        for (index, delay) in delays.enumerated() {
+            let isLastAttempt = index == delays.count - 1
+            let timer = DispatchSource.makeTimerSource(queue: initialWorkspaceGitProbeQueue)
+            timer.schedule(deadline: .now() + delay, repeating: .never)
+            timer.setEventHandler { [weak self] in
+                let snapshot = Self.initialWorkspaceGitMetadataSnapshot(for: normalizedDirectory)
+                Task { @MainActor [weak self] in
+                    self?.applyInitialWorkspaceGitMetadataSnapshot(
+                        snapshot,
+                        generation: generation,
+                        workspaceId: workspaceId,
+                        panelId: panelId,
+                        expectedDirectory: normalizedDirectory,
+                        isLastAttempt: isLastAttempt
+                    )
+                }
+            }
+            timers.append(timer)
+            timer.resume()
+        }
+        initialWorkspaceGitProbeTimersByWorkspace[workspaceId] = timers
+    }
+
+    private func cancelInitialWorkspaceGitProbeTimers(workspaceId: UUID) {
+        guard let timers = initialWorkspaceGitProbeTimersByWorkspace.removeValue(forKey: workspaceId) else {
+            return
+        }
+        for timer in timers {
+            timer.setEventHandler {}
+            timer.cancel()
+        }
+    }
+
+    private func clearInitialWorkspaceGitProbe(workspaceId: UUID) {
+        initialWorkspaceGitProbeGenerationByWorkspace.removeValue(forKey: workspaceId)
+        cancelInitialWorkspaceGitProbeTimers(workspaceId: workspaceId)
+    }
+
+    private func applyInitialWorkspaceGitMetadataSnapshot(
+        _ snapshot: InitialWorkspaceGitMetadataSnapshot,
+        generation: UUID,
+        workspaceId: UUID,
+        panelId: UUID,
+        expectedDirectory: String,
+        isLastAttempt: Bool
+    ) {
+        defer {
+            if isLastAttempt,
+               initialWorkspaceGitProbeGenerationByWorkspace[workspaceId] == generation {
+                clearInitialWorkspaceGitProbe(workspaceId: workspaceId)
+            }
+        }
+
+        guard initialWorkspaceGitProbeGenerationByWorkspace[workspaceId] == generation else { return }
+        guard let workspace = tabs.first(where: { $0.id == workspaceId }) else {
+            clearInitialWorkspaceGitProbe(workspaceId: workspaceId)
+            return
+        }
+        guard workspace.panels[panelId] != nil else {
+            clearInitialWorkspaceGitProbe(workspaceId: workspaceId)
+            return
+        }
+
+        let currentDirectory = normalizedWorkingDirectory(
+            workspace.panelDirectories[panelId] ?? workspace.currentDirectory
+        )
+        if let currentDirectory, currentDirectory != expectedDirectory {
+            clearInitialWorkspaceGitProbe(workspaceId: workspaceId)
+#if DEBUG
+            dlog(
+                "workspace.gitProbe.skip workspace=\(workspaceId.uuidString.prefix(5)) " +
+                "panel=\(panelId.uuidString.prefix(5)) reason=directoryChanged " +
+                "expected=\(expectedDirectory) current=\(currentDirectory)"
+            )
+#endif
+            return
+        }
+
+        workspace.updatePanelDirectory(panelId: panelId, directory: expectedDirectory)
+
+        let previousBranch = Self.normalizedBranchName(workspace.panelGitBranches[panelId]?.branch)
+        let nextBranch = snapshot.branch
+        if let nextBranch {
+            workspace.updatePanelGitBranch(panelId: panelId, branch: nextBranch, isDirty: snapshot.isDirty)
+        } else {
+            workspace.clearPanelGitBranch(panelId: panelId)
+        }
+
+        if previousBranch != nextBranch || (nextBranch == nil && workspace.panelPullRequests[panelId] != nil) {
+            workspace.clearPanelPullRequest(panelId: panelId)
+        }
+
+#if DEBUG
+        let branchLabel = snapshot.branch ?? "none"
+        dlog(
+            "workspace.gitProbe.apply workspace=\(workspaceId.uuidString.prefix(5)) " +
+            "panel=\(panelId.uuidString.prefix(5)) branch=\(branchLabel) dirty=\(snapshot.isDirty ? 1 : 0)"
+        )
+#endif
+    }
+
+    private nonisolated static func initialWorkspaceGitMetadataSnapshot(
+        for directory: String
+    ) -> InitialWorkspaceGitMetadataSnapshot {
+        let branch = normalizedBranchName(runGitCommand(directory: directory, arguments: ["branch", "--show-current"]))
+        guard let branch else {
+            return InitialWorkspaceGitMetadataSnapshot(branch: nil, isDirty: false)
+        }
+
+        let statusOutput = runGitCommand(directory: directory, arguments: ["status", "--porcelain", "-uno"])
+        let isDirty = !(statusOutput?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+        return InitialWorkspaceGitMetadataSnapshot(branch: branch, isDirty: isDirty)
+    }
+
+    private nonisolated static func runGitCommand(directory: String, arguments: [String]) -> String? {
+        let process = Process()
+        let stdout = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = ["git", "-C", directory] + arguments
+        process.standardOutput = stdout
+        process.standardError = FileHandle.nullDevice
+
+        do {
+            try process.run()
+        } catch {
+            return nil
+        }
+
+        // Drain stdout while the subprocess is active so large repos cannot fill the pipe buffer.
+        let data = stdout.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else {
+            return nil
+        }
+
+        return String(data: data, encoding: .utf8)
+    }
+
+    private nonisolated static func normalizedBranchName(_ branch: String?) -> String? {
+        let trimmed = branch?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    func requestBackgroundWorkspaceLoad(for workspaceId: UUID) {
+        guard pendingBackgroundWorkspaceLoadIds.insert(workspaceId).inserted else { return }
+    }
+
+    func completeBackgroundWorkspaceLoad(for workspaceId: UUID) {
+        guard pendingBackgroundWorkspaceLoadIds.remove(workspaceId) != nil else { return }
+    }
+
+    func pruneBackgroundWorkspaceLoads(existingIds: Set<UUID>) {
+        let pruned = pendingBackgroundWorkspaceLoadIds.intersection(existingIds)
+        guard pruned != pendingBackgroundWorkspaceLoadIds else { return }
+        pendingBackgroundWorkspaceLoadIds = pruned
+    }
+
     // Keep addTab as convenience alias
     @discardableResult
-    func addTab(select: Bool = true) -> Workspace { addWorkspace(select: select) }
+    func addTab(select: Bool = true, eagerLoadTerminal: Bool = false) -> Workspace {
+        addWorkspace(select: select, eagerLoadTerminal: eagerLoadTerminal)
+    }
 
     func terminalPanelForWorkspaceConfigInheritanceSource() -> TerminalPanel? {
         guard let workspace = selectedWorkspace else { return nil }
@@ -1015,6 +1220,7 @@ class TabManager: ObservableObject {
         guard tabs.count > 1 else { return }
         guard let index = tabs.firstIndex(where: { $0.id == workspace.id }) else { return }
         sentryBreadcrumb("workspace.close", data: ["tabCount": tabs.count - 1])
+        clearInitialWorkspaceGitProbe(workspaceId: workspace.id)
 
         AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: workspace.id)
         unwireClosedBrowserTracking(for: workspace)
@@ -1036,6 +1242,7 @@ class TabManager: ObservableObject {
     @discardableResult
     func detachWorkspace(tabId: UUID) -> Workspace? {
         guard let index = tabs.firstIndex(where: { $0.id == tabId }) else { return nil }
+        clearInitialWorkspaceGitProbe(workspaceId: tabId)
 
         let removed = tabs.remove(at: index)
         unwireClosedBrowserTracking(for: removed)
@@ -1596,16 +1803,16 @@ class TabManager: ObservableObject {
         selectedTabId != pendingTabId
     }
 
-    private func flashFocusedPanelIfUnreadAndActive(tabId: UUID) {
+    private func markFocusedPanelReadIfActive(tabId: UUID) {
         let shouldSuppressFlash = suppressFocusFlash
         suppressFocusFlash = false
         guard !shouldSuppressFlash else { return }
         guard AppFocusState.isAppActive() else { return }
         guard let panelId = focusedPanelId(for: tabId) else { return }
-        flashPanelIfUnreadAndActive(tabId: tabId, panelId: panelId)
+        markPanelReadOnFocusIfActive(tabId: tabId, panelId: panelId)
     }
 
-    private func flashPanelIfUnreadAndActive(tabId: UUID, panelId: UUID) {
+    private func markPanelReadOnFocusIfActive(tabId: UUID, panelId: UUID) {
         guard selectedTabId == tabId else { return }
         guard !suppressFocusFlash else { return }
         guard AppFocusState.isAppActive() else { return }
@@ -1614,6 +1821,7 @@ class TabManager: ObservableObject {
         if let tab = tabs.first(where: { $0.id == tabId }) {
             tab.triggerNotificationFocusFlash(panelId: panelId, requiresSplit: false, shouldFocus: false)
         }
+        notificationStore.markRead(forTabId: tabId, surfaceId: panelId)
     }
 
     private func enqueuePanelTitleUpdate(tabId: UUID, panelId: UUID, title: String) {
@@ -1739,6 +1947,7 @@ class TabManager: ObservableObject {
             guard let notificationStore = AppDelegate.shared?.notificationStore else { return }
             guard notificationStore.hasUnreadNotification(forTabId: tabId, surfaceId: targetPanelId) else { return }
             tab.triggerNotificationFocusFlash(panelId: targetPanelId, requiresSplit: false, shouldFocus: true)
+            notificationStore.markRead(forTabId: tabId, surfaceId: targetPanelId)
         }
     }
 
@@ -3676,6 +3885,7 @@ extension Notification.Name {
     static let commandPaletteMoveSelection = Notification.Name("cmux.commandPaletteMoveSelection")
     static let commandPaletteRenameInputInteractionRequested = Notification.Name("cmux.commandPaletteRenameInputInteractionRequested")
     static let commandPaletteRenameInputDeleteBackwardRequested = Notification.Name("cmux.commandPaletteRenameInputDeleteBackwardRequested")
+    static let feedbackComposerRequested = Notification.Name("cmux.feedbackComposerRequested")
     static let ghosttyDidSetTitle = Notification.Name("ghosttyDidSetTitle")
     static let ghosttyDidFocusTab = Notification.Name("ghosttyDidFocusTab")
     static let ghosttyDidFocusSurface = Notification.Name("ghosttyDidFocusSurface")
