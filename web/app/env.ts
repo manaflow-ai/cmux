@@ -12,4 +12,7 @@ export const env = createEnv({
     CMUX_FEEDBACK_FROM_EMAIL: process.env.CMUX_FEEDBACK_FROM_EMAIL,
     CMUX_FEEDBACK_RATE_LIMIT_ID: process.env.CMUX_FEEDBACK_RATE_LIMIT_ID,
   },
+  skipValidation:
+    process.env.SKIP_ENV_VALIDATION === "1" ||
+    process.env.VERCEL_ENV === "preview",
 });

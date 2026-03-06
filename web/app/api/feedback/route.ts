@@ -8,8 +8,6 @@ import { env } from "@/app/env";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const resend = new Resend(env.RESEND_API_KEY);
-
 const feedbackRecipient = "founders@manaflow.com";
 const maxAttachmentCount = 4;
 const maxAttachmentBytes = 4 * 1024 * 1024;
@@ -43,9 +41,14 @@ type PreparedAttachment = {
 };
 
 export async function POST(request: Request) {
+  const feedbackConfig = resolveFeedbackConfig();
+  if (!feedbackConfig) {
+    return jsonError("Feedback endpoint is not configured", 503);
+  }
+
   if (process.env.VERCEL === "1") {
     const { error, rateLimited } = await checkRateLimit(
-      env.CMUX_FEEDBACK_RATE_LIMIT_ID,
+      feedbackConfig.rateLimitId,
       { request },
     );
 
@@ -56,7 +59,7 @@ export async function POST(request: Request) {
     if (error === "not-found") {
       console.error(
         "feedback.route.rate_limit_not_found",
-        env.CMUX_FEEDBACK_RATE_LIMIT_ID,
+        feedbackConfig.rateLimitId,
       );
       return jsonError("Feedback endpoint is not configured", 503);
     }
@@ -95,9 +98,10 @@ export async function POST(request: Request) {
     parsed.data;
   const subject = buildSubject(email, message, appVersion);
   const attachments = attachmentsResult.attachments;
+  const resend = new Resend(feedbackConfig.resendApiKey);
 
   const { error } = await resend.emails.send({
-    from: `cmux feedback <${env.CMUX_FEEDBACK_FROM_EMAIL}>`,
+    from: `cmux feedback <${feedbackConfig.fromEmail}>`,
     to: [feedbackRecipient],
     replyTo: email,
     subject,
@@ -143,6 +147,22 @@ export async function POST(request: Request) {
       },
     },
   );
+}
+
+function resolveFeedbackConfig() {
+  const resendApiKey = env.RESEND_API_KEY;
+  const fromEmail = env.CMUX_FEEDBACK_FROM_EMAIL;
+  const rateLimitId = env.CMUX_FEEDBACK_RATE_LIMIT_ID;
+
+  if (!resendApiKey || !fromEmail || !rateLimitId) {
+    return null;
+  }
+
+  return {
+    resendApiKey,
+    fromEmail,
+    rateLimitId,
+  };
 }
 
 function getString(formData: FormData, key: string) {
