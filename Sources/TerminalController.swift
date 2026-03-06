@@ -9345,7 +9345,7 @@ class TerminalController {
           sidebar_overlay_gate [active|inactive] - Return true/false if sidebar outside-drop overlay would capture (test-only)
           terminal_drop_overlay_probe [deferred|direct] - Trigger focused terminal drop-overlay show path and report animation counts (test-only)
           activate_app                    - Bring app + main window to front (test-only)
-          send_workspace <workspace_id> <text> - Send text to a workspace's focused terminal (test-only)
+          send_workspace <workspace_id> <text> - Send text to a workspace's selected terminal (test-only)
           is_terminal_focused <id|idx>    - Return true/false if terminal surface is first responder (test-only)
           read_terminal_text [id|idx]     - Read visible terminal text (base64, test-only)
           render_stats [id|idx]           - Read terminal render stats (draw counters, test-only)
@@ -11617,9 +11617,13 @@ class TerminalController {
                 error = "ERROR: Workspace not found"
                 return
             }
-            guard let tab = targetManager.tabs.first(where: { $0.id == workspaceId }),
-                  let terminalPanel = tab.focusedTerminalPanel else {
-                error = "ERROR: No focused terminal in workspace"
+            guard let tab = targetManager.tabs.first(where: { $0.id == workspaceId }) else {
+                error = "ERROR: Workspace not found"
+                return
+            }
+
+            guard let terminalPanel = sendableWorkspaceTerminalPanel(in: tab) else {
+                error = "ERROR: No selected terminal in workspace"
                 return
             }
 
@@ -11639,6 +11643,44 @@ class TerminalController {
 
         if let error { return error }
         return success ? "OK" : "ERROR: Failed to send input"
+    }
+
+    private func sendableWorkspaceTerminalPanel(in workspace: Workspace) -> TerminalPanel? {
+        func selectedTerminalPanel(in paneId: PaneID) -> TerminalPanel? {
+            guard let selectedTab = workspace.bonsplitController.selectedTab(inPane: paneId),
+                  let panelId = workspace.panelIdFromSurfaceId(selectedTab.id),
+                  let terminalPanel = workspace.panels[panelId] as? TerminalPanel else {
+                return nil
+            }
+            return terminalPanel
+        }
+
+        func isSelectedTerminalPanel(_ terminalPanel: TerminalPanel) -> Bool {
+            guard let surfaceId = workspace.surfaceIdFromPanelId(terminalPanel.id) else {
+                return false
+            }
+            return workspace.bonsplitController.allPaneIds.contains { paneId in
+                workspace.bonsplitController.selectedTab(inPane: paneId)?.id == surfaceId
+            }
+        }
+
+        if let focusedPane = workspace.bonsplitController.focusedPaneId,
+           let terminalPanel = selectedTerminalPanel(in: focusedPane) {
+            return terminalPanel
+        }
+
+        if let rememberedTerminal = workspace.lastRememberedTerminalPanelForConfigInheritance(),
+           isSelectedTerminalPanel(rememberedTerminal) {
+            return rememberedTerminal
+        }
+
+        for paneId in workspace.bonsplitController.allPaneIds {
+            if let terminalPanel = selectedTerminalPanel(in: paneId) {
+                return terminalPanel
+            }
+        }
+
+        return nil
     }
 
     private func sendInputToSurface(_ args: String) -> String {
