@@ -113,6 +113,15 @@ tail -f "$(cat /tmp/cmux-last-debug-log-path 2>/dev/null || echo /tmp/cmux-debug
 - Focus events: `focus.panel`, `focus.bonsplit`, `focus.firstResponder`, `focus.moveFocus`
 - Bonsplit events: `tab.select`, `tab.close`, `tab.dragStart`, `tab.drop`, `pane.focus`, `pane.drop`, `divider.dragStart`
 
+## Regression test commit policy
+
+When adding a regression test for a bug fix, use a two-commit structure so CI proves the test catches the bug:
+
+1. **Commit 1:** Add the failing test only (no fix). CI should go red.
+2. **Commit 2:** Add the fix. CI should go green.
+
+This makes it visible in the GitHub PR UI (Commits tab, check statuses) that the test genuinely fails without the fix.
+
 ## Pitfalls
 
 - **Custom UTTypes** for drag-and-drop must be declared in `Resources/Info.plist` under `UTExportedTypeDeclarations` (e.g. `com.splittabbar.tabtransfer`, `com.cmux.sidebar-tab-reorder`).
