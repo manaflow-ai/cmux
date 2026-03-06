@@ -322,8 +322,10 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         let window = app.windows.firstMatch
         XCTAssertTrue(window.waitForExistence(timeout: 2.0), "Expected main window for browser-pane click")
         window.coordinate(withNormalizedOffset: CGVector(dx: 0.82, dy: 0.78)).click()
-        RunLoop.current.run(until: Date().addingTimeInterval(0.2))
-        XCTAssertFalse(renameField.exists, "Expected clicking the browser pane to dismiss the command palette")
+        XCTAssertTrue(
+            waitForNonExistence(renameField, timeout: 5.0),
+            "Expected clicking the browser pane to dismiss the command palette"
+        )
 
         // Cmd+L behavior is context-aware:
         // - If terminal is still focused: opens a new browser in that pane.
@@ -705,6 +707,12 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
             return true
         }
         return false
+    }
+
+    private func waitForNonExistence(_ element: XCUIElement, timeout: TimeInterval) -> Bool {
+        let predicate = NSPredicate(format: "exists == false")
+        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: element)
+        return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
     }
 
     private func loadData() -> [String: String]? {
