@@ -920,6 +920,62 @@ final class CmuxWebViewContextMenuTests: XCTestCase {
     }
 }
 
+@MainActor
+final class GhosttyTerminalContextMenuTests: XCTestCase {
+    func testBuildContextMenuAddsOpenLinkInDefaultBrowserForHoveredWebLink() {
+        _ = NSApplication.shared
+        let view = GhosttyNSView(frame: .zero)
+        view.setHoveredLinkForContextMenu("https://github.com/manaflow-ai/cmux/pull/123")
+
+        var openedURL: URL?
+        view.contextMenuDefaultBrowserOpener = { url in
+            openedURL = url
+            return true
+        }
+
+        let menu = view.buildContextMenu(hasSelection: false)
+        guard let item = menu.items.first(where: { $0.title == "Open Link in Default Browser" }) else {
+            XCTFail("Expected Open Link in Default Browser item in terminal context menu")
+            return
+        }
+
+        let dispatched = NSApp.sendAction(item.action!, to: item.target, from: item)
+        XCTAssertTrue(dispatched)
+        XCTAssertEqual(openedURL?.absoluteString, "https://github.com/manaflow-ai/cmux/pull/123")
+    }
+
+    func testBuildContextMenuSkipsDefaultBrowserItemForHoveredNonWebLink() {
+        let view = GhosttyNSView(frame: .zero)
+        view.setHoveredLinkForContextMenu("slack://open")
+
+        let menu = view.buildContextMenu(hasSelection: false)
+
+        XCTAssertFalse(menu.items.contains { $0.title == "Open Link in Default Browser" })
+    }
+
+    func testBuildContextMenuNormalizesBareHostLinksForDefaultBrowserItem() {
+        _ = NSApplication.shared
+        let view = GhosttyNSView(frame: .zero)
+        view.setHoveredLinkForContextMenu("github.com/manaflow-ai/cmux/pull/456")
+
+        var openedURL: URL?
+        view.contextMenuDefaultBrowserOpener = { url in
+            openedURL = url
+            return true
+        }
+
+        let menu = view.buildContextMenu(hasSelection: false)
+        guard let item = menu.items.first(where: { $0.title == "Open Link in Default Browser" }) else {
+            XCTFail("Expected Open Link in Default Browser item for bare host link")
+            return
+        }
+
+        let dispatched = NSApp.sendAction(item.action!, to: item.target, from: item)
+        XCTAssertTrue(dispatched)
+        XCTAssertEqual(openedURL?.absoluteString, "https://github.com/manaflow-ai/cmux/pull/456")
+    }
+}
+
 final class BrowserDevToolsButtonDebugSettingsTests: XCTestCase {
     private func makeIsolatedDefaults() -> UserDefaults {
         let suiteName = "BrowserDevToolsButtonDebugSettingsTests.\(UUID().uuidString)"

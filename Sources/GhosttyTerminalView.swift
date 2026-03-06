@@ -1801,6 +1801,21 @@ class GhosttyApp {
                 surfaceView.updateKeyTable(action.action.key_table)
                 return true
             }
+        case GHOSTTY_ACTION_MOUSE_OVER_LINK:
+            let mouseOverLink = action.action.mouse_over_link
+            let rawValue: String?
+            if let cstr = mouseOverLink.url, mouseOverLink.len > 0 {
+                rawValue = String(
+                    data: Data(bytes: cstr, count: Int(mouseOverLink.len)),
+                    encoding: .utf8
+                )
+            } else {
+                rawValue = nil
+            }
+            return performOnMain {
+                surfaceView.setHoveredLinkForContextMenu(rawValue)
+                return true
+            }
         case GHOSTTY_ACTION_OPEN_URL:
             let openUrl = action.action.open_url
             guard let cstr = openUrl.url else { return false }
@@ -2911,6 +2926,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     var onFocus: (() -> Void)?
     var onTriggerFlash: (() -> Void)?
     var backgroundColor: NSColor?
+    var contextMenuDefaultBrowserOpener: ((URL) -> Bool)?
     private var appliedColorScheme: ghostty_color_scheme_e?
     private var lastLoggedSurfaceBackgroundSignature: String?
     private var lastLoggedWindowBackgroundSignature: String?
@@ -2938,10 +2954,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var eventMonitor: Any?
     private var trackingArea: NSTrackingArea?
     private var windowObserver: NSObjectProtocol?
-	    private var lastScrollEventTime: CFTimeInterval = 0
+    private var lastScrollEventTime: CFTimeInterval = 0
     private var visibleInUI: Bool = true
     private var pendingSurfaceSize: CGSize?
     private var isFindEscapeSuppressionArmed = false
+    private var hoveredLinkRawValueForContextMenu: String?
 #if DEBUG
     private var lastSizeSkipSignature: String?
 #endif
@@ -2973,6 +2990,32 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         fileprivate func setVisibleInUI(_ visible: Bool) {
             visibleInUI = visible
         }
+
+    func setHoveredLinkForContextMenu(_ rawValue: String?) {
+        let trimmed = rawValue?.trimmingCharacters(in: .whitespacesAndNewlines)
+        hoveredLinkRawValueForContextMenu = (trimmed?.isEmpty == false) ? trimmed : nil
+    }
+
+    private func hoveredLinkDefaultBrowserURLForContextMenu() -> URL? {
+        guard let rawValue = hoveredLinkRawValueForContextMenu,
+              let target = resolveTerminalOpenURLTarget(rawValue) else {
+            return nil
+        }
+        let url = target.url
+        guard let scheme = url.scheme?.lowercased(),
+              scheme == "http" || scheme == "https" else {
+            return nil
+        }
+        return url
+    }
+
+    private func openContextMenuLinkInDefaultBrowser(_ url: URL) {
+        if let contextMenuDefaultBrowserOpener {
+            _ = contextMenuDefaultBrowserOpener(url)
+            return
+        }
+        _ = NSWorkspace.shared.open(url)
+    }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -4471,13 +4514,30 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         ghostty_surface_mouse_pos(surface, point.x, bounds.height - point.y, modsFromEvent(event))
         _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_RIGHT, modsFromEvent(event))
 
+        return buildContextMenu(hasSelection: ghostty_surface_has_selection(surface))
+    }
+
+    func buildContextMenu(hasSelection: Bool) -> NSMenu {
         let menu = NSMenu()
+        if let contextMenuLinkURL = hoveredLinkDefaultBrowserURLForContextMenu() {
+            let openLinkItem = menu.addItem(
+                withTitle: String(
+                    localized: "browser.contextMenu.openLinkInDefaultBrowser",
+                    defaultValue: "Open Link in Default Browser"
+                ),
+                action: #selector(openHoveredLinkInDefaultBrowser(_:)),
+                keyEquivalent: ""
+            )
+            openLinkItem.target = self
+            openLinkItem.representedObject = contextMenuLinkURL
+            menu.addItem(.separator())
+        }
         if onTriggerFlash != nil {
             let flashItem = menu.addItem(withTitle: "Trigger Flash", action: #selector(triggerFlash(_:)), keyEquivalent: "")
             flashItem.target = self
             menu.addItem(.separator())
         }
-        if ghostty_surface_has_selection(surface) {
+        if hasSelection {
             let item = menu.addItem(withTitle: "Copy", action: #selector(copy(_:)), keyEquivalent: "")
             item.target = self
         }
@@ -4508,6 +4568,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             accessibilityDescription: nil
         )
         return menu
+    }
+
+    @objc private func openHoveredLinkInDefaultBrowser(_ sender: Any?) {
+        let menuItem = sender as? NSMenuItem
+        guard let url = (menuItem?.representedObject as? URL) ?? hoveredLinkDefaultBrowserURLForContextMenu() else {
+            return
+        }
+        openContextMenuLinkInDefaultBrowser(url)
     }
 
     private func canSplitCurrentSurface() -> Bool {
@@ -4577,6 +4645,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func mouseExited(with event: NSEvent) {
+        setHoveredLinkForContextMenu(nil)
         guard let surface = surface else { return }
         if NSEvent.pressedMouseButtons != 0 {
             return
