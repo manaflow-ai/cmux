@@ -2662,6 +2662,29 @@ struct CMUXCLI {
             }
         }
 
+        func displaySnapshotText(_ payload: [String: Any]) -> String {
+            let snapshotText = (payload["snapshot"] as? String) ?? "Empty page"
+            guard snapshotText.contains("\n- (empty)") else {
+                return snapshotText
+            }
+
+            let url = ((payload["url"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let readyState = ((payload["ready_state"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            var lines = [snapshotText]
+
+            if !url.isEmpty {
+                lines.append("url: \(url)")
+            }
+            if !readyState.isEmpty {
+                lines.append("ready_state: \(readyState)")
+            }
+            if url.isEmpty || url == "about:blank" {
+                lines.append("hint: run 'cmux browser <surface> get url' to verify navigation")
+            }
+
+            return lines.joined(separator: "\n")
+        }
+
         func displayBrowserValue(_ value: Any) -> String {
             if let dict = value as? [String: Any],
                let type = dict["__cmux_t"] as? String,
@@ -2880,10 +2903,8 @@ struct CMUXCLI {
             let payload = try client.sendV2(method: "browser.snapshot", params: params)
             if jsonOutput {
                 print(jsonString(formatIDs(payload, mode: idFormat)))
-            } else if let text = payload["snapshot"] as? String {
-                print(text)
             } else {
-                print("Empty page")
+                print(displaySnapshotText(payload))
             }
             return
         }
