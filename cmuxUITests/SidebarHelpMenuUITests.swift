@@ -64,6 +64,33 @@ final class SidebarHelpMenuUITests: XCTestCase {
         XCTAssertTrue(updatePill.waitForExistence(timeout: 6.0))
     }
 
+    func testHelpMenuSendFeedbackOpensComposerSheet() {
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        launchAndActivate(app)
+
+        XCTAssertTrue(waitForWindowCount(atLeast: 1, app: app, timeout: 6.0))
+
+        let helpButton = app.buttons["SidebarHelpMenuButton"]
+        XCTAssertTrue(helpButton.waitForExistence(timeout: 6.0))
+        helpButton.click()
+
+        let sendFeedbackItem = app.buttons["SidebarHelpMenuOptionSendFeedback"]
+        XCTAssertTrue(sendFeedbackItem.waitForExistence(timeout: 3.0))
+        sendFeedbackItem.click()
+
+        let feedbackDialog = app.otherElements["SidebarFeedbackDialog"]
+        XCTAssertTrue(feedbackDialog.waitForExistence(timeout: 3.0))
+        XCTAssertTrue(app.textFields["SidebarFeedbackEmailField"].waitForExistence(timeout: 2.0))
+        XCTAssertTrue(app.buttons["SidebarFeedbackAttachButton"].waitForExistence(timeout: 2.0))
+        XCTAssertTrue(app.buttons["SidebarFeedbackSendButton"].waitForExistence(timeout: 2.0))
+        XCTAssertTrue(
+            app.staticTexts[
+                "The founders will read every message. You can also reach us at founders@manaflow.com."
+            ].waitForExistence(timeout: 2.0)
+        )
+    }
+
     private func waitForWindowCount(atLeast count: Int, app: XCUIApplication, timeout: TimeInterval) -> Bool {
         sidebarHelpPollUntil(timeout: timeout) {
             app.windows.count >= count
