@@ -5750,6 +5750,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                         "expectedLatestWindowId": window1.windowId.uuidString,
                         "expectedLatestTabId": tabId1.uuidString,
                     ], at: path)
+                    // Leave the initial window's terminal focused so UI tests can type shell
+                    // commands while still keeping the second window configured for notifications.
+                    window1.window?.makeKeyAndOrderFront(nil)
                     self.publishMultiWindowNotificationSocketStateIfNeeded(at: path)
                 }
             }

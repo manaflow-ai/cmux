@@ -248,40 +248,83 @@ final class MultiWindowNotificationsUITests: XCTestCase {
 
         XCTAssertTrue(waitForWindowCount(atLeast: 2, app: app, timeout: 6.0))
 
+        let title = "focus-regression-\(UUID().uuidString.prefix(8))"
+        let commandResultStem = UUID().uuidString
+        let commandStatusPath = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ui-test-notify-\(commandResultStem).status")
+            .path
+        let commandStdoutPath = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ui-test-notify-\(commandResultStem).stdout")
+            .path
+        let commandStderrPath = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ui-test-notify-\(commandResultStem).stderr")
+            .path
+        defer {
+            try? FileManager.default.removeItem(atPath: commandStatusPath)
+            try? FileManager.default.removeItem(atPath: commandStdoutPath)
+            try? FileManager.default.removeItem(atPath: commandStderrPath)
+        }
+
+        guard let bundledCLIPath = resolveCmuxCLIPaths(strategy: .bundledOnly).first else {
+            XCTFail("Failed to locate bundled cmux CLI for notify regression test")
+            return
+        }
+
+        XCTAssertTrue(app.windows.element(boundBy: 0).waitForExistence(timeout: 4.0), "Expected at least one window before typing notify command")
+        app.windows.element(boundBy: 0)
+            .coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            .click()
+
+        let notifyCommand = [
+            "rm -f \(shellSingleQuote(commandStatusPath)) \(shellSingleQuote(commandStdoutPath)) \(shellSingleQuote(commandStderrPath));",
+            "(sleep 1;",
+            "\(shellSingleQuote(bundledCLIPath))",
+            "--socket \(shellSingleQuote(socketPath))",
+            "notify",
+            "--workspace \(shellSingleQuote(tabId2))",
+            "--surface \(shellSingleQuote(surfaceId))",
+            "--title \(shellSingleQuote(title))",
+            "--subtitle \(shellSingleQuote("ui-test"))",
+            "--body \(shellSingleQuote("focus-regression"))",
+            ">\(shellSingleQuote(commandStdoutPath))",
+            "2>\(shellSingleQuote(commandStderrPath));",
+            "printf '%s' $? >\(shellSingleQuote(commandStatusPath))) >/dev/null 2>&1 &"
+        ].joined(separator: " ")
+        app.typeText(notifyCommand + "\n")
+
         let finder = XCUIApplication(bundleIdentifier: "com.apple.finder")
         finder.activate()
         XCTAssertTrue(
             waitForAppToLeaveForeground(app, timeout: 8.0),
-            "Expected cmux to move to background before sending notify command. state=\(app.state.rawValue)"
+            "Expected cmux to move to background before delayed notify command runs. state=\(app.state.rawValue)"
         )
 
-        let title = "focus-regression-\(UUID().uuidString.prefix(8))"
-        let notifyResult = runCmuxNotify(
-            socketPath: socketPath,
-            workspaceId: tabId2,
-            surfaceId: surfaceId,
-            title: title
+        XCTAssertTrue(
+            waitForCommandCompletionWhileBackgrounded(
+                statusPath: commandStatusPath,
+                app: app,
+                timeout: 15.0
+            ),
+            "Expected delayed bundled `cmux notify` command to finish without foregrounding cmux. state=\(app.state.rawValue)"
         )
+
+        let notifyExitStatus = readTrimmedFile(atPath: commandStatusPath) ?? "<missing>"
+        let notifyStdout = readTrimmedFile(atPath: commandStdoutPath) ?? ""
+        let notifyStderr = readTrimmedFile(atPath: commandStderrPath) ?? ""
+
         RunLoop.current.run(until: Date().addingTimeInterval(0.5))
         XCTAssertFalse(
             app.state == .runningForeground,
-            "Expected cmux to remain in background after bundled `cmux notify`. state=\(app.state.rawValue) stderr=\(notifyResult.stderr)"
+            "Expected cmux to remain in background after bundled `cmux notify`. state=\(app.state.rawValue) stderr=\(notifyStderr)"
         )
-
-        guard notifyResult.terminationStatus == 0 else {
-            let rawFallbackResponse: String?
-            if isSocketPermissionFailure(notifyResult.stderr) {
-                rawFallbackResponse = socketCommand("notify_target \(tabId2) \(surfaceId) \(title)|ui-test|focus-regression")
-            } else {
-                rawFallbackResponse = nil
-            }
+        guard notifyExitStatus == "0" else {
             XCTFail(
-                "Expected bundled `cmux notify` to succeed. stderr=\(notifyResult.stderr) " +
-                "rawFallback=\(rawFallbackResponse ?? "<nil>")"
+                "Expected bundled `cmux notify` launched from the in-app shell to succeed. " +
+                "status=\(notifyExitStatus) stdout=\(notifyStdout) stderr=\(notifyStderr)"
             )
             return
         }
-        XCTAssertTrue(notifyResult.stdout.contains("OK"), "Expected notify command to return OK. stdout=\(notifyResult.stdout)")
+        XCTAssertTrue(notifyStdout.contains("OK"), "Expected notify command to return OK. stdout=\(notifyStdout) stderr=\(notifyStderr)")
     }
 
     private func clickNotificationPopoverRowAndWaitForFocusChange(
@@ -435,6 +478,37 @@ final class MultiWindowNotificationsUITests: XCTestCase {
             return ("PONG", stderr)
         }
         return (stdout ?? lastStdout, stderr ?? lastStderr)
+    }
+
+    private func waitForCommandCompletionWhileBackgrounded(
+        statusPath: String,
+        app: XCUIApplication,
+        timeout: TimeInterval
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        var sawCompletion = false
+        while Date() < deadline {
+            if app.state == .runningForeground {
+                return false
+            }
+            if FileManager.default.fileExists(atPath: statusPath) {
+                sawCompletion = true
+                break
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        guard sawCompletion || FileManager.default.fileExists(atPath: statusPath) else {
+            return false
+        }
+
+        let postCompletionDeadline = Date().addingTimeInterval(0.75)
+        while Date() < postCompletionDeadline {
+            if app.state == .runningForeground {
+                return false
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        return app.state != .runningForeground
     }
 
     private func waitForAppToLeaveForeground(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
@@ -944,6 +1018,14 @@ final class MultiWindowNotificationsUITests: XCTestCase {
     private func shellSingleQuote(_ value: String) -> String {
         if value.isEmpty { return "''" }
         return "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
+    }
+
+    private func readTrimmedFile(atPath path: String) -> String? {
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
+              let value = String(data: data, encoding: .utf8) else {
+            return nil
+        }
+        return value.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private final class ControlSocketClient {
