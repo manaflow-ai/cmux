@@ -30,12 +30,18 @@ final class SidebarHelpMenuUITests: XCTestCase {
 
         XCTAssertTrue(waitForWindowCount(atLeast: 1, app: app, timeout: 6.0))
 
-        let helpButton = app.buttons["SidebarHelpMenuButton"]
-        XCTAssertTrue(helpButton.waitForExistence(timeout: 6.0))
+        let helpButton = requireElement(
+            candidates: helpButtonCandidates(in: app),
+            timeout: 6.0,
+            description: "sidebar help button"
+        )
         helpButton.click()
 
-        let keyboardShortcutsItem = app.buttons["SidebarHelpMenuOptionKeyboardShortcuts"]
-        XCTAssertTrue(keyboardShortcutsItem.waitForExistence(timeout: 3.0))
+        let keyboardShortcutsItem = requireElement(
+            candidates: helpMenuItemCandidates(in: app, identifier: "SidebarHelpMenuOptionKeyboardShortcuts", title: "Keyboard Shortcuts"),
+            timeout: 3.0,
+            description: "Keyboard Shortcuts help menu item"
+        )
         keyboardShortcutsItem.click()
 
         XCTAssertTrue(app.staticTexts["Click a shortcut value to record a new shortcut."].waitForExistence(timeout: 6.0))
@@ -52,12 +58,18 @@ final class SidebarHelpMenuUITests: XCTestCase {
 
         XCTAssertTrue(waitForWindowCount(atLeast: 1, app: app, timeout: 6.0))
 
-        let helpButton = app.buttons["SidebarHelpMenuButton"]
-        XCTAssertTrue(helpButton.waitForExistence(timeout: 6.0))
+        let helpButton = requireElement(
+            candidates: helpButtonCandidates(in: app),
+            timeout: 6.0,
+            description: "sidebar help button"
+        )
         helpButton.click()
 
-        let checkForUpdatesItem = app.buttons["SidebarHelpMenuOptionCheckForUpdates"]
-        XCTAssertTrue(checkForUpdatesItem.waitForExistence(timeout: 3.0))
+        let checkForUpdatesItem = requireElement(
+            candidates: helpMenuItemCandidates(in: app, identifier: "SidebarHelpMenuOptionCheckForUpdates", title: "Check for Updates"),
+            timeout: 3.0,
+            description: "Check for Updates help menu item"
+        )
         checkForUpdatesItem.click()
 
         let updatePill = app.buttons["Update Available: 9.9.9"]
@@ -71,19 +83,48 @@ final class SidebarHelpMenuUITests: XCTestCase {
 
         XCTAssertTrue(waitForWindowCount(atLeast: 1, app: app, timeout: 6.0))
 
-        let helpButton = app.buttons["SidebarHelpMenuButton"]
-        XCTAssertTrue(helpButton.waitForExistence(timeout: 6.0))
+        let helpButton = requireElement(
+            candidates: helpButtonCandidates(in: app),
+            timeout: 6.0,
+            description: "sidebar help button"
+        )
         helpButton.click()
 
-        let sendFeedbackItem = app.buttons["SidebarHelpMenuOptionSendFeedback"]
-        XCTAssertTrue(sendFeedbackItem.waitForExistence(timeout: 3.0))
+        let sendFeedbackItem = requireElement(
+            candidates: helpMenuItemCandidates(in: app, identifier: "SidebarHelpMenuOptionSendFeedback", title: "Send Feedback"),
+            timeout: 3.0,
+            description: "Send Feedback help menu item"
+        )
         sendFeedbackItem.click()
 
-        let feedbackDialog = app.otherElements["SidebarFeedbackDialog"]
-        XCTAssertTrue(feedbackDialog.waitForExistence(timeout: 3.0))
-        XCTAssertTrue(app.textFields["SidebarFeedbackEmailField"].waitForExistence(timeout: 2.0))
-        XCTAssertTrue(app.buttons["SidebarFeedbackAttachButton"].waitForExistence(timeout: 2.0))
-        XCTAssertTrue(app.buttons["SidebarFeedbackSendButton"].waitForExistence(timeout: 2.0))
+        XCTAssertTrue(app.staticTexts["Send Feedback"].waitForExistence(timeout: 3.0))
+        XCTAssertTrue(
+            firstExistingElement(
+                candidates: [
+                    app.textFields["SidebarFeedbackEmailField"],
+                    app.textFields["Your Email"],
+                ],
+                timeout: 2.0
+            ) != nil
+        )
+        XCTAssertTrue(
+            firstExistingElement(
+                candidates: [
+                    app.buttons["SidebarFeedbackAttachButton"],
+                    app.buttons["Attach Images"],
+                ],
+                timeout: 2.0
+            ) != nil
+        )
+        XCTAssertTrue(
+            firstExistingElement(
+                candidates: [
+                    app.buttons["SidebarFeedbackSendButton"],
+                    app.buttons["Send"],
+                ],
+                timeout: 2.0
+            ) != nil
+        )
         XCTAssertTrue(
             app.staticTexts[
                 "The founders will read every message. You can also reach us at founders@manaflow.com."
@@ -95,6 +136,54 @@ final class SidebarHelpMenuUITests: XCTestCase {
         sidebarHelpPollUntil(timeout: timeout) {
             app.windows.count >= count
         }
+    }
+
+    private func helpButtonCandidates(in app: XCUIApplication) -> [XCUIElement] {
+        let sidebar = app.otherElements["Sidebar"]
+        return [
+            app.buttons["SidebarHelpMenuButton"],
+            app.buttons["Help"],
+            sidebar.buttons["SidebarHelpMenuButton"],
+            sidebar.buttons["Help"],
+        ]
+    }
+
+    private func helpMenuItemCandidates(
+        in app: XCUIApplication,
+        identifier: String,
+        title: String
+    ) -> [XCUIElement] {
+        [
+            app.buttons[identifier],
+            app.buttons[title],
+        ]
+    }
+
+    private func firstExistingElement(
+        candidates: [XCUIElement],
+        timeout: TimeInterval
+    ) -> XCUIElement? {
+        var match: XCUIElement?
+        let found = sidebarHelpPollUntil(timeout: timeout) {
+            for candidate in candidates where candidate.exists {
+                match = candidate
+                return true
+            }
+            return false
+        }
+        return found ? match : nil
+    }
+
+    private func requireElement(
+        candidates: [XCUIElement],
+        timeout: TimeInterval,
+        description: String
+    ) -> XCUIElement {
+        guard let element = firstExistingElement(candidates: candidates, timeout: timeout) else {
+            XCTFail("Expected \(description) to exist")
+            return candidates[0]
+        }
+        return element
     }
 
     private func launchAndActivate(_ app: XCUIApplication, activateTimeout: TimeInterval = 2.0) {

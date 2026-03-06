@@ -5857,7 +5857,8 @@ private enum FeedbackComposerSettings {
     static let maxMessageLength = 4_000
     static let maxAttachmentCount = 4
     static let maxAttachmentBytes = 4 * 1_024 * 1_024
-    static let maxTotalAttachmentBytes = 12 * 1_024 * 1_024
+    // Keep the multipart body below Vercel's 4.5 MB request limit.
+    static let maxTotalAttachmentBytes = 4 * 1_024 * 1_024
 
     static func endpointURL() -> URL? {
         let env = ProcessInfo.processInfo.environment
@@ -6526,6 +6527,7 @@ private struct SidebarFeedbackComposerSheet: View {
                     text: $email
                 )
                 .textFieldStyle(.roundedBorder)
+                .accessibilityLabel(String(localized: "sidebar.help.feedback.email", defaultValue: "Your Email"))
                 .accessibilityIdentifier("SidebarFeedbackEmailField")
             }
 
@@ -6558,6 +6560,7 @@ private struct SidebarFeedbackComposerSheet: View {
                             RoundedRectangle(cornerRadius: 8, style: .continuous)
                                 .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
                         )
+                        .accessibilityLabel(String(localized: "sidebar.help.feedback.message", defaultValue: "Message"))
                         .accessibilityIdentifier("SidebarFeedbackMessageEditor")
 
                     if message.isEmpty {
@@ -6591,7 +6594,7 @@ private struct SidebarFeedbackComposerSheet: View {
                     Text(
                         String(
                             localized: "sidebar.help.feedback.attachmentsHint",
-                            defaultValue: "Up to 4 images, 4 MB each, 12 MB total."
+                            defaultValue: "Up to 4 images, 4 MB total."
                         )
                     )
                     .font(.system(size: 11))
@@ -6713,7 +6716,7 @@ private struct SidebarFeedbackComposerSheet: View {
             if totalBytes + attachment.fileSize > Int64(FeedbackComposerSettings.maxTotalAttachmentBytes) {
                 firstIssue = String(
                     localized: "sidebar.help.feedback.totalImagesTooLarge",
-                    defaultValue: "Total image attachments must be 12 MB or smaller."
+                    defaultValue: "Total image attachments must be 4 MB or smaller."
                 )
                 continue
             }
@@ -6882,6 +6885,7 @@ private struct SidebarHelpMenuButton: View {
         .sheet(isPresented: $isFeedbackComposerPresented) {
             SidebarFeedbackComposerSheet()
         }
+        .accessibilityElement(children: .ignore)
         .help(helpTitle)
         .accessibilityLabel(helpTitle)
         .accessibilityIdentifier("SidebarHelpMenuButton")

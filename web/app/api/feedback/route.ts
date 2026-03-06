@@ -11,7 +11,8 @@ export const dynamic = "force-dynamic";
 const feedbackRecipient = "founders@manaflow.com";
 const maxAttachmentCount = 4;
 const maxAttachmentBytes = 4 * 1024 * 1024;
-const maxTotalAttachmentBytes = 12 * 1024 * 1024;
+// Keep multipart requests below Vercel Functions' 4.5 MB request-body limit.
+const maxTotalAttachmentBytes = 4 * 1024 * 1024;
 const allowedImageTypes = new Set([
   "image/gif",
   "image/heic",
