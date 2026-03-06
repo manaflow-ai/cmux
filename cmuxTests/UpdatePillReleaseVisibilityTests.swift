@@ -103,6 +103,53 @@ final class AppTransportSecurityTests: XCTestCase {
     }
 }
 
+final class PasskeyEntitlementTests: XCTestCase {
+    func testEntitlementsContainPublicKeyCredential() throws {
+        let projectRoot = findProjectRoot()
+        let entitlementsURL = projectRoot.appendingPathComponent("cmux.entitlements")
+        let data = try Data(contentsOf: entitlementsURL)
+        var format = PropertyListSerialization.PropertyListFormat.xml
+        let plist = try XCTUnwrap(
+            PropertyListSerialization.propertyList(from: data, options: [], format: &format) as? [String: Any]
+        )
+        XCTAssertEqual(
+            plist["com.apple.developer.web-browser.public-key-credential"] as? Bool,
+            true,
+            "cmux.entitlements must include com.apple.developer.web-browser.public-key-credential for WebAuthn passkey support in WKWebView."
+        )
+    }
+
+    func testInfoPlistContainsBluetoothUsageDescriptionForPasskeys() throws {
+        let projectRoot = findProjectRoot()
+        let infoPlistURL = projectRoot.appendingPathComponent("Resources/Info.plist")
+        let data = try Data(contentsOf: infoPlistURL)
+        var format = PropertyListSerialization.PropertyListFormat.xml
+        let plist = try XCTUnwrap(
+            PropertyListSerialization.propertyList(from: data, options: [], format: &format) as? [String: Any]
+        )
+        let usageDescription = try XCTUnwrap(
+            plist["NSBluetoothAlwaysUsageDescription"] as? String,
+            "Resources/Info.plist must include NSBluetoothAlwaysUsageDescription for cross-device passkey Bluetooth flows."
+        )
+        XCTAssertFalse(
+            usageDescription.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            "NSBluetoothAlwaysUsageDescription must be non-empty."
+        )
+    }
+
+    private func findProjectRoot() -> URL {
+        var dir = URL(fileURLWithPath: #file).deletingLastPathComponent().deletingLastPathComponent()
+        for _ in 0..<10 {
+            let marker = dir.appendingPathComponent("GhosttyTabs.xcodeproj")
+            if FileManager.default.fileExists(atPath: marker.path) {
+                return dir
+            }
+            dir = dir.deletingLastPathComponent()
+        }
+        return URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+    }
+}
+
 final class BrowserInsecureHTTPSettingsTests: XCTestCase {
     func testDefaultAllowlistPatternsArePresent() {
         XCTAssertEqual(
