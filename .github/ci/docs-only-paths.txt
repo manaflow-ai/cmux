@@ -1,0 +1,9 @@
+# If every changed path in a pull request matches one of these globs,
+# skip heavy macOS jobs and keep only lightweight validation.
+*.md
+**/*.md
+*.mdx
+**/*.mdx
+docs/**
+skills/**
+web/app/docs/**

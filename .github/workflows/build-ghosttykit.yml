@@ -7,9 +7,33 @@ on:
   pull_request:
 
 jobs:
+  classify-pr-scope:
+    runs-on: ubuntu-latest
+    outputs:
+      docs_only: ${{ steps.classify.outputs.docs_only }}
+      run_heavy_macos: ${{ steps.classify.outputs.run_heavy_macos }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Classify pull request scope
+        id: classify
+        run: |
+          set -euo pipefail
+          OUTPUT=$(python3 scripts/ci/classify_pr_scope.py \
+            --repo-root "$GITHUB_WORKSPACE" \
+            --event-name "${{ github.event_name }}" \
+            --base "${{ github.event.pull_request.base.sha || '' }}" \
+            --head "${{ github.event.pull_request.head.sha || github.sha }}")
+          echo "$OUTPUT"
+          echo "$OUTPUT" >> "$GITHUB_OUTPUT"
+
   build-ghosttykit:
+    needs: classify-pr-scope
     # Never run Depot jobs for fork pull requests (avoid billing on external PRs).
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    if: needs.classify-pr-scope.outputs.run_heavy_macos == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: depot-macos-latest
     steps:
       - name: Checkout
