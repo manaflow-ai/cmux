@@ -9191,6 +9191,7 @@ private struct SidebarMetadataEntryRow: View {
     let entry: SidebarStatusEntry
     let isActive: Bool
     let onFocus: () -> Void
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         Group {
@@ -9234,9 +9235,25 @@ private struct SidebarMetadataEntryRow: View {
             return Color(nsColor: sidebarSelectedWorkspaceForegroundNSColor(opacity: 0.95))
         }
         if let raw = entry.color, let explicit = Color(hex: raw) {
-            return explicit
+            return contrastAdjusted(explicit)
         }
         return isActive ? .white.opacity(0.8) : .secondary
+    }
+
+    private func contrastAdjusted(_ color: Color) -> Color {
+        guard let srgb = NSColor(color).usingColorSpace(.sRGB) else { return color }
+        var h: CGFloat = 0, s: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        srgb.getHue(&h, saturation: &s, brightness: &b, alpha: &a)
+        if colorScheme == .dark {
+            if b < 0.6 {
+                return Color(nsColor: NSColor(hue: h, saturation: min(s, 0.7), brightness: 0.6, alpha: a))
+            }
+        } else {
+            if b > 0.65 {
+                return Color(nsColor: NSColor(hue: h, saturation: s, brightness: 0.65, alpha: a))
+            }
+        }
+        return color
     }
 
     private var iconView: AnyView? {
