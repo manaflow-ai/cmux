@@ -30638,115 +30638,115 @@
         }
       }
     },
-    "menu.app.ghosttySettings": {
+    "menu.app.cmuxSettings": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ghostty Settings…"
+            "value": "cmux Settings…"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ghostty設定…"
+            "value": "cmux設定…"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ghostty 设置..."
+            "value": "cmux 设置..."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ghostty 設定..."
+            "value": "cmux 設定..."
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ghostty 설정…"
+            "value": "cmux 설정…"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ghostty-Einstellungen …"
+            "value": "cmux-Einstellungen …"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ajustes de Ghostty…"
+            "value": "Ajustes de cmux…"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Réglages Ghostty..."
+            "value": "Réglages cmux..."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Impostazioni Ghostty…"
+            "value": "Impostazioni cmux…"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ghostty-indstillinger…"
+            "value": "cmux-indstillinger…"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ustawienia Ghostty…"
+            "value": "Ustawienia cmux…"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Настройки Ghostty..."
+            "value": "Настройки cmux..."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ghostty postavke…"
+            "value": "cmux postavke…"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "إعدادات Ghostty…"
+            "value": "إعدادات cmux…"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ghostty-innstillinger …"
+            "value": "cmux-innstillinger …"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ajustes do Ghostty…"
+            "value": "Ajustes do cmux…"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "การตั้งค่า Ghostty..."
+            "value": "การตั้งค่า cmux..."
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ghostty Ayarları…"
+            "value": "cmux Ayarları…"
           }
         }
       }

@@ -236,7 +236,7 @@ struct cmuxApp: App {
                 Button(String(localized: "menu.app.about", defaultValue: "About cmux")) {
                     showAboutPanel()
                 }
-                Button(String(localized: "menu.app.ghosttySettings", defaultValue: "Ghostty Settings…")) {
+                Button(String(localized: "menu.app.cmuxSettings", defaultValue: "cmux Settings…")) {
                     GhosttyApp.shared.openConfigurationInTextEdit()
                 }
                 Button(String(localized: "menu.app.reloadConfiguration", defaultValue: "Reload Configuration")) {
