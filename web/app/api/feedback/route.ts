@@ -8,7 +8,7 @@ import { env } from "@/app/env";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const feedbackRecipient = "founders@manaflow.com";
+const feedbackRecipient = "feedback@manaflow.com";
 const maxAttachmentCount = 10;
 const maxAttachmentBytes = 4 * 1024 * 1024;
 // Keep multipart requests below Vercel Functions' 4.5 MB request-body limit.
