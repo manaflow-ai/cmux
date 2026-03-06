@@ -114,3 +114,21 @@ These commands currently return `not_supported` because they rely on Chrome/CDP-
 - low-level raw input injection
 
 Use supported high-level commands (`click`, `fill`, `press`, `scroll`, `wait`, `snapshot`) instead.
+
+## Troubleshooting
+
+### `js_error` on `snapshot --interactive` or `eval`
+
+Some complex pages can reject or break the JavaScript used for rich snapshots and ad-hoc evaluation.
+
+Recovery steps:
+
+```bash
+cmux browser surface:7 get url
+cmux browser surface:7 get text body
+cmux browser surface:7 get html body
+```
+
+- Use `get url` first so you know whether the page actually navigated.
+- Fall back to `get text body` or `get html body` when `snapshot --interactive` or `eval` returns `js_error`.
+- If the page is still failing, navigate to a simpler intermediate page, then retry the task from there.
