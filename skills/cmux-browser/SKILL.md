@@ -10,19 +10,21 @@ Use this skill for browser tasks inside cmux webviews.
 ## Core Workflow
 
 1. Open or target a browser surface.
-2. Snapshot (`--interactive`) to get fresh element refs.
-3. Act with refs (`click`, `fill`, `type`, `select`, `press`).
-4. Wait for state changes.
-5. Re-snapshot after DOM/navigation changes.
+2. Verify navigation with `get url` before waiting or snapshotting.
+3. Snapshot (`--interactive`) to get fresh element refs.
+4. Act with refs (`click`, `fill`, `type`, `select`, `press`).
+5. Wait for state changes.
+6. Re-snapshot after DOM/navigation changes.
 
 ```bash
-cmux browser open https://example.com --json
+cmux --json browser open https://example.com
 # use returned surface ref, for example: surface:7
 
+cmux browser surface:7 get url
+cmux browser surface:7 wait --load-state complete --timeout-ms 15000
 cmux browser surface:7 snapshot --interactive
 cmux browser surface:7 fill e1 "hello"
-cmux browser surface:7 click e2 --snapshot-after --json
-cmux browser surface:7 wait --load-state complete --timeout-ms 15000
+cmux --json browser surface:7 click e2 --snapshot-after
 cmux browser surface:7 snapshot --interactive
 ```
 
@@ -58,11 +60,13 @@ cmux browser <surface> wait --function "document.readyState === 'complete'" --ti
 ### Form Submit
 
 ```bash
-cmux browser open https://example.com/signup --json
+cmux --json browser open https://example.com/signup
+cmux browser surface:7 get url
+cmux browser surface:7 wait --load-state complete --timeout-ms 15000
 cmux browser surface:7 snapshot --interactive
 cmux browser surface:7 fill e1 "Jane Doe"
 cmux browser surface:7 fill e2 "jane@example.com"
-cmux browser surface:7 click e3 --snapshot-after --json
+cmux --json browser surface:7 click e3 --snapshot-after
 cmux browser surface:7 wait --url-contains "/welcome" --timeout-ms 15000
 cmux browser surface:7 snapshot --interactive
 ```
@@ -77,12 +81,15 @@ cmux browser surface:7 get value e11 --json
 ### Stable Agent Loop (Recommended)
 
 ```bash
-# snapshot -> action -> wait -> snapshot
-cmux browser surface:7 snapshot --interactive
-cmux browser surface:7 click e5 --snapshot-after --json
+# navigate -> verify -> wait -> snapshot -> action -> snapshot
+cmux browser surface:7 get url
 cmux browser surface:7 wait --load-state complete --timeout-ms 15000
 cmux browser surface:7 snapshot --interactive
+cmux --json browser surface:7 click e5 --snapshot-after
+cmux browser surface:7 snapshot --interactive
 ```
+
+If `get url` is empty or `about:blank`, navigate first instead of waiting on load state.
 
 ## Deep-Dive References
 
