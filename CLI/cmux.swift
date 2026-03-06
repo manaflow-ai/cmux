@@ -2755,12 +2755,17 @@ struct CMUXCLI {
 
         if subcommand == "goto" || subcommand == "navigate" {
             let sid = try requireSurface()
-            let url = subArgs.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+            var urlArgs = subArgs
+            let snapshotAfter = urlArgs.last == "--snapshot-after"
+            if snapshotAfter {
+                urlArgs.removeLast()
+            }
+            let url = urlArgs.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
             guard !url.isEmpty else {
                 throw CLIError(message: "browser \(subcommand) requires a URL")
             }
             var params: [String: Any] = ["surface_id": sid, "url": url]
-            if hasFlag(subArgs, name: "--snapshot-after") {
+            if snapshotAfter {
                 params["snapshot_after"] = true
             }
             let payload = try client.sendV2(method: "browser.navigate", params: params)
