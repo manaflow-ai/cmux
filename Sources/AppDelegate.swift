@@ -5741,7 +5741,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 let contexts = Array(self.mainWindowContexts.values)
                 guard let window2 = contexts.first(where: { $0.windowId != window1.windowId }) else { return }
                 guard let tabId2 = window2.tabManager.selectedTabId ?? window2.tabManager.tabs.first?.id else { return }
-                waitForSurfaceId(on: window2.tabManager, tabId: tabId2) { [weak self] surfaceId2 in
+                waitForSurfaceId(on: window1.tabManager, tabId: tabId1) { [weak self] surfaceId1 in
+                    guard let self else { return }
+                    waitForSurfaceId(on: window2.tabManager, tabId: tabId2) { [weak self] surfaceId2 in
                     guard let self else { return }
                     guard let store = self.notificationStore else { return }
 
@@ -5767,6 +5769,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                         "window2InitialSidebarSelection": "notifications",
                         "tabId1": tabId1.uuidString,
                         "tabId2": tabId2.uuidString,
+                        "surfaceId1": surfaceId1.uuidString,
                         "surfaceId2": surfaceId2.uuidString,
                         "notifId1": notif1?.id.uuidString ?? "",
                         "notifId2": notif2?.id.uuidString ?? "",
@@ -5774,6 +5777,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                         "expectedLatestTabId": tabId1.uuidString,
                     ], at: path)
                     self.publishMultiWindowNotificationSocketStateIfNeeded(at: path)
+                }
                 }
             }
         }

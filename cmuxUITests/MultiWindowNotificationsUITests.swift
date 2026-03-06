@@ -228,6 +228,14 @@ final class MultiWindowNotificationsUITests: XCTestCase {
             XCTFail("Missing source workspace id")
             return
         }
+        guard let window1Id = setup["window1Id"], !window1Id.isEmpty else {
+            XCTFail("Missing source window id")
+            return
+        }
+        guard let sourceSurfaceId = setup["surfaceId1"], !sourceSurfaceId.isEmpty else {
+            XCTFail("Missing source surface id")
+            return
+        }
         if let expectedSocketPath = setup["socketExpectedPath"], !expectedSocketPath.isEmpty {
             socketPath = expectedSocketPath
         }
@@ -263,10 +271,14 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         let commandStderrPath = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-ui-test-notify-\(commandResultStem).stderr")
             .path
+        let commandScriptPath = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ui-test-notify-\(commandResultStem).sh")
+            .path
         defer {
             try? FileManager.default.removeItem(atPath: commandStatusPath)
             try? FileManager.default.removeItem(atPath: commandStdoutPath)
             try? FileManager.default.removeItem(atPath: commandStderrPath)
+            try? FileManager.default.removeItem(atPath: commandScriptPath)
         }
 
         guard let bundledCLIPath = resolveCmuxCLIPaths(strategy: .bundledOnly).first else {
@@ -274,32 +286,32 @@ final class MultiWindowNotificationsUITests: XCTestCase {
             return
         }
 
-        let notifyCommand = [
-            "rm -f \(shellSingleQuote(commandStatusPath)) \(shellSingleQuote(commandStdoutPath)) \(shellSingleQuote(commandStderrPath));",
-            "(sleep 1;",
-            "\(shellSingleQuote(bundledCLIPath))",
-            "--socket \(shellSingleQuote(socketPath))",
-            "notify",
-            "--workspace \(shellSingleQuote(tabId2))",
-            "--surface \(shellSingleQuote(surfaceId))",
-            "--title \(shellSingleQuote(title))",
-            "--subtitle \(shellSingleQuote("ui-test"))",
-            "--body \(shellSingleQuote("focus-regression"))",
-            ">\(shellSingleQuote(commandStdoutPath))",
-            "2>\(shellSingleQuote(commandStderrPath));",
-            "printf '%s' $? >\(shellSingleQuote(commandStatusPath))) >/dev/null 2>&1 &"
-        ].joined(separator: " ")
-        let sendWorkspaceResponse = socketCommand(
-            "send_workspace \(tabId1) \(notifyCommand)\\n",
-            responseTimeout: 8.0
-        )
-        guard sendWorkspaceResponse == "OK" else {
+        let notifyScript = [
+            "#!/bin/sh",
+            "sleep 1",
+            "rm -f \(shellSingleQuote(commandStatusPath)) \(shellSingleQuote(commandStdoutPath)) \(shellSingleQuote(commandStderrPath))",
+            "\(shellSingleQuote(bundledCLIPath)) --socket \(shellSingleQuote(socketPath)) notify --workspace \(shellSingleQuote(tabId2)) --surface \(shellSingleQuote(surfaceId)) --title \(shellSingleQuote(title)) --subtitle \(shellSingleQuote("ui-test")) --body \(shellSingleQuote("focus-regression")) >\(shellSingleQuote(commandStdoutPath)) 2>\(shellSingleQuote(commandStderrPath))",
+            "printf '%s' $? >\(shellSingleQuote(commandStatusPath))"
+        ].joined(separator: "\n")
+        do {
+            try notifyScript.write(toFile: commandScriptPath, atomically: true, encoding: .utf8)
+        } catch {
             XCTFail(
-                "Failed to inject delayed bundled `cmux notify` command into source workspace \(tabId1). " +
-                "response=\(sendWorkspaceResponse ?? "<nil>")"
+                "Failed to write delayed bundled `cmux notify` script. " +
+                "path=\(commandScriptPath) error=\(error)"
             )
             return
         }
+        XCTAssertEqual(socketCommand("focus_window \(window1Id)"), "OK", "Expected source window to be focusable")
+        XCTAssertEqual(socketCommand("select_workspace \(tabId1)"), "OK", "Expected source workspace to be selectable")
+        XCTAssertEqual(socketCommand("focus_surface \(sourceSurfaceId)"), "OK", "Expected source terminal to be focusable")
+        XCTAssertTrue(
+            waitForTerminalFocus(surfaceId: sourceSurfaceId, timeout: 4.0),
+            "Expected source terminal surface to own first responder before typing"
+        )
+
+        app.typeText("sh \(commandScriptPath)")
+        app.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [])
 
         let finder = XCUIApplication(bundleIdentifier: "com.apple.finder")
         finder.activate()
@@ -445,6 +457,17 @@ final class MultiWindowNotificationsUITests: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         }
         return socketCommand("ping") ?? lastResponse
+    }
+
+    private func waitForTerminalFocus(surfaceId: String, timeout: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if socketCommand("is_terminal_focused \(surfaceId)") == "true" {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        return socketCommand("is_terminal_focused \(surfaceId)") == "true"
     }
 
     private func waitForCmuxPing(timeout: TimeInterval) -> (stdout: String?, stderr: String?) {
