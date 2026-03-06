@@ -2071,9 +2071,11 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
     func testPresentPreferencesWindowShowsCustomSettingsWindowAndActivates() {
         var showFallbackSettingsWindowCallCount = 0
         var activateApplicationCallCount = 0
+        var receivedNavigationTargets: [SettingsNavigationTarget?] = []
 
         AppDelegate.presentPreferencesWindow(
-            showFallbackSettingsWindow: {
+            showFallbackSettingsWindow: { navigationTarget in
+                receivedNavigationTargets.append(navigationTarget)
                 showFallbackSettingsWindowCallCount += 1
             },
             activateApplication: {
@@ -2083,14 +2085,17 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         XCTAssertEqual(showFallbackSettingsWindowCallCount, 1)
         XCTAssertEqual(activateApplicationCallCount, 1)
+        XCTAssertEqual(receivedNavigationTargets, [nil])
     }
 
     func testPresentPreferencesWindowSupportsRepeatedCalls() {
         var showFallbackSettingsWindowCallCount = 0
         var activateApplicationCallCount = 0
+        var receivedNavigationTargets: [SettingsNavigationTarget?] = []
 
         AppDelegate.presentPreferencesWindow(
-            showFallbackSettingsWindow: {
+            showFallbackSettingsWindow: { navigationTarget in
+                receivedNavigationTargets.append(navigationTarget)
                 showFallbackSettingsWindowCallCount += 1
             },
             activateApplication: {
@@ -2099,7 +2104,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
 
         AppDelegate.presentPreferencesWindow(
-            showFallbackSettingsWindow: {
+            showFallbackSettingsWindow: { navigationTarget in
+                receivedNavigationTargets.append(navigationTarget)
                 showFallbackSettingsWindowCallCount += 1
             },
             activateApplication: {
@@ -2109,6 +2115,25 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         XCTAssertEqual(showFallbackSettingsWindowCallCount, 2)
         XCTAssertEqual(activateApplicationCallCount, 2)
+        XCTAssertEqual(receivedNavigationTargets, [nil, nil])
+    }
+
+    func testPresentPreferencesWindowForwardsNavigationTarget() {
+        var receivedNavigationTarget: SettingsNavigationTarget?
+        var activateApplicationCallCount = 0
+
+        AppDelegate.presentPreferencesWindow(
+            navigationTarget: .keyboardShortcuts,
+            showFallbackSettingsWindow: { navigationTarget in
+                receivedNavigationTarget = navigationTarget
+            },
+            activateApplication: {
+                activateApplicationCallCount += 1
+            }
+        )
+
+        XCTAssertEqual(receivedNavigationTarget, .keyboardShortcuts)
+        XCTAssertEqual(activateApplicationCallCount, 1)
     }
 
     private func makeKeyDownEvent(
