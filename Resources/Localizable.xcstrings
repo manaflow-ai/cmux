@@ -635,6 +635,23 @@
         }
       }
     },
+    "sidebar.help.githubIssues": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub Issues"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub Issues"
+          }
+        }
+      }
+    },
     "sidebar.help.sendFeedback": {
       "extractionState": "manual",
       "localizations": {

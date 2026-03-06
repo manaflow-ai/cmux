@@ -6444,6 +6444,8 @@ private enum SidebarHelpMenuAction {
     case keyboardShortcuts
     case docs
     case changelog
+    case github
+    case githubIssues
     case checkForUpdates
     case sendFeedback
 }
@@ -6861,6 +6863,8 @@ private struct SidebarFeedbackComposerSheet: View {
 private struct SidebarHelpMenuButton: View {
     private let docsURL = URL(string: "https://cmux.dev/docs")
     private let changelogURL = URL(string: "https://cmux.dev/docs/changelog")
+    private let githubURL = URL(string: "https://github.com/manaflow-ai/cmux")
+    private let githubIssuesURL = URL(string: "https://github.com/manaflow-ai/cmux/issues")
     private let helpTitle = String(localized: "sidebar.help.button", defaultValue: "Help")
     private let buttonSize: CGFloat = 22
     private let iconSize: CGFloat = 11
@@ -6897,41 +6901,63 @@ private struct SidebarHelpMenuButton: View {
             helpOptionButton(
                 title: String(localized: "settings.section.keyboardShortcuts", defaultValue: "Keyboard Shortcuts"),
                 action: .keyboardShortcuts,
-                accessibilityIdentifier: "SidebarHelpMenuOptionKeyboardShortcuts"
+                accessibilityIdentifier: "SidebarHelpMenuOptionKeyboardShortcuts",
+                isExternalLink: false
             )
             if docsURL != nil {
                 helpOptionButton(
                     title: String(localized: "about.docs", defaultValue: "Docs"),
                     action: .docs,
-                    accessibilityIdentifier: "SidebarHelpMenuOptionDocs"
+                    accessibilityIdentifier: "SidebarHelpMenuOptionDocs",
+                    isExternalLink: true
                 )
             }
             if changelogURL != nil {
                 helpOptionButton(
                     title: String(localized: "sidebar.help.changelog", defaultValue: "Changelog"),
                     action: .changelog,
-                    accessibilityIdentifier: "SidebarHelpMenuOptionChangelog"
+                    accessibilityIdentifier: "SidebarHelpMenuOptionChangelog",
+                    isExternalLink: true
+                )
+            }
+            if githubURL != nil {
+                helpOptionButton(
+                    title: String(localized: "about.github", defaultValue: "GitHub"),
+                    action: .github,
+                    accessibilityIdentifier: "SidebarHelpMenuOptionGitHub",
+                    isExternalLink: true
+                )
+            }
+            if githubIssuesURL != nil {
+                helpOptionButton(
+                    title: String(localized: "sidebar.help.githubIssues", defaultValue: "GitHub Issues"),
+                    action: .githubIssues,
+                    accessibilityIdentifier: "SidebarHelpMenuOptionGitHubIssues",
+                    isExternalLink: true
                 )
             }
             helpOptionButton(
                 title: String(localized: "command.checkForUpdates.title", defaultValue: "Check for Updates"),
                 action: .checkForUpdates,
-                accessibilityIdentifier: "SidebarHelpMenuOptionCheckForUpdates"
+                accessibilityIdentifier: "SidebarHelpMenuOptionCheckForUpdates",
+                isExternalLink: false
             )
             helpOptionButton(
                 title: String(localized: "sidebar.help.sendFeedback", defaultValue: "Send Feedback"),
                 action: .sendFeedback,
-                accessibilityIdentifier: "SidebarHelpMenuOptionSendFeedback"
+                accessibilityIdentifier: "SidebarHelpMenuOptionSendFeedback",
+                isExternalLink: false
             )
         }
         .padding(8)
-        .frame(minWidth: 176)
+        .frame(minWidth: 200)
     }
 
     private func helpOptionButton(
         title: String,
         action: SidebarHelpMenuAction,
-        accessibilityIdentifier: String
+        accessibilityIdentifier: String,
+        isExternalLink: Bool
     ) -> some View {
         Button {
             isPopoverPresented = false
@@ -6941,6 +6967,11 @@ private struct SidebarHelpMenuButton: View {
                 Text(title)
                     .font(.system(size: 12))
                 Spacer(minLength: 0)
+                if isExternalLink {
+                    Image(systemName: "arrow.up.right.square")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(Color(nsColor: .secondaryLabelColor))
+                }
             }
             .padding(.horizontal, 8)
             .frame(height: 24)
@@ -6969,6 +7000,12 @@ private struct SidebarHelpMenuButton: View {
         case .changelog:
             guard let changelogURL else { return }
             NSWorkspace.shared.open(changelogURL)
+        case .github:
+            guard let githubURL else { return }
+            NSWorkspace.shared.open(githubURL)
+        case .githubIssues:
+            guard let githubIssuesURL else { return }
+            NSWorkspace.shared.open(githubIssuesURL)
         case .checkForUpdates:
             Task { @MainActor in
                 AppDelegate.shared?.checkForUpdates(nil)
