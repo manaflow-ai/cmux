@@ -298,6 +298,10 @@ struct BrowserPanelView: View {
         )
     }
 
+    private var browserContentAccessibilityIdentifier: String {
+        "BrowserPanelContent.\(panel.id.uuidString)"
+    }
+
     private var omnibarPillBackgroundColor: NSColor {
         resolvedBrowserOmnibarPillBackgroundColor(
             for: browserChromeColorScheme,
@@ -749,6 +753,7 @@ struct BrowserPanelView: View {
                 // BrowserPanel replaces its underlying WKWebView after process termination.
                 .id(panel.webViewInstanceID)
                 .contentShape(Rectangle())
+                .accessibilityIdentifier(browserContentAccessibilityIdentifier)
                 .simultaneousGesture(TapGesture().onEnded {
                     // Chrome-like behavior: clicking web content while editing the
                     // omnibar should commit blur and revert transient edits.
@@ -759,6 +764,7 @@ struct BrowserPanelView: View {
             } else {
                 Color(nsColor: browserChromeBackgroundColor)
                     .contentShape(Rectangle())
+                    .accessibilityIdentifier(browserContentAccessibilityIdentifier)
                     .onTapGesture {
                         onRequestPanelFocus()
                         if addressBarFocused {
