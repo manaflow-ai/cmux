@@ -1169,11 +1169,12 @@ class GhosttyApp {
                 if parts.count == 2 {
                     var includePath = parts[1]
                         .trimmingCharacters(in: .whitespaces)
-                        .trimmingCharacters(in: CharacterSet(charactersIn: "\""))
                     // Ghostty supports optional includes with a trailing '?'
                     if includePath.hasSuffix("?") {
-                        includePath = String(includePath.dropLast())
+                        includePath.removeLast()
                     }
+                    includePath = includePath
+                        .trimmingCharacters(in: CharacterSet(charactersIn: "\""))
                     let expanded = NSString(string: includePath).expandingTildeInPath
                     let absolute = (expanded as NSString).isAbsolutePath
                         ? expanded
