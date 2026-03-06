@@ -7223,14 +7223,10 @@ private struct SidebarHelpMenuButton: View {
                     .font(.system(size: 12))
                 Spacer(minLength: 0)
                 if let trailingSystemImage {
-                    Image(systemName: trailingSystemImage)
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(Color(nsColor: .secondaryLabelColor))
+                    helpOptionTrailingIcon(systemName: trailingSystemImage)
                 }
                 if isExternalLink {
-                    Image(systemName: "arrow.up.right.square")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(Color(nsColor: .secondaryLabelColor))
+                    helpOptionTrailingIcon(systemName: "arrow.up.right.square")
                 }
             }
             .padding(.horizontal, 8)
@@ -7239,6 +7235,14 @@ private struct SidebarHelpMenuButton: View {
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier(accessibilityIdentifier)
+    }
+
+    private func helpOptionTrailingIcon(systemName: String) -> some View {
+        Image(systemName: systemName)
+            .resizable()
+            .scaledToFit()
+            .frame(width: 11, height: 11)
+            .foregroundStyle(Color(nsColor: .secondaryLabelColor))
     }
 
     private func perform(_ action: SidebarHelpMenuAction) {
