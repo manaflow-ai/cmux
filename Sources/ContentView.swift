@@ -6035,6 +6035,13 @@ enum CommandPaletteSwitcherSearchIndexer {
 enum CommandPaletteFuzzyMatcher {
     private static let tokenBoundaryChars: Set<Character> = [" ", "-", "_", "/", ".", ":"]
 
+    private struct SingleOmittedCharacterWordPrefixMatch {
+        let matchedIndices: Set<Int>
+        let segmentStart: Int
+        let segmentLength: Int
+        let omittedIndex: Int
+    }
+
     struct PreparedQuery {
         let normalizedText: String
         let tokens: [String]
@@ -6120,6 +6127,11 @@ enum CommandPaletteFuzzyMatcher {
                 continue
             }
 
+            if let omittedCharacterPrefix = singleOmittedCharacterWordPrefixMatch(token: token, candidate: loweredCandidate) {
+                matched.formUnion(omittedCharacterPrefix.matchedIndices)
+                continue
+            }
+
             if let initialism = initialismMatchIndices(token: token, candidate: loweredCandidate) {
                 matched.formUnion(initialism)
                 continue
@@ -6159,6 +6171,12 @@ enum CommandPaletteFuzzyMatcher {
         }
         if let wordPrefixScore = bestWordScore(tokenChars: tokenChars, candidateChars: candidateChars, requireExactWord: false) {
             bestScore = max(bestScore ?? wordPrefixScore, wordPrefixScore)
+        }
+        if let omittedCharacterPrefixScore = singleOmittedCharacterWordPrefixScore(
+            tokenChars: tokenChars,
+            candidateChars: candidateChars
+        ) {
+            bestScore = max(bestScore ?? omittedCharacterPrefixScore, omittedCharacterPrefixScore)
         }
 
         if let range = candidate.range(of: token) {
@@ -6214,6 +6232,33 @@ enum CommandPaletteFuzzyMatcher {
             let trailingPenalty = max(0, candidateChars.count - wordLength)
             let scoreBase = requireExactWord ? 6200 : 5600
             let score = scoreBase - distancePenalty - lengthPenalty - trailingPenalty
+            best = max(best ?? score, score)
+        }
+
+        return best
+    }
+
+    private static func singleOmittedCharacterWordPrefixScore(
+        tokenChars: [Character],
+        candidateChars: [Character]
+    ) -> Int? {
+        guard tokenChars.count >= 4 else { return nil }
+
+        var best: Int?
+        for segment in wordSegments(candidateChars) {
+            guard let match = singleOmittedCharacterWordPrefixMatch(
+                tokenChars: tokenChars,
+                candidateChars: candidateChars,
+                segment: segment
+            ) else {
+                continue
+            }
+
+            let lengthPenalty = max(0, match.segmentLength - tokenChars.count - 1) * 6
+            let distancePenalty = match.segmentStart * 8
+            let trailingPenalty = max(0, candidateChars.count - match.segmentLength)
+            let omissionPenalty = max(0, match.omittedIndex - match.segmentStart) * 10
+            let score = 5000 - distancePenalty - lengthPenalty - trailingPenalty - omissionPenalty
             best = max(best ?? score, score)
         }
 
@@ -6385,6 +6430,95 @@ enum CommandPaletteFuzzyMatcher {
 
         guard usedWords >= 2 else { return nil }
         return matchedIndices
+    }
+
+    private static func singleOmittedCharacterWordPrefixMatch(
+        token: String,
+        candidate: String
+    ) -> SingleOmittedCharacterWordPrefixMatch? {
+        singleOmittedCharacterWordPrefixMatch(
+            tokenChars: Array(token),
+            candidateChars: Array(candidate)
+        )
+    }
+
+    private static func singleOmittedCharacterWordPrefixMatch(
+        tokenChars: [Character],
+        candidateChars: [Character]
+    ) -> SingleOmittedCharacterWordPrefixMatch? {
+        guard tokenChars.count >= 4 else { return nil }
+
+        var bestMatch: SingleOmittedCharacterWordPrefixMatch?
+        var bestScore: Int?
+
+        for segment in wordSegments(candidateChars) {
+            guard let match = singleOmittedCharacterWordPrefixMatch(
+                tokenChars: tokenChars,
+                candidateChars: candidateChars,
+                segment: segment
+            ) else {
+                continue
+            }
+
+            let score = 5000
+                - (match.segmentStart * 8)
+                - (max(0, match.segmentLength - tokenChars.count - 1) * 6)
+                - (max(0, candidateChars.count - match.segmentLength))
+                - (max(0, match.omittedIndex - match.segmentStart) * 10)
+
+            if let bestScore, score <= bestScore {
+                continue
+            }
+            bestScore = score
+            bestMatch = match
+        }
+
+        return bestMatch
+    }
+
+    private static func singleOmittedCharacterWordPrefixMatch(
+        tokenChars: [Character],
+        candidateChars: [Character],
+        segment: (start: Int, end: Int)
+    ) -> SingleOmittedCharacterWordPrefixMatch? {
+        guard tokenChars.count >= 4 else { return nil }
+
+        let segmentLength = segment.end - segment.start
+        guard segmentLength >= tokenChars.count + 1 else { return nil }
+
+        var tokenIndex = 0
+        var candidateIndex = segment.start
+        var omittedIndex: Int?
+        var matchedIndices: Set<Int> = []
+
+        while tokenIndex < tokenChars.count, candidateIndex < segment.end {
+            if candidateChars[candidateIndex] == tokenChars[tokenIndex] {
+                matchedIndices.insert(candidateIndex)
+                tokenIndex += 1
+                candidateIndex += 1
+                continue
+            }
+
+            guard omittedIndex == nil else { return nil }
+            omittedIndex = candidateIndex
+            candidateIndex += 1
+        }
+
+        guard tokenIndex == tokenChars.count else { return nil }
+        let resolvedOmittedIndex: Int
+        if let omittedIndex {
+            resolvedOmittedIndex = omittedIndex
+        } else {
+            guard candidateIndex < segment.end else { return nil }
+            resolvedOmittedIndex = candidateIndex
+        }
+
+        return SingleOmittedCharacterWordPrefixMatch(
+            matchedIndices: matchedIndices,
+            segmentStart: segment.start,
+            segmentLength: segmentLength,
+            omittedIndex: resolvedOmittedIndex
+        )
     }
 
     private static func wordSegments(_ candidateChars: [Character]) -> [(start: Int, end: Int)] {
