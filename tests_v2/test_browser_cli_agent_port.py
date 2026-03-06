@@ -173,6 +173,14 @@ def main() -> int:
         _must(routed_url.startswith(page_url), f"Expected routed URL to start with page URL, got: {routed_url_payload}")
         _must("--workspace" not in routed_url and "--window" not in routed_url, f"Routing flags leaked into URL: {routed_url_payload}")
 
+        goto_url = f"{page_url}?goto=1"
+        goto_payload = _run_cli_json(cli, ["browser", surface, "goto", goto_url, "--snapshot-after"])
+        _must(bool(goto_payload.get("post_action_snapshot")), f"Expected goto --snapshot-after to include post_action_snapshot: {goto_payload}")
+        goto_url_payload = _run_cli_json(cli, ["browser", surface, "url"])
+        current_goto_url = str(goto_url_payload.get("url") or "")
+        _must(current_goto_url.startswith(goto_url), f"Expected goto --snapshot-after current URL to match target URL: {goto_url_payload}")
+        _must("--snapshot-after" not in current_goto_url, f"Expected goto URL to exclude trailing flag text: {goto_url_payload}")
+
         find_text = _run_cli_json(cli, ["browser", surface, "find", "text", "row-b"])
         _must(str(find_text.get("element_ref") or "").startswith("@e"), f"Expected element_ref from find text: {find_text}")
 
