@@ -3298,10 +3298,34 @@ struct WebViewRepresentable: NSViewRepresentable {
                 )
             }
         }
-        host.onGeometryChanged = { [weak host, weak coordinator] in
-            guard let host, let coordinator else { return }
+        host.onGeometryChanged = { [weak host, weak webView, weak coordinator] in
+            guard let host, let coordinator, let webView else { return }
             guard coordinator.attachGeneration == generation else { return }
             guard coordinator.lastPortalHostId == ObjectIdentifier(host) else { return }
+            let isBoundToHost = BrowserWindowPortalRegistry.isWebView(webView, boundTo: host)
+            let hasPortalEntry = BrowserWindowPortalRegistry.hasPortalEntry(for: webView)
+            if host.window != nil,
+               !isBoundToHost,
+               !hasPortalEntry {
+#if DEBUG
+                if let panel = coordinator.panel {
+                    Self.logDevToolsState(
+                        panel,
+                        event: "portal.rebindOnGeometry",
+                        generation: coordinator.attachGeneration,
+                        retryCount: 0,
+                        details: Self.attachContext(webView: webView, host: host) + " reason=portalEntryMissing"
+                    )
+                }
+#endif
+                BrowserWindowPortalRegistry.bind(
+                    webView: webView,
+                    to: host,
+                    visibleInUI: coordinator.desiredPortalVisibleInUI,
+                    zPriority: coordinator.desiredPortalZPriority
+                )
+                coordinator.lastPortalHostId = ObjectIdentifier(host)
+            }
             BrowserWindowPortalRegistry.synchronizeForAnchor(host)
         }
 
@@ -3468,13 +3492,14 @@ struct WebViewRepresentable: NSViewRepresentable {
                 window.makeFirstResponder(nil)
             }
         }
-
-        // SwiftUI can transiently dismantle/rebuild the browser host view during split
-        // rearrangement. Do not detach the portal-hosted WKWebView here; explicit detach
-        // still happens on real web view replacement and panel teardown.
         BrowserWindowPortalRegistry.updateDropZoneOverlay(for: webView, zone: nil)
         BrowserWindowPortalRegistry.updatePaneDropContext(for: webView, context: nil)
         coordinator.lastPortalHostId = nil
+        // SwiftUI can transiently dismantle/rebuild BrowserPanel representables during
+        // split/tree churn. Do not mutate portal visibility or detach here, both race
+        // deferred host rebinding and can leave a live browser pane blank. Permanent
+        // detach happens on panel close, web view replacement, or explicit registry
+        // detach paths.
     }
 
     private func currentPaneDropContext() -> BrowserPaneDropContext? {

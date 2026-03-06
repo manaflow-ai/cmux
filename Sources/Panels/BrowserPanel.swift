@@ -1909,6 +1909,9 @@ final class BrowserPanel: Panel, ObservableObject {
         // Ensure we don't keep a hidden WKWebView (or its content view) as first responder while
         // bonsplit/SwiftUI reshuffles views during close.
         unfocus()
+        // Close is a permanent panel lifecycle transition, so explicitly detach
+        // from the window portal here instead of relying on transient representable teardown.
+        BrowserWindowPortalRegistry.detach(webView: webView)
         webView.stopLoading()
         webView.navigationDelegate = nil
         webView.uiDelegate = nil

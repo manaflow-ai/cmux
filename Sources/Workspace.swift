@@ -3190,7 +3190,11 @@ final class Workspace: Identifiable, ObservableObject {
 
     @discardableResult
     func clearSplitZoom() -> Bool {
-        bonsplitController.clearPaneZoom()
+        let cleared = bonsplitController.clearPaneZoom()
+        if cleared {
+            synchronizeTerminalPortalVisibilityForCurrentLayout()
+        }
+        return cleared
     }
 
     @discardableResult
@@ -3198,7 +3202,63 @@ final class Workspace: Identifiable, ObservableObject {
         guard let paneId = paneId(forPanelId: panelId) else { return false }
         guard bonsplitController.togglePaneZoom(inPane: paneId) else { return false }
         focusPanel(panelId)
+        synchronizeTerminalPortalVisibilityForCurrentLayout()
         return true
+    }
+
+    private func visiblePanelIdsForCurrentLayout() -> Set<UUID> {
+        let renderedPaneIds: [PaneID] = {
+            if let zoomedPaneId = bonsplitController.zoomedPaneId {
+                return [zoomedPaneId]
+            }
+            return bonsplitController.allPaneIds
+        }()
+
+        var visiblePanelIds = Set<UUID>()
+        for paneId in renderedPaneIds {
+            guard let tabId = bonsplitController.selectedTab(inPane: paneId)?.id,
+                  let panelId = panelIdFromSurfaceId(tabId),
+                  panels[panelId] != nil else { continue }
+            visiblePanelIds.insert(panelId)
+        }
+
+        if let focusedPanelId,
+           panels[focusedPanelId] != nil {
+            visiblePanelIds.insert(focusedPanelId)
+        }
+
+        return visiblePanelIds
+    }
+
+    private func synchronizeTerminalPortalVisibilityForCurrentLayout() {
+        let visiblePanelIds = visiblePanelIdsForCurrentLayout()
+        let terminalPanelIds = panels.compactMap { panelId, panel -> UUID? in
+            panel is TerminalPanel ? panelId : nil
+        }
+
+        // During split/tree churn, bonsplit can report a transient empty selection.
+        // Preserve current visibility in that moment instead of hiding every terminal.
+        if !terminalPanelIds.isEmpty && visiblePanelIds.isEmpty {
+            return
+        }
+
+        for panelId in terminalPanelIds {
+            guard let terminalPanel = terminalPanel(for: panelId) else { continue }
+            let shouldBeVisible = visiblePanelIds.contains(panelId)
+            terminalPanel.hostedView.setVisibleInUI(shouldBeVisible)
+            if shouldBeVisible {
+                TerminalWindowPortalRegistry.updateEntryVisibility(
+                    for: terminalPanel.hostedView,
+                    visibleInUI: true
+                )
+            } else {
+                TerminalWindowPortalRegistry.hideHostedView(terminalPanel.hostedView)
+            }
+        }
+    }
+
+    func debugVisiblePanelIdsForCurrentLayout() -> Set<UUID> {
+        visiblePanelIdsForCurrentLayout()
     }
 
     // MARK: - Context Menu Shortcuts

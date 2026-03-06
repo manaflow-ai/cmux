@@ -1238,10 +1238,28 @@ final class WindowBrowserPortal: NSObject {
         }
     }
 
-    func detachWebView(withId webViewId: ObjectIdentifier) {
-        guard let entry = entriesByWebViewId.removeValue(forKey: webViewId) else { return }
+    @discardableResult
+    func detachWebView(withId webViewId: ObjectIdentifier, expectedAnchorId: ObjectIdentifier? = nil) -> Bool {
+        guard let entry = entriesByWebViewId[webViewId] else { return false }
+        if let expectedAnchorId {
+            let actualAnchorId = entry.anchorView.map(ObjectIdentifier.init)
+            guard actualAnchorId == expectedAnchorId else {
+#if DEBUG
+                dlog(
+                    "browser.portal.detach.skip web=\(browserPortalDebugToken(entry.webView)) " +
+                    "expectedAnchor=\(String(describing: expectedAnchorId)) " +
+                    "actualAnchor=\(browserPortalDebugToken(entry.anchorView))"
+                )
+#endif
+                return false
+            }
+        }
+        _ = entriesByWebViewId.removeValue(forKey: webViewId)
         if let anchor = entry.anchorView {
-            webViewByAnchorId.removeValue(forKey: ObjectIdentifier(anchor))
+            let anchorId = ObjectIdentifier(anchor)
+            if webViewByAnchorId[anchorId] == webViewId {
+                webViewByAnchorId.removeValue(forKey: anchorId)
+            }
         }
 #if DEBUG
         let hadContainerSuperview = (entry.containerView?.superview === hostView) ? 1 : 0
@@ -1255,6 +1273,7 @@ final class WindowBrowserPortal: NSObject {
 #endif
         entry.webView?.removeFromSuperview()
         entry.containerView?.removeFromSuperview()
+        return true
     }
 
     /// Update the visibleInUI/zPriority state on an existing entry without rebinding.
@@ -1265,6 +1284,16 @@ final class WindowBrowserPortal: NSObject {
         entry.visibleInUI = visibleInUI
         entry.zPriority = zPriority
         entriesByWebViewId[webViewId] = entry
+    }
+
+    func isWebViewBoundToAnchor(withId webViewId: ObjectIdentifier, anchorView: NSView) -> Bool {
+        guard let entry = entriesByWebViewId[webViewId],
+              let boundAnchor = entry.anchorView else { return false }
+        return boundAnchor === anchorView
+    }
+
+    func hasWebViewEntry(withId webViewId: ObjectIdentifier) -> Bool {
+        entriesByWebViewId[webViewId] != nil
     }
 
     func updateDropZoneOverlay(forWebViewId webViewId: ObjectIdentifier, zone: DropZone?) {
@@ -1473,7 +1502,9 @@ final class WindowBrowserPortal: NSObject {
         if entry.transientRecoveryRetriesRemaining > 0 {
             scheduleDeferredFullSynchronizeAll()
         }
-        return true
+        // Returning false on the terminal retry tells callers to stop defer-keeping
+        // the old container visible and fall back to a normal hide path.
+        return entry.transientRecoveryRetriesRemaining > 0
     }
 
     private func synchronizeWebView(
@@ -1495,15 +1526,26 @@ final class WindowBrowserPortal: NSObject {
             return
         }
         guard let anchorView = entry.anchorView, let window else {
+            let didScheduleTransientRecovery: Bool
             if entry.visibleInUI {
-                _ = scheduleTransientRecoveryRetryIfNeeded(
+                didScheduleTransientRecovery = scheduleTransientRecoveryRetryIfNeeded(
                     forWebViewId: webViewId,
                     entry: &entry,
                     webView: webView,
                     reason: "missingAnchorOrWindow"
                 )
             } else {
+                didScheduleTransientRecovery = false
                 resetTransientRecoveryRetryIfNeeded(forWebViewId: webViewId, entry: &entry)
+            }
+            if didScheduleTransientRecovery && !containerView.isHidden {
+#if DEBUG
+                dlog(
+                    "browser.portal.hidden.deferKeep web=\(browserPortalDebugToken(webView)) " +
+                    "reason=missingAnchorOrWindow frame=\(browserPortalDebugFrame(containerView.frame))"
+                )
+#endif
+                return
             }
 #if DEBUG
             if !containerView.isHidden {
@@ -1518,6 +1560,27 @@ final class WindowBrowserPortal: NSObject {
             return
         }
         guard anchorView.window === window else {
+            let didScheduleTransientRecovery: Bool
+            if entry.visibleInUI {
+                didScheduleTransientRecovery = scheduleTransientRecoveryRetryIfNeeded(
+                    forWebViewId: webViewId,
+                    entry: &entry,
+                    webView: webView,
+                    reason: "anchorWindowMismatch"
+                )
+            } else {
+                didScheduleTransientRecovery = false
+                resetTransientRecoveryRetryIfNeeded(forWebViewId: webViewId, entry: &entry)
+            }
+            if didScheduleTransientRecovery && !containerView.isHidden {
+#if DEBUG
+                dlog(
+                    "browser.portal.hidden.deferKeep web=\(browserPortalDebugToken(webView)) " +
+                    "reason=anchorWindowMismatch frame=\(browserPortalDebugFrame(containerView.frame))"
+                )
+#endif
+                return
+            }
 #if DEBUG
             if !containerView.isHidden {
                 dlog(
@@ -1527,16 +1590,6 @@ final class WindowBrowserPortal: NSObject {
                 )
             }
 #endif
-            if entry.visibleInUI {
-                _ = scheduleTransientRecoveryRetryIfNeeded(
-                    forWebViewId: webViewId,
-                    entry: &entry,
-                    webView: webView,
-                    reason: "anchorWindowMismatch"
-                )
-            } else {
-                resetTransientRecoveryRetryIfNeeded(forWebViewId: webViewId, entry: &entry)
-            }
             containerView.setDropZoneOverlay(zone: nil)
             containerView.isHidden = true
             return
@@ -1619,14 +1672,7 @@ final class WindowBrowserPortal: NSObject {
             }
             containerView.setDropZoneOverlay(zone: nil)
             containerView.isHidden = true
-            if entry.visibleInUI {
-                _ = scheduleTransientRecoveryRetryIfNeeded(
-                    forWebViewId: webViewId,
-                    entry: &entry,
-                    webView: webView,
-                    reason: "hostBoundsNotReady"
-                )
-            } else {
+            if !entry.visibleInUI {
                 scheduleDeferredFullSynchronizeAll()
             }
             return
@@ -1835,15 +1881,21 @@ final class WindowBrowserPortal: NSObject {
                 return entry.visibleInUI ? nil : webViewId
             }
             if container.superview == nil || !container.isDescendant(of: hostView) {
-                return webViewId
+                // We reparent the container in bind/sync. If it's missing from hostView,
+                // but still visibleInUI, we should recover it during sync instead of pruning it here.
+                return entry.visibleInUI ? nil : webViewId
             }
             let anchorInvalidForCurrentHost =
                 anchor.window !== currentWindow ||
                 anchor.superview == nil ||
                 (installedReferenceView.map { !anchor.isDescendant(of: $0) } ?? false)
             if anchorInvalidForCurrentHost {
+                // During aggressive tab drag/reorder churn, SwiftUI/AppKit can briefly
+                // detach/rehome anchor hosts while the browser should stay visible.
+                // Avoid pruning those visible entries so sync/bind recovery can reattach.
                 return entry.visibleInUI ? nil : webViewId
             }
+            
             return nil
         }
 
@@ -2011,10 +2063,40 @@ enum BrowserWindowPortalRegistry {
         portal.updatePaneDropContext(forWebViewId: webViewId, context: context)
     }
 
-    static func detach(webView: WKWebView) {
+    static func isWebView(_ webView: WKWebView, boundTo anchorView: NSView) -> Bool {
         let webViewId = ObjectIdentifier(webView)
-        guard let windowId = webViewToWindowId.removeValue(forKey: webViewId) else { return }
-        portalsByWindowId[windowId]?.detachWebView(withId: webViewId)
+        if let windowId = webViewToWindowId[webViewId],
+           let portal = portalsByWindowId[windowId] {
+            return portal.isWebViewBoundToAnchor(withId: webViewId, anchorView: anchorView)
+        }
+        for portal in portalsByWindowId.values {
+            if portal.isWebViewBoundToAnchor(withId: webViewId, anchorView: anchorView) {
+                return true
+            }
+        }
+        return false
+    }
+
+    static func hasPortalEntry(for webView: WKWebView) -> Bool {
+        let webViewId = ObjectIdentifier(webView)
+        guard let windowId = webViewToWindowId[webViewId],
+              let portal = portalsByWindowId[windowId] else { return false }
+        return portal.hasWebViewEntry(withId: webViewId)
+    }
+
+    @discardableResult
+    static func detach(webView: WKWebView, expectedAnchorId: ObjectIdentifier? = nil) -> Bool {
+        let webViewId = ObjectIdentifier(webView)
+        guard let windowId = webViewToWindowId[webViewId] else { return false }
+        guard let portal = portalsByWindowId[windowId] else {
+            webViewToWindowId.removeValue(forKey: webViewId)
+            return true
+        }
+        let didDetach = portal.detachWebView(withId: webViewId, expectedAnchorId: expectedAnchorId)
+        guard didDetach else { return false }
+        webViewToWindowId.removeValue(forKey: webViewId)
+        pruneWebViewMappings(for: windowId, validWebViewIds: portal.webViewIds())
+        return true
     }
 
     static func webViewAtWindowPoint(_ windowPoint: NSPoint, in window: NSWindow) -> WKWebView? {
