@@ -32,10 +32,11 @@ struct MarkdownPanelView: View {
                 .allowsHitTesting(false)
         }
         .overlay {
-            // Selection-enabled markdown text can consume pointer events before the
-            // outer SwiftUI tap gesture sees them. Capture primary-button mouse
-            // input at the AppKit layer, focus the pane, then forward the event.
-            MarkdownPointerPassthrough(onPointerDown: onRequestPanelFocus)
+            if isVisibleInUI {
+                // Observe left-clicks without intercepting them so markdown text
+                // selection and link activation continue to use the native path.
+                MarkdownPointerObserver(onPointerDown: onRequestPanelFocus)
+            }
         }
         .onChange(of: panel.focusFlashToken) { _ in
             triggerFocusFlashAnimation()
@@ -287,107 +288,66 @@ struct MarkdownPanelView: View {
     }
 }
 
-private struct MarkdownPointerPassthrough: NSViewRepresentable {
+private struct MarkdownPointerObserver: NSViewRepresentable {
     let onPointerDown: () -> Void
 
-    func makeNSView(context: Context) -> MarkdownPanelPointerPassthroughView {
-        let view = MarkdownPanelPointerPassthroughView()
+    func makeNSView(context: Context) -> MarkdownPanelPointerObserverView {
+        let view = MarkdownPanelPointerObserverView()
         view.onPointerDown = onPointerDown
         return view
     }
 
-    func updateNSView(_ nsView: MarkdownPanelPointerPassthroughView, context: Context) {
+    func updateNSView(_ nsView: MarkdownPanelPointerObserverView, context: Context) {
         nsView.onPointerDown = onPointerDown
     }
 }
 
-final class MarkdownPanelPointerPassthroughView: NSView {
+final class MarkdownPanelPointerObserverView: NSView {
     var onPointerDown: (() -> Void)?
-
-    private weak var activeMouseTarget: NSView?
-    private var isForwardingEvent = false
+    private var eventMonitor: Any?
 
     override var mouseDownCanMoveWindow: Bool { false }
 
-    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
-        true
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        installEventMonitorIfNeeded()
     }
 
-    static func shouldCaptureHitTesting(eventType: NSEvent.EventType?) -> Bool {
-        switch eventType {
-        case .leftMouseDown, .leftMouseDragged, .leftMouseUp:
-            return true
-        default:
-            return false
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    deinit {
+        if let eventMonitor {
+            NSEvent.removeMonitor(eventMonitor)
         }
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
-        guard bounds.contains(point),
-              Self.shouldCaptureHitTesting(eventType: NSApp.currentEvent?.type) else { return nil }
-        return self
+        nil
     }
 
-    override func mouseDown(with event: NSEvent) {
-        onPointerDown?()
-        forwardPrimaryMouseEvent(event, trackTarget: true, clearTarget: false)
-    }
-
-    override func mouseDragged(with event: NSEvent) {
-        forwardPrimaryMouseEvent(event, trackTarget: false, clearTarget: false)
-    }
-
-    override func mouseUp(with event: NSEvent) {
-        forwardPrimaryMouseEvent(event, trackTarget: false, clearTarget: true)
-    }
-
-    private func forwardPrimaryMouseEvent(
-        _ event: NSEvent,
-        trackTarget: Bool,
-        clearTarget: Bool
-    ) {
-        guard !isForwardingEvent,
+    func shouldHandle(_ event: NSEvent) -> Bool {
+        guard event.type == .leftMouseDown,
               let window,
-              let contentView = window.contentView else {
-            if clearTarget {
-                activeMouseTarget = nil
-            }
-            return
+              event.window === window,
+              !isHiddenOrHasHiddenAncestor else { return false }
+        let point = convert(event.locationInWindow, from: nil)
+        return bounds.contains(point)
+    }
+
+    func handleEventIfNeeded(_ event: NSEvent) -> NSEvent {
+        guard shouldHandle(event) else { return event }
+        DispatchQueue.main.async { [weak self] in
+            self?.onPointerDown?()
         }
+        return event
+    }
 
-        isForwardingEvent = true
-        isHidden = true
-        defer {
-            isHidden = false
-            isForwardingEvent = false
-            if clearTarget {
-                activeMouseTarget = nil
-            }
-        }
-
-        let target: NSView?
-        if let activeMouseTarget, activeMouseTarget.window != nil {
-            target = activeMouseTarget
-        } else {
-            let point = contentView.convert(event.locationInWindow, from: nil)
-            target = contentView.hitTest(point)
-        }
-
-        guard let target, target !== self else { return }
-
-        if trackTarget {
-            activeMouseTarget = target
-        }
-
-        switch event.type {
-        case .leftMouseDown:
-            target.mouseDown(with: event)
-        case .leftMouseDragged:
-            target.mouseDragged(with: event)
-        case .leftMouseUp:
-            target.mouseUp(with: event)
-        default:
-            break
+    private func installEventMonitorIfNeeded() {
+        guard eventMonitor == nil else { return }
+        eventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown]) { [weak self] event in
+            self?.handleEventIfNeeded(event) ?? event
         }
     }
 }

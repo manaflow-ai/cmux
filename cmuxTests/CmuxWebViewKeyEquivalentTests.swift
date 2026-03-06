@@ -10105,29 +10105,7 @@ final class FileDropOverlayViewTests: XCTestCase {
 }
 
 @MainActor
-final class MarkdownPanelPointerPassthroughViewTests: XCTestCase {
-    private final class CapturingView: NSView {
-        var mouseDownCount = 0
-        var mouseDraggedCount = 0
-        var mouseUpCount = 0
-
-        override func hitTest(_ point: NSPoint) -> NSView? {
-            bounds.contains(point) ? self : nil
-        }
-
-        override func mouseDown(with event: NSEvent) {
-            mouseDownCount += 1
-        }
-
-        override func mouseDragged(with event: NSEvent) {
-            mouseDraggedCount += 1
-        }
-
-        override func mouseUp(with event: NSEvent) {
-            mouseUpCount += 1
-        }
-    }
-
+final class MarkdownPanelPointerObserverViewTests: XCTestCase {
     private func makeWindow() -> NSWindow {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 320, height: 180),
@@ -10163,7 +10141,7 @@ final class MarkdownPanelPointerPassthroughViewTests: XCTestCase {
         return event
     }
 
-    func testPassthroughViewFocusesAndForwardsPrimaryMouseSequence() {
+    func testObserverTriggersFocusForVisibleLeftClickInsideBounds() {
         let window = makeWindow()
         defer { window.orderOut(nil) }
         guard let contentView = window.contentView else {
@@ -10171,11 +10149,7 @@ final class MarkdownPanelPointerPassthroughViewTests: XCTestCase {
             return
         }
 
-        let target = CapturingView(frame: contentView.bounds)
-        target.autoresizingMask = [.width, .height]
-        contentView.addSubview(target)
-
-        let overlay = MarkdownPanelPointerPassthroughView(frame: contentView.bounds)
+        let overlay = MarkdownPanelPointerObserverView(frame: contentView.bounds)
         overlay.autoresizingMask = [.width, .height]
         var pointerDownCount = 0
         overlay.onPointerDown = {
@@ -10183,25 +10157,49 @@ final class MarkdownPanelPointerPassthroughViewTests: XCTestCase {
         }
         contentView.addSubview(overlay)
 
-        overlay.mouseDown(with: makeMouseEvent(type: .leftMouseDown, location: NSPoint(x: 60, y: 60), window: window))
-        overlay.mouseDragged(with: makeMouseEvent(type: .leftMouseDragged, location: NSPoint(x: 90, y: 60), window: window, eventNumber: 2))
-        overlay.mouseUp(with: makeMouseEvent(type: .leftMouseUp, location: NSPoint(x: 120, y: 60), window: window, eventNumber: 3))
+        _ = overlay.handleEventIfNeeded(
+            makeMouseEvent(type: .leftMouseDown, location: NSPoint(x: 60, y: 60), window: window)
+        )
+        RunLoop.current.run(until: Date().addingTimeInterval(0.01))
 
         XCTAssertEqual(pointerDownCount, 1)
-        XCTAssertEqual(target.mouseDownCount, 1)
-        XCTAssertEqual(target.mouseDraggedCount, 1)
-        XCTAssertEqual(target.mouseUpCount, 1)
     }
 
-    func testPassthroughViewCapturesOnlyPrimaryMouseSequence() {
-        XCTAssertTrue(MarkdownPanelPointerPassthroughView.shouldCaptureHitTesting(eventType: .leftMouseDown))
-        XCTAssertTrue(MarkdownPanelPointerPassthroughView.shouldCaptureHitTesting(eventType: .leftMouseDragged))
-        XCTAssertTrue(MarkdownPanelPointerPassthroughView.shouldCaptureHitTesting(eventType: .leftMouseUp))
+    func testObserverIgnoresOutsideOrForeignWindowClicks() {
+        let window = makeWindow()
+        defer { window.orderOut(nil) }
+        let otherWindow = makeWindow()
+        defer { otherWindow.orderOut(nil) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
 
-        XCTAssertFalse(MarkdownPanelPointerPassthroughView.shouldCaptureHitTesting(eventType: .rightMouseDown))
-        XCTAssertFalse(MarkdownPanelPointerPassthroughView.shouldCaptureHitTesting(eventType: .otherMouseDown))
-        XCTAssertFalse(MarkdownPanelPointerPassthroughView.shouldCaptureHitTesting(eventType: .scrollWheel))
-        XCTAssertFalse(MarkdownPanelPointerPassthroughView.shouldCaptureHitTesting(eventType: nil))
+        let overlay = MarkdownPanelPointerObserverView(frame: contentView.bounds)
+        overlay.autoresizingMask = [.width, .height]
+        var pointerDownCount = 0
+        overlay.onPointerDown = {
+            pointerDownCount += 1
+        }
+        contentView.addSubview(overlay)
+
+        _ = overlay.handleEventIfNeeded(
+            makeMouseEvent(type: .leftMouseDown, location: NSPoint(x: 400, y: 400), window: window)
+        )
+        _ = overlay.handleEventIfNeeded(
+            makeMouseEvent(type: .leftMouseDown, location: NSPoint(x: 60, y: 60), window: otherWindow, eventNumber: 2)
+        )
+        _ = overlay.handleEventIfNeeded(
+            makeMouseEvent(type: .leftMouseDragged, location: NSPoint(x: 60, y: 60), window: window, eventNumber: 3)
+        )
+        RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+
+        XCTAssertEqual(pointerDownCount, 0)
+    }
+
+    func testObserverDoesNotParticipateInHitTesting() {
+        let overlay = MarkdownPanelPointerObserverView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
+        XCTAssertNil(overlay.hitTest(NSPoint(x: 40, y: 30)))
     }
 }
 
