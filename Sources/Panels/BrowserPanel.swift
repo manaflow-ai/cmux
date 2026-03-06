@@ -1244,6 +1244,15 @@ final class BrowserSearchState: ObservableObject {
     }
 }
 
+final class BrowserPortalAnchorView: NSView {
+    override var acceptsFirstResponder: Bool { false }
+    override var isOpaque: Bool { false }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
+    }
+}
+
 @MainActor
 final class BrowserPanel: Panel, ObservableObject {
     /// Shared process pool for cookie sharing across all browser panels
@@ -1481,6 +1490,7 @@ final class BrowserPanel: Panel, ObservableObject {
         }
     }
     private var searchNeedleCancellable: AnyCancellable?
+    let portalAnchorView = BrowserPortalAnchorView(frame: .zero)
     private var webViewCancellables = Set<AnyCancellable>()
     private var navigationDelegate: BrowserNavigationDelegate?
     private var uiDelegate: BrowserUIDelegate?

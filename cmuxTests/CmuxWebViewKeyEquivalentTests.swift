@@ -2450,7 +2450,9 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             shouldFocusWebView: false,
             isPanelFocused: true,
             portalZPriority: 0,
-            paneDropZone: nil
+            paneDropZone: nil,
+            searchOverlay: nil,
+            paneTopChromeHeight: 0
         )
         let coordinator = representable.makeCoordinator()
         coordinator.webView = panel.webView
@@ -2487,7 +2489,9 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             shouldFocusWebView: false,
             isPanelFocused: true,
             portalZPriority: 0,
-            paneDropZone: nil
+            paneDropZone: nil,
+            searchOverlay: nil,
+            paneTopChromeHeight: 0
         )
         let coordinator = representable.makeCoordinator()
         coordinator.webView = panel.webView
@@ -7776,6 +7780,27 @@ final class BrowserPaneDropRoutingTests: XCTestCase {
         )
     }
 
+    func testTopChromeHeightPushesTopSplitThresholdIntoWebView() {
+        let size = CGSize(width: 240, height: 180)
+
+        XCTAssertEqual(
+            BrowserPaneDropRouting.zone(
+                for: CGPoint(x: size.width * 0.5, y: 110),
+                in: size,
+                topChromeHeight: 36
+            ),
+            .center
+        )
+        XCTAssertEqual(
+            BrowserPaneDropRouting.zone(
+                for: CGPoint(x: size.width * 0.5, y: 150),
+                in: size,
+                topChromeHeight: 36
+            ),
+            .top
+        )
+    }
+
     func testHitTestingCapturesOnlyForRelevantDragEvents() {
         XCTAssertTrue(
             BrowserPaneDropTargetView.shouldCaptureHitTesting(
@@ -7873,22 +7898,24 @@ final class WindowBrowserSlotViewTests: XCTestCase {
     }
 
     func testDropZoneOverlayStaysAboveContentWithoutBlockingHits() {
-        let slot = WindowBrowserSlotView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
+        let slot = WindowBrowserSlotView(frame: container.bounds)
+        container.addSubview(slot)
         let child = CapturingView(frame: slot.bounds)
         child.autoresizingMask = [.width, .height]
         slot.addSubview(child)
 
         slot.setDropZoneOverlay(zone: .right)
-        slot.layoutSubtreeIfNeeded()
+        container.layoutSubtreeIfNeeded()
 
-        guard let overlay = slot.subviews.first(where: {
-            $0 !== child && String(describing: type(of: $0)).contains("BrowserDropZoneOverlayView")
+        guard let overlay = container.subviews.first(where: {
+            $0 !== slot && String(describing: type(of: $0)).contains("BrowserDropZoneOverlayView")
         }) else {
             XCTFail("Expected browser slot drop-zone overlay")
             return
         }
 
-        XCTAssertTrue(slot.subviews.last === overlay, "Overlay should stay above the hosted web view")
+        XCTAssertTrue(container.subviews.last === overlay, "Overlay should stay above the hosted web view")
         XCTAssertFalse(overlay.isHidden)
         XCTAssertEqual(overlay.frame.origin.x, 100, accuracy: 0.5)
         XCTAssertEqual(overlay.frame.origin.y, 4, accuracy: 0.5)
@@ -7900,6 +7927,35 @@ final class WindowBrowserSlotViewTests: XCTestCase {
         slot.setDropZoneOverlay(zone: nil)
         advanceAnimations()
         XCTAssertTrue(overlay.isHidden, "Clearing the drop zone should hide the overlay")
+    }
+
+    func testTopDropZoneOverlayUsesFullBrowserContentHeight() {
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
+        let slot = WindowBrowserSlotView(frame: container.bounds)
+        container.addSubview(slot)
+
+        slot.setPaneTopChromeHeight(20)
+        slot.setDropZoneOverlay(zone: .top)
+        container.layoutSubtreeIfNeeded()
+
+        guard let overlay = container.subviews.first(where: {
+            String(describing: type(of: $0)).contains("BrowserDropZoneOverlayView")
+        }) else {
+            XCTFail("Expected browser slot drop-zone overlay")
+            return
+        }
+
+        XCTAssertFalse(overlay.isHidden)
+        XCTAssertEqual(overlay.frame.origin.x, 4, accuracy: 0.5)
+        XCTAssertEqual(overlay.frame.origin.y, 60, accuracy: 0.5)
+        XCTAssertEqual(overlay.frame.size.width, 192, accuracy: 0.5)
+        XCTAssertEqual(overlay.frame.size.height, 56, accuracy: 0.5)
+        XCTAssertGreaterThan(overlay.frame.maxY, slot.frame.maxY)
+        XCTAssertEqual(slot.layer?.masksToBounds, true)
+
+        slot.setDropZoneOverlay(zone: nil)
+        advanceAnimations()
+        XCTAssertEqual(slot.layer?.masksToBounds, true)
     }
 }
 
