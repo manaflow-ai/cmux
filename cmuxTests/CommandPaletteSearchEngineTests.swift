@@ -219,6 +219,42 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(cancellationChecks, 4)
     }
 
+    func testCommandPreviewSearchUsesFullCommandCorpus() {
+        let entries = [
+            FixtureEntry(
+                id: "command.find",
+                rank: 0,
+                title: "Find...",
+                searchableTexts: ["Find...", "Search", "find", "search"]
+            ),
+            FixtureEntry(
+                id: "command.finder",
+                rank: 1,
+                title: "Open Current Directory in Finder",
+                searchableTexts: ["Open Current Directory in Finder", "Terminal", "finder", "directory", "open"]
+            ),
+        ]
+        let corpus = entries.map { entry in
+            CommandPaletteSearchCorpusEntry(
+                payload: entry.id,
+                rank: entry.rank,
+                title: entry.title,
+                searchableTexts: entry.searchableTexts
+            )
+        }
+        let corpusByID = Dictionary(uniqueKeysWithValues: corpus.map { ($0.payload, $0) })
+
+        let previewCommandIDs = ContentView.commandPaletteCommandPreviewMatchCommandIDsForTests(
+            searchCorpus: corpus,
+            candidateCommandIDs: ["command.find"],
+            searchCorpusByID: corpusByID,
+            query: "finde",
+            resultLimit: 48
+        )
+
+        XCTAssertEqual(previewCommandIDs.first, "command.finder")
+    }
+
     func testResolvedSelectionIndexPrefersAnchoredCommand() {
         let resultIDs = ["command.0", "command.1", "command.2"]
 
