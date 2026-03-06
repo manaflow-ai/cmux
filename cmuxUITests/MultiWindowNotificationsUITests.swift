@@ -199,6 +199,7 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         app.launchEnvironment["CMUX_SOCKET_MODE"] = "allowAll"
         app.launchEnvironment["CMUX_SOCKET_ENABLE"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_SOCKET_SANITY"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_NOTIFY_SOURCE_TERMINAL_READY"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_ENABLE_DUPLICATE_LAUNCH_OBSERVER"] = "1"
         app.launchEnvironment["CMUX_TAG"] = launchTag
         app.launch()
@@ -211,9 +212,15 @@ final class MultiWindowNotificationsUITests: XCTestCase {
                 let tabId2 = data["tabId2"] ?? ""
                 let surfaceId2 = data["surfaceId2"] ?? ""
                 let socketReady = data["socketReady"] ?? ""
-                return !tabId2.isEmpty && !surfaceId2.isEmpty && !socketReady.isEmpty && socketReady != "pending"
+                let sourceTerminalReady = data["sourceTerminalReady"] ?? ""
+                return !tabId2.isEmpty &&
+                    !surfaceId2.isEmpty &&
+                    !socketReady.isEmpty &&
+                    socketReady != "pending" &&
+                    !sourceTerminalReady.isEmpty &&
+                    sourceTerminalReady != "pending"
             },
-            "Expected multi-window notification setup data and socket readiness"
+            "Expected multi-window notification setup data, socket readiness, and source terminal focus"
         )
 
         guard let setup = loadData() else {
@@ -222,18 +229,6 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         }
         guard let tabId2 = setup["tabId2"], !tabId2.isEmpty else {
             XCTFail("Missing setup workspace id")
-            return
-        }
-        guard let tabId1 = setup["tabId1"], !tabId1.isEmpty else {
-            XCTFail("Missing source workspace id")
-            return
-        }
-        guard let window1Id = setup["window1Id"], !window1Id.isEmpty else {
-            XCTFail("Missing source window id")
-            return
-        }
-        guard let sourceSurfaceId = setup["surfaceId1"], !sourceSurfaceId.isEmpty else {
-            XCTFail("Missing source surface id")
             return
         }
         if let expectedSocketPath = setup["socketExpectedPath"], !expectedSocketPath.isEmpty {
@@ -255,6 +250,13 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         }
         guard let surfaceId = setup["surfaceId2"], !surfaceId.isEmpty else {
             XCTFail("Missing target surface id for workspace \(tabId2)")
+            return
+        }
+        guard setup["sourceTerminalReady"] == "1" else {
+            XCTFail(
+                "Expected source terminal to be focused before typing. " +
+                "failure=\(setup["sourceTerminalFocusFailure"] ?? "<unknown>")"
+            )
             return
         }
 
@@ -302,13 +304,6 @@ final class MultiWindowNotificationsUITests: XCTestCase {
             )
             return
         }
-        XCTAssertEqual(socketCommand("focus_window \(window1Id)"), "OK", "Expected source window to be focusable")
-        XCTAssertEqual(socketCommand("select_workspace \(tabId1)"), "OK", "Expected source workspace to be selectable")
-        XCTAssertEqual(socketCommand("focus_surface \(sourceSurfaceId)"), "OK", "Expected source terminal to be focusable")
-        XCTAssertTrue(
-            waitForTerminalFocus(surfaceId: sourceSurfaceId, timeout: 4.0),
-            "Expected source terminal surface to own first responder before typing"
-        )
 
         app.typeText("sh \(commandScriptPath)")
         app.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [])
