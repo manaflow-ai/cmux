@@ -209,8 +209,9 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         XCTAssertTrue(
             waitForDataMatch(timeout: 20.0) { data in
                 let tabId2 = data["tabId2"] ?? ""
+                let surfaceId2 = data["surfaceId2"] ?? ""
                 let socketReady = data["socketReady"] ?? ""
-                return !tabId2.isEmpty && !socketReady.isEmpty && socketReady != "pending"
+                return !tabId2.isEmpty && !surfaceId2.isEmpty && !socketReady.isEmpty && socketReady != "pending"
             },
             "Expected multi-window notification setup data and socket readiness"
         )
@@ -233,33 +234,19 @@ final class MultiWindowNotificationsUITests: XCTestCase {
             )
             return
         }
+        guard setup["socketPingResponse"] == "PONG" else {
+            XCTFail(
+                "Control socket ping sanity check failed. path=\(socketPath) " +
+                socketDiagnostics(from: setup)
+            )
+            return
+        }
+        guard let surfaceId = setup["surfaceId2"], !surfaceId.isEmpty else {
+            XCTFail("Missing target surface id for workspace \(tabId2)")
+            return
+        }
 
         XCTAssertTrue(waitForWindowCount(atLeast: 2, app: app, timeout: 6.0))
-
-        let pingResponse = waitForSocketPong(timeout: 20.0)
-        if pingResponse != "PONG",
-           let resolvedPath = resolveSocketPath(timeout: 5.0, requiredWorkspaceId: tabId2) {
-            socketPath = resolvedPath
-        }
-
-        let confirmedPingResponse = pingResponse == "PONG" ? pingResponse : waitForSocketPong(timeout: 5.0)
-        guard confirmedPingResponse == "PONG" else {
-            let failureSetup = loadData() ?? setup
-            XCTFail(
-                "Control socket did not respond in time. path=\(socketPath) response=\(confirmedPingResponse ?? "<nil>") " +
-                socketDiagnostics(from: failureSetup)
-            )
-            return
-        }
-
-        guard let surfaceId = waitForSurfaceId(forWorkspaceId: tabId2, timeout: 12.0) else {
-            let failureSetup = loadData() ?? setup
-            XCTFail(
-                "Expected at least one surface in workspace \(tabId2). socket=\(socketPath) " +
-                socketDiagnostics(from: failureSetup)
-            )
-            return
-        }
 
         let finder = XCUIApplication(bundleIdentifier: "com.apple.finder")
         finder.activate()
@@ -275,14 +262,26 @@ final class MultiWindowNotificationsUITests: XCTestCase {
             surfaceId: surfaceId,
             title: title
         )
-        XCTAssertEqual(notifyResult.terminationStatus, 0, "Expected `cmux notify` to succeed. stderr=\(notifyResult.stderr)")
-        XCTAssertTrue(notifyResult.stdout.contains("OK"), "Expected notify command to return OK. stdout=\(notifyResult.stdout)")
-
         RunLoop.current.run(until: Date().addingTimeInterval(0.5))
         XCTAssertFalse(
             app.state == .runningForeground,
-            "Expected cmux to remain in background after `cmux notify`. state=\(app.state.rawValue)"
+            "Expected cmux to remain in background after bundled `cmux notify`. state=\(app.state.rawValue) stderr=\(notifyResult.stderr)"
         )
+
+        guard notifyResult.terminationStatus == 0 else {
+            let rawFallbackResponse: String?
+            if isSocketPermissionFailure(notifyResult.stderr) {
+                rawFallbackResponse = socketCommand("notify_target \(tabId2) \(surfaceId) \(title)|ui-test|focus-regression")
+            } else {
+                rawFallbackResponse = nil
+            }
+            XCTFail(
+                "Expected bundled `cmux notify` to succeed. stderr=\(notifyResult.stderr) " +
+                "rawFallback=\(rawFallbackResponse ?? "<nil>")"
+            )
+            return
+        }
+        XCTAssertTrue(notifyResult.stdout.contains("OK"), "Expected notify command to return OK. stdout=\(notifyResult.stdout)")
     }
 
     private func clickNotificationPopoverRowAndWaitForFocusChange(
@@ -556,7 +555,7 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         surfaceId: String,
         title: String
     ) -> (terminationStatus: Int32, stdout: String, stderr: String) {
-        let result = runCmuxCommand(
+        runCmuxCommand(
             socketPath: socketPath,
             arguments: [
                 "notify",
@@ -571,35 +570,33 @@ final class MultiWindowNotificationsUITests: XCTestCase {
                 "--body",
                 "focus-regression"
             ],
-            responseTimeoutSeconds: 4.0
-        )
-        if result.terminationStatus == 0 || !isSocketPermissionFailure(result.stderr) {
-            return result
-        }
-
-        let response = socketCommand("notify_target \(workspaceId) \(surfaceId) \(title)|ui-test|focus-regression") ?? ""
-        let succeeded = response == "OK"
-        return (
-            terminationStatus: succeeded ? 0 : 1,
-            stdout: response,
-            stderr: succeeded
-                ? "\(result.stderr) raw-socket-fallback"
-                : "\(result.stderr) raw-socket-fallback-response=\(response)"
+            responseTimeoutSeconds: 4.0,
+            cliStrategy: .bundledOnly
         )
     }
 
     private func runCmuxCommand(
         socketPath: String,
         arguments: [String],
-        responseTimeoutSeconds: Double = 3.0
+        responseTimeoutSeconds: Double = 3.0,
+        cliStrategy: CmuxCLIStrategy = .any
     ) -> (terminationStatus: Int32, stdout: String, stderr: String) {
         var args = ["--socket", socketPath]
         args.append(contentsOf: arguments)
         var environment = ProcessInfo.processInfo.environment
         environment["CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC"] = String(responseTimeoutSeconds)
 
+        let cliPaths = resolveCmuxCLIPaths(strategy: cliStrategy)
+        if cliPaths.isEmpty, cliStrategy == .bundledOnly {
+            return (
+                terminationStatus: -1,
+                stdout: "",
+                stderr: "Failed to locate bundled cmux CLI"
+            )
+        }
+
         var lastPermissionFailure: (terminationStatus: Int32, stdout: String, stderr: String)?
-        for cliPath in resolveCmuxCLIPaths() {
+        for cliPath in cliPaths {
             let result = executeCmuxCommand(
                 executablePath: cliPath,
                 arguments: args,
@@ -615,6 +612,14 @@ final class MultiWindowNotificationsUITests: XCTestCase {
             return result
         }
 
+        if cliStrategy == .bundledOnly {
+            return lastPermissionFailure ?? (
+                terminationStatus: -1,
+                stdout: "",
+                stderr: "Bundled cmux CLI command failed without an executable path"
+            )
+        }
+
         let fallbackArgs = ["cmux"] + args
         let fallbackResult = executeCmuxCommand(
             executablePath: "/usr/bin/env",
@@ -627,6 +632,11 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         return lastPermissionFailure ?? fallbackResult
     }
 
+    private enum CmuxCLIStrategy: Equatable {
+        case any
+        case bundledOnly
+    }
+
     private func socketDiagnostics(from data: [String: String]) -> String {
         let pingResponse = data["socketPingResponse"].flatMap { $0.isEmpty ? nil : $0 } ?? "<nil>"
         return "mode=\(data["socketMode"] ?? "") running=\(data["socketIsRunning"] ?? "") " +
@@ -635,15 +645,17 @@ final class MultiWindowNotificationsUITests: XCTestCase {
             "signals=\(data["socketFailureSignals"] ?? "")"
     }
 
-    private func resolveCmuxCLIPaths() -> [String] {
+    private func resolveCmuxCLIPaths(strategy: CmuxCLIStrategy) -> [String] {
         let fileManager = FileManager.default
         let env = ProcessInfo.processInfo.environment
         var candidates: [String] = []
         var productDirectories: [String] = []
 
-        for key in ["CMUX_UI_TEST_CLI_PATH", "CMUXTERM_CLI"] {
-            if let value = env[key], !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                candidates.append(value)
+        if strategy == .any {
+            for key in ["CMUX_UI_TEST_CLI_PATH", "CMUXTERM_CLI"] {
+                if let value = env[key], !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    candidates.append(value)
+                }
             }
         }
 
@@ -664,12 +676,14 @@ final class MultiWindowNotificationsUITests: XCTestCase {
 
         productDirectories.append(contentsOf: inferredBuildProductsDirectories())
         for productsDir in uniquePaths(productDirectories) {
-            appendCLIPathCandidates(fromProductsDirectory: productsDir, to: &candidates)
+            appendCLIPathCandidates(fromProductsDirectory: productsDir, strategy: strategy, to: &candidates)
         }
 
         candidates.append("/tmp/cmux-\(launchTag)/Build/Products/Debug/cmux DEV.app/Contents/Resources/bin/cmux")
         candidates.append("/tmp/cmux-\(launchTag)/Build/Products/Debug/cmux.app/Contents/Resources/bin/cmux")
-        candidates.append("/tmp/cmux-\(launchTag)/Build/Products/Debug/cmux")
+        if strategy == .any {
+            candidates.append("/tmp/cmux-\(launchTag)/Build/Products/Debug/cmux")
+        }
 
         var resolvedPaths: [String] = []
         for path in uniquePaths(candidates) {
@@ -697,27 +711,35 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         }
     }
 
-    private func appendCLIPathCandidates(fromProductsDirectory productsDir: String, to candidates: inout [String]) {
-        candidates.append("\(productsDir)/cmux")
+    private func appendCLIPathCandidates(
+        fromProductsDirectory productsDir: String,
+        strategy: CmuxCLIStrategy,
+        to candidates: inout [String]
+    ) {
         candidates.append("\(productsDir)/cmux DEV.app/Contents/Resources/bin/cmux")
         candidates.append("\(productsDir)/cmux.app/Contents/Resources/bin/cmux")
+        if strategy == .any {
+            candidates.append("\(productsDir)/cmux")
+        }
 
         guard let entries = try? FileManager.default.contentsOfDirectory(atPath: productsDir) else {
             return
         }
 
-        for entry in entries.sorted() where entry == "cmux" {
-            let cliPath = URL(fileURLWithPath: productsDir)
-                .appendingPathComponent(entry)
-                .path
-            candidates.append(cliPath)
-        }
         for entry in entries.sorted() where entry.hasSuffix(".app") {
             let cliPath = URL(fileURLWithPath: productsDir)
                 .appendingPathComponent(entry)
                 .appendingPathComponent("Contents/Resources/bin/cmux")
                 .path
             candidates.append(cliPath)
+        }
+        if strategy == .any {
+            for entry in entries.sorted() where entry == "cmux" {
+                let cliPath = URL(fileURLWithPath: productsDir)
+                    .appendingPathComponent(entry)
+                    .path
+                candidates.append(cliPath)
+            }
         }
     }
 
@@ -991,9 +1013,18 @@ final class MultiWindowNotificationsUITests: XCTestCase {
             }
             guard wrote else { return nil }
 
+            let deadline = Date().addingTimeInterval(2.0)
             var buf = [UInt8](repeating: 0, count: 4096)
             var accum = ""
-            while true {
+            while Date() < deadline {
+                var pollDescriptor = pollfd(fd: fd, events: Int16(POLLIN), revents: 0)
+                let ready = poll(&pollDescriptor, 1, 100)
+                if ready < 0 {
+                    return nil
+                }
+                if ready == 0 {
+                    continue
+                }
                 let n = read(fd, &buf, buf.count)
                 if n <= 0 { break }
                 if let chunk = String(bytes: buf[0..<n], encoding: .utf8) {
