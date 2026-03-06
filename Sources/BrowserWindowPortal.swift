@@ -1818,6 +1818,12 @@ final class WindowBrowserPortal: NSObject {
         entriesByWebViewId[webViewId] = entry
     }
 
+    func isWebViewBoundToAnchor(withId webViewId: ObjectIdentifier, anchorView: NSView) -> Bool {
+        guard let entry = entriesByWebViewId[webViewId],
+              let boundAnchor = entry.anchorView else { return false }
+        return boundAnchor === anchorView
+    }
+
     func updateDropZoneOverlay(forWebViewId webViewId: ObjectIdentifier, zone: DropZone?) {
         guard var entry = entriesByWebViewId[webViewId] else { return }
         entry.dropZone = zone
@@ -2547,6 +2553,15 @@ enum BrowserWindowPortalRegistry {
         guard let windowId = webViewToWindowId[webViewId],
               let portal = portalsByWindowId[windowId] else { return }
         portal.updateEntryVisibility(forWebViewId: webViewId, visibleInUI: visibleInUI, zPriority: zPriority)
+    }
+
+    static func isWebView(_ webView: WKWebView, boundTo anchorView: NSView) -> Bool {
+        let webViewId = ObjectIdentifier(webView)
+        guard let window = anchorView.window else { return false }
+        let windowId = ObjectIdentifier(window)
+        guard webViewToWindowId[webViewId] == windowId,
+              let portal = portalsByWindowId[windowId] else { return false }
+        return portal.isWebViewBoundToAnchor(withId: webViewId, anchorView: anchorView)
     }
 
     static func updateDropZoneOverlay(for webView: WKWebView, zone: DropZone?) {

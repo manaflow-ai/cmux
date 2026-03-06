@@ -2538,6 +2538,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             shouldAttachWebView: true,
             shouldFocusWebView: false,
             isPanelFocused: true,
+            reattachToken: 0,
             portalZPriority: 0,
             paneDropZone: nil
         )
@@ -2576,6 +2577,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             shouldAttachWebView: true,
             shouldFocusWebView: false,
             isPanelFocused: true,
+            reattachToken: 0,
             portalZPriority: 0,
             paneDropZone: nil
         )

@@ -1395,6 +1395,9 @@ final class BrowserPanel: Panel, ObservableObject {
     /// Incremented whenever we replace the underlying WKWebView after a process crash.
     @Published private(set) var webViewInstanceID: UUID = UUID()
 
+    /// Bump this token to force `WebViewRepresentable.updateNSView` after split move churn.
+    @Published var viewReattachToken: UInt64 = 0
+
     /// Prevent the omnibar from auto-focusing for a short window after explicit programmatic focus.
     /// This avoids races where SwiftUI focus state steals first responder back from WebKit.
     private var suppressOmnibarAutofocusUntil: Date?
@@ -1918,6 +1921,10 @@ final class BrowserPanel: Panel, ObservableObject {
         webViewCancellables.removeAll()
         faviconTask?.cancel()
         faviconTask = nil
+    }
+
+    func requestViewReattach() {
+        viewReattachToken &+= 1
     }
 
     private func refreshFavicon(from webView: WKWebView) {

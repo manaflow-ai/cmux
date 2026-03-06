@@ -3483,6 +3483,37 @@ final class Workspace: Identifiable, ObservableObject {
         runRefreshPass(0.03)
     }
 
+    private func scheduleMovedBrowserRefresh(panelId: UUID) {
+        guard browserPanel(for: panelId) != nil else { return }
+
+        let runRefreshPass: (TimeInterval) -> Void = { [weak self] delay in
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                guard let self, let panel = self.browserPanel(for: panelId) else { return }
+                // Mirror terminal move repair: force the representable to re-run portal binding
+                // after pane auto-close/reparent churn so the WKWebView reattaches to the
+                // surviving host on both the immediate and post-layout passes.
+                panel.requestViewReattach()
+                NSApp.windows.forEach { window in
+                    window.contentView?.layoutSubtreeIfNeeded()
+                    window.contentView?.displayIfNeeded()
+                }
+                panel.webView.superview?.layoutSubtreeIfNeeded()
+                panel.webView.needsLayout = true
+                panel.webView.layoutSubtreeIfNeeded()
+                panel.webView.needsDisplay = true
+                panel.webView.setNeedsDisplay(panel.webView.bounds)
+                panel.webView.window?.displayIfNeeded()
+                panel.restoreDeveloperToolsAfterAttachIfNeeded()
+                if self.focusedPanelId == panelId {
+                    panel.focus()
+                }
+            }
+        }
+
+        runRefreshPass(0)
+        runRefreshPass(0.03)
+    }
+
     private func closeTabs(_ tabIds: [TabID], skipPinned: Bool = true) {
         for tabId in tabIds {
             if skipPinned,
@@ -4150,6 +4181,7 @@ extension Workspace: BonsplitDelegate {
 #endif
         if let movedPanelId = panelIdFromSurfaceId(tab.id) {
             scheduleMovedTerminalRefresh(panelId: movedPanelId)
+            scheduleMovedBrowserRefresh(panelId: movedPanelId)
         }
 #if DEBUG
         let selectedAfter = controller.selectedTab(inPane: destination)
