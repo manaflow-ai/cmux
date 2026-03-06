@@ -203,6 +203,12 @@ def main() -> int:
         snapshot_text = _run_cli_text(cli, ["browser", surface, "snapshot", "--interactive"])
         _must("ref=e" in snapshot_text, f"Expected snapshot text with refs from CLI: {snapshot_text!r}")
 
+        blank_opened = _run_cli_json(cli, ["browser", "open", "about:blank", "--workspace", workspace])
+        blank_surface = str(blank_opened.get("surface_ref") or blank_opened.get("surface_id") or "")
+        _must(bool(blank_surface), f"Expected about:blank browser open to return a surface: {blank_opened}")
+        blank_snapshot = _run_cli_text(cli, ["browser", blank_surface, "snapshot", "--interactive"])
+        _must("about:blank" in blank_snapshot and "get url" in blank_snapshot, f"Expected empty snapshot diagnostics for about:blank: {blank_snapshot!r}")
+
         opened_routed = _run_cli_json(cli, ["browser", "open", page_url, "--workspace", workspace])
         routed_surface = str(opened_routed.get("surface_ref") or opened_routed.get("surface_id") or "")
         _must(bool(routed_surface), f"browser open --workspace returned no surface handle: {opened_routed}")
