@@ -7156,7 +7156,7 @@ private struct SidebarHelpMenuButton: View {
                 action: .sendFeedback,
                 accessibilityIdentifier: "SidebarHelpMenuOptionSendFeedback",
                 isExternalLink: false,
-                leadingSystemImage: "bubble.left.and.text.bubble.right"
+                trailingSystemImage: "bubble.left.and.text.bubble.right"
             )
             helpOptionButton(
                 title: String(localized: "settings.section.keyboardShortcuts", defaultValue: "Keyboard Shortcuts"),
@@ -7212,21 +7212,21 @@ private struct SidebarHelpMenuButton: View {
         action: SidebarHelpMenuAction,
         accessibilityIdentifier: String,
         isExternalLink: Bool,
-        leadingSystemImage: String? = nil
+        trailingSystemImage: String? = nil
     ) -> some View {
         Button {
             isPopoverPresented = false
             perform(action)
         } label: {
             HStack(spacing: 8) {
-                if let leadingSystemImage {
-                    Image(systemName: leadingSystemImage)
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(Color(nsColor: .secondaryLabelColor))
-                }
                 Text(title)
                     .font(.system(size: 12))
                 Spacer(minLength: 0)
+                if let trailingSystemImage {
+                    Image(systemName: trailingSystemImage)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(Color(nsColor: .secondaryLabelColor))
+                }
                 if isExternalLink {
                     Image(systemName: "arrow.up.right.square")
                         .font(.system(size: 11, weight: .medium))
