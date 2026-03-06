@@ -2080,6 +2080,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private var pendingTextQueue: [Data] = []
     private var pendingTextBytes: Int = 0
     private let maxPendingTextBytes = 1_048_576
+    private var backgroundSurfaceStartRequested = false
     private var backgroundSurfaceStartQueued = false
     private var surfaceCallbackContext: Unmanaged<GhosttySurfaceCallbackContext>?
     private enum PortalLifecycleState: String {
@@ -2151,6 +2152,21 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
     private var needsBackgroundSurfaceStart: Bool {
         surface == nil && attachedView != nil
+    }
+
+    private func shouldCreateSurfaceSynchronously(in view: GhosttyNSView) -> Bool {
+        guard view.window != nil else { return false }
+        guard view.isVisibleInUI else { return false }
+        guard !view.isHiddenOrHasHiddenAncestor else { return false }
+        return view.bounds.width > 1 && view.bounds.height > 1
+    }
+
+    private func enqueueBackgroundSurfaceStartIfNeeded() {
+        guard needsBackgroundSurfaceStart else { return }
+        guard !backgroundSurfaceStartQueued else { return }
+        backgroundSurfaceStartQueued = true
+        Self.pendingBackgroundSurfaceStarts.append(PendingBackgroundSurfaceStart(surface: self))
+        Self.scheduleBackgroundSurfaceStartPump(after: 0)
     }
 
     private static func recentKeyInputAgeMs(now: TimeInterval) -> Double? {
@@ -2386,6 +2402,29 @@ final class TerminalSurface: Identifiable, ObservableObject {
         // If surface doesn't exist yet, create it once the view is in a real window so
         // content scale and pixel geometry are derived from the actual backing context.
         if surface == nil {
+            if backgroundSurfaceStartRequested {
+                if shouldCreateSurfaceSynchronously(in: view) {
+                    backgroundSurfaceStartRequested = false
+                } else {
+                    if view.window == nil {
+#if DEBUG
+                        dlog(
+                            "surface.attach.defer surface=\(id.uuidString.prefix(5)) reason=requestedNoWindow " +
+                            "bounds=\(String(format: "%.1fx%.1f", view.bounds.width, view.bounds.height))"
+                        )
+#endif
+                        return
+                    }
+                    enqueueBackgroundSurfaceStartIfNeeded()
+#if DEBUG
+                    dlog(
+                        "surface.attach.defer surface=\(id.uuidString.prefix(5)) reason=requestedBackgroundStart " +
+                        "visible=\(view.isVisibleInUI ? 1 : 0) hidden=\(view.isHiddenOrHasHiddenAncestor ? 1 : 0)"
+                    )
+#endif
+                    return
+                }
+            }
             guard view.window != nil else {
 #if DEBUG
                 dlog(
@@ -2399,6 +2438,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
             dlog("surface.attach.create surface=\(id.uuidString.prefix(5))")
 #endif
             createSurface(for: view)
+            backgroundSurfaceStartRequested = false
 #if DEBUG
             dlog("surface.attach.create.done surface=\(id.uuidString.prefix(5)) hasSurface=\(surface != nil ? 1 : 0)")
 #endif
@@ -2813,11 +2853,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
             return
         }
 
-        guard surface == nil, attachedView != nil else { return }
-        guard !backgroundSurfaceStartQueued else { return }
-        backgroundSurfaceStartQueued = true
-        Self.pendingBackgroundSurfaceStarts.append(PendingBackgroundSurfaceStart(surface: self))
-        Self.scheduleBackgroundSurfaceStartPump(after: 0)
+        backgroundSurfaceStartRequested = true
+        guard surface == nil else { return }
+        enqueueBackgroundSurfaceStartIfNeeded()
     }
 
     private func performBackgroundSurfaceStartIfNeeded() {
@@ -2829,6 +2867,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         #endif
         createSurface(for: view)
         if self.surface != nil {
+            backgroundSurfaceStartRequested = false
             // Background priming bypasses normal AppKit lifecycle hooks.
             // Apply the same baseline theme/background state immediately.
             view.applyInitialThemeStateForBackgroundPrimedSurface()
