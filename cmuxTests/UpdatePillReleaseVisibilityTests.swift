@@ -8,6 +8,18 @@ import AppKit
 @testable import cmux
 #endif
 
+private func findProjectRoot() -> URL {
+    var dir = URL(fileURLWithPath: #file).deletingLastPathComponent().deletingLastPathComponent()
+    for _ in 0..<10 {
+        let marker = dir.appendingPathComponent("GhosttyTabs.xcodeproj")
+        if FileManager.default.fileExists(atPath: marker.path) {
+            return dir
+        }
+        dir = dir.deletingLastPathComponent()
+    }
+    return URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+}
+
 /// Regression test: ensures UpdatePill is never gated behind #if DEBUG in production code paths.
 /// This prevents accidentally hiding the update UI in Release builds.
 final class UpdatePillReleaseVisibilityTests: XCTestCase {
@@ -57,19 +69,6 @@ final class UpdatePillReleaseVisibilityTests: XCTestCase {
         }
     }
 
-    private func findProjectRoot() -> URL {
-        // Walk up from the test bundle to find the project root (contains GhosttyTabs.xcodeproj).
-        var dir = URL(fileURLWithPath: #file).deletingLastPathComponent().deletingLastPathComponent()
-        for _ in 0..<10 {
-            let marker = dir.appendingPathComponent("GhosttyTabs.xcodeproj")
-            if FileManager.default.fileExists(atPath: marker.path) {
-                return dir
-            }
-            dir = dir.deletingLastPathComponent()
-        }
-        // Fallback: assume CWD is project root.
-        return URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-    }
 }
 
 /// Regression test: ensure WKWebView can load HTTP development URLs (e.g. *.localtest.me).
@@ -88,18 +87,6 @@ final class AppTransportSecurityTests: XCTestCase {
             true,
             "Resources/Info.plist must allow HTTP loads in WKWebView for local dev hostnames."
         )
-    }
-
-    private func findProjectRoot() -> URL {
-        var dir = URL(fileURLWithPath: #file).deletingLastPathComponent().deletingLastPathComponent()
-        for _ in 0..<10 {
-            let marker = dir.appendingPathComponent("GhosttyTabs.xcodeproj")
-            if FileManager.default.fileExists(atPath: marker.path) {
-                return dir
-            }
-            dir = dir.deletingLastPathComponent()
-        }
-        return URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
     }
 }
 
@@ -135,18 +122,6 @@ final class PasskeyEntitlementTests: XCTestCase {
             usageDescription.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
             "NSBluetoothAlwaysUsageDescription must be non-empty."
         )
-    }
-
-    private func findProjectRoot() -> URL {
-        var dir = URL(fileURLWithPath: #file).deletingLastPathComponent().deletingLastPathComponent()
-        for _ in 0..<10 {
-            let marker = dir.appendingPathComponent("GhosttyTabs.xcodeproj")
-            if FileManager.default.fileExists(atPath: marker.path) {
-                return dir
-            }
-            dir = dir.deletingLastPathComponent()
-        }
-        return URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
     }
 }
 
@@ -347,17 +322,5 @@ final class MainWindowLayoutStyleTests: XCTestCase {
             Without it, initial titlebar/content offsets can be wrong until a manual resize.
             """
         )
-    }
-
-    private func findProjectRoot() -> URL {
-        var dir = URL(fileURLWithPath: #file).deletingLastPathComponent().deletingLastPathComponent()
-        for _ in 0..<10 {
-            let marker = dir.appendingPathComponent("GhosttyTabs.xcodeproj")
-            if FileManager.default.fileExists(atPath: marker.path) {
-                return dir
-            }
-            dir = dir.deletingLastPathComponent()
-        }
-        return URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
     }
 }
