@@ -6069,7 +6069,7 @@ enum DevBuildBannerDebugSettings {
 private enum FeedbackComposerSettings {
     static let storedEmailKey = "sidebarHelpFeedbackEmail"
     static let endpointEnvironmentKey = "CMUX_FEEDBACK_API_URL"
-    static let defaultEndpoint = "https://cmux.dev/api/feedback"
+    static let defaultEndpoint = "https://www.cmux.dev/api/feedback"
     static let foundersEmail = "founders@manaflow.com"
     static let maxMessageLength = 4_000
     static let maxAttachmentCount = 10
@@ -7044,7 +7044,7 @@ private struct SidebarFeedbackComposerSheet: View {
             Text(
                 String(
                     localized: "sidebar.help.feedback.successBody",
-                    defaultValue: "A human will read this! You can also reach us at founders@manaflow.com."
+                    defaultValue: "You can also reach us at founders@manaflow.com."
                 )
             )
             .font(.system(size: 12))
@@ -7124,7 +7124,7 @@ private struct SidebarFeedbackComposerSheet: View {
                     Text(
                         String(
                             localized: "sidebar.help.feedback.attachmentsHint",
-                            defaultValue: "Up to 10 images. Large images will be optimized before sending."
+                            defaultValue: "Up to 10 images."
                         )
                     )
                     .font(.system(size: 11))
@@ -7358,7 +7358,7 @@ private struct SidebarFeedbackComposerSheet: View {
                     localized: "sidebar.help.feedback.rateLimited",
                     defaultValue: "Too many feedback attempts. Please try again later."
                 )
-            case 503:
+            case 500...599:
                 return String(
                     localized: "sidebar.help.feedback.endpointError",
                     defaultValue: "Feedback is unavailable right now. Email founders@manaflow.com instead."
@@ -7381,10 +7381,18 @@ private struct SidebarHelpMenuButton: View {
     private let helpTitle = String(localized: "sidebar.help.button", defaultValue: "Help")
     private let buttonSize: CGFloat = 22
     private let iconSize: CGFloat = 11
+    @AppStorage(KeyboardShortcutSettings.Action.sendFeedback.defaultsKey) private var sendFeedbackShortcutData = Data()
 
     let onSendFeedback: () -> Void
 
     @State private var isPopoverPresented = false
+
+    private var sendFeedbackShortcutHint: String {
+        decodeShortcut(
+            from: sendFeedbackShortcutData,
+            fallback: KeyboardShortcutSettings.Action.sendFeedback.defaultShortcut
+        ).displayString
+    }
 
     var body: some View {
         Button {
@@ -7414,6 +7422,7 @@ private struct SidebarHelpMenuButton: View {
                 action: .sendFeedback,
                 accessibilityIdentifier: "SidebarHelpMenuOptionSendFeedback",
                 isExternalLink: false,
+                shortcutHint: sendFeedbackShortcutHint,
                 trailingSystemImage: "bubble.left.and.text.bubble.right"
             )
             helpOptionButton(
@@ -7470,6 +7479,7 @@ private struct SidebarHelpMenuButton: View {
         action: SidebarHelpMenuAction,
         accessibilityIdentifier: String,
         isExternalLink: Bool,
+        shortcutHint: String? = nil,
         trailingSystemImage: String? = nil
     ) -> some View {
         Button {
@@ -7480,6 +7490,9 @@ private struct SidebarHelpMenuButton: View {
                 Text(title)
                     .font(.system(size: 12))
                 Spacer(minLength: 0)
+                if let shortcutHint {
+                    helpOptionShortcutHint(text: shortcutHint)
+                }
                 if let trailingSystemImage {
                     helpOptionTrailingIcon(systemName: trailingSystemImage)
                 }
@@ -7493,6 +7506,15 @@ private struct SidebarHelpMenuButton: View {
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier(accessibilityIdentifier)
+    }
+
+    private func helpOptionShortcutHint(text: String) -> some View {
+        Text(text)
+            .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: false)
+            .font(.system(size: 10, weight: .regular, design: .rounded))
+            .monospacedDigit()
+            .foregroundStyle(Color(nsColor: .secondaryLabelColor))
     }
 
     private func helpOptionTrailingIcon(systemName: String, size: CGFloat = 13) -> some View {
@@ -7536,6 +7558,14 @@ private struct SidebarHelpMenuButton: View {
             isPopoverPresented = false
             onSendFeedback()
         }
+    }
+
+    private func decodeShortcut(from data: Data, fallback: StoredShortcut) -> StoredShortcut {
+        guard !data.isEmpty,
+              let shortcut = try? JSONDecoder().decode(StoredShortcut.self, from: data) else {
+            return fallback
+        }
+        return shortcut
     }
 }
 
