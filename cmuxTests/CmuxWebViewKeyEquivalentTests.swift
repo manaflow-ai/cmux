@@ -2534,12 +2534,13 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 
         let representable = WebViewRepresentable(
             panel: panel,
-            browserSearchState: nil,
             shouldAttachWebView: true,
             shouldFocusWebView: false,
             isPanelFocused: true,
             portalZPriority: 0,
-            paneDropZone: nil
+            paneDropZone: nil,
+            searchOverlay: nil,
+            paneTopChromeHeight: 0
         )
         let coordinator = representable.makeCoordinator()
         coordinator.webView = panel.webView
@@ -2572,12 +2573,13 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 
         let representable = WebViewRepresentable(
             panel: panel,
-            browserSearchState: nil,
             shouldAttachWebView: true,
             shouldFocusWebView: false,
             isPanelFocused: true,
             portalZPriority: 0,
-            paneDropZone: nil
+            paneDropZone: nil,
+            searchOverlay: nil,
+            paneTopChromeHeight: 0
         )
         let coordinator = representable.makeCoordinator()
         coordinator.webView = panel.webView
@@ -8782,6 +8784,27 @@ final class BrowserPaneDropRoutingTests: XCTestCase {
         )
     }
 
+    func testTopChromeHeightPushesTopSplitThresholdIntoWebView() {
+        let size = CGSize(width: 240, height: 180)
+
+        XCTAssertEqual(
+            BrowserPaneDropRouting.zone(
+                for: CGPoint(x: size.width * 0.5, y: 110),
+                in: size,
+                topChromeHeight: 36
+            ),
+            .center
+        )
+        XCTAssertEqual(
+            BrowserPaneDropRouting.zone(
+                for: CGPoint(x: size.width * 0.5, y: 150),
+                in: size,
+                topChromeHeight: 36
+            ),
+            .top
+        )
+    }
+
     func testHitTestingCapturesOnlyForRelevantDragEvents() {
         XCTAssertTrue(
             BrowserPaneDropTargetView.shouldCaptureHitTesting(
@@ -8879,22 +8902,24 @@ final class WindowBrowserSlotViewTests: XCTestCase {
     }
 
     func testDropZoneOverlayStaysAboveContentWithoutBlockingHits() {
-        let slot = WindowBrowserSlotView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
+        let slot = WindowBrowserSlotView(frame: container.bounds)
+        container.addSubview(slot)
         let child = CapturingView(frame: slot.bounds)
         child.autoresizingMask = [.width, .height]
         slot.addSubview(child)
 
         slot.setDropZoneOverlay(zone: .right)
-        slot.layoutSubtreeIfNeeded()
+        container.layoutSubtreeIfNeeded()
 
-        guard let overlay = slot.subviews.first(where: {
-            $0 !== child && String(describing: type(of: $0)).contains("BrowserDropZoneOverlayView")
+        guard let overlay = container.subviews.first(where: {
+            $0 !== slot && String(describing: type(of: $0)).contains("BrowserDropZoneOverlayView")
         }) else {
             XCTFail("Expected browser slot drop-zone overlay")
             return
         }
 
-        XCTAssertTrue(slot.subviews.last === overlay, "Overlay should stay above the hosted web view")
+        XCTAssertTrue(container.subviews.last === overlay, "Overlay should stay above the hosted web view")
         XCTAssertFalse(overlay.isHidden)
         XCTAssertEqual(overlay.frame.origin.x, 100, accuracy: 0.5)
         XCTAssertEqual(overlay.frame.origin.y, 4, accuracy: 0.5)
@@ -8906,6 +8931,35 @@ final class WindowBrowserSlotViewTests: XCTestCase {
         slot.setDropZoneOverlay(zone: nil)
         advanceAnimations()
         XCTAssertTrue(overlay.isHidden, "Clearing the drop zone should hide the overlay")
+    }
+
+    func testTopDropZoneOverlayUsesFullBrowserContentHeight() {
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
+        let slot = WindowBrowserSlotView(frame: container.bounds)
+        container.addSubview(slot)
+
+        slot.setPaneTopChromeHeight(20)
+        slot.setDropZoneOverlay(zone: .top)
+        container.layoutSubtreeIfNeeded()
+
+        guard let overlay = container.subviews.first(where: {
+            String(describing: type(of: $0)).contains("BrowserDropZoneOverlayView")
+        }) else {
+            XCTFail("Expected browser slot drop-zone overlay")
+            return
+        }
+
+        XCTAssertFalse(overlay.isHidden)
+        XCTAssertEqual(overlay.frame.origin.x, 4, accuracy: 0.5)
+        XCTAssertEqual(overlay.frame.origin.y, 60, accuracy: 0.5)
+        XCTAssertEqual(overlay.frame.size.width, 192, accuracy: 0.5)
+        XCTAssertEqual(overlay.frame.size.height, 56, accuracy: 0.5)
+        XCTAssertGreaterThan(overlay.frame.maxY, slot.frame.maxY)
+        XCTAssertEqual(slot.layer?.masksToBounds, true)
+
+        slot.setDropZoneOverlay(zone: nil)
+        advanceAnimations()
+        XCTAssertEqual(slot.layer?.masksToBounds, true)
     }
 }
 
@@ -10326,8 +10380,11 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
     }
 
     private func dropZoneOverlay(in slot: WindowBrowserSlotView, excluding webView: WKWebView) -> NSView? {
-        slot.subviews.first(where: {
-            $0 !== webView && String(describing: type(of: $0)).contains("BrowserDropZoneOverlayView")
+        let candidates = slot.subviews + (slot.superview?.subviews ?? [])
+        return candidates.first(where: {
+            $0 !== slot &&
+            $0 !== webView &&
+            String(describing: type(of: $0)).contains("BrowserDropZoneOverlayView")
         })
     }
 
@@ -10638,9 +10695,9 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         portal.updateDropZoneOverlay(forWebViewId: ObjectIdentifier(webView), zone: .right)
         slot.layoutSubtreeIfNeeded()
         XCTAssertFalse(overlay.isHidden)
-        XCTAssertTrue(slot.subviews.last === overlay, "Overlay should remain above the hosted web view")
-        XCTAssertEqual(overlay.frame.origin.x, 110, accuracy: 0.5)
-        XCTAssertEqual(overlay.frame.origin.y, 4, accuracy: 0.5)
+        XCTAssertTrue(slot.superview?.subviews.last === overlay, "Overlay should remain above the hosted web view")
+        XCTAssertEqual(overlay.frame.origin.x, slot.frame.origin.x + 110, accuracy: 0.5)
+        XCTAssertEqual(overlay.frame.origin.y, slot.frame.origin.y + 4, accuracy: 0.5)
         XCTAssertEqual(overlay.frame.size.width, 106, accuracy: 0.5)
         XCTAssertEqual(overlay.frame.size.height, 152, accuracy: 0.5)
 
@@ -10776,6 +10833,41 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
 
         BrowserWindowPortalRegistry.detach(webView: webView)
         XCTAssertNil(webView.superview)
+    }
+
+    func testRegistryHideKeepsPortalHostedWebViewAttachedButHidden() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        realizeWindowLayout(window)
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let anchor = NSView(frame: NSRect(x: 20, y: 20, width: 180, height: 120))
+        contentView.addSubview(anchor)
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+
+        BrowserWindowPortalRegistry.bind(webView: webView, to: anchor, visibleInUI: true)
+        BrowserWindowPortalRegistry.synchronizeForAnchor(anchor)
+        advanceAnimations()
+
+        guard let slot = webView.superview as? WindowBrowserSlotView else {
+            XCTFail("Expected browser slot")
+            return
+        }
+        XCTAssertFalse(slot.isHidden)
+
+        BrowserWindowPortalRegistry.hide(webView: webView, source: "unitTest")
+        advanceAnimations()
+
+        XCTAssertTrue(webView.superview === slot, "Hiding should preserve the hosted WKWebView attachment")
+        XCTAssertTrue(slot.isHidden, "Hiding should immediately hide the existing portal slot")
     }
 }
 
