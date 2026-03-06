@@ -742,6 +742,7 @@ struct BrowserPanelView: View {
                     shouldAttachWebView: isVisibleInUI,
                     shouldFocusWebView: isFocused && !addressBarFocused,
                     isPanelFocused: isFocused,
+                    reattachToken: panel.viewReattachToken,
                     portalZPriority: portalPriority,
                     paneDropZone: paneDropZone
                 )
@@ -3042,6 +3043,7 @@ struct WebViewRepresentable: NSViewRepresentable {
     let shouldAttachWebView: Bool
     let shouldFocusWebView: Bool
     let isPanelFocused: Bool
+    let reattachToken: UInt64
     let portalZPriority: Int
     let paneDropZone: DropZone?
 
