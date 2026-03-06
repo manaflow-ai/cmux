@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import ImageIO
 import SwiftUI
 import ObjectiveC
 import UniformTypeIdentifiers
@@ -5855,10 +5856,10 @@ private enum FeedbackComposerSettings {
     static let defaultEndpoint = "https://cmux.dev/api/feedback"
     static let foundersEmail = "founders@manaflow.com"
     static let maxMessageLength = 4_000
-    static let maxAttachmentCount = 4
-    static let maxAttachmentBytes = 4 * 1_024 * 1_024
+    static let maxAttachmentCount = 10
     // Keep the multipart body below Vercel's 4.5 MB request limit.
     static let maxTotalAttachmentBytes = 4 * 1_024 * 1_024
+    static let targetTotalAttachmentUploadBytes = 3_500_000
 
     static func endpointURL() -> URL? {
         let env = ProcessInfo.processInfo.environment
@@ -5903,6 +5904,12 @@ private struct FeedbackComposerAttachment: Identifiable {
     }
 }
 
+private struct PreparedFeedbackComposerAttachment {
+    let fileName: String
+    let mimeType: String
+    let data: Data
+}
+
 private struct FeedbackComposerAppMetadata {
     let appVersion: String
     let appBuild: String
@@ -5934,10 +5941,24 @@ private enum FeedbackComposerSubmissionError: Error {
     case invalidResponse
     case rejected(statusCode: Int)
     case attachmentReadFailed
+    case attachmentPreparationFailed
     case transport(URLError)
 }
 
 private enum FeedbackComposerClient {
+    private static let passthroughAttachmentMIMETypes: Set<String> = [
+        "image/gif",
+        "image/heic",
+        "image/heif",
+        "image/jpeg",
+        "image/png",
+        "image/tiff",
+        "image/webp",
+    ]
+    private static let optimizedAttachmentDimensions: [Int] = [2800, 2400, 2000, 1600, 1280, 1024, 768, 640, 512]
+    private static let optimizedAttachmentQualities: [CGFloat] = [0.82, 0.72, 0.62, 0.52, 0.42, 0.32]
+    private static let optimizedAttachmentMIMEType = "image/jpeg"
+
     static func submit(
         email: String,
         message: String,
@@ -5949,6 +5970,7 @@ private enum FeedbackComposerClient {
 
         let metadata = FeedbackComposerAppMetadata.current
         let boundary = "Boundary-\(UUID().uuidString)"
+        let preparedAttachments = try prepareAttachmentsForUpload(attachments)
 
         var request = URLRequest(url: endpointURL)
         request.httpMethod = "POST"
@@ -5966,14 +5988,10 @@ private enum FeedbackComposerClient {
         appendField("osVersion", value: metadata.osVersion, to: &body, boundary: boundary)
         appendField("locale", value: metadata.localeIdentifier, to: &body, boundary: boundary)
 
-        for attachment in attachments {
-            guard let fileData = try? Data(contentsOf: attachment.url, options: .mappedIfSafe) else {
-                throw FeedbackComposerSubmissionError.attachmentReadFailed
-            }
+        for attachment in preparedAttachments {
             appendFile(
                 named: "attachments",
                 attachment: attachment,
-                data: fileData,
                 to: &body,
                 boundary: boundary
             )
@@ -6018,10 +6036,128 @@ private enum FeedbackComposerClient {
         body.append(Data("\r\n".utf8))
     }
 
+    private static func prepareAttachmentsForUpload(
+        _ attachments: [FeedbackComposerAttachment]
+    ) throws -> [PreparedFeedbackComposerAttachment] {
+        guard attachments.isEmpty == false else { return [] }
+
+        struct IndexedAttachment {
+            let index: Int
+            let attachment: FeedbackComposerAttachment
+        }
+
+        let sortedAttachments = attachments.enumerated()
+            .map { IndexedAttachment(index: $0.offset, attachment: $0.element) }
+            .sorted { lhs, rhs in
+                lhs.attachment.fileSize > rhs.attachment.fileSize
+            }
+
+        var preparedByIndex: [Int: PreparedFeedbackComposerAttachment] = [:]
+        var remainingBudget = FeedbackComposerSettings.targetTotalAttachmentUploadBytes
+        var remainingCount = sortedAttachments.count
+
+        for item in sortedAttachments {
+            let perAttachmentBudget = max(1, remainingBudget / max(remainingCount, 1))
+            let preparedAttachment = try prepareAttachmentForUpload(
+                item.attachment,
+                maximumByteCount: perAttachmentBudget
+            )
+            preparedByIndex[item.index] = preparedAttachment
+            remainingBudget -= preparedAttachment.data.count
+            remainingCount -= 1
+        }
+
+        let preparedAttachments = attachments.indices.compactMap { preparedByIndex[$0] }
+        let totalBytes = preparedAttachments.reduce(0) { $0 + $1.data.count }
+        guard totalBytes <= FeedbackComposerSettings.targetTotalAttachmentUploadBytes else {
+            throw FeedbackComposerSubmissionError.attachmentPreparationFailed
+        }
+        return preparedAttachments
+    }
+
+    private static func prepareAttachmentForUpload(
+        _ attachment: FeedbackComposerAttachment,
+        maximumByteCount: Int
+    ) throws -> PreparedFeedbackComposerAttachment {
+        if attachment.fileSize > 0,
+           attachment.fileSize <= Int64(maximumByteCount),
+           passthroughAttachmentMIMETypes.contains(attachment.mimeType),
+           let fileData = try? Data(contentsOf: attachment.url, options: .mappedIfSafe) {
+            return PreparedFeedbackComposerAttachment(
+                fileName: attachment.fileName,
+                mimeType: attachment.mimeType,
+                data: fileData
+            )
+        }
+
+        guard let imageSource = CGImageSourceCreateWithURL(attachment.url as CFURL, nil) else {
+            throw FeedbackComposerSubmissionError.attachmentReadFailed
+        }
+
+        for maxPixelDimension in optimizedAttachmentDimensions {
+            guard let cgImage = downsampledImage(
+                from: imageSource,
+                maxPixelDimension: maxPixelDimension
+            ) else { continue }
+
+            for compressionQuality in optimizedAttachmentQualities {
+                guard let jpegData = jpegData(
+                    from: cgImage,
+                    compressionQuality: compressionQuality
+                ) else { continue }
+                guard jpegData.count <= maximumByteCount else { continue }
+
+                return PreparedFeedbackComposerAttachment(
+                    fileName: optimizedFileName(for: attachment),
+                    mimeType: optimizedAttachmentMIMEType,
+                    data: jpegData
+                )
+            }
+        }
+
+        throw FeedbackComposerSubmissionError.attachmentPreparationFailed
+    }
+
+    private static func downsampledImage(
+        from imageSource: CGImageSource,
+        maxPixelDimension: Int
+    ) -> CGImage? {
+        CGImageSourceCreateThumbnailAtIndex(
+            imageSource,
+            0,
+            [
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceCreateThumbnailWithTransform: true,
+                kCGImageSourceShouldCache: false,
+                kCGImageSourceShouldCacheImmediately: false,
+                kCGImageSourceThumbnailMaxPixelSize: maxPixelDimension,
+            ] as CFDictionary
+        )
+    }
+
+    private static func jpegData(
+        from image: CGImage,
+        compressionQuality: CGFloat
+    ) -> Data? {
+        let bitmap = NSBitmapImageRep(cgImage: image)
+        return bitmap.representation(
+            using: .jpeg,
+            properties: [
+                .compressionFactor: compressionQuality,
+            ]
+        )
+    }
+
+    private static func optimizedFileName(
+        for attachment: FeedbackComposerAttachment
+    ) -> String {
+        let baseName = (attachment.fileName as NSString).deletingPathExtension
+        return "\(baseName.isEmpty ? "feedback-image" : baseName).jpg"
+    }
+
     private static func appendFile(
         named fieldName: String,
-        attachment: FeedbackComposerAttachment,
-        data: Data,
+        attachment: PreparedFeedbackComposerAttachment,
         to body: inout Data,
         boundary: String
     ) {
@@ -6034,7 +6170,7 @@ private enum FeedbackComposerClient {
             )
         )
         body.append(Data("Content-Type: \(attachment.mimeType)\r\n\r\n".utf8))
-        body.append(data)
+        body.append(attachment.data)
         body.append(Data("\r\n".utf8))
     }
 }
@@ -6440,6 +6576,159 @@ private struct SidebarFooterButtons: View {
     }
 }
 
+private struct FeedbackComposerMessageEditor: NSViewRepresentable {
+    @Binding var text: String
+    let placeholder: String
+    let accessibilityLabel: String
+    let accessibilityIdentifier: String
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(parent: self)
+    }
+
+    func makeNSView(context: Context) -> FeedbackComposerMessageEditorView {
+        let view = FeedbackComposerMessageEditorView()
+        view.placeholder = placeholder
+        view.textView.string = text
+        view.textView.delegate = context.coordinator
+        view.textView.setAccessibilityLabel(accessibilityLabel)
+        view.textView.setAccessibilityIdentifier(accessibilityIdentifier)
+        view.setAccessibilityIdentifier(accessibilityIdentifier)
+        return view
+    }
+
+    func updateNSView(_ nsView: FeedbackComposerMessageEditorView, context: Context) {
+        if nsView.textView.string != text {
+            nsView.textView.string = text
+        }
+        nsView.placeholder = placeholder
+        nsView.textView.setAccessibilityLabel(accessibilityLabel)
+        nsView.textView.setAccessibilityIdentifier(accessibilityIdentifier)
+        nsView.setAccessibilityIdentifier(accessibilityIdentifier)
+    }
+
+    final class Coordinator: NSObject, NSTextViewDelegate {
+        var parent: FeedbackComposerMessageEditor
+
+        init(parent: FeedbackComposerMessageEditor) {
+            self.parent = parent
+        }
+
+        func textDidChange(_ notification: Notification) {
+            guard let textView = notification.object as? NSTextView else { return }
+            parent.text = textView.string
+        }
+    }
+}
+
+private final class FeedbackComposerMessageEditorView: NSView {
+    private static let textInset = NSSize(width: 10, height: 10)
+
+    let scrollView = NSScrollView()
+    let textView = NSTextView()
+    private let placeholderField = NSTextField(labelWithString: "")
+
+    var placeholder: String = "" {
+        didSet {
+            placeholderField.stringValue = placeholder
+            updatePlaceholderVisibility()
+        }
+    }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+
+        wantsLayer = true
+        layer?.cornerRadius = 8
+        layer?.borderWidth = 1
+        layer?.borderColor = NSColor.separatorColor.cgColor
+        layer?.backgroundColor = NSColor.textBackgroundColor.cgColor
+
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+        scrollView.borderType = .noBorder
+        scrollView.drawsBackground = false
+        scrollView.automaticallyAdjustsContentInsets = false
+        scrollView.hasVerticalScroller = true
+
+        textView.translatesAutoresizingMaskIntoConstraints = false
+        textView.isRichText = false
+        textView.importsGraphics = false
+        textView.isHorizontallyResizable = false
+        textView.isVerticallyResizable = true
+        textView.autoresizingMask = [.width]
+        textView.backgroundColor = .clear
+        textView.drawsBackground = false
+        textView.font = .systemFont(ofSize: 12)
+        textView.textColor = .labelColor
+        textView.insertionPointColor = .labelColor
+        textView.textContainerInset = Self.textInset
+        textView.textContainer?.lineFragmentPadding = 0
+        textView.textContainer?.containerSize = NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude)
+        textView.textContainer?.widthTracksTextView = true
+        textView.minSize = .zero
+        textView.maxSize = NSSize(
+            width: CGFloat.greatestFiniteMagnitude,
+            height: CGFloat.greatestFiniteMagnitude
+        )
+
+        scrollView.documentView = textView
+        addSubview(scrollView)
+
+        placeholderField.translatesAutoresizingMaskIntoConstraints = false
+        placeholderField.font = .systemFont(ofSize: 12)
+        placeholderField.textColor = .secondaryLabelColor
+        placeholderField.lineBreakMode = .byWordWrapping
+        placeholderField.maximumNumberOfLines = 0
+        scrollView.contentView.addSubview(placeholderField)
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(textDidChange(_:)),
+            name: NSText.didChangeNotification,
+            object: textView
+        )
+
+        NSLayoutConstraint.activate([
+            scrollView.topAnchor.constraint(equalTo: topAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
+
+            placeholderField.topAnchor.constraint(
+                equalTo: scrollView.contentView.topAnchor,
+                constant: Self.textInset.height
+            ),
+            placeholderField.leadingAnchor.constraint(
+                equalTo: scrollView.contentView.leadingAnchor,
+                constant: Self.textInset.width
+            ),
+            placeholderField.trailingAnchor.constraint(
+                lessThanOrEqualTo: scrollView.contentView.trailingAnchor,
+                constant: -Self.textInset.width
+            ),
+        ])
+
+        updatePlaceholderVisibility()
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
+    @objc
+    private func textDidChange(_ notification: Notification) {
+        updatePlaceholderVisibility()
+    }
+
+    private func updatePlaceholderVisibility() {
+        placeholderField.isHidden = textView.string.isEmpty == false
+    }
+}
+
 private enum SidebarHelpMenuAction {
     case keyboardShortcuts
     case docs
@@ -6495,7 +6784,7 @@ private struct SidebarFeedbackComposerSheet: View {
             Text(
                 String(
                     localized: "sidebar.help.feedback.successBody",
-                    defaultValue: "The founders will read your message. You can also reach us at founders@manaflow.com."
+                    defaultValue: "A human will read this! You can also reach us at founders@manaflow.com."
                 )
             )
             .font(.system(size: 12))
@@ -6516,7 +6805,7 @@ private struct SidebarFeedbackComposerSheet: View {
             Text(
                 String(
                     localized: "sidebar.help.feedback.note",
-                    defaultValue: "The founders will read every message. You can also reach us at founders@manaflow.com."
+                    defaultValue: "A human will read this! You can also reach us at founders@manaflow.com."
                 )
             )
             .font(.system(size: 12))
@@ -6548,38 +6837,16 @@ private struct SidebarFeedbackComposerSheet: View {
                         )
                 }
 
-                ZStack(alignment: .topLeading) {
-                    TextEditor(text: $message)
-                        .font(.system(size: 12))
-                        .frame(minHeight: 180)
-                        .padding(.horizontal, 4)
-                        .padding(.vertical, 3)
-                        .scrollContentBackground(.hidden)
-                        .background(
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .fill(Color(nsColor: .textBackgroundColor))
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
-                        )
-                        .accessibilityLabel(String(localized: "sidebar.help.feedback.message", defaultValue: "Message"))
-                        .accessibilityIdentifier("SidebarFeedbackMessageEditor")
-
-                    if message.isEmpty {
-                        Text(
-                            String(
-                                localized: "sidebar.help.feedback.messagePlaceholder",
-                                defaultValue: "Share feedback, feature requests, or issues."
-                            )
-                        )
-                        .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 12)
-                        .allowsHitTesting(false)
-                    }
-                }
+                FeedbackComposerMessageEditor(
+                    text: $message,
+                    placeholder: String(
+                        localized: "sidebar.help.feedback.messagePlaceholder",
+                        defaultValue: "Share feedback, feature requests, or issues."
+                    ),
+                    accessibilityLabel: String(localized: "sidebar.help.feedback.message", defaultValue: "Message"),
+                    accessibilityIdentifier: "SidebarFeedbackMessageEditor"
+                )
+                .frame(minHeight: 180)
             }
 
             VStack(alignment: .leading, spacing: 8) {
@@ -6597,7 +6864,7 @@ private struct SidebarFeedbackComposerSheet: View {
                     Text(
                         String(
                             localized: "sidebar.help.feedback.attachmentsHint",
-                            defaultValue: "Up to 4 images, 4 MB total."
+                            defaultValue: "Up to 10 images. Large images will be optimized before sending."
                         )
                     )
                     .font(.system(size: 11))
@@ -6684,7 +6951,6 @@ private struct SidebarFeedbackComposerSheet: View {
 
         var updatedAttachments = attachments
         var knownPaths = Set(updatedAttachments.map(\.standardizedPath))
-        var totalBytes = updatedAttachments.reduce(Int64(0)) { $0 + $1.fileSize }
         var firstIssue: String?
 
         for url in panel.urls {
@@ -6695,7 +6961,7 @@ private struct SidebarFeedbackComposerSheet: View {
             if updatedAttachments.count >= FeedbackComposerSettings.maxAttachmentCount {
                 firstIssue = String(
                     localized: "sidebar.help.feedback.tooManyImages",
-                    defaultValue: "You can attach up to 4 images."
+                    defaultValue: "You can attach up to 10 images."
                 )
                 break
             }
@@ -6707,26 +6973,8 @@ private struct SidebarFeedbackComposerSheet: View {
                 )
                 continue
             }
-
-            if attachment.fileSize > Int64(FeedbackComposerSettings.maxAttachmentBytes) {
-                firstIssue = String(
-                    localized: "sidebar.help.feedback.imageTooLarge",
-                    defaultValue: "Each image must be 4 MB or smaller."
-                )
-                continue
-            }
-
-            if totalBytes + attachment.fileSize > Int64(FeedbackComposerSettings.maxTotalAttachmentBytes) {
-                firstIssue = String(
-                    localized: "sidebar.help.feedback.totalImagesTooLarge",
-                    defaultValue: "Total image attachments must be 4 MB or smaller."
-                )
-                continue
-            }
-
             updatedAttachments.append(attachment)
             knownPaths.insert(normalizedPath)
-            totalBytes += attachment.fileSize
         }
 
         attachments = updatedAttachments
@@ -6822,6 +7070,11 @@ private struct SidebarFeedbackComposerSheet: View {
                 localized: "sidebar.help.feedback.invalidImageSelection",
                 defaultValue: "One of the selected files could not be attached."
             )
+        case .attachmentPreparationFailed:
+            return String(
+                localized: "sidebar.help.feedback.totalImagesTooLarge",
+                defaultValue: "These images are too large to send together. Remove a few and try again."
+            )
         case .transport(let transportError):
             if transportError.code == .notConnectedToInternet || transportError.code == .networkConnectionLost {
                 return String(
@@ -6899,6 +7152,13 @@ private struct SidebarHelpMenuButton: View {
     private var helpPopover: some View {
         VStack(alignment: .leading, spacing: 2) {
             helpOptionButton(
+                title: String(localized: "sidebar.help.sendFeedback", defaultValue: "Send Feedback"),
+                action: .sendFeedback,
+                accessibilityIdentifier: "SidebarHelpMenuOptionSendFeedback",
+                isExternalLink: false,
+                leadingSystemImage: "bubble.left.and.text.bubble.right"
+            )
+            helpOptionButton(
                 title: String(localized: "settings.section.keyboardShortcuts", defaultValue: "Keyboard Shortcuts"),
                 action: .keyboardShortcuts,
                 accessibilityIdentifier: "SidebarHelpMenuOptionKeyboardShortcuts",
@@ -6942,12 +7202,6 @@ private struct SidebarHelpMenuButton: View {
                 accessibilityIdentifier: "SidebarHelpMenuOptionCheckForUpdates",
                 isExternalLink: false
             )
-            helpOptionButton(
-                title: String(localized: "sidebar.help.sendFeedback", defaultValue: "Send Feedback"),
-                action: .sendFeedback,
-                accessibilityIdentifier: "SidebarHelpMenuOptionSendFeedback",
-                isExternalLink: false
-            )
         }
         .padding(8)
         .frame(minWidth: 200)
@@ -6957,13 +7211,19 @@ private struct SidebarHelpMenuButton: View {
         title: String,
         action: SidebarHelpMenuAction,
         accessibilityIdentifier: String,
-        isExternalLink: Bool
+        isExternalLink: Bool,
+        leadingSystemImage: String? = nil
     ) -> some View {
         Button {
             isPopoverPresented = false
             perform(action)
         } label: {
             HStack(spacing: 8) {
+                if let leadingSystemImage {
+                    Image(systemName: leadingSystemImage)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(Color(nsColor: .secondaryLabelColor))
+                }
                 Text(title)
                     .font(.system(size: 12))
                 Spacer(minLength: 0)
