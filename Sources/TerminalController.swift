@@ -4161,7 +4161,7 @@ class TerminalController {
             var refreshedCount = 0
             for panel in ws.panels.values {
                 if let terminalPanel = panel as? TerminalPanel {
-                    terminalPanel.surface.forceRefresh()
+                    terminalPanel.surface.forceRefresh(reason: "terminalController.v2SurfaceRefresh")
                     refreshedCount += 1
                 }
             }
@@ -4243,7 +4243,7 @@ class TerminalController {
                 // Ensure we present a new frame after injecting input so snapshot-based tests (and
                 // socket-driven agents) can observe the updated terminal without requiring a focus
                 // change to trigger a draw.
-                terminalPanel.surface.forceRefresh()
+                terminalPanel.surface.forceRefresh(reason: "terminalController.v2SurfaceSendText")
                 queued = false
             } else {
                 // Avoid blocking the main actor waiting for view/surface attachment.
@@ -4301,7 +4301,7 @@ class TerminalController {
                 result = .err(code: "invalid_params", message: "Unknown key", data: ["key": key])
                 return
             }
-            terminalPanel.surface.forceRefresh()
+            terminalPanel.surface.forceRefresh(reason: "terminalController.v2SurfaceSendKey")
             result = .ok(["workspace_id": ws.id.uuidString, "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id), "surface_id": surfaceId.uuidString, "surface_ref": v2Ref(kind: .surface, uuid: surfaceId), "window_id": v2OrNull(v2ResolveWindowId(tabManager: tabManager)?.uuidString), "window_ref": v2Ref(kind: .window, uuid: v2ResolveWindowId(tabManager: tabManager))])
         }
         return result
@@ -4333,7 +4333,7 @@ class TerminalController {
                 return
             }
 
-            terminalPanel.surface.forceRefresh()
+            terminalPanel.surface.forceRefresh(reason: "terminalController.v2SurfaceClearHistory")
             let windowId = v2ResolveWindowId(tabManager: tabManager)
             result = .ok([
                 "workspace_id": ws.id.uuidString,
@@ -11146,7 +11146,7 @@ class TerminalController {
             var cgImage = view.debugCopyIOSurfaceCGImage()
             if cgImage == nil {
                 // If the surface is mid-attach we may not have contents yet. Nudge a draw and retry once.
-                terminalPanel.surface.forceRefresh()
+                terminalPanel.surface.forceRefresh(reason: "terminalController.debugCopyIOSurfaceRetry")
                 cgImage = view.debugCopyIOSurfaceCGImage()
             }
             guard let cgImage else {
@@ -13712,7 +13712,7 @@ class TerminalController {
             // (resets cached metrics so the Metal layer drawable resizes correctly)
             for panel in tab.panels.values {
                 if let terminalPanel = panel as? TerminalPanel {
-                    terminalPanel.surface.forceRefresh()
+                    terminalPanel.surface.forceRefresh(reason: "terminalController.refreshAllTerminalPanels")
                     refreshedCount += 1
                 }
             }
