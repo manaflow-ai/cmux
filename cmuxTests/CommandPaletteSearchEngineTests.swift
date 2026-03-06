@@ -387,6 +387,61 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         )
     }
 
+    func testSelectionAnchorTracksVisiblePendingSelection() {
+        let resultIDs = ["command.0", "command.1", "command.2"]
+        let visibleAnchor = ContentView.commandPaletteSelectionAnchorCommandID(
+            selectedIndex: 2,
+            resultIDs: resultIDs
+        )
+
+        XCTAssertEqual(
+            ContentView.commandPaletteResolvedPendingActivation(
+                .selected(
+                    requestID: 41,
+                    fallbackSelectedIndex: 0,
+                    preferredCommandID: visibleAnchor
+                ),
+                requestID: 41,
+                resultIDs: resultIDs
+            ),
+            .selected(index: 2)
+        )
+    }
+
+    func testPreviewCandidateCommandIDsAreBounded() {
+        let resultIDs = (0..<500).map { "command.\($0)" }
+
+        let previewCandidateIDs = ContentView.commandPalettePreviewCandidateCommandIDs(
+            resultIDs: resultIDs,
+            limit: 192
+        )
+
+        XCTAssertEqual(previewCandidateIDs.count, 192)
+        XCTAssertEqual(previewCandidateIDs.first, "command.0")
+        XCTAssertEqual(previewCandidateIDs.last, "command.191")
+    }
+
+    func testSynchronousSeedRunsOnlyWhenScopeChanges() {
+        XCTAssertTrue(
+            ContentView.commandPaletteShouldSynchronouslySeedResults(
+                visibleResultsScope: nil,
+                nextScope: .commands
+            )
+        )
+        XCTAssertFalse(
+            ContentView.commandPaletteShouldSynchronouslySeedResults(
+                visibleResultsScope: .commands,
+                nextScope: .commands
+            )
+        )
+        XCTAssertTrue(
+            ContentView.commandPaletteShouldSynchronouslySeedResults(
+                visibleResultsScope: .commands,
+                nextScope: .switcher
+            )
+        )
+    }
+
     func testCommandContextFingerprintTracksExactContextValues() {
         let base = ContentView.commandPaletteContextFingerprint(
             boolValues: [
