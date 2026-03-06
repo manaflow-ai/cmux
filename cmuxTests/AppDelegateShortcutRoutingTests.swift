@@ -27,7 +27,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
     }
 
     override func tearDown() {
-        AppDelegate.shared?.shortcutLayoutCharacterProvider = KeyboardLayout.character(forKeyCode:)
+        AppDelegate.shared?.shortcutLayoutCharacterProvider = KeyboardLayout.character(forKeyCode:modifierFlags:)
         AppDelegate.shared?.dismissNotificationsPopoverIfShown()
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
         for action in KeyboardShortcutSettings.Action.allCases {
@@ -500,9 +500,9 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        appDelegate.shortcutLayoutCharacterProvider = { _ in nil }
+        appDelegate.shortcutLayoutCharacterProvider = { _, _ in nil }
         defer {
-            appDelegate.shortcutLayoutCharacterProvider = KeyboardLayout.character(forKeyCode:)
+            appDelegate.shortcutLayoutCharacterProvider = KeyboardLayout.character(forKeyCode:modifierFlags:)
         }
 
         let switcherExpectation = expectation(description: "Cmd+P with unavailable characters should request command palette switcher")
@@ -549,9 +549,9 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        appDelegate.shortcutLayoutCharacterProvider = { _ in "b" }
+        appDelegate.shortcutLayoutCharacterProvider = { _, _ in "b" }
         defer {
-            appDelegate.shortcutLayoutCharacterProvider = KeyboardLayout.character(forKeyCode:)
+            appDelegate.shortcutLayoutCharacterProvider = KeyboardLayout.character(forKeyCode:modifierFlags:)
         }
 
         let switcherExpectation = expectation(description: "Non-P layout translation should not request command palette switcher")
@@ -582,6 +582,58 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
 
         _ = appDelegate.handleBrowserSurfaceKeyEquivalent(event)
+        wait(for: [switcherExpectation], timeout: 0.15)
+    }
+
+    func testCmdPFallsBackToCommandAwareLayoutTranslationWhenCharactersAreUnavailable() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId) else {
+            XCTFail("Expected test window")
+            return
+        }
+
+        appDelegate.shortcutLayoutCharacterProvider = { keyCode, modifierFlags in
+            guard keyCode == 35 else { return nil } // kVK_ANSI_P
+            return modifierFlags.contains(.command) ? "p" : "r"
+        }
+        defer {
+            appDelegate.shortcutLayoutCharacterProvider = KeyboardLayout.character(forKeyCode:modifierFlags:)
+        }
+
+        let switcherExpectation = expectation(description: "Command-aware layout translation should request command palette switcher")
+        let token = NotificationCenter.default.addObserver(
+            forName: .commandPaletteSwitcherRequested,
+            object: nil,
+            queue: nil
+        ) { _ in
+            switcherExpectation.fulfill()
+        }
+        defer { NotificationCenter.default.removeObserver(token) }
+
+        guard let event = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: "",
+            charactersIgnoringModifiers: "",
+            isARepeat: false,
+            keyCode: 35 // kVK_ANSI_P
+        ) else {
+            XCTFail("Failed to construct Cmd+P event with unavailable characters")
+            return
+        }
+
+        XCTAssertTrue(appDelegate.handleBrowserSurfaceKeyEquivalent(event))
         wait(for: [switcherExpectation], timeout: 0.15)
     }
 
@@ -975,6 +1027,48 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
 #if DEBUG
             XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+        }
+    }
+
+    func testCmdShiftISOAngleBracketDoesNotMatchCommaShortcut() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId) else {
+            XCTFail("Expected test window")
+            return
+        }
+
+        withTemporaryShortcut(
+            action: .showNotifications,
+            shortcut: StoredShortcut(key: ",", command: true, shift: true, option: false, control: false)
+        ) {
+            guard let event = NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: [.command, .shift],
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber,
+                context: nil,
+                characters: "<",
+                charactersIgnoringModifiers: "<",
+                isARepeat: false,
+                keyCode: 10 // kVK_ISO_Section
+            ) else {
+                XCTFail("Failed to construct Cmd+Shift+< event from ISO key")
+                return
+            }
+
+#if DEBUG
+            XCTAssertFalse(appDelegate.debugHandleCustomShortcut(event: event))
 #else
             XCTFail("debugHandleCustomShortcut is only available in DEBUG")
 #endif

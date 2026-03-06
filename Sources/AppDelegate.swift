@@ -1006,7 +1006,7 @@ func shouldToggleMainWindowFullScreenForCommandControlFShortcut(
     flags: NSEvent.ModifierFlags,
     chars: String,
     keyCode: UInt16,
-    layoutCharacterProvider: (UInt16) -> String? = KeyboardLayout.character(forKeyCode:)
+    layoutCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:)
 ) -> Bool {
     let normalizedFlags = flags
         .intersection(.deviceIndependentFlagsMask)
@@ -1024,7 +1024,7 @@ func shouldToggleMainWindowFullScreenForCommandControlFShortcut(
 
     // Fallback to layout translation only when characters are unavailable (for
     // synthetic/key-equivalent paths that can report an empty string).
-    if let translatedCharacter = layoutCharacterProvider(keyCode), !translatedCharacter.isEmpty {
+    if let translatedCharacter = layoutCharacterProvider(keyCode, flags), !translatedCharacter.isEmpty {
         return translatedCharacter == "f"
     }
 
@@ -1466,7 +1466,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     weak var sidebarState: SidebarState?
     weak var fullscreenControlsViewModel: TitlebarControlsViewModel?
     weak var sidebarSelectionState: SidebarSelectionState?
-    var shortcutLayoutCharacterProvider: (UInt16) -> String? = KeyboardLayout.character(forKeyCode:)
+    var shortcutLayoutCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:)
     private var workspaceObserver: NSObjectProtocol?
     private var lifecycleSnapshotObservers: [NSObjectProtocol] = []
     private var windowKeyObserver: NSObjectProtocol?
@@ -7530,7 +7530,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         // Match using the current keyboard layout so Command shortcuts stay character-based
         // across layouts (QWERTY, Dvorak, etc.) instead of being tied to ANSI physical keys.
-        let layoutCharacter = shortcutLayoutCharacterProvider(event.keyCode)
+        let layoutCharacter = shortcutLayoutCharacterProvider(event.keyCode, event.modifierFlags)
         if shortcutCharacterMatches(
             eventCharacter: layoutCharacter,
             shortcutKey: shortcutKey,
@@ -7592,8 +7592,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         switch lowered {
         case "{": return "["
         case "}": return "]"
-        case "<": return ","
-        case ">": return "."
+        case "<": return eventKeyCode == 43 ? "," : lowered // kVK_ANSI_Comma
+        case ">": return eventKeyCode == 47 ? "." : lowered // kVK_ANSI_Period
         case "?": return "/"
         case ":": return ";"
         case "\"": return "'"

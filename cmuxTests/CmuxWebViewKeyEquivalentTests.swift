@@ -2759,7 +2759,7 @@ final class FullScreenShortcutTests: XCTestCase {
                 flags: [.command, .control],
                 chars: "",
                 keyCode: 3,
-                layoutCharacterProvider: { _ in nil }
+                layoutCharacterProvider: { _, _ in nil }
             )
         )
     }
@@ -2770,7 +2770,20 @@ final class FullScreenShortcutTests: XCTestCase {
                 flags: [.command, .control],
                 chars: "",
                 keyCode: 3,
-                layoutCharacterProvider: { _ in "u" }
+                layoutCharacterProvider: { _, _ in "u" }
+            )
+        )
+    }
+
+    func testMatchesCommandControlFWhenCommandAwareLayoutTranslationProvidesF() {
+        XCTAssertTrue(
+            shouldToggleMainWindowFullScreenForCommandControlFShortcut(
+                flags: [.command, .control],
+                chars: "",
+                keyCode: 3,
+                layoutCharacterProvider: { _, modifierFlags in
+                    modifierFlags.contains(.command) ? "f" : "u"
+                }
             )
         )
     }
@@ -2781,7 +2794,7 @@ final class FullScreenShortcutTests: XCTestCase {
                 flags: [.command, .control],
                 chars: "\u{06}",
                 keyCode: 3,
-                layoutCharacterProvider: { _ in nil }
+                layoutCharacterProvider: { _, _ in nil }
             )
         )
     }
