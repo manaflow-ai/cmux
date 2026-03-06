@@ -1,0 +1,9 @@
+2026-03-06T01:56:14.013007Z  INFO cmux_app: cmux starting
+2026-03-06T01:56:14.013132Z  WARN ghostty_gtk::app: ghostty not linked — running in stub mode
+libEGL warning: DRI3 error: Could not get DRI3 device
+libEGL warning: Ensure your X server supports DRI3 to get accelerated rendering
+2026-03-06T01:56:14.122599Z  INFO cmux_app::socket::server: Socket control mode: CmuxOnly
+2026-03-06T01:56:14.122644Z  WARN cmux_app::socket::server: CmuxOnly mode: descendant-PID check not yet implemented, falling back to same-UID
+2026-03-06T01:56:14.122757Z  INFO cmux_app::socket::server: Socket server listening on /tmp/cmux-1000.sock
+2026-03-06T01:56:52.493046Z  INFO cmux_app::socket::v2: Notification (stub): PR 828 demo - Testing Linux port interactions
+2026-03-06T01:57:37.885011Z  INFO cmux_app::socket::v2: Notification (stub): Linux port - Demo notification from PR 828

@@ -1,0 +1,40 @@
+{
+  "id": 1,
+  "ok": true,
+  "result": {
+    "workspaces": [
+      {
+        "directory": "/home/ubuntu",
+        "id": "9123d473-bc8f-426c-902b-52c602a21cdc",
+        "index": 0,
+        "panel_count": 1,
+        "selected": false,
+        "title": "Terminal"
+      },
+      {
+        "directory": "/home/ubuntu",
+        "id": "c27a8d65-d9c5-421a-8ec8-fb771132b083",
+        "index": 1,
+        "panel_count": 1,
+        "selected": false,
+        "title": "Terminal"
+      },
+      {
+        "directory": "/workspace",
+        "id": "01827a4e-2281-4ffa-8ba6-1cf315260c22",
+        "index": 2,
+        "panel_count": 1,
+        "selected": false,
+        "title": "CLI Workspace A"
+      },
+      {
+        "directory": "/workspace/linux",
+        "id": "05bdc5c3-b2f2-435d-b694-40dd55c23fc3",
+        "index": 3,
+        "panel_count": 5,
+        "selected": true,
+        "title": "CLI Workspace B"
+      }
+    ]
+  }
+}

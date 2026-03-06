@@ -1,0 +1,23 @@
+{
+  "id": 1,
+  "ok": true,
+  "result": {
+    "methods": [
+      "system.ping",
+      "system.capabilities",
+      "workspace.list",
+      "workspace.new",
+      "workspace.create",
+      "workspace.select",
+      "workspace.next",
+      "workspace.previous",
+      "workspace.last",
+      "workspace.close",
+      "workspace.set_status",
+      "workspace.report_git_branch",
+      "workspace.set_progress",
+      "workspace.append_log",
+      "pane.new"
+    ]
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "id": 1,
+  "ok": true,
+  "result": {
+    "workspaces": [
+      {
+        "directory": "/home/ubuntu",
+        "id": "9123d473-bc8f-426c-902b-52c602a21cdc",
+        "index": 0,
+        "panel_count": 1,
+        "selected": true,
+        "title": "Terminal"
+      }
+    ]
+  }
+}
