@@ -11632,11 +11632,17 @@ class TerminalController {
                 .replacingOccurrences(of: "\\r", with: "\r")
                 .replacingOccurrences(of: "\\t", with: "\t")
 
-            if let surface = terminalPanel.surface.surface {
-                sendSocketText(unescaped, surface: surface)
-            } else {
-                terminalPanel.sendText(unescaped)
-                terminalPanel.surface.requestBackgroundSurfaceStartIfNeeded()
+            // This DEBUG-only command is used by UI tests to enqueue shell work in an
+            // existing workspace. Return once the input is queued on main so a long
+            // payload does not hold the control-socket response open in CI.
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                if let surface = terminalPanel.surface.surface {
+                    self.sendSocketText(unescaped, surface: surface)
+                } else {
+                    terminalPanel.sendText(unescaped)
+                    terminalPanel.surface.requestBackgroundSurfaceStartIfNeeded()
+                }
             }
             success = true
         }
