@@ -641,6 +641,7 @@ class TabManager: ObservableObject {
 
 #if DEBUG
     private var didSetupSplitCloseRightUITest = false
+    private var didSetupBrowserRedockUITest = false
     private var didSetupUITestFocusShortcuts = false
     private var didSetupChildExitSplitUITest = false
     private var didSetupChildExitKeyboardUITest = false
@@ -678,6 +679,7 @@ class TabManager: ObservableObject {
 #if DEBUG
         setupUITestFocusShortcutsIfNeeded()
         setupSplitCloseRightUITestIfNeeded()
+        setupBrowserRedockUITestIfNeeded()
         setupChildExitSplitUITestIfNeeded()
         setupChildExitKeyboardUITestIfNeeded()
 #endif
@@ -2458,6 +2460,392 @@ class TabManager: ObservableObject {
         }
 
         return (attached, hasSurface, firstResponder)
+    }
+
+    @MainActor
+    private func waitForBrowserPanelReadyForUITest(
+        tab: Workspace,
+        panelId: UUID,
+        expectedHost: String,
+        timeoutSeconds: TimeInterval = 12.0
+    ) async -> (attached: Bool, loaded: Bool, hasSnapshot: Bool, url: String, title: String) {
+        let deadline = Date().addingTimeInterval(timeoutSeconds)
+        var attached = false
+        var loaded = false
+        var hasSnapshot = false
+        var urlString = ""
+        var title = ""
+
+        while Date() < deadline {
+            guard let panel = tab.browserPanel(for: panelId) else {
+                return (false, false, false, "", "")
+            }
+
+            attached = panel.webView.window != nil && panel.webView.superview != nil
+            urlString = panel.currentURL?.absoluteString ?? panel.webView.url?.absoluteString ?? ""
+            title = panel.pageTitle
+
+            let hostMatches = urlString.localizedCaseInsensitiveContains(expectedHost)
+            loaded = attached && hostMatches && !panel.webView.isLoading
+
+            if loaded {
+                hasSnapshot = await withCheckedContinuation { continuation in
+                    panel.takeSnapshot { image in
+                        continuation.resume(returning: image != nil)
+                    }
+                }
+                if hasSnapshot {
+                    return (attached, loaded, hasSnapshot, urlString, title)
+                }
+            }
+
+            try? await Task.sleep(nanoseconds: 50_000_000)
+        }
+
+        return (attached, loaded, hasSnapshot, urlString, title)
+    }
+
+    @MainActor
+    private func waitForPaneCountForUITest(
+        tab: Workspace,
+        expectedPaneCount: Int,
+        timeoutSeconds: TimeInterval = 6.0
+    ) async -> Bool {
+        let deadline = Date().addingTimeInterval(timeoutSeconds)
+        while Date() < deadline {
+            if tab.bonsplitController.allPaneIds.count == expectedPaneCount {
+                return true
+            }
+            try? await Task.sleep(nanoseconds: 50_000_000)
+        }
+        return tab.bonsplitController.allPaneIds.count == expectedPaneCount
+    }
+
+    @MainActor
+    private func waitForSelectedPanelKindInPaneForUITest(
+        tab: Workspace,
+        paneId: PaneID,
+        expectedKind: PanelType,
+        timeoutSeconds: TimeInterval = 6.0
+    ) async -> Bool {
+        let deadline = Date().addingTimeInterval(timeoutSeconds)
+        while Date() < deadline {
+            if let selected = tab.bonsplitController.selectedTab(inPane: paneId),
+               let panel = tab.panel(for: selected.id),
+               panel.panelType == expectedKind {
+                return true
+            }
+            try? await Task.sleep(nanoseconds: 50_000_000)
+        }
+
+        if let selected = tab.bonsplitController.selectedTab(inPane: paneId),
+           let panel = tab.panel(for: selected.id) {
+            return panel.panelType == expectedKind
+        }
+        return false
+    }
+
+    @MainActor
+    private func settleBrowserRedockUITestPresentation(
+        tab: Workspace,
+        browserPanelId: UUID,
+        passes: Int = 8
+    ) async {
+        for _ in 0..<max(1, passes) {
+            NSApp.windows.forEach { window in
+                window.contentView?.layoutSubtreeIfNeeded()
+                window.contentView?.displayIfNeeded()
+            }
+            if let browserPanel = tab.browserPanel(for: browserPanelId) {
+                browserPanel.webView.superview?.layoutSubtreeIfNeeded()
+                browserPanel.webView.layoutSubtreeIfNeeded()
+                browserPanel.webView.window?.displayIfNeeded()
+            }
+            await Task.yield()
+            try? await Task.sleep(nanoseconds: 40_000_000)
+        }
+    }
+
+    private func setupBrowserRedockUITestIfNeeded() {
+        guard !didSetupBrowserRedockUITest else { return }
+        didSetupBrowserRedockUITest = true
+
+        let env = ProcessInfo.processInfo.environment
+        guard env["CMUX_UI_TEST_BROWSER_REDOCK_SETUP"] == "1" else { return }
+        guard let path = env["CMUX_UI_TEST_BROWSER_REDOCK_PATH"], !path.isEmpty else { return }
+        let urlString = (env["CMUX_UI_TEST_BROWSER_REDOCK_URL"] ?? "https://example.com")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let targetURL = URL(string: urlString) else {
+            writeBrowserRedockTestData([
+                "setupError": "Invalid target URL: \(urlString)"
+            ], at: path)
+            return
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+            guard let self else { return }
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                guard let tab = self.selectedWorkspace else {
+                    self.writeBrowserRedockTestData(["setupError": "Missing selected workspace"], at: path)
+                    return
+                }
+                guard let initialPaneId = tab.bonsplitController.focusedPaneId ?? tab.bonsplitController.allPaneIds.first else {
+                    self.writeBrowserRedockTestData(["setupError": "Missing initial pane"], at: path)
+                    return
+                }
+                guard let initialPanelId = tab.focusedTerminalPanel?.id ?? tab.focusedPanelId else {
+                    self.writeBrowserRedockTestData(["setupError": "Missing initial terminal panel"], at: path)
+                    return
+                }
+
+                self.writeBrowserRedockTestData([
+                    "targetURL": targetURL.absoluteString,
+                    "initialPaneId": initialPaneId.id.uuidString,
+                    "initialPanelId": initialPanelId.uuidString,
+                    "initialPaneCount": String(tab.bonsplitController.allPaneIds.count),
+                    "visualDone": "0"
+                ], at: path)
+
+                let initialTerminalReadiness = await self.waitForTerminalPanelReadyForUITest(
+                    tab: tab,
+                    panelId: initialPanelId
+                )
+                guard initialTerminalReadiness.attached, initialTerminalReadiness.hasSurface else {
+                    self.writeBrowserRedockTestData([
+                        "initialTerminalAttached": initialTerminalReadiness.attached ? "1" : "0",
+                        "initialTerminalSurfaceReady": initialTerminalReadiness.hasSurface ? "1" : "0",
+                        "setupError": "Initial terminal was not ready"
+                    ], at: path)
+                    return
+                }
+
+                guard let browserPanel = tab.newBrowserSurface(
+                    inPane: initialPaneId,
+                    url: nil,
+                    focus: true,
+                    insertAtEnd: true
+                ) else {
+                    self.writeBrowserRedockTestData(["setupError": "Failed to open browser in current pane"], at: path)
+                    return
+                }
+
+                tab.focusPanel(browserPanel.id)
+                browserPanel.navigate(to: targetURL)
+
+                let browserReadiness = await self.waitForBrowserPanelReadyForUITest(
+                    tab: tab,
+                    panelId: browserPanel.id,
+                    expectedHost: targetURL.host ?? "example.com"
+                )
+                guard browserReadiness.attached, browserReadiness.loaded, browserReadiness.hasSnapshot else {
+                    self.writeBrowserRedockTestData([
+                        "browserAttachedBeforeMove": browserReadiness.attached ? "1" : "0",
+                        "browserLoadedBeforeMove": browserReadiness.loaded ? "1" : "0",
+                        "browserSnapshotBeforeMove": browserReadiness.hasSnapshot ? "1" : "0",
+                        "browserURLBeforeMove": browserReadiness.url,
+                        "browserTitleBeforeMove": browserReadiness.title,
+                        "setupError": "Browser did not finish loading before re-dock"
+                    ], at: path)
+                    return
+                }
+
+                guard let firstSplitTabId = tab.surfaceIdFromPanelId(browserPanel.id),
+                      tab.bonsplitController.splitPane(
+                        initialPaneId,
+                        orientation: .horizontal,
+                        movingTab: firstSplitTabId,
+                        insertFirst: false
+                      ) != nil else {
+                    self.writeBrowserRedockTestData(["setupError": "Failed to split browser to the right"], at: path)
+                    return
+                }
+
+                await self.settleBrowserRedockUITestPresentation(tab: tab, browserPanelId: browserPanel.id)
+                guard await self.waitForPaneCountForUITest(tab: tab, expectedPaneCount: 2),
+                      let middlePaneId = tab.paneId(forPanelId: browserPanel.id) else {
+                    self.writeBrowserRedockTestData(["setupError": "Browser did not land in the first right split"], at: path)
+                    return
+                }
+
+                self.writeBrowserRedockTestData([
+                    "afterFirstSplitPaneCount": String(tab.bonsplitController.allPaneIds.count),
+                    "middlePaneId": middlePaneId.id.uuidString
+                ], at: path)
+
+                guard let secondSplitTabId = tab.surfaceIdFromPanelId(browserPanel.id),
+                      tab.bonsplitController.splitPane(
+                        middlePaneId,
+                        orientation: .horizontal,
+                        movingTab: secondSplitTabId,
+                        insertFirst: false
+                      ) != nil else {
+                    self.writeBrowserRedockTestData(["setupError": "Failed to split browser to the far right"], at: path)
+                    return
+                }
+
+                await self.settleBrowserRedockUITestPresentation(tab: tab, browserPanelId: browserPanel.id)
+                guard await self.waitForPaneCountForUITest(tab: tab, expectedPaneCount: 3) else {
+                    self.writeBrowserRedockTestData([
+                        "setupError": "Expected three panes after dragging browser to far right",
+                        "paneCountAfterSecondSplit": String(tab.bonsplitController.allPaneIds.count)
+                    ], at: path)
+                    return
+                }
+                guard let middleTerminalPaneId = tab.bonsplitController.allPaneIds.first(where: { $0 == middlePaneId }) else {
+                    self.writeBrowserRedockTestData(["setupError": "Middle terminal pane disappeared after second split"], at: path)
+                    return
+                }
+                guard await self.waitForSelectedPanelKindInPaneForUITest(
+                    tab: tab,
+                    paneId: middleTerminalPaneId,
+                    expectedKind: .terminal
+                ) else {
+                    self.writeBrowserRedockTestData(["setupError": "Middle pane did not repair to a terminal"], at: path)
+                    return
+                }
+
+                self.writeBrowserRedockTestData([
+                    "afterSecondSplitPaneCount": String(tab.bonsplitController.allPaneIds.count),
+                    "middleTerminalPaneId": middleTerminalPaneId.id.uuidString
+                ], at: path)
+
+                guard tab.moveSurface(
+                    panelId: browserPanel.id,
+                    toPane: middleTerminalPaneId,
+                    atIndex: nil,
+                    focus: true
+                ) else {
+                    self.writeBrowserRedockTestData(["setupError": "Failed to move far-right browser back into terminal pane"], at: path)
+                    return
+                }
+
+                tab.focusPanel(browserPanel.id)
+                browserPanel.focus()
+                await self.settleBrowserRedockUITestPresentation(tab: tab, browserPanelId: browserPanel.id, passes: 12)
+
+                var finalState: [String: String] = [:]
+                for attempt in 1...18 {
+                    finalState = self.collectBrowserRedockUITestState(
+                        tab: tab,
+                        browserPanelId: browserPanel.id,
+                        expectedPaneId: middleTerminalPaneId
+                    )
+                    finalState["finalAttempt"] = String(attempt)
+                    self.writeBrowserRedockTestData(finalState, at: path)
+
+                    let paneCount = Int(finalState["finalPaneCount"] ?? "") ?? -1
+                    let tabCount = Int(finalState["finalTargetPaneTabCount"] ?? "") ?? -1
+                    let browserSelected = finalState["finalBrowserSelected"] == "1"
+                    let browserAttached = finalState["finalBrowserAttached"] == "1"
+                    let browserVisible = finalState["finalBrowserHidden"] != "1"
+                    if paneCount == 2 && tabCount == 2 && browserSelected && browserAttached && browserVisible {
+                        break
+                    }
+
+                    await self.settleBrowserRedockUITestPresentation(tab: tab, browserPanelId: browserPanel.id, passes: 2)
+                }
+
+                self.writeBrowserRedockTestData(["visualDone": "1"], at: path)
+            }
+        }
+    }
+
+    @MainActor
+    private func collectBrowserRedockUITestState(
+        tab: Workspace,
+        browserPanelId: UUID,
+        expectedPaneId: PaneID
+    ) -> [String: String] {
+        var payload: [String: String] = [
+            "finalPaneCount": String(tab.bonsplitController.allPaneIds.count),
+            "expectedPaneId": expectedPaneId.id.uuidString
+        ]
+
+        let paneKinds = tab.bonsplitController.allPaneIds.map { paneId -> String in
+            let selected = tab.bonsplitController.selectedTab(inPane: paneId)
+            let panelType = selected
+                .flatMap { tab.panel(for: $0.id)?.panelType.rawValue }
+                ?? "none"
+            let tabCount = tab.bonsplitController.tabs(inPane: paneId).count
+            return "\(paneId.id.uuidString.prefix(8)):\(panelType):\(tabCount)"
+        }
+        payload["finalPaneKinds"] = paneKinds.joined(separator: ";")
+
+        guard let browserPanel = tab.browserPanel(for: browserPanelId),
+              let browserPaneId = tab.paneId(forPanelId: browserPanelId) else {
+            payload["finalBrowserAttached"] = "0"
+            payload["finalBrowserHidden"] = "1"
+            payload["finalBrowserMissing"] = "1"
+            return payload
+        }
+
+        payload["finalBrowserPanelId"] = browserPanelId.uuidString
+        payload["finalBrowserPaneId"] = browserPaneId.id.uuidString
+        payload["finalTargetPaneMatchesExpected"] = browserPaneId == expectedPaneId ? "1" : "0"
+        payload["finalTargetPaneTabCount"] = String(tab.bonsplitController.tabs(inPane: browserPaneId).count)
+        payload["finalBrowserSelected"] = (
+            tab.bonsplitController.selectedTab(inPane: browserPaneId)?.id == tab.surfaceIdFromPanelId(browserPanelId)
+        ) ? "1" : "0"
+        payload["finalBrowserAttached"] = (
+            browserPanel.webView.window != nil && browserPanel.webView.superview != nil
+        ) ? "1" : "0"
+        payload["finalBrowserHidden"] = browserPanel.webView.isHiddenOrHasHiddenAncestor ? "1" : "0"
+        payload["finalBrowserURL"] = browserPanel.currentURL?.absoluteString ?? browserPanel.webView.url?.absoluteString ?? ""
+        payload["finalBrowserTitle"] = browserPanel.pageTitle
+        payload["finalBrowserGeometrySummary"] = browserPanel.debugDeveloperToolsGeometrySummary()
+
+        if let screen = browserPanel.webView.window?.screen ?? NSScreen.main {
+            payload["screenFrameX"] = String(format: "%.1f", screen.frame.minX)
+            payload["screenFrameY"] = String(format: "%.1f", screen.frame.minY)
+            payload["screenFrameWidth"] = String(format: "%.1f", screen.frame.width)
+            payload["screenFrameHeight"] = String(format: "%.1f", screen.frame.height)
+        }
+
+        if let window = browserPanel.webView.window {
+            let frame = window.frame
+            payload["windowFrameX"] = String(format: "%.1f", frame.minX)
+            payload["windowFrameY"] = String(format: "%.1f", frame.minY)
+            payload["windowFrameWidth"] = String(format: "%.1f", frame.width)
+            payload["windowFrameHeight"] = String(format: "%.1f", frame.height)
+        }
+
+        let layout = tab.bonsplitController.layoutSnapshot()
+        if let paneGeometry = layout.panes.first(where: { $0.paneId == browserPaneId.id.uuidString }) {
+            payload["paneFrameX"] = String(format: "%.1f", paneGeometry.frame.x)
+            payload["paneFrameY"] = String(format: "%.1f", paneGeometry.frame.y)
+            payload["paneFrameWidth"] = String(format: "%.1f", paneGeometry.frame.width)
+            payload["paneFrameHeight"] = String(format: "%.1f", paneGeometry.frame.height)
+        }
+
+        if let superview = browserPanel.webView.superview,
+           let window = browserPanel.webView.window {
+            let frameInWindow = superview.convert(browserPanel.webView.frame, to: nil)
+            let frameInScreen = window.convertToScreen(frameInWindow)
+            payload["webFrameX"] = String(format: "%.1f", frameInScreen.minX)
+            payload["webFrameY"] = String(format: "%.1f", frameInScreen.minY)
+            payload["webFrameWidth"] = String(format: "%.1f", frameInScreen.width)
+            payload["webFrameHeight"] = String(format: "%.1f", frameInScreen.height)
+        }
+
+        return payload
+    }
+
+    private func writeBrowserRedockTestData(_ updates: [String: String], at path: String) {
+        var payload = loadBrowserRedockTestData(at: path)
+        for (key, value) in updates {
+            payload[key] = value
+        }
+        guard let data = try? JSONSerialization.data(withJSONObject: payload) else { return }
+        try? data.write(to: URL(fileURLWithPath: path), options: .atomic)
+    }
+
+    private func loadBrowserRedockTestData(at path: String) -> [String: String] {
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
+            return [:]
+        }
+        return object
     }
 
     private func setupUITestFocusShortcutsIfNeeded() {

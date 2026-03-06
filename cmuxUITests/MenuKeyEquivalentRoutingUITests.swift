@@ -1074,3 +1074,359 @@ final class SplitCloseRightBlankRegressionUITests: XCTestCase {
         }
     }
 }
+
+final class BrowserRedockUITests: XCTestCase {
+    private var dataPath = ""
+    private var socketPath = ""
+    private var screenshotDir = ""
+    private let launchTag = "ui-tests-browser-redock"
+
+    override func setUp() {
+        super.setUp()
+        continueAfterFailure = false
+
+        dataPath = "/tmp/cmux-ui-test-browser-redock-\(UUID().uuidString).json"
+        socketPath = "/tmp/cmux-ui-test-socket-\(UUID().uuidString).sock"
+
+        let leaf = "cmux-ui-test-browser-redock-shots-\(UUID().uuidString)"
+        let preferredURL = URL(fileURLWithPath: "/private/tmp").appendingPathComponent(leaf)
+        let fallbackURL = FileManager.default.temporaryDirectory.appendingPathComponent(leaf)
+        if (try? FileManager.default.createDirectory(at: preferredURL, withIntermediateDirectories: true)) != nil {
+            screenshotDir = preferredURL.path
+        } else {
+            screenshotDir = fallbackURL.path
+        }
+
+        try? FileManager.default.removeItem(atPath: dataPath)
+        try? FileManager.default.removeItem(atPath: socketPath)
+        try? FileManager.default.removeItem(atPath: screenshotDir)
+        try? FileManager.default.createDirectory(atPath: screenshotDir, withIntermediateDirectories: true)
+    }
+
+    func testRedockingBrowserIntoExistingPaneKeepsVisibleWebContent() {
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_UI_TEST_BROWSER_REDOCK_SETUP"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_BROWSER_REDOCK_PATH"] = dataPath
+        app.launchEnvironment["CMUX_UI_TEST_BROWSER_REDOCK_URL"] = "https://example.com"
+        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        app.launchEnvironment["CMUX_TAG"] = launchTag
+        launchAndEnsureForeground(app)
+
+        XCTAssertTrue(
+            waitForAnyData(timeout: 15.0),
+            "Expected browser redock test data to be written at \(dataPath)"
+        )
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 45.0) { data in
+                data["visualDone"] == "1" || !(data["setupError"] ?? "").isEmpty
+            },
+            "Expected browser redock setup to finish"
+        )
+
+        guard let data = loadData() else {
+            XCTFail("Missing browser redock data at \(dataPath)")
+            return
+        }
+
+        if let setupError = data["setupError"], !setupError.isEmpty {
+            XCTFail("Test setup failed: \(setupError). data=\(data)")
+            return
+        }
+
+        XCTAssertEqual(data["targetURL"], "https://example.com")
+        XCTAssertEqual(data["finalPaneCount"], "2", "Expected the far-right pane to collapse after the re-dock. data=\(data)")
+        XCTAssertEqual(data["finalTargetPaneTabCount"], "2", "Expected browser and terminal to end in the same pane. data=\(data)")
+        XCTAssertEqual(data["finalTargetPaneMatchesExpected"], "1", "Expected browser to re-dock into the repaired middle pane. data=\(data)")
+        XCTAssertEqual(data["finalBrowserSelected"], "1", "Expected browser to remain selected after re-dock. data=\(data)")
+        XCTAssertEqual(data["finalBrowserAttached"], "1", "Expected browser web view to stay attached after re-dock. data=\(data)")
+        XCTAssertNotEqual(data["finalBrowserHidden"], "1", "Expected browser web view to stay visible after re-dock. data=\(data)")
+        XCTAssertTrue(
+            (data["finalBrowserURL"] ?? "").localizedCaseInsensitiveContains("example.com"),
+            "Expected browser to remain on example.com after re-dock. data=\(data)"
+        )
+
+        guard let crop = normalizedWebCrop(from: data) else {
+            XCTFail("Missing final browser crop geometry. data=\(data)")
+            return
+        }
+
+        var samples: [(path: String, stats: CropStats)] = []
+        for index in 1...3 {
+            guard let sample = takeScreenStats(name: String(format: "browser-redock-%02d", index), normalizedCrop: crop) else {
+                XCTFail("Failed to capture browser redock screenshot \(index). shots=\(screenshotDir)")
+                return
+            }
+            samples.append(sample)
+            RunLoop.current.run(until: Date().addingTimeInterval(0.30))
+        }
+
+        let blankSamples = samples.filter { $0.stats.looksBlankDark }
+        if blankSamples.count == samples.count {
+            samples.forEach { addKeptScreenshot(path: $0.path, name: ($0.path as NSString).lastPathComponent) }
+            let statsSummary = samples.map { $0.stats.description }.joined(separator: " | ")
+            XCTFail(
+                "Browser content area stayed dark/blank after re-dock. stats=\(statsSummary) shots=\(screenshotDir) data=\(data)"
+            )
+            return
+        }
+
+        let brightestMean = samples.map { $0.stats.meanLuma }.max() ?? 0
+        let statsSummary = samples.map { $0.stats.description }.joined(separator: " | ")
+        XCTAssertGreaterThan(
+            brightestMean,
+            120.0,
+            "Expected example.com to render bright page content after re-dock. stats=\(statsSummary) data=\(data)"
+        )
+    }
+
+    private func launchAndEnsureForeground(_ app: XCUIApplication, timeout: TimeInterval = 12.0) {
+        app.launch()
+        XCTAssertTrue(
+            ensureForegroundAfterLaunch(app, timeout: timeout),
+            "Expected app to launch in foreground. state=\(app.state.rawValue)"
+        )
+    }
+
+    private func ensureForegroundAfterLaunch(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
+        if app.wait(for: .runningForeground, timeout: timeout) {
+            return true
+        }
+        if app.state == .runningBackground {
+            app.activate()
+            return app.wait(for: .runningForeground, timeout: 6.0)
+        }
+        return false
+    }
+
+    private func waitForAnyData(timeout: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if loadData() != nil {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        return loadData() != nil
+    }
+
+    private func waitForDataMatch(timeout: TimeInterval, predicate: ([String: String]) -> Bool) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if let data = loadData(), predicate(data) {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        if let data = loadData(), predicate(data) {
+            return true
+        }
+        return false
+    }
+
+    private func loadData() -> [String: String]? {
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: dataPath)) else {
+            return nil
+        }
+        return (try? JSONSerialization.jsonObject(with: data)) as? [String: String]
+    }
+
+    private func normalizedWebCrop(from data: [String: String]) -> CGRect? {
+        guard
+            let screenFrame = rectFromData(data, prefix: "screenFrame"),
+            let webFrame = rectFromData(data, prefix: "webFrame"),
+            screenFrame.width > 10,
+            screenFrame.height > 10,
+            webFrame.width > 40,
+            webFrame.height > 40
+        else {
+            return nil
+        }
+
+        let insetX = min(webFrame.width * 0.18, 120)
+        let insetY = min(webFrame.height * 0.18, 120)
+        let insetWebFrame = webFrame.insetBy(dx: insetX, dy: insetY)
+        guard insetWebFrame.width > 20, insetWebFrame.height > 20 else { return nil }
+
+        let normalizedX = (insetWebFrame.minX - screenFrame.minX) / screenFrame.width
+        let normalizedY = (screenFrame.maxY - insetWebFrame.maxY) / screenFrame.height
+        let normalizedWidth = insetWebFrame.width / screenFrame.width
+        let normalizedHeight = insetWebFrame.height / screenFrame.height
+
+        let crop = CGRect(
+            x: CGFloat(normalizedX),
+            y: CGFloat(normalizedY),
+            width: CGFloat(normalizedWidth),
+            height: CGFloat(normalizedHeight)
+        )
+
+        guard
+            crop.origin.x >= 0,
+            crop.origin.y >= 0,
+            crop.maxX <= 1,
+            crop.maxY <= 1
+        else {
+            return nil
+        }
+        return crop
+    }
+
+    private func rectFromData(_ data: [String: String], prefix: String) -> CGRect? {
+        guard
+            let x = data["\(prefix)X"].flatMap(Double.init),
+            let y = data["\(prefix)Y"].flatMap(Double.init),
+            let width = data["\(prefix)Width"].flatMap(Double.init),
+            let height = data["\(prefix)Height"].flatMap(Double.init)
+        else {
+            return nil
+        }
+        return CGRect(x: CGFloat(x), y: CGFloat(y), width: CGFloat(width), height: CGFloat(height))
+    }
+
+    @discardableResult
+    private func writeScreenScreenshot(name: String) -> String? {
+        let shot = XCUIScreen.main.screenshot()
+        let path = "\(screenshotDir)/\(name).png"
+        do {
+            try shot.pngRepresentation.write(to: URL(fileURLWithPath: path))
+            return path
+        } catch {
+            return nil
+        }
+    }
+
+    private func addKeptScreenshot(path: String, name: String) {
+        let attachment = XCTAttachment(contentsOfFile: URL(fileURLWithPath: path))
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    private func takeScreenStats(name: String, normalizedCrop: CGRect) -> (path: String, stats: CropStats)? {
+        guard let path = writeScreenScreenshot(name: name),
+              let png = try? Data(contentsOf: URL(fileURLWithPath: path)),
+              let stats = cropStats(pngData: png, normalizedCrop: normalizedCrop) else {
+            return nil
+        }
+        return (path, stats)
+    }
+
+    private struct CropStats: CustomStringConvertible {
+        let sampleCount: Int
+        let meanLuma: Double
+        let lumaStdDev: Double
+        let uniqueQuantized: Int
+        let modeFraction: Double
+
+        var looksBlankDark: Bool {
+            meanLuma < 90.0 && lumaStdDev < 10.0 && modeFraction > 0.985
+        }
+
+        var description: String {
+            "mean=\(String(format: "%.1f", meanLuma)) std=\(String(format: "%.1f", lumaStdDev)) uniq=\(uniqueQuantized) mode=\(String(format: "%.4f", modeFraction)) samples=\(sampleCount)"
+        }
+    }
+
+    private func cgImage(from pngData: Data) -> CGImage? {
+        guard let source = CGImageSourceCreateWithData(pngData as CFData, nil) else {
+            return nil
+        }
+        return CGImageSourceCreateImageAtIndex(source, 0, nil)
+    }
+
+    private func decodeRGBA(_ image: CGImage) -> [UInt8]? {
+        let width = image.width
+        let height = image.height
+        let bytesPerPixel = 4
+        let bytesPerRow = width * bytesPerPixel
+        var buffer = [UInt8](repeating: 0, count: height * bytesPerRow)
+
+        let okay = buffer.withUnsafeMutableBytes { raw -> Bool in
+            guard let base = raw.baseAddress else { return false }
+            let bitmapInfo = CGBitmapInfo.byteOrder32Big.rawValue | CGImageAlphaInfo.premultipliedLast.rawValue
+            guard let context = CGContext(
+                data: base,
+                width: width,
+                height: height,
+                bitsPerComponent: 8,
+                bytesPerRow: bytesPerRow,
+                space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: bitmapInfo
+            ) else {
+                return false
+            }
+
+            context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+            return true
+        }
+
+        return okay ? buffer : nil
+    }
+
+    private func cropStats(pngData: Data, normalizedCrop: CGRect) -> CropStats? {
+        guard let image = cgImage(from: pngData) else {
+            return nil
+        }
+
+        let width = image.width
+        let height = image.height
+        guard width > 0, height > 0 else { return nil }
+
+        let cropPx = CGRect(
+            x: max(0, min(CGFloat(width - 1), normalizedCrop.origin.x * CGFloat(width))),
+            y: max(0, min(CGFloat(height - 1), normalizedCrop.origin.y * CGFloat(height))),
+            width: max(1, min(CGFloat(width), normalizedCrop.width * CGFloat(width))),
+            height: max(1, min(CGFloat(height), normalizedCrop.height * CGFloat(height)))
+        ).integral
+
+        let x0 = Int(cropPx.minX)
+        let y0 = Int(cropPx.minY)
+        let x1 = Int(min(CGFloat(width), cropPx.maxX))
+        let y1 = Int(min(CGFloat(height), cropPx.maxY))
+        guard x1 > x0, y1 > y0 else { return nil }
+
+        guard let buffer = decodeRGBA(image) else { return nil }
+        let bytesPerPixel = 4
+        let bytesPerRow = width * bytesPerPixel
+        let step = 3
+
+        var lumas: [Double] = []
+        lumas.reserveCapacity(((x1 - x0) / step) * ((y1 - y0) / step))
+
+        var histogram: [UInt16: Int] = [:]
+        histogram.reserveCapacity(256)
+
+        for y in stride(from: y0, to: y1, by: step) {
+            let rowBase = y * bytesPerRow
+            for x in stride(from: x0, to: x1, by: step) {
+                let index = rowBase + x * bytesPerPixel
+                let r = Double(buffer[index])
+                let g = Double(buffer[index + 1])
+                let b = Double(buffer[index + 2])
+                let luma = 0.2126 * r + 0.7152 * g + 0.0722 * b
+                lumas.append(luma)
+
+                let rq = UInt16(UInt8(buffer[index]) >> 4)
+                let gq = UInt16(UInt8(buffer[index + 1]) >> 4)
+                let bq = UInt16(UInt8(buffer[index + 2]) >> 4)
+                let key = (rq << 8) | (gq << 4) | bq
+                histogram[key, default: 0] += 1
+            }
+        }
+
+        guard !lumas.isEmpty else { return nil }
+
+        let mean = lumas.reduce(0.0, +) / Double(lumas.count)
+        let variance = lumas.reduce(0.0) { partial, sample in
+            partial + (sample - mean) * (sample - mean)
+        } / Double(lumas.count)
+        let modeCount = histogram.values.max() ?? 0
+
+        return CropStats(
+            sampleCount: lumas.count,
+            meanLuma: mean,
+            lumaStdDev: sqrt(variance),
+            uniqueQuantized: histogram.count,
+            modeFraction: Double(modeCount) / Double(lumas.count)
+        )
+    }
+}
