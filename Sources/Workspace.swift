@@ -2757,6 +2757,9 @@ final class Workspace: Identifiable, ObservableObject {
               let targetPaneId = bonsplitController.adjacentPane(to: sourcePaneId, direction: direction) else {
             return false
         }
+        if bonsplitController.isSplitZoomed {
+            bonsplitController.clearPaneZoom()
+        }
         return moveSurface(panelId: panelId, toPane: targetPaneId, focus: true)
     }
 
