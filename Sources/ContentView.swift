@@ -2815,13 +2815,14 @@ struct ContentView: View {
         workspaceHandoffFallbackTask = nil
         let retiring = retiringWorkspaceId
 
-        // Hide terminal portal views for the retiring workspace BEFORE clearing
+        // Hide portal-hosted views for the retiring workspace BEFORE clearing
         // retiringWorkspaceId. Once cleared, reconcileMountedWorkspaceIds unmounts
         // the workspace — but dismantleNSView intentionally doesn't hide portal views
-        // (to avoid blackouts during transient bonsplit dismantles). Hiding here
-        // prevents stale portal-hosted terminals from covering browser panes.
+        // during transient rebuilds. Hiding here prevents stale terminal/browser
+        // portals from covering the newly selected workspace.
         if let retiring, let workspace = tabManager.tabs.first(where: { $0.id == retiring }) {
             workspace.hideAllTerminalPortalViews()
+            workspace.hideAllBrowserPortalViews()
         }
 
         retiringWorkspaceId = nil

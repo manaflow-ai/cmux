@@ -3280,6 +3280,19 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
+    /// Hide all browser portal views for this workspace.
+    /// Called before the workspace is unmounted so a portal-hosted WKWebView
+    /// cannot remain visible after this workspace stops being selected.
+    func hideAllBrowserPortalViews() {
+        for panel in panels.values {
+            guard let browser = panel as? BrowserPanel else { continue }
+            BrowserWindowPortalRegistry.hide(
+                webView: browser.webView,
+                source: "workspaceRetire"
+            )
+        }
+    }
+
     // MARK: - Utility
 
     /// Create a new terminal panel (used when replacing the last panel)
