@@ -2587,7 +2587,7 @@ extension BrowserPanel {
     /// while its container is off-window. Avoid detaching in that transient phase if
     /// DevTools is intended to remain open, because detach/reattach can blank inspector content.
     func shouldPreserveWebViewAttachmentDuringTransientHide() -> Bool {
-        preferredDeveloperToolsVisible
+        preferredDeveloperToolsVisible && !hasSideDockedDeveloperToolsLayout()
     }
 
     func requestDeveloperToolsRefreshAfterNextAttach(reason: String) {
@@ -3045,6 +3045,7 @@ extension BrowserPanel {
         let containerType = container.map { String(describing: type(of: $0)) } ?? "nil"
         return "webFrame=\(Self.debugRectDescription(webFrame)) webBounds=\(Self.debugRectDescription(webView.bounds)) webWin=\(webView.window?.windowNumber ?? -1) super=\(Self.debugObjectToken(container)) superType=\(containerType) superBounds=\(Self.debugRectDescription(containerBounds)) inspectorHApprox=\(String(format: "%.1f", inspectorHeightApprox)) inspectorInsets=\(String(format: "%.1f", inspectorInsets)) inspectorOverflow=\(String(format: "%.1f", inspectorOverflow)) inspectorSubviews=\(inspectorSubviews)"
     }
+
 }
 #endif
 
@@ -3068,6 +3069,71 @@ private extension BrowserPanel {
             hops += 1
         }
         return false
+    }
+
+    func hasSideDockedDeveloperToolsLayout() -> Bool {
+        guard let container = webView.superview else { return false }
+        return Self.visibleDescendants(in: container)
+            .filter { Self.isVisibleSideDockInspectorCandidate($0) && Self.isInspectorView($0) }
+            .contains { inspectorCandidate in
+                hasSideDockedInspectorSibling(startingAt: inspectorCandidate, root: container)
+            }
+    }
+
+    func hasSideDockedInspectorSibling(startingAt inspectorLeaf: NSView, root: NSView) -> Bool {
+        var current: NSView? = inspectorLeaf
+
+        while let inspectorView = current, inspectorView !== root {
+            guard let containerView = inspectorView.superview else { break }
+            let hasSideDockedSibling = containerView.subviews.contains { candidate in
+                guard Self.isVisibleSideDockSiblingCandidate(candidate) else { return false }
+                guard candidate !== inspectorView else { return false }
+                let horizontallyAdjacent =
+                    candidate.frame.maxX <= inspectorView.frame.minX + 1 ||
+                    candidate.frame.minX >= inspectorView.frame.maxX - 1
+                guard horizontallyAdjacent else { return false }
+                return Self.verticalOverlap(between: candidate.frame, and: inspectorView.frame) > 8
+            }
+            if hasSideDockedSibling {
+                return true
+            }
+
+            current = containerView
+        }
+
+        return false
+    }
+
+    static func visibleDescendants(in root: NSView) -> [NSView] {
+        var descendants: [NSView] = []
+        var stack = Array(root.subviews.reversed())
+        while let view = stack.popLast() {
+            descendants.append(view)
+            stack.append(contentsOf: view.subviews.reversed())
+        }
+        return descendants
+    }
+
+    static func isInspectorView(_ view: NSView) -> Bool {
+        String(describing: type(of: view)).contains("WKInspector")
+    }
+
+    static func isVisibleSideDockInspectorCandidate(_ view: NSView) -> Bool {
+        !view.isHidden &&
+            view.alphaValue > 0 &&
+            view.frame.width > 1 &&
+            view.frame.height > 1
+    }
+
+    static func isVisibleSideDockSiblingCandidate(_ view: NSView) -> Bool {
+        !view.isHidden &&
+            view.alphaValue > 0 &&
+            view.frame.width > 1 &&
+            view.frame.height > 1
+    }
+
+    static func verticalOverlap(between lhs: NSRect, and rhs: NSRect) -> CGFloat {
+        max(0, min(lhs.maxY, rhs.maxY) - max(lhs.minY, rhs.minY))
     }
 }
 
