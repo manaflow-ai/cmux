@@ -888,7 +888,7 @@ private enum SettingsAboutWindowKind: String, CaseIterable, Identifiable {
     var minimumSize: NSSize {
         switch self {
         case .settings:
-            return NSSize(width: 420, height: 360)
+            return NSSize(width: 760, height: 360)
         case .about:
             return NSSize(width: 360, height: 520)
         }
@@ -2884,7 +2884,6 @@ struct SettingsView: View {
     @State private var shortcutResetToken = UUID()
     @State private var topBlurOpacity: Double = 0
     @State private var topBlurBaselineOffset: CGFloat?
-    @State private var settingsTitleLeadingInset: CGFloat = 92
     @State private var showClearBrowserHistoryConfirmation = false
     @State private var showOpenAccessConfirmation = false
     @State private var pendingOpenAccessMode: SocketControlMode?
@@ -4049,9 +4048,6 @@ struct SettingsView: View {
                 }
 
             ZStack(alignment: .top) {
-                SettingsTitleLeadingInsetReader(inset: $settingsTitleLeadingInset)
-                    .frame(width: 0, height: 0)
-
                 AboutVisualEffectBackground(material: .underWindowBackground, blendingMode: .withinWindow)
                     .mask(
                         LinearGradient(
@@ -4301,29 +4297,6 @@ private struct SettingsTopOffsetPreferenceKey: PreferenceKey {
 
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
         value = nextValue()
-    }
-}
-
-private struct SettingsTitleLeadingInsetReader: NSViewRepresentable {
-    @Binding var inset: CGFloat
-
-    func makeNSView(context: Context) -> NSView {
-        let view = NSView(frame: .zero)
-        return view
-    }
-
-    func updateNSView(_ nsView: NSView, context: Context) {
-        DispatchQueue.main.async {
-            guard let window = nsView.window else { return }
-            let buttons: [NSWindow.ButtonType] = [.closeButton, .miniaturizeButton, .zoomButton]
-            let maxX = buttons
-                .compactMap { window.standardWindowButton($0)?.frame.maxX }
-                .max() ?? 78
-            let nextInset = maxX + 14
-            if abs(nextInset - inset) > 0.5 {
-                inset = nextInset
-            }
-        }
     }
 }
 
