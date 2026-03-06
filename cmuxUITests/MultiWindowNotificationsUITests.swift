@@ -289,8 +289,12 @@ final class MultiWindowNotificationsUITests: XCTestCase {
             "2>\(shellSingleQuote(commandStderrPath));",
             "printf '%s' $? >\(shellSingleQuote(commandStatusPath))) >/dev/null 2>&1 &"
         ].joined(separator: " ")
-        guard socketCommand("send_workspace \(tabId1) \(notifyCommand)\\n") == "OK" else {
-            XCTFail("Failed to inject delayed bundled `cmux notify` command into source workspace \(tabId1)")
+        let sendWorkspaceResponse = socketCommand("send_workspace \(tabId1) \(notifyCommand)\\n")
+        guard sendWorkspaceResponse == "OK" else {
+            XCTFail(
+                "Failed to inject delayed bundled `cmux notify` command into source workspace \(tabId1). " +
+                "response=\(sendWorkspaceResponse ?? "<nil>")"
+            )
             return
         }
 
