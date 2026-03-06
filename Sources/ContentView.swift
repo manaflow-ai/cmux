@@ -5851,6 +5851,11 @@ enum ShortcutHintDebugSettings {
         }
         return defaults.bool(forKey: showHintsOnCommandHoldKey)
     }
+
+    static func resetVisibilityDefaults(defaults: UserDefaults = .standard) {
+        defaults.set(defaultAlwaysShowHints, forKey: alwaysShowHintsKey)
+        defaults.set(defaultShowHintsOnCommandHold, forKey: showHintsOnCommandHoldKey)
+    }
 }
 
 enum SidebarDragLifecycleNotification {

@@ -27,6 +27,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
     }
 
     override func tearDown() {
+        AppDelegate.shared?.dismissNotificationsPopoverIfShown()
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
         for action in KeyboardShortcutSettings.Action.allCases {
             if actionsWithPersistedShortcut.contains(action),
                let savedShortcut = savedShortcutsByAction[action] {
