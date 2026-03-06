@@ -11,7 +11,7 @@ This maps common `agent-browser` usage to `cmux browser` usage.
 - `agent-browser fill <ref> <text>` -> `cmux browser <surface> fill <ref> <text>`
 - `agent-browser type <ref> <text>` -> `cmux browser <surface> type <ref> <text>`
 - `agent-browser select <ref> <value>` -> `cmux browser <surface> select <ref> <value>`
-- `agent-browser get text <ref>` -> `cmux browser <surface> get text <ref>`
+- `agent-browser get text <ref>` -> `cmux browser <surface> get text <ref-or-selector>`
 - `agent-browser get url` -> `cmux browser <surface> get url`
 - `agent-browser get title` -> `cmux browser <surface> get title`
 
@@ -34,7 +34,13 @@ cmux browser <surface> get url|title
 ```bash
 cmux browser <surface> snapshot --interactive
 cmux browser <surface> snapshot --interactive --compact --max-depth 3
-cmux browser <surface> get text|html|value|attr|count|box|styles ...
+cmux browser <surface> get text body
+cmux browser <surface> get html body
+cmux browser <surface> get value "#email"
+cmux browser <surface> get attr "#email" --attr placeholder
+cmux browser <surface> get count ".row"
+cmux browser <surface> get box "#submit"
+cmux browser <surface> get styles "#submit" --property color
 cmux browser <surface> eval '<js>'
 ```
 
