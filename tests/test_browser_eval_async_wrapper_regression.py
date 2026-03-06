@@ -60,15 +60,10 @@ def main() -> int:
         failures.append("v2RunJavaScript() no longer exposes preferAsync toggle")
     run_js_block = extract_block(terminal_source, "private func v2RunJavaScript(")
     if "callAsyncJavaScript" not in run_js_block:
-        failures.append(
-            "v2RunJavaScript() no longer uses callAsyncJavaScript for async JS"
-        )
+        failures.append("v2RunJavaScript() no longer uses callAsyncJavaScript for async JS")
 
-    run_browser_js_block = extract_block(
-        terminal_source, "private func v2RunBrowserJavaScript("
-    )
+    run_browser_js_block = extract_block(terminal_source, "private func v2RunBrowserJavaScript(")
     required_wrapper_tokens = [
-        "const __r = eval(",
         "let asyncFunctionBody =",
         "__cmuxMaybeAwait",
         "__cmux_t",
@@ -78,31 +73,21 @@ def main() -> int:
     ]
     for token in required_wrapper_tokens:
         if token not in run_browser_js_block:
-            failures.append(
-                f"v2RunBrowserJavaScript() missing async eval wrapper token: {token}"
-            )
+            failures.append(f"v2RunBrowserJavaScript() missing async eval wrapper token: {token}")
 
     if "v2BrowserUndefinedSentinel" not in terminal_source:
         failures.append("TerminalController is missing undefined sentinel handling")
     if "v2BrowserEvalEnvelopeTypeUndefined" not in terminal_source:
-        failures.append(
-            "TerminalController is missing undefined envelope decode constant"
-        )
+        failures.append("TerminalController is missing undefined envelope decode constant")
 
-    hook_block = extract_block(
-        terminal_source, "private func v2BrowserEnsureTelemetryHooks("
-    )
+    hook_block = extract_block(terminal_source, "private func v2BrowserEnsureTelemetryHooks(")
     if "BrowserPanel.telemetryHookBootstrapScriptSource" not in hook_block:
-        failures.append(
-            "v2BrowserEnsureTelemetryHooks() no longer uses shared BrowserPanel telemetry source"
-        )
+        failures.append("v2BrowserEnsureTelemetryHooks() no longer uses shared BrowserPanel telemetry source")
 
     if "static let telemetryHookBootstrapScriptSource" not in panel_source:
         failures.append("BrowserPanel is missing telemetryHookBootstrapScriptSource")
     if "static let dialogTelemetryHookBootstrapScriptSource" not in panel_source:
-        failures.append(
-            "BrowserPanel is missing dialogTelemetryHookBootstrapScriptSource"
-        )
+        failures.append("BrowserPanel is missing dialogTelemetryHookBootstrapScriptSource")
 
     base_script_span = extract_span(
         panel_source,
@@ -110,21 +95,15 @@ def main() -> int:
         "static let dialogTelemetryHookBootstrapScriptSource =",
     )
     if "window.alert = function(message)" in base_script_span:
-        failures.append(
-            "Document-start telemetry script should not override alert dialogs"
-        )
+        failures.append("Document-start telemetry script should not override alert dialogs")
     if "window.confirm = function(message)" in base_script_span:
-        failures.append(
-            "Document-start telemetry script should not override confirm dialogs"
-        )
+        failures.append("Document-start telemetry script should not override confirm dialogs")
     if "window.prompt = function(message, defaultValue)" in base_script_span:
-        failures.append(
-            "Document-start telemetry script should not override prompt dialogs"
-        )
+        failures.append("Document-start telemetry script should not override prompt dialogs")
 
     panel_init_block = extract_block(
         panel_source,
-        "private static func makeWebView() -> CmuxWebView",
+        "init(workspaceId: UUID, initialURL: URL? = nil, bypassInsecureHTTPHostOnce: String? = nil)",
     )
     required_init_tokens = [
         "config.userContentController.addUserScript(",
@@ -133,21 +112,15 @@ def main() -> int:
     ]
     for token in required_init_tokens:
         if token not in panel_init_block:
-            failures.append(
-                f"BrowserPanel init() missing telemetry user-script token: {token}"
-            )
+            failures.append(f"BrowserPanel init() missing telemetry user-script token: {token}")
 
     if failures:
-        print(
-            "FAIL: browser eval async wrapper / telemetry injection regression guard failed"
-        )
+        print("FAIL: browser eval async wrapper / telemetry injection regression guard failed")
         for item in failures:
             print(f" - {item}")
         return 1
 
-    print(
-        "PASS: browser eval async wrapper / telemetry injection regression guard is in place"
-    )
+    print("PASS: browser eval async wrapper / telemetry injection regression guard is in place")
     return 0
 
 

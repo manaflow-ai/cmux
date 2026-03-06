@@ -5587,6 +5587,35 @@ class TerminalController {
         return rep.representation(using: .png, properties: [:])
     }
 
+    private func bestEffortPruneTemporaryFiles(
+        in directoryURL: URL,
+        keepingMostRecent maxCount: Int = 50,
+        maxAge: TimeInterval = 24 * 60 * 60
+    ) {
+        guard let entries = try? FileManager.default.contentsOfDirectory(
+            at: directoryURL,
+            includingPropertiesForKeys: [.isRegularFileKey, .contentModificationDateKey, .creationDateKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return
+        }
+
+        let now = Date()
+        let datedEntries = entries.compactMap { url -> (url: URL, date: Date)? in
+            guard let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .contentModificationDateKey, .creationDateKey]),
+                  values.isRegularFile == true else {
+                return nil
+            }
+            return (url, values.contentModificationDate ?? values.creationDate ?? .distantPast)
+        }.sorted { $0.date > $1.date }
+
+        for (index, entry) in datedEntries.enumerated() {
+            if index >= maxCount || now.timeIntervalSince(entry.date) > maxAge {
+                try? FileManager.default.removeItem(at: entry.url)
+            }
+        }
+    }
+
     // MARK: - Markdown
 
     private func v2MarkdownOpen(params: [String: Any]) -> V2CallResult {
@@ -6824,6 +6853,7 @@ class TerminalController {
             let screenshotsDirectory = FileManager.default.temporaryDirectory
                 .appendingPathComponent("cmux-browser-screenshots", isDirectory: true)
             if (try? FileManager.default.createDirectory(at: screenshotsDirectory, withIntermediateDirectories: true)) != nil {
+                bestEffortPruneTemporaryFiles(in: screenshotsDirectory)
                 let timestampMs = Int(Date().timeIntervalSince1970 * 1000)
                 let shortSurfaceId = String(surfaceId.uuidString.prefix(8))
                 let shortRandomId = String(UUID().uuidString.prefix(8))

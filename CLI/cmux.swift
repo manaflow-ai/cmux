@@ -1736,6 +1736,45 @@ struct CMUXCLI {
         return (cwd as NSString).appendingPathComponent(expanded)
     }
 
+    private func sanitizedFilenameComponent(_ raw: String) -> String {
+        let sanitized = raw.replacingOccurrences(
+            of: #"[^\p{L}\p{N}._-]+"#,
+            with: "-",
+            options: .regularExpression
+        )
+        let trimmed = sanitized.trimmingCharacters(in: CharacterSet(charactersIn: "-."))
+        return trimmed.isEmpty ? "item" : trimmed
+    }
+
+    private func bestEffortPruneTemporaryFiles(
+        in directoryURL: URL,
+        keepingMostRecent maxCount: Int = 50,
+        maxAge: TimeInterval = 24 * 60 * 60
+    ) {
+        guard let entries = try? FileManager.default.contentsOfDirectory(
+            at: directoryURL,
+            includingPropertiesForKeys: [.isRegularFileKey, .contentModificationDateKey, .creationDateKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return
+        }
+
+        let now = Date()
+        let datedEntries = entries.compactMap { url -> (url: URL, date: Date)? in
+            guard let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .contentModificationDateKey, .creationDateKey]),
+                  values.isRegularFile == true else {
+                return nil
+            }
+            return (url, values.contentModificationDate ?? values.creationDate ?? .distantPast)
+        }.sorted { $0.date > $1.date }
+
+        for (index, entry) in datedEntries.enumerated() {
+            if index >= maxCount || now.timeIntervalSince(entry.date) > maxAge {
+                try? FileManager.default.removeItem(at: entry.url)
+            }
+        }
+    }
+
     // MARK: - Markdown Commands
 
     private func runMarkdownCommand(
@@ -3057,8 +3096,8 @@ struct CMUXCLI {
             var payload = try client.sendV2(method: "browser.screenshot", params: ["surface_id": sid])
 
             func fileURL(fromPath rawPath: String) -> URL {
-                let expandedPath = (rawPath as NSString).expandingTildeInPath
-                return URL(fileURLWithPath: expandedPath).standardizedFileURL
+                let resolvedPath = resolvePath(rawPath)
+                return URL(fileURLWithPath: resolvedPath).standardizedFileURL
             }
 
             func writeScreenshot(_ data: Data, to destinationURL: URL) throws {
@@ -3069,58 +3108,121 @@ struct CMUXCLI {
                 try data.write(to: destinationURL, options: .atomic)
             }
 
+            func hasText(_ value: String?) -> Bool {
+                guard let value else { return false }
+                return !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            }
+
             var screenshotPath = payload["path"] as? String
             var screenshotURL = payload["url"] as? String
 
-            if let outPathOpt {
-                let outputURL = fileURL(fromPath: outPathOpt)
+            func syncScreenshotLocationFields() {
+                if !hasText(screenshotPath),
+                   let rawURL = screenshotURL,
+                   let fileURL = URL(string: rawURL),
+                   fileURL.isFileURL,
+                   !fileURL.path.isEmpty {
+                    screenshotPath = fileURL.path
+                }
+                if !hasText(screenshotURL),
+                   let screenshotPath,
+                   hasText(screenshotPath) {
+                    screenshotURL = URL(fileURLWithPath: screenshotPath).standardizedFileURL.absoluteString
+                }
+                if let screenshotPath, hasText(screenshotPath) {
+                    payload["path"] = screenshotPath
+                }
+                if let screenshotURL, hasText(screenshotURL) {
+                    payload["url"] = screenshotURL
+                }
+            }
+
+            func persistPayloadScreenshot(to destinationURL: URL, allowFailure: Bool) throws -> Bool {
+                if let sourcePath = screenshotPath, hasText(sourcePath) {
+                    let sourceURL = URL(fileURLWithPath: sourcePath).standardizedFileURL
+                    do {
+                        if sourceURL.path != destinationURL.path {
+                            try FileManager.default.createDirectory(
+                                at: destinationURL.deletingLastPathComponent(),
+                                withIntermediateDirectories: true
+                            )
+                            try? FileManager.default.removeItem(at: destinationURL)
+                            try FileManager.default.copyItem(at: sourceURL, to: destinationURL)
+                        }
+                        return true
+                    } catch {
+                        if payload["png_base64"] == nil {
+                            if allowFailure {
+                                return false
+                            }
+                            throw error
+                        }
+                    }
+                }
+
                 if let b64 = payload["png_base64"] as? String,
                    let data = Data(base64Encoded: b64) {
-                    try writeScreenshot(data, to: outputURL)
-                } else if let sourcePath = payload["path"] as? String {
-                    let sourceURL = URL(fileURLWithPath: sourcePath)
-                    if sourceURL.path != outputURL.path {
-                        try? FileManager.default.removeItem(at: outputURL)
-                        try FileManager.default.copyItem(at: sourceURL, to: outputURL)
+                    do {
+                        try writeScreenshot(data, to: destinationURL)
+                        return true
+                    } catch {
+                        if allowFailure {
+                            return false
+                        }
+                        throw error
                     }
-                } else {
+                }
+
+                return false
+            }
+
+            if let outPathOpt {
+                let outputURL = fileURL(fromPath: outPathOpt)
+                guard try persistPayloadScreenshot(to: outputURL, allowFailure: false) else {
                     throw CLIError(message: "browser screenshot missing image data")
                 }
                 screenshotPath = outputURL.path
                 screenshotURL = outputURL.absoluteString
                 payload["path"] = screenshotPath
                 payload["url"] = screenshotURL
-            } else if screenshotPath == nil || screenshotURL == nil {
-                if let b64 = payload["png_base64"] as? String,
-                   let data = Data(base64Encoded: b64) {
+            } else {
+                syncScreenshotLocationFields()
+                if !hasText(screenshotPath) && !hasText(screenshotURL) {
                     let outputDir = FileManager.default.temporaryDirectory
                         .appendingPathComponent("cmux-browser-screenshots-cli", isDirectory: true)
-                    try FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
-                    let timestampMs = Int(Date().timeIntervalSince1970 * 1000)
-                    let filename = "surface-\(sid)-\(timestampMs)-\(String(UUID().uuidString.prefix(8))).png"
-                    let outputURL = outputDir.appendingPathComponent(filename, isDirectory: false)
-                    try writeScreenshot(data, to: outputURL)
-                    screenshotPath = outputURL.path
-                    screenshotURL = outputURL.absoluteString
-                    payload["path"] = screenshotPath
-                    payload["url"] = screenshotURL
+                    if (try? FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)) != nil {
+                        bestEffortPruneTemporaryFiles(in: outputDir)
+                        let timestampMs = Int(Date().timeIntervalSince1970 * 1000)
+                        let safeSid = sanitizedFilenameComponent(sid)
+                        let filename = "surface-\(safeSid)-\(timestampMs)-\(String(UUID().uuidString.prefix(8))).png"
+                        let outputURL = outputDir.appendingPathComponent(filename, isDirectory: false)
+                        if (try? persistPayloadScreenshot(to: outputURL, allowFailure: true)) == true {
+                            screenshotPath = outputURL.path
+                            screenshotURL = outputURL.absoluteString
+                            payload["path"] = screenshotPath
+                            payload["url"] = screenshotURL
+                        }
+                    }
                 }
             }
 
             if outputAsJSON {
                 let formattedPayload = formatIDs(payload, mode: idFormat)
                 if var outputPayload = formattedPayload as? [String: Any] {
-                    // Keep base64 for internal transport/write fallback, but keep CLI JSON concise.
-                    outputPayload.removeValue(forKey: "png_base64")
+                    if hasText(screenshotPath) || hasText(screenshotURL) {
+                        outputPayload.removeValue(forKey: "png_base64")
+                    }
                     print(jsonString(outputPayload))
                 } else {
                     print(jsonString(formattedPayload))
                 }
+            } else if let outPathOpt {
+                print("OK \(outPathOpt)")
             } else if let screenshotURL,
-                      !screenshotURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                      hasText(screenshotURL) {
                 print("OK \(screenshotURL)")
             } else if let screenshotPath,
-                      !screenshotPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                      hasText(screenshotPath) {
                 print("OK \(screenshotPath)")
             } else {
                 print("OK")
