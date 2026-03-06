@@ -833,9 +833,16 @@ final class TerminalNotificationStore: ObservableObject {
         let isFocusedSurface = surfaceId == nil || focusedSurfaceId == surfaceId
         let isFocusedPanel = isActiveTab && isFocusedSurface
         let isAppFocused = AppFocusState.isAppFocused()
-        let suppressNativeDelivery = isAppFocused && isFocusedPanel
+        if isAppFocused && isFocusedPanel {
+            if !idsToClear.isEmpty {
+                notifications = updated
+                center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
+                center.removePendingNotificationRequestsOffMain(withIdentifiers: idsToClear)
+            }
+            return
+        }
 
-        if WorkspaceAutoReorderSettings.isEnabled() && !suppressNativeDelivery {
+        if WorkspaceAutoReorderSettings.isEnabled() {
             AppDelegate.shared?.tabManager?.moveTabToTop(tabId)
         }
 
@@ -855,11 +862,7 @@ final class TerminalNotificationStore: ObservableObject {
             center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
             center.removePendingNotificationRequestsOffMain(withIdentifiers: idsToClear)
         }
-        if suppressNativeDelivery {
-            Self.runNotificationCustomCommand(notification)
-        } else {
-            scheduleUserNotification(notification)
-        }
+        scheduleUserNotification(notification)
     }
 
     func markRead(id: UUID) {
@@ -990,7 +993,10 @@ final class TerminalNotificationStore: ObservableObject {
             guard let self, authorized else { return }
 
             let content = UNMutableNotificationContent()
-            content.title = Self.notificationDisplayTitle(notification)
+            let appName = Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
+                ?? Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String
+                ?? "cmux"
+            content.title = notification.title.isEmpty ? appName : notification.title
             content.subtitle = notification.subtitle
             content.body = notification.body
             content.sound = NotificationSoundSettings.sound()
@@ -1013,25 +1019,14 @@ final class TerminalNotificationStore: ObservableObject {
                 if let error {
                     NSLog("Failed to schedule notification: \(error)")
                 } else {
-                    Self.runNotificationCustomCommand(notification)
+                    NotificationSoundSettings.runCustomCommand(
+                        title: content.title,
+                        subtitle: content.subtitle,
+                        body: content.body
+                    )
                 }
             }
         }
-    }
-
-    nonisolated private static func notificationDisplayTitle(_ notification: TerminalNotification) -> String {
-        let appName = Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
-            ?? Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String
-            ?? "cmux"
-        return notification.title.isEmpty ? appName : notification.title
-    }
-
-    nonisolated private static func runNotificationCustomCommand(_ notification: TerminalNotification) {
-        NotificationSoundSettings.runCustomCommand(
-            title: notificationDisplayTitle(notification),
-            subtitle: notification.subtitle,
-            body: notification.body
-        )
     }
 
     private func ensureAuthorization(
