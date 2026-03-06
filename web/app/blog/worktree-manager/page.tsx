@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { CodeBlock } from "../../components/code-block";
 
 export const metadata: Metadata = {
   title: "The best worktree manager is Claude Code",
@@ -35,7 +36,7 @@ export const metadata: Metadata = {
   },
 };
 
-export default function WorktreeManagerPage() {
+export default async function WorktreeManagerPage() {
   return (
     <>
       <div className="mb-8">
@@ -72,7 +73,7 @@ export default function WorktreeManagerPage() {
         pushing, opening PRs, cleaning up. The worktree manager is just prose.
       </p>
 
-      <h2>What we actually do</h2>
+      <h2>cmux HQ</h2>
 
       <p>
         We have a repo called <code>cmuxterm-hq</code> that sits outside the
@@ -129,29 +130,13 @@ export default function WorktreeManagerPage() {
         anything into a monorepo.
       </p>
 
-      <h2>Skills are just prompts</h2>
-
-      <p>
-        We have a Claude Code skill called <code>/issue-workspace-pr</code> that
-        takes a GitHub issue URL (or plain text task), creates a worktree,
-        implements the fix, pushes, and opens a PR. It sounds like a feature but
-        it&apos;s really just a prompt that tells Claude Code the steps. It
-        could live in the <code>CLAUDE.md</code> instead and work the same way.
-        Skills are just prompts you can invoke by name.
-      </p>
-
       <h2>Try it</h2>
 
       <p>
         Open Claude Code in your project directory and paste this:
       </p>
 
-      <pre>
-        <code>{`I want to set up an HQ repo for this project so I can use git worktrees
-to work on multiple things in parallel. Create a new directory called
-<project>-hq one level up from here, git init it, clone this repo into
-<project>-hq/repo/, create a worktrees/ directory, and set up the
-following files:
+      <CodeBlock copyable>{`I want to set up an HQ repo for this project so I can use git worktrees to work on multiple things in parallel. Create a new directory called <project>-hq one level up from here, git init it, clone this repo into <project>-hq/repo/, create a worktrees/ directory, and set up the following files:
 
 <project>-hq/
   repo/               # clone of this project (stays on main)
@@ -159,12 +144,15 @@ following files:
   CLAUDE.md           # symlink to AGENTS.md
   AGENTS.md           # worktree workflow instructions
 
-AGENTS.md should contain instructions for the worktree workflow: never
-edit repo/ directly, always create a worktree first, fetch before
-branching, clean up when done, push branches and open PRs. Symlink
-CLAUDE.md to AGENTS.md so both Claude Code and other agents read the
-same instructions.`}</code>
-      </pre>
+AGENTS.md should contain instructions for the worktree workflow:
+- Never edit code directly in repo/. It stays on main as the base for worktrees.
+- Before creating a worktree, always fetch and pull main first: cd repo && git fetch origin && git pull origin main
+- Create worktrees with: git worktree add ../worktrees/<branch> -b <branch> origin/main
+- Name branches issue-<N>-<slug> for issues, feat-<slug> for features.
+- Push branches and open PRs. Never push to main directly.
+- Clean up when done: git worktree remove ../worktrees/<branch>
+
+Symlink CLAUDE.md to AGENTS.md so both Claude Code and other agents read the same instructions.`}</CodeBlock>
 
       <p>
         Claude Code will set up the structure, write the instructions, and from
