@@ -1407,6 +1407,14 @@ final class WindowBrowserPortal: NSObject {
         entriesByWebViewId[webViewId] = entry
     }
 
+    func hideWebView(withId webViewId: ObjectIdentifier, source: String = "externalHide") {
+        guard var entry = entriesByWebViewId[webViewId] else { return }
+        entry.visibleInUI = false
+        entry.zPriority = 0
+        entriesByWebViewId[webViewId] = entry
+        synchronizeWebView(withId: webViewId, source: source)
+    }
+
     func updateDropZoneOverlay(forWebViewId webViewId: ObjectIdentifier, zone: DropZone?) {
         guard var entry = entriesByWebViewId[webViewId] else { return }
         entry.dropZone = zone
@@ -1671,26 +1679,19 @@ final class WindowBrowserPortal: NSObject {
         }
         func scheduleTransientDetachRecovery(reason: String) -> Bool {
             guard entry.visibleInUI else { return false }
-            let didSchedule = scheduleTransientRecoveryRetryIfNeeded(
+            return scheduleTransientRecoveryRetryIfNeeded(
                 forWebViewId: webViewId,
                 entry: &entry,
                 webView: webView,
                 reason: reason
             )
-            let shouldPreserve = didSchedule && !containerView.isHidden
-#if DEBUG
-            if shouldPreserve {
-                dlog(
-                    "browser.portal.hidden.deferKeep web=\(browserPortalDebugToken(webView)) " +
-                    "reason=\(reason) frame=\(browserPortalDebugFrame(containerView.frame))"
-                )
-            }
-#endif
-            return shouldPreserve
         }
         guard let anchorView = entry.anchorView, let window else {
             if scheduleTransientDetachRecovery(reason: "missingAnchorOrWindow") {
+                containerView.setPaneTopChromeHeight(0)
+                containerView.setSearchOverlay(nil)
                 containerView.setDropZoneOverlay(zone: nil)
+                containerView.isHidden = true
                 return
             }
             if !entry.visibleInUI {
@@ -1712,7 +1713,10 @@ final class WindowBrowserPortal: NSObject {
         }
         guard anchorView.window === window else {
             if scheduleTransientDetachRecovery(reason: "anchorWindowMismatch") {
+                containerView.setPaneTopChromeHeight(0)
+                containerView.setSearchOverlay(nil)
                 containerView.setDropZoneOverlay(zone: nil)
+                containerView.isHidden = true
                 return
             }
 #if DEBUG
@@ -2191,6 +2195,13 @@ enum BrowserWindowPortalRegistry {
         guard let windowId = webViewToWindowId[webViewId],
               let portal = portalsByWindowId[windowId] else { return }
         portal.updateEntryVisibility(forWebViewId: webViewId, visibleInUI: visibleInUI, zPriority: zPriority)
+    }
+
+    static func hide(webView: WKWebView, source: String = "externalHide") {
+        let webViewId = ObjectIdentifier(webView)
+        guard let windowId = webViewToWindowId[webViewId],
+              let portal = portalsByWindowId[windowId] else { return }
+        portal.hideWebView(withId: webViewId, source: source)
     }
 
     static func updateDropZoneOverlay(for webView: WKWebView, zone: DropZone?) {
