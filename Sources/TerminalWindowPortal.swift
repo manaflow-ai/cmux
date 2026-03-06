@@ -698,12 +698,13 @@ final class WindowTerminalPortal: NSObject {
         synchronizeAllHostedViews(excluding: nil)
 
         // During live resize, AppKit can deliver frame churn where host/container geometry
-        // settles a tick before the terminal's own scroll/surface hierarchy. Force a final
-        // in-place geometry + surface refresh for all visible entries in this window.
+        // settles a tick before the terminal's own scroll/surface hierarchy. Only force an
+        // in-place surface refresh when reconciliation actually changed terminal geometry.
         for entry in entriesByHostedId.values {
             guard let hostedView = entry.hostedView, !hostedView.isHidden else { continue }
-            hostedView.reconcileGeometryNow()
-            hostedView.refreshSurfaceNow()
+            if hostedView.reconcileGeometryNow() {
+                hostedView.refreshSurfaceNow(reason: "portal.externalGeometrySync")
+            }
         }
     }
 
@@ -1392,7 +1393,7 @@ final class WindowTerminalPortal: NSObject {
             hostedView.frame = targetFrame
             CATransaction.commit()
             hostedView.reconcileGeometryNow()
-            hostedView.refreshSurfaceNow()
+            hostedView.refreshSurfaceNow(reason: "portal.frameChange")
         }
 
         if hasFiniteFrame {
@@ -1431,7 +1432,7 @@ final class WindowTerminalPortal: NSObject {
             // normal frame-change refresh path won't run. Nudge geometry + redraw so newly
             // revealed terminals don't sit on a stale/blank IOSurface until later focus churn.
             hostedView.reconcileGeometryNow()
-            hostedView.refreshSurfaceNow()
+            hostedView.refreshSurfaceNow(reason: "portal.reveal")
         }
 
         if transientRecoveryReason == nil {
