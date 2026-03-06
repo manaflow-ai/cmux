@@ -1158,8 +1158,9 @@ private func commandPaletteOwningWebView(for responder: NSResponder?) -> WKWebVi
     }
 
     if let textView = responder as? NSTextView,
-       let delegateView = textView.delegate as? NSView {
-        return commandPaletteOwningWebView(for: delegateView)
+       let delegateView = textView.delegate as? NSView,
+       let webView = commandPaletteOwningWebView(for: delegateView) {
+        return webView
     }
 
     var currentResponder = responder.nextResponder
@@ -4768,8 +4769,8 @@ struct ContentView: View {
             return nil
         }
 
-        let contentPoint = NSPoint(x: contentPoint.x, y: contentPoint.y)
-        let windowPoint = contentView.convert(contentPoint, to: nil)
+        let nsContentPoint = NSPoint(x: contentPoint.x, y: contentPoint.y)
+        let windowPoint = contentView.convert(nsContentPoint, to: nil)
         return commandPaletteBackdropFocusTarget(atWindowPoint: windowPoint, in: window)
     }
 

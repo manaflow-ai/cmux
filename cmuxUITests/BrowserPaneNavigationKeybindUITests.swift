@@ -319,9 +319,9 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
             "Expected Cmd+R to open the rename command palette while terminal is focused"
         )
 
-        let window = app.windows.firstMatch
-        XCTAssertTrue(window.waitForExistence(timeout: 2.0), "Expected main window for browser-pane click")
-        window.coordinate(withNormalizedOffset: CGVector(dx: 0.82, dy: 0.78)).click()
+        let browserPane = app.otherElements["BrowserPanelContent.\(expectedBrowserPanelId)"].firstMatch
+        XCTAssertTrue(browserPane.waitForExistence(timeout: 5.0), "Expected browser pane content for click target")
+        browserPane.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).click()
         XCTAssertTrue(
             waitForNonExistence(renameField, timeout: 5.0),
             "Expected clicking the browser pane to dismiss the command palette"
