@@ -127,7 +127,26 @@ enum SocketControlPasswordStore {
         ), !expected.isEmpty else {
             return false
         }
-        return expected == candidate
+        return constantTimeEqual(expected, candidate)
+    }
+
+    /// Constant-time string comparison to prevent timing side-channel attacks on
+    /// the socket authentication password. Uses XOR accumulation over UTF-8 bytes
+    /// without early exit, so the duration is independent of where (or whether)
+    /// a mismatch occurs.
+    private static func constantTimeEqual(_ a: String, _ b: String) -> Bool {
+        let aBytes = Array(a.utf8)
+        let bBytes = Array(b.utf8)
+        let count = max(aBytes.count, bBytes.count)
+        guard count > 0 else { return true }
+
+        var diff: UInt8 = aBytes.count != bBytes.count ? 1 : 0
+        for i in 0..<count {
+            let aByte = i < aBytes.count ? aBytes[i] : 0
+            let bByte = i < bBytes.count ? bBytes[i] : 0
+            diff |= aByte ^ bByte
+        }
+        return diff == 0
     }
 
     static func migrateLegacyKeychainPasswordIfNeeded(
