@@ -54,8 +54,22 @@ def main() -> int:
     if 'code: "js_error"' not in wait_block:
         failures.append("browser wait no longer fails fast with js_error on script failures")
 
+    run_js_signature_start = terminal_source.find("private func v2RunJavaScript(")
+    if run_js_signature_start < 0:
+        failures.append("missing v2RunJavaScript() declaration")
+        run_js_signature = ""
+    else:
+        run_js_signature_end = terminal_source.find(
+            ") -> V2JavaScriptResult", run_js_signature_start
+        )
+        run_js_signature = (
+            terminal_source[run_js_signature_start:run_js_signature_end]
+            if run_js_signature_end >= 0
+            else terminal_source[run_js_signature_start:]
+        )
+
     run_js_block = extract_block(terminal_source, "private func v2RunJavaScript(")
-    if "contentWorld: WKContentWorld" not in terminal_source:
+    if "contentWorld: WKContentWorld" not in run_js_signature:
         failures.append("v2RunJavaScript no longer accepts a configurable WKContentWorld")
     if "DispatchQueue.main.async(execute: evaluator)" not in run_js_block:
         failures.append("v2RunJavaScript no longer dispatches evaluation to main thread from background callers")
