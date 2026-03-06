@@ -9376,8 +9376,11 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
     }
 
     private func dropZoneOverlay(in slot: WindowBrowserSlotView, excluding webView: WKWebView) -> NSView? {
-        slot.subviews.first(where: {
-            $0 !== webView && String(describing: type(of: $0)).contains("BrowserDropZoneOverlayView")
+        let candidates = slot.subviews + (slot.superview?.subviews ?? [])
+        return candidates.first(where: {
+            $0 !== slot &&
+            $0 !== webView &&
+            String(describing: type(of: $0)).contains("BrowserDropZoneOverlayView")
         })
     }
 
@@ -9688,9 +9691,9 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         portal.updateDropZoneOverlay(forWebViewId: ObjectIdentifier(webView), zone: .right)
         slot.layoutSubtreeIfNeeded()
         XCTAssertFalse(overlay.isHidden)
-        XCTAssertTrue(slot.subviews.last === overlay, "Overlay should remain above the hosted web view")
-        XCTAssertEqual(overlay.frame.origin.x, 110, accuracy: 0.5)
-        XCTAssertEqual(overlay.frame.origin.y, 4, accuracy: 0.5)
+        XCTAssertTrue(slot.superview?.subviews.last === overlay, "Overlay should remain above the hosted web view")
+        XCTAssertEqual(overlay.frame.origin.x, slot.frame.origin.x + 110, accuracy: 0.5)
+        XCTAssertEqual(overlay.frame.origin.y, slot.frame.origin.y + 4, accuracy: 0.5)
         XCTAssertEqual(overlay.frame.size.width, 106, accuracy: 0.5)
         XCTAssertEqual(overlay.frame.size.height, 152, accuracy: 0.5)
 
@@ -9826,6 +9829,41 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
 
         BrowserWindowPortalRegistry.detach(webView: webView)
         XCTAssertNil(webView.superview)
+    }
+
+    func testRegistryHideKeepsPortalHostedWebViewAttachedButHidden() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        realizeWindowLayout(window)
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let anchor = NSView(frame: NSRect(x: 20, y: 20, width: 180, height: 120))
+        contentView.addSubview(anchor)
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+
+        BrowserWindowPortalRegistry.bind(webView: webView, to: anchor, visibleInUI: true)
+        BrowserWindowPortalRegistry.synchronizeForAnchor(anchor)
+        advanceAnimations()
+
+        guard let slot = webView.superview as? WindowBrowserSlotView else {
+            XCTFail("Expected browser slot")
+            return
+        }
+        XCTAssertFalse(slot.isHidden)
+
+        BrowserWindowPortalRegistry.hide(webView: webView, source: "unitTest")
+        advanceAnimations()
+
+        XCTAssertTrue(webView.superview === slot, "Hiding should preserve the hosted WKWebView attachment")
+        XCTAssertTrue(slot.isHidden, "Hiding should immediately hide the existing portal slot")
     }
 }
 
