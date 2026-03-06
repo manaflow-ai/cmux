@@ -1247,6 +1247,9 @@ class TerminalController {
         case "send_key":
             return sendKey(args)
 
+        case "send_workspace":
+            return sendInputToWorkspace(args)
+
         case "send_surface":
             return sendInputToSurface(args)
 
@@ -9267,6 +9270,7 @@ class TerminalController {
         Input commands:
           send <text>                     - Send text to current terminal
           send_key <key>                  - Send special key (ctrl-c, ctrl-d, enter, tab, escape)
+          send_workspace <workspace_id> <text> - Send text to a workspace's focused terminal
           send_surface <id|idx> <text>    - Send text to a specific terminal
           send_key_surface <id|idx> <key> - Send special key to a specific terminal
           read_screen [id|idx] [--scrollback] [--lines N] - Read terminal text (plain text)
@@ -11590,6 +11594,49 @@ class TerminalController {
             }
             success = true
         }
+        if let error { return error }
+        return success ? "OK" : "ERROR: Failed to send input"
+    }
+
+    private func sendInputToWorkspace(_ args: String) -> String {
+        guard let tabManager else { return "ERROR: TabManager not available" }
+        let parts = args.split(separator: " ", maxSplits: 1).map(String.init)
+        guard parts.count == 2 else { return "ERROR: Usage: send_workspace <workspace_id> <text>" }
+
+        let workspaceArg = parts[0].trimmingCharacters(in: .whitespacesAndNewlines)
+        let text = parts[1]
+        guard let workspaceId = UUID(uuidString: workspaceArg) else {
+            return "ERROR: Invalid workspace ID"
+        }
+
+        var success = false
+        var error: String?
+        DispatchQueue.main.sync {
+            guard let targetManager = AppDelegate.shared?.tabManagerFor(tabId: workspaceId)
+                ?? (tabManager.tabs.contains(where: { $0.id == workspaceId }) ? tabManager : nil) else {
+                error = "ERROR: Workspace not found"
+                return
+            }
+            guard let tab = targetManager.tabs.first(where: { $0.id == workspaceId }),
+                  let terminalPanel = tab.focusedTerminalPanel else {
+                error = "ERROR: No focused terminal in workspace"
+                return
+            }
+
+            let unescaped = text
+                .replacingOccurrences(of: "\\n", with: "\r")
+                .replacingOccurrences(of: "\\r", with: "\r")
+                .replacingOccurrences(of: "\\t", with: "\t")
+
+            if let surface = terminalPanel.surface.surface {
+                sendSocketText(unescaped, surface: surface)
+            } else {
+                terminalPanel.sendText(unescaped)
+                terminalPanel.surface.requestBackgroundSurfaceStartIfNeeded()
+            }
+            success = true
+        }
+
         if let error { return error }
         return success ? "OK" : "ERROR: Failed to send input"
     }

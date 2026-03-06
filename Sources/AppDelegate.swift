@@ -5750,9 +5750,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                         "expectedLatestWindowId": window1.windowId.uuidString,
                         "expectedLatestTabId": tabId1.uuidString,
                     ], at: path)
-                    // Leave the initial window's terminal focused so UI tests can type shell
-                    // commands while still keeping the second window configured for notifications.
-                    window1.window?.makeKeyAndOrderFront(nil)
                     self.publishMultiWindowNotificationSocketStateIfNeeded(at: path)
                 }
             }
@@ -5821,7 +5818,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                         "socketPathExists": health.socketPathExists ? "1" : "0",
                         "socketFailureSignals": failureSignals,
                     ], at: dataPath)
-                    guard !isTimedOut else { return }
+                    guard !isTimedOut, !isReady else { return }
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
                         publish()
                     }

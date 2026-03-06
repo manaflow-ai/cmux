@@ -224,6 +224,10 @@ final class MultiWindowNotificationsUITests: XCTestCase {
             XCTFail("Missing setup workspace id")
             return
         }
+        guard let tabId1 = setup["tabId1"], !tabId1.isEmpty else {
+            XCTFail("Missing source workspace id")
+            return
+        }
         if let expectedSocketPath = setup["socketExpectedPath"], !expectedSocketPath.isEmpty {
             socketPath = expectedSocketPath
         }
@@ -270,11 +274,6 @@ final class MultiWindowNotificationsUITests: XCTestCase {
             return
         }
 
-        XCTAssertTrue(app.windows.element(boundBy: 0).waitForExistence(timeout: 4.0), "Expected at least one window before typing notify command")
-        app.windows.element(boundBy: 0)
-            .coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-            .click()
-
         let notifyCommand = [
             "rm -f \(shellSingleQuote(commandStatusPath)) \(shellSingleQuote(commandStdoutPath)) \(shellSingleQuote(commandStderrPath));",
             "(sleep 1;",
@@ -290,7 +289,10 @@ final class MultiWindowNotificationsUITests: XCTestCase {
             "2>\(shellSingleQuote(commandStderrPath));",
             "printf '%s' $? >\(shellSingleQuote(commandStatusPath))) >/dev/null 2>&1 &"
         ].joined(separator: " ")
-        app.typeText(notifyCommand + "\n")
+        guard socketCommand("send_workspace \(tabId1) \(notifyCommand)\\n") == "OK" else {
+            XCTFail("Failed to inject delayed bundled `cmux notify` command into source workspace \(tabId1)")
+            return
+        }
 
         let finder = XCUIApplication(bundleIdentifier: "com.apple.finder")
         finder.activate()
