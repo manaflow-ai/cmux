@@ -2,6 +2,119 @@
   "sourceLanguage": "en",
   "version": "1.0",
   "strings": {
+    "NSBluetoothAlwaysUsageDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux uses Bluetooth for cross-device passkey sign-in in embedded browser authentication flows."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux は内蔵ブラウザの認証フローでクロスデバイスパスキーサインインに Bluetooth を使用します。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 使用蓝牙在内嵌浏览器认证流程中进行跨设备通行密钥登录。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 使用藍牙在內嵌瀏覽器驗證流程中進行跨裝置通行密鑰登入。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux는 내장 브라우저 인증 흐름에서 크로스 디바이스 패스키 로그인에 Bluetooth를 사용합니다."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux verwendet Bluetooth für die geräteübergreifende Passkey-Anmeldung in eingebetteten Browser-Authentifizierungsabläufen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux usa Bluetooth para el inicio de sesión con clave de acceso entre dispositivos en flujos de autenticación del navegador integrado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux utilise le Bluetooth pour la connexion par clé d'accès inter-appareils dans les flux d'authentification du navigateur intégré."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux utilizza il Bluetooth per l'accesso con passkey tra dispositivi nei flussi di autenticazione del browser integrato."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux bruger Bluetooth til login med adgangsnøgle på tværs af enheder i den integrerede browsers godkendelsesflow."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux używa Bluetooth do logowania kluczem dostępu między urządzeniami w przepływach uwierzytelniania wbudowanej przeglądarki."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux использует Bluetooth для межустройственного входа с помощью ключа доступа во встроенном браузере."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux koristi Bluetooth za prijavu pristupnim ključem između uređaja u tokovima autentifikacije ugrađenog preglednika."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يستخدم cmux البلوتوث لتسجيل الدخول بمفتاح المرور عبر الأجهزة في تدفقات مصادقة المتصفح المضمّن."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux bruker Bluetooth for passordnøkkel-pålogging på tvers av enheter i den innebygde nettleserens autentiseringsflyt."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux usa Bluetooth para login com chave de acesso entre dispositivos nos fluxos de autenticação do navegador integrado."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ใช้ Bluetooth สำหรับการลงชื่อเข้าใช้ด้วยพาสคีย์ข้ามอุปกรณ์ในขั้นตอนการยืนยันตัวตนของเบราว์เซอร์ในตัว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux, gömülü tarayıcı kimlik doğrulama akışlarında cihazlar arası geçiş anahtarı oturum açma için Bluetooth kullanır."
+          }
+        }
+      }
+    },
     "NSCameraUsageDescription": {
       "extractionState": "manual",
       "localizations": {
