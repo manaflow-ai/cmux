@@ -2825,6 +2825,8 @@ struct SettingsView: View {
     @AppStorage(QuitWarningSettings.warnBeforeQuitKey) private var warnBeforeQuitShortcut = QuitWarningSettings.defaultWarnBeforeQuit
     @AppStorage(CommandPaletteRenameSelectionSettings.selectAllOnFocusKey)
     private var commandPaletteRenameSelectAllOnFocus = CommandPaletteRenameSelectionSettings.defaultSelectAllOnFocus
+    @AppStorage(ShortcutHintDebugSettings.alwaysShowHintsKey)
+    private var alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
     @AppStorage(WorkspacePlacementSettings.placementKey) private var newWorkspacePlacement = WorkspacePlacementSettings.defaultPlacement.rawValue
     @AppStorage(WorkspaceAutoReorderSettings.key) private var workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
     @AppStorage(SidebarBranchLayoutSettings.key) private var sidebarBranchVerticalLayout = SidebarBranchLayoutSettings.defaultVerticalLayout
@@ -4107,6 +4109,8 @@ struct SettingsView: View {
         notificationDockBadgeEnabled = NotificationBadgeSettings.defaultDockBadgeEnabled
         warnBeforeQuitShortcut = QuitWarningSettings.defaultWarnBeforeQuit
         commandPaletteRenameSelectAllOnFocus = CommandPaletteRenameSelectionSettings.defaultSelectAllOnFocus
+        ShortcutHintDebugSettings.resetVisibilityDefaults()
+        alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
         newWorkspacePlacement = WorkspacePlacementSettings.defaultPlacement.rawValue
         workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
         sidebarBranchVerticalLayout = SidebarBranchLayoutSettings.defaultVerticalLayout

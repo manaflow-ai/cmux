@@ -1005,14 +1005,31 @@ func shouldDispatchBrowserReturnViaFirstResponderKeyDown(
 func shouldToggleMainWindowFullScreenForCommandControlFShortcut(
     flags: NSEvent.ModifierFlags,
     chars: String,
-    keyCode: UInt16
+    keyCode: UInt16,
+    layoutCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:)
 ) -> Bool {
     let normalizedFlags = flags
         .intersection(.deviceIndependentFlagsMask)
         .subtracting([.numericPad, .function, .capsLock])
     guard normalizedFlags == [.command, .control] else { return false }
     let normalizedChars = chars.lowercased()
-    return normalizedChars == "f" || keyCode == 3
+    if normalizedChars == "f" {
+        return true
+    }
+    let charsAreControlSequence = !normalizedChars.isEmpty
+        && normalizedChars.unicodeScalars.allSatisfy { CharacterSet.controlCharacters.contains($0) }
+    if !normalizedChars.isEmpty && !charsAreControlSequence {
+        return false
+    }
+
+    // Fallback to layout translation only when characters are unavailable (for
+    // synthetic/key-equivalent paths that can report an empty string).
+    if let translatedCharacter = layoutCharacterProvider(keyCode, flags), !translatedCharacter.isEmpty {
+        return translatedCharacter == "f"
+    }
+
+    // Keep ANSI fallback as a final safety net when layout translation is unavailable.
+    return keyCode == 3
 }
 
 func commandPaletteSelectionDeltaForKeyboardNavigation(
@@ -1449,6 +1466,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     weak var sidebarState: SidebarState?
     weak var fullscreenControlsViewModel: TitlebarControlsViewModel?
     weak var sidebarSelectionState: SidebarSelectionState?
+    var shortcutLayoutCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:)
     private var workspaceObserver: NSObjectProtocol?
     private var lifecycleSnapshotObservers: [NSObjectProtocol] = []
     private var windowKeyObserver: NSObjectProtocol?
@@ -5840,6 +5858,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         titlebarAccessoryController.toggleNotificationsPopover(animated: animated, anchorView: anchorView)
     }
 
+    @discardableResult
+    func dismissNotificationsPopoverIfShown() -> Bool {
+        titlebarAccessoryController.dismissNotificationsPopoverIfShown()
+    }
+
     func jumpToLatestUnread() {
         guard let notificationStore else { return }
 #if DEBUG
@@ -6151,7 +6174,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func handleCustomShortcut(event: NSEvent) -> Bool {
         // `charactersIgnoringModifiers` can be nil for some synthetic NSEvents and certain special keys.
-        // Most shortcuts below use keyCode fallbacks, so treat nil as "" rather than bailing out.
+        // Treat nil as "" and rely on keyCode/layout-aware fallback logic where needed.
         let chars = (event.charactersIgnoringModifiers ?? "").lowercased()
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         let hasControl = flags.contains(.control)
@@ -6188,7 +6211,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             // Special-case: Cmd+D should confirm destructive close on alerts.
             // XCUITest key events often hit the app-level local monitor first, so forward the key
             // equivalent to the alert panel explicitly.
-            if flags == [.command], chars == "d",
+            if matchShortcut(
+                event: event,
+                shortcut: StoredShortcut(key: "d", command: true, shift: false, option: false, control: false)
+            ),
                let root = closeConfirmationPanel.contentView,
                let closeButton = findButton(in: root, titled: "Close") {
                 closeButton.performClick(nil)
@@ -6363,15 +6389,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // focused omnibar in another window does not suppress Cmd+P here.
         let hasFocusedAddressBarInShortcutContext = focusedBrowserAddressBarPanelIdForShortcutEvent(event) != nil
         let isCommandP = !hasFocusedAddressBarInShortcutContext
-            && normalizedFlags == [.command]
-            && (chars == "p" || event.keyCode == 35)
+            && matchShortcut(
+                event: event,
+                shortcut: StoredShortcut(key: "p", command: true, shift: false, option: false, control: false)
+            )
         if isCommandP {
             let targetWindow = commandPaletteTargetWindow ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
             requestCommandPaletteSwitcher(preferredWindow: targetWindow, source: "shortcut.cmdP")
             return true
         }
 
-        let isCommandShiftP = normalizedFlags == [.command, .shift] && (chars == "p" || event.keyCode == 35)
+        let isCommandShiftP = matchShortcut(
+            event: event,
+            shortcut: StoredShortcut(key: "p", command: true, shift: true, option: false, control: false)
+        )
         if isCommandShiftP {
             let targetWindow = commandPaletteTargetWindow ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
             requestCommandPaletteCommands(preferredWindow: targetWindow, source: "shortcut.cmdShiftP")
@@ -6387,11 +6418,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if normalizedFlags == [.command], chars == "q" {
+        if matchShortcut(
+            event: event,
+            shortcut: StoredShortcut(key: "q", command: true, shift: false, option: false, control: false)
+        ) {
             return handleQuitShortcutWarning()
         }
-        if normalizedFlags == [.command, .shift],
-           (chars == "," || chars == "<" || event.keyCode == 43) {
+        if matchShortcut(
+            event: event,
+            shortcut: StoredShortcut(key: ",", command: true, shift: true, option: false, control: false)
+        ) {
             GhosttyApp.shared.reloadConfiguration(source: "shortcut.cmd_shift_comma")
             return true
         }
@@ -6611,7 +6647,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             )
         }
 
-        if normalizedFlags == [.command, .option], (chars == "t" || event.keyCode == 17) {
+        if matchShortcut(
+            event: event,
+            shortcut: StoredShortcut(key: "t", command: true, shift: false, option: true, control: false)
+        ) {
             if let targetWindow = event.window ?? NSApp.keyWindow ?? NSApp.mainWindow,
                targetWindow.identifier?.rawValue == "cmux.settings" {
                 targetWindow.performClose(nil)
@@ -6632,7 +6671,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         // Cmd+W must close the focused panel even if first-responder momentarily lags on a
         // browser NSTextView during split focus transitions.
-        if normalizedFlags == [.command], (chars == "w" || event.keyCode == 13) {
+        if matchShortcut(
+            event: event,
+            shortcut: StoredShortcut(key: "w", command: true, shift: false, option: false, control: false)
+        ) {
             if let targetWindow = event.window ?? NSApp.keyWindow ?? NSApp.mainWindow,
                targetWindow.identifier?.rawValue == "cmux.settings" {
                 targetWindow.performClose(nil)
@@ -6861,7 +6903,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         // Focus browser address bar: Cmd+L
-        if flags == [.command] && chars == "l" {
+        if matchShortcut(
+            event: event,
+            shortcut: StoredShortcut(key: "l", command: true, shift: false, option: false, control: false)
+        ) {
             if let focusedPanel = tabManager?.focusedBrowserPanel {
                 focusBrowserAddressBar(in: focusedPanel)
                 return true
@@ -7449,40 +7494,125 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return false
     }
 
-    /// Match a shortcut against an event, handling normal keys
+    /// Match a shortcut against an event, handling normal keys.
     private func matchShortcut(event: NSEvent, shortcut: StoredShortcut) -> Bool {
         // Some keys can include extra flags (e.g. .function) depending on the responder chain.
         // Strip those for consistent matching across first responders (terminal, WebKit, etc).
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-            .subtracting([.numericPad, .function])
+            .subtracting([.numericPad, .function, .capsLock])
         guard flags == shortcut.modifierFlags else { return false }
 
-        // NSEvent.charactersIgnoringModifiers preserves Shift for some symbol keys
-        // (e.g. Shift+] can yield "}" instead of "]"), so match brackets by keyCode.
         let shortcutKey = shortcut.key.lowercased()
         if shortcutKey == "\r" {
             return event.keyCode == 36 || event.keyCode == 76
         }
-        if shortcutKey == "[" || shortcutKey == "]" {
-            switch event.keyCode {
-            case 33: // kVK_ANSI_LeftBracket
-                return shortcutKey == "["
-            case 30: // kVK_ANSI_RightBracket
-                return shortcutKey == "]"
-            default:
-                return false
-            }
-        }
 
-        // Control-key combos can produce control characters (e.g. Ctrl+H => backspace),
-        // so fall back to keyCode matching for common printable keys.
-        if let chars = event.charactersIgnoringModifiers?.lowercased(), chars == shortcutKey {
+        let eventCharsIgnoringModifiers = event.charactersIgnoringModifiers
+        if shortcutCharacterMatches(
+            eventCharacter: eventCharsIgnoringModifiers,
+            shortcutKey: shortcutKey,
+            applyShiftSymbolNormalization: flags.contains(.shift),
+            eventKeyCode: event.keyCode
+        ) {
             return true
         }
-        if let expectedKeyCode = keyCodeForShortcutKey(shortcutKey) {
+
+        // For command-based shortcuts, trust AppKit's layout-aware characters when present.
+        // Keep this strict for letter shortcuts to avoid physical-key collisions across layouts,
+        // while still allowing keyCode fallback for digit/punctuation shortcuts on non-US layouts.
+        let hasEventChars = !(eventCharsIgnoringModifiers?.isEmpty ?? true)
+        if hasEventChars,
+           flags.contains(.command),
+           !flags.contains(.control),
+           shouldRequireCharacterMatchForCommandShortcut(shortcutKey: shortcutKey) {
+            return false
+        }
+
+        // Match using the current keyboard layout so Command shortcuts stay character-based
+        // across layouts (QWERTY, Dvorak, etc.) instead of being tied to ANSI physical keys.
+        let layoutCharacter = shortcutLayoutCharacterProvider(event.keyCode, event.modifierFlags)
+        if shortcutCharacterMatches(
+            eventCharacter: layoutCharacter,
+            shortcutKey: shortcutKey,
+            applyShiftSymbolNormalization: false,
+            eventKeyCode: event.keyCode
+        ) {
+            return true
+        }
+
+        // Control-key combos can surface as ASCII control characters (e.g. Ctrl+H => backspace),
+        // so keep ANSI keyCode fallback for control-modified shortcuts. Also allow fallback for
+        // command punctuation shortcuts, since some non-US layouts report different characters
+        // for the same physical key even when menu-equivalent semantics should still apply.
+        let allowANSIKeyCodeFallback = flags.contains(.control)
+            || (flags.contains(.command)
+                && !flags.contains(.control)
+                && (
+                    !shouldRequireCharacterMatchForCommandShortcut(shortcutKey: shortcutKey)
+                        || (!hasEventChars && (layoutCharacter?.isEmpty ?? true))
+                ))
+        if allowANSIKeyCodeFallback, let expectedKeyCode = keyCodeForShortcutKey(shortcutKey) {
             return event.keyCode == expectedKeyCode
         }
         return false
+    }
+
+    private func shouldRequireCharacterMatchForCommandShortcut(shortcutKey: String) -> Bool {
+        guard shortcutKey.count == 1, let scalar = shortcutKey.unicodeScalars.first else {
+            return false
+        }
+        return CharacterSet.letters.contains(scalar)
+    }
+
+    private func shortcutCharacterMatches(
+        eventCharacter: String?,
+        shortcutKey: String,
+        applyShiftSymbolNormalization: Bool,
+        eventKeyCode: UInt16
+    ) -> Bool {
+        guard let eventCharacter, !eventCharacter.isEmpty else { return false }
+        if normalizedShortcutEventCharacter(
+            eventCharacter,
+            applyShiftSymbolNormalization: applyShiftSymbolNormalization,
+            eventKeyCode: eventKeyCode
+        ) == shortcutKey {
+            return true
+        }
+        return false
+    }
+
+    private func normalizedShortcutEventCharacter(
+        _ eventCharacter: String,
+        applyShiftSymbolNormalization: Bool,
+        eventKeyCode: UInt16
+    ) -> String {
+        let lowered = eventCharacter.lowercased()
+        guard applyShiftSymbolNormalization else { return lowered }
+
+        switch lowered {
+        case "{": return "["
+        case "}": return "]"
+        case "<": return eventKeyCode == 43 ? "," : lowered // kVK_ANSI_Comma
+        case ">": return eventKeyCode == 47 ? "." : lowered // kVK_ANSI_Period
+        case "?": return "/"
+        case ":": return ";"
+        case "\"": return "'"
+        case "|": return "\\"
+        case "~": return "`"
+        case "+": return "="
+        case "_": return "-"
+        case "!": return eventKeyCode == 18 ? "1" : lowered // kVK_ANSI_1
+        case "@": return eventKeyCode == 19 ? "2" : lowered // kVK_ANSI_2
+        case "#": return eventKeyCode == 20 ? "3" : lowered // kVK_ANSI_3
+        case "$": return eventKeyCode == 21 ? "4" : lowered // kVK_ANSI_4
+        case "%": return eventKeyCode == 23 ? "5" : lowered // kVK_ANSI_5
+        case "^": return eventKeyCode == 22 ? "6" : lowered // kVK_ANSI_6
+        case "&": return eventKeyCode == 26 ? "7" : lowered // kVK_ANSI_7
+        case "*": return eventKeyCode == 28 ? "8" : lowered // kVK_ANSI_8
+        case "(": return eventKeyCode == 25 ? "9" : lowered // kVK_ANSI_9
+        case ")": return eventKeyCode == 29 ? "0" : lowered // kVK_ANSI_0
+        default: return lowered
+        }
     }
 
     private func keyCodeForShortcutKey(_ key: String) -> UInt16? {
@@ -7518,8 +7648,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         case "-": return 27  // kVK_ANSI_Minus
         case "8": return 28  // kVK_ANSI_8
         case "0": return 29  // kVK_ANSI_0
+        case "]": return 30  // kVK_ANSI_RightBracket
         case "o": return 31  // kVK_ANSI_O
         case "u": return 32  // kVK_ANSI_U
+        case "[": return 33  // kVK_ANSI_LeftBracket
         case "i": return 34  // kVK_ANSI_I
         case "p": return 35  // kVK_ANSI_P
         case "l": return 37  // kVK_ANSI_L
