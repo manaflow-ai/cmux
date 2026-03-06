@@ -1601,8 +1601,17 @@ class TabManager: ObservableObject {
         suppressFocusFlash = false
         guard !shouldSuppressFlash else { return }
         guard AppFocusState.isAppActive() else { return }
-        guard let panelId = focusedPanelId(for: tabId) else { return }
-        markPanelReadOnFocusIfActive(tabId: tabId, panelId: panelId)
+        if let panelId = focusedPanelId(for: tabId) {
+            guard let notificationStore = AppDelegate.shared?.notificationStore else { return }
+            if notificationStore.hasUnreadNotification(forTabId: tabId, surfaceId: panelId) {
+                markPanelReadOnFocusIfActive(tabId: tabId, panelId: panelId)
+                return
+            }
+        }
+        guard selectedTabId == tabId else { return }
+        guard let notificationStore = AppDelegate.shared?.notificationStore else { return }
+        guard notificationStore.hasUnreadNotification(forTabId: tabId, surfaceId: nil) else { return }
+        notificationStore.markRead(forTabId: tabId, surfaceId: nil)
     }
 
     private func markPanelReadOnFocusIfActive(tabId: UUID, panelId: UUID) {
@@ -1738,7 +1747,6 @@ class TabManager: ObservableObject {
             guard let targetPanelId,
                   tab.panels[targetPanelId] != nil else { return }
             guard let notificationStore = AppDelegate.shared?.notificationStore else { return }
-            guard notificationStore.hasUnreadNotification(forTabId: tabId, surfaceId: targetPanelId) else { return }
             tab.triggerNotificationFocusFlash(panelId: targetPanelId, requiresSplit: false, shouldFocus: true)
             notificationStore.markRead(forTabId: tabId, surfaceId: targetPanelId)
         }
