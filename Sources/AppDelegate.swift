@@ -7,6 +7,40 @@ import Sentry
 import WebKit
 import Combine
 import ObjectiveC.runtime
+#if DEBUG
+import OSLog
+#endif
+
+#if DEBUG
+private let debugTypingPerfSignposter = OSSignposter(
+    subsystem: Bundle.main.bundleIdentifier ?? "com.cmuxterm.app",
+    category: "TypingPerf"
+)
+
+fileprivate func debugTypingPerfBeginIntervalIfNeeded(
+    enabled: Bool,
+    _ name: StaticString
+) -> OSSignpostIntervalState? {
+    guard enabled else { return nil }
+    return debugTypingPerfSignposter.beginInterval(name)
+}
+
+fileprivate func debugTypingPerfEndIntervalIfNeeded(
+    _ name: StaticString,
+    _ state: OSSignpostIntervalState?
+) {
+    guard let state else { return }
+    debugTypingPerfSignposter.endInterval(name, state)
+}
+
+fileprivate func debugTypingPerfEmitEventIfNeeded(
+    enabled: Bool,
+    _ name: StaticString
+) {
+    guard enabled else { return }
+    debugTypingPerfSignposter.emitEvent(name)
+}
+#endif
 
 enum FinderServicePathResolver {
     private static func canonicalDirectoryPath(_ path: String) -> String {
@@ -4905,10 +4939,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private let debugPerfWorkspaceTitlePrefix = "Debug Perf - "
     private var debugStressWorkspaceCreationInProgress = false
     private var debugStressLagProbeEnabled = false
+    private var debugStressLastInputUptime: TimeInterval = 0
     private let debugStressWorkspaceCount = 20
     private let debugStressPaneCount = 4
     private let debugStressTabsPerPane = 1
     private let debugStressYieldInterval = 4
+    private let debugStressPrimeIdleThresholdMs = 400.0
+    private let debugStressPrimeMaxInputDeferrals = 24
+    private let debugStressPrimeMaxStartAttempts = 4
+    private let debugStressPrimePollIntervalNs: UInt64 = 75_000_000
+    private let debugStressPrimeSurfaceReadyTimeoutNs: UInt64 = 300_000_000
 
     var isDebugTypingPerfProbeEnabled: Bool {
         debugStressLagProbeEnabled
@@ -5034,7 +5074,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
             let creationElapsedMs = (ProcessInfo.processInfo.systemUptime - totalStart) * 1000.0
             let primeStats = await self.primeDebugStressWorkspacesForSurfaceLoad(created)
-            let loadStats = await self.waitForDebugStressSurfaceLoad(created)
             let totalElapsedMs = (ProcessInfo.processInfo.systemUptime - totalStart) * 1000.0
             let avgWorkspaceMs = created.isEmpty ? 0 : (cumulativeWorkspaceMs / Double(created.count))
             let expectedSurfaceCount = self.debugStressWorkspaceCount
@@ -5048,28 +5087,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             dlog(
                 "stress.setup.done createMs=\(String(format: "%.2f", creationElapsedMs)) " +
                 "primeMs=\(String(format: "%.2f", primeStats.elapsedMs)) primedTabs=\(primeStats.activatedTabs) " +
-                "waitMs=\(String(format: "%.2f", loadStats.elapsedMs)) totalMs=\(String(format: "%.2f", totalElapsedMs)) " +
+                "inputDeferrals=\(primeStats.inputDeferrals) totalMs=\(String(format: "%.2f", totalElapsedMs)) " +
                 "workspaceAvgMs=\(String(format: "%.2f", avgWorkspaceMs)) workspaceWorstMs=\(String(format: "%.2f", worstWorkspaceMs)) " +
-                "workspaceSlowCount=\(slowWorkspaceCount) waitAttempts=\(loadStats.attempts) " +
-                "pendingSurfaces=\(loadStats.pendingSurfaces) expectedSurfaces=\(expectedSurfaceCount)"
+                "workspaceSlowCount=\(slowWorkspaceCount) " +
+                "pendingSurfaces=\(primeStats.pendingSurfaces) expectedSurfaces=\(expectedSurfaceCount)"
             )
 
             NSLog(
-                "Debug stress workspaces: created=%d panesPerWorkspace=%d tabsPerPane=%d expectedSurfaces=%d layoutFailures=%d pendingSurfaces=%d createMs=%.2f primeMs=%.2f primedTabs=%d waitMs=%.2f totalMs=%.2f workspaceAvgMs=%.2f workspaceWorstMs=%.2f waitAttempts=%d",
+                "Debug stress workspaces: created=%d panesPerWorkspace=%d tabsPerPane=%d expectedSurfaces=%d layoutFailures=%d pendingSurfaces=%d createMs=%.2f primeMs=%.2f primedTabs=%d inputDeferrals=%d totalMs=%.2f workspaceAvgMs=%.2f workspaceWorstMs=%.2f",
                 self.debugStressWorkspaceCount,
                 self.debugStressPaneCount,
                 self.debugStressTabsPerPane,
                 expectedSurfaceCount,
                 layoutFailures,
-                loadStats.pendingSurfaces,
+                primeStats.pendingSurfaces,
                 creationElapsedMs,
                 primeStats.elapsedMs,
                 primeStats.activatedTabs,
-                loadStats.elapsedMs,
+                primeStats.inputDeferrals,
                 totalElapsedMs,
                 avgWorkspaceMs,
-                worstWorkspaceMs,
-                loadStats.attempts
+                worstWorkspaceMs
             )
         }
     }
@@ -5086,39 +5124,64 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private struct DebugStressSurfacePrimeStats {
         let activatedTabs: Int
+        let inputDeferrals: Int
+        let pendingSurfaces: Int
         let elapsedMs: Double
     }
 
     private func primeDebugStressWorkspacesForSurfaceLoad(
         _ workspaces: [Workspace]
     ) async -> DebugStressSurfacePrimeStats {
-        guard !workspaces.isEmpty else {
-            return DebugStressSurfacePrimeStats(activatedTabs: 0, elapsedMs: 0)
+        let terminalSurfaces = debugStressTerminalSurfaces(in: workspaces)
+        guard !terminalSurfaces.isEmpty else {
+            return DebugStressSurfacePrimeStats(
+                activatedTabs: 0,
+                inputDeferrals: 0,
+                pendingSurfaces: 0,
+                elapsedMs: 0
+            )
         }
 
         let primeStart = ProcessInfo.processInfo.systemUptime
         var activatedTabs = 0
+        var inputDeferrals = 0
 
-        for (index, workspace) in workspaces.enumerated() {
-            for panel in workspace.panels.values {
-                guard let terminalPanel = panel as? TerminalPanel else { continue }
-                terminalPanel.surface.requestBackgroundSurfaceStartIfNeeded()
-                activatedTabs += 1
-            }
-            if activatedTabs % debugStressYieldInterval == 0 {
-                await Task.yield()
+        for (index, terminalSurface) in terminalSurfaces.enumerated() {
+            activatedTabs += 1
+            var startAttempts = 0
+            let signpostState = debugTypingPerfBeginIntervalIfNeeded(
+                enabled: debugStressLagProbeEnabled,
+                "StressPrimeSurface"
+            )
+
+            while terminalSurface.surface == nil, startAttempts < debugStressPrimeMaxStartAttempts {
+                inputDeferrals += await waitForDebugStressPrimeIdle(index: index, total: terminalSurfaces.count)
+                terminalSurface.requestBackgroundSurfaceStartIfNeeded()
+                startAttempts += 1
+                if await waitForDebugStressSurfaceReady(terminalSurface) {
+                    break
+                }
             }
 
-            if (index + 1) % debugStressYieldInterval == 0 || index == workspaces.count - 1 {
+            debugTypingPerfEndIntervalIfNeeded("StressPrimeSurface", signpostState)
+
+            if (index + 1) % debugStressYieldInterval == 0 || index == terminalSurfaces.count - 1 {
                 dlog(
-                    "stress.setup.mount idx=\(index + 1)/\(workspaces.count) activatedTabs=\(activatedTabs)"
+                    "stress.setup.mount idx=\(index + 1)/\(terminalSurfaces.count) activatedTabs=\(activatedTabs) " +
+                    "pending=\(pendingDebugTerminalSurfaceCount(in: workspaces)) inputDeferrals=\(inputDeferrals) " +
+                    "attempts=\(startAttempts)"
                 )
-                await Task.yield()
             }
+            await Task.yield()
         }
 
         let elapsedMs = (ProcessInfo.processInfo.systemUptime - primeStart) * 1000.0
-        return DebugStressSurfacePrimeStats(activatedTabs: activatedTabs, elapsedMs: elapsedMs)
+        return DebugStressSurfacePrimeStats(
+            activatedTabs: activatedTabs,
+            inputDeferrals: inputDeferrals,
+            pendingSurfaces: pendingDebugTerminalSurfaceCount(in: workspaces),
+            elapsedMs: elapsedMs
+        )
     }
 
     private func configureDebugStressWorkspaceLayout(
@@ -5177,62 +5240,61 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return true
     }
 
-    private struct DebugStressSurfaceLoadStats {
-        let pendingSurfaces: Int
-        let attempts: Int
-        let elapsedMs: Double
-    }
-
-    private func requestDebugStressBackgroundSurfaceStarts(_ workspaces: [Workspace]) {
+    private func debugStressTerminalSurfaces(in workspaces: [Workspace]) -> [TerminalSurface] {
+        var surfaces: [TerminalSurface] = []
         for workspace in workspaces {
-            for panel in workspace.panels.values {
-                guard let terminalPanel = panel as? TerminalPanel else { continue }
-                terminalPanel.surface.requestBackgroundSurfaceStartIfNeeded()
-            }
-        }
-    }
-
-    private func waitForDebugStressSurfaceLoad(
-        _ workspaces: [Workspace],
-        maxAttempts: Int = 60
-    ) async -> DebugStressSurfaceLoadStats {
-        guard !workspaces.isEmpty else {
-            return DebugStressSurfaceLoadStats(pendingSurfaces: 0, attempts: 0, elapsedMs: 0)
-        }
-
-        let waitStart = ProcessInfo.processInfo.systemUptime
-        var attempts = 0
-        var pending = pendingDebugTerminalSurfaceCount(in: workspaces)
-        var stagnantAttemptCount = 0
-
-        while pending > 0, attempts < maxAttempts {
-            requestDebugStressBackgroundSurfaceStarts(workspaces)
-            attempts += 1
-
-            if attempts % debugStressYieldInterval == 0 {
-                await Task.yield()
-            }
-
-            try? await Task.sleep(nanoseconds: 50_000_000)
-            let refreshedPending = pendingDebugTerminalSurfaceCount(in: workspaces)
-            if refreshedPending < pending {
-                stagnantAttemptCount = 0
-            } else {
-                stagnantAttemptCount += 1
-                if stagnantAttemptCount >= debugStressYieldInterval {
-                    pending = refreshedPending
-                    break
+            for paneId in workspace.bonsplitController.allPaneIds {
+                for tab in workspace.bonsplitController.tabs(inPane: paneId) {
+                    guard let panelId = workspace.panelIdFromSurfaceId(tab.id),
+                          let terminalPanel = workspace.terminalPanel(for: panelId) else { continue }
+                    surfaces.append(terminalPanel.surface)
                 }
             }
-            pending = refreshedPending
         }
+        return surfaces
+    }
 
-        let elapsedMs = (ProcessInfo.processInfo.systemUptime - waitStart) * 1000.0
-        return DebugStressSurfaceLoadStats(
-            pendingSurfaces: pending,
-            attempts: attempts,
-            elapsedMs: elapsedMs
-        )
+    private func waitForDebugStressPrimeIdle(index: Int, total: Int) async -> Int {
+        var deferrals = 0
+
+        while true {
+            let ageMs = (ProcessInfo.processInfo.systemUptime - debugStressLastInputUptime) * 1000.0
+            if debugStressLastInputUptime <= 0 || ageMs >= debugStressPrimeIdleThresholdMs {
+                return deferrals
+            }
+
+            deferrals += 1
+            if deferrals >= debugStressPrimeMaxInputDeferrals {
+                dlog(
+                    "stress.setup.mount.defer.cap idx=\(index + 1)/\(total) recentInputAgeMs=\(String(format: "%.2f", ageMs)) " +
+                    "thresholdMs=\(String(format: "%.2f", debugStressPrimeIdleThresholdMs)) deferrals=\(deferrals)"
+                )
+                return deferrals
+            }
+            if deferrals == 1 {
+                debugTypingPerfEmitEventIfNeeded(
+                    enabled: debugStressLagProbeEnabled,
+                    "StressPrimeDeferred"
+                )
+            }
+            if deferrals == 1 || (deferrals % debugStressYieldInterval) == 0 {
+                dlog(
+                    "stress.setup.mount.defer idx=\(index + 1)/\(total) recentInputAgeMs=\(String(format: "%.2f", ageMs)) " +
+                    "thresholdMs=\(String(format: "%.2f", debugStressPrimeIdleThresholdMs)) deferrals=\(deferrals)"
+                )
+            }
+            try? await Task.sleep(nanoseconds: debugStressPrimePollIntervalNs)
+        }
+    }
+
+    private func waitForDebugStressSurfaceReady(_ terminalSurface: TerminalSurface) async -> Bool {
+        let timeoutS = Double(debugStressPrimeSurfaceReadyTimeoutNs) / 1_000_000_000
+        let deadline = ProcessInfo.processInfo.systemUptime + timeoutS
+
+        while terminalSurface.surface == nil, ProcessInfo.processInfo.systemUptime < deadline {
+            try? await Task.sleep(nanoseconds: debugStressPrimePollIntervalNs)
+        }
+        return terminalSurface.surface != nil
     }
 
     private func pendingDebugTerminalSurfaceCount(in workspaces: [Workspace]) -> Int {
@@ -6082,6 +6144,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             guard let self else { return event }
             if event.type == .keyDown {
 #if DEBUG
+                self.debugStressLastInputUptime = ProcessInfo.processInfo.systemUptime
+#endif
+#if DEBUG
                 if (ProcessInfo.processInfo.environment["CMUX_KEY_LATENCY_PROBE"] == "1"
                     || UserDefaults.standard.bool(forKey: "cmuxKeyLatencyProbe")),
                    event.timestamp > 0 {
@@ -6103,7 +6168,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 }
 #endif
                 let shortcutStart = ProcessInfo.processInfo.systemUptime
+#if DEBUG
+                let signpostState = debugTypingPerfBeginIntervalIfNeeded(
+                    enabled: self.debugStressLagProbeEnabled,
+                    "AppMonitorKeyDown"
+                )
+#endif
                 let handledByShortcut = self.handleCustomShortcut(event: event)
+#if DEBUG
+                debugTypingPerfEndIntervalIfNeeded("AppMonitorKeyDown", signpostState)
+#endif
 #if DEBUG
                 let shortcutElapsedMs = (ProcessInfo.processInfo.systemUptime - shortcutStart) * 1000.0
                 self.logSlowShortcutMonitorLatencyIfNeeded(
@@ -9117,6 +9191,18 @@ private extension NSWindow {
     }
 
     @objc func cmux_sendEvent(_ event: NSEvent) {
+        #if DEBUG
+        let debugTypingPerfProbeEnabled =
+            event.type == .keyDown && AppDelegate.shared?.isDebugTypingPerfProbeEnabled == true
+        let signpostState = debugTypingPerfBeginIntervalIfNeeded(
+            enabled: debugTypingPerfProbeEnabled,
+            "WindowSendEvent"
+        )
+        defer {
+            debugTypingPerfEndIntervalIfNeeded("WindowSendEvent", signpostState)
+        }
+        #endif
+
         guard shouldSuppressWindowMoveForFolderDrag(window: self, event: event),
               let contentView = self.contentView else {
             cmux_sendEvent(event)
@@ -9147,6 +9233,18 @@ private extension NSWindow {
     }
 
     @objc func cmux_performKeyEquivalent(with event: NSEvent) -> Bool {
+        #if DEBUG
+        let debugTypingPerfProbeEnabled =
+            event.type == .keyDown && AppDelegate.shared?.isDebugTypingPerfProbeEnabled == true
+        let signpostState = debugTypingPerfBeginIntervalIfNeeded(
+            enabled: debugTypingPerfProbeEnabled,
+            "WindowPerformKeyEquivalent"
+        )
+        defer {
+            debugTypingPerfEndIntervalIfNeeded("WindowPerformKeyEquivalent", signpostState)
+        }
+        #endif
+
 #if DEBUG
         let frType = self.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
         dlog("performKeyEquiv: \(Self.keyDescription(event)) fr=\(frType)")
