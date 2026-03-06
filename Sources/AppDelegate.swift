@@ -5739,6 +5739,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 "socketExpectedPath": env["CMUX_SOCKET_PATH"] ?? "",
                 "socketMode": "off",
                 "socketReady": "0",
+                "socketPingResponse": "",
                 "socketIsRunning": "0",
                 "socketAcceptLoopAlive": "0",
                 "socketPathMatches": "0",
@@ -5752,27 +5753,50 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             "socketExpectedPath": config.path,
             "socketMode": config.mode.rawValue,
             "socketReady": "pending",
+            "socketPingResponse": "",
         ], at: path)
 
         restartSocketListenerIfEnabled(source: "uiTest.multiWindowNotifications.setup")
 
-        let deadline = Date().addingTimeInterval(12.0)
+        let deadline = Date().addingTimeInterval(20.0)
         func publish() {
             let health = TerminalController.shared.socketListenerHealth(expectedSocketPath: config.path)
             let isTimedOut = Date() >= deadline
-            writeMultiWindowNotificationTestData([
-                "socketExpectedPath": config.path,
-                "socketMode": config.mode.rawValue,
-                "socketReady": health.isHealthy ? "1" : (isTimedOut ? "0" : "pending"),
-                "socketIsRunning": health.isRunning ? "1" : "0",
-                "socketAcceptLoopAlive": health.acceptLoopAlive ? "1" : "0",
-                "socketPathMatches": health.socketPathMatches ? "1" : "0",
-                "socketPathExists": health.socketPathExists ? "1" : "0",
-                "socketFailureSignals": health.failureSignals.joined(separator: ","),
-            ], at: path)
-            guard !health.isHealthy, !isTimedOut else { return }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                publish()
+            let socketPath = config.path
+            let socketMode = config.mode.rawValue
+            let dataPath = path
+
+            DispatchQueue.global(qos: .utility).async { [weak self] in
+                let pingResponse = health.isHealthy
+                    ? TerminalController.probeSocketCommand("ping", at: socketPath, timeout: 1.0)
+                    : nil
+                let isReady = health.isHealthy && pingResponse == "PONG"
+                let failureSignals = {
+                    var signals = health.failureSignals
+                    if health.isHealthy && pingResponse != "PONG" {
+                        signals.append("ping_timeout")
+                    }
+                    return signals.joined(separator: ",")
+                }()
+
+                DispatchQueue.main.async { [weak self] in
+                    guard let self else { return }
+                    self.writeMultiWindowNotificationTestData([
+                        "socketExpectedPath": socketPath,
+                        "socketMode": socketMode,
+                        "socketReady": isReady ? "1" : (isTimedOut ? "0" : "pending"),
+                        "socketPingResponse": pingResponse ?? "",
+                        "socketIsRunning": health.isRunning ? "1" : "0",
+                        "socketAcceptLoopAlive": health.acceptLoopAlive ? "1" : "0",
+                        "socketPathMatches": health.socketPathMatches ? "1" : "0",
+                        "socketPathExists": health.socketPathExists ? "1" : "0",
+                        "socketFailureSignals": failureSignals,
+                    ], at: dataPath)
+                    guard !isTimedOut else { return }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                        publish()
+                    }
+                }
             }
         }
 

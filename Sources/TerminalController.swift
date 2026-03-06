@@ -662,6 +662,100 @@ class TerminalController {
         )
     }
 
+    nonisolated static func probeSocketCommand(
+        _ command: String,
+        at socketPath: String,
+        timeout: TimeInterval
+    ) -> String? {
+        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+        guard fd >= 0 else { return nil }
+        defer { close(fd) }
+
+#if os(macOS)
+        var noSigPipe: Int32 = 1
+        _ = withUnsafePointer(to: &noSigPipe) { ptr in
+            setsockopt(
+                fd,
+                SOL_SOCKET,
+                SO_NOSIGPIPE,
+                ptr,
+                socklen_t(MemoryLayout<Int32>.size)
+            )
+        }
+#endif
+
+        var addr = sockaddr_un()
+        memset(&addr, 0, MemoryLayout<sockaddr_un>.size)
+        addr.sun_family = sa_family_t(AF_UNIX)
+
+        let maxLen = MemoryLayout.size(ofValue: addr.sun_path)
+        let pathBytes = Array(socketPath.utf8CString)
+        guard pathBytes.count <= maxLen else { return nil }
+        withUnsafeMutablePointer(to: &addr.sun_path) { ptr in
+            let raw = UnsafeMutableRawPointer(ptr).assumingMemoryBound(to: CChar.self)
+            memset(raw, 0, maxLen)
+            for index in 0..<pathBytes.count {
+                raw[index] = pathBytes[index]
+            }
+        }
+
+        let pathOffset = MemoryLayout<sockaddr_un>.offset(of: \.sun_path) ?? 0
+        let addrLen = socklen_t(pathOffset + pathBytes.count)
+#if os(macOS)
+        addr.sun_len = UInt8(min(Int(addrLen), 255))
+#endif
+
+        let connectResult = withUnsafePointer(to: &addr) { ptr in
+            ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                connect(fd, sockaddrPtr, addrLen)
+            }
+        }
+        guard connectResult == 0 else { return nil }
+
+        let payload = command + "\n"
+        let wroteAll = payload.withCString { cString in
+            var remaining = strlen(cString)
+            var pointer = UnsafeRawPointer(cString)
+            while remaining > 0 {
+                let written = write(fd, pointer, remaining)
+                if written <= 0 { return false }
+                remaining -= written
+                pointer = pointer.advanced(by: written)
+            }
+            return true
+        }
+        guard wroteAll else { return nil }
+
+        let deadline = Date().addingTimeInterval(timeout)
+        var buffer = [UInt8](repeating: 0, count: 4096)
+        var response = ""
+
+        while Date() < deadline {
+            var pollDescriptor = pollfd(fd: fd, events: Int16(POLLIN), revents: 0)
+            let ready = poll(&pollDescriptor, 1, 100)
+            if ready < 0 {
+                return nil
+            }
+            if ready == 0 {
+                continue
+            }
+
+            let count = read(fd, &buffer, buffer.count)
+            if count <= 0 {
+                break
+            }
+            if let chunk = String(bytes: buffer[0..<count], encoding: .utf8) {
+                response.append(chunk)
+                if let newlineIndex = response.firstIndex(of: "\n") {
+                    return String(response[..<newlineIndex])
+                }
+            }
+        }
+
+        let trimmed = response.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
     nonisolated func stop() {
         let (socketToClose, socketPathToUnlink) = withListenerState {
             isRunning = false
