@@ -1109,9 +1109,10 @@ class GhosttyApp {
             "~/Library/Application Support/com.mitchellh.ghostty/config.ghostty",
         ]
     ) -> Bool {
+        var visited = Set<String>()
         for rawPath in configPaths {
             let path = NSString(string: rawPath).expandingTildeInPath
-            if Self.configFileContainsCodepointMap(atPath: path) {
+            if Self.configFileContainsCodepointMap(atPath: path, visited: &visited) {
                 return true
             }
         }
@@ -1119,11 +1120,21 @@ class GhosttyApp {
     }
 
     /// Scans a single config file (and any files it includes) for
-    /// `font-codepoint-map` entries.
-    private static func configFileContainsCodepointMap(atPath path: String) -> Bool {
-        guard let contents = try? String(contentsOfFile: path, encoding: .utf8) else {
+    /// `font-codepoint-map` entries. Tracks visited paths to prevent
+    /// infinite recursion on cyclic includes.
+    private static func configFileContainsCodepointMap(
+        atPath path: String,
+        visited: inout Set<String>
+    ) -> Bool {
+        let resolved = (path as NSString).standardizingPath
+        guard !visited.contains(resolved) else { return false }
+        visited.insert(resolved)
+
+        guard let contents = try? String(contentsOfFile: resolved, encoding: .utf8) else {
             return false
         }
+        let parentDir = (resolved as NSString).deletingLastPathComponent
+
         for line in contents.components(separatedBy: .newlines) {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
             if trimmed.hasPrefix("#") { continue }
@@ -1133,11 +1144,18 @@ class GhosttyApp {
             if trimmed.hasPrefix("config-file") {
                 let parts = trimmed.split(separator: "=", maxSplits: 1)
                 if parts.count == 2 {
-                    let includePath = parts[1]
+                    var includePath = parts[1]
                         .trimmingCharacters(in: .whitespaces)
                         .trimmingCharacters(in: CharacterSet(charactersIn: "\""))
-                    let resolved = NSString(string: includePath).expandingTildeInPath
-                    if configFileContainsCodepointMap(atPath: resolved) {
+                    // Ghostty supports optional includes with a trailing '?'
+                    if includePath.hasSuffix("?") {
+                        includePath = String(includePath.dropLast())
+                    }
+                    let expanded = NSString(string: includePath).expandingTildeInPath
+                    let absolute = (expanded as NSString).isAbsolutePath
+                        ? expanded
+                        : (parentDir as NSString).appendingPathComponent(expanded)
+                    if configFileContainsCodepointMap(atPath: absolute, visited: &visited) {
                         return true
                     }
                 }
