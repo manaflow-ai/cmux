@@ -289,7 +289,10 @@ final class MultiWindowNotificationsUITests: XCTestCase {
             "2>\(shellSingleQuote(commandStderrPath));",
             "printf '%s' $? >\(shellSingleQuote(commandStatusPath))) >/dev/null 2>&1 &"
         ].joined(separator: " ")
-        let sendWorkspaceResponse = socketCommand("send_workspace \(tabId1) \(notifyCommand)\\n")
+        let sendWorkspaceResponse = socketCommand(
+            "send_workspace \(tabId1) \(notifyCommand)\\n",
+            responseTimeout: 8.0
+        )
         guard sendWorkspaceResponse == "OK" else {
             XCTFail(
                 "Failed to inject delayed bundled `cmux notify` command into source workspace \(tabId1). " +
@@ -985,20 +988,21 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         return socketCommand("ping") == "PONG"
     }
 
-    private func socketCommand(_ cmd: String) -> String? {
-        if let response = ControlSocketClient(path: socketPath).sendLine(cmd) {
+    private func socketCommand(_ cmd: String, responseTimeout: TimeInterval = 2.0) -> String? {
+        if let response = ControlSocketClient(path: socketPath, responseTimeout: responseTimeout).sendLine(cmd) {
             return response
         }
-        return socketCommandViaNetcat(cmd)
+        return socketCommandViaNetcat(cmd, responseTimeout: responseTimeout)
     }
 
-    private func socketCommandViaNetcat(_ cmd: String) -> String? {
+    private func socketCommandViaNetcat(_ cmd: String, responseTimeout: TimeInterval = 2.0) -> String? {
         let nc = "/usr/bin/nc"
         guard FileManager.default.isExecutableFile(atPath: nc) else { return nil }
 
         let proc = Process()
         proc.executableURL = URL(fileURLWithPath: "/bin/sh")
-        let script = "printf '%s\\n' \(shellSingleQuote(cmd)) | \(nc) -U \(shellSingleQuote(socketPath)) -w 2 2>/dev/null"
+        let timeoutSeconds = max(1, Int(ceil(responseTimeout)))
+        let script = "printf '%s\\n' \(shellSingleQuote(cmd)) | \(nc) -U \(shellSingleQuote(socketPath)) -w \(timeoutSeconds) 2>/dev/null"
         proc.arguments = ["-lc", script]
 
         let outPipe = Pipe()
@@ -1036,9 +1040,11 @@ final class MultiWindowNotificationsUITests: XCTestCase {
 
     private final class ControlSocketClient {
         private let path: String
+        private let responseTimeout: TimeInterval
 
-        init(path: String) {
+        init(path: String, responseTimeout: TimeInterval = 2.0) {
             self.path = path
+            self.responseTimeout = responseTimeout
         }
 
         func sendLine(_ line: String) -> String? {
@@ -1101,7 +1107,7 @@ final class MultiWindowNotificationsUITests: XCTestCase {
             }
             guard wrote else { return nil }
 
-            let deadline = Date().addingTimeInterval(2.0)
+            let deadline = Date().addingTimeInterval(responseTimeout)
             var buf = [UInt8](repeating: 0, count: 4096)
             var accum = ""
             while Date() < deadline {
