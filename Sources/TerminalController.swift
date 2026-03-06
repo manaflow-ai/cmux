@@ -2800,10 +2800,11 @@ class TerminalController {
         let startedAt = ProcessInfo.processInfo.systemUptime
         #endif
         v2MainSync {
-            let ws = tabManager.addWorkspace(workingDirectory: cwd, select: shouldFocus)
-            if !shouldFocus, let terminalPanel = ws.focusedTerminalPanel {
-                terminalPanel.surface.requestBackgroundSurfaceStartIfNeeded()
-            }
+            let ws = tabManager.addWorkspace(
+                workingDirectory: cwd,
+                select: shouldFocus,
+                eagerLoadTerminal: !shouldFocus
+            )
             newId = ws.id
         }
         #if DEBUG
@@ -10574,10 +10575,7 @@ class TerminalController {
         let startedAt = ProcessInfo.processInfo.systemUptime
         #endif
         DispatchQueue.main.sync {
-            let workspace = tabManager.addTab(select: focus)
-            if !focus, let terminalPanel = workspace.focusedTerminalPanel {
-                terminalPanel.surface.requestBackgroundSurfaceStartIfNeeded()
-            }
+            let workspace = tabManager.addTab(select: focus, eagerLoadTerminal: !focus)
             newTabId = workspace.id
         }
         #if DEBUG
