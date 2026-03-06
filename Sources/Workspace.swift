@@ -1480,6 +1480,18 @@ final class Workspace: Identifiable, ObservableObject {
         return surfaceKind(for: panel)
     }
 
+    func requestBackgroundTerminalSurfaceStartIfNeeded() {
+        for terminalPanel in panels.values.compactMap({ $0 as? TerminalPanel }) {
+            terminalPanel.surface.requestBackgroundSurfaceStartIfNeeded()
+        }
+    }
+
+    func hasLoadedTerminalSurface() -> Bool {
+        let terminalPanels = panels.values.compactMap { $0 as? TerminalPanel }
+        guard !terminalPanels.isEmpty else { return true }
+        return terminalPanels.contains { $0.surface.surface != nil }
+    }
+
     func panelTitle(panelId: UUID) -> String? {
         guard let panel = panels[panelId] else { return nil }
         let fallback = panelTitles[panelId] ?? panel.displayTitle
