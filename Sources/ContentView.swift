@@ -2590,6 +2590,11 @@ struct ContentView: View {
         case completed(reason: String)
     }
 
+    private enum BackgroundWorkspacePrimePolicy {
+        static let timeoutSeconds: TimeInterval = 2.0
+        static let pollIntervalNanoseconds: UInt64 = 50_000_000
+    }
+
     private func primeBackgroundWorkspaceIfNeeded(workspaceId: UUID) async {
         let shouldPrime = await MainActor.run {
             tabManager.pendingBackgroundWorkspaceLoadIds.contains(workspaceId)
@@ -2601,7 +2606,7 @@ struct ContentView: View {
         dlog("workspace.backgroundPrime.start workspace=\(workspaceId.uuidString.prefix(5))")
 #endif
 
-        let timeout = Date().addingTimeInterval(2.0)
+        let timeout = Date().addingTimeInterval(BackgroundWorkspacePrimePolicy.timeoutSeconds)
         while !Task.isCancelled {
             let state = await MainActor.run {
                 stepBackgroundWorkspacePrime(workspaceId: workspaceId)
@@ -2609,7 +2614,7 @@ struct ContentView: View {
             switch state {
             case .pending:
                 if Date() < timeout {
-                    try? await Task.sleep(nanoseconds: 50_000_000)
+                    try? await Task.sleep(nanoseconds: BackgroundWorkspacePrimePolicy.pollIntervalNanoseconds)
                     continue
                 }
                 await MainActor.run {
