@@ -3466,9 +3466,6 @@ struct WebViewRepresentable: NSViewRepresentable {
 
     static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
         coordinator.attachGeneration += 1
-        coordinator.desiredPortalVisibleInUI = false
-        coordinator.desiredPortalZPriority = 0
-        coordinator.lastPortalHostId = nil
         clearPortalCallbacks(for: nsView)
         removeSearchOverlay(from: coordinator)
 
@@ -3495,20 +3492,14 @@ struct WebViewRepresentable: NSViewRepresentable {
                 window.makeFirstResponder(nil)
             }
         }
-        if BrowserWindowPortalRegistry.isWebView(webView, boundTo: nsView) {
-            BrowserWindowPortalRegistry.updateEntryVisibility(
-                for: webView,
-                visibleInUI: coordinator.desiredPortalVisibleInUI,
-                zPriority: coordinator.desiredPortalZPriority
-            )
-            BrowserWindowPortalRegistry.synchronizeForAnchor(nsView)
-        }
         BrowserWindowPortalRegistry.updateDropZoneOverlay(for: webView, zone: nil)
         BrowserWindowPortalRegistry.updatePaneDropContext(for: webView, context: nil)
         coordinator.lastPortalHostId = nil
-        // SwiftUI can transiently dismantle/rebuild the browser host view during split
-        // rearrangement. Do not detach the portal-hosted WKWebView here; explicit detach
-        // still happens on real web view replacement and panel teardown.
+        // SwiftUI can transiently dismantle/rebuild BrowserPanel representables during
+        // split/tree churn. Do not mutate portal visibility or detach here, both race
+        // deferred host rebinding and can leave a live browser pane blank. Permanent
+        // detach happens on panel close, web view replacement, or explicit registry
+        // detach paths.
     }
 
     private func currentPaneDropContext() -> BrowserPaneDropContext? {

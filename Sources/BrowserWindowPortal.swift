@@ -1502,7 +1502,9 @@ final class WindowBrowserPortal: NSObject {
         if entry.transientRecoveryRetriesRemaining > 0 {
             scheduleDeferredFullSynchronizeAll()
         }
-        return true
+        // Returning false on the terminal retry tells callers to stop defer-keeping
+        // the old container visible and fall back to a normal hide path.
+        return entry.transientRecoveryRetriesRemaining > 0
     }
 
     private func synchronizeWebView(
@@ -1524,15 +1526,26 @@ final class WindowBrowserPortal: NSObject {
             return
         }
         guard let anchorView = entry.anchorView, let window else {
+            let didScheduleTransientRecovery: Bool
             if entry.visibleInUI {
-                _ = scheduleTransientRecoveryRetryIfNeeded(
+                didScheduleTransientRecovery = scheduleTransientRecoveryRetryIfNeeded(
                     forWebViewId: webViewId,
                     entry: &entry,
                     webView: webView,
                     reason: "missingAnchorOrWindow"
                 )
             } else {
+                didScheduleTransientRecovery = false
                 resetTransientRecoveryRetryIfNeeded(forWebViewId: webViewId, entry: &entry)
+            }
+            if didScheduleTransientRecovery && !containerView.isHidden {
+#if DEBUG
+                dlog(
+                    "browser.portal.hidden.deferKeep web=\(browserPortalDebugToken(webView)) " +
+                    "reason=missingAnchorOrWindow frame=\(browserPortalDebugFrame(containerView.frame))"
+                )
+#endif
+                return
             }
 #if DEBUG
             if !containerView.isHidden {
@@ -1547,6 +1560,27 @@ final class WindowBrowserPortal: NSObject {
             return
         }
         guard anchorView.window === window else {
+            let didScheduleTransientRecovery: Bool
+            if entry.visibleInUI {
+                didScheduleTransientRecovery = scheduleTransientRecoveryRetryIfNeeded(
+                    forWebViewId: webViewId,
+                    entry: &entry,
+                    webView: webView,
+                    reason: "anchorWindowMismatch"
+                )
+            } else {
+                didScheduleTransientRecovery = false
+                resetTransientRecoveryRetryIfNeeded(forWebViewId: webViewId, entry: &entry)
+            }
+            if didScheduleTransientRecovery && !containerView.isHidden {
+#if DEBUG
+                dlog(
+                    "browser.portal.hidden.deferKeep web=\(browserPortalDebugToken(webView)) " +
+                    "reason=anchorWindowMismatch frame=\(browserPortalDebugFrame(containerView.frame))"
+                )
+#endif
+                return
+            }
 #if DEBUG
             if !containerView.isHidden {
                 dlog(
@@ -1556,16 +1590,6 @@ final class WindowBrowserPortal: NSObject {
                 )
             }
 #endif
-            if entry.visibleInUI {
-                _ = scheduleTransientRecoveryRetryIfNeeded(
-                    forWebViewId: webViewId,
-                    entry: &entry,
-                    webView: webView,
-                    reason: "anchorWindowMismatch"
-                )
-            } else {
-                resetTransientRecoveryRetryIfNeeded(forWebViewId: webViewId, entry: &entry)
-            }
             containerView.setDropZoneOverlay(zone: nil)
             containerView.isHidden = true
             return
@@ -1648,14 +1672,7 @@ final class WindowBrowserPortal: NSObject {
             }
             containerView.setDropZoneOverlay(zone: nil)
             containerView.isHidden = true
-            if entry.visibleInUI {
-                _ = scheduleTransientRecoveryRetryIfNeeded(
-                    forWebViewId: webViewId,
-                    entry: &entry,
-                    webView: webView,
-                    reason: "hostBoundsNotReady"
-                )
-            } else {
+            if !entry.visibleInUI {
                 scheduleDeferredFullSynchronizeAll()
             }
             return
