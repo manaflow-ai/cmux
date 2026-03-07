@@ -6,12 +6,18 @@ implementation (green). Ordered by dependency.
 Two-crate structure: `cmux-core` (platform-agnostic) and `cmux-gtk` (GTK4 UI).
 Core tests run anywhere; GTK tests need `xvfb-run`.
 
+**Every phase validated in Docker (Ubuntu 24.04) before merge.** See DESIGN.md
+for Dockerfile and CI setup. Three container tiers:
+- `core` — pure Rust, no GUI deps (Phases 1–2)
+- `gtk` — adds libgtk-4-dev + xvfb (Phases 3, 5, 7)
+- `terminal` — adds libghostty/VTE + zig (Phases 4, 6)
+
 ---
 
 ## Phase 1: Project Skeleton + Core Data Model (Commits 1–5)
 
-### Commit 1: Workspace + crate scaffold
-**Delta: ~200 lines**
+### Commit 1: Workspace + crate scaffold + Dockerfile
+**Delta: ~250 lines**
 
 Files:
 - `Cargo.toml` (workspace with `crates/cmux-core`, `crates/cmux-gtk`)
@@ -19,12 +25,16 @@ Files:
 - `crates/cmux-core/src/lib.rs` (module declarations)
 - `crates/cmux-gtk/Cargo.toml` (gtk4, cmux-core)
 - `crates/cmux-gtk/src/main.rs` (empty GtkApplication, blank window)
+- `Dockerfile` (multi-stage: core, gtk, terminal targets)
+- `.github/workflows/linux-validate.yml` (Docker-based CI)
 - `.github/workflows/ci.yml` (cargo build + cargo test)
 - `README.md`
 
 Tests:
 - `cmux-core`: lib compiles
 - `cmux-gtk`: app creates without panic (headless)
+
+Docker gate: `docker build --target core -t cmux-linux:core .` passes
 
 ### Commit 2: Split tree data model + tests
 **Delta: ~300 lines**
@@ -112,6 +122,8 @@ Tests:
 - reorder [A,B,C] move A to idx 2: order is [B,C,A]
 - rename updates title; rename to empty reverts to default
 
+**Phase 1 Docker gate:** `docker build --target core .` — all cmux-core tests pass on Ubuntu.
+
 ---
 
 ## Phase 2: Session Persistence (Commits 6–7)
@@ -157,6 +169,8 @@ Tests:
 - Load from nonexistent file -> Ok(None)
 - Save creates parent dirs if missing
 - Concurrent save doesn't corrupt (atomic rename)
+
+**Phase 2 Docker gate:** `docker build --target core .` — session tests pass on Ubuntu.
 
 ---
 
@@ -241,6 +255,8 @@ Tests:
 - Drag tab 0 to position 2: order becomes [1,2,0]
 - Drag to same position: no change
 - Drag only tab: no-op
+
+**Phase 3 Docker gate:** `docker build --target gtk .` — window + sidebar render under xvfb on Ubuntu.
 
 ---
 
@@ -332,6 +348,8 @@ On close tab:
 
 Test: create 2 tabs, switch between them, verify correct terminal shown
 
+**Phase 4 Docker gate:** `docker build --target terminal .` — terminal spawns shell in pty on Ubuntu.
+
 ---
 
 ## Phase 5: Split Pane UI (Commits 17–20)
@@ -406,6 +424,8 @@ Keyboard resize: Ctrl+Shift+Arrow -> adjust ratio by 0.05 increment.
 
 Test: resize pane, verify model ratio updated
 
+**Phase 5 Docker gate:** `docker build --target gtk .` — split/close/navigate all pass under xvfb on Ubuntu.
+
 ---
 
 ## Phase 6: Notifications (Commits 21–23)
@@ -476,6 +496,8 @@ Notification dot (small circle) also becomes visible.
 
 Test: set notification on tab, verify `.notified` CSS class present;
 clear notification, verify class removed
+
+**Phase 6 Docker gate:** `docker build --target terminal .` — notification fires after `sleep 0.1` exits in pty on Ubuntu.
 
 ---
 
@@ -551,20 +573,22 @@ Features:
 
 Test: toggle sidebar, verify hidden/shown; right-click menu items work
 
+**Phase 7 Docker gate:** `docker build --target gtk .` — full test suite green on Ubuntu. MVP complete.
+
 ---
 
 ## Summary
 
-| Phase | Commits | Delta Lines | Running Total |
-|---|---|---|---|
-| 1. Skeleton + Core Model | 1–5 | ~1,300 | ~1,300 |
-| 2. Session Persistence | 6–7 | ~450 | ~1,750 |
-| 3. GTK Window + Sidebar | 8–12 | ~1,350 | ~3,100 |
-| 4. Terminal Integration | 13–16 | ~1,350 | ~4,450 |
-| 5. Split Pane UI | 17–20 | ~1,200 | ~5,650 |
-| 6. Notifications | 21–23 | ~750 | ~6,400 |
-| 7. Session Restore + Config | 24–27 | ~1,150 | ~7,550 |
-| **Total** | **27 commits** | | **~7,500–9,000** |
+| Phase | Commits | Delta Lines | Docker Target | Running Total |
+|---|---|---|---|---|
+| 1. Skeleton + Core Model | 1–5 | ~1,350 | `core` | ~1,350 |
+| 2. Session Persistence | 6–7 | ~450 | `core` | ~1,800 |
+| 3. GTK Window + Sidebar | 8–12 | ~1,350 | `gtk` | ~3,150 |
+| 4. Terminal Integration | 13–16 | ~1,350 | `terminal` | ~4,500 |
+| 5. Split Pane UI | 17–20 | ~1,200 | `gtk` | ~5,700 |
+| 6. Notifications | 21–23 | ~750 | `terminal` | ~6,450 |
+| 7. Session Restore + Config | 24–27 | ~1,150 | `gtk` | ~7,600 |
+| **Total** | **27 commits** | | | **~7,600–9,000** |
 
 ## Dependency Graph
 
