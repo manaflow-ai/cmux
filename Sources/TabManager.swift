@@ -623,18 +623,29 @@ class TabManager: ObservableObject {
             let generation = selectionSideEffectsGeneration
             DispatchQueue.main.async { [weak self] in
                 guard let self, self.selectionSideEffectsGeneration == generation else { return }
+#if DEBUG
+                let t0 = CACurrentMediaTime()
+#endif
                 self.focusSelectedTabPanel(previousTabId: previousTabId)
+#if DEBUG
+                let t1 = CACurrentMediaTime()
+#endif
                 self.updateWindowTitleForSelectedTab()
+#if DEBUG
+                let t2 = CACurrentMediaTime()
+#endif
                 if let selectedTabId = self.selectedTabId {
                     self.markFocusedPanelReadIfActive(tabId: selectedTabId)
                 }
 #if DEBUG
+                let t3 = CACurrentMediaTime()
                 let dtMs = self.debugWorkspaceSwitchStartTime > 0
-                    ? (CACurrentMediaTime() - self.debugWorkspaceSwitchStartTime) * 1000
+                    ? (t3 - self.debugWorkspaceSwitchStartTime) * 1000
                     : 0
                 tabManagerHotPathDlog(
                     "ws.select.asyncDone id=\(self.debugWorkspaceSwitchId) dt=\(Self.debugMsText(dtMs)) " +
-                    "selected=\(Self.debugShortWorkspaceId(self.selectedTabId))"
+                    "selected=\(Self.debugShortWorkspaceId(self.selectedTabId)) " +
+                    "focus=\(String(format: "%.2f", (t1-t0)*1000)) title=\(String(format: "%.2f", (t2-t1)*1000)) mark=\(String(format: "%.2f", (t3-t2)*1000))"
                 )
                 AppDelegate.shared?.logDebugWorkspaceSwitchMetric(
                     phase: "selected.asyncDone",

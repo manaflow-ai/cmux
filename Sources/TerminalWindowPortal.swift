@@ -945,18 +945,27 @@ final class WindowTerminalPortal: NSObject {
         }
     }
 
-    /// Hide a portal entry without detaching it. Updates visibleInUI to false and
-    /// sets isHidden = true so subsequent synchronizeHostedView calls keep it hidden.
-    /// Used when a workspace is permanently unmounted (vs. transient bonsplit dismantles).
-    func hideEntry(forHostedId hostedId: ObjectIdentifier) {
+    private func unmountHostedViewIfNeeded(_ hostedView: GhosttySurfaceScrollView) {
+        hostedView.isHidden = true
+        if hostedView.superview === hostView {
+            hostedView.removeFromSuperview()
+        }
+    }
+
+    /// Unmount a portal entry without dropping its binding metadata. The live terminal
+    /// surface stays alive, but the hosted AppKit view leaves the window hierarchy until
+    /// a later bind makes it visible again.
+    func unmountEntry(forHostedId hostedId: ObjectIdentifier) {
         guard var entry = entriesByHostedId[hostedId] else { return }
         guard entry.visibleInUI else { return }
         entry.visibleInUI = false
         entry.transientRecoveryRetriesRemaining = 0
         entriesByHostedId[hostedId] = entry
-        entry.hostedView?.isHidden = true
+        if let hostedView = entry.hostedView {
+            unmountHostedViewIfNeeded(hostedView)
+        }
 #if DEBUG
-        portalHotPathDlog("portal.hideEntry hosted=\(portalDebugToken(entry.hostedView)) reason=workspaceUnmount")
+        portalHotPathDlog("portal.unmountEntry hosted=\(portalDebugToken(entry.hostedView)) reason=workspaceUnmount")
 #endif
     }
 
@@ -1172,7 +1181,7 @@ final class WindowTerminalPortal: NSObject {
                     portalHotPathDlog("portal.hidden hosted=\(portalDebugToken(hostedView)) value=1 reason=missingAnchorOrWindow")
                 }
 #endif
-                hostedView.isHidden = true
+                unmountHostedViewIfNeeded(hostedView)
                 resetTransientRecoveryRetryIfNeeded(forHostedId: hostedId, entry: &entry)
             } else {
                 _ = scheduleTransientRecoveryRetryIfNeeded(
@@ -1213,7 +1222,11 @@ final class WindowTerminalPortal: NSObject {
             } else {
                 resetTransientRecoveryRetryIfNeeded(forHostedId: hostedId, entry: &entry)
             }
-            hostedView.isHidden = true
+            if entry.visibleInUI {
+                hostedView.isHidden = true
+            } else {
+                unmountHostedViewIfNeeded(hostedView)
+            }
             if entry.visibleInUI {
                 _ = scheduleTransientRecoveryRetryIfNeeded(
                     forHostedId: hostedId,
@@ -1267,7 +1280,11 @@ final class WindowTerminalPortal: NSObject {
             } else {
                 resetTransientRecoveryRetryIfNeeded(forHostedId: hostedId, entry: &entry)
             }
-            hostedView.isHidden = true
+            if entry.visibleInUI {
+                hostedView.isHidden = true
+            } else {
+                unmountHostedViewIfNeeded(hostedView)
+            }
             if entry.visibleInUI {
                 if Self.transientRecoveryEnabled {
                     _ = scheduleTransientRecoveryRetryIfNeeded(
@@ -1372,7 +1389,11 @@ final class WindowTerminalPortal: NSObject {
                 "host=\(portalDebugFrame(hostBounds))"
             )
 #endif
-            hostedView.isHidden = true
+            if entry.visibleInUI {
+                hostedView.isHidden = true
+            } else {
+                unmountHostedViewIfNeeded(hostedView)
+            }
         }
         if shouldPreserveVisibleOnTransientGeometry {
 #if DEBUG
@@ -1746,11 +1767,11 @@ enum TerminalWindowPortalRegistry {
         portal.synchronizeHostedViewForAnchor(anchorView)
     }
 
-    static func hideHostedView(_ hostedView: GhosttySurfaceScrollView) {
+    static func unmountHostedView(_ hostedView: GhosttySurfaceScrollView) {
         let hostedId = ObjectIdentifier(hostedView)
         guard let windowId = hostedToWindowId[hostedId],
               let portal = portalsByWindowId[windowId] else { return }
-        portal.hideEntry(forHostedId: hostedId)
+        portal.unmountEntry(forHostedId: hostedId)
     }
 
     /// Permanently detach a hosted terminal view from the window-level portal.
