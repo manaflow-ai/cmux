@@ -1828,6 +1828,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return .terminateNow
     }
 
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        // When visible windows already exist, return false to prevent SwiftUI
+        // from creating a new window on dock-click or activation events (#872).
+        return !flag
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         isTerminatingApp = true
         _ = saveSessionSnapshot(includeScrollback: true, removeWhenEmpty: false)
@@ -9002,9 +9008,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if window.isMiniaturized {
             window.deminiaturize(nil)
         }
+        // Make the window key (for focus/input routing) and bring it forward.
+        // orderFrontRegardless() ensures reliability across Spaces, while
+        // makeKeyAndOrderFront() establishes proper key-window status (#872).
         window.makeKeyAndOrderFront(nil)
-        // Improve reliability across Spaces / when other helper panels are key.
-        NSRunningApplication.current.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+        window.orderFrontRegardless()
+        NSRunningApplication.current.activate(options: [.activateIgnoringOtherApps])
     }
 
     private func markReadIfFocused(
