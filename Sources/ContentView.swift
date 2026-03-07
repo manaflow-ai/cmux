@@ -9245,12 +9245,22 @@ private struct SidebarMetadataEntryRow: View {
         var h: CGFloat = 0, s: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
         srgb.getHue(&h, saturation: &s, brightness: &b, alpha: &a)
         if colorScheme == .dark {
-            if b < 0.6 {
-                return Color(nsColor: NSColor(hue: h, saturation: min(s, 0.7), brightness: 0.6, alpha: a))
+            let needsBrightnessFloor = b < 0.6
+            let needsSaturationCap = s > 0.7
+            if needsBrightnessFloor || needsSaturationCap {
+                return Color(nsColor: NSColor(
+                    hue: h,
+                    saturation: min(s, 0.7),
+                    brightness: max(b, 0.6),
+                    alpha: a
+                ))
             }
         } else {
             if b > 0.65 {
                 return Color(nsColor: NSColor(hue: h, saturation: s, brightness: 0.65, alpha: a))
+            }
+            if b < 0.25 {
+                return Color(nsColor: NSColor(hue: h, saturation: s, brightness: 0.25, alpha: a))
             }
         }
         return color
