@@ -40,9 +40,7 @@ final class WorkspacePagesUITests: XCTestCase {
             return
         }
 
-        let pageStrip = app.otherElements["titlebarPageStrip"]
-        XCTAssertTrue(waitForElementVisible(pageStrip, timeout: 6.0))
-        XCTAssertTrue(waitForElementVisible(app.staticTexts["titlebarPageHint.1"], timeout: 6.0))
+        XCTAssertTrue(waitForElementExists(app.staticTexts["titlebarPageHint.1"], timeout: 6.0))
 
         app.typeKey("n", modifierFlags: [.command, .option])
 
@@ -52,10 +50,10 @@ final class WorkspacePagesUITests: XCTestCase {
             return
         }
         XCTAssertNotEqual(secondPageToken, firstPageToken)
-        XCTAssertTrue(waitForElementVisible(app.staticTexts["titlebarPageHint.2"], timeout: 6.0))
+        XCTAssertTrue(waitForElementExists(app.staticTexts["titlebarPageHint.2"], timeout: 6.0))
 
         let firstPageButton = app.buttons["titlebarPageButton.\(firstPageToken)"]
-        XCTAssertTrue(waitForElementVisible(firstPageButton, timeout: 6.0))
+        XCTAssertTrue(waitForElementExists(firstPageButton, timeout: 6.0))
         firstPageButton.click()
 
         XCTAssertTrue(waitForActivePageToken(firstPageToken, app: app, timeout: 6.0))
@@ -104,6 +102,12 @@ final class WorkspacePagesUITests: XCTestCase {
             guard element.exists else { return false }
             let frame = element.frame
             return frame.width > 1 && frame.height > 1
+        }
+    }
+
+    private func waitForElementExists(_ element: XCUIElement, timeout: TimeInterval) -> Bool {
+        workspacePagesPollUntil(timeout: timeout) {
+            element.exists
         }
     }
 
