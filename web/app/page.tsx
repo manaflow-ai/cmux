@@ -162,7 +162,7 @@ export default function Home() {
               <p className="font-medium mb-1">What coding agents does cmux work with?</p>
               <p className="text-muted">
                 All of them. cmux is a terminal, so any agent that runs in a terminal works out of the
-                box: Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider, Goose, Amp, Cline,
+                box: Claude Code, Cortex Code, Codex, OpenCode, Gemini CLI, Kiro, Aider, Goose, Amp, Cline,
                 Cursor Agent, and anything else you can launch from the command line.
               </p>
             </div>
@@ -175,7 +175,7 @@ export default function Home() {
                 (OSC 9/99/777), or you can trigger them with the{" "}
                 <a href="/docs/notifications" className="underline underline-offset-2 decoration-border hover:decoration-foreground transition-colors">cmux CLI</a>{" "}
                 and{" "}
-                <a href="/docs/notifications" className="underline underline-offset-2 decoration-border hover:decoration-foreground transition-colors">Claude Code hooks</a>.
+                <a href="/docs/notifications" className="underline underline-offset-2 decoration-border hover:decoration-foreground transition-colors">Claude Code and Cortex Code hooks</a>.
               </p>
             </div>
             <div>

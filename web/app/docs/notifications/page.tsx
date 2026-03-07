@@ -202,6 +202,56 @@ esac`}</CodeBlock>
 }`}</CodeBlock>
       <p>Restart Claude Code to apply the hooks.</p>
 
+      <h2>Cortex Code hooks</h2>
+      <p>
+        cmux includes a wrapper binary that automatically injects hooks when you
+        launch{" "}
+        <a href="https://docs.snowflake.com/en/user-guide/cortex-code/cortex-code">Cortex Code</a>{" "}
+        from a cmux terminal. This provides full session tracking, status
+        indicators, and notification routing with no manual configuration.
+      </p>
+
+      <h3>Manual setup (optional)</h3>
+      <p>If you prefer manual hooks (e.g. outside cmux terminals), add to <code>~/.snowflake/cortex/hooks.json</code>:</p>
+      <CodeBlock title="~/.snowflake/cortex/hooks.json" lang="json">{`{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "command -v cmux &>/dev/null && cmux notify --title 'Cortex Code' --body 'Session started' || true",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "command -v cmux &>/dev/null && cmux notify --title 'Cortex Code' --subtitle 'Completed' --body 'Session finished' || true",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "command -v cmux &>/dev/null && cmux notify --title 'Cortex Code' --subtitle 'Waiting' --body 'Needs your input' || true",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}`}</CodeBlock>
+      <p>Start a new Cortex Code session to apply the hooks.</p>
+
       <h2>Integration examples</h2>
 
       <h3>Notify after long command</h3>

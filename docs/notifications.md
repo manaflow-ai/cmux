@@ -1,6 +1,6 @@
 # Notifications
 
-cmux provides a notification panel for AI agents like Claude Code, Codex, and OpenCode. Notifications appear in a dedicated panel and trigger macOS system notifications.
+cmux provides a notification panel for AI agents like Claude Code, Cortex Code, Codex, and OpenCode. Notifications appear in a dedicated panel and trigger macOS system notifications.
 
 ## Quick Start
 
@@ -77,6 +77,54 @@ Add to `~/.claude/settings.json`:
           {
             "type": "command",
             "command": "command -v cmux &>/dev/null && cmux notify --title 'Claude Code' --subtitle 'Permission' --body 'Approval needed' || osascript -e 'display notification \"Approval needed\" with title \"Claude Code\"'"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+### Cortex Code Hooks
+
+cmux includes a wrapper binary that automatically injects hooks when you launch
+Cortex Code from a cmux terminal. This provides full session tracking, status
+indicators, and notification routing with no manual configuration.
+
+If you prefer manual setup (e.g. outside cmux terminals), add to `~/.snowflake/cortex/hooks.json`:
+
+```json
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "command -v cmux &>/dev/null && cmux notify --title 'Cortex Code' --body 'Session started' || true",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "command -v cmux &>/dev/null && cmux notify --title 'Cortex Code' --subtitle 'Completed' --body 'Session finished' || true",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "command -v cmux &>/dev/null && cmux notify --title 'Cortex Code' --subtitle 'Waiting' --body 'Needs your input' || true",
+            "timeout": 5
           }
         ]
       }
