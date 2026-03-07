@@ -33124,6 +33124,40 @@
         }
       }
     },
+    "menu.debug.openTypingPerfStress": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Typing Perf Stress Workspaces"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タイピング性能ストレス用ワークスペースを開く"
+          }
+        }
+      }
+    },
+    "menu.debug.dumpTypingPerfSnapshot": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dump Typing Perf Snapshot"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タイピング性能スナップショットを書き出す"
+          }
+        }
+      }
+    },
     "menu.notifications.clearAll": {
       "extractionState": "manual",
       "localizations": {

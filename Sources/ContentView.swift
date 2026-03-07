@@ -6,6 +6,17 @@ import ObjectiveC
 import UniformTypeIdentifiers
 import WebKit
 
+#if DEBUG
+private func contentHotPathDebugLogsEnabled() -> Bool {
+    ProcessInfo.processInfo.environment["CMUX_HOT_PATH_DEBUG_LOGS"] == "1"
+}
+
+private func contentHotPathDlog(_ message: @autoclosure () -> String) {
+    guard contentHotPathDebugLogsEnabled() else { return }
+    dlog(message())
+}
+#endif
+
 private extension Color {
     init?(hex: String) {
         let hex = hex.trimmingCharacters(in: .init(charactersIn: "#"))
@@ -748,7 +759,7 @@ final class FileDropOverlayView: NSView {
         let signature = "\(shouldCapture ? 1 : 0)|\(debugEventName(eventType))|\(debugPasteboardTypes(pasteboardTypes))"
         guard lastHitTestLogSignature != signature else { return }
         lastHitTestLogSignature = signature
-        dlog(
+        contentHotPathDlog(
             "overlay.fileDrop.hitTest capture=\(shouldCapture ? 1 : 0) " +
             "event=\(debugEventName(eventType)) " +
             "topHit=\(debugTopHitViewForCurrentEvent()) " +
@@ -772,7 +783,7 @@ final class FileDropOverlayView: NSView {
         ].joined(separator: "|")
         guard lastDragRouteLogSignatureByPhase[phase] != signature else { return }
         lastDragRouteLogSignatureByPhase[phase] = signature
-        dlog(
+        contentHotPathDlog(
             "overlay.fileDrop.\(phase) capture=\(shouldCapture ? 1 : 0) " +
             "localSource=\(hasLocalDraggingSource ? 1 : 0) " +
             "hasTerminal=\(hasTerminalTarget ? 1 : 0) " +
@@ -1296,6 +1307,7 @@ struct ContentView: View {
     @State private var retiringWorkspaceId: UUID?
     @State private var workspaceHandoffGeneration: UInt64 = 0
     @State private var workspaceHandoffFallbackTask: Task<Void, Never>?
+    @State private var workspaceHandoffReadinessTask: Task<Void, Never>?
     @State private var titlebarThemeGeneration: UInt64 = 0
     @State private var sidebarDraggedTabId: UUID?
     @State private var titlebarTextUpdateCoalescer = NotificationBurstCoalescer(delay: 1.0 / 30.0)
@@ -1498,6 +1510,11 @@ struct ContentView: View {
         static let workspaceShouldPin = "workspace.shouldPin"
         static let workspaceHasPullRequests = "workspace.hasPullRequests"
         static let workspaceHasSplits = "workspace.hasSplits"
+        static let workspaceHasPeers = "workspace.hasPeers"
+        static let workspaceHasAbove = "workspace.hasAbove"
+        static let workspaceHasBelow = "workspace.hasBelow"
+        static let workspaceHasUnread = "workspace.hasUnread"
+        static let workspaceHasRead = "workspace.hasRead"
 
         static let hasFocusedPanel = "panel.hasFocus"
         static let panelName = "panel.name"
@@ -2250,16 +2267,29 @@ struct ContentView: View {
 #if DEBUG
             if let snapshot = tabManager.debugCurrentWorkspaceSwitchSnapshot() {
                 let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
-                dlog(
+                contentHotPathDlog(
                     "ws.view.selectedChange id=\(snapshot.id) dt=\(debugMsText(dtMs)) selected=\(debugShortWorkspaceId(newValue))"
                 )
+                AppDelegate.shared?.logDebugWorkspaceSwitchMetric(
+                    phase: "view.selectedChange",
+                    switchId: snapshot.id,
+                    startedAt: snapshot.startedAt,
+                    details: "selected=\(debugShortWorkspaceId(newValue))"
+                )
             } else {
-                dlog("ws.view.selectedChange id=none selected=\(debugShortWorkspaceId(newValue))")
+                contentHotPathDlog("ws.view.selectedChange id=none selected=\(debugShortWorkspaceId(newValue))")
+                AppDelegate.shared?.logDebugWorkspaceSwitchMetric(
+                    phase: "view.selectedChange",
+                    switchId: nil,
+                    startedAt: nil,
+                    details: "selected=\(debugShortWorkspaceId(newValue))"
+                )
             }
 #endif
             tabManager.applyWindowBackgroundForSelectedTab()
             startWorkspaceHandoffIfNeeded(newSelectedId: newValue)
             reconcileMountedWorkspaceIds(selectedId: newValue)
+            completeWorkspaceHandoffIfSelectedTerminalReady(reason: "terminal_ready")
             guard let newValue else { return }
             if selectedTabIds.count <= 1 {
                 selectedTabIds = [newValue]
@@ -2268,18 +2298,23 @@ struct ContentView: View {
             updateTitlebarText()
         })
 
-        view = AnyView(view.onChange(of: tabManager.isWorkspaceCycleHot) { _ in
+        view = AnyView(view.onChange(of: tabManager.isWorkspaceCycleHot) { wasHot, isHot in
 #if DEBUG
             if let snapshot = tabManager.debugCurrentWorkspaceSwitchSnapshot() {
                 let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
-                dlog(
+                contentHotPathDlog(
                     "ws.view.hotChange id=\(snapshot.id) dt=\(debugMsText(dtMs)) hot=\(tabManager.isWorkspaceCycleHot ? 1 : 0)"
                 )
             } else {
-                dlog("ws.view.hotChange id=none hot=\(tabManager.isWorkspaceCycleHot ? 1 : 0)")
+                contentHotPathDlog("ws.view.hotChange id=none hot=\(tabManager.isWorkspaceCycleHot ? 1 : 0)")
             }
 #endif
-            reconcileMountedWorkspaceIds()
+            // `selectedTabId` changes already reconcile the hot path immediately.
+            // Only reconcile here when the hot-cycle window cools off and we need
+            // to drop any extra mounted workspaces retained during cycling.
+            if wasHot && !isHot {
+                reconcileMountedWorkspaceIds()
+            }
         })
 
         view = AnyView(view.onChange(of: retiringWorkspaceId) { _ in
@@ -2321,6 +2356,15 @@ struct ContentView: View {
             completeWorkspaceHandoffIfNeeded(focusedTabId: tabId, reason: "first_responder")
         })
 
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .ghosttySurfaceReadyForWorkspaceHandoff)) { notification in
+            guard let tabId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID,
+                  let surfaceId = notification.userInfo?[GhosttyNotificationKey.surfaceId] as? UUID,
+                  tabId == tabManager.selectedTabId,
+                  let selectedWorkspace = tabManager.selectedWorkspace,
+                  selectedWorkspace.focusedPanelId == surfaceId else { return }
+            completeWorkspaceHandoffIfNeeded(focusedTabId: tabId, reason: "terminal_ready")
+        })
+
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .browserDidBecomeFirstResponderWebView)) { notification in
             guard let webView = notification.object as? WKWebView,
                   let selectedTabId = tabManager.selectedTabId,
@@ -2346,6 +2390,8 @@ struct ContentView: View {
                 self.retiringWorkspaceId = nil
                 workspaceHandoffFallbackTask?.cancel()
                 workspaceHandoffFallbackTask = nil
+                workspaceHandoffReadinessTask?.cancel()
+                workspaceHandoffReadinessTask = nil
             }
             if let previousSelectedWorkspaceId, !existingIds.contains(previousSelectedWorkspaceId) {
                 self.previousSelectedWorkspaceId = tabManager.selectedTabId
@@ -2693,16 +2739,28 @@ struct ContentView: View {
             let removed = previousMountedIds.filter { !mountedWorkspaceIds.contains($0) }
             if let snapshot = tabManager.debugCurrentWorkspaceSwitchSnapshot() {
                 let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
-                dlog(
+                contentHotPathDlog(
                     "ws.mount.reconcile id=\(snapshot.id) dt=\(debugMsText(dtMs)) hot=\(isCycleHot ? 1 : 0) " +
                     "selected=\(debugShortWorkspaceId(effectiveSelectedId)) " +
                     "mounted=\(debugShortWorkspaceIds(mountedWorkspaceIds)) " +
                     "added=\(debugShortWorkspaceIds(added)) removed=\(debugShortWorkspaceIds(removed))"
                 )
+                AppDelegate.shared?.logDebugWorkspaceSwitchMetric(
+                    phase: "mount.reconcile",
+                    switchId: snapshot.id,
+                    startedAt: snapshot.startedAt,
+                    details: "selected=\(debugShortWorkspaceId(effectiveSelectedId)) added=\(debugShortWorkspaceIds(added)) removed=\(debugShortWorkspaceIds(removed))"
+                )
             } else {
-                dlog(
+                contentHotPathDlog(
                     "ws.mount.reconcile id=none hot=\(isCycleHot ? 1 : 0) selected=\(debugShortWorkspaceId(effectiveSelectedId)) " +
                     "mounted=\(debugShortWorkspaceIds(mountedWorkspaceIds))"
+                )
+                AppDelegate.shared?.logDebugWorkspaceSwitchMetric(
+                    phase: "mount.reconcile",
+                    switchId: nil,
+                    startedAt: nil,
+                    details: "selected=\(debugShortWorkspaceId(effectiveSelectedId))"
                 )
             }
         }
@@ -2825,6 +2883,8 @@ struct ContentView: View {
             retiringWorkspaceId = nil
             workspaceHandoffFallbackTask?.cancel()
             workspaceHandoffFallbackTask = nil
+            workspaceHandoffReadinessTask?.cancel()
+            workspaceHandoffReadinessTask = nil
             return
         }
 
@@ -2832,17 +2892,30 @@ struct ContentView: View {
         let generation = workspaceHandoffGeneration
         retiringWorkspaceId = oldSelectedId
         workspaceHandoffFallbackTask?.cancel()
+        workspaceHandoffReadinessTask?.cancel()
 
 #if DEBUG
         if let snapshot = tabManager.debugCurrentWorkspaceSwitchSnapshot() {
             let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
-            dlog(
+            contentHotPathDlog(
                 "ws.handoff.start id=\(snapshot.id) dt=\(debugMsText(dtMs)) old=\(debugShortWorkspaceId(oldSelectedId)) " +
                 "new=\(debugShortWorkspaceId(newSelectedId))"
             )
+            AppDelegate.shared?.logDebugWorkspaceSwitchMetric(
+                phase: "handoff.start",
+                switchId: snapshot.id,
+                startedAt: snapshot.startedAt,
+                details: "old=\(debugShortWorkspaceId(oldSelectedId)) new=\(debugShortWorkspaceId(newSelectedId))"
+            )
         } else {
-            dlog(
+            contentHotPathDlog(
                 "ws.handoff.start id=none old=\(debugShortWorkspaceId(oldSelectedId)) new=\(debugShortWorkspaceId(newSelectedId))"
+            )
+            AppDelegate.shared?.logDebugWorkspaceSwitchMetric(
+                phase: "handoff.start",
+                switchId: nil,
+                startedAt: nil,
+                details: "old=\(debugShortWorkspaceId(oldSelectedId)) new=\(debugShortWorkspaceId(newSelectedId))"
             )
         }
 #endif
@@ -2858,17 +2931,50 @@ struct ContentView: View {
                 completeWorkspaceHandoff(reason: "timeout")
             }
         }
+
+        workspaceHandoffReadinessTask = Task { [generation] in
+            await Task.yield()
+            while !Task.isCancelled {
+                let shouldContinue = await MainActor.run {
+                    guard workspaceHandoffGeneration == generation else { return false }
+                    guard retiringWorkspaceId != nil else { return false }
+                    return !completeWorkspaceHandoffIfSelectedTerminalReady(reason: "terminal_ready")
+                }
+                guard shouldContinue else { return }
+                do {
+                    try await Task.sleep(nanoseconds: 8_000_000)
+                } catch {
+                    return
+                }
+            }
+        }
     }
 
-    private func completeWorkspaceHandoffIfNeeded(focusedTabId: UUID, reason: String) {
-        guard focusedTabId == tabManager.selectedTabId else { return }
-        guard retiringWorkspaceId != nil else { return }
+    @discardableResult
+    private func completeWorkspaceHandoffIfNeeded(focusedTabId: UUID, reason: String) -> Bool {
+        guard focusedTabId == tabManager.selectedTabId else { return false }
+        guard retiringWorkspaceId != nil else { return false }
         completeWorkspaceHandoff(reason: reason)
+        return true
+    }
+
+    @discardableResult
+    private func completeWorkspaceHandoffIfSelectedTerminalReady(reason: String) -> Bool {
+        guard retiringWorkspaceId != nil else { return false }
+        guard let selectedWorkspace = tabManager.selectedWorkspace,
+              let terminalPanel = selectedWorkspace.focusedTerminalPanel,
+              terminalPanel.hostedView.isReadyForWorkspaceHandoff else {
+            return false
+        }
+        completeWorkspaceHandoff(reason: reason)
+        return true
     }
 
     private func completeWorkspaceHandoff(reason: String) {
         workspaceHandoffFallbackTask?.cancel()
         workspaceHandoffFallbackTask = nil
+        workspaceHandoffReadinessTask?.cancel()
+        workspaceHandoffReadinessTask = nil
         let retiring = retiringWorkspaceId
 
         // Hide portal-hosted views for the retiring workspace BEFORE clearing
@@ -2886,11 +2992,23 @@ struct ContentView: View {
 #if DEBUG
         if let snapshot = tabManager.debugCurrentWorkspaceSwitchSnapshot() {
             let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
-            dlog(
+            contentHotPathDlog(
                 "ws.handoff.complete id=\(snapshot.id) dt=\(debugMsText(dtMs)) reason=\(reason) retiring=\(debugShortWorkspaceId(retiring))"
             )
+            AppDelegate.shared?.logDebugWorkspaceSwitchMetric(
+                phase: "handoff.complete",
+                switchId: snapshot.id,
+                startedAt: snapshot.startedAt,
+                details: "reason=\(reason) retiring=\(debugShortWorkspaceId(retiring))"
+            )
         } else {
-            dlog("ws.handoff.complete id=none reason=\(reason) retiring=\(debugShortWorkspaceId(retiring))")
+            contentHotPathDlog("ws.handoff.complete id=none reason=\(reason) retiring=\(debugShortWorkspaceId(retiring))")
+            AppDelegate.shared?.logDebugWorkspaceSwitchMetric(
+                phase: "handoff.complete",
+                switchId: nil,
+                startedAt: nil,
+                details: "reason=\(reason) retiring=\(debugShortWorkspaceId(retiring))"
+            )
         }
 #endif
     }
@@ -3986,6 +4104,7 @@ struct ContentView: View {
         var snapshot = CommandPaletteContextSnapshot()
 
         if let workspace = tabManager.selectedWorkspace {
+            let workspaceIndex = tabManager.tabs.firstIndex { $0.id == workspace.id }
             snapshot.setBool(CommandPaletteContextKeys.hasWorkspace, true)
             snapshot.setString(CommandPaletteContextKeys.workspaceName, workspaceDisplayName(workspace))
             snapshot.setBool(CommandPaletteContextKeys.workspaceHasCustomName, workspace.customTitle != nil)
@@ -3997,6 +4116,20 @@ struct ContentView: View {
             snapshot.setBool(
                 CommandPaletteContextKeys.workspaceHasSplits,
                 workspace.bonsplitController.allPaneIds.count > 1
+            )
+            snapshot.setBool(CommandPaletteContextKeys.workspaceHasPeers, tabManager.tabs.count > 1)
+            snapshot.setBool(CommandPaletteContextKeys.workspaceHasAbove, (workspaceIndex ?? 0) > 0)
+            snapshot.setBool(
+                CommandPaletteContextKeys.workspaceHasBelow,
+                (workspaceIndex ?? (tabManager.tabs.count - 1)) < tabManager.tabs.count - 1
+            )
+            snapshot.setBool(
+                CommandPaletteContextKeys.workspaceHasUnread,
+                notificationStore.notifications.contains { $0.tabId == workspace.id && !$0.isRead }
+            )
+            snapshot.setBool(
+                CommandPaletteContextKeys.workspaceHasRead,
+                notificationStore.notifications.contains { $0.tabId == workspace.id && $0.isRead }
             )
         }
 
@@ -4271,6 +4404,86 @@ struct ContentView: View {
                 subtitle: workspaceSubtitle,
                 keywords: ["workspace", "pin", "pinned"],
                 when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.moveWorkspaceUp",
+                title: constant(String(localized: "contextMenu.moveUp", defaultValue: "Move Up")),
+                subtitle: workspaceSubtitle,
+                keywords: ["workspace", "move", "up", "reorder"],
+                when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) },
+                enablement: { $0.bool(CommandPaletteContextKeys.workspaceHasAbove) }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.moveWorkspaceDown",
+                title: constant(String(localized: "contextMenu.moveDown", defaultValue: "Move Down")),
+                subtitle: workspaceSubtitle,
+                keywords: ["workspace", "move", "down", "reorder"],
+                when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) },
+                enablement: { $0.bool(CommandPaletteContextKeys.workspaceHasBelow) }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.moveWorkspaceToTop",
+                title: constant(String(localized: "contextMenu.moveToTop", defaultValue: "Move to Top")),
+                subtitle: workspaceSubtitle,
+                keywords: ["workspace", "move", "top", "reorder"],
+                when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) },
+                enablement: { $0.bool(CommandPaletteContextKeys.workspaceHasAbove) }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.closeOtherWorkspaces",
+                title: constant(String(localized: "contextMenu.closeOtherWorkspaces", defaultValue: "Close Other Workspaces")),
+                subtitle: workspaceSubtitle,
+                keywords: ["close", "other", "workspaces", "reset", "workspace"],
+                when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) },
+                enablement: { $0.bool(CommandPaletteContextKeys.workspaceHasPeers) }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.closeWorkspacesBelow",
+                title: constant(String(localized: "contextMenu.closeWorkspacesBelow", defaultValue: "Close Workspaces Below")),
+                subtitle: workspaceSubtitle,
+                keywords: ["close", "below", "workspaces", "workspace"],
+                when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) },
+                enablement: { $0.bool(CommandPaletteContextKeys.workspaceHasBelow) }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.closeWorkspacesAbove",
+                title: constant(String(localized: "contextMenu.closeWorkspacesAbove", defaultValue: "Close Workspaces Above")),
+                subtitle: workspaceSubtitle,
+                keywords: ["close", "above", "workspaces", "workspace"],
+                when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) },
+                enablement: { $0.bool(CommandPaletteContextKeys.workspaceHasAbove) }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.markWorkspaceRead",
+                title: constant(String(localized: "contextMenu.markWorkspaceRead", defaultValue: "Mark Workspace as Read")),
+                subtitle: workspaceSubtitle,
+                keywords: ["workspace", "read", "notification", "inbox"],
+                when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) },
+                enablement: { $0.bool(CommandPaletteContextKeys.workspaceHasUnread) }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.markWorkspaceUnread",
+                title: constant(String(localized: "contextMenu.markWorkspaceUnread", defaultValue: "Mark Workspace as Unread")),
+                subtitle: workspaceSubtitle,
+                keywords: ["workspace", "unread", "notification", "inbox"],
+                when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) },
+                enablement: { $0.bool(CommandPaletteContextKeys.workspaceHasRead) }
             )
         )
         contributions.append(
@@ -4761,6 +4974,43 @@ struct ContentView: View {
             }
             tabManager.setPinned(workspace, pinned: !workspace.isPinned)
         }
+        registry.register(commandId: "palette.moveWorkspaceUp") {
+            moveSelectedWorkspace(by: -1)
+        }
+        registry.register(commandId: "palette.moveWorkspaceDown") {
+            moveSelectedWorkspace(by: 1)
+        }
+        registry.register(commandId: "palette.moveWorkspaceToTop") {
+            guard let workspace = tabManager.selectedWorkspace else {
+                NSSound.beep()
+                return
+            }
+            tabManager.moveTabsToTop([workspace.id])
+            tabManager.selectWorkspace(workspace)
+        }
+        registry.register(commandId: "palette.closeOtherWorkspaces") {
+            closeOtherSelectedWorkspaces()
+        }
+        registry.register(commandId: "palette.closeWorkspacesBelow") {
+            closeSelectedWorkspacesBelow()
+        }
+        registry.register(commandId: "palette.closeWorkspacesAbove") {
+            closeSelectedWorkspacesAbove()
+        }
+        registry.register(commandId: "palette.markWorkspaceRead") {
+            guard let workspaceId = tabManager.selectedWorkspace?.id else {
+                NSSound.beep()
+                return
+            }
+            notificationStore.markRead(forTabId: workspaceId)
+        }
+        registry.register(commandId: "palette.markWorkspaceUnread") {
+            guard let workspaceId = tabManager.selectedWorkspace?.id else {
+                NSSound.beep()
+                return
+            }
+            notificationStore.markUnread(forTabId: workspaceId)
+        }
         registry.register(commandId: "palette.nextWorkspace") {
             tabManager.selectNextTab()
         }
@@ -4954,6 +5204,71 @@ struct ContentView: View {
         }
         let trimmedFallback = fallback.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmedFallback.isEmpty ? String(localized: "panel.displayName.fallback", defaultValue: "Tab") : trimmedFallback
+    }
+
+    private func selectedWorkspaceIndex() -> Int? {
+        guard let workspaceId = tabManager.selectedWorkspace?.id else { return nil }
+        return tabManager.tabs.firstIndex { $0.id == workspaceId }
+    }
+
+    private func moveSelectedWorkspace(by delta: Int) {
+        guard let workspace = tabManager.selectedWorkspace,
+              let currentIndex = selectedWorkspaceIndex() else {
+            NSSound.beep()
+            return
+        }
+        let targetIndex = currentIndex + delta
+        guard targetIndex >= 0, targetIndex < tabManager.tabs.count else {
+            NSSound.beep()
+            return
+        }
+        guard tabManager.reorderWorkspace(tabId: workspace.id, toIndex: targetIndex) else {
+            NSSound.beep()
+            return
+        }
+        tabManager.selectWorkspace(workspace)
+    }
+
+    private func closeWorkspaceIds(_ workspaceIds: [UUID], allowPinned: Bool) {
+        let idsToClose = workspaceIds.filter { id in
+            guard let workspace = tabManager.tabs.first(where: { $0.id == id }) else { return false }
+            return allowPinned || !workspace.isPinned
+        }
+        guard !idsToClose.isEmpty else {
+            NSSound.beep()
+            return
+        }
+        for workspaceId in idsToClose {
+            guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { continue }
+            tabManager.closeWorkspaceWithConfirmation(workspace)
+        }
+    }
+
+    private func closeOtherSelectedWorkspaces() {
+        guard let workspace = tabManager.selectedWorkspace else {
+            NSSound.beep()
+            return
+        }
+        let workspaceIds = tabManager.tabs.compactMap { $0.id == workspace.id ? nil : $0.id }
+        closeWorkspaceIds(workspaceIds, allowPinned: false)
+    }
+
+    private func closeSelectedWorkspacesBelow() {
+        guard let anchorIndex = selectedWorkspaceIndex() else {
+            NSSound.beep()
+            return
+        }
+        let workspaceIds = tabManager.tabs.suffix(from: anchorIndex + 1).map(\.id)
+        closeWorkspaceIds(workspaceIds, allowPinned: false)
+    }
+
+    private func closeSelectedWorkspacesAbove() {
+        guard let anchorIndex = selectedWorkspaceIndex() else {
+            NSSound.beep()
+            return
+        }
+        let workspaceIds = tabManager.tabs.prefix(upTo: anchorIndex).map(\.id)
+        closeWorkspaceIds(workspaceIds, allowPinned: false)
     }
 
     private func commandPaletteSelectedIndex(resultCount: Int) -> Int {
@@ -9660,7 +9975,7 @@ private struct TabItemView: View {
         if mods.contains(.shift) { modStr += "shift " }
         if mods.contains(.option) { modStr += "opt " }
         if mods.contains(.control) { modStr += "ctrl " }
-        dlog("sidebar.select workspace=\(tab.id.uuidString.prefix(5)) modifiers=\(modStr.isEmpty ? "none" : modStr.trimmingCharacters(in: .whitespaces))")
+        contentHotPathDlog("sidebar.select workspace=\(tab.id.uuidString.prefix(5)) modifiers=\(modStr.isEmpty ? "none" : modStr.trimmingCharacters(in: .whitespaces))")
         #endif
         let modifiers = NSEvent.modifierFlags
         let isCommand = modifiers.contains(.command)

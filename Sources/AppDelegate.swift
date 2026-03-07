@@ -7,6 +7,33 @@ import Sentry
 import WebKit
 import Combine
 import ObjectiveC.runtime
+#if DEBUG
+import OSLog
+#endif
+
+#if DEBUG
+private let debugTypingPerfSignposter = OSSignposter(
+    subsystem: Bundle.main.bundleIdentifier ?? "com.cmuxterm.app",
+    category: "TypingPerf"
+)
+
+fileprivate func debugTypingPerfBeginIntervalIfNeeded(
+    enabled: Bool,
+    _ name: StaticString
+) -> OSSignpostIntervalState? {
+    guard enabled else { return nil }
+    return debugTypingPerfSignposter.beginInterval(name)
+}
+
+fileprivate func debugTypingPerfEndIntervalIfNeeded(
+    _ name: StaticString,
+    _ state: OSSignpostIntervalState?
+) {
+    guard let state else { return }
+    debugTypingPerfSignposter.endInterval(name, state)
+}
+
+#endif
 
 enum FinderServicePathResolver {
     private static func canonicalDirectoryPath(_ path: String) -> String {
@@ -1242,6 +1269,31 @@ func shouldRouteTerminalFontZoomShortcutToGhostty(
     ) != nil
 }
 
+func shouldRouteTerminalCommandShortcutToGhostty(
+    flags: NSEvent.ModifierFlags,
+    chars: String,
+    keyCode: UInt16,
+    terminalHasSelection: Bool
+) -> Bool {
+    let normalizedFlags = flags
+        .intersection(.deviceIndependentFlagsMask)
+        .subtracting([.numericPad, .function, .capsLock])
+    guard normalizedFlags.contains(.command) else { return false }
+
+    let normalizedChars = chars.lowercased()
+    if normalizedFlags == [.command] {
+        if normalizedChars == "," || keyCode == 43 {
+            return false
+        }
+
+        if (normalizedChars == "c" || keyCode == 8), terminalHasSelection {
+            return false
+        }
+    }
+
+    return true
+}
+
 func cmuxOwningGhosttyView(for responder: NSResponder?) -> GhosttyNSView? {
     guard let responder else { return nil }
     if let ghosttyView = responder as? GhosttyNSView {
@@ -1458,6 +1510,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var browserOmnibarRepeatDelta: Int = 0
     private var browserAddressBarFocusObserver: NSObjectProtocol?
     private var browserAddressBarBlurObserver: NSObjectProtocol?
+    private var pendingGhosttyConfigSurfaceRefreshWorkItem: DispatchWorkItem?
+    private var pendingGhosttyConfigSurfaceRefreshSource: String?
+    private var pendingGhosttyConfigSurfaceRefreshRequestCount = 0
+    private var pendingGhosttyConfigSurfaceRefreshGeneration: UInt64 = 0
+    private let coalescedGhosttyConfigSurfaceRefreshDelay: TimeInterval = 0.4
     private let updateController = UpdateController()
     private lazy var titlebarAccessoryController = UpdateTitlebarAccessoryController(viewModel: updateViewModel)
     private let windowDecorationsController = WindowDecorationsController()
@@ -1549,11 +1606,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var didAttemptStartupSessionRestore = false
     private var isApplyingStartupSessionRestore = false
     private var sessionAutosaveTimer: DispatchSourceTimer?
+    private var sessionAutosaveRetryWorkItem: DispatchWorkItem?
+    private var deferredSessionSaveWorkItem: DispatchWorkItem?
+    private var deferredSessionSaveIncludeScrollback = false
+    private var deferredSessionSaveRemoveWhenEmpty = false
+    private var deferredSessionSaveSource = "unknown"
     private var socketListenerHealthTimer: DispatchSourceTimer?
     private var socketListenerHealthCheckInFlight = false
     private static let socketListenerHealthCheckInterval: DispatchTimeInterval = .seconds(2)
     private var lastSocketListenerUnhealthyCaptureAt: Date = .distantPast
     private static let socketListenerUnhealthyCaptureCooldown: TimeInterval = 60
+    private static let sessionAutosaveIdleThreshold: TimeInterval = 2.0
+    private static let sessionAutosaveRetryDelay: TimeInterval = 1.0
     private let sessionPersistenceQueue = DispatchQueue(
         label: "com.cmuxterm.app.sessionPersistence",
         qos: .utility
@@ -1845,7 +1909,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func applicationWillResignActive(_ notification: Notification) {
         guard !isTerminatingApp else { return }
-        _ = saveSessionSnapshot(includeScrollback: false)
+        requestDeferredSessionSave(includeScrollback: false, source: "appWillResignActive")
     }
 
     func persistSessionForUpdateRelaunch() {
@@ -2019,7 +2083,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func completeStartupSessionRestore() {
         startupSessionSnapshot = nil
         isApplyingStartupSessionRestore = false
-        _ = saveSessionSnapshot(includeScrollback: false)
+        requestDeferredSessionSave(includeScrollback: false, source: "startupRestoreComplete")
     }
 
     private func applySessionWindowSnapshot(
@@ -2369,32 +2433,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let interval = SessionPersistencePolicy.autosaveInterval
         timer.schedule(deadline: .now() + interval, repeating: interval, leeway: .seconds(1))
         timer.setEventHandler { [weak self] in
-            guard let self,
-                  Self.shouldRunSessionAutosaveTick(isTerminatingApp: self.isTerminatingApp) else {
-                return
-            }
-            let now = Date()
-            let autosaveFingerprint = self.sessionAutosaveFingerprint(includeScrollback: false)
-            if Self.shouldSkipSessionAutosaveForUnchangedFingerprint(
-                isTerminatingApp: self.isTerminatingApp,
-                includeScrollback: false,
-                previousFingerprint: self.lastSessionAutosaveFingerprint,
-                currentFingerprint: autosaveFingerprint,
-                lastPersistedAt: self.lastSessionAutosavePersistedAt,
-                now: now
-            ) {
-#if DEBUG
-                dlog("session.save.skipped reason=unchanged_autosave_fingerprint includeScrollback=0")
-#endif
-                return
-            }
-
-            _ = self.saveSessionSnapshot(includeScrollback: false)
-            self.updateSessionAutosaveSaveState(
-                includeScrollback: false,
-                persistedAt: now,
-                fingerprint: autosaveFingerprint
-            )
+            self?.performSessionAutosaveTick(source: "timer")
         }
         sessionAutosaveTimer = timer
         timer.resume()
@@ -2403,6 +2442,150 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func stopSessionAutosaveTimer() {
         sessionAutosaveTimer?.cancel()
         sessionAutosaveTimer = nil
+        sessionAutosaveRetryWorkItem?.cancel()
+        sessionAutosaveRetryWorkItem = nil
+        deferredSessionSaveWorkItem?.cancel()
+        deferredSessionSaveWorkItem = nil
+    }
+
+    private func performSessionAutosaveTick(source: String) {
+        guard Self.shouldRunSessionAutosaveTick(isTerminatingApp: isTerminatingApp) else { return }
+
+        let nowUptime = ProcessInfo.processInfo.systemUptime
+        if let inputAge = recentUserInteractionAge(nowUptime: nowUptime),
+           inputAge < Self.sessionAutosaveIdleThreshold {
+            scheduleSessionAutosaveRetry(
+                after: Self.sessionAutosaveRetryDelay,
+                source: source,
+                inputAge: inputAge
+            )
+            return
+        }
+
+        sessionAutosaveRetryWorkItem?.cancel()
+        sessionAutosaveRetryWorkItem = nil
+
+        let now = Date()
+        let autosaveFingerprint = sessionAutosaveFingerprint(includeScrollback: false)
+        if Self.shouldSkipSessionAutosaveForUnchangedFingerprint(
+            isTerminatingApp: isTerminatingApp,
+            includeScrollback: false,
+            previousFingerprint: lastSessionAutosaveFingerprint,
+            currentFingerprint: autosaveFingerprint,
+            lastPersistedAt: lastSessionAutosavePersistedAt,
+            now: now
+        ) {
+#if DEBUG
+            dlog("session.save.skipped reason=unchanged_autosave_fingerprint includeScrollback=0")
+#endif
+            return
+        }
+
+#if DEBUG
+        if let inputAge = recentUserInteractionAge(nowUptime: nowUptime) {
+            dlog(
+                "session.save.begin source=\(source) includeScrollback=0 inputAgeMs=\(String(format: "%.0f", inputAge * 1000.0))"
+            )
+        } else {
+            dlog("session.save.begin source=\(source) includeScrollback=0 inputAgeMs=none")
+        }
+#endif
+        _ = saveSessionSnapshot(includeScrollback: false)
+        updateSessionAutosaveSaveState(
+            includeScrollback: false,
+            persistedAt: now,
+            fingerprint: autosaveFingerprint
+        )
+    }
+
+    private func recentUserInteractionAge(
+        nowUptime: TimeInterval = ProcessInfo.processInfo.systemUptime
+    ) -> TimeInterval? {
+        guard lastUserInteractionUptime > 0 else { return nil }
+        return max(0, nowUptime - lastUserInteractionUptime)
+    }
+
+    private func scheduleSessionAutosaveRetry(
+        after delay: TimeInterval,
+        source: String,
+        inputAge: TimeInterval
+    ) {
+        guard sessionAutosaveRetryWorkItem == nil else { return }
+#if DEBUG
+        dlog(
+            "session.save.defer source=\(source) includeScrollback=0 " +
+            "inputAgeMs=\(String(format: "%.0f", inputAge * 1000.0)) " +
+            "retryMs=\(String(format: "%.0f", delay * 1000.0))"
+        )
+#endif
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.sessionAutosaveRetryWorkItem = nil
+            self.performSessionAutosaveTick(source: "\(source).retry")
+        }
+        sessionAutosaveRetryWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
+    }
+
+    private func requestDeferredSessionSave(
+        includeScrollback: Bool,
+        removeWhenEmpty: Bool = false,
+        source: String
+    ) {
+        guard !isTerminatingApp else {
+            _ = saveSessionSnapshot(
+                includeScrollback: includeScrollback,
+                removeWhenEmpty: removeWhenEmpty
+            )
+            return
+        }
+
+        deferredSessionSaveIncludeScrollback = deferredSessionSaveIncludeScrollback || includeScrollback
+        deferredSessionSaveRemoveWhenEmpty = deferredSessionSaveRemoveWhenEmpty || removeWhenEmpty
+        deferredSessionSaveSource = source
+
+        guard deferredSessionSaveWorkItem == nil else { return }
+
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.deferredSessionSaveWorkItem = nil
+            self.performDeferredSessionSaveIfIdle()
+        }
+        deferredSessionSaveWorkItem = workItem
+        DispatchQueue.main.async(execute: workItem)
+    }
+
+    private func performDeferredSessionSaveIfIdle() {
+        let nowUptime = ProcessInfo.processInfo.systemUptime
+        if let inputAge = recentUserInteractionAge(nowUptime: nowUptime),
+           inputAge < Self.sessionAutosaveIdleThreshold {
+#if DEBUG
+            dlog(
+                "session.save.defer source=\(deferredSessionSaveSource) includeScrollback=\(deferredSessionSaveIncludeScrollback ? 1 : 0) " +
+                "inputAgeMs=\(String(format: "%.0f", inputAge * 1000.0)) " +
+                "retryMs=\(String(format: "%.0f", Self.sessionAutosaveRetryDelay * 1000.0))"
+            )
+#endif
+            let retry = DispatchWorkItem { [weak self] in
+                guard let self else { return }
+                self.deferredSessionSaveWorkItem = nil
+                self.performDeferredSessionSaveIfIdle()
+            }
+            deferredSessionSaveWorkItem = retry
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.sessionAutosaveRetryDelay, execute: retry)
+            return
+        }
+
+        let includeScrollback = deferredSessionSaveIncludeScrollback
+        let removeWhenEmpty = deferredSessionSaveRemoveWhenEmpty
+        deferredSessionSaveIncludeScrollback = false
+        deferredSessionSaveRemoveWhenEmpty = false
+        deferredSessionSaveSource = "unknown"
+
+        _ = saveSessionSnapshot(
+            includeScrollback: includeScrollback,
+            removeWhenEmpty: removeWhenEmpty
+        )
     }
 
     private func installLifecycleSnapshotObserversIfNeeded() {
@@ -2433,7 +2616,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 if self.isTerminatingApp {
                     _ = self.saveSessionSnapshot(includeScrollback: true, removeWhenEmpty: false)
                 } else {
-                    _ = self.saveSessionSnapshot(includeScrollback: false)
+                    self.requestDeferredSessionSave(
+                        includeScrollback: false,
+                        source: "workspaceSessionResignActive"
+                    )
                 }
             }
         }
@@ -2884,7 +3070,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         attemptStartupSessionRestoreIfNeeded(primaryWindow: window)
         if !isTerminatingApp {
-            _ = saveSessionSnapshot(includeScrollback: false)
+            requestDeferredSessionSave(includeScrollback: false, source: "registerMainWindow")
         }
     }
 
@@ -3709,16 +3895,95 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return nil
     }
 
-    func refreshTerminalSurfacesAfterGhosttyConfigReload(source: String) {
+    private func performTerminalSurfaceRefreshAfterGhosttyConfigReload(
+        source: String,
+        visibleOnly: Bool = false,
+        generation: UInt64
+    ) {
         var refreshedCount = 0
-        forEachTerminalPanel { terminalPanel in
-            terminalPanel.hostedView.reconcileGeometryNow()
-            terminalPanel.surface.forceRefresh(reason: "appDelegate.refreshAfterGhosttyConfigReload")
-            refreshedCount += 1
+        let deferredCount = 0
+        if visibleOnly {
+            forEachSelectedWorkspaceTerminalPanel { terminalPanel in
+                terminalPanel.hostedView.applyConfigRefresh(generation: generation)
+                refreshedCount += 1
+            }
+        } else {
+            forEachTerminalPanel { terminalPanel in
+                terminalPanel.hostedView.applyConfigRefresh(generation: generation)
+                refreshedCount += 1
+            }
         }
 #if DEBUG
-        dlog("reload.config.surfaceRefresh source=\(source) count=\(refreshedCount)")
+        dlog(
+            "reload.config.surfaceRefresh source=\(source) scope=\(visibleOnly ? "visible" : "global") " +
+            "count=\(refreshedCount) deferred=\(deferredCount)"
+        )
 #endif
+    }
+
+    func refreshTerminalSurfacesAfterGhosttyConfigReload(
+        source: String,
+        policy: GhosttyApp.SurfaceRefreshPolicy = .immediateGlobal,
+        generation: UInt64
+    ) {
+        switch policy {
+        case .immediateGlobal:
+            let pendingCount = pendingGhosttyConfigSurfaceRefreshRequestCount
+            let pendingGeneration = pendingGhosttyConfigSurfaceRefreshGeneration
+            pendingGhosttyConfigSurfaceRefreshWorkItem?.cancel()
+            pendingGhosttyConfigSurfaceRefreshWorkItem = nil
+            pendingGhosttyConfigSurfaceRefreshSource = nil
+            pendingGhosttyConfigSurfaceRefreshRequestCount = 0
+            pendingGhosttyConfigSurfaceRefreshGeneration = 0
+
+            let effectiveSource: String
+            if pendingCount > 0 {
+                effectiveSource = "\(source) flushedCoalesced=\(pendingCount)"
+            } else {
+                effectiveSource = source
+            }
+            performTerminalSurfaceRefreshAfterGhosttyConfigReload(
+                source: effectiveSource,
+                generation: max(generation, pendingGeneration)
+            )
+        case .coalescedGlobal, .coalescedVisibleOnly:
+            pendingGhosttyConfigSurfaceRefreshRequestCount += 1
+            pendingGhosttyConfigSurfaceRefreshSource = source
+            pendingGhosttyConfigSurfaceRefreshGeneration = max(
+                pendingGhosttyConfigSurfaceRefreshGeneration,
+                generation
+            )
+            pendingGhosttyConfigSurfaceRefreshWorkItem?.cancel()
+            let visibleOnly = (policy == .coalescedVisibleOnly)
+
+            let workItem = DispatchWorkItem { [weak self] in
+                guard let self else { return }
+                let latestSource = self.pendingGhosttyConfigSurfaceRefreshSource ?? source
+                let pendingCount = self.pendingGhosttyConfigSurfaceRefreshRequestCount
+                let pendingGeneration = self.pendingGhosttyConfigSurfaceRefreshGeneration
+                self.pendingGhosttyConfigSurfaceRefreshWorkItem = nil
+                self.pendingGhosttyConfigSurfaceRefreshSource = nil
+                self.pendingGhosttyConfigSurfaceRefreshRequestCount = 0
+                self.pendingGhosttyConfigSurfaceRefreshGeneration = 0
+                self.performTerminalSurfaceRefreshAfterGhosttyConfigReload(
+                    source: "coalesced.latest=\(latestSource) count=\(pendingCount)",
+                    visibleOnly: visibleOnly,
+                    generation: pendingGeneration
+                )
+            }
+
+            pendingGhosttyConfigSurfaceRefreshWorkItem = workItem
+#if DEBUG
+            dlog(
+                "reload.config.surfaceRefresh.coalesced source=\(source) scope=\(visibleOnly ? "visible" : "global") " +
+                "pendingCount=\(pendingGhosttyConfigSurfaceRefreshRequestCount) delayMs=\(String(format: "%.0f", coalescedGhosttyConfigSurfaceRefreshDelay * 1000.0))"
+            )
+#endif
+            DispatchQueue.main.asyncAfter(
+                deadline: .now() + coalescedGhosttyConfigSurfaceRefreshDelay,
+                execute: workItem
+            )
+        }
     }
 
     private func forEachTerminalPanel(_ body: (TerminalPanel) -> Void) {
@@ -3742,6 +4007,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
+    private func forEachSelectedWorkspaceTerminalPanel(_ body: (TerminalPanel) -> Void) {
+        var seenManagers: Set<ObjectIdentifier> = []
+
+        func visitManager(_ manager: TabManager?) {
+            guard let manager else { return }
+            let managerId = ObjectIdentifier(manager)
+            guard seenManagers.insert(managerId).inserted else { return }
+            guard let workspace = manager.selectedWorkspace else { return }
+            for panel in workspace.panels.values {
+                guard let terminalPanel = panel as? TerminalPanel else { continue }
+                body(terminalPanel)
+            }
+        }
+
+        visitManager(tabManager)
+        for context in mainWindowContexts.values {
+            visitManager(context.tabManager)
+        }
+    }
     func focusMainWindow(windowId: UUID) -> Bool {
         guard let window = windowForMainWindowId(windowId) else { return false }
         if TerminalController.shouldSuppressSocketCommandActivation() {
@@ -4138,10 +4422,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }()
 
 #if DEBUG
-        let beforeManagerToken = debugManagerToken(tabManager)
-        dlog(
-            "shortcut.sync.pre source=\(source) preferred={\(debugWindowToken(preferredWindow))} chosen={\(debugContextToken(context))} \(debugShortcutRouteSnapshot())"
-        )
+        let debugHotPathLogsEnabled = self.debugHotPathLogsEnabled
+        let beforeManagerToken = debugHotPathLogsEnabled ? debugManagerToken(tabManager) : ""
+        if debugHotPathLogsEnabled {
+            dlog(
+                "shortcut.sync.pre source=\(source) preferred={\(debugWindowToken(preferredWindow))} chosen={\(debugContextToken(context))} \(debugShortcutRouteSnapshot())"
+            )
+        }
 #endif
         guard let context else { return tabManager }
         let alreadyActive =
@@ -4150,9 +4437,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             && sidebarSelectionState === context.sidebarSelectionState
         if alreadyActive {
 #if DEBUG
-            dlog(
-                "shortcut.sync.post source=\(source) beforeMgr=\(beforeManagerToken) afterMgr=\(debugManagerToken(tabManager)) chosen={\(debugContextToken(context))} nochange=1 \(debugShortcutRouteSnapshot())"
-            )
+            if debugHotPathLogsEnabled {
+                dlog(
+                    "shortcut.sync.post source=\(source) beforeMgr=\(beforeManagerToken) afterMgr=\(debugManagerToken(tabManager)) chosen={\(debugContextToken(context))} nochange=1 \(debugShortcutRouteSnapshot())"
+                )
+            }
 #endif
             return context.tabManager
         }
@@ -4950,15 +5239,61 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         pasteboard.setString(payload, forType: .string)
     }
 
+    private(set) var lastKeyDownUptime: TimeInterval = 0
+    private(set) var lastUserInteractionUptime: TimeInterval = 0
+
 #if DEBUG
     private let debugColorWorkspaceTitlePrefix = "Debug Color - "
     private let debugPerfWorkspaceTitlePrefix = "Debug Perf - "
     private var debugStressWorkspaceCreationInProgress = false
     private var debugStressLagProbeEnabled = false
+    private var debugStressLagLastLogUptimeByPhase: [String: TimeInterval] = [:]
+    private var debugStressLagSuppressedCountByPhase: [String: Int] = [:]
     private let debugStressWorkspaceCount = 20
     private let debugStressPaneCount = 4
-    private let debugStressTabsPerPane = 4
+    private let debugStressTabsPerPane = 1
     private let debugStressYieldInterval = 4
+    private let debugStressLagLogMinIntervalMs = 250.0
+
+    var debugHotPathLogsEnabled: Bool {
+        ProcessInfo.processInfo.environment["CMUX_HOT_PATH_DEBUG_LOGS"] == "1"
+    }
+
+    var isDebugTypingPerfProbeEnabled: Bool {
+        debugStressLagProbeEnabled
+    }
+
+#if DEBUG
+    func logDebugWorkspaceSwitchMetric(
+        phase: String,
+        switchId: UInt64?,
+        startedAt: CFTimeInterval?,
+        details: String = ""
+    ) {
+        guard isDebugTypingPerfProbeEnabled else { return }
+        let elapsedMs = startedAt.map { max(0, (CACurrentMediaTime() - $0) * 1000.0) } ?? 0
+        let detailSuffix = details.isEmpty ? "" : " \(details)"
+        dlog(
+            "stress.workspaceSwitch phase=\(phase) id=\(switchId.map(String.init) ?? "none") " +
+            "ms=\(String(format: "%.2f", elapsedMs))\(detailSuffix)"
+        )
+    }
+#else
+    func logDebugWorkspaceSwitchMetric(
+        phase: String,
+        switchId: UInt64?,
+        startedAt: CFTimeInterval?,
+        details: String = ""
+    ) {}
+#endif
+
+    static func debugTypingPerfThresholdMs(for event: NSEvent) -> Double {
+        let normalizedFlags = event.modifierFlags
+            .intersection(.deviceIndependentFlagsMask)
+            .subtracting([.numericPad, .function, .capsLock])
+        let isPlainTyping = normalizedFlags.isDisjoint(with: [.command, .control, .option])
+        return event.isARepeat ? 1.5 : (isPlainTyping ? 2.5 : 6.0)
+    }
 
     @objc func openDebugScrollbackTab(_ sender: Any?) {
         guard let tabManager else { return }
@@ -5014,6 +5349,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard let tabManager else { return }
 
         debugStressLagProbeEnabled = true
+        resetDebugTypingPerfLagLogBudget()
         debugStressWorkspaceCreationInProgress = true
         Task { @MainActor [weak self] in
             guard let self else { return }
@@ -5072,14 +5408,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
             let creationElapsedMs = (ProcessInfo.processInfo.systemUptime - totalStart) * 1000.0
             let primeStats = await self.primeDebugStressWorkspacesForSurfaceLoad(created)
-            // Avoid synchronous "load all surfaces" waiting in this command path.
-            // Waiting for every background surface to be ready creates sustained
-            // main-actor churn and can starve typing responsiveness.
-            let loadStats = DebugStressSurfaceLoadStats(
-                pendingSurfaces: self.pendingDebugTerminalSurfaceCount(in: created),
-                attempts: 0,
-                elapsedMs: 0
-            )
             let totalElapsedMs = (ProcessInfo.processInfo.systemUptime - totalStart) * 1000.0
             let avgWorkspaceMs = created.isEmpty ? 0 : (cumulativeWorkspaceMs / Double(created.count))
             let expectedSurfaceCount = self.debugStressWorkspaceCount
@@ -5093,64 +5421,91 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             dlog(
                 "stress.setup.done createMs=\(String(format: "%.2f", creationElapsedMs)) " +
                 "primeMs=\(String(format: "%.2f", primeStats.elapsedMs)) primedTabs=\(primeStats.activatedTabs) " +
-                "waitMs=\(String(format: "%.2f", loadStats.elapsedMs)) totalMs=\(String(format: "%.2f", totalElapsedMs)) " +
+                "inputDeferrals=\(primeStats.inputDeferrals) totalMs=\(String(format: "%.2f", totalElapsedMs)) " +
                 "workspaceAvgMs=\(String(format: "%.2f", avgWorkspaceMs)) workspaceWorstMs=\(String(format: "%.2f", worstWorkspaceMs)) " +
-                "workspaceSlowCount=\(slowWorkspaceCount) waitAttempts=\(loadStats.attempts) " +
-                "pendingSurfaces=\(loadStats.pendingSurfaces) expectedSurfaces=\(expectedSurfaceCount)"
+                "workspaceSlowCount=\(slowWorkspaceCount) " +
+                "pendingSurfaces=\(primeStats.pendingSurfaces) expectedSurfaces=\(expectedSurfaceCount)"
             )
 
             NSLog(
-                "Debug stress workspaces: created=%d panesPerWorkspace=%d tabsPerPane=%d expectedSurfaces=%d layoutFailures=%d pendingSurfaces=%d createMs=%.2f primeMs=%.2f primedTabs=%d waitMs=%.2f totalMs=%.2f workspaceAvgMs=%.2f workspaceWorstMs=%.2f waitAttempts=%d",
+                "Debug stress workspaces: created=%d panesPerWorkspace=%d tabsPerPane=%d expectedSurfaces=%d layoutFailures=%d pendingSurfaces=%d createMs=%.2f primeMs=%.2f primedTabs=%d inputDeferrals=%d totalMs=%.2f workspaceAvgMs=%.2f workspaceWorstMs=%.2f",
                 self.debugStressWorkspaceCount,
                 self.debugStressPaneCount,
                 self.debugStressTabsPerPane,
                 expectedSurfaceCount,
                 layoutFailures,
-                loadStats.pendingSurfaces,
+                primeStats.pendingSurfaces,
                 creationElapsedMs,
                 primeStats.elapsedMs,
                 primeStats.activatedTabs,
-                loadStats.elapsedMs,
+                primeStats.inputDeferrals,
                 totalElapsedMs,
                 avgWorkspaceMs,
-                worstWorkspaceMs,
-                loadStats.attempts
+                worstWorkspaceMs
             )
         }
     }
 
+    @objc func dumpDebugTypingPerfSnapshot(_ sender: Any?) {
+        logDebugTypingPerfSnapshot(
+            phase: "manual",
+            event: nil,
+            elapsedMs: nil,
+            thresholdMs: nil,
+            force: true
+        )
+    }
+
     private struct DebugStressSurfacePrimeStats {
         let activatedTabs: Int
+        let inputDeferrals: Int
+        let pendingSurfaces: Int
         let elapsedMs: Double
     }
 
     private func primeDebugStressWorkspacesForSurfaceLoad(
         _ workspaces: [Workspace]
     ) async -> DebugStressSurfacePrimeStats {
-        guard !workspaces.isEmpty else {
-            return DebugStressSurfacePrimeStats(activatedTabs: 0, elapsedMs: 0)
+        let terminalSurfaces = debugStressTerminalSurfaces(in: workspaces)
+        guard !terminalSurfaces.isEmpty else {
+            return DebugStressSurfacePrimeStats(
+                activatedTabs: 0,
+                inputDeferrals: 0,
+                pendingSurfaces: 0,
+                elapsedMs: 0
+            )
         }
 
         let primeStart = ProcessInfo.processInfo.systemUptime
         var activatedTabs = 0
 
-        for (index, workspace) in workspaces.enumerated() {
-            activatedTabs += workspace.panels.values.reduce(into: 0) { count, panel in
-                if panel is TerminalPanel {
-                    count += 1
-                }
-            }
+        for (index, terminalSurface) in terminalSurfaces.enumerated() {
+            activatedTabs += 1
+            let signpostState = debugTypingPerfBeginIntervalIfNeeded(
+                enabled: debugStressLagProbeEnabled,
+                "StressPrimeSurface"
+            )
 
-            if (index + 1) % debugStressYieldInterval == 0 || index == workspaces.count - 1 {
+            terminalSurface.requestBackgroundSurfaceStartIfNeeded()
+
+            debugTypingPerfEndIntervalIfNeeded("StressPrimeSurface", signpostState)
+
+            if (index + 1) % debugStressYieldInterval == 0 || index == terminalSurfaces.count - 1 {
                 dlog(
-                    "stress.setup.mount idx=\(index + 1)/\(workspaces.count) activatedTabs=\(activatedTabs)"
+                    "stress.setup.mount idx=\(index + 1)/\(terminalSurfaces.count) activatedTabs=\(activatedTabs) " +
+                    "pending=\(pendingDebugTerminalSurfaceCount(in: workspaces))"
                 )
-                await Task.yield()
             }
+            await Task.yield()
         }
 
         let elapsedMs = (ProcessInfo.processInfo.systemUptime - primeStart) * 1000.0
-        return DebugStressSurfacePrimeStats(activatedTabs: activatedTabs, elapsedMs: elapsedMs)
+        return DebugStressSurfacePrimeStats(
+            activatedTabs: activatedTabs,
+            inputDeferrals: 0,
+            pendingSurfaces: pendingDebugTerminalSurfaceCount(in: workspaces),
+            elapsedMs: elapsedMs
+        )
     }
 
     private func configureDebugStressWorkspaceLayout(
@@ -5209,10 +5564,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return true
     }
 
-    private struct DebugStressSurfaceLoadStats {
-        let pendingSurfaces: Int
-        let attempts: Int
-        let elapsedMs: Double
+    private func debugStressTerminalSurfaces(in workspaces: [Workspace]) -> [TerminalSurface] {
+        var surfaces: [TerminalSurface] = []
+        for workspace in workspaces {
+            for paneId in workspace.bonsplitController.allPaneIds {
+                for tab in workspace.bonsplitController.tabs(inPane: paneId) {
+                    guard let panelId = workspace.panelIdFromSurfaceId(tab.id),
+                          let terminalPanel = workspace.terminalPanel(for: panelId) else { continue }
+                    surfaces.append(terminalPanel.surface)
+                }
+            }
+        }
+        return surfaces
     }
 
     private func pendingDebugTerminalSurfaceCount(in workspaces: [Workspace]) -> Int {
@@ -5228,33 +5591,301 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return pending
     }
 
-    private func debugStressLagSnapshot() -> (
-        workspaceCount: Int,
-        terminalPanelCount: Int,
-        loadedSurfaceCount: Int,
-        selectedWorkspace: String
-    ) {
+    private struct DebugStressLagSnapshot {
+        let workspaceCount: Int
+        let terminalPanelCount: Int
+        let loadedSurfaceCount: Int
+        let pendingSurfaceCount: Int
+        let queuedBackgroundStartCount: Int
+        let attachedTerminalCount: Int
+        let visibleTerminalCount: Int
+        let selectedWorkspace: String
+        let selectedWorkspaceTerminalCount: Int
+        let selectedWorkspaceLoadedSurfaceCount: Int
+        let focusedPanel: String
+        let workspaceSwitchId: UInt64?
+        let workspaceSwitchAgeMs: Double?
+        let focusedRenderSummary: String
+    }
+
+    private func debugTerminalPanel(surfaceId: UUID?) -> TerminalPanel? {
+        guard let tabManager else { return nil }
+        if let surfaceId {
+            for workspace in tabManager.tabs {
+                if let terminalPanel = workspace.terminalPanel(for: surfaceId) {
+                    return terminalPanel
+                }
+            }
+            return nil
+        }
+        return tabManager.selectedWorkspace?.focusedTerminalPanel
+    }
+
+    private func debugShortId(_ id: UUID?) -> String {
+        guard let id else { return "nil" }
+        return String(id.uuidString.prefix(5))
+    }
+
+    private func debugPerfAgeMsText(_ timestamp: CFTimeInterval) -> String {
+        guard timestamp > 0 else { return "nil" }
+        return String(format: "%.2f", max(0, (CACurrentMediaTime() - timestamp) * 1000.0))
+    }
+
+    private func debugTypingPerfRenderSummary(
+        focusedSurfaceId: UUID?,
+        renderStats: GhosttySurfaceScrollView.DebugRenderStats?
+    ) -> String {
+        let terminalPanel = debugTerminalPanel(surfaceId: focusedSurfaceId)
+        let stats = renderStats ?? terminalPanel?.hostedView.debugRenderStats()
+        let backgroundState = terminalPanel?.surface.debugBackgroundStartState
+        let renderSurfaceId = focusedSurfaceId ?? terminalPanel?.surface.id
+
+        guard let stats else {
+            return [
+                "renderSurface=\(debugShortId(renderSurfaceId))",
+                "renderReady=\(terminalPanel?.surface.surface != nil ? 1 : 0)",
+                "renderQueued=\(backgroundState?.queued == true ? 1 : 0)",
+                "renderAttached=\(backgroundState?.hasAttachedView == true ? 1 : 0)",
+            ].joined(separator: " ")
+        }
+
+        return [
+            "renderSurface=\(debugShortId(renderSurfaceId))",
+            "renderReady=\(terminalPanel?.surface.surface != nil ? 1 : 0)",
+            "renderQueued=\(backgroundState?.queued == true ? 1 : 0)",
+            "renderAttached=\(backgroundState?.hasAttachedView == true ? 1 : 0)",
+            "renderAttachedInWindow=\(backgroundState?.attachedViewInWindow == true ? 1 : 0)",
+            "renderPendingTextBytes=\(backgroundState?.pendingTextBytes ?? 0)",
+            "renderDrawCount=\(stats.drawCount)",
+            "renderDrawIdleMs=\(debugPerfAgeMsText(stats.lastDrawTime))",
+            "renderPresentCount=\(stats.presentCount)",
+            "renderPresentIdleMs=\(debugPerfAgeMsText(stats.lastPresentTime))",
+            "renderDrawableCount=\(stats.metalDrawableCount)",
+            "renderDrawableIdleMs=\(debugPerfAgeMsText(stats.metalLastDrawableTime))",
+            "renderInWindow=\(stats.inWindow ? 1 : 0)",
+            "renderWindowKey=\(stats.windowIsKey ? 1 : 0)",
+            "renderVisible=\(stats.windowOcclusionVisible ? 1 : 0)",
+            "renderAppActive=\(stats.appIsActive ? 1 : 0)",
+            "renderActive=\(stats.isActive ? 1 : 0)",
+            "renderDesiredFocus=\(stats.desiredFocus ? 1 : 0)",
+            "renderFirstResponder=\(stats.isFirstResponder ? 1 : 0)",
+            "renderLayer=\(stats.layerClass)",
+        ].joined(separator: " ")
+    }
+
+    private func debugTypingPerfSnapshotFields(_ snapshot: DebugStressLagSnapshot) -> String {
+        [
+            "workspaces=\(snapshot.workspaceCount)",
+            "terminals=\(snapshot.terminalPanelCount)",
+            "surfacesReady=\(snapshot.loadedSurfaceCount)",
+            "surfacesPending=\(snapshot.pendingSurfaceCount)",
+            "bgQueued=\(snapshot.queuedBackgroundStartCount)",
+            "attached=\(snapshot.attachedTerminalCount)",
+            "visible=\(snapshot.visibleTerminalCount)",
+            "selected=\(snapshot.selectedWorkspace)",
+            "selectedTerminals=\(snapshot.selectedWorkspaceTerminalCount)",
+            "selectedReady=\(snapshot.selectedWorkspaceLoadedSurfaceCount)",
+            "focusedPanel=\(snapshot.focusedPanel)",
+            "wsSwitchId=\(snapshot.workspaceSwitchId.map(String.init) ?? "nil")",
+            "wsSwitchAgeMs=\(snapshot.workspaceSwitchAgeMs.map { String(format: "%.2f", $0) } ?? "nil")",
+            snapshot.focusedRenderSummary,
+        ].joined(separator: " ")
+    }
+
+    private func debugTypingPerfEventParts(
+        prefix: String,
+        phase: String,
+        event: NSEvent?,
+        elapsedMs: Double?,
+        thresholdMs: Double?,
+        handledByShortcut: Bool?,
+        focusedSurfaceId: UUID?
+    ) -> [String] {
+        var parts: [String] = [
+            prefix,
+            "phase=\(phase)",
+        ]
+        if let elapsedMs {
+            parts.append("ms=\(String(format: "%.2f", elapsedMs))")
+        }
+        if let thresholdMs {
+            parts.append("threshold=\(String(format: "%.2f", thresholdMs))")
+        }
+        if let handledByShortcut {
+            parts.append("handled=\(handledByShortcut ? 1 : 0)")
+        }
+        if let event {
+            let normalizedFlags = event.modifierFlags
+                .intersection(.deviceIndependentFlagsMask)
+                .subtracting([.numericPad, .function, .capsLock])
+            let isPlainTyping = normalizedFlags.isDisjoint(with: [.command, .control, .option])
+            parts.append("plain=\(isPlainTyping ? 1 : 0)")
+            parts.append("repeat=\(event.isARepeat ? 1 : 0)")
+            parts.append("keyCode=\(event.keyCode)")
+            parts.append("mods=\(event.modifierFlags.rawValue)")
+        }
+        if let focusedSurfaceId {
+            parts.append("focusedSurface=\(debugShortId(focusedSurfaceId))")
+        }
+        return parts
+    }
+
+    private func resetDebugTypingPerfLagLogBudget() {
+        debugStressLagLastLogUptimeByPhase.removeAll(keepingCapacity: true)
+        debugStressLagSuppressedCountByPhase.removeAll(keepingCapacity: true)
+    }
+
+    private func consumeDebugTypingPerfLagSuppressedCount(phase: String) -> Int? {
+        let now = ProcessInfo.processInfo.systemUptime
+        let lastLogUptime = debugStressLagLastLogUptimeByPhase[phase] ?? 0
+        let elapsedSinceLastLogMs = max(0, (now - lastLogUptime) * 1000.0)
+        let shouldEmit = lastLogUptime <= 0 || elapsedSinceLastLogMs >= debugStressLagLogMinIntervalMs
+
+        guard shouldEmit else {
+            debugStressLagSuppressedCountByPhase[phase, default: 0] += 1
+            return nil
+        }
+
+        debugStressLagLastLogUptimeByPhase[phase] = now
+        let suppressedCount = debugStressLagSuppressedCountByPhase.removeValue(forKey: phase) ?? 0
+        return suppressedCount
+    }
+
+    private func debugStressLagSnapshot(
+        focusedSurfaceId: UUID? = nil,
+        renderStats: GhosttySurfaceScrollView.DebugRenderStats? = nil
+    ) -> DebugStressLagSnapshot {
         guard let tabManager else {
-            return (0, 0, 0, "nil")
+            return DebugStressLagSnapshot(
+                workspaceCount: 0,
+                terminalPanelCount: 0,
+                loadedSurfaceCount: 0,
+                pendingSurfaceCount: 0,
+                queuedBackgroundStartCount: 0,
+                attachedTerminalCount: 0,
+                visibleTerminalCount: 0,
+                selectedWorkspace: "nil",
+                selectedWorkspaceTerminalCount: 0,
+                selectedWorkspaceLoadedSurfaceCount: 0,
+                focusedPanel: "nil",
+                workspaceSwitchId: nil,
+                workspaceSwitchAgeMs: nil,
+                focusedRenderSummary: "renderSurface=nil"
+            )
         }
         var terminalPanelCount = 0
         var loadedSurfaceCount = 0
+        var queuedBackgroundStartCount = 0
+        var attachedTerminalCount = 0
+        var visibleTerminalCount = 0
+        var selectedWorkspaceTerminalCount = 0
+        var selectedWorkspaceLoadedSurfaceCount = 0
+        let selectedWorkspaceId = tabManager.selectedTabId
         for workspace in tabManager.tabs {
+            let isSelectedWorkspace = workspace.id == selectedWorkspaceId
             for panel in workspace.panels.values {
                 guard let terminalPanel = panel as? TerminalPanel else { continue }
+                let backgroundState = terminalPanel.surface.debugBackgroundStartState
                 terminalPanelCount += 1
+                if backgroundState.queued {
+                    queuedBackgroundStartCount += 1
+                }
+                if backgroundState.hasAttachedView {
+                    attachedTerminalCount += 1
+                }
+                if terminalPanel.hostedView.window != nil,
+                   terminalPanel.hostedView.superview != nil,
+                   !terminalPanel.hostedView.isHiddenOrHasHiddenAncestor {
+                    visibleTerminalCount += 1
+                }
                 if terminalPanel.surface.surface != nil {
                     loadedSurfaceCount += 1
+                    if isSelectedWorkspace {
+                        selectedWorkspaceLoadedSurfaceCount += 1
+                    }
+                }
+                if isSelectedWorkspace {
+                    selectedWorkspaceTerminalCount += 1
                 }
             }
         }
         let selectedWorkspace = tabManager.selectedTabId.map { String($0.uuidString.prefix(5)) } ?? "nil"
-        return (
-            tabManager.tabs.count,
-            terminalPanelCount,
-            loadedSurfaceCount,
-            selectedWorkspace
+        let workspaceSwitchSnapshot = tabManager.debugCurrentWorkspaceSwitchSnapshot()
+        return DebugStressLagSnapshot(
+            workspaceCount: tabManager.tabs.count,
+            terminalPanelCount: terminalPanelCount,
+            loadedSurfaceCount: loadedSurfaceCount,
+            pendingSurfaceCount: max(0, terminalPanelCount - loadedSurfaceCount),
+            queuedBackgroundStartCount: queuedBackgroundStartCount,
+            attachedTerminalCount: attachedTerminalCount,
+            visibleTerminalCount: visibleTerminalCount,
+            selectedWorkspace: selectedWorkspace,
+            selectedWorkspaceTerminalCount: selectedWorkspaceTerminalCount,
+            selectedWorkspaceLoadedSurfaceCount: selectedWorkspaceLoadedSurfaceCount,
+            focusedPanel: debugShortId(focusedSurfaceId ?? tabManager.selectedWorkspace?.focusedPanelId),
+            workspaceSwitchId: workspaceSwitchSnapshot?.id,
+            workspaceSwitchAgeMs: workspaceSwitchSnapshot.map { max(0, (CACurrentMediaTime() - $0.startedAt) * 1000.0) },
+            focusedRenderSummary: debugTypingPerfRenderSummary(
+                focusedSurfaceId: focusedSurfaceId,
+                renderStats: renderStats
+            )
         )
+    }
+
+    func logDebugTypingPerfSnapshot(
+        phase: String,
+        event: NSEvent?,
+        elapsedMs: Double?,
+        thresholdMs: Double?,
+        handledByShortcut: Bool? = nil,
+        renderStats: GhosttySurfaceScrollView.DebugRenderStats? = nil,
+        focusedSurfaceId: UUID? = nil,
+        force: Bool = false
+    ) {
+        guard force || debugStressLagProbeEnabled else { return }
+        var parts = debugTypingPerfEventParts(
+            prefix: force ? "stress.snapshot" : "stress.inputLag",
+            phase: phase,
+            event: event,
+            elapsedMs: elapsedMs,
+            thresholdMs: thresholdMs,
+            handledByShortcut: handledByShortcut,
+            focusedSurfaceId: focusedSurfaceId
+        )
+        let snapshot = debugStressLagSnapshot(
+            focusedSurfaceId: focusedSurfaceId,
+            renderStats: renderStats
+        )
+        parts.append(debugTypingPerfSnapshotFields(snapshot))
+        dlog(parts.joined(separator: " "))
+    }
+
+    func logDebugTypingPerfLagEvent(
+        phase: String,
+        event: NSEvent?,
+        elapsedMs: Double?,
+        thresholdMs: Double?,
+        handledByShortcut: Bool? = nil,
+        focusedSurfaceId: UUID? = nil
+    ) {
+        guard debugStressLagProbeEnabled else { return }
+        guard let suppressedCount = consumeDebugTypingPerfLagSuppressedCount(phase: phase) else {
+            return
+        }
+        let parts = debugTypingPerfEventParts(
+            prefix: "stress.inputLag",
+            phase: phase,
+            event: event,
+            elapsedMs: elapsedMs,
+            thresholdMs: thresholdMs,
+            handledByShortcut: handledByShortcut,
+            focusedSurfaceId: focusedSurfaceId
+        )
+        var finalParts = parts
+        if suppressedCount > 0 {
+            finalParts.append("suppressed=\(suppressedCount)")
+        }
+        dlog(finalParts.joined(separator: " "))
     }
 
     private func logSlowShortcutMonitorLatencyIfNeeded(
@@ -5262,24 +5893,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         handledByShortcut: Bool,
         elapsedMs: Double
     ) {
-        guard debugStressLagProbeEnabled else { return }
         guard event.type == .keyDown else { return }
 
-        let normalizedFlags = event.modifierFlags
-            .intersection(.deviceIndependentFlagsMask)
-            .subtracting([.numericPad, .function, .capsLock])
-        let isPlainTyping = normalizedFlags.isDisjoint(with: [.command, .control, .option])
-        let thresholdMs: Double = event.isARepeat ? 1.5 : (isPlainTyping ? 2.5 : 6.0)
+        let thresholdMs = Self.debugTypingPerfThresholdMs(for: event)
         guard elapsedMs >= thresholdMs else { return }
-
-        let snapshot = debugStressLagSnapshot()
-        dlog(
-            "stress.inputLag path=appMonitor ms=\(String(format: "%.2f", elapsedMs)) " +
-            "threshold=\(String(format: "%.2f", thresholdMs)) handled=\(handledByShortcut ? 1 : 0) " +
-            "plain=\(isPlainTyping ? 1 : 0) repeat=\(event.isARepeat ? 1 : 0) keyCode=\(event.keyCode) " +
-            "mods=\(event.modifierFlags.rawValue) workspaces=\(snapshot.workspaceCount) " +
-            "terminals=\(snapshot.terminalPanelCount) surfacesReady=\(snapshot.loadedSurfaceCount) " +
-            "selected=\(snapshot.selectedWorkspace)"
+        logDebugTypingPerfLagEvent(
+            phase: "appMonitor",
+            event: event,
+            elapsedMs: elapsedMs,
+            thresholdMs: thresholdMs,
+            handledByShortcut: handledByShortcut
         )
     }
 
@@ -6123,9 +6746,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func installShortcutMonitor() {
         // Local monitor only receives events when app is active (not global)
-        shortcutMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp, .flagsChanged]) { [weak self] event in
+        shortcutMonitor = NSEvent.addLocalMonitorForEvents(
+            matching: [.keyDown, .keyUp, .flagsChanged, .leftMouseDown, .rightMouseDown, .otherMouseDown]
+        ) { [weak self] event in
             guard let self else { return event }
+            if event.type == .keyDown || event.type == .leftMouseDown || event.type == .rightMouseDown || event.type == .otherMouseDown {
+                self.lastUserInteractionUptime = ProcessInfo.processInfo.systemUptime
+                TerminalSurface.lastObservedUserInputUptime = self.lastUserInteractionUptime
+            }
             if event.type == .keyDown {
+                self.lastKeyDownUptime = self.lastUserInteractionUptime
 #if DEBUG
                 if (ProcessInfo.processInfo.environment["CMUX_KEY_LATENCY_PROBE"] == "1"
                     || UserDefaults.standard.bool(forKey: "cmuxKeyLatencyProbe")),
@@ -6148,7 +6778,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 }
 #endif
                 let shortcutStart = ProcessInfo.processInfo.systemUptime
+#if DEBUG
+                let signpostState = debugTypingPerfBeginIntervalIfNeeded(
+                    enabled: self.debugStressLagProbeEnabled,
+                    "AppMonitorKeyDown"
+                )
+#endif
                 let handledByShortcut = self.handleCustomShortcut(event: event)
+#if DEBUG
+                debugTypingPerfEndIntervalIfNeeded("AppMonitorKeyDown", signpostState)
+#endif
 #if DEBUG
                 let shortcutElapsedMs = (ProcessInfo.processInfo.systemUptime - shortcutStart) * 1000.0
                 self.logSlowShortcutMonitorLatencyIfNeeded(
@@ -9292,6 +9931,18 @@ private extension NSWindow {
     }
 
     @objc func cmux_sendEvent(_ event: NSEvent) {
+        #if DEBUG
+        let debugTypingPerfProbeEnabled =
+            event.type == .keyDown && AppDelegate.shared?.isDebugTypingPerfProbeEnabled == true
+        let signpostState = debugTypingPerfBeginIntervalIfNeeded(
+            enabled: debugTypingPerfProbeEnabled,
+            "WindowSendEvent"
+        )
+        defer {
+            debugTypingPerfEndIntervalIfNeeded("WindowSendEvent", signpostState)
+        }
+        #endif
+
         guard shouldSuppressWindowMoveForFolderDrag(window: self, event: event),
               let contentView = self.contentView else {
             cmux_sendEvent(event)
@@ -9322,9 +9973,24 @@ private extension NSWindow {
     }
 
     @objc func cmux_performKeyEquivalent(with event: NSEvent) -> Bool {
+        #if DEBUG
+        let debugTypingPerfProbeEnabled =
+            event.type == .keyDown && AppDelegate.shared?.isDebugTypingPerfProbeEnabled == true
+        let signpostState = debugTypingPerfBeginIntervalIfNeeded(
+            enabled: debugTypingPerfProbeEnabled,
+            "WindowPerformKeyEquivalent"
+        )
+        defer {
+            debugTypingPerfEndIntervalIfNeeded("WindowPerformKeyEquivalent", signpostState)
+        }
+        #endif
+
 #if DEBUG
-        let frType = self.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
-        dlog("performKeyEquiv: \(Self.keyDescription(event)) fr=\(frType)")
+        let debugHotPathLogsEnabled = ProcessInfo.processInfo.environment["CMUX_HOT_PATH_DEBUG_LOGS"] == "1"
+        if debugHotPathLogsEnabled {
+            let frType = self.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
+            dlog("performKeyEquiv: \(Self.keyDescription(event)) fr=\(frType)")
+        }
 #endif
 
         // When the terminal surface is the first responder, prevent SwiftUI's
@@ -9347,21 +10013,17 @@ private extension NSWindow {
             Self.cmuxOwningWebView(for: $0, in: self, event: event)
         }
         if let ghosttyView = firstResponderGhosttyView {
-            // If the IME is composing and the key has no Cmd modifier, don't intercept —
-            // let it flow through normal AppKit event dispatch so the input method can
-            // process it. Cmd-based shortcuts should still work during composition since
-            // Cmd is never part of IME input sequences.
-            if ghosttyView.hasMarkedText(), !event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command) {
-                return cmux_performKeyEquivalent(with: event)
-            }
-
             let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
             if !flags.contains(.command) {
-                let result = ghosttyView.performKeyEquivalent(with: event)
+                // Plain terminal input should fall through to keyDown directly.
+                // Routing every non-Command key through performKeyEquivalent adds
+                // extra key-binding work before the normal terminal path.
 #if DEBUG
-                dlog("  → ghostty direct: \(result)")
+                if debugHotPathLogsEnabled {
+                    dlog("  → ghostty direct: skipped_non_command")
+                }
 #endif
-                return result
+                return false
             }
 
             // Preserve Ghostty's terminal font-size shortcuts (Cmd +/−/0) when
@@ -9415,6 +10077,24 @@ private extension NSWindow {
             return true
         }
 
+        // Support custom tmux prefixes (for example Cmd+C): when the terminal is focused
+        // and no app-level shortcut matched, prefer forwarding Command-key input to the
+        // terminal rather than consuming it as a menu key equivalent.
+        if let ghosttyView = firstResponderGhosttyView,
+           shouldRouteTerminalCommandShortcutToGhostty(
+               flags: event.modifierFlags,
+               chars: event.charactersIgnoringModifiers ?? "",
+               keyCode: event.keyCode,
+               terminalHasSelection: ghosttyView.terminalSurface?.hasSelection() ?? false
+           ) {
+            ghosttyView.keyDown(with: event)
+#if DEBUG
+            if debugHotPathLogsEnabled {
+                dlog("  → ghostty command passthrough")
+            }
+#endif
+            return true
+        }
         // When the terminal is focused, skip the full NSWindow.performKeyEquivalent
         // (which walks the SwiftUI content view hierarchy) and dispatch Command-key
         // events directly to the main menu. This avoids the broken SwiftUI focus path.
