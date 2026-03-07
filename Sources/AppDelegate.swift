@@ -1487,6 +1487,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var pendingGhosttyConfigSurfaceRefreshWorkItem: DispatchWorkItem?
     private var pendingGhosttyConfigSurfaceRefreshSource: String?
     private var pendingGhosttyConfigSurfaceRefreshRequestCount = 0
+    private var pendingGhosttyConfigSurfaceRefreshGeneration: UInt64 = 0
     private let coalescedGhosttyConfigSurfaceRefreshDelay: TimeInterval = 0.4
     private let updateController = UpdateController()
     private lazy var titlebarAccessoryController = UpdateTitlebarAccessoryController(viewModel: updateViewModel)
@@ -3822,20 +3823,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func performTerminalSurfaceRefreshAfterGhosttyConfigReload(
         source: String,
-        visibleOnly: Bool = false
+        visibleOnly: Bool = false,
+        generation: UInt64
     ) {
         var refreshedCount = 0
         var deferredCount = 0
-        forEachTerminalPanel { terminalPanel in
-            if visibleOnly, !terminalPanel.hostedView.shouldRefreshImmediatelyAfterConfigReload {
-                terminalPanel.hostedView.markConfigRefreshPendingUntilVisible()
-                deferredCount += 1
-                return
+        if visibleOnly {
+            forEachSelectedWorkspaceTerminalPanel { terminalPanel in
+                terminalPanel.hostedView.applyConfigRefresh(generation: generation)
+                refreshedCount += 1
             }
-            terminalPanel.hostedView.clearPendingConfigRefreshOnReveal()
-            terminalPanel.hostedView.reconcileGeometryNow()
-            terminalPanel.surface.forceRefresh()
-            refreshedCount += 1
+        } else {
+            forEachTerminalPanel { terminalPanel in
+                terminalPanel.hostedView.applyConfigRefresh(generation: generation)
+                refreshedCount += 1
+            }
         }
 #if DEBUG
         dlog(
@@ -3847,15 +3849,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func refreshTerminalSurfacesAfterGhosttyConfigReload(
         source: String,
-        policy: GhosttyApp.SurfaceRefreshPolicy = .immediateGlobal
+        policy: GhosttyApp.SurfaceRefreshPolicy = .immediateGlobal,
+        generation: UInt64
     ) {
         switch policy {
         case .immediateGlobal:
             let pendingCount = pendingGhosttyConfigSurfaceRefreshRequestCount
+            let pendingGeneration = pendingGhosttyConfigSurfaceRefreshGeneration
             pendingGhosttyConfigSurfaceRefreshWorkItem?.cancel()
             pendingGhosttyConfigSurfaceRefreshWorkItem = nil
             pendingGhosttyConfigSurfaceRefreshSource = nil
             pendingGhosttyConfigSurfaceRefreshRequestCount = 0
+            pendingGhosttyConfigSurfaceRefreshGeneration = 0
 
             let effectiveSource: String
             if pendingCount > 0 {
@@ -3863,10 +3868,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             } else {
                 effectiveSource = source
             }
-            performTerminalSurfaceRefreshAfterGhosttyConfigReload(source: effectiveSource)
+            performTerminalSurfaceRefreshAfterGhosttyConfigReload(
+                source: effectiveSource,
+                generation: max(generation, pendingGeneration)
+            )
         case .coalescedGlobal, .coalescedVisibleOnly:
             pendingGhosttyConfigSurfaceRefreshRequestCount += 1
             pendingGhosttyConfigSurfaceRefreshSource = source
+            pendingGhosttyConfigSurfaceRefreshGeneration = max(
+                pendingGhosttyConfigSurfaceRefreshGeneration,
+                generation
+            )
             pendingGhosttyConfigSurfaceRefreshWorkItem?.cancel()
             let visibleOnly = (policy == .coalescedVisibleOnly)
 
@@ -3874,12 +3886,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 guard let self else { return }
                 let latestSource = self.pendingGhosttyConfigSurfaceRefreshSource ?? source
                 let pendingCount = self.pendingGhosttyConfigSurfaceRefreshRequestCount
+                let pendingGeneration = self.pendingGhosttyConfigSurfaceRefreshGeneration
                 self.pendingGhosttyConfigSurfaceRefreshWorkItem = nil
                 self.pendingGhosttyConfigSurfaceRefreshSource = nil
                 self.pendingGhosttyConfigSurfaceRefreshRequestCount = 0
+                self.pendingGhosttyConfigSurfaceRefreshGeneration = 0
                 self.performTerminalSurfaceRefreshAfterGhosttyConfigReload(
                     source: "coalesced.latest=\(latestSource) count=\(pendingCount)",
-                    visibleOnly: visibleOnly
+                    visibleOnly: visibleOnly,
+                    generation: pendingGeneration
                 )
             }
 
@@ -3918,6 +3933,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
+    private func forEachSelectedWorkspaceTerminalPanel(_ body: (TerminalPanel) -> Void) {
+        var seenManagers: Set<ObjectIdentifier> = []
+
+        func visitManager(_ manager: TabManager?) {
+            guard let manager else { return }
+            let managerId = ObjectIdentifier(manager)
+            guard seenManagers.insert(managerId).inserted else { return }
+            guard let workspace = manager.selectedWorkspace else { return }
+            for panel in workspace.panels.values {
+                guard let terminalPanel = panel as? TerminalPanel else { continue }
+                body(terminalPanel)
+            }
+        }
+
+        visitManager(tabManager)
+        for context in mainWindowContexts.values {
+            visitManager(context.tabManager)
+        }
+    }
     func focusMainWindow(windowId: UUID) -> Bool {
         guard let window = windowForMainWindowId(windowId) else { return false }
         if TerminalController.shouldSuppressSocketCommandActivation() {
@@ -9522,23 +9556,17 @@ private extension NSWindow {
             Self.cmuxOwningWebView(for: $0, in: self, event: event)
         }
         if let ghosttyView = firstResponderGhosttyView {
-            // If the IME is composing and the key has no Cmd modifier, don't intercept —
-            // let it flow through normal AppKit event dispatch so the input method can
-            // process it. Cmd-based shortcuts should still work during composition since
-            // Cmd is never part of IME input sequences.
-            if ghosttyView.hasMarkedText(), !event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command) {
-                return cmux_performKeyEquivalent(with: event)
-            }
-
             let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
             if !flags.contains(.command) {
-                let result = ghosttyView.performKeyEquivalent(with: event)
+                // Plain terminal input should fall through to keyDown directly.
+                // Routing every non-Command key through performKeyEquivalent adds
+                // extra key-binding work before the normal terminal path.
 #if DEBUG
                 if debugHotPathLogsEnabled {
-                    dlog("  → ghostty direct: \(result)")
+                    dlog("  → ghostty direct: skipped_non_command")
                 }
 #endif
-                return result
+                return false
             }
 
             // Preserve Ghostty's terminal font-size shortcuts (Cmd +/−/0) when

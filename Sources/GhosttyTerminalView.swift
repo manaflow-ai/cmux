@@ -647,6 +647,7 @@ class GhosttyApp {
 
     private(set) var app: ghostty_app_t?
     private(set) var config: ghostty_config_t?
+    private(set) var surfaceConfigRefreshGeneration: UInt64 = 0
     private(set) var defaultBackgroundColor: NSColor = .windowBackgroundColor
     private(set) var defaultBackgroundOpacity: Double = 1.0
     private static func resolveBackgroundLogURL(
@@ -1178,6 +1179,11 @@ class GhosttyApp {
         case coalescedVisibleOnly
     }
 
+    private func nextSurfaceConfigRefreshGeneration() -> UInt64 {
+        surfaceConfigRefreshGeneration &+= 1
+        return surfaceConfigRefreshGeneration
+    }
+
     func reloadConfiguration(
         soft: Bool = false,
         source: String = "unspecified",
@@ -1189,13 +1195,15 @@ class GhosttyApp {
         }
         logThemeAction("reload begin source=\(source) soft=\(soft)")
         resetDefaultBackgroundUpdateScope(source: "reloadConfiguration(source=\(source))")
+        let surfaceRefreshGeneration = nextSurfaceConfigRefreshGeneration()
         if soft, let config {
             ghostty_app_update_config(app, config)
             lastAppearanceColorScheme = GhosttyConfig.currentColorSchemePreference()
             NotificationCenter.default.post(name: .ghosttyConfigDidReload, object: nil)
             scheduleSurfaceRefreshAfterConfigurationReload(
                 source: source,
-                policy: surfaceRefreshPolicy
+                policy: surfaceRefreshPolicy,
+                generation: surfaceRefreshGeneration
             )
             logThemeAction("reload end source=\(source) soft=\(soft) mode=soft")
             return
@@ -1223,19 +1231,22 @@ class GhosttyApp {
         NotificationCenter.default.post(name: .ghosttyConfigDidReload, object: nil)
         scheduleSurfaceRefreshAfterConfigurationReload(
             source: source,
-            policy: surfaceRefreshPolicy
+            policy: surfaceRefreshPolicy,
+            generation: surfaceRefreshGeneration
         )
         logThemeAction("reload end source=\(source) soft=\(soft) mode=full")
     }
 
     private func scheduleSurfaceRefreshAfterConfigurationReload(
         source: String,
-        policy: SurfaceRefreshPolicy
+        policy: SurfaceRefreshPolicy,
+        generation: UInt64
     ) {
         DispatchQueue.main.async {
             AppDelegate.shared?.refreshTerminalSurfacesAfterGhosttyConfigReload(
                 source: source,
-                policy: policy
+                policy: policy,
+                generation: generation
             )
         }
     }
@@ -3115,7 +3126,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var pendingSurfaceSize: CGSize?
     private var isFindEscapeSuppressionArmed = false
     private var lastAppliedOcclusionVisibility: Bool?
-    private var pendingConfigRefreshOnReveal = false
+    private var lastAppliedConfigRefreshGeneration: UInt64 = 0
 #if DEBUG
     private var lastSizeSkipSignature: String?
 #endif
@@ -3154,12 +3165,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         visibleInUI = visible
     }
 
-    fileprivate func markConfigRefreshPendingUntilVisible() {
-        pendingConfigRefreshOnReveal = true
-    }
-
-    fileprivate func clearPendingConfigRefreshOnReveal() {
-        pendingConfigRefreshOnReveal = false
+    fileprivate func applyConfigRefresh(generation: UInt64) {
+        lastAppliedConfigRefreshGeneration = max(lastAppliedConfigRefreshGeneration, generation)
+        applySurfaceBackground()
+        applySurfaceColorScheme(force: true)
+        terminalSurface?.forceRefresh()
     }
 
     override init(frame frameRect: NSRect) {
@@ -3384,11 +3394,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         guard previousVisibility != visible else { return }
         lastAppliedOcclusionVisibility = visible
         terminalSurface?.setOcclusion(visible)
-        if visible, pendingConfigRefreshOnReveal {
-            pendingConfigRefreshOnReveal = false
-            applySurfaceBackground()
-            applySurfaceColorScheme(force: true)
-            terminalSurface?.forceRefresh()
+        let currentConfigRefreshGeneration = GhosttyApp.shared.surfaceConfigRefreshGeneration
+        if visible, currentConfigRefreshGeneration > lastAppliedConfigRefreshGeneration {
+            applyConfigRefresh(generation: currentConfigRefreshGeneration)
         } else if forceRefreshOnReveal, visible, previousVisibility == false {
             terminalSurface?.forceRefresh()
         }
@@ -4084,6 +4092,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // method can process it normally. Cmd-based shortcuts should still work
         // during composition since Cmd is never part of IME input sequences.
         if hasMarkedText(), !event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command) {
+            return false
+        }
+
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if !flags.contains(.command) {
+            // Let terminal control and option-modified input take the normal
+            // keyDown path. Running through performKeyEquivalent first adds
+            // extra binding work before the actual Ghostty input dispatch.
+            lastPerformKeyEvent = nil
             return false
         }
 
@@ -5130,6 +5147,7 @@ final class GhosttySurfaceScrollView: NSView {
 	    private var isLiveScrolling = false
     private var lastSentRow: Int?
     private var isActive = true
+    private var lastReportedWorkspaceHandoffReady = false
     private var activeDropZone: DropZone?
     private var pendingDropZone: DropZone?
     private var dropZoneOverlayAnimationGeneration: UInt64 = 0
@@ -5476,6 +5494,7 @@ final class GhosttySurfaceScrollView: NSView {
     override func layout() {
         super.layout()
         synchronizeGeometryAndContent()
+        publishWorkspaceHandoffReadinessIfNeeded()
     }
 
     /// Reconcile AppKit geometry with ghostty surface geometry synchronously.
@@ -5537,7 +5556,10 @@ final class GhosttySurfaceScrollView: NSView {
         super.viewDidMoveToWindow()
         windowObservers.forEach { NotificationCenter.default.removeObserver($0) }
         windowObservers.removeAll()
-        guard let window else { return }
+        guard let window else {
+            publishWorkspaceHandoffReadinessIfNeeded()
+            return
+        }
         windowObservers.append(NotificationCenter.default.addObserver(
             forName: NSWindow.didBecomeKeyNotification,
             object: window,
@@ -5580,10 +5602,12 @@ final class GhosttySurfaceScrollView: NSView {
         })
         surfaceView.updateOcclusionState()
         if window.isKeyWindow { applyFirstResponderIfNeeded() }
+        publishWorkspaceHandoffReadinessIfNeeded()
     }
 
     func attachSurface(_ terminalSurface: TerminalSurface) {
         surfaceView.attachSurface(terminalSurface)
+        publishWorkspaceHandoffReadinessIfNeeded()
     }
 
     func setFocusHandler(_ handler: (() -> Void)?) {
@@ -5951,18 +5975,21 @@ final class GhosttySurfaceScrollView: NSView {
             applyFirstResponderIfNeeded()
         }
         surfaceView.updateOcclusionState()
+        publishWorkspaceHandoffReadinessIfNeeded()
     }
 
-    var shouldRefreshImmediatelyAfterConfigReload: Bool {
-        surfaceView.shouldSurfaceBeVisibleToGhostty
+    func applyConfigRefresh(generation: UInt64) {
+        surfaceView.applyConfigRefresh(generation: generation)
     }
 
-    func markConfigRefreshPendingUntilVisible() {
-        surfaceView.markConfigRefreshPendingUntilVisible()
-    }
-
-    func clearPendingConfigRefreshOnReveal() {
-        surfaceView.clearPendingConfigRefreshOnReveal()
+    var isReadyForWorkspaceHandoff: Bool {
+        let hasUsablePortalGeometry = bounds.width > 1 && bounds.height > 1
+        let hiddenForFocus = isHidden || surfaceView.isHidden
+        return window != nil &&
+            superview != nil &&
+            surfaceView.isVisibleInUI &&
+            !hiddenForFocus &&
+            hasUsablePortalGeometry
     }
 
     func setActive(_ active: Bool) {
@@ -5985,6 +6012,26 @@ final class GhosttySurfaceScrollView: NSView {
                   fr === surfaceView || fr.isDescendant(of: surfaceView) {
             window.makeFirstResponder(nil)
         }
+        publishWorkspaceHandoffReadinessIfNeeded()
+    }
+
+    private func publishWorkspaceHandoffReadinessIfNeeded() {
+        let isReady = isActive && isReadyForWorkspaceHandoff
+        guard isReady != lastReportedWorkspaceHandoffReady else { return }
+        lastReportedWorkspaceHandoffReady = isReady
+        guard isReady,
+              let tabId = surfaceView.tabId,
+              let terminalSurface = surfaceView.terminalSurface else {
+            return
+        }
+        NotificationCenter.default.post(
+            name: .ghosttySurfaceReadyForWorkspaceHandoff,
+            object: nil,
+            userInfo: [
+                GhosttyNotificationKey.tabId: tabId,
+                GhosttyNotificationKey.surfaceId: terminalSurface.id,
+            ]
+        )
     }
 
 #if DEBUG
@@ -6973,6 +7020,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
         var desiredPortalZPriority: Int = 0
         var lastBoundHostId: ObjectIdentifier?
         var lastPaneDropZone: DropZone?
+        var lastReportedReadyForWorkspaceHandoff: Bool = false
         weak var hostedView: GhosttySurfaceScrollView?
     }
 
@@ -6988,6 +7036,28 @@ struct GhosttyTerminalView: NSViewRepresentable {
         // already attached elsewhere, do not mutate visibility/active state here.
         if isBoundToCurrentHost { return true }
         return !hostedViewHasSuperview
+    }
+
+    static func publishWorkspaceHandoffReadinessIfNeeded(
+        terminalSurface: TerminalSurface,
+        hostedView: GhosttySurfaceScrollView,
+        coordinator: Coordinator
+    ) {
+        let isReady =
+            coordinator.desiredIsActive &&
+            coordinator.desiredIsVisibleInUI &&
+            hostedView.isReadyForWorkspaceHandoff
+        guard isReady != coordinator.lastReportedReadyForWorkspaceHandoff else { return }
+        coordinator.lastReportedReadyForWorkspaceHandoff = isReady
+        guard isReady else { return }
+        NotificationCenter.default.post(
+            name: .ghosttySurfaceReadyForWorkspaceHandoff,
+            object: nil,
+            userInfo: [
+                GhosttyNotificationKey.tabId: terminalSurface.tabId,
+                GhosttyNotificationKey.surfaceId: terminalSurface.id,
+            ]
+        )
     }
 
     func makeNSView(context: Context) -> NSView {
@@ -7095,6 +7165,11 @@ struct GhosttyTerminalView: NSViewRepresentable {
                 hostedView.setVisibleInUI(coordinator.desiredIsVisibleInUI)
                 hostedView.setActive(coordinator.desiredIsActive)
                 hostedView.setNotificationRing(visible: coordinator.desiredShowsUnreadNotificationRing)
+                Self.publishWorkspaceHandoffReadinessIfNeeded(
+                    terminalSurface: terminalSurface,
+                    hostedView: hostedView,
+                    coordinator: coordinator
+                )
             }
             host.onGeometryChanged = { [weak host, weak hostedView, weak coordinator] in
                 guard let host, let hostedView, let coordinator else { return }
@@ -7123,6 +7198,11 @@ struct GhosttyTerminalView: NSViewRepresentable {
                     hostedView.setNotificationRing(visible: coordinator.desiredShowsUnreadNotificationRing)
                 }
                 TerminalWindowPortalRegistry.synchronizeForAnchor(host)
+                Self.publishWorkspaceHandoffReadinessIfNeeded(
+                    terminalSurface: terminalSurface,
+                    hostedView: hostedView,
+                    coordinator: coordinator
+                )
             }
 
             if host.window != nil {
@@ -7192,6 +7272,11 @@ struct GhosttyTerminalView: NSViewRepresentable {
             }
 #endif
         }
+        Self.publishWorkspaceHandoffReadinessIfNeeded(
+            terminalSurface: terminalSurface,
+            hostedView: hostedView,
+            coordinator: coordinator
+        )
     }
 
     static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
@@ -7201,6 +7286,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
         coordinator.desiredShowsUnreadNotificationRing = false
         coordinator.desiredPortalZPriority = 0
         coordinator.lastBoundHostId = nil
+        coordinator.lastReportedReadyForWorkspaceHandoff = false
         let hostedView = coordinator.hostedView
 #if DEBUG
         if let hostedView {

@@ -2169,6 +2169,7 @@ struct ContentView: View {
             tabManager.applyWindowBackgroundForSelectedTab()
             startWorkspaceHandoffIfNeeded(newSelectedId: newValue)
             reconcileMountedWorkspaceIds(selectedId: newValue)
+            completeWorkspaceHandoffIfSelectedTerminalReady(reason: "terminal_ready")
             guard let newValue else { return }
             if selectedTabIds.count <= 1 {
                 selectedTabIds = [newValue]
@@ -2177,7 +2178,7 @@ struct ContentView: View {
             updateTitlebarText()
         })
 
-        view = AnyView(view.onChange(of: tabManager.isWorkspaceCycleHot) { _ in
+        view = AnyView(view.onChange(of: tabManager.isWorkspaceCycleHot) { wasHot, isHot in
 #if DEBUG
             if let snapshot = tabManager.debugCurrentWorkspaceSwitchSnapshot() {
                 let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
@@ -2188,7 +2189,12 @@ struct ContentView: View {
                 contentHotPathDlog("ws.view.hotChange id=none hot=\(tabManager.isWorkspaceCycleHot ? 1 : 0)")
             }
 #endif
-            reconcileMountedWorkspaceIds()
+            // `selectedTabId` changes already reconcile the hot path immediately.
+            // Only reconcile here when the hot-cycle window cools off and we need
+            // to drop any extra mounted workspaces retained during cycling.
+            if wasHot && !isHot {
+                reconcileMountedWorkspaceIds()
+            }
         })
 
         view = AnyView(view.onChange(of: retiringWorkspaceId) { _ in
@@ -2224,6 +2230,15 @@ struct ContentView: View {
             guard let tabId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID,
                   tabId == tabManager.selectedTabId else { return }
             completeWorkspaceHandoffIfNeeded(focusedTabId: tabId, reason: "first_responder")
+        })
+
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .ghosttySurfaceReadyForWorkspaceHandoff)) { notification in
+            guard let tabId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID,
+                  let surfaceId = notification.userInfo?[GhosttyNotificationKey.surfaceId] as? UUID,
+                  tabId == tabManager.selectedTabId,
+                  let selectedWorkspace = tabManager.selectedWorkspace,
+                  selectedWorkspace.focusedPanelId == surfaceId else { return }
+            completeWorkspaceHandoffIfNeeded(focusedTabId: tabId, reason: "terminal_ready")
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .browserDidBecomeFirstResponderWebView)) { notification in
@@ -2701,6 +2716,16 @@ struct ContentView: View {
     private func completeWorkspaceHandoffIfNeeded(focusedTabId: UUID, reason: String) {
         guard focusedTabId == tabManager.selectedTabId else { return }
         guard retiringWorkspaceId != nil else { return }
+        completeWorkspaceHandoff(reason: reason)
+    }
+
+    private func completeWorkspaceHandoffIfSelectedTerminalReady(reason: String) {
+        guard retiringWorkspaceId != nil else { return }
+        guard let selectedWorkspace = tabManager.selectedWorkspace,
+              let terminalPanel = selectedWorkspace.focusedTerminalPanel,
+              terminalPanel.hostedView.isReadyForWorkspaceHandoff else {
+            return
+        }
         completeWorkspaceHandoff(reason: reason)
     }
 
