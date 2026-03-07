@@ -237,10 +237,10 @@ cmux does **not** restore live process state inside terminal apps. For example, 
 
 Ways to get involved:
 
-- Follow us on X for updates [@manaflowai](https://x.com/manaflowai) or [@lawrencecchen](https://x.com/lawrencecchen)
+- Follow us on X for updates [@manaflowai](https://x.com/manaflowai), [@lawrencecchen](https://x.com/lawrencecchen), and [@austinywang](https://x.com/austinywang)
 - Join the conversation on [Discord](https://discord.gg/xsgFEVrWCZ)
 - Create and participate in [GitHub issues](https://github.com/manaflow-ai/cmux/issues) and [discussions](https://github.com/manaflow-ai/cmux/discussions)
-- Let me know what you're building with cmux
+- Let us know what you're building with cmux
 
 ## Community
 
