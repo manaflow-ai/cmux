@@ -171,6 +171,154 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         )
     }
 
+    func testEscapeRestoresFocusedPageInputAfterCmdL() {
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
+        app.launchEnvironment["CMUX_UI_TEST_FOCUS_SHORTCUTS"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_INPUT_SETUP"] = "1"
+        launchAndEnsureForeground(app)
+
+        XCTAssertTrue(
+            waitForData(
+                keys: [
+                    "browserPanelId",
+                    "webViewFocused",
+                    "webInputFocusSeeded",
+                    "webInputFocusElementId",
+                    "webInputFocusSecondaryElementId",
+                    "webInputFocusSecondaryClickOffsetX",
+                    "webInputFocusSecondaryClickOffsetY"
+                ],
+                timeout: 12.0
+            ),
+            "Expected setup data including focused page input to be written"
+        )
+
+        guard let setup = loadData() else {
+            XCTFail("Missing goto_split setup data")
+            return
+        }
+
+        XCTAssertEqual(setup["webViewFocused"], "true", "Expected WKWebView to be first responder for this test")
+        XCTAssertEqual(setup["webInputFocusSeeded"], "true", "Expected test page input to be focused before Cmd+L")
+
+        guard let expectedInputId = setup["webInputFocusElementId"], !expectedInputId.isEmpty else {
+            XCTFail("Missing webInputFocusElementId in setup data")
+            return
+        }
+        guard let expectedSecondaryInputId = setup["webInputFocusSecondaryElementId"], !expectedSecondaryInputId.isEmpty else {
+            XCTFail("Missing webInputFocusSecondaryElementId in setup data")
+            return
+        }
+        guard let secondaryClickOffsetXRaw = setup["webInputFocusSecondaryClickOffsetX"],
+              let secondaryClickOffsetYRaw = setup["webInputFocusSecondaryClickOffsetY"],
+              let secondaryClickOffsetX = Double(secondaryClickOffsetXRaw),
+              let secondaryClickOffsetY = Double(secondaryClickOffsetYRaw) else {
+            XCTFail(
+                "Missing or invalid secondary input click offsets in setup data. " +
+                "webInputFocusSecondaryClickOffsetX=\(setup["webInputFocusSecondaryClickOffsetX"] ?? "nil") " +
+                "webInputFocusSecondaryClickOffsetY=\(setup["webInputFocusSecondaryClickOffsetY"] ?? "nil")"
+            )
+            return
+        }
+
+        app.typeKey("l", modifierFlags: [.command])
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 5.0) { data in
+                data["webViewFocusedAfterAddressBarFocus"] == "false"
+            },
+            "Expected Cmd+L to focus omnibar"
+        )
+
+        app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
+        if !waitForDataMatch(timeout: 2.0, predicate: { data in
+            data["webViewFocusedAfterAddressBarExit"] == "true" &&
+                data["addressBarExitActiveElementId"] == expectedInputId &&
+                data["addressBarExitActiveElementEditable"] == "true"
+        }) {
+            app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
+        }
+
+        let restoredExpectedInput = waitForDataMatch(timeout: 6.0) { data in
+            data["webViewFocusedAfterAddressBarExit"] == "true" &&
+                data["addressBarExitActiveElementId"] == expectedInputId &&
+                data["addressBarExitActiveElementEditable"] == "true"
+        }
+        if !restoredExpectedInput {
+            let snapshot = loadData() ?? [:]
+            XCTFail(
+                "Expected Escape to restore focus to the previously focused page input. " +
+                "expectedInputId=\(expectedInputId) " +
+                "webViewFocusedAfterAddressBarExit=\(snapshot["webViewFocusedAfterAddressBarExit"] ?? "nil") " +
+                "addressBarExitActiveElementId=\(snapshot["addressBarExitActiveElementId"] ?? "nil") " +
+                "addressBarExitActiveElementTag=\(snapshot["addressBarExitActiveElementTag"] ?? "nil") " +
+                "addressBarExitActiveElementType=\(snapshot["addressBarExitActiveElementType"] ?? "nil") " +
+                "addressBarExitActiveElementEditable=\(snapshot["addressBarExitActiveElementEditable"] ?? "nil") " +
+                "addressBarExitTrackedFocusStateId=\(snapshot["addressBarExitTrackedFocusStateId"] ?? "nil") " +
+                "addressBarExitFocusTrackerInstalled=\(snapshot["addressBarExitFocusTrackerInstalled"] ?? "nil") " +
+                "addressBarFocusActiveElementId=\(snapshot["addressBarFocusActiveElementId"] ?? "nil") " +
+                "addressBarFocusTrackedFocusStateId=\(snapshot["addressBarFocusTrackedFocusStateId"] ?? "nil") " +
+                "addressBarFocusFocusTrackerInstalled=\(snapshot["addressBarFocusFocusTrackerInstalled"] ?? "nil") " +
+                "webInputFocusElementId=\(snapshot["webInputFocusElementId"] ?? "nil") " +
+                "webInputFocusTrackerInstalled=\(snapshot["webInputFocusTrackerInstalled"] ?? "nil") " +
+                "webInputFocusTrackedStateId=\(snapshot["webInputFocusTrackedStateId"] ?? "nil")"
+            )
+        }
+
+        let window = app.windows.firstMatch
+        XCTAssertTrue(
+            window.waitForExistence(timeout: 6.0),
+            "Expected app window for post-escape click regression check"
+        )
+
+        RunLoop.current.run(until: Date().addingTimeInterval(0.15))
+        window
+            .coordinate(withNormalizedOffset: CGVector(dx: 0.0, dy: 0.0))
+            .withOffset(CGVector(dx: secondaryClickOffsetX, dy: secondaryClickOffsetY))
+            .click()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.15))
+
+        app.typeKey("l", modifierFlags: [.command])
+        let clickMovedFocusToSecondary = waitForDataMatch(timeout: 6.0) { data in
+            data["webViewFocusedAfterAddressBarFocus"] == "false" &&
+                data["addressBarFocusActiveElementId"] == expectedSecondaryInputId &&
+                data["addressBarFocusActiveElementEditable"] == "true"
+        }
+        if !clickMovedFocusToSecondary {
+            let snapshot = loadData() ?? [:]
+            XCTFail(
+                "Expected post-escape click to focus secondary page input before Cmd+L. " +
+                "secondaryInputId=\(expectedSecondaryInputId) " +
+                "addressBarFocusActiveElementId=\(snapshot["addressBarFocusActiveElementId"] ?? "nil") " +
+                "addressBarFocusActiveElementTag=\(snapshot["addressBarFocusActiveElementTag"] ?? "nil") " +
+                "addressBarFocusActiveElementType=\(snapshot["addressBarFocusActiveElementType"] ?? "nil") " +
+                "addressBarFocusActiveElementEditable=\(snapshot["addressBarFocusActiveElementEditable"] ?? "nil") " +
+                "addressBarFocusTrackedFocusStateId=\(snapshot["addressBarFocusTrackedFocusStateId"] ?? "nil") " +
+                "addressBarFocusFocusTrackerInstalled=\(snapshot["addressBarFocusFocusTrackerInstalled"] ?? "nil")"
+            )
+        }
+
+        app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
+        if !waitForDataMatch(timeout: 2.0, predicate: { data in
+            data["webViewFocusedAfterAddressBarExit"] == "true" &&
+                data["addressBarExitActiveElementId"] == expectedSecondaryInputId &&
+                data["addressBarExitActiveElementEditable"] == "true"
+        }) {
+            app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
+        }
+
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 6.0) { data in
+                data["webViewFocusedAfterAddressBarExit"] == "true" &&
+                    data["addressBarExitActiveElementId"] == expectedSecondaryInputId &&
+                    data["addressBarExitActiveElementEditable"] == "true"
+            },
+            "Expected Escape to restore focus to the clicked secondary page input"
+        )
+    }
+
     func testCmdLOpensBrowserWhenTerminalFocused() {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath

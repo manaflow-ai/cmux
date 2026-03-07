@@ -11553,10 +11553,10 @@ final class TerminalControllerSocketTextChunkTests: XCTestCase {
 }
 
 final class BrowserOmnibarFocusPolicyTests: XCTestCase {
-    func testReacquiresFocusWhenWebViewSuppressionIsActiveAndNextResponderIsNotAnotherTextField() {
+    func testReacquiresFocusWhenOmnibarStillWantsFocusAndNextResponderIsNotAnotherTextField() {
         XCTAssertTrue(
             browserOmnibarShouldReacquireFocusAfterEndEditing(
-                suppressWebViewFocus: true,
+                desiredOmnibarFocus: true,
                 nextResponderIsOtherTextField: false
             )
         )
@@ -11565,16 +11565,16 @@ final class BrowserOmnibarFocusPolicyTests: XCTestCase {
     func testDoesNotReacquireFocusWhenAnotherTextFieldAlreadyTookFocus() {
         XCTAssertFalse(
             browserOmnibarShouldReacquireFocusAfterEndEditing(
-                suppressWebViewFocus: true,
+                desiredOmnibarFocus: true,
                 nextResponderIsOtherTextField: true
             )
         )
     }
 
-    func testDoesNotReacquireFocusWhenWebViewSuppressionIsInactive() {
+    func testDoesNotReacquireFocusWhenOmnibarNoLongerWantsFocus() {
         XCTAssertFalse(
             browserOmnibarShouldReacquireFocusAfterEndEditing(
-                suppressWebViewFocus: false,
+                desiredOmnibarFocus: false,
                 nextResponderIsOtherTextField: false
             )
         )
