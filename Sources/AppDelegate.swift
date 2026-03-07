@@ -1269,6 +1269,31 @@ func shouldRouteTerminalFontZoomShortcutToGhostty(
     ) != nil
 }
 
+func shouldRouteTerminalCommandShortcutToGhostty(
+    flags: NSEvent.ModifierFlags,
+    chars: String,
+    keyCode: UInt16,
+    terminalHasSelection: Bool
+) -> Bool {
+    let normalizedFlags = flags
+        .intersection(.deviceIndependentFlagsMask)
+        .subtracting([.numericPad, .function, .capsLock])
+    guard normalizedFlags.contains(.command) else { return false }
+
+    let normalizedChars = chars.lowercased()
+    if normalizedFlags == [.command] {
+        if normalizedChars == "," || keyCode == 43 {
+            return false
+        }
+
+        if (normalizedChars == "c" || keyCode == 8), terminalHasSelection {
+            return false
+        }
+    }
+
+    return true
+}
+
 func cmuxOwningGhosttyView(for responder: NSResponder?) -> GhosttyNSView? {
     guard let responder else { return nil }
     if let ghosttyView = responder as? GhosttyNSView {
