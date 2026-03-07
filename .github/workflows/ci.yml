@@ -25,25 +25,35 @@ jobs:
       - name: Validate cmux scheme test configuration
         run: ./tests/test_ci_scheme_testaction_debug.sh
 
-  web-typecheck:
+      - name: Validate docs-only PR classifier
+        run: ./tests/test_ci_docs_only_pr_skip.sh
+
+  classify-pr-scope:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: web
+    outputs:
+      docs_only: ${{ steps.classify.outputs.docs_only }}
+      run_heavy_macos: ${{ steps.classify.outputs.run_heavy_macos }}
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@3d267786b128fe76c2f16a390aa2448b815359f3 # v2
+      - name: Classify pull request scope
+        id: classify
+        run: |
+          set -euo pipefail
+          OUTPUT=$(python3 scripts/ci/classify_pr_scope.py \
+            --repo-root "$GITHUB_WORKSPACE" \
+            --event-name "${{ github.event_name }}" \
+            --base "${{ github.event.pull_request.base.sha || '' }}" \
+            --head "${{ github.event.pull_request.head.sha || github.sha }}")
+          echo "$OUTPUT"
+          echo "$OUTPUT" >> "$GITHUB_OUTPUT"
 
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-
-      - name: Typecheck
-        run: bun tsc --noEmit
-
-  tests:
+  prepare-ghosttykit:
+    needs: classify-pr-scope
+    if: needs.classify-pr-scope.outputs.run_heavy_macos == 'true'
     runs-on: macos-15
     steps:
       - name: Checkout
@@ -69,32 +79,80 @@ jobs:
           xcodebuild -version
           xcrun --sdk macosx --show-sdk-path
 
-      - name: Download pre-built GhosttyKit.xcframework
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Ensure GhosttyKit.xcframework
+        run: bash scripts/ci/ensure_ghosttykit.sh
+
+      - name: Package GhosttyKit.xcframework artifact
         run: |
           set -euo pipefail
-          GHOSTTY_SHA=$(git -C ghostty rev-parse HEAD)
-          TAG="xcframework-$GHOSTTY_SHA"
-          URL="https://github.com/manaflow-ai/ghostty/releases/download/$TAG/GhosttyKit.xcframework.tar.gz"
-          echo "Downloading xcframework for ghostty $GHOSTTY_SHA"
-          MAX_RETRIES=30
-          RETRY_DELAY=20
-          for i in $(seq 1 $MAX_RETRIES); do
-            if curl -fSL -o GhosttyKit.xcframework.tar.gz "$URL"; then
-              echo "Download succeeded on attempt $i"
-              break
-            fi
-            if [ "$i" -eq "$MAX_RETRIES" ]; then
-              echo "Failed to download xcframework after $MAX_RETRIES attempts" >&2
-              exit 1
-            fi
-            echo "Attempt $i/$MAX_RETRIES failed, retrying in ${RETRY_DELAY}s..."
-            sleep $RETRY_DELAY
-          done
+          rm -f GhosttyKit.xcframework.tar.gz
+          tar czf GhosttyKit.xcframework.tar.gz GhosttyKit.xcframework
+
+      - name: Upload GhosttyKit.xcframework artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ghosttykit-xcframework
+          path: GhosttyKit.xcframework.tar.gz
+          compression-level: 0
+          if-no-files-found: error
+
+  web-typecheck:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@3d267786b128fe76c2f16a390aa2448b815359f3 # v2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck
+        run: bun tsc --noEmit
+
+  tests:
+    needs: [classify-pr-scope, prepare-ghosttykit]
+    if: needs.classify-pr-scope.outputs.run_heavy_macos == 'true'
+    runs-on: macos-15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          submodules: recursive
+
+      - name: Download GhosttyKit.xcframework artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: ghosttykit-xcframework
+
+      - name: Extract GhosttyKit.xcframework artifact
+        run: |
+          set -euo pipefail
+          rm -rf GhosttyKit.xcframework
           tar xzf GhosttyKit.xcframework.tar.gz
-          rm GhosttyKit.xcframework.tar.gz
-          test -d GhosttyKit.xcframework
+          rm -f GhosttyKit.xcframework.tar.gz
+
+      - name: Select Xcode
+        run: |
+          set -euo pipefail
+          XCODE_APP="$(ls -d /Applications/Xcode_*.app 2>/dev/null | sort | tail -n 1 || true)"
+          if [ -z "$XCODE_APP" ]; then
+            XCODE_APP="/Applications/Xcode.app"
+          fi
+          XCODE_DIR="$XCODE_APP/Contents/Developer"
+          if [ ! -d "$XCODE_DIR" ]; then
+            echo "No Xcode found under /Applications" >&2
+            exit 1
+          fi
+          echo "Selected: $XCODE_APP"
+          echo "DEVELOPER_DIR=$XCODE_DIR" >> "$GITHUB_ENV"
+          export DEVELOPER_DIR="$XCODE_DIR"
+          xcodebuild -version
+          xcrun --sdk macosx --show-sdk-path
 
       - name: Clean DerivedData
         run: |
@@ -175,14 +233,26 @@ jobs:
           fi
 
   tests-depot:
-    # Never run Depot jobs for fork pull requests (avoid billing on external PRs).
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    needs: [classify-pr-scope, prepare-ghosttykit]
+    if: needs.classify-pr-scope.outputs.run_heavy_macos == 'true'
     runs-on: depot-macos-latest
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           submodules: recursive
+
+      - name: Download GhosttyKit.xcframework artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: ghosttykit-xcframework
+
+      - name: Extract GhosttyKit.xcframework artifact
+        run: |
+          set -euo pipefail
+          rm -rf GhosttyKit.xcframework
+          tar xzf GhosttyKit.xcframework.tar.gz
+          rm -f GhosttyKit.xcframework.tar.gz
 
       - name: Select Xcode
         run: |
@@ -201,33 +271,6 @@ jobs:
           echo "DEVELOPER_DIR=$XCODE_DIR" >> "$GITHUB_ENV"
           export DEVELOPER_DIR="$XCODE_DIR"
           xcodebuild -version
-
-      - name: Download pre-built GhosttyKit.xcframework
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          GHOSTTY_SHA=$(git -C ghostty rev-parse HEAD)
-          TAG="xcframework-$GHOSTTY_SHA"
-          URL="https://github.com/manaflow-ai/ghostty/releases/download/$TAG/GhosttyKit.xcframework.tar.gz"
-          echo "Downloading xcframework for ghostty $GHOSTTY_SHA"
-          MAX_RETRIES=30
-          RETRY_DELAY=20
-          for i in $(seq 1 $MAX_RETRIES); do
-            if curl -fSL -o GhosttyKit.xcframework.tar.gz "$URL"; then
-              echo "Download succeeded on attempt $i"
-              break
-            fi
-            if [ "$i" -eq "$MAX_RETRIES" ]; then
-              echo "Failed to download xcframework after $MAX_RETRIES attempts" >&2
-              exit 1
-            fi
-            echo "Attempt $i/$MAX_RETRIES failed, retrying in ${RETRY_DELAY}s..."
-            sleep $RETRY_DELAY
-          done
-          tar xzf GhosttyKit.xcframework.tar.gz
-          rm GhosttyKit.xcframework.tar.gz
-          test -d GhosttyKit.xcframework
 
       - name: Clean DerivedData
         run: rm -rf ~/Library/Developer/Xcode/DerivedData/GhosttyTabs-*
