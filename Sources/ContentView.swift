@@ -7148,6 +7148,18 @@ enum DevBuildBannerDebugSettings {
     }
 }
 
+enum KeyboardShortcutBehaviorSettings {
+    static let swapCmdCtrlDigitShortcutsKey = "swapCmdCtrlDigitShortcuts"
+    static let defaultSwapCmdCtrlDigitShortcuts = false
+
+    static func swapCmdCtrlDigitShortcutsEnabled(defaults: UserDefaults = .standard) -> Bool {
+        guard defaults.object(forKey: swapCmdCtrlDigitShortcutsKey) != nil else {
+            return defaultSwapCmdCtrlDigitShortcuts
+        }
+        return defaults.bool(forKey: swapCmdCtrlDigitShortcutsKey)
+    }
+}
+
 private enum FeedbackComposerSettings {
     static let storedEmailKey = "sidebarHelpFeedbackEmail"
     static let endpointEnvironmentKey = "CMUX_FEEDBACK_API_URL"

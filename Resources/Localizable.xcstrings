@@ -54606,6 +54606,39 @@
         }
       }
     },
+    "settings.shortcuts.swapCmdCtrlDigits": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Swap Cmd+Number and Ctrl+Number"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.swapCmdCtrlDigits.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd+Number switches workspaces, Ctrl+Number switches surfaces (tabs)."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.swapCmdCtrlDigits.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd+Number switches surfaces (tabs), Ctrl+Number switches workspaces. Matches Ghostty and other terminals."
+          }
+        }
+      }
+    },
     "settings.state.active": {
       "extractionState": "manual",
       "localizations": {

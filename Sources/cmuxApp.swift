@@ -2875,6 +2875,8 @@ struct SettingsView: View {
     private var openSidebarPullRequestLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenSidebarPullRequestLinksInCmuxBrowser
     @AppStorage(ShortcutHintDebugSettings.showHintsOnCommandHoldKey)
     private var showShortcutHintsOnCommandHold = ShortcutHintDebugSettings.defaultShowHintsOnCommandHold
+    @AppStorage(KeyboardShortcutBehaviorSettings.swapCmdCtrlDigitShortcutsKey)
+    private var swapCmdCtrlDigitShortcuts = KeyboardShortcutBehaviorSettings.defaultSwapCmdCtrlDigitShortcuts
     @AppStorage("sidebarShowPorts") private var sidebarShowPorts = true
     @AppStorage("sidebarShowLog") private var sidebarShowLog = true
     @AppStorage("sidebarShowProgress") private var sidebarShowProgress = true
@@ -3912,6 +3914,19 @@ struct SettingsView: View {
                                 : String(localized: "settings.shortcuts.showHints.subtitleOff", defaultValue: "Holding Cmd or Ctrl keeps shortcut hint pills hidden.")
                         ) {
                             Toggle("", isOn: $showShortcutHintsOnCommandHold)
+                                .labelsHidden()
+                                .controlSize(.small)
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            String(localized: "settings.shortcuts.swapCmdCtrlDigits", defaultValue: "Swap Cmd+Number and Ctrl+Number"),
+                            subtitle: swapCmdCtrlDigitShortcuts
+                                ? String(localized: "settings.shortcuts.swapCmdCtrlDigits.subtitleOn", defaultValue: "Cmd+Number switches surfaces (tabs), Ctrl+Number switches workspaces. Matches Ghostty and other terminals.")
+                                : String(localized: "settings.shortcuts.swapCmdCtrlDigits.subtitleOff", defaultValue: "Cmd+Number switches workspaces, Ctrl+Number switches surfaces (tabs).")
+                        ) {
+                            Toggle("", isOn: $swapCmdCtrlDigitShortcuts)
                                 .labelsHidden()
                                 .controlSize(.small)
                         }
