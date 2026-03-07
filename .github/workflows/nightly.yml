@@ -116,55 +116,8 @@ jobs:
           npm install --global "create-dmg@${CREATE_DMG_VERSION}"
 
       - name: Download pre-built GhosttyKit.xcframework
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          set -euo pipefail
-          GHOSTTY_SHA=$(git -C ghostty rev-parse HEAD)
-          TAG="xcframework-$GHOSTTY_SHA"
-          URL="https://github.com/manaflow-ai/ghostty/releases/download/$TAG/GhosttyKit.xcframework.tar.gz"
-          echo "Downloading xcframework for ghostty $GHOSTTY_SHA"
-          MAX_RETRIES=30
-          RETRY_DELAY=20
-          for i in $(seq 1 $MAX_RETRIES); do
-            if curl -fSL -o GhosttyKit.xcframework.tar.gz "$URL"; then
-              echo "Download succeeded on attempt $i"
-              break
-            fi
-            if [ "$i" -eq "$MAX_RETRIES" ]; then
-              echo "Failed to download xcframework after $MAX_RETRIES attempts" >&2
-              exit 1
-            fi
-            echo "Attempt $i/$MAX_RETRIES failed, retrying in ${RETRY_DELAY}s..."
-            sleep $RETRY_DELAY
-          done
-          RELEASE_API_URL="https://api.github.com/repos/manaflow-ai/ghostty/releases/tags/$TAG"
-          EXPECTED_SHA256=$(curl -fsSL \
-            -H "Authorization: Bearer $GH_TOKEN" \
-            -H "Accept: application/vnd.github+json" \
-            "$RELEASE_API_URL" | python3 -c "import json,sys
-data=json.load(sys.stdin)
-for asset in data.get('assets', []):
-    if asset.get('name') == 'GhosttyKit.xcframework.tar.gz':
-        digest = asset.get('digest', '')
-        if digest.startswith('sha256:'):
-            print(digest.split(':', 1)[1])
-            break
-        break")
-          if [ -z "$EXPECTED_SHA256" ]; then
-            echo "Missing sha256 digest metadata for GhosttyKit.xcframework.tar.gz in release $TAG" >&2
-            exit 1
-          fi
-          ACTUAL_SHA256=$(shasum -a 256 GhosttyKit.xcframework.tar.gz | awk '{print $1}')
-          if [ "$ACTUAL_SHA256" != "$EXPECTED_SHA256" ]; then
-            echo "GhosttyKit.xcframework.tar.gz checksum mismatch" >&2
-            echo "Expected: $EXPECTED_SHA256" >&2
-            echo "Actual:   $ACTUAL_SHA256" >&2
-            exit 1
-          fi
-          tar xzf GhosttyKit.xcframework.tar.gz
-          rm GhosttyKit.xcframework.tar.gz
-          test -d GhosttyKit.xcframework
+          ./scripts/download-prebuilt-ghosttykit.sh
 
       - name: Cache Swift packages
         uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4
