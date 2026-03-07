@@ -7349,6 +7349,53 @@ final class NotificationDockBadgeTests: XCTestCase {
         XCTAssertEqual(store.latestNotification(forTabId: tabB)?.id, notificationBUnread.id)
     }
 
+    func testSelectingWorkspaceMarksSurfaceLessNotificationRead() {
+        let store = TerminalNotificationStore.shared
+        let previousAppDelegate = AppDelegate.shared
+        let previousFocusOverride = AppFocusState.overrideIsFocused
+        let appDelegate = AppDelegate()
+        let tabManager = TabManager()
+        defer {
+            AppDelegate.shared = previousAppDelegate
+            AppFocusState.overrideIsFocused = previousFocusOverride
+        }
+        appDelegate.tabManager = tabManager
+        appDelegate.notificationStore = store
+        AppDelegate.shared = appDelegate
+        AppFocusState.overrideIsFocused = true
+
+        guard let originalTabId = tabManager.selectedTabId else {
+            XCTFail("Expected selected tab for workspace-level notification selection test")
+            return
+        }
+        guard let originalWorkspace = tabManager.tabs.first(where: { $0.id == originalTabId }) else {
+            XCTFail("Expected original workspace for workspace-level notification selection test")
+            return
+        }
+
+        let notification = TerminalNotification(
+            id: UUID(),
+            tabId: originalTabId,
+            surfaceId: nil,
+            title: "Unread",
+            subtitle: "",
+            body: "should clear after explicit workspace selection",
+            createdAt: Date(),
+            isRead: false
+        )
+        store.replaceNotificationsForTesting([notification])
+
+        _ = tabManager.addWorkspace(select: true)
+        tabManager.selectWorkspace(originalWorkspace)
+
+        let drained = expectation(description: "workspace-level selection side effects drained")
+        DispatchQueue.main.async { drained.fulfill() }
+        wait(for: [drained], timeout: 1.0)
+
+        XCTAssertEqual(tabManager.selectedTabId, originalTabId)
+        XCTAssertFalse(store.hasUnreadNotification(forTabId: originalTabId, surfaceId: nil))
+        XCTAssertTrue(store.notifications[0].isRead)
+    }
     func testNotificationIndexesUpdateAfterReadAndClearMutations() {
         let tab = UUID()
         let surfaceUnread = UUID()
