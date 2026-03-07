@@ -3091,15 +3091,25 @@ struct WebViewRepresentable: NSViewRepresentable {
         var desiredPortalVisibleInUI: Bool = true
         var desiredPortalZPriority: Int = 0
         var lastPortalHostId: ObjectIdentifier?
+        var lastSynchronizedHostGeometryRevision: UInt64 = 0
     }
 
     final class HostContainerView: NSView {
         var onDidMoveToWindow: (() -> Void)?
         var onGeometryChanged: (() -> Void)?
+        private(set) var geometryRevision: UInt64 = 0
+        private var lastReportedGeometryState: GeometryState?
         private struct HostedInspectorDividerHit {
             let containerView: NSView
             let pageView: NSView
             let inspectorView: NSView
+        }
+
+        private struct GeometryState: Equatable {
+            let frame: CGRect
+            let bounds: CGRect
+            let windowNumber: Int?
+            let superviewID: ObjectIdentifier?
         }
 
         private struct HostedInspectorDividerDragState {
@@ -3225,6 +3235,23 @@ struct WebViewRepresentable: NSViewRepresentable {
                 abs(lhs.height - rhs.height) <= epsilon
         }
 
+        private func currentGeometryState() -> GeometryState {
+            GeometryState(
+                frame: frame,
+                bounds: bounds,
+                windowNumber: window?.windowNumber,
+                superviewID: superview.map(ObjectIdentifier.init)
+            )
+        }
+
+        private func notifyGeometryChangedIfNeeded() {
+            let state = currentGeometryState()
+            guard state != lastReportedGeometryState else { return }
+            lastReportedGeometryState = state
+            geometryRevision &+= 1
+            onGeometryChanged?()
+        }
+
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
             if window == nil {
@@ -3234,7 +3261,7 @@ struct WebViewRepresentable: NSViewRepresentable {
             }
             window?.invalidateCursorRects(for: self)
             onDidMoveToWindow?()
-            onGeometryChanged?()
+            notifyGeometryChangedIfNeeded()
 #if DEBUG
             debugLogHostedInspectorLayoutIfNeeded(reason: "viewDidMoveToWindow")
 #endif
@@ -3243,7 +3270,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         override func viewDidMoveToSuperview() {
             super.viewDidMoveToSuperview()
             reapplyHostedInspectorDividerIfNeeded(reason: "viewDidMoveToSuperview")
-            onGeometryChanged?()
+            notifyGeometryChangedIfNeeded()
 #if DEBUG
             debugLogHostedInspectorLayoutIfNeeded(reason: "viewDidMoveToSuperview")
 #endif
@@ -3252,7 +3279,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         override func layout() {
             super.layout()
             reapplyHostedInspectorDividerIfNeeded(reason: "layout")
-            onGeometryChanged?()
+            notifyGeometryChangedIfNeeded()
 #if DEBUG
             debugLogHostedInspectorLayoutIfNeeded(reason: "layout")
 #endif
@@ -3262,7 +3289,7 @@ struct WebViewRepresentable: NSViewRepresentable {
             super.setFrameOrigin(newOrigin)
             window?.invalidateCursorRects(for: self)
             reapplyHostedInspectorDividerIfNeeded(reason: "setFrameOrigin")
-            onGeometryChanged?()
+            notifyGeometryChangedIfNeeded()
 #if DEBUG
             debugLogHostedInspectorLayoutIfNeeded(reason: "setFrameOrigin")
 #endif
@@ -3272,7 +3299,7 @@ struct WebViewRepresentable: NSViewRepresentable {
             super.setFrameSize(newSize)
             window?.invalidateCursorRects(for: self)
             reapplyHostedInspectorDividerIfNeeded(reason: "setFrameSize")
-            onGeometryChanged?()
+            notifyGeometryChangedIfNeeded()
 #if DEBUG
             debugLogHostedInspectorLayoutIfNeeded(reason: "setFrameSize")
 #endif
@@ -3848,6 +3875,7 @@ struct WebViewRepresentable: NSViewRepresentable {
             BrowserWindowPortalRegistry.updatePaneDropContext(for: webView, context: paneDropContext)
             BrowserWindowPortalRegistry.updateSearchOverlay(for: webView, configuration: activeSearchOverlay)
             coordinator.lastPortalHostId = ObjectIdentifier(host)
+            coordinator.lastSynchronizedHostGeometryRevision = host.geometryRevision
         }
         host.onGeometryChanged = { [weak host, weak coordinator, weak portalAnchorView] in
             guard let host, let coordinator, let portalAnchorView else { return }
@@ -3855,6 +3883,7 @@ struct WebViewRepresentable: NSViewRepresentable {
             guard coordinator.lastPortalHostId == ObjectIdentifier(host) else { return }
             Self.installPortalAnchorView(portalAnchorView, in: host)
             BrowserWindowPortalRegistry.synchronizeForAnchor(portalAnchorView)
+            coordinator.lastSynchronizedHostGeometryRevision = host.geometryRevision
         }
 
         if !shouldAttachWebView {
@@ -3865,6 +3894,7 @@ struct WebViewRepresentable: NSViewRepresentable {
 
         if host.window != nil {
             let hostId = ObjectIdentifier(host)
+            let geometryRevision = host.geometryRevision
             let shouldBindNow =
                 coordinator.lastPortalHostId != hostId ||
                 webView.superview == nil ||
@@ -3879,13 +3909,18 @@ struct WebViewRepresentable: NSViewRepresentable {
                     zPriority: coordinator.desiredPortalZPriority
                 )
                 coordinator.lastPortalHostId = hostId
+                coordinator.lastSynchronizedHostGeometryRevision = geometryRevision
             }
             BrowserWindowPortalRegistry.updatePaneTopChromeHeight(
                 for: webView,
                 height: shouldAttachWebView ? paneTopChromeHeight : 0
             )
             BrowserWindowPortalRegistry.updateSearchOverlay(for: webView, configuration: activeSearchOverlay)
-            BrowserWindowPortalRegistry.synchronizeForAnchor(portalAnchorView)
+            if !shouldBindNow,
+               coordinator.lastSynchronizedHostGeometryRevision != geometryRevision {
+                BrowserWindowPortalRegistry.synchronizeForAnchor(portalAnchorView)
+                coordinator.lastSynchronizedHostGeometryRevision = geometryRevision
+            }
         } else {
             // Bind is deferred until host moves into a window. Keep the current
             // portal entry's desired state in sync so stale callbacks cannot keep
@@ -3930,6 +3965,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         if let previousWebView = coordinator.webView, previousWebView !== webView {
             BrowserWindowPortalRegistry.detach(webView: previousWebView)
             coordinator.lastPortalHostId = nil
+            coordinator.lastSynchronizedHostGeometryRevision = 0
         }
         coordinator.panel = panel
         coordinator.webView = webView
@@ -4032,6 +4068,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         BrowserWindowPortalRegistry.updatePaneDropContext(for: webView, context: nil)
         BrowserWindowPortalRegistry.updateSearchOverlay(for: webView, configuration: nil)
         coordinator.lastPortalHostId = nil
+        coordinator.lastSynchronizedHostGeometryRevision = 0
     }
 
     private func currentPaneDropContext() -> BrowserPaneDropContext? {
