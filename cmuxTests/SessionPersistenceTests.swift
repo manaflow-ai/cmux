@@ -65,42 +65,6 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertNil(decoded.windows.first?.tabManager.workspaces.first?.customColor)
     }
 
-    func testSaveAndLoadRoundTripPreservesWorkspacePagesAndActivePageSelection() {
-        let tempDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-session-tests-\(UUID().uuidString)", isDirectory: true)
-        try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: tempDir) }
-
-        let snapshotURL = tempDir.appendingPathComponent("session.json", isDirectory: false)
-        var snapshot = makeSnapshot(version: SessionSnapshotSchema.currentVersion)
-        let firstPageId = UUID()
-        let secondPageId = UUID()
-        snapshot.windows[0].tabManager.workspaces[0].activePageId = secondPageId
-        snapshot.windows[0].tabManager.workspaces[0].pages = [
-            SessionWorkspacePageSnapshot(
-                id: firstPageId,
-                title: "Agents",
-                state: makePageStateSnapshot(currentDirectory: "/tmp/project/agents")
-            ),
-            SessionWorkspacePageSnapshot(
-                id: secondPageId,
-                title: "Editor",
-                state: makePageStateSnapshot(currentDirectory: "/tmp/project/editor")
-            ),
-        ]
-
-        XCTAssertTrue(SessionPersistenceStore.save(snapshot, fileURL: snapshotURL))
-
-        let loaded = SessionPersistenceStore.load(fileURL: snapshotURL)
-        let workspace = loaded?.windows.first?.tabManager.workspaces.first
-        XCTAssertEqual(workspace?.activePageId, secondPageId)
-        XCTAssertEqual(workspace?.pages?.map(\.title), ["Agents", "Editor"])
-        XCTAssertEqual(workspace?.pages?.map(\.state.currentDirectory), [
-            "/tmp/project/agents",
-            "/tmp/project/editor",
-        ])
-    }
-
     func testLoadRejectsSchemaVersionMismatch() {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-session-tests-\(UUID().uuidString)", isDirectory: true)
@@ -766,19 +730,6 @@ final class SessionPersistenceTests: XCTestCase {
             version: version,
             createdAt: Date().timeIntervalSince1970,
             windows: [window]
-        )
-    }
-
-    private func makePageStateSnapshot(currentDirectory: String) -> SessionWorkspacePageStateSnapshot {
-        SessionWorkspacePageStateSnapshot(
-            currentDirectory: currentDirectory,
-            focusedPanelId: nil,
-            layout: .pane(SessionPaneLayoutSnapshot(panelIds: [], selectedPanelId: nil)),
-            panels: [],
-            statusEntries: [],
-            logEntries: [],
-            progress: nil,
-            gitBranch: nil
         )
     }
 }
