@@ -63,6 +63,18 @@ enum SidebarBranchLayoutSettings {
     }
 }
 
+enum SidebarNotificationPreviewSettings {
+    static let key = "sidebarShowNotificationPreview"
+    static let defaultValue = true
+
+    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: key) == nil {
+            return defaultValue
+        }
+        return defaults.bool(forKey: key)
+    }
+}
+
 enum SidebarActiveTabIndicatorStyle: String, CaseIterable, Identifiable {
     case leftRail
     case solidFill

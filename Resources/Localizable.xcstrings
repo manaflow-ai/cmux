@@ -41938,6 +41938,57 @@
         }
       }
     },
+    "settings.app.showNotificationPreview": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Notification Preview in Sidebar"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーに通知プレビューを表示"
+          }
+        }
+      }
+    },
+    "settings.app.showNotificationPreview.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide preview text and keep unread badges only."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プレビューテキストを非表示にして、未読バッジだけを残します。"
+          }
+        }
+      }
+    },
+    "settings.app.showNotificationPreview.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Display the latest notification text, including Claude responses."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claudeの応答を含む最新の通知テキストを表示します。"
+          }
+        }
+      }
+    },
     "settings.app.showLog": {
       "extractionState": "manual",
       "localizations": {
@@ -43074,13 +43125,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sidebar Branch Layout"
+            "value": "Sidebar Branch + Directory Layout"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "サイドバーのブランチレイアウト"
+            "value": "サイドバーのブランチ/ディレクトリ表示"
           }
         },
         "zh-Hans": {
@@ -43187,13 +43238,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Inline"
+            "value": "Single Line"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "インライン"
+            "value": "1行"
           }
         },
         "zh-Hans": {
@@ -43300,13 +43351,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Inline: all branches share one line."
+            "value": "Single line: branch and directory share one row."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "インライン: すべてのブランチが1行に表示されます。"
+            "value": "1行: ブランチとディレクトリを同じ行に表示します。"
           }
         },
         "zh-Hans": {
@@ -43413,13 +43464,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vertical: each branch appears on its own line."
+            "value": "Stacked: branch and directory render on separate lines."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "縦: 各ブランチがそれぞれの行に表示されます。"
+            "value": "2行: ブランチとディレクトリを別々の行に表示します。"
           }
         },
         "zh-Hans": {
@@ -43526,13 +43577,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vertical"
+            "value": "Stacked"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "縦"
+            "value": "2行"
           }
         },
         "zh-Hans": {
@@ -53585,6 +53636,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Uygulama"
+          }
+        }
+      }
+    },
+    "settings.section.sidebar": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sidebar"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバー"
           }
         }
       }

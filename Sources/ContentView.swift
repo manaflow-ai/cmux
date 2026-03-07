@@ -8924,6 +8924,8 @@ private struct TabItemView: View {
     @AppStorage("sidebarShowGitBranch") private var sidebarShowGitBranch = true
     @AppStorage(SidebarBranchLayoutSettings.key) private var sidebarBranchVerticalLayout = SidebarBranchLayoutSettings.defaultVerticalLayout
     @AppStorage("sidebarShowBranchDirectory") private var sidebarShowBranchDirectory = true
+    @AppStorage(SidebarNotificationPreviewSettings.key)
+    private var sidebarShowNotificationPreview = SidebarNotificationPreviewSettings.defaultValue
     @AppStorage("sidebarShowGitBranchIcon") private var sidebarShowGitBranchIcon = false
     @AppStorage("sidebarShowPullRequest") private var sidebarShowPullRequest = true
     @AppStorage(BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowserKey)
@@ -9039,10 +9041,27 @@ private struct TabItemView: View {
         let accessibilityHintText = String(localized: "sidebar.workspace.accessibilityHint", defaultValue: "Activate to focus this workspace. Drag to reorder, or use Move Up and Move Down actions.")
         let moveUpActionText = String(localized: "sidebar.workspace.moveUpAction", defaultValue: "Move Up")
         let moveDownActionText = String(localized: "sidebar.workspace.moveDownAction", defaultValue: "Move Down")
-        let latestNotificationSubtitle = latestNotificationText
+        let latestNotificationSubtitle = sidebarShowNotificationPreview ? latestNotificationText : nil
         let orderedPanelIds: [UUID]? = (sidebarShowBranchDirectory || sidebarShowPullRequest)
             ? tab.sidebarOrderedPanelIds()
             : nil
+        let stackedGitBranchSummaryText: String? = {
+            guard sidebarShowBranchDirectory,
+                  sidebarBranchVerticalLayout,
+                  sidebarShowGitBranch,
+                  let orderedPanelIds else {
+                return nil
+            }
+            return gitBranchSummaryText(orderedPanelIds: orderedPanelIds)
+        }()
+        let stackedDirectorySummaryText: String? = {
+            guard sidebarShowBranchDirectory,
+                  sidebarBranchVerticalLayout,
+                  let orderedPanelIds else {
+                return nil
+            }
+            return directorySummaryText(orderedPanelIds: orderedPanelIds)
+        }()
         let compactGitBranchSummaryText: String? = {
             guard sidebarShowBranchDirectory,
                   !sidebarBranchVerticalLayout,
@@ -9064,19 +9083,11 @@ private struct TabItemView: View {
             gitSummary: compactGitBranchSummaryText,
             directorySummary: compactDirectorySummaryText
         )
-        let branchDirectoryLines: [VerticalBranchDirectoryLine] = {
-            guard sidebarShowBranchDirectory,
-                  sidebarBranchVerticalLayout,
-                  let orderedPanelIds else {
-                return []
-            }
-            return verticalBranchDirectoryLines(orderedPanelIds: orderedPanelIds)
-        }()
-        let branchLinesContainBranch = sidebarShowGitBranch && branchDirectoryLines.contains { $0.branch != nil }
         let pullRequestRows: [PullRequestDisplay] = {
             guard sidebarShowPullRequest, let orderedPanelIds else { return [] }
             return pullRequestDisplays(orderedPanelIds: orderedPanelIds)
         }()
+        let portsSummaryText = tab.listeningPorts.map { ":\($0)" }.joined(separator: ", ")
 
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 8) {
@@ -9103,6 +9114,7 @@ private struct TabItemView: View {
                     .foregroundColor(activePrimaryTextColor)
                     .lineLimit(1)
                     .truncationMode(.tail)
+                    .sidebarHoverTooltip(tab.title)
 
                 Spacer()
 
@@ -9151,6 +9163,7 @@ private struct TabItemView: View {
                     .lineLimit(2)
                     .truncationMode(.tail)
                     .multilineTextAlignment(.leading)
+                    .sidebarHoverTooltip(subtitle)
             }
 
             if sidebarShowMetadata {
@@ -9185,6 +9198,7 @@ private struct TabItemView: View {
                         .foregroundColor(activeSecondaryColor(0.8))
                         .lineLimit(1)
                         .truncationMode(.tail)
+                        .sidebarHoverTooltip(latestLog.message)
                 }
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
@@ -9208,6 +9222,7 @@ private struct TabItemView: View {
                             .font(.system(size: 9))
                             .foregroundColor(activeSecondaryColor(0.6))
                             .lineLimit(1)
+                            .sidebarHoverTooltip(label)
                     }
                 }
                 .transition(.opacity.combined(with: .move(edge: .top)))
@@ -9216,38 +9231,31 @@ private struct TabItemView: View {
             // Branch + directory row
             if sidebarShowBranchDirectory {
                 if sidebarBranchVerticalLayout {
-                    if !branchDirectoryLines.isEmpty {
-                        HStack(alignment: .top, spacing: 3) {
-                            if sidebarShowGitBranchIcon, branchLinesContainBranch {
-                                Image(systemName: "arrow.triangle.branch")
-                                    .font(.system(size: 9))
-                                    .foregroundColor(activeSecondaryColor(0.6))
-                            }
-                            VStack(alignment: .leading, spacing: 1) {
-                                ForEach(Array(branchDirectoryLines.enumerated()), id: \.offset) { _, line in
-                                    HStack(spacing: 3) {
-                                        if let branch = line.branch {
-                                            Text(branch)
-                                                .font(.system(size: 10, design: .monospaced))
-                                                .foregroundColor(activeSecondaryColor(0.75))
-                                                .lineLimit(1)
-                                                .truncationMode(.tail)
-                                        }
-                                        if line.branch != nil, line.directory != nil {
-                                            Image(systemName: "circle.fill")
-                                                .font(.system(size: 3))
-                                                .foregroundColor(activeSecondaryColor(0.6))
-                                                .padding(.horizontal, 1)
-                                        }
-                                        if let directory = line.directory {
-                                            Text(directory)
-                                                .font(.system(size: 10, design: .monospaced))
-                                                .foregroundColor(activeSecondaryColor(0.75))
-                                                .lineLimit(1)
-                                                .truncationMode(.tail)
-                                        }
+                    if stackedGitBranchSummaryText != nil || stackedDirectorySummaryText != nil {
+                        VStack(alignment: .leading, spacing: 1) {
+                            if let stackedGitBranchSummaryText {
+                                HStack(spacing: 3) {
+                                    if sidebarShowGitBranchIcon {
+                                        Image(systemName: "arrow.triangle.branch")
+                                            .font(.system(size: 9))
+                                            .foregroundColor(activeSecondaryColor(0.6))
                                     }
+                                    Text(stackedGitBranchSummaryText)
+                                        .font(.system(size: 10, design: .monospaced))
+                                        .foregroundColor(activeSecondaryColor(0.75))
+                                        .lineLimit(1)
+                                        .truncationMode(.tail)
+                                        .sidebarHoverTooltip(stackedGitBranchSummaryText)
                                 }
+                            }
+
+                            if let stackedDirectorySummaryText {
+                                Text(stackedDirectorySummaryText)
+                                    .font(.system(size: 10, design: .monospaced))
+                                    .foregroundColor(activeSecondaryColor(0.75))
+                                    .lineLimit(1)
+                                    .truncationMode(.tail)
+                                    .sidebarHoverTooltip(stackedDirectorySummaryText)
                             }
                         }
                     }
@@ -9263,6 +9271,7 @@ private struct TabItemView: View {
                             .foregroundColor(activeSecondaryColor(0.75))
                             .lineLimit(1)
                             .truncationMode(.tail)
+                            .sidebarHoverTooltip(dirRow)
                     }
                 }
             }
@@ -9298,11 +9307,12 @@ private struct TabItemView: View {
 
             // Ports row
             if sidebarShowPorts, !tab.listeningPorts.isEmpty {
-                Text(tab.listeningPorts.map { ":\($0)" }.joined(separator: ", "))
+                Text(portsSummaryText)
                     .font(.system(size: 10, design: .monospaced))
                     .foregroundColor(activeSecondaryColor(0.75))
                     .lineLimit(1)
                     .truncationMode(.tail)
+                    .sidebarHoverTooltip(portsSummaryText)
             }
         }
         .animation(.easeInOut(duration: 0.2), value: tab.logEntries.count)
@@ -9834,39 +9844,6 @@ private struct TabItemView: View {
         }
     }
 
-    private struct VerticalBranchDirectoryLine {
-        let branch: String?
-        let directory: String?
-    }
-
-    private func verticalBranchDirectoryLines(orderedPanelIds: [UUID]) -> [VerticalBranchDirectoryLine] {
-        let entries = tab.sidebarBranchDirectoryEntriesInDisplayOrder(orderedPanelIds: orderedPanelIds)
-        let home = SidebarPathFormatter.homeDirectoryPath
-        return entries.compactMap { entry in
-            let branchText: String? = {
-                guard sidebarShowGitBranch, let branch = entry.branch else { return nil }
-                return "\(branch)\(entry.isDirty ? "*" : "")"
-            }()
-
-            let directoryText: String? = {
-                guard let directory = entry.directory else { return nil }
-                let shortened = SidebarPathFormatter.shortenedPath(directory, homeDirectoryPath: home)
-                return shortened.isEmpty ? nil : shortened
-            }()
-
-            switch (branchText, directoryText) {
-            case let (branch?, directory?):
-                return VerticalBranchDirectoryLine(branch: branch, directory: directory)
-            case let (branch?, nil):
-                return VerticalBranchDirectoryLine(branch: branch, directory: nil)
-            case let (nil, directory?):
-                return VerticalBranchDirectoryLine(branch: nil, directory: directory)
-            default:
-                return nil
-            }
-        }
-    }
-
     private func directorySummaryText(orderedPanelIds: [UUID]) -> String? {
         guard !tab.panels.isEmpty else { return nil }
         let home = SidebarPathFormatter.homeDirectoryPath
@@ -10128,6 +10105,18 @@ private struct TabItemView: View {
         let response = alert.runModal()
         guard response == .alertFirstButtonReturn else { return }
         tabManager.setCustomTitle(tabId: tab.id, title: input.stringValue)
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func sidebarHoverTooltip(_ text: String?) -> some View {
+        let trimmed = text?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let trimmed, !trimmed.isEmpty {
+            self.help(trimmed)
+        } else {
+            self
+        }
     }
 }
 

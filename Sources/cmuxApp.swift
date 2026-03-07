@@ -2870,6 +2870,8 @@ struct SettingsView: View {
     @AppStorage(SidebarActiveTabIndicatorSettings.styleKey)
     private var sidebarActiveTabIndicatorStyle = SidebarActiveTabIndicatorSettings.defaultStyle.rawValue
     @AppStorage("sidebarShowBranchDirectory") private var sidebarShowBranchDirectory = true
+    @AppStorage(SidebarNotificationPreviewSettings.key)
+    private var sidebarShowNotificationPreview = SidebarNotificationPreviewSettings.defaultValue
     @AppStorage("sidebarShowPullRequest") private var sidebarShowPullRequest = true
     @AppStorage(BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowserKey)
     private var openSidebarPullRequestLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenSidebarPullRequestLinksInCmuxBrowser
@@ -3432,19 +3434,20 @@ struct SettingsView: View {
                                 .labelsHidden()
                                 .controlSize(.small)
                         }
+                    }
 
-                        SettingsCardDivider()
-
+                    SettingsSectionHeader(title: String(localized: "settings.section.sidebar", defaultValue: "Sidebar"))
+                    SettingsCard {
                         SettingsPickerRow(
-                            String(localized: "settings.app.sidebarBranchLayout", defaultValue: "Sidebar Branch Layout"),
+                            String(localized: "settings.app.sidebarBranchLayout", defaultValue: "Sidebar Branch + Directory Layout"),
                             subtitle: sidebarBranchVerticalLayout
-                                ? String(localized: "settings.app.sidebarBranchLayout.subtitleVertical", defaultValue: "Vertical: each branch appears on its own line.")
-                                : String(localized: "settings.app.sidebarBranchLayout.subtitleInline", defaultValue: "Inline: all branches share one line."),
+                                ? String(localized: "settings.app.sidebarBranchLayout.subtitleVertical", defaultValue: "Stacked: branch and directory render on separate lines.")
+                                : String(localized: "settings.app.sidebarBranchLayout.subtitleInline", defaultValue: "Single line: branch and directory share one row."),
                             controlWidth: pickerColumnWidth,
                             selection: $sidebarBranchVerticalLayout
                         ) {
-                            Text(String(localized: "settings.app.sidebarBranchLayout.vertical", defaultValue: "Vertical")).tag(true)
-                            Text(String(localized: "settings.app.sidebarBranchLayout.inline", defaultValue: "Inline")).tag(false)
+                            Text(String(localized: "settings.app.sidebarBranchLayout.vertical", defaultValue: "Stacked")).tag(true)
+                            Text(String(localized: "settings.app.sidebarBranchLayout.inline", defaultValue: "Single Line")).tag(false)
                         }
 
                         SettingsCardDivider()
@@ -3454,6 +3457,19 @@ struct SettingsView: View {
                             subtitle: String(localized: "settings.app.showBranchDirectory.subtitle", defaultValue: "Display the built-in git branch and working-directory row.")
                         ) {
                             Toggle("", isOn: $sidebarShowBranchDirectory)
+                                .labelsHidden()
+                                .controlSize(.small)
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            String(localized: "settings.app.showNotificationPreview", defaultValue: "Show Notification Preview in Sidebar"),
+                            subtitle: sidebarShowNotificationPreview
+                                ? String(localized: "settings.app.showNotificationPreview.subtitleOn", defaultValue: "Display the latest notification text, including Claude responses.")
+                                : String(localized: "settings.app.showNotificationPreview.subtitleOff", defaultValue: "Hide preview text and keep unread badges only.")
+                        ) {
+                            Toggle("", isOn: $sidebarShowNotificationPreview)
                                 .labelsHidden()
                                 .controlSize(.small)
                         }
@@ -4166,6 +4182,7 @@ struct SettingsView: View {
         sidebarBranchVerticalLayout = SidebarBranchLayoutSettings.defaultVerticalLayout
         sidebarActiveTabIndicatorStyle = SidebarActiveTabIndicatorSettings.defaultStyle.rawValue
         sidebarShowBranchDirectory = true
+        sidebarShowNotificationPreview = SidebarNotificationPreviewSettings.defaultValue
         sidebarShowPullRequest = true
         openSidebarPullRequestLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenSidebarPullRequestLinksInCmuxBrowser
         showShortcutHintsOnCommandHold = ShortcutHintDebugSettings.defaultShowHintsOnCommandHold
