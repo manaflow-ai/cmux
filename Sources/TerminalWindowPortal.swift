@@ -707,12 +707,13 @@ final class WindowTerminalPortal: NSObject {
         synchronizeAllHostedViews(excluding: nil)
 
         // During live resize, AppKit can deliver frame churn where host/container geometry
-        // settles a tick before the terminal's own scroll/surface hierarchy. Force a final
-        // in-place geometry + surface refresh for all visible entries in this window.
+        // settles a tick before the terminal's own scroll/surface hierarchy. Only force an
+        // in-place surface refresh when reconciliation actually changed terminal geometry.
         for entry in entriesByHostedId.values {
             guard let hostedView = entry.hostedView, !hostedView.isHidden else { continue }
-            hostedView.reconcileGeometryNow()
-            hostedView.refreshSurfaceNow()
+            if hostedView.reconcileGeometryNow() {
+                hostedView.refreshSurfaceNow(reason: "portal.externalGeometrySync")
+            }
         }
     }
 
@@ -735,6 +736,7 @@ final class WindowTerminalPortal: NSObject {
         guard let window else { return false }
         guard let (container, reference) = installedTargetIfStillValid(for: window) ?? installationTarget(for: window)
         else { return false }
+        let browserHost = preferredBrowserHost(in: container)
 
         if hostView.superview !== container ||
             installedContainerView !== container ||
@@ -743,7 +745,11 @@ final class WindowTerminalPortal: NSObject {
             installConstraints.removeAll()
 
             hostView.removeFromSuperview()
-            container.addSubview(hostView, positioned: .above, relativeTo: reference)
+            if let browserHost {
+                container.addSubview(hostView, positioned: .below, relativeTo: browserHost)
+            } else {
+                container.addSubview(hostView, positioned: .above, relativeTo: reference)
+            }
 
             installConstraints = [
                 hostView.leadingAnchor.constraint(equalTo: reference.leadingAnchor),
@@ -754,6 +760,10 @@ final class WindowTerminalPortal: NSObject {
             NSLayoutConstraint.activate(installConstraints)
             installedContainerView = container
             installedReferenceView = reference
+        } else if let browserHost {
+            if !Self.isView(browserHost, above: hostView, in: container) {
+                container.addSubview(hostView, positioned: .below, relativeTo: browserHost)
+            }
         } else if !Self.isView(hostView, above: reference, in: container) {
             container.addSubview(hostView, positioned: .above, relativeTo: reference)
         }
@@ -844,6 +854,10 @@ final class WindowTerminalPortal: NSObject {
             return false
         }
         return viewIndex > referenceIndex
+    }
+
+    private func preferredBrowserHost(in container: NSView) -> WindowBrowserHostView? {
+        container.subviews.last(where: { $0 is WindowBrowserHostView }) as? WindowBrowserHostView
     }
 
 #if DEBUG
@@ -1410,7 +1424,7 @@ final class WindowTerminalPortal: NSObject {
             hostedView.frame = targetFrame
             CATransaction.commit()
             hostedView.reconcileGeometryNow()
-            hostedView.refreshSurfaceNow()
+            hostedView.refreshSurfaceNow(reason: "portal.frameChange")
         }
 
         if hasFiniteFrame {
@@ -1449,7 +1463,7 @@ final class WindowTerminalPortal: NSObject {
             // normal frame-change refresh path won't run. Nudge geometry + redraw so newly
             // revealed terminals don't sit on a stale/blank IOSurface until later focus churn.
             hostedView.reconcileGeometryNow()
-            hostedView.refreshSurfaceNow()
+            hostedView.refreshSurfaceNow(reason: "portal.reveal")
         }
 
         if transientRecoveryReason == nil {

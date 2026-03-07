@@ -1736,6 +1736,45 @@ struct CMUXCLI {
         return (cwd as NSString).appendingPathComponent(expanded)
     }
 
+    private func sanitizedFilenameComponent(_ raw: String) -> String {
+        let sanitized = raw.replacingOccurrences(
+            of: #"[^\p{L}\p{N}._-]+"#,
+            with: "-",
+            options: .regularExpression
+        )
+        let trimmed = sanitized.trimmingCharacters(in: CharacterSet(charactersIn: "-."))
+        return trimmed.isEmpty ? "item" : trimmed
+    }
+
+    private func bestEffortPruneTemporaryFiles(
+        in directoryURL: URL,
+        keepingMostRecent maxCount: Int = 50,
+        maxAge: TimeInterval = 24 * 60 * 60
+    ) {
+        guard let entries = try? FileManager.default.contentsOfDirectory(
+            at: directoryURL,
+            includingPropertiesForKeys: [.isRegularFileKey, .contentModificationDateKey, .creationDateKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return
+        }
+
+        let now = Date()
+        let datedEntries = entries.compactMap { url -> (url: URL, date: Date)? in
+            guard let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .contentModificationDateKey, .creationDateKey]),
+                  values.isRegularFile == true else {
+                return nil
+            }
+            return (url, values.contentModificationDate ?? values.creationDate ?? .distantPast)
+        }.sorted { $0.date > $1.date }
+
+        for (index, entry) in datedEntries.enumerated() {
+            if index >= maxCount || now.timeIntervalSince(entry.date) > maxAge {
+                try? FileManager.default.removeItem(at: entry.url)
+            }
+        }
+    }
+
     // MARK: - Markdown Commands
 
     private func runMarkdownCommand(
@@ -2583,7 +2622,34 @@ struct CMUXCLI {
             throw CLIError(message: "browser requires a subcommand")
         }
 
-        let (surfaceOpt, argsWithoutSurfaceFlag) = parseOption(commandArgs, name: "--surface")
+        var effectiveJSONOutput = jsonOutput
+        var effectiveIDFormat = idFormat
+        var browserArgs = commandArgs
+
+        // Browser-skill examples often place output flags at the end of the command.
+        // Strip trailing display flags so they don't become part of a URL or selector.
+        while !browserArgs.isEmpty {
+            if browserArgs.last == "--json" {
+                effectiveJSONOutput = true
+                browserArgs.removeLast()
+                continue
+            }
+
+            if browserArgs.count >= 2,
+               browserArgs[browserArgs.count - 2] == "--id-format" {
+                let raw = browserArgs.last!
+                guard let parsed = try CLIIDFormat.parse(raw) else {
+                    throw CLIError(message: "--id-format must be one of: refs, uuids, both")
+                }
+                effectiveIDFormat = parsed
+                browserArgs.removeLast(2)
+                continue
+            }
+
+            break
+        }
+
+        let (surfaceOpt, argsWithoutSurfaceFlag) = parseOption(browserArgs, name: "--surface")
         var surfaceRaw = surfaceOpt
         var args = argsWithoutSurfaceFlag
 
@@ -2612,8 +2678,8 @@ struct CMUXCLI {
         }
 
         func output(_ payload: [String: Any], fallback: String) {
-            if jsonOutput {
-                print(jsonString(formatIDs(payload, mode: idFormat)))
+            if effectiveJSONOutput {
+                print(jsonString(formatIDs(payload, mode: effectiveIDFormat)))
                 return
             }
             print(fallback)
@@ -2621,6 +2687,29 @@ struct CMUXCLI {
                !snapshot.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 print(snapshot)
             }
+        }
+
+        func displaySnapshotText(_ payload: [String: Any]) -> String {
+            let snapshotText = (payload["snapshot"] as? String) ?? "Empty page"
+            guard snapshotText.contains("\n- (empty)") else {
+                return snapshotText
+            }
+
+            let url = ((payload["url"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let readyState = ((payload["ready_state"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            var lines = [snapshotText]
+
+            if !url.isEmpty {
+                lines.append("url: \(url)")
+            }
+            if !readyState.isEmpty {
+                lines.append("ready_state: \(readyState)")
+            }
+            if url.isEmpty || url == "about:blank" {
+                lines.append("hint: run 'cmux browser <surface> get url' to verify navigation")
+            }
+
+            return lines.joined(separator: "\n")
         }
 
         func displayBrowserValue(_ value: Any) -> String {
@@ -2746,8 +2835,8 @@ struct CMUXCLI {
                 }
             }
             let payload = try client.sendV2(method: "browser.open_split", params: params)
-            let surfaceText = formatHandle(payload, kind: "surface", idFormat: idFormat) ?? "unknown"
-            let paneText = formatHandle(payload, kind: "pane", idFormat: idFormat) ?? "unknown"
+            let surfaceText = formatHandle(payload, kind: "surface", idFormat: effectiveIDFormat) ?? "unknown"
+            let paneText = formatHandle(payload, kind: "pane", idFormat: effectiveIDFormat) ?? "unknown"
             let placement = ((payload["created_split"] as? Bool) == true) ? "split" : "reuse"
             output(payload, fallback: "OK surface=\(surfaceText) pane=\(paneText) placement=\(placement)")
             return
@@ -2755,12 +2844,17 @@ struct CMUXCLI {
 
         if subcommand == "goto" || subcommand == "navigate" {
             let sid = try requireSurface()
-            let url = subArgs.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+            var urlArgs = subArgs
+            let snapshotAfter = urlArgs.last == "--snapshot-after"
+            if snapshotAfter {
+                urlArgs.removeLast()
+            }
+            let url = urlArgs.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
             guard !url.isEmpty else {
                 throw CLIError(message: "browser \(subcommand) requires a URL")
             }
             var params: [String: Any] = ["surface_id": sid, "url": url]
-            if hasFlag(subArgs, name: "--snapshot-after") {
+            if snapshotAfter {
                 params["snapshot_after"] = true
             }
             let payload = try client.sendV2(method: "browser.navigate", params: params)
@@ -2787,8 +2881,8 @@ struct CMUXCLI {
         if subcommand == "url" || subcommand == "get-url" {
             let sid = try requireSurface()
             let payload = try client.sendV2(method: "browser.url.get", params: ["surface_id": sid])
-            if jsonOutput {
-                print(jsonString(formatIDs(payload, mode: idFormat)))
+            if effectiveJSONOutput {
+                print(jsonString(formatIDs(payload, mode: effectiveIDFormat)))
             } else {
                 print((payload["url"] as? String) ?? "")
             }
@@ -2805,8 +2899,8 @@ struct CMUXCLI {
         if ["is-webview-focused", "is_webview_focused"].contains(subcommand) {
             let sid = try requireSurface()
             let payload = try client.sendV2(method: "browser.is_webview_focused", params: ["surface_id": sid])
-            if jsonOutput {
-                print(jsonString(formatIDs(payload, mode: idFormat)))
+            if effectiveJSONOutput {
+                print(jsonString(formatIDs(payload, mode: effectiveIDFormat)))
             } else {
                 print((payload["focused"] as? Bool) == true ? "true" : "false")
             }
@@ -2839,12 +2933,10 @@ struct CMUXCLI {
             }
 
             let payload = try client.sendV2(method: "browser.snapshot", params: params)
-            if jsonOutput {
-                print(jsonString(formatIDs(payload, mode: idFormat)))
-            } else if let text = payload["snapshot"] as? String {
-                print(text)
+            if effectiveJSONOutput {
+                print(jsonString(formatIDs(payload, mode: effectiveIDFormat)))
             } else {
-                print("Empty page")
+                print(displaySnapshotText(payload))
             }
             return
         }
@@ -3052,17 +3144,139 @@ struct CMUXCLI {
         if subcommand == "screenshot" {
             let sid = try requireSurface()
             let (outPathOpt, _) = parseOption(subArgs, name: "--out")
-            let payload = try client.sendV2(method: "browser.screenshot", params: ["surface_id": sid])
-            if let outPathOpt,
-               let b64 = payload["png_base64"] as? String,
-               let data = Data(base64Encoded: b64) {
-                try data.write(to: URL(fileURLWithPath: outPathOpt))
+            let localJSONOutput = hasFlag(subArgs, name: "--json")
+            let outputAsJSON = effectiveJSONOutput || localJSONOutput
+            var payload = try client.sendV2(method: "browser.screenshot", params: ["surface_id": sid])
+
+            func fileURL(fromPath rawPath: String) -> URL {
+                let resolvedPath = resolvePath(rawPath)
+                return URL(fileURLWithPath: resolvedPath).standardizedFileURL
             }
 
-            if jsonOutput {
-                print(jsonString(formatIDs(payload, mode: idFormat)))
+            func writeScreenshot(_ data: Data, to destinationURL: URL) throws {
+                try FileManager.default.createDirectory(
+                    at: destinationURL.deletingLastPathComponent(),
+                    withIntermediateDirectories: true
+                )
+                try data.write(to: destinationURL, options: .atomic)
+            }
+
+            func hasText(_ value: String?) -> Bool {
+                guard let value else { return false }
+                return !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            }
+
+            var screenshotPath = payload["path"] as? String
+            var screenshotURL = payload["url"] as? String
+
+            func syncScreenshotLocationFields() {
+                if !hasText(screenshotPath),
+                   let rawURL = screenshotURL,
+                   let fileURL = URL(string: rawURL),
+                   fileURL.isFileURL,
+                   !fileURL.path.isEmpty {
+                    screenshotPath = fileURL.path
+                }
+                if !hasText(screenshotURL),
+                   let screenshotPath,
+                   hasText(screenshotPath) {
+                    screenshotURL = URL(fileURLWithPath: screenshotPath).standardizedFileURL.absoluteString
+                }
+                if let screenshotPath, hasText(screenshotPath) {
+                    payload["path"] = screenshotPath
+                }
+                if let screenshotURL, hasText(screenshotURL) {
+                    payload["url"] = screenshotURL
+                }
+            }
+
+            func persistPayloadScreenshot(to destinationURL: URL, allowFailure: Bool) throws -> Bool {
+                if let sourcePath = screenshotPath, hasText(sourcePath) {
+                    let sourceURL = URL(fileURLWithPath: sourcePath).standardizedFileURL
+                    do {
+                        if sourceURL.path != destinationURL.path {
+                            try FileManager.default.createDirectory(
+                                at: destinationURL.deletingLastPathComponent(),
+                                withIntermediateDirectories: true
+                            )
+                            try? FileManager.default.removeItem(at: destinationURL)
+                            try FileManager.default.copyItem(at: sourceURL, to: destinationURL)
+                        }
+                        return true
+                    } catch {
+                        if payload["png_base64"] == nil {
+                            if allowFailure {
+                                return false
+                            }
+                            throw error
+                        }
+                    }
+                }
+
+                if let b64 = payload["png_base64"] as? String,
+                   let data = Data(base64Encoded: b64) {
+                    do {
+                        try writeScreenshot(data, to: destinationURL)
+                        return true
+                    } catch {
+                        if allowFailure {
+                            return false
+                        }
+                        throw error
+                    }
+                }
+
+                return false
+            }
+
+            if let outPathOpt {
+                let outputURL = fileURL(fromPath: outPathOpt)
+                guard try persistPayloadScreenshot(to: outputURL, allowFailure: false) else {
+                    throw CLIError(message: "browser screenshot missing image data")
+                }
+                screenshotPath = outputURL.path
+                screenshotURL = outputURL.absoluteString
+                payload["path"] = screenshotPath
+                payload["url"] = screenshotURL
+            } else {
+                syncScreenshotLocationFields()
+                if !hasText(screenshotPath) && !hasText(screenshotURL) {
+                    let outputDir = FileManager.default.temporaryDirectory
+                        .appendingPathComponent("cmux-browser-screenshots-cli", isDirectory: true)
+                    if (try? FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)) != nil {
+                        bestEffortPruneTemporaryFiles(in: outputDir)
+                        let timestampMs = Int(Date().timeIntervalSince1970 * 1000)
+                        let safeSid = sanitizedFilenameComponent(sid)
+                        let filename = "surface-\(safeSid)-\(timestampMs)-\(String(UUID().uuidString.prefix(8))).png"
+                        let outputURL = outputDir.appendingPathComponent(filename, isDirectory: false)
+                        if (try? persistPayloadScreenshot(to: outputURL, allowFailure: true)) == true {
+                            screenshotPath = outputURL.path
+                            screenshotURL = outputURL.absoluteString
+                            payload["path"] = screenshotPath
+                            payload["url"] = screenshotURL
+                        }
+                    }
+                }
+            }
+
+            if outputAsJSON {
+                let formattedPayload = formatIDs(payload, mode: effectiveIDFormat)
+                if var outputPayload = formattedPayload as? [String: Any] {
+                    if hasText(screenshotPath) || hasText(screenshotURL) {
+                        outputPayload.removeValue(forKey: "png_base64")
+                    }
+                    print(jsonString(outputPayload))
+                } else {
+                    print(jsonString(formattedPayload))
+                }
             } else if let outPathOpt {
                 print("OK \(outPathOpt)")
+            } else if let screenshotURL,
+                      hasText(screenshotURL) {
+                print("OK \(screenshotURL)")
+            } else if let screenshotPath,
+                      hasText(screenshotPath) {
+                print("OK \(screenshotPath)")
             } else {
                 print("OK")
             }
@@ -3120,8 +3334,8 @@ struct CMUXCLI {
                     "styles": "browser.get.styles",
                 ]
                 let payload = try client.sendV2(method: methodMap[getVerb]!, params: params)
-                if jsonOutput {
-                    print(jsonString(formatIDs(payload, mode: idFormat)))
+                if effectiveJSONOutput {
+                    print(jsonString(formatIDs(payload, mode: effectiveIDFormat)))
                 } else if let value = payload["value"] {
                     if let str = value as? String {
                         print(str)
@@ -3160,8 +3374,8 @@ struct CMUXCLI {
                 throw CLIError(message: "Unsupported browser is subcommand: \(isVerb)")
             }
             let payload = try client.sendV2(method: method, params: ["surface_id": sid, "selector": selector])
-            if jsonOutput {
-                print(jsonString(formatIDs(payload, mode: idFormat)))
+            if effectiveJSONOutput {
+                print(jsonString(formatIDs(payload, mode: effectiveIDFormat)))
             } else if let value = payload["value"] {
                 print("\(value)")
             } else {
@@ -5511,8 +5725,10 @@ struct CMUXCLI {
     }
 
     private func jsonString(_ object: Any) -> String {
+        var options: JSONSerialization.WritingOptions = [.prettyPrinted]
+        options.insert(.withoutEscapingSlashes)
         guard JSONSerialization.isValidJSONObject(object),
-              let data = try? JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted]),
+              let data = try? JSONSerialization.data(withJSONObject: object, options: options),
               let output = String(data: data, encoding: .utf8) else {
             return "{}"
         }
@@ -6797,6 +7013,7 @@ struct CMUXCLI {
           browser press|keydown|keyup <key> [--snapshot-after]
           browser select <selector> <value> [--snapshot-after]
           browser scroll [--selector <css>] [--dx <n>] [--dy <n>] [--snapshot-after]
+          browser screenshot [--out <path>] [--json]
           browser get <url|title|text|html|value|attr|count|box|styles> [...]
           browser is <visible|enabled|checked> <selector>
           browser find <role|text|label|placeholder|alt|title|testid|first|last|nth> ...

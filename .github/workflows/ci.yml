@@ -101,11 +101,17 @@ jobs:
           # Remove stale build cache to avoid incremental build errors
           rm -rf ~/Library/Developer/Xcode/DerivedData/GhosttyTabs-*
 
+      - name: Cache Swift packages
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4
+        with:
+          path: .ci-source-packages
+          key: spm-${{ hashFiles('GhosttyTabs.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: spm-
+
       - name: Resolve Swift packages
         run: |
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
-          rm -rf "$SOURCE_PACKAGES_DIR"
           mkdir -p "$SOURCE_PACKAGES_DIR"
 
           for attempt in 1 2 3; do
@@ -121,6 +127,9 @@ jobs:
             echo "Package resolution failed on attempt $attempt, retrying..."
             sleep $((attempt * 5))
           done
+
+      - name: Run issue #952 regression guard
+        run: python3 tests/test_issue_952_socket_listener_recovery.py
 
       - name: Run unit tests
         run: |
@@ -223,11 +232,17 @@ jobs:
       - name: Clean DerivedData
         run: rm -rf ~/Library/Developer/Xcode/DerivedData/GhosttyTabs-*
 
+      - name: Cache Swift packages
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4
+        with:
+          path: .ci-source-packages
+          key: spm-${{ hashFiles('GhosttyTabs.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: spm-
+
       - name: Resolve Swift packages
         run: |
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
-          rm -rf "$SOURCE_PACKAGES_DIR"
           mkdir -p "$SOURCE_PACKAGES_DIR"
 
           for attempt in 1 2 3; do
@@ -243,6 +258,9 @@ jobs:
             echo "Package resolution failed on attempt $attempt, retrying..."
             sleep $((attempt * 5))
           done
+
+      - name: Run issue #952 regression guard
+        run: python3 tests/test_issue_952_socket_listener_recovery.py
 
       - name: Create virtual display
         run: |

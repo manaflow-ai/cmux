@@ -1480,6 +1480,18 @@ final class Workspace: Identifiable, ObservableObject {
         return surfaceKind(for: panel)
     }
 
+    func requestBackgroundTerminalSurfaceStartIfNeeded() {
+        for terminalPanel in panels.values.compactMap({ $0 as? TerminalPanel }) {
+            terminalPanel.surface.requestBackgroundSurfaceStartIfNeeded()
+        }
+    }
+
+    func hasLoadedTerminalSurface() -> Bool {
+        let terminalPanels = panels.values.compactMap { $0 as? TerminalPanel }
+        guard !terminalPanels.isEmpty else { return true }
+        return terminalPanels.contains { $0.surface.surface != nil }
+    }
+
     func panelTitle(panelId: UUID) -> String? {
         guard let panel = panels[panelId] else { return nil }
         let fallback = panelTitles[panelId] ?? panel.displayTitle
@@ -1956,11 +1968,21 @@ final class Workspace: Identifiable, ObservableObject {
         guard let paneId = sourcePaneId else { return nil }
         let inheritedConfig = inheritedTerminalConfig(preferredPanelId: panelId, inPane: paneId)
 
+        // Inherit working directory: prefer the source panel's reported cwd,
+        // fall back to the workspace's current directory.
+        let splitWorkingDirectory: String? = panelDirectories[panelId]
+            ?? (currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? nil : currentDirectory)
+#if DEBUG
+        dlog("split.cwd panelId=\(panelId.uuidString.prefix(5)) panelDir=\(panelDirectories[panelId] ?? "nil") currentDir=\(currentDirectory) resolved=\(splitWorkingDirectory ?? "nil")")
+#endif
+
         // Create the new terminal panel.
         let newPanel = TerminalPanel(
             workspaceId: id,
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: inheritedConfig,
+            workingDirectory: splitWorkingDirectory,
             portOrdinal: portOrdinal
         )
         panels[newPanel.id] = newPanel
@@ -3074,7 +3096,14 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         if let browserPanel = panels[panelId] as? BrowserPanel {
-            maybeAutoFocusBrowserAddressBarOnPanelFocus(browserPanel, trigger: trigger)
+            // Keep browser find focus behavior aligned with terminal find behavior.
+            // When switching back to a pane with an already-open find bar, reassert
+            // focus to that field instead of leaving first responder stale.
+            if browserPanel.searchState != nil {
+                browserPanel.startFind()
+            } else {
+                maybeAutoFocusBrowserAddressBarOnPanelFocus(browserPanel, trigger: trigger)
+            }
         }
     }
 
@@ -3251,6 +3280,19 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
+    /// Hide all browser portal views for this workspace.
+    /// Called before the workspace is unmounted so a portal-hosted WKWebView
+    /// cannot remain visible after this workspace stops being selected.
+    func hideAllBrowserPortalViews() {
+        for panel in panels.values {
+            guard let browser = panel as? BrowserPanel else { continue }
+            BrowserWindowPortalRegistry.hide(
+                webView: browser.webView,
+                source: "workspaceRetire"
+            )
+        }
+    }
+
     // MARK: - Utility
 
     /// Create a new terminal panel (used when replacing the last panel)
@@ -3390,11 +3432,11 @@ final class Workspace: Identifiable, ObservableObject {
                 needsFollowUpPass = true
             }
 
-            hostedView.reconcileGeometryNow()
+            let geometryChanged = hostedView.reconcileGeometryNow()
             // Re-check surface after reconcileGeometryNow() which can trigger AppKit
             // layout and view lifecycle changes that free surfaces (#432).
-            if terminalPanel.surface.surface != nil {
-                terminalPanel.surface.forceRefresh()
+            if geometryChanged, terminalPanel.surface.surface != nil {
+                terminalPanel.surface.forceRefresh(reason: "workspace.geometryReconcile")
             }
             if terminalPanel.surface.surface == nil, isAttached && hasUsableBounds {
                 terminalPanel.surface.requestBackgroundSurfaceStartIfNeeded()
@@ -3450,9 +3492,9 @@ final class Workspace: Identifiable, ObservableObject {
         let runRefreshPass: (TimeInterval) -> Void = { [weak self] delay in
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
                 guard let self, let panel = self.terminalPanel(for: panelId) else { return }
-                panel.hostedView.reconcileGeometryNow()
-                if panel.surface.surface != nil {
-                    panel.surface.forceRefresh()
+                let geometryChanged = panel.hostedView.reconcileGeometryNow()
+                if geometryChanged, panel.surface.surface != nil {
+                    panel.surface.forceRefresh(reason: "workspace.movedTerminalRefresh")
                 }
                 if panel.surface.surface == nil {
                     panel.surface.requestBackgroundSurfaceStartIfNeeded()

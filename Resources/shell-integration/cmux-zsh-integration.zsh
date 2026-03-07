@@ -45,9 +45,8 @@ typeset -g _CMUX_GIT_JOB_STARTED_AT=0
 typeset -g _CMUX_GIT_FORCE=0
 typeset -g _CMUX_GIT_HEAD_LAST_PWD=""
 typeset -g _CMUX_GIT_HEAD_PATH=""
-typeset -g _CMUX_GIT_HEAD_MTIME=0
+typeset -g _CMUX_GIT_HEAD_SIGNATURE=""
 typeset -g _CMUX_GIT_HEAD_WATCH_PID=""
-typeset -g _CMUX_HAVE_ZSTAT=0
 typeset -g _CMUX_PR_LAST_PWD=""
 typeset -g _CMUX_PR_LAST_RUN=0
 typeset -g _CMUX_PR_JOB_PID=""
@@ -59,19 +58,6 @@ typeset -g _CMUX_PORTS_LAST_RUN=0
 typeset -g _CMUX_CMD_START=0
 typeset -g _CMUX_TTY_NAME=""
 typeset -g _CMUX_TTY_REPORTED=0
-
-_cmux_ensure_zstat() {
-    # zstat is substantially cheaper than spawning external `stat`.
-    if (( _CMUX_HAVE_ZSTAT != 0 )); then
-        return 0
-    fi
-    if zmodload -F zsh/stat b:zstat 2>/dev/null; then
-        _CMUX_HAVE_ZSTAT=1
-        return 0
-    fi
-    _CMUX_HAVE_ZSTAT=-1
-    return 1
-}
 
 _cmux_git_resolve_head_path() {
     # Resolve the HEAD file path without invoking git (fast; works for worktrees).
@@ -100,27 +86,15 @@ _cmux_git_resolve_head_path() {
     return 1
 }
 
-_cmux_git_head_mtime() {
+_cmux_git_head_signature() {
     local head_path="$1"
-    [[ -n "$head_path" && -f "$head_path" ]] || { print -r -- 0; return 0; }
-
-    if _cmux_ensure_zstat; then
-        typeset -A st
-        if zstat -H st +mtime -- "$head_path" 2>/dev/null; then
-            print -r -- "${st[mtime]:-0}"
-            return 0
-        fi
-    fi
-
-    # Fallback for environments where zsh/stat isn't available.
-    if command -v stat >/dev/null 2>&1; then
-        local mtime
-        mtime="$(stat -f %m "$head_path" 2>/dev/null || stat -c %Y "$head_path" 2>/dev/null || echo 0)"
-        print -r -- "$mtime"
+    [[ -n "$head_path" && -r "$head_path" ]] || return 1
+    local line=""
+    if IFS= read -r line < "$head_path"; then
+        print -r -- "$line"
         return 0
     fi
-
-    print -r -- 0
+    return 1
 }
 
 _cmux_report_tty_once() {
@@ -184,23 +158,23 @@ _cmux_start_git_head_watch() {
     watch_head_path="$(_cmux_git_resolve_head_path 2>/dev/null || true)"
     [[ -n "$watch_head_path" ]] || return 0
 
-    local watch_head_mtime
-    watch_head_mtime="$(_cmux_git_head_mtime "$watch_head_path" 2>/dev/null || echo 0)"
+    local watch_head_signature
+    watch_head_signature="$(_cmux_git_head_signature "$watch_head_path" 2>/dev/null || true)"
 
     _CMUX_GIT_HEAD_LAST_PWD="$watch_pwd"
     _CMUX_GIT_HEAD_PATH="$watch_head_path"
-    _CMUX_GIT_HEAD_MTIME="$watch_head_mtime"
+    _CMUX_GIT_HEAD_SIGNATURE="$watch_head_signature"
 
     _cmux_stop_git_head_watch
     {
-        local last_mtime="$watch_head_mtime"
+        local last_signature="$watch_head_signature"
         while true; do
             sleep 1
 
-            local mtime
-            mtime="$(_cmux_git_head_mtime "$watch_head_path" 2>/dev/null || echo 0)"
-            if [[ -n "$mtime" && "$mtime" != 0 && "$mtime" != "$last_mtime" ]]; then
-                last_mtime="$mtime"
+            local signature
+            signature="$(_cmux_git_head_signature "$watch_head_path" 2>/dev/null || true)"
+            if [[ -n "$signature" && "$signature" != "$last_signature" ]]; then
+                last_signature="$signature"
                 _cmux_report_git_branch_for_path "$watch_pwd"
             fi
         done
@@ -299,13 +273,13 @@ _cmux_precmd() {
     if [[ "$pwd" != "$_CMUX_GIT_HEAD_LAST_PWD" ]]; then
         _CMUX_GIT_HEAD_LAST_PWD="$pwd"
         _CMUX_GIT_HEAD_PATH="$(_cmux_git_resolve_head_path 2>/dev/null || true)"
-        _CMUX_GIT_HEAD_MTIME=0
+        _CMUX_GIT_HEAD_SIGNATURE=""
     fi
     if [[ -n "$_CMUX_GIT_HEAD_PATH" ]]; then
-        local head_mtime
-        head_mtime="$(_cmux_git_head_mtime "$_CMUX_GIT_HEAD_PATH" 2>/dev/null || echo 0)"
-        if [[ -n "$head_mtime" && "$head_mtime" != 0 && "$head_mtime" != "$_CMUX_GIT_HEAD_MTIME" ]]; then
-            _CMUX_GIT_HEAD_MTIME="$head_mtime"
+        local head_signature
+        head_signature="$(_cmux_git_head_signature "$_CMUX_GIT_HEAD_PATH" 2>/dev/null || true)"
+        if [[ -n "$head_signature" && "$head_signature" != "$_CMUX_GIT_HEAD_SIGNATURE" ]]; then
+            _CMUX_GIT_HEAD_SIGNATURE="$head_signature"
             # Treat HEAD file change like a git command — force-replace any
             # running probe so the sidebar picks up the new branch immediately.
             _CMUX_GIT_FORCE=1

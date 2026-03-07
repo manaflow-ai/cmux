@@ -2242,6 +2242,10 @@ final class TerminalSurface: Identifiable, ObservableObject {
         surfaceView.tabId = newTabId
     }
 
+    func isAttached(to view: GhosttyNSView) -> Bool {
+        attachedView === view && surface != nil
+    }
+
     func portalBindingGeneration() -> UInt64 {
         portalLifecycleGeneration
     }
@@ -2383,6 +2387,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
         // removed/re-added (or briefly have window/screen nil) without recreating the surface.
         // Ghostty's vsync-driven renderer depends on having a valid display id; if it is missing
         // or stale, the surface can appear visually frozen until a focus/visibility change.
+        // SwiftUI also re-enters this path for ordinary state propagation (drag hover, active
+        // markers, visibility flags), so avoid forcing a geometry refresh when the attachment
+        // itself is unchanged.
         if attachedView === view && surface != nil {
             let windowNumber = view.window?.windowNumber
             let displayID = (view.window?.screen ?? NSScreen.main)?.displayID
@@ -2731,6 +2738,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
 #endif
     }
 
+    @discardableResult
     func updateSize(
         width: CGFloat,
         height: CGFloat,
@@ -2738,15 +2746,15 @@ final class TerminalSurface: Identifiable, ObservableObject {
         yScale: CGFloat,
         layerScale: CGFloat,
         backingSize: CGSize? = nil
-    ) {
-        guard let surface = surface else { return }
+    ) -> Bool {
+        guard let surface = surface else { return false }
         _ = layerScale
 
         let resolvedBackingWidth = backingSize?.width ?? (width * xScale)
         let resolvedBackingHeight = backingSize?.height ?? (height * yScale)
         let wpx = pixelDimension(from: resolvedBackingWidth)
         let hpx = pixelDimension(from: resolvedBackingHeight)
-        guard wpx > 0, hpx > 0 else { return }
+        guard wpx > 0, hpx > 0 else { return false }
 
         let scaleChanged = !scaleApproximatelyEqual(xScale, lastXScale) || !scaleApproximatelyEqual(yScale, lastYScale)
         let sizeChanged = wpx != lastPixelWidth || hpx != lastPixelHeight
@@ -2755,7 +2763,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         Self.sizeLog("updateSize-call surface=\(id.uuidString.prefix(8)) size=\(wpx)x\(hpx) prev=\(lastPixelWidth)x\(lastPixelHeight) changed=\((scaleChanged || sizeChanged) ? 1 : 0)")
         #endif
 
-        guard scaleChanged || sizeChanged else { return }
+        guard scaleChanged || sizeChanged else { return false }
 
         #if DEBUG
         if sizeChanged {
@@ -2777,10 +2785,11 @@ final class TerminalSurface: Identifiable, ObservableObject {
         }
 
         // Let Ghostty continue rendering on its own wakeups for steady-state frames.
+        return true
     }
 
     /// Force a full size recalculation and surface redraw.
-    func forceRefresh() {
+    func forceRefresh(reason: String = "unspecified") {
         let hasSurface = surface != nil
         let viewState: String
         if let view = attachedView {
@@ -2793,7 +2802,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         }
         #if DEBUG
         let ts = ISO8601DateFormatter().string(from: Date())
-        let line = "[\(ts)] forceRefresh: \(id) \(viewState)\n"
+        let line = "[\(ts)] forceRefresh: \(id) reason=\(reason) \(viewState)\n"
         let logPath = "/tmp/cmux-refresh-debug.log"
         if let handle = FileHandle(forWritingAtPath: logPath) {
             handle.seekToEndOfFile()
@@ -3124,6 +3133,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 	    private var lastScrollEventTime: CFTimeInterval = 0
     private var visibleInUI: Bool = true
     private var pendingSurfaceSize: CGSize?
+    private var lastDrawableSize: CGSize = .zero
     private var isFindEscapeSuppressionArmed = false
     private var lastAppliedOcclusionVisibility: Bool?
     private var lastAppliedConfigRefreshGeneration: UInt64 = 0
@@ -3313,16 +3323,23 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     func attachSurface(_ surface: TerminalSurface) {
         let isSameSurface = terminalSurface === surface
+        let isAlreadyAttached = surface.isAttached(to: self)
+        if !isSameSurface {
+            appliedColorScheme = nil
+        }
         terminalSurface = surface
         tabId = surface.tabId
-        surface.attachToView(self)
+        if !isAlreadyAttached {
+            surface.attachToView(self)
+        }
         surface.setKeyboardCopyModeActive(keyboardCopyModeActive)
-        updateSurfaceSize()
         updateOcclusionState()
-        guard !isSameSurface else { return }
-        appliedColorScheme = nil
+        if !isAlreadyAttached {
+            updateSurfaceSize()
+        }
+        if isSameSurface && isAlreadyAttached { return }
         applySurfaceBackground()
-        applySurfaceColorScheme(force: true)
+        applySurfaceColorScheme(force: !isSameSurface || !isAlreadyAttached)
     }
 
     override func viewDidMoveToWindow() {
@@ -3441,8 +3458,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return currentBounds
     }
 
-    private func updateSurfaceSize(size: CGSize? = nil) {
-        guard let terminalSurface = terminalSurface else { return }
+    @discardableResult
+    private func updateSurfaceSize(size: CGSize? = nil) -> Bool {
+        guard let terminalSurface = terminalSurface else { return false }
         let size = resolvedSurfaceSize(preferred: size)
         guard size.width > 0 && size.height > 0 else {
 #if DEBUG
@@ -3456,7 +3474,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 lastSizeSkipSignature = signature
             }
 #endif
-            return
+            return false
         }
         pendingSurfaceSize = size
         guard let window else {
@@ -3470,7 +3488,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 lastSizeSkipSignature = signature
             }
 #endif
-            return
+            return false
         }
 
         // First principles: derive pixel size from AppKit's backing conversion for the current
@@ -3488,7 +3506,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 lastSizeSkipSignature = signature
             }
 #endif
-            return
+            return false
         }
 #if DEBUG
         if lastSizeSkipSignature != nil {
@@ -3507,17 +3525,29 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             width: floor(max(0, backingSize.width)),
             height: floor(max(0, backingSize.height))
         )
+        var didChange = false
 
         CATransaction.begin()
         CATransaction.setDisableActions(true)
+        if let layer, !nearlyEqual(layer.contentsScale, layerScale) {
+            didChange = true
+        }
         layer?.contentsScale = layerScale
         layer?.masksToBounds = true
         if let metalLayer = layer as? CAMetalLayer {
-            metalLayer.drawableSize = drawablePixelSize
+            if drawablePixelSize != lastDrawableSize || metalLayer.drawableSize != drawablePixelSize {
+                if metalLayer.drawableSize != drawablePixelSize {
+                    didChange = true
+                }
+                if metalLayer.drawableSize != drawablePixelSize {
+                    metalLayer.drawableSize = drawablePixelSize
+                }
+                lastDrawableSize = drawablePixelSize
+            }
         }
         CATransaction.commit()
 
-        terminalSurface.updateSize(
+        let surfaceSizeChanged = terminalSurface.updateSize(
             width: size.width,
             height: size.height,
             xScale: xScale,
@@ -3525,15 +3555,19 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             layerScale: layerScale,
             backingSize: backingSize
         )
+        return didChange || surfaceSizeChanged
     }
 
-    fileprivate func pushTargetSurfaceSize(_ size: CGSize) {
+    @discardableResult
+    fileprivate func pushTargetSurfaceSize(_ size: CGSize) -> Bool {
         updateSurfaceSize(size: size)
     }
 
-    /// Force a full size recalculation and Metal layer refresh.
-    /// Resets cached metrics so updateSurfaceSize() re-runs unconditionally.
-    func forceRefreshSurface() {
+    /// Force a full size reconciliation for the current bounds.
+    /// Keep the drawable-size cache intact so redundant refresh paths do not
+    /// reallocate Metal drawables when the pixel size is unchanged.
+    @discardableResult
+    func forceRefreshSurface() -> Bool {
         updateSurfaceSize()
     }
 
@@ -5142,6 +5176,7 @@ final class GhosttySurfaceScrollView: NSView {
     private let keyboardCopyModeBadgeView: GhosttyPassthroughVisualEffectView
     private let keyboardCopyModeBadgeLabel: NSTextField
     private var searchOverlayHostingView: NSHostingView<SurfaceSearchOverlay>?
+    private var lastSearchOverlayStateID: ObjectIdentifier?
     private var observers: [NSObjectProtocol] = []
 	    private var windowObservers: [NSObjectProtocol] = []
 	    private var isLiveScrolling = false
@@ -5169,6 +5204,9 @@ final class GhosttySurfaceScrollView: NSView {
 
 #if DEBUG
     private var lastDropZoneOverlayLogSignature: String?
+    private var dragLayoutLogSequence: UInt64 = 0
+    private static let tabTransferPasteboardType = NSPasteboard.PasteboardType("com.splittabbar.tabtransfer")
+    private static let sidebarTabReorderPasteboardType = NSPasteboard.PasteboardType("com.cmux.sidebar-tab-reorder")
 	    private static var flashCounts: [UUID: Int] = [:]
 	    private static var drawCounts: [UUID: Int] = [:]
 	    private static var lastDrawTimes: [UUID: CFTimeInterval] = [:]
@@ -5500,36 +5538,50 @@ final class GhosttySurfaceScrollView: NSView {
     /// Reconcile AppKit geometry with ghostty surface geometry synchronously.
     /// Used after split topology mutations (close/split) to prevent a stale one-frame
     /// IOSurface size from being presented after pane expansion.
-    func reconcileGeometryNow() {
+    @discardableResult
+    func reconcileGeometryNow() -> Bool {
         guard Thread.isMainThread else {
             DispatchQueue.main.async { [weak self] in
                 self?.reconcileGeometryNow()
             }
-            return
+            return false
         }
 
-        synchronizeGeometryAndContent()
+        return synchronizeGeometryAndContent()
     }
 
     /// Request an immediate terminal redraw after geometry updates so stale IOSurface
     /// contents do not remain stretched during live resize churn.
-    func refreshSurfaceNow() {
-        surfaceView.terminalSurface?.forceRefresh()
+    func refreshSurfaceNow(reason: String = "portal.refreshSurfaceNow") {
+        surfaceView.terminalSurface?.forceRefresh(reason: reason)
     }
 
-    private func synchronizeGeometryAndContent() {
+    @discardableResult
+    private func synchronizeGeometryAndContent() -> Bool {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
 
-        backgroundView.frame = bounds
-        scrollView.frame = bounds
+        let previousSurfaceSize = surfaceView.frame.size
+        _ = setFrameIfNeeded(backgroundView, to: bounds)
+        _ = setFrameIfNeeded(scrollView, to: bounds)
         let targetSize = scrollView.bounds.size
-        surfaceView.frame.size = targetSize
-        documentView.frame.size.width = scrollView.bounds.width
-        inactiveOverlayView.frame = bounds
+#if DEBUG
+        logLayoutDuringActiveDrag(targetSize: targetSize)
+#endif
+        let targetSurfaceFrame = CGRect(origin: surfaceView.frame.origin, size: targetSize)
+        _ = setFrameIfNeeded(surfaceView, to: targetSurfaceFrame)
+        let targetDocumentFrame = CGRect(
+            origin: documentView.frame.origin,
+            size: CGSize(width: scrollView.bounds.width, height: documentView.frame.height)
+        )
+        _ = setFrameIfNeeded(documentView, to: targetDocumentFrame)
+        _ = setFrameIfNeeded(inactiveOverlayView, to: bounds)
         if let zone = activeDropZone {
-            dropZoneOverlayView.frame = dropZoneOverlayFrame(for: zone, in: bounds.size)
+            _ = setFrameIfNeeded(
+                dropZoneOverlayView,
+                to: dropZoneOverlayFrame(for: zone, in: bounds.size)
+            )
         }
         if let pending = pendingDropZone,
            bounds.width > 2,
@@ -5543,14 +5595,67 @@ final class GhosttySurfaceScrollView: NSView {
             // same initial animation as direct drop-zone activation.
             setDropZoneOverlay(zone: pending)
         }
-        notificationRingOverlayView.frame = bounds
-        flashOverlayView.frame = bounds
+        _ = setFrameIfNeeded(notificationRingOverlayView, to: bounds)
+        _ = setFrameIfNeeded(flashOverlayView, to: bounds)
         updateNotificationRingPath()
         updateFlashPath()
         synchronizeScrollView()
         synchronizeSurfaceView()
-        synchronizeCoreSurface()
+        let didCoreSurfaceChange = synchronizeCoreSurface()
+        return !sizeApproximatelyEqual(previousSurfaceSize, targetSize) || didCoreSurfaceChange
     }
+
+    @discardableResult
+    private func setFrameIfNeeded(_ view: NSView, to frame: CGRect) -> Bool {
+        guard !Self.rectApproximatelyEqual(view.frame, frame) else { return false }
+        view.frame = frame
+        return true
+    }
+
+    private func sizeApproximatelyEqual(_ lhs: CGSize, _ rhs: CGSize, epsilon: CGFloat = 0.0001) -> Bool {
+        abs(lhs.width - rhs.width) <= epsilon && abs(lhs.height - rhs.height) <= epsilon
+    }
+
+    private func pointApproximatelyEqual(_ lhs: CGPoint, _ rhs: CGPoint, epsilon: CGFloat = 0.5) -> Bool {
+        abs(lhs.x - rhs.x) <= epsilon && abs(lhs.y - rhs.y) <= epsilon
+    }
+
+#if DEBUG
+    private static func isDragMouseEvent(_ eventType: NSEvent.EventType?) -> Bool {
+        switch eventType {
+        case .leftMouseDragged, .rightMouseDragged, .otherMouseDragged:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func logLayoutDuringActiveDrag(targetSize: CGSize) {
+        let pasteboardTypes = NSPasteboard(name: .drag).types
+        let hasTabDrag = pasteboardTypes?.contains(Self.tabTransferPasteboardType) == true
+        let hasSidebarDrag = pasteboardTypes?.contains(Self.sidebarTabReorderPasteboardType) == true
+        let eventType = NSApp.currentEvent?.type
+        let hasActiveDrag =
+            activeDropZone != nil ||
+            pendingDropZone != nil ||
+            ((hasTabDrag || hasSidebarDrag) && Self.isDragMouseEvent(eventType))
+        guard hasActiveDrag else { return }
+
+        dragLayoutLogSequence &+= 1
+        let surface = surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil"
+        let activeZone = activeDropZone.map { String(describing: $0) } ?? "none"
+        let pendingZone = pendingDropZone.map { String(describing: $0) } ?? "none"
+        let event = eventType.map { String(describing: $0) } ?? "nil"
+        dlog(
+            "terminal.layout.drag surface=\(surface) seq=\(dragLayoutLogSequence) " +
+            "activeZone=\(activeZone) pendingZone=\(pendingZone) " +
+            "hasTabDrag=\(hasTabDrag ? 1 : 0) hasSidebarDrag=\(hasSidebarDrag ? 1 : 0) " +
+            "event=\(event) inWindow=\(window != nil ? 1 : 0) " +
+            "bounds=\(String(format: "%.1fx%.1f", bounds.width, bounds.height)) " +
+            "target=\(String(format: "%.1fx%.1f", targetSize.width, targetSize.height))"
+        )
+    }
+#endif
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
@@ -5660,10 +5765,15 @@ final class GhosttySurfaceScrollView: NSView {
             return
         }
 
+        let targetHidden = !visible
+        let targetOpacity: Float = visible ? 1 : 0
+        guard notificationRingOverlayView.isHidden != targetHidden ||
+                notificationRingLayer.opacity != targetOpacity else { return }
+
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        notificationRingOverlayView.isHidden = !visible
-        notificationRingLayer.opacity = visible ? 1 : 0
+        notificationRingOverlayView.isHidden = targetHidden
+        notificationRingLayer.opacity = targetOpacity
         CATransaction.commit()
     }
 
@@ -5681,6 +5791,7 @@ final class GhosttySurfaceScrollView: NSView {
               let searchState else {
             let hadOverlay = searchOverlayHostingView != nil
             let focusTargetChanged = searchFocusTarget != .searchField
+            lastSearchOverlayStateID = nil
             guard hadOverlay || focusTargetChanged else { return }
 #if DEBUG
             dlog("find.setSearchOverlay REMOVE surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") hadOverlay=\(hadOverlay)")
@@ -5688,6 +5799,16 @@ final class GhosttySurfaceScrollView: NSView {
             searchOverlayHostingView?.removeFromSuperview()
             searchOverlayHostingView = nil
             searchFocusTarget = .searchField
+            return
+        }
+
+        let searchStateID = ObjectIdentifier(searchState)
+        if let overlay = searchOverlayHostingView,
+           lastSearchOverlayStateID == searchStateID,
+           overlay.superview === self {
+            if !keyboardCopyModeBadgeView.isHidden {
+                addSubview(keyboardCopyModeBadgeView, positioned: .above, relativeTo: overlay)
+            }
             return
         }
 
@@ -5734,6 +5855,7 @@ final class GhosttySurfaceScrollView: NSView {
             if !keyboardCopyModeBadgeView.isHidden {
                 addSubview(keyboardCopyModeBadgeView, positioned: .above, relativeTo: overlay)
             }
+            lastSearchOverlayStateID = searchStateID
             return
         }
 
@@ -5751,6 +5873,7 @@ final class GhosttySurfaceScrollView: NSView {
             addSubview(keyboardCopyModeBadgeView, positioned: .above, relativeTo: overlay)
         }
         searchOverlayHostingView = overlay
+        lastSearchOverlayStateID = searchStateID
     }
 
     func setKeyboardCopyModeIndicator(visible: Bool) {
@@ -6670,16 +6793,18 @@ final class GhosttySurfaceScrollView: NSView {
 
     private func synchronizeSurfaceView() {
         let visibleRect = scrollView.contentView.documentVisibleRect
+        guard !pointApproximatelyEqual(surfaceView.frame.origin, visibleRect.origin) else { return }
         surfaceView.frame.origin = visibleRect.origin
     }
 
     /// Match upstream Ghostty behavior: use content area width (excluding non-content
     /// regions such as scrollbar space) when telling libghostty the terminal size.
-    private func synchronizeCoreSurface() {
+    @discardableResult
+    private func synchronizeCoreSurface() -> Bool {
         let width = max(0, scrollView.contentSize.width - overlayScrollbarInsetWidth())
         let height = surfaceView.frame.height
-        guard width > 0, height > 0 else { return }
-        surfaceView.pushTargetSurfaceSize(CGSize(width: width, height: height))
+        guard width > 0, height > 0 else { return false }
+        return surfaceView.pushTargetSurfaceSize(CGSize(width: width, height: height))
     }
 
     /// Reserve overlay scrollbar gutter so wrapped text never sits underneath a visible scroller.
@@ -6739,19 +6864,30 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     private func synchronizeScrollView() {
-        documentView.frame.size.height = documentHeight()
+        var didChangeGeometry = false
+        let targetDocumentHeight = documentHeight()
+        if abs(documentView.frame.height - targetDocumentHeight) > 0.5 {
+            documentView.frame.size.height = targetDocumentHeight
+            didChangeGeometry = true
+        }
 
         if !isLiveScrolling {
             let cellHeight = surfaceView.cellSize.height
             if cellHeight > 0, let scrollbar = surfaceView.scrollbar {
                 let offsetY =
                     CGFloat(scrollbar.total - scrollbar.offset - scrollbar.len) * cellHeight
-                scrollView.contentView.scroll(to: CGPoint(x: 0, y: offsetY))
+                let targetOrigin = CGPoint(x: 0, y: offsetY)
+                if !pointApproximatelyEqual(scrollView.contentView.bounds.origin, targetOrigin) {
+                    scrollView.contentView.scroll(to: targetOrigin)
+                    didChangeGeometry = true
+                }
                 lastSentRow = Int(scrollbar.offset)
             }
         }
 
-        scrollView.reflectScrolledClipView(scrollView.contentView)
+        if didChangeGeometry {
+            scrollView.reflectScrolledClipView(scrollView.contentView)
+        }
     }
 
     private func handleScrollChange() {
@@ -6983,31 +7119,57 @@ struct GhosttyTerminalView: NSViewRepresentable {
     private final class HostContainerView: NSView {
         var onDidMoveToWindow: (() -> Void)?
         var onGeometryChanged: (() -> Void)?
+        private(set) var geometryRevision: UInt64 = 0
+        private var lastReportedGeometryState: GeometryState?
+
+        private struct GeometryState: Equatable {
+            let frame: CGRect
+            let bounds: CGRect
+            let windowNumber: Int?
+            let superviewID: ObjectIdentifier?
+        }
+
+        private func currentGeometryState() -> GeometryState {
+            GeometryState(
+                frame: frame,
+                bounds: bounds,
+                windowNumber: window?.windowNumber,
+                superviewID: superview.map(ObjectIdentifier.init)
+            )
+        }
+
+        private func notifyGeometryChangedIfNeeded() {
+            let state = currentGeometryState()
+            guard state != lastReportedGeometryState else { return }
+            lastReportedGeometryState = state
+            geometryRevision &+= 1
+            onGeometryChanged?()
+        }
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
             onDidMoveToWindow?()
-            onGeometryChanged?()
+            notifyGeometryChangedIfNeeded()
         }
 
         override func viewDidMoveToSuperview() {
             super.viewDidMoveToSuperview()
-            onGeometryChanged?()
+            notifyGeometryChangedIfNeeded()
         }
 
         override func layout() {
             super.layout()
-            onGeometryChanged?()
+            notifyGeometryChangedIfNeeded()
         }
 
         override func setFrameOrigin(_ newOrigin: NSPoint) {
             super.setFrameOrigin(newOrigin)
-            onGeometryChanged?()
+            notifyGeometryChangedIfNeeded()
         }
 
         override func setFrameSize(_ newSize: NSSize) {
             super.setFrameSize(newSize)
-            onGeometryChanged?()
+            notifyGeometryChangedIfNeeded()
         }
     }
 
@@ -7021,6 +7183,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
         var lastBoundHostId: ObjectIdentifier?
         var lastPaneDropZone: DropZone?
         var lastReportedReadyForWorkspaceHandoff: Bool = false
+        var lastSynchronizedHostGeometryRevision: UInt64 = 0
         weak var hostedView: GhosttySurfaceScrollView?
     }
 
@@ -7162,6 +7325,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
                     expectedGeneration: portalExpectedGeneration
                 )
                 coordinator.lastBoundHostId = ObjectIdentifier(host)
+                coordinator.lastSynchronizedHostGeometryRevision = host.geometryRevision
                 hostedView.setVisibleInUI(coordinator.desiredIsVisibleInUI)
                 hostedView.setActive(coordinator.desiredIsActive)
                 hostedView.setNotificationRing(visible: coordinator.desiredShowsUnreadNotificationRing)
@@ -7203,10 +7367,12 @@ struct GhosttyTerminalView: NSViewRepresentable {
                     hostedView: hostedView,
                     coordinator: coordinator
                 )
+                coordinator.lastSynchronizedHostGeometryRevision = host.geometryRevision
             }
 
             if host.window != nil {
                 let hostId = ObjectIdentifier(host)
+                let geometryRevision = host.geometryRevision
                 let shouldBindNow =
                     coordinator.lastBoundHostId != hostId ||
                     hostedView.superview == nil ||
@@ -7223,8 +7389,11 @@ struct GhosttyTerminalView: NSViewRepresentable {
                         expectedGeneration: portalExpectedGeneration
                     )
                     coordinator.lastBoundHostId = hostId
+                    coordinator.lastSynchronizedHostGeometryRevision = geometryRevision
+                } else if coordinator.lastSynchronizedHostGeometryRevision != geometryRevision {
+                    TerminalWindowPortalRegistry.synchronizeForAnchor(host)
+                    coordinator.lastSynchronizedHostGeometryRevision = geometryRevision
                 }
-                TerminalWindowPortalRegistry.synchronizeForAnchor(host)
             } else {
                 // Bind is deferred until host moves into a window. Update the
                 // existing portal entry's visibleInUI now so that any portal sync
