@@ -329,6 +329,19 @@ func resolveTerminalOpenURLTarget(_ rawValue: String) -> TerminalOpenURLTarget? 
     return .external(fallback)
 }
 
+func resolveTerminalCommandClickFileURL(
+    line: String,
+    clickedColumn: Int,
+    workingDirectory: String?,
+    fileExists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }
+) -> URL? {
+    _ = line
+    _ = clickedColumn
+    _ = workingDirectory
+    _ = fileExists
+    return nil
+}
+
 enum TerminalKeyboardCopyModeSelectionMove: String, Equatable {
     case left
     case right
