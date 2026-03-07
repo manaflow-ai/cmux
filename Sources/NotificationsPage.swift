@@ -7,6 +7,7 @@ struct NotificationsPage: View {
     @Binding var selection: SidebarSelection
     @FocusState private var focusedNotificationId: UUID?
     @AppStorage(KeyboardShortcutSettings.Action.jumpToUnread.defaultsKey) private var jumpToUnreadShortcutData = Data()
+    @AppStorage(UIZoomMetrics.appStorageKey) private var uiZoomScale = UIZoomMetrics.defaultScale
 
     var body: some View {
         VStack(spacing: 0) {
@@ -41,7 +42,7 @@ struct NotificationsPage: View {
                             )
                         }
                     }
-                    .padding(16)
+                    .padding(UIZoomMetrics.notificationContainerPadding(uiZoomScale))
                 }
             }
         }
@@ -83,8 +84,8 @@ struct NotificationsPage: View {
                 .buttonStyle(.bordered)
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
+        .padding(.horizontal, UIZoomMetrics.notificationItemHPadding(uiZoomScale))
+        .padding(.vertical, UIZoomMetrics.notificationItemVPadding(uiZoomScale))
     }
 
     private var emptyState: some View {
@@ -157,13 +158,14 @@ struct NotificationsPage: View {
 
 private struct ShortcutAnnotation: View {
     let text: String
+    @AppStorage(UIZoomMetrics.appStorageKey) private var uiZoomScale = UIZoomMetrics.defaultScale
 
     var body: some View {
         Text(text)
-            .font(.system(size: 10, weight: .semibold, design: .rounded))
+            .font(.system(size: UIZoomMetrics.notificationHeaderFontSize(uiZoomScale), weight: .semibold, design: .rounded))
             .foregroundStyle(.primary)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
+            .padding(.horizontal, UIZoomMetrics.notificationHeaderHPadding(uiZoomScale))
+            .padding(.vertical, UIZoomMetrics.notificationHeaderVPadding(uiZoomScale))
             .background(
                 RoundedRectangle(cornerRadius: 5)
                     .fill(Color(nsColor: .controlBackgroundColor))

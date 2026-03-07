@@ -236,13 +236,14 @@ struct BrowserPanelView: View {
     @State private var pendingAddressBarFocusRetryGeneration: UInt64 = 0
     @State private var isBrowserThemeMenuPresented = false
     @State private var ghosttyBackgroundGeneration: Int = 0
+    @AppStorage(UIZoomMetrics.appStorageKey) private var uiZoomScale = UIZoomMetrics.defaultScale
     // Keep this below half of the compact omnibar height so it reads as a squircle,
     // not a capsule.
-    private let omnibarPillCornerRadius: CGFloat = 10
-    private let addressBarButtonSize: CGFloat = 22
-    private let addressBarButtonHitSize: CGFloat = 26
-    private let addressBarVerticalPadding: CGFloat = 4
-    private let devToolsButtonIconSize: CGFloat = 11
+    private var omnibarPillCornerRadius: CGFloat { UIZoomMetrics.omnibarCornerRadius(uiZoomScale) }
+    private var addressBarButtonSize: CGFloat { UIZoomMetrics.addressBarButtonSize(uiZoomScale) }
+    private var addressBarButtonHitSize: CGFloat { UIZoomMetrics.addressBarButtonHitSize(uiZoomScale) }
+    private var addressBarVerticalPadding: CGFloat { UIZoomMetrics.addressBarVPadding(uiZoomScale) }
+    private var devToolsButtonIconSize: CGFloat { UIZoomMetrics.devToolsIconSize(uiZoomScale) }
 
     private var searchEngine: BrowserSearchEngine {
         BrowserSearchEngine(rawValue: searchEngineRaw) ?? BrowserSearchSettings.defaultSearchEngine
@@ -3224,17 +3225,18 @@ private struct OmnibarSuggestionsView: View {
     let onCommit: (OmnibarSuggestion) -> Void
     let onHighlight: (Int) -> Void
     @Environment(\.colorScheme) private var colorScheme
+    @AppStorage(UIZoomMetrics.appStorageKey) private var uiZoomScale = UIZoomMetrics.defaultScale
 
     // Keep radii below half of the smallest rendered heights so this keeps a
     // squircle silhouette instead of auto-clamping into a capsule.
-    private let popupCornerRadius: CGFloat = 12
-    private let rowHighlightCornerRadius: CGFloat = 9
-    private let singleLineRowHeight: CGFloat = 24
-    private let rowSpacing: CGFloat = 1
+    private var popupCornerRadius: CGFloat { UIZoomMetrics.popupCornerRadius(uiZoomScale) }
+    private var rowHighlightCornerRadius: CGFloat { UIZoomMetrics.popupRowHighlightRadius(uiZoomScale) }
+    private var singleLineRowHeight: CGFloat { UIZoomMetrics.popupRowHeight(uiZoomScale) }
+    private var rowSpacing: CGFloat { UIZoomMetrics.popupRowSpacing(uiZoomScale) }
     private let topInset: CGFloat = 3
     private let bottomInset: CGFloat = 3
     private var horizontalInset: CGFloat { topInset }
-    private let maxPopupHeight: CGFloat = 560
+    private var maxPopupHeight: CGFloat { UIZoomMetrics.popupMaxHeight(uiZoomScale) }
 
     private var totalRowCount: Int {
         max(1, items.count)

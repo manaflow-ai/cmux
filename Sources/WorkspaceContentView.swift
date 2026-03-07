@@ -301,16 +301,18 @@ struct EmptyPanelView: View {
     let paneId: PaneID
     @AppStorage(KeyboardShortcutSettings.Action.newSurface.defaultsKey) private var newSurfaceShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.openBrowser.defaultsKey) private var openBrowserShortcutData = Data()
+    @AppStorage(UIZoomMetrics.appStorageKey) private var uiZoomScale = UIZoomMetrics.defaultScale
 
     private struct ShortcutHint: View {
         let text: String
+        @AppStorage(UIZoomMetrics.appStorageKey) private var uiZoomScale = UIZoomMetrics.defaultScale
 
         var body: some View {
             Text(text)
-                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                .font(.system(size: UIZoomMetrics.workspaceTitleFontSize(uiZoomScale), weight: .semibold, design: .rounded))
                 .foregroundStyle(.white.opacity(0.9))
-                .padding(.horizontal, 8)
-                .padding(.vertical, 3)
+                .padding(.horizontal, UIZoomMetrics.workspaceTitleHPadding(uiZoomScale))
+                .padding(.vertical, UIZoomMetrics.workspaceTitleVPadding(uiZoomScale))
                 .background(.white.opacity(0.18), in: Capsule())
         }
     }
@@ -379,9 +381,9 @@ struct EmptyPanelView: View {
     }
 
     var body: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: UIZoomMetrics.emptyStateSpacing(uiZoomScale)) {
             Image(systemName: "terminal.fill")
-                .font(.system(size: 48))
+                .font(.system(size: UIZoomMetrics.emptyStateIconSize(uiZoomScale)))
                 .foregroundStyle(.tertiary)
 
             Text("Empty Panel")

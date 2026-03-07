@@ -27,12 +27,13 @@ struct SurfaceSearchOverlay: View {
     @State private var dragOffset: CGSize = .zero
     @State private var barSize: CGSize = .zero
     @State private var isSearchFieldFocused: Bool = true
+    @AppStorage(UIZoomMetrics.appStorageKey) private var uiZoomScale = UIZoomMetrics.defaultScale
 
-    private let padding: CGFloat = 8
+    private var padding: CGFloat { UIZoomMetrics.searchContainerPadding(uiZoomScale) }
 
     var body: some View {
         GeometryReader { geo in
-            HStack(spacing: 4) {
+            HStack(spacing: UIZoomMetrics.searchSpacing(uiZoomScale)) {
                 SearchTextFieldRepresentable(
                     text: $searchState.needle,
                     isFocused: $isSearchFieldFocused,
@@ -56,26 +57,26 @@ struct SurfaceSearchOverlay: View {
                     }
                 )
                 .accessibilityIdentifier("TerminalFindSearchTextField")
-                .frame(width: 180)
-                .padding(.leading, 8)
-                .padding(.trailing, 50)
-                .padding(.vertical, 6)
+                .frame(width: UIZoomMetrics.searchFieldWidth(uiZoomScale))
+                .padding(.leading, UIZoomMetrics.searchFieldLPadding(uiZoomScale))
+                .padding(.trailing, UIZoomMetrics.searchFieldRPadding(uiZoomScale))
+                .padding(.vertical, UIZoomMetrics.searchFieldVPadding(uiZoomScale))
                 .background(Color.primary.opacity(0.1))
-                .cornerRadius(6)
+                .cornerRadius(UIZoomMetrics.searchFieldCornerRadius(uiZoomScale))
                 .overlay(alignment: .trailing) {
                     if let selected = searchState.selected {
                         let totalText = searchState.total.map { String($0) } ?? "?"
                         Text("\(selected + 1)/\(totalText)")
-                            .font(.caption)
+                            .font(.system(size: UIZoomMetrics.searchCounterFontSize(uiZoomScale)))
                             .foregroundColor(.secondary)
                             .monospacedDigit()
-                            .padding(.trailing, 8)
+                            .padding(.trailing, UIZoomMetrics.searchCounterTrailingPadding(uiZoomScale))
                     } else if let total = searchState.total {
                         Text("-/\(total)")
-                            .font(.caption)
+                            .font(.system(size: UIZoomMetrics.searchCounterFontSize(uiZoomScale)))
                             .foregroundColor(.secondary)
                             .monospacedDigit()
-                            .padding(.trailing, 8)
+                            .padding(.trailing, UIZoomMetrics.searchCounterTrailingPadding(uiZoomScale))
                     }
                 }
 
@@ -112,7 +113,7 @@ struct SurfaceSearchOverlay: View {
                 .buttonStyle(SearchButtonStyle())
                 .safeHelp(String(localized: "search.close.help", defaultValue: "Close (Esc)"))
             }
-            .padding(8)
+            .padding(UIZoomMetrics.searchContainerPadding(uiZoomScale))
             .background(.background)
             .clipShape(clipShape)
             .shadow(radius: 4)
@@ -154,7 +155,7 @@ struct SurfaceSearchOverlay: View {
     }
 
     private var clipShape: some Shape {
-        RoundedRectangle(cornerRadius: 8)
+        RoundedRectangle(cornerRadius: UIZoomMetrics.searchContainerCornerRadius(uiZoomScale))
     }
 
     enum Corner {

@@ -12,6 +12,7 @@ struct MarkdownPanelView: View {
 
     @State private var focusFlashOpacity: Double = 0.0
     @State private var focusFlashAnimationGeneration: Int = 0
+    @AppStorage(UIZoomMetrics.appStorageKey) private var uiZoomScale = UIZoomMetrics.defaultScale
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
@@ -50,30 +51,30 @@ struct MarkdownPanelView: View {
             VStack(alignment: .leading, spacing: 0) {
                 // File path breadcrumb
                 filePathHeader
-                    .padding(.horizontal, 24)
-                    .padding(.top, 16)
-                    .padding(.bottom, 8)
+                    .padding(.horizontal, UIZoomMetrics.mdHeaderHPadding(uiZoomScale))
+                    .padding(.top, UIZoomMetrics.mdHeaderVPadding(uiZoomScale))
+                    .padding(.bottom, UIZoomMetrics.mdHeaderSpacing(uiZoomScale) + 2)
 
                 Divider()
-                    .padding(.horizontal, 16)
+                    .padding(.horizontal, UIZoomMetrics.mdDividerHPadding(uiZoomScale))
 
                 // Rendered markdown
                 Markdown(panel.content)
                     .markdownTheme(cmuxMarkdownTheme)
                     .textSelection(.enabled)
-                    .padding(.horizontal, 24)
-                    .padding(.vertical, 16)
+                    .padding(.horizontal, UIZoomMetrics.mdContentHPadding(uiZoomScale))
+                    .padding(.vertical, UIZoomMetrics.mdContentVPadding(uiZoomScale))
             }
         }
     }
 
     private var filePathHeader: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: UIZoomMetrics.mdHeaderSpacing(uiZoomScale)) {
             Image(systemName: "doc.richtext")
                 .foregroundColor(.secondary)
-                .font(.system(size: 12))
+                .font(.system(size: UIZoomMetrics.mdHeaderIconSize(uiZoomScale)))
             Text(panel.filePath)
-                .font(.system(size: 11, design: .monospaced))
+                .font(.system(size: UIZoomMetrics.mdHeaderTextSize(uiZoomScale), design: .monospaced))
                 .foregroundColor(.secondary)
                 .lineLimit(1)
                 .truncationMode(.middle)
