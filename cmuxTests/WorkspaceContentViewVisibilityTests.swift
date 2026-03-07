@@ -90,6 +90,15 @@ final class WorkspaceHandoffPolicyTests: XCTestCase {
     }
 }
 
+final class TitlebarPageTooltipPolicyTests: XCTestCase {
+    func testTitlebarPageControlsNeverInstallAppKitHelpTooltips() {
+        XCTAssertFalse(
+            ContentView.titlebarPageControlsShouldInstallHelpTooltips(),
+            "Transient titlebar page controls must not register AppKit help tooltips."
+        )
+    }
+}
+
 @MainActor
 final class WorkspacePageLifecycleTests: XCTestCase {
     func testSwitchingPagesPreservesLivePanelIdentityAcrossDetachAndReattach() throws {

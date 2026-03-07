@@ -2020,6 +2020,13 @@ struct ContentView: View {
         titlebarPageShortcutHintMonitor.isModifierPressed || alwaysShowShortcutHints
     }
 
+    // AppKit tooltip tracking areas have been crashing during titlebar page churn
+    // (hover, drag/drop, close, and selection changes). Keep this strip tooltip-free
+    // until we have a safer non-AppKit tooltip implementation for it.
+    static func titlebarPageControlsShouldInstallHelpTooltips() -> Bool {
+        false
+    }
+
     private func titlebarPageShortcutLabel(index: Int, pageCount: Int) -> String? {
         commandPalettePageShortcutHint(index: index, pageCount: pageCount)
     }
@@ -2196,7 +2203,8 @@ struct ContentView: View {
                 )
 
                 if isTitlebarHovered {
-                    Button(action: {
+                    let newPageLabel = String(localized: "workspace.page.new.tooltip", defaultValue: "New Page")
+                    let newPageButton = Button(action: {
                         _ = workspace.newPage(select: true)
                     }) {
                         Image(systemName: "plus")
@@ -2209,9 +2217,15 @@ struct ContentView: View {
                             )
                     }
                     .buttonStyle(.plain)
-                    .help(String(localized: "workspace.page.new.tooltip", defaultValue: "New Page"))
+                    .accessibilityLabel(newPageLabel)
                     .accessibilityIdentifier("titlebarPageNewButton")
                     .transition(.opacity)
+
+                    if Self.titlebarPageControlsShouldInstallHelpTooltips() {
+                        newPageButton.help(newPageLabel)
+                    } else {
+                        newPageButton
+                    }
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -2259,7 +2273,7 @@ struct ContentView: View {
         let showTrailingDropIndicator = dragIndicator?.pageId == page.id && dragIndicator?.edge == .trailing
 
         return ZStack(alignment: .trailing) {
-            Button(action: {
+            let pageButton = Button(action: {
                 workspace.selectPage(page.id)
             }) {
                 HStack(spacing: 6) {
@@ -2279,11 +2293,16 @@ struct ContentView: View {
                 .background(
                     RoundedRectangle(cornerRadius: 6, style: .continuous)
                         .fill(fakeTitlebarTextColor.opacity(isActive ? 0.11 : (isHovered ? 0.06 : 0.001)))
-                )
+                    )
             }
             .buttonStyle(.plain)
-            .help(page.title)
             .accessibilityIdentifier(titlebarPageButtonAccessibilityIdentifier(pageId: page.id, isActive: isActive))
+
+            if Self.titlebarPageControlsShouldInstallHelpTooltips() {
+                pageButton.help(page.title)
+            } else {
+                pageButton
+            }
 
             HStack(spacing: 4) {
                 if showsShortcutHint, let shortcutLabel {
