@@ -5310,11 +5310,15 @@ final class GhosttySurfaceScrollView: NSView {
 #if DEBUG
         logLayoutDuringActiveDrag(targetSize: targetSize)
 #endif
-        let targetSurfaceFrame = CGRect(origin: surfaceView.frame.origin, size: targetSize)
+        let scrollbarInset = overlayScrollbarInsetWidth()
+        let targetSurfaceFrame = CGRect(
+            origin: surfaceView.frame.origin,
+            size: CGSize(width: targetSize.width - scrollbarInset, height: targetSize.height)
+        )
         _ = setFrameIfNeeded(surfaceView, to: targetSurfaceFrame)
         let targetDocumentFrame = CGRect(
             origin: documentView.frame.origin,
-            size: CGSize(width: scrollView.bounds.width, height: documentView.frame.height)
+            size: CGSize(width: scrollView.bounds.width - scrollbarInset, height: documentView.frame.height)
         )
         _ = setFrameIfNeeded(documentView, to: targetDocumentFrame)
         _ = setFrameIfNeeded(inactiveOverlayView, to: bounds)
@@ -6491,7 +6495,7 @@ final class GhosttySurfaceScrollView: NSView {
     /// regions such as scrollbar space) when telling libghostty the terminal size.
     @discardableResult
     private func synchronizeCoreSurface() -> Bool {
-        let width = max(0, scrollView.contentSize.width - overlayScrollbarInsetWidth())
+        let width = surfaceView.frame.width
         let height = surfaceView.frame.height
         guard width > 0, height > 0 else { return false }
         return surfaceView.pushTargetSurfaceSize(CGSize(width: width, height: height))
