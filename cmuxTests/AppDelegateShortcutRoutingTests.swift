@@ -899,7 +899,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
     }
 
-    func testOptionDigitPageShortcutFallsBackByKeyCodeOnSymbolFirstLayouts() {
+    func testCommandOptionDigitPageShortcutFallsBackByKeyCodeOnSymbolFirstLayouts() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
             return
@@ -922,14 +922,14 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         withTemporaryShortcut(action: .selectPage1) {
             // Symbol-first layouts (for example AZERTY) can report "&" for the ANSI 1 key.
-            // Option+1 page selection should still match via keyCode fallback.
+            // Cmd+Option+1 page selection should still match via keyCode fallback.
             guard let event = makeKeyDownEvent(
                 key: "&",
-                modifiers: [.option],
+                modifiers: [.command, .option],
                 keyCode: 18, // kVK_ANSI_1
                 windowNumber: window.windowNumber
             ) else {
-                XCTFail("Failed to construct Option+1 event on ANSI 1 key")
+                XCTFail("Failed to construct Cmd+Option+1 event on ANSI 1 key")
                 return
             }
 
@@ -944,7 +944,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertNotEqual(workspace.activePage?.id, selectedBeforeShortcut)
     }
 
-    func testOption9SelectsLastPageInEventWindowWhenActiveManagerIsStale() {
+    func testCommandOption9SelectsLastPageInEventWindowWhenActiveManagerIsStale() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
             return
@@ -981,11 +981,11 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         guard let event = makeKeyDownEvent(
             key: "9",
-            modifiers: [.option],
+            modifiers: [.command, .option],
             keyCode: 25, // kVK_ANSI_9
             windowNumber: secondWindow.windowNumber
         ) else {
-            XCTFail("Failed to construct Option+9 event")
+            XCTFail("Failed to construct Cmd+Option+9 event")
             return
         }
 
@@ -998,12 +998,12 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(
             firstWorkspace.activePage?.id,
             firstWorkspaceFirstPageId,
-            "Option+9 must not select a page in the stale active window"
+            "Cmd+Option+9 must not select a page in the stale active window"
         )
         XCTAssertEqual(
             secondWorkspace.activePage?.id,
             secondWorkspaceLastPage.id,
-            "Option+9 should select the last page in the event window"
+            "Cmd+Option+9 should select the last page in the event window"
         )
         XCTAssertTrue(appDelegate.tabManager === secondManager, "Shortcut routing should retarget active manager to event window")
     }
@@ -1054,7 +1054,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertNotEqual(workspace.activePage?.id, firstPageId)
     }
 
-    func testOptionRightBracketPageShortcutFallsBackByKeyCodeOnNonUSLayouts() {
+    func testCommandOptionRightBracketPageShortcutFallsBackByKeyCodeOnNonUSLayouts() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
             return
@@ -1076,14 +1076,14 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         withTemporaryShortcut(action: .nextPage) {
             // Some non-US layouts can report unrelated symbols for the ANSI ] key.
-            // Option+] should still work via keyCode fallback.
+            // Cmd+Option+] should still work via keyCode fallback.
             guard let event = makeKeyDownEvent(
                 key: "*",
-                modifiers: [.option],
+                modifiers: [.command, .option],
                 keyCode: 30, // kVK_ANSI_RightBracket
                 windowNumber: window.windowNumber
             ) else {
-                XCTFail("Failed to construct Option+] event on ANSI ] key")
+                XCTFail("Failed to construct Cmd+Option+] event on ANSI ] key")
                 return
             }
 
@@ -1342,6 +1342,12 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         workspace.setPageTitle(pageId: firstPageId, title: "Agents")
         XCTAssertNotNil(workspace.newTerminalSurface(inPane: firstPaneId, focus: false))
+        let expectedAgentSurfaceIds = workspace.bonsplitController
+            .tabs(inPane: firstPaneId)
+            .compactMap { workspace.panelIdFromSurfaceId($0.id)?.uuidString }
+        let expectedAgentSelectedSurfaceId = workspace.bonsplitController
+            .selectedTab(inPane: firstPaneId)
+            .flatMap { workspace.panelIdFromSurfaceId($0.id)?.uuidString }
 
         let secondPage = workspace.newPage(select: true)
         workspace.setPageTitle(pageId: secondPage.id, title: "Editor")
@@ -1374,10 +1380,20 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         let agentsPage = pagesByTitle["Agents"]
         let editorPage = pagesByTitle["Editor"]
+        let agentsPane = (agentsPage?["panes"] as? [[String: Any]])?.first
+        let agentsSurfaces = agentsPane?["surfaces"] as? [[String: Any]]
         XCTAssertEqual(agentsPage?["selected"] as? Bool, false)
         XCTAssertEqual(editorPage?["selected"] as? Bool, true)
         XCTAssertEqual((agentsPage?["panes"] as? [[String: Any]])?.count, 1)
         XCTAssertEqual((editorPage?["panes"] as? [[String: Any]])?.count, 1)
+        XCTAssertEqual(agentsPane?["surface_ids"] as? [String], expectedAgentSurfaceIds)
+        XCTAssertEqual(agentsPane?["selected_surface_id"] as? String, expectedAgentSelectedSurfaceId)
+        XCTAssertEqual(agentsSurfaces?.compactMap { $0["id"] as? String }, expectedAgentSurfaceIds)
+        XCTAssertEqual((agentsPane?["surface_refs"] as? [String])?.count, expectedAgentSurfaceIds.count)
+        XCTAssertEqual(agentsSurfaces?.compactMap { $0["ref"] as? String }.count, expectedAgentSurfaceIds.count)
+        XCTAssertEqual(agentsPane?["selected_surface_ref"] as? String, agentsSurfaces?.first(where: {
+            ($0["id"] as? String) == expectedAgentSelectedSurfaceId
+        })?["ref"] as? String)
 
         let agentsSurfaceCount = ((agentsPage?["panes"] as? [[String: Any]])?.first?["surfaces"] as? [[String: Any]])?.count
         let editorSurfaceCount = ((editorPage?["panes"] as? [[String: Any]])?.first?["surfaces"] as? [[String: Any]])?.count
@@ -1386,6 +1402,121 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(agentsSurfaceCount, 2)
         XCTAssertEqual(editorSurfaceCount, 1)
         XCTAssertEqual(mirroredSurfaceCount, editorSurfaceCount)
+    }
+
+    func testV2PageReorderBeforeAndAfterUseFinalPositionSemantics() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            closeWindow(withId: windowId)
+        }
+
+        guard let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let firstPageId = workspace.activePage?.id else {
+            XCTFail("Expected test window and workspace")
+            return
+        }
+
+        workspace.setPageTitle(pageId: firstPageId, title: "A")
+        let secondPage = workspace.newPage(select: false)
+        workspace.setPageTitle(pageId: secondPage.id, title: "B")
+        let thirdPage = workspace.newPage(select: false)
+        workspace.setPageTitle(pageId: thirdPage.id, title: "C")
+        let fourthPage = workspace.newPage(select: false)
+        workspace.setPageTitle(pageId: fourthPage.id, title: "D")
+        TerminalController.shared.setActiveTabManager(manager)
+
+        let beforeResult = v2Result(
+            method: "page.reorder",
+            params: [
+                "workspace_id": workspace.id.uuidString,
+                "page_id": firstPageId.uuidString,
+                "before_page_id": fourthPage.id.uuidString
+            ]
+        )
+        XCTAssertEqual(workspace.pages.map(\.title), ["B", "C", "A", "D"])
+        XCTAssertEqual(beforeResult["page_index"] as? Int, 2)
+        XCTAssertEqual(workspace.activePageId, firstPageId)
+
+        let afterResult = v2Result(
+            method: "page.reorder",
+            params: [
+                "workspace_id": workspace.id.uuidString,
+                "page_id": fourthPage.id.uuidString,
+                "after_page_id": secondPage.id.uuidString
+            ]
+        )
+        XCTAssertEqual(workspace.pages.map(\.title), ["B", "D", "C", "A"])
+        XCTAssertEqual(afterResult["page_index"] as? Int, 1)
+        XCTAssertEqual(workspace.activePageId, firstPageId)
+    }
+
+    func testV2PageCloseRequiresForceAndHonorsWorkspaceScope() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let firstWindowId = appDelegate.createMainWindow()
+        let secondWindowId = appDelegate.createMainWindow()
+
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            closeWindow(withId: firstWindowId)
+            closeWindow(withId: secondWindowId)
+        }
+
+        guard let firstManager = appDelegate.tabManagerFor(windowId: firstWindowId),
+              let secondManager = appDelegate.tabManagerFor(windowId: secondWindowId),
+              let firstWorkspace = firstManager.selectedWorkspace,
+              let secondWorkspace = secondManager.selectedWorkspace,
+              let pageId = firstWorkspace.activePage?.id else {
+            XCTFail("Expected both window contexts to exist")
+            return
+        }
+
+        _ = firstWorkspace.newPage(select: false)
+        TerminalController.shared.setActiveTabManager(firstManager)
+
+        let noForceResponse = v2Response(
+            method: "page.close",
+            params: [
+                "workspace_id": firstWorkspace.id.uuidString,
+                "page_id": pageId.uuidString
+            ]
+        )
+        XCTAssertEqual(noForceResponse["ok"] as? Bool, false)
+        XCTAssertEqual((noForceResponse["error"] as? [String: Any])?["code"] as? String, "interactive_not_allowed")
+        XCTAssertEqual(firstWorkspace.pages.count, 2)
+
+        let wrongScopeResponse = v2Response(
+            method: "page.close",
+            params: [
+                "workspace_id": secondWorkspace.id.uuidString,
+                "page_id": pageId.uuidString,
+                "force": true
+            ]
+        )
+        XCTAssertEqual(wrongScopeResponse["ok"] as? Bool, false)
+        XCTAssertEqual((wrongScopeResponse["error"] as? [String: Any])?["code"] as? String, "not_found")
+        XCTAssertEqual(firstWorkspace.pages.count, 2)
+
+        let closeResult = v2Result(
+            method: "page.close",
+            params: [
+                "workspace_id": firstWorkspace.id.uuidString,
+                "page_id": pageId.uuidString,
+                "force": true
+            ]
+        )
+        XCTAssertEqual(closeResult["page_id"] as? String, pageId.uuidString)
+        XCTAssertEqual(firstWorkspace.pages.count, 1)
     }
 
     func testCmdShiftNonDigitKeySymbolDoesNotMatchShiftedDigitShortcut() {
@@ -2742,7 +2873,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 #endif
     }
 
-    private func v2Result(
+    private func v2Response(
         method: String,
         params: [String: Any] = [:],
         file: StaticString = #filePath,
@@ -2798,10 +2929,20 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return [:]
         }
 
+        return response
+    }
+
+    private func v2Result(
+        method: String,
+        params: [String: Any] = [:],
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) -> [String: Any] {
+        let response = v2Response(method: method, params: params, file: file, line: line)
         let isOK = (response["ok"] as? Bool) == true
-        XCTAssertTrue(isOK, "Expected successful v2 response: \(responseString)", file: file, line: line)
+        XCTAssertTrue(isOK, "Expected successful v2 response: \(response)", file: file, line: line)
         guard let result = response["result"] as? [String: Any] else {
-            XCTFail("Expected result payload in response: \(responseString)", file: file, line: line)
+            XCTFail("Expected result payload in response: \(response)", file: file, line: line)
             return [:]
         }
         return result

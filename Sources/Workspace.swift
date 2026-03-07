@@ -112,7 +112,7 @@ extension Workspace {
             if page.id == activePageId {
                 state = activePageSnapshot
             } else if let storedState = storedPageStates[page.id] {
-                state = storedState.sessionState
+                state = exportedPageStateSnapshot(storedState.sessionState, includeScrollback: includeScrollback)
             } else {
                 state = emptyPageSessionStateSnapshot(currentDirectory: currentDirectory)
             }
@@ -165,6 +165,7 @@ extension Workspace {
             pageModels.contains(where: { $0.id == candidate }) ? candidate : nil
         } ?? pageModels.first?.id ?? activePageId
 
+        teardownStoredPageStates()
         storedPageStates.removeAll(keepingCapacity: false)
         pages = pageModels
         activePageId = restoredActivePageId
@@ -244,6 +245,30 @@ extension Workspace {
             progress: progressSnapshot,
             gitBranch: gitBranchSnapshot
         )
+    }
+
+    private func exportedPageStateSnapshot(
+        _ snapshot: SessionWorkspacePageStateSnapshot,
+        includeScrollback: Bool
+    ) -> SessionWorkspacePageStateSnapshot {
+        guard !includeScrollback else { return snapshot }
+
+        var strippedSnapshot = snapshot
+        strippedSnapshot.panels = snapshot.panels.map { panel in
+            var strippedPanel = panel
+            if var terminal = strippedPanel.terminal {
+                terminal.scrollback = nil
+                strippedPanel.terminal = terminal
+            }
+            return strippedPanel
+        }
+        return strippedSnapshot
+    }
+
+    private func teardownStoredPageStates() {
+        for storedState in storedPageStates.values {
+            teardownStoredPageState(storedState)
+        }
     }
 
     private func restoreSessionPageState(_ snapshot: SessionWorkspacePageStateSnapshot) {
@@ -1396,7 +1421,8 @@ final class Workspace: Identifiable, ObservableObject {
         if pageId == activePageId {
             return currentPageSessionStateSnapshot(includeScrollback: includeScrollback)
         }
-        return storedPageStates[pageId]?.sessionState
+        guard let storedState = storedPageStates[pageId] else { return nil }
+        return exportedPageStateSnapshot(storedState.sessionState, includeScrollback: includeScrollback)
     }
 
     func pageStructureSummary(pageId: UUID) -> (paneCount: Int, surfaceCount: Int)? {
@@ -1414,7 +1440,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     @discardableResult
-    func newPage(select: Bool = true) -> WorkspacePage {
+    func newPage(select: Bool = false) -> WorkspacePage {
         let page = WorkspacePage(
             id: UUID(),
             title: defaultPageTitle(number: nextAutoPageNumber)
@@ -1436,7 +1462,7 @@ final class Workspace: Identifiable, ObservableObject {
     @discardableResult
     func duplicatePage(
         sourcePageId: UUID,
-        select: Bool = true,
+        select: Bool = false,
         title: String? = nil
     ) -> WorkspacePage? {
         guard let sourceIndex = pageIndex(pageId: sourcePageId),
@@ -1557,6 +1583,7 @@ final class Workspace: Identifiable, ObservableObject {
             if let replacementPageId {
                 restoreStoredPage(replacementPageId)
                 activePageId = replacementPageId
+                requestBackgroundTerminalSurfaceStartIfNeeded()
             }
         } else {
             if let storedState = storedPageStates.removeValue(forKey: pageId) {
@@ -1726,7 +1753,9 @@ final class Workspace: Identifiable, ObservableObject {
             runtimeState: nil
         )
 
-        if let runtimeState = storedState.runtimeState {
+        let expectedPanelIds = Set(storedState.sessionState.panels.map(\.id))
+        if let runtimeState = storedState.runtimeState,
+           Set(runtimeState.detachedSurfaces.keys) == expectedPanelIds {
             restoreRuntimePageState(runtimeState)
         } else {
             restoreSessionPageState(storedState.sessionState)
@@ -2955,6 +2984,9 @@ final class Workspace: Identifiable, ObservableObject {
     /// Called before the workspace is removed from TabManager to ensure child
     /// processes receive SIGHUP even if ARC deallocation is delayed.
     func teardownAllPanels() {
+        teardownStoredPageStates()
+        storedPageStates.removeAll(keepingCapacity: false)
+
         let panelEntries = Array(panels)
         for (panelId, panel) in panelEntries {
             panelSubscriptions.removeValue(forKey: panelId)

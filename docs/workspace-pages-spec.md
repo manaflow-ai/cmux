@@ -63,7 +63,7 @@ Implemented on this branch:
 5. Page close-button visibility follows the active/hover rules in the titlebar strip.
 6. Page context menus support create, duplicate, rename, close, close others, move left, and move right.
 7. Page switching detaches inactive Ghostty and WKWebView-backed panels from the live hierarchy instead of killing PTYs or browser state.
-8. Holding Option reveals direct-select page shortcut badges in the titlebar strip, using the existing shortcut-hint pattern.
+8. Holding the direct-select shortcut modifiers, `Command+Option` by default, reveals page shortcut badges in the titlebar strip, using the existing shortcut-hint pattern.
 9. Customizable page shortcuts exist in `KeyboardShortcutSettings`, and the default bindings are wired through app-level shortcut handling.
 10. `Cmd+Shift+P` exposes page create, duplicate, rename, close, close others, next/previous, move left/right, and direct page selection commands.
 11. The app menu exposes page create, duplicate, rename, close, close others, move left/right, next/previous, and direct page selection actions.
@@ -79,7 +79,7 @@ Implemented on this branch:
 Not implemented yet:
 
 1. The deeper model refactor where each page owns its own `bonsplitController` and live panel map directly.
-2. CI execution and stabilization for the new page UI automation and external page API regressions still needs to be wired and kept green on this branch.
+2. CI execution and stabilization for the new page UI automation and `tests_v2` external page API regressions still needs to be wired and kept green on this branch.
 
 ## Titlebar UX
 
@@ -94,7 +94,7 @@ V1 strip rules:
 5. A page `+` control sits at the far right of the fake titlebar lane, outside the scrollable page list.
 6. Right click on a page opens its context menu.
 7. Empty titlebar space remains draggable.
-8. Holding Option should reveal the direct-select shortcut labels for visible pages, using the existing shortcut-hint pattern instead of adding permanent chrome.
+8. Holding the direct-select shortcut modifiers, `Command+Option` by default, should reveal the shortcut labels for visible pages instead of adding permanent chrome.
 9. The page `+` control is only visible while hovering the fake titlebar.
 
 The current titlebar folder icon goes away in V1. `Open Folder` remains available through existing menu, command palette, and shortcut paths.
@@ -189,7 +189,7 @@ Tooltips and hints:
 
 1. Hovering a page should show the full page title when truncated.
 2. Hovering the `+` affordance should show `New Page` plus its effective shortcut.
-3. Holding Option should show page-index shortcut hints in the strip, following the same “hold modifier to reveal hints” idea already used elsewhere in cmux.
+3. Holding the direct-select shortcut modifiers should show page-index shortcut hints in the strip, following the same “hold modifier to reveal hints” idea already used elsewhere in cmux.
 
 ## Page Behavior
 
@@ -250,10 +250,10 @@ Default shortcuts:
 1. `Command+Option+N`: new page.
 2. `Command+Option+R`: rename page.
 3. `Command+Option+W`: close page.
-4. `Option+1` through `Option+8`: select page by index.
-5. `Option+9`: select the last page.
-6. `Option+]`: next page.
-7. `Option+[`: previous page.
+4. `Command+Option+1` through `Command+Option+8`: select page by index.
+5. `Command+Option+9`: select the last page.
+6. `Command+Option+]`: next page.
+7. `Command+Option+[`: previous page.
 
 All page shortcuts must be first-class `KeyboardShortcutSettings` actions so they appear in Settings and can be customized.
 
@@ -261,7 +261,7 @@ The same actions should also appear in the command palette and the app menu.
 
 Implementation note:
 
-Direct page selection should route by physical digit intent, not by text produced after Option modifies the character, so `Option+digit` keeps working across keyboard layouts.
+Direct page selection should route by physical digit intent, not by text produced after Option modifies the character, so `Command+Option+digit` keeps working across keyboard layouts.
 
 ## Cmd+Shift+P Commands
 
@@ -292,11 +292,12 @@ Command-palette behavior:
 Right-clicking a page should expose:
 
 1. `New Page`
-2. `Rename Page…`
-3. `Move Left`
-4. `Move Right`
-5. `Close Page`
-6. `Close Other Pages`
+2. `Duplicate Page`
+3. `Rename Page…`
+4. `Move Left`
+5. `Move Right`
+6. `Close Page`
+7. `Close Other Pages`
 
 Current branch status:
 
@@ -385,7 +386,7 @@ Implemented v2 API surface:
 
 Identity and targeting:
 
-1. `system.identify` includes `focused.page_id`, `focused.page_ref`, `focused.page_index`, and `focused.page_title`.
+1. `system.identify` includes `page_id`, `page_ref`, `page_index`, and `page_title` inside the `focused` payload.
 2. Short refs support `page:<n>`.
 3. Commands that target panes or surfaces without an explicit page should resolve against the currently selected page in the targeted workspace.
 
@@ -416,7 +417,7 @@ The first implementation should feel complete if all of this is true:
 
 1. A workspace can hold multiple pages with independent pane/tab layouts.
 2. The titlebar strip replaces the folder icon area and is usable with mouse only.
-3. `Option+1..9` works by default and is customizable in Settings.
+3. `Command+Option+1..9` works by default and is customizable in Settings.
 4. Right click works on page items without breaking window dragging or terminal focus.
 5. Active-page close button visibility matches the rules above.
 6. Inactive pages unmount from the live UI so only the active page's terminal and browser views stay mounted.
@@ -429,7 +430,7 @@ The first implementation should feel complete if all of this is true:
 Current branch status:
 
 1. The V1 acceptance list is implemented.
-2. The remaining work is follow-on coverage and the deeper per-page controller refactor described above.
+2. Dedicated UI automation and the `tests_v2` page parity regression exist, but CI stabilization still needs follow-up alongside the deeper per-page controller refactor described above.
 
 ## Test Expectations
 
@@ -437,7 +438,7 @@ Once implementation starts, add coverage for:
 
 1. titlebar hit testing, page item interaction, and empty-space drag behavior
 2. page switching preserving per-page Bonsplit state
-3. `Option+1..9` routing, including `9 -> last`
+3. `Command+Option+1..9` routing, including `9 -> last`
 4. custom shortcut overrides for page actions
 5. `Cmd+Shift+P` page commands and rename flow
 6. page context menu actions
@@ -448,6 +449,6 @@ Once implementation starts, add coverage for:
 
 Current branch status:
 
-1. Unit coverage now exists for page persistence round-trips and page shortcut routing, including `Option+9 -> last page`, `Option+]`, `Cmd+Option+N`, and symbol-first layout fallback for page shortcuts.
+1. Unit coverage now exists for page persistence round-trips and page shortcut routing, including `Command+Option+9 -> last page`, `Command+Option+]`, `Command+Option+N`, and symbol-first layout fallback for page shortcuts.
 2. Unit coverage also exists for duplicate-page structure preservation and active-page close-neighbor selection.
-3. UI and end-to-end coverage for titlebar hit testing, drag behavior, and page lifecycle still needs to be added.
+3. Dedicated UI automation and `tests_v2` parity coverage now exist for titlebar interaction and external page commands, but CI stabilization still needs follow-up.

@@ -1141,8 +1141,12 @@ struct CMUXCLI {
             let (wsArg, rem0) = parseOption(commandArgs, name: "--workspace")
             let (titleOpt, rem1) = parseOption(rem0, name: "--title")
             let workspaceArg = wsArg ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
-            let trailingTitle = rem1.dropFirst(rem1.first == "--" ? 1 : 0).joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
-            let title = titleOpt ?? (trailingTitle.isEmpty ? nil : trailingTitle)
+            let title: String?
+            if let titleOpt {
+                title = titleOpt
+            } else {
+                title = try trailingTextArgument(rem1, command: "new-page")
+            }
             var params: [String: Any] = [:]
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client, allowCurrent: true)
             if let wsId { params["workspace_id"] = wsId }
@@ -1155,8 +1159,12 @@ struct CMUXCLI {
             let (pageOpt, rem1) = parseOption(rem0, name: "--page")
             let (titleOpt, rem2) = parseOption(rem1, name: "--title")
             let workspaceArg = wsArg ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
-            let trailingTitle = rem2.dropFirst(rem2.first == "--" ? 1 : 0).joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
-            let title = titleOpt ?? (trailingTitle.isEmpty ? nil : trailingTitle)
+            let title: String?
+            if let titleOpt {
+                title = titleOpt
+            } else {
+                title = try trailingTextArgument(rem2, command: "duplicate-page")
+            }
             var params: [String: Any] = [:]
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client, allowCurrent: true)
             if let wsId { params["workspace_id"] = wsId }
@@ -1397,8 +1405,15 @@ struct CMUXCLI {
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["workspace"]))
 
         case "close-page":
-            let workspaceArg = workspaceFromArgsOrEnv(commandArgs, windowOverride: windowId)
-            let pageRaw = optionValue(commandArgs, name: "--page") ?? commandArgs.first
+            let (wsArg, rem0) = parseOption(commandArgs, name: "--workspace")
+            let (pageOpt, rem1) = parseOption(rem0, name: "--page")
+            let workspaceArg = wsArg ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+            let pageRaw: String?
+            if let pageOpt {
+                pageRaw = pageOpt
+            } else {
+                pageRaw = try positionalArguments(rem1, command: "close-page").first
+            }
             var params: [String: Any] = [:]
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client, allowCurrent: true)
             if let wsId { params["workspace_id"] = wsId }
@@ -1460,14 +1475,15 @@ struct CMUXCLI {
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client, allowCurrent: true)
             if let wsId { params["workspace_id"] = wsId }
             let payload = try client.sendV2(method: "page.current", params: params)
-            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["page", "workspace"]))
+            let fallbackText = formatHandle(payload, kind: "page", idFormat: idFormat)
+                ?? v2OKSummary(payload, idFormat: idFormat, kinds: ["page", "workspace"])
+            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: fallbackText)
 
         case "rename-page":
             let (wsArg, rem0) = parseOption(commandArgs, name: "--workspace")
             let (pageOpt, rem1) = parseOption(rem0, name: "--page")
             let workspaceArg = wsArg ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
-            let titleArgs = rem1.dropFirst(rem1.first == "--" ? 1 : 0)
-            let title = titleArgs.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+            let title = try trailingTextArgument(rem1, command: "rename-page") ?? ""
             guard !title.isEmpty else {
                 throw CLIError(message: "rename-page requires a title")
             }
@@ -5491,6 +5507,21 @@ struct CMUXCLI {
 
     private func hasFlag(_ args: [String], name: String) -> Bool {
         args.contains(name)
+    }
+
+    private func positionalArguments(_ args: [String], command: String) throws -> [String] {
+        let positional = args.first == "--" ? Array(args.dropFirst()) : args
+        if args.first != "--",
+           let unknown = positional.first(where: { $0.hasPrefix("--") }) {
+            throw CLIError(message: "\(command): unknown flag '\(unknown)'")
+        }
+        return positional
+    }
+
+    private func trailingTextArgument(_ args: [String], command: String) throws -> String? {
+        let positional = try positionalArguments(args, command: command)
+        let text = positional.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+        return text.isEmpty ? nil : text
     }
 
     private func replaceToken(_ args: [String], from: String, to: String) -> [String] {
