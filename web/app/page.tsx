@@ -126,16 +126,19 @@ export default function Home() {
           </ul>
         </section>
 
-        {/* Screenshot - break out of max-w-2xl to be wider */}
-        <div data-dev="screenshot" className="mb-12 -mx-6 sm:-mx-24 md:-mx-40 lg:-mx-72 xl:-mx-96">
-          <FadeImage
-            src={landingImage}
-            alt="cmux terminal app screenshot"
-            priority
-            className="w-full rounded-xl"
-          />
-        </div>
+      </main>
 
+      {/* Screenshot - outside main so it can be wider without viewport hacks */}
+      <div data-dev="screenshot" className="mx-auto w-full max-w-5xl px-3 mb-12">
+        <FadeImage
+          src={landingImage}
+          alt="cmux terminal app screenshot"
+          priority
+          className="w-full rounded-xl"
+        />
+      </div>
+
+      <main className="w-full max-w-2xl mx-auto px-6">
         {/* FAQ */}
         <div data-dev="faq-top-spacer" style={{ height: 0 }} />
         <section data-dev="faq" className="mb-10">
