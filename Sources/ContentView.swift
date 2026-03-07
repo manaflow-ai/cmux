@@ -2877,6 +2877,10 @@ struct ContentView: View {
         // during transient rebuilds. Hiding here prevents stale terminal/browser
         // portals from covering the newly selected workspace.
         if let retiring, let workspace = tabManager.tabs.first(where: { $0.id == retiring }) {
+            // Ensure any lingering Bonsplit AppKit views (notably split dividers) are
+            // hidden before unmount. SwiftUI can occasionally leave stale NSView-backed
+            // split chrome visible for one workspace switch after teardown.
+            workspace.bonsplitController.isInteractive = false
             workspace.hideAllTerminalPortalViews()
             workspace.hideAllBrowserPortalViews()
         }
