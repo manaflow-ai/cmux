@@ -128,4 +128,27 @@ final class WorkspacePageLifecycleTests: XCTestCase {
             "Returning to the second page should reuse its parked live panel instead of rebuilding a new one"
         )
     }
+
+    func testRuntimeRestoreRequiresEveryPanelReferencedByLayout() {
+        let firstPanelId = UUID()
+        let secondPanelId = UUID()
+        let thirdPanelId = UUID()
+        let layout = SessionWorkspaceLayoutSnapshot.split(
+            SessionSplitLayoutSnapshot(
+                orientation: .vertical,
+                dividerPosition: 0.5,
+                first: .pane(SessionPaneLayoutSnapshot(panelIds: [firstPanelId, secondPanelId], selectedPanelId: secondPanelId)),
+                second: .pane(SessionPaneLayoutSnapshot(panelIds: [thirdPanelId], selectedPanelId: thirdPanelId))
+            )
+        )
+
+        XCTAssertFalse(
+            Workspace.canRestoreRuntimeLayout(layout, detachedSurfaceIds: Set([firstPanelId, secondPanelId])),
+            "Runtime restore should fall back when any panel in the layout is missing from detached surfaces"
+        )
+        XCTAssertTrue(
+            Workspace.canRestoreRuntimeLayout(layout, detachedSurfaceIds: Set([firstPanelId, secondPanelId, thirdPanelId])),
+            "Runtime restore should proceed only when every layout panel is available"
+        )
+    }
 }

@@ -1552,6 +1552,57 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(firstWorkspace.pages.count, 1)
     }
 
+    func testV2PageMethodsRejectMalformedBooleanParams() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            closeWindow(withId: windowId)
+        }
+
+        guard let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let pageId = workspace.activePage?.id else {
+            XCTFail("Expected window and workspace")
+            return
+        }
+
+        TerminalController.shared.setActiveTabManager(manager)
+
+        let malformedCreateResponse = v2Response(
+            method: "page.create",
+            params: ["select": "nope"]
+        )
+        XCTAssertEqual(malformedCreateResponse["ok"] as? Bool, false)
+        XCTAssertEqual((malformedCreateResponse["error"] as? [String: Any])?["code"] as? String, "invalid_params")
+
+        let malformedDuplicateResponse = v2Response(
+            method: "page.duplicate",
+            params: [
+                "workspace_id": workspace.id.uuidString,
+                "page_id": pageId.uuidString,
+                "select": "nope"
+            ]
+        )
+        XCTAssertEqual(malformedDuplicateResponse["ok"] as? Bool, false)
+        XCTAssertEqual((malformedDuplicateResponse["error"] as? [String: Any])?["code"] as? String, "invalid_params")
+
+        let malformedCloseResponse = v2Response(
+            method: "page.close",
+            params: [
+                "workspace_id": workspace.id.uuidString,
+                "page_id": pageId.uuidString,
+                "force": "tru"
+            ]
+        )
+        XCTAssertEqual(malformedCloseResponse["ok"] as? Bool, false)
+        XCTAssertEqual((malformedCloseResponse["error"] as? [String: Any])?["code"] as? String, "invalid_params")
+    }
+
     func testV2PageMethodsRejectMalformedScopedIDsAndHonorWindowScope() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
@@ -1606,6 +1657,70 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual((crossWindowRenameResponse["error"] as? [String: Any])?["code"] as? String, "not_found")
         XCTAssertEqual(firstWorkspace.pages.first?.title, "Agents")
         XCTAssertEqual(secondWorkspace.pages.first?.title, secondWorkspaceInitialTitle)
+    }
+
+    func testV2PageMethodsReportSpecificMissingScopeErrors() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            closeWindow(withId: windowId)
+        }
+
+        guard let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let pageId = workspace.activePage?.id else {
+            XCTFail("Expected window and workspace")
+            return
+        }
+
+        TerminalController.shared.setActiveTabManager(manager)
+
+        let missingWindowResponse = v2Response(
+            method: "page.rename",
+            params: [
+                "window_id": UUID().uuidString,
+                "page_id": pageId.uuidString,
+                "title": "Missing Window"
+            ]
+        )
+        XCTAssertEqual(missingWindowResponse["ok"] as? Bool, false)
+        XCTAssertEqual((missingWindowResponse["error"] as? [String: Any])?["code"] as? String, "not_found")
+        XCTAssertEqual((missingWindowResponse["error"] as? [String: Any])?["message"] as? String, "Window not found")
+
+        let missingSurfaceResponse = v2Response(
+            method: "page.rename",
+            params: [
+                "surface_id": UUID().uuidString,
+                "page_id": pageId.uuidString,
+                "title": "Missing Surface"
+            ]
+        )
+        XCTAssertEqual(missingSurfaceResponse["ok"] as? Bool, false)
+        XCTAssertEqual((missingSurfaceResponse["error"] as? [String: Any])?["code"] as? String, "not_found")
+        XCTAssertEqual((missingSurfaceResponse["error"] as? [String: Any])?["message"] as? String, "Surface not found")
+
+        let missingTabResponse = v2Response(
+            method: "page.rename",
+            params: [
+                "tab_id": UUID().uuidString,
+                "page_id": pageId.uuidString,
+                "title": "Missing Tab"
+            ]
+        )
+        XCTAssertEqual(missingTabResponse["ok"] as? Bool, false)
+        XCTAssertEqual((missingTabResponse["error"] as? [String: Any])?["code"] as? String, "not_found")
+        XCTAssertEqual((missingTabResponse["error"] as? [String: Any])?["message"] as? String, "Tab not found")
+
+        TerminalController.shared.setActiveTabManager(nil)
+        let noActiveWorkspaceResponse = v2Response(method: "page.duplicate", params: [:])
+        XCTAssertEqual(noActiveWorkspaceResponse["ok"] as? Bool, false)
+        XCTAssertEqual((noActiveWorkspaceResponse["error"] as? [String: Any])?["code"] as? String, "not_found")
+        XCTAssertEqual((noActiveWorkspaceResponse["error"] as? [String: Any])?["message"] as? String, "Workspace not found")
     }
 
     func testCmdShiftNonDigitKeySymbolDoesNotMatchShiftedDigitShortcut() {

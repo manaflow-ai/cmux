@@ -1753,13 +1753,28 @@ final class Workspace: Identifiable, ObservableObject {
             runtimeState: nil
         )
 
-        let expectedPanelIds = Set(storedState.sessionState.panels.map(\.id))
         if let runtimeState = storedState.runtimeState,
-           expectedPanelIds.isSubset(of: Set(runtimeState.detachedSurfaces.keys)) {
+           Self.canRestoreRuntimeLayout(runtimeState.layout, detachedSurfaceIds: Set(runtimeState.detachedSurfaces.keys)) {
             restoreRuntimePageState(runtimeState)
         } else {
             teardownDetachedSurfaces(storedState.runtimeState?.detachedSurfaces)
             restoreSessionPageState(storedState.sessionState)
+        }
+    }
+
+    static func canRestoreRuntimeLayout(
+        _ layout: SessionWorkspaceLayoutSnapshot,
+        detachedSurfaceIds: Set<UUID>
+    ) -> Bool {
+        Set(runtimeLayoutPanelIds(in: layout)).isSubset(of: detachedSurfaceIds)
+    }
+
+    private static func runtimeLayoutPanelIds(in layout: SessionWorkspaceLayoutSnapshot) -> [UUID] {
+        switch layout {
+        case .pane(let pane):
+            return pane.panelIds
+        case .split(let split):
+            return runtimeLayoutPanelIds(in: split.first) + runtimeLayoutPanelIds(in: split.second)
         }
     }
 
