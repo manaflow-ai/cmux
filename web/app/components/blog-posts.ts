@@ -1,5 +1,12 @@
 export const blogPosts = [
   {
+    slug: "worktree-manager",
+    title: "The best git worktree manager is Claude Code",
+    date: "2026-03-06",
+    summary:
+      "How we use a dedicated HQ repo with git worktrees to run parallel agents across codebases, and how you can replicate it.",
+  },
+  {
     slug: "cmd-shift-u",
     title: "Cmd+Shift+U",
     date: "2026-03-04",
