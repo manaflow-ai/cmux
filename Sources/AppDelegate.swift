@@ -1579,10 +1579,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var didAttemptStartupSessionRestore = false
     private var isApplyingStartupSessionRestore = false
     private var sessionAutosaveTimer: DispatchSourceTimer?
+    private var sessionAutosaveRetryWorkItem: DispatchWorkItem?
+    private var deferredSessionSaveWorkItem: DispatchWorkItem?
+    private var deferredSessionSaveIncludeScrollback = false
+    private var deferredSessionSaveRemoveWhenEmpty = false
+    private var deferredSessionSaveSource = "unknown"
     private var socketListenerHealthTimer: DispatchSourceTimer?
     private static let socketListenerHealthCheckInterval: DispatchTimeInterval = .seconds(5)
     private var lastSocketListenerUnhealthyCaptureAt: Date = .distantPast
     private static let socketListenerUnhealthyCaptureCooldown: TimeInterval = 60
+    private static let sessionAutosaveIdleThreshold: TimeInterval = 2.0
+    private static let sessionAutosaveRetryDelay: TimeInterval = 1.0
     private let sessionPersistenceQueue = DispatchQueue(
         label: "com.cmuxterm.app.sessionPersistence",
         qos: .utility
@@ -1859,7 +1866,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func applicationWillResignActive(_ notification: Notification) {
         guard !isTerminatingApp else { return }
-        _ = saveSessionSnapshot(includeScrollback: false)
+        requestDeferredSessionSave(includeScrollback: false, source: "appWillResignActive")
     }
 
     func persistSessionForUpdateRelaunch() {
@@ -2033,7 +2040,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func completeStartupSessionRestore() {
         startupSessionSnapshot = nil
         isApplyingStartupSessionRestore = false
-        _ = saveSessionSnapshot(includeScrollback: false)
+        requestDeferredSessionSave(includeScrollback: false, source: "startupRestoreComplete")
     }
 
     private func applySessionWindowSnapshot(
@@ -2383,32 +2390,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let interval = SessionPersistencePolicy.autosaveInterval
         timer.schedule(deadline: .now() + interval, repeating: interval, leeway: .seconds(1))
         timer.setEventHandler { [weak self] in
-            guard let self,
-                  Self.shouldRunSessionAutosaveTick(isTerminatingApp: self.isTerminatingApp) else {
-                return
-            }
-            let now = Date()
-            let autosaveFingerprint = self.sessionAutosaveFingerprint(includeScrollback: false)
-            if Self.shouldSkipSessionAutosaveForUnchangedFingerprint(
-                isTerminatingApp: self.isTerminatingApp,
-                includeScrollback: false,
-                previousFingerprint: self.lastSessionAutosaveFingerprint,
-                currentFingerprint: autosaveFingerprint,
-                lastPersistedAt: self.lastSessionAutosavePersistedAt,
-                now: now
-            ) {
-#if DEBUG
-                dlog("session.save.skipped reason=unchanged_autosave_fingerprint includeScrollback=0")
-#endif
-                return
-            }
-
-            _ = self.saveSessionSnapshot(includeScrollback: false)
-            self.updateSessionAutosaveSaveState(
-                includeScrollback: false,
-                persistedAt: now,
-                fingerprint: autosaveFingerprint
-            )
+            self?.performSessionAutosaveTick(source: "timer")
         }
         sessionAutosaveTimer = timer
         timer.resume()
@@ -2417,6 +2399,150 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func stopSessionAutosaveTimer() {
         sessionAutosaveTimer?.cancel()
         sessionAutosaveTimer = nil
+        sessionAutosaveRetryWorkItem?.cancel()
+        sessionAutosaveRetryWorkItem = nil
+        deferredSessionSaveWorkItem?.cancel()
+        deferredSessionSaveWorkItem = nil
+    }
+
+    private func performSessionAutosaveTick(source: String) {
+        guard Self.shouldRunSessionAutosaveTick(isTerminatingApp: isTerminatingApp) else { return }
+
+        let nowUptime = ProcessInfo.processInfo.systemUptime
+        if let inputAge = recentUserInteractionAge(nowUptime: nowUptime),
+           inputAge < Self.sessionAutosaveIdleThreshold {
+            scheduleSessionAutosaveRetry(
+                after: Self.sessionAutosaveRetryDelay,
+                source: source,
+                inputAge: inputAge
+            )
+            return
+        }
+
+        sessionAutosaveRetryWorkItem?.cancel()
+        sessionAutosaveRetryWorkItem = nil
+
+        let now = Date()
+        let autosaveFingerprint = sessionAutosaveFingerprint(includeScrollback: false)
+        if Self.shouldSkipSessionAutosaveForUnchangedFingerprint(
+            isTerminatingApp: isTerminatingApp,
+            includeScrollback: false,
+            previousFingerprint: lastSessionAutosaveFingerprint,
+            currentFingerprint: autosaveFingerprint,
+            lastPersistedAt: lastSessionAutosavePersistedAt,
+            now: now
+        ) {
+#if DEBUG
+            dlog("session.save.skipped reason=unchanged_autosave_fingerprint includeScrollback=0")
+#endif
+            return
+        }
+
+#if DEBUG
+        if let inputAge = recentUserInteractionAge(nowUptime: nowUptime) {
+            dlog(
+                "session.save.begin source=\(source) includeScrollback=0 inputAgeMs=\(String(format: "%.0f", inputAge * 1000.0))"
+            )
+        } else {
+            dlog("session.save.begin source=\(source) includeScrollback=0 inputAgeMs=none")
+        }
+#endif
+        _ = saveSessionSnapshot(includeScrollback: false)
+        updateSessionAutosaveSaveState(
+            includeScrollback: false,
+            persistedAt: now,
+            fingerprint: autosaveFingerprint
+        )
+    }
+
+    private func recentUserInteractionAge(
+        nowUptime: TimeInterval = ProcessInfo.processInfo.systemUptime
+    ) -> TimeInterval? {
+        guard lastUserInteractionUptime > 0 else { return nil }
+        return max(0, nowUptime - lastUserInteractionUptime)
+    }
+
+    private func scheduleSessionAutosaveRetry(
+        after delay: TimeInterval,
+        source: String,
+        inputAge: TimeInterval
+    ) {
+        guard sessionAutosaveRetryWorkItem == nil else { return }
+#if DEBUG
+        dlog(
+            "session.save.defer source=\(source) includeScrollback=0 " +
+            "inputAgeMs=\(String(format: "%.0f", inputAge * 1000.0)) " +
+            "retryMs=\(String(format: "%.0f", delay * 1000.0))"
+        )
+#endif
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.sessionAutosaveRetryWorkItem = nil
+            self.performSessionAutosaveTick(source: "\(source).retry")
+        }
+        sessionAutosaveRetryWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
+    }
+
+    private func requestDeferredSessionSave(
+        includeScrollback: Bool,
+        removeWhenEmpty: Bool = false,
+        source: String
+    ) {
+        guard !isTerminatingApp else {
+            _ = saveSessionSnapshot(
+                includeScrollback: includeScrollback,
+                removeWhenEmpty: removeWhenEmpty
+            )
+            return
+        }
+
+        deferredSessionSaveIncludeScrollback = deferredSessionSaveIncludeScrollback || includeScrollback
+        deferredSessionSaveRemoveWhenEmpty = deferredSessionSaveRemoveWhenEmpty || removeWhenEmpty
+        deferredSessionSaveSource = source
+
+        guard deferredSessionSaveWorkItem == nil else { return }
+
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.deferredSessionSaveWorkItem = nil
+            self.performDeferredSessionSaveIfIdle()
+        }
+        deferredSessionSaveWorkItem = workItem
+        DispatchQueue.main.async(execute: workItem)
+    }
+
+    private func performDeferredSessionSaveIfIdle() {
+        let nowUptime = ProcessInfo.processInfo.systemUptime
+        if let inputAge = recentUserInteractionAge(nowUptime: nowUptime),
+           inputAge < Self.sessionAutosaveIdleThreshold {
+#if DEBUG
+            dlog(
+                "session.save.defer source=\(deferredSessionSaveSource) includeScrollback=\(deferredSessionSaveIncludeScrollback ? 1 : 0) " +
+                "inputAgeMs=\(String(format: "%.0f", inputAge * 1000.0)) " +
+                "retryMs=\(String(format: "%.0f", Self.sessionAutosaveRetryDelay * 1000.0))"
+            )
+#endif
+            let retry = DispatchWorkItem { [weak self] in
+                guard let self else { return }
+                self.deferredSessionSaveWorkItem = nil
+                self.performDeferredSessionSaveIfIdle()
+            }
+            deferredSessionSaveWorkItem = retry
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.sessionAutosaveRetryDelay, execute: retry)
+            return
+        }
+
+        let includeScrollback = deferredSessionSaveIncludeScrollback
+        let removeWhenEmpty = deferredSessionSaveRemoveWhenEmpty
+        deferredSessionSaveIncludeScrollback = false
+        deferredSessionSaveRemoveWhenEmpty = false
+        deferredSessionSaveSource = "unknown"
+
+        _ = saveSessionSnapshot(
+            includeScrollback: includeScrollback,
+            removeWhenEmpty: removeWhenEmpty
+        )
     }
 
     private func installLifecycleSnapshotObserversIfNeeded() {
@@ -2447,7 +2573,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 if self.isTerminatingApp {
                     _ = self.saveSessionSnapshot(includeScrollback: true, removeWhenEmpty: false)
                 } else {
-                    _ = self.saveSessionSnapshot(includeScrollback: false)
+                    self.requestDeferredSessionSave(
+                        includeScrollback: false,
+                        source: "workspaceSessionResignActive"
+                    )
                 }
             }
         }
@@ -2866,7 +2995,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         attemptStartupSessionRestoreIfNeeded(primaryWindow: window)
         if !isTerminatingApp {
-            _ = saveSessionSnapshot(includeScrollback: false)
+            requestDeferredSessionSave(includeScrollback: false, source: "registerMainWindow")
         }
     }
 
@@ -3691,15 +3820,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return nil
     }
 
-    private func performTerminalSurfaceRefreshAfterGhosttyConfigReload(source: String) {
+    private func performTerminalSurfaceRefreshAfterGhosttyConfigReload(
+        source: String,
+        visibleOnly: Bool = false
+    ) {
         var refreshedCount = 0
+        var deferredCount = 0
         forEachTerminalPanel { terminalPanel in
+            if visibleOnly, !terminalPanel.hostedView.shouldRefreshImmediatelyAfterConfigReload {
+                terminalPanel.hostedView.markConfigRefreshPendingUntilVisible()
+                deferredCount += 1
+                return
+            }
+            terminalPanel.hostedView.clearPendingConfigRefreshOnReveal()
             terminalPanel.hostedView.reconcileGeometryNow()
             terminalPanel.surface.forceRefresh()
             refreshedCount += 1
         }
 #if DEBUG
-        dlog("reload.config.surfaceRefresh source=\(source) count=\(refreshedCount)")
+        dlog(
+            "reload.config.surfaceRefresh source=\(source) scope=\(visibleOnly ? "visible" : "global") " +
+            "count=\(refreshedCount) deferred=\(deferredCount)"
+        )
 #endif
     }
 
@@ -3722,10 +3864,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 effectiveSource = source
             }
             performTerminalSurfaceRefreshAfterGhosttyConfigReload(source: effectiveSource)
-        case .coalescedGlobal:
+        case .coalescedGlobal, .coalescedVisibleOnly:
             pendingGhosttyConfigSurfaceRefreshRequestCount += 1
             pendingGhosttyConfigSurfaceRefreshSource = source
             pendingGhosttyConfigSurfaceRefreshWorkItem?.cancel()
+            let visibleOnly = (policy == .coalescedVisibleOnly)
 
             let workItem = DispatchWorkItem { [weak self] in
                 guard let self else { return }
@@ -3735,14 +3878,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 self.pendingGhosttyConfigSurfaceRefreshSource = nil
                 self.pendingGhosttyConfigSurfaceRefreshRequestCount = 0
                 self.performTerminalSurfaceRefreshAfterGhosttyConfigReload(
-                    source: "coalesced.latest=\(latestSource) count=\(pendingCount)"
+                    source: "coalesced.latest=\(latestSource) count=\(pendingCount)",
+                    visibleOnly: visibleOnly
                 )
             }
 
             pendingGhosttyConfigSurfaceRefreshWorkItem = workItem
 #if DEBUG
             dlog(
-                "reload.config.surfaceRefresh.coalesced source=\(source) pendingCount=\(pendingGhosttyConfigSurfaceRefreshRequestCount) delayMs=\(String(format: "%.0f", coalescedGhosttyConfigSurfaceRefreshDelay * 1000.0))"
+                "reload.config.surfaceRefresh.coalesced source=\(source) scope=\(visibleOnly ? "visible" : "global") " +
+                "pendingCount=\(pendingGhosttyConfigSurfaceRefreshRequestCount) delayMs=\(String(format: "%.0f", coalescedGhosttyConfigSurfaceRefreshDelay * 1000.0))"
             )
 #endif
             DispatchQueue.main.asyncAfter(
@@ -5008,6 +5153,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     var isDebugTypingPerfProbeEnabled: Bool {
         debugStressLagProbeEnabled
     }
+
+#if DEBUG
+    func logDebugWorkspaceSwitchMetric(
+        phase: String,
+        switchId: UInt64?,
+        startedAt: CFTimeInterval?,
+        details: String = ""
+    ) {
+        guard isDebugTypingPerfProbeEnabled else { return }
+        let elapsedMs = startedAt.map { max(0, (CACurrentMediaTime() - $0) * 1000.0) } ?? 0
+        let detailSuffix = details.isEmpty ? "" : " \(details)"
+        dlog(
+            "stress.workspaceSwitch phase=\(phase) id=\(switchId.map(String.init) ?? "none") " +
+            "ms=\(String(format: "%.2f", elapsedMs))\(detailSuffix)"
+        )
+    }
+#else
+    func logDebugWorkspaceSwitchMetric(
+        phase: String,
+        switchId: UInt64?,
+        startedAt: CFTimeInterval?,
+        details: String = ""
+    ) {}
+#endif
 
     static func debugTypingPerfThresholdMs(for event: NSEvent) -> Double {
         let normalizedFlags = event.modifierFlags

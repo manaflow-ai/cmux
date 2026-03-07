@@ -70,6 +70,9 @@ public protocol Panel: AnyObject, Identifiable, ObservableObject where ID == UUI
     /// Unfocus the panel
     func unfocus()
 
+    /// Stop this panel from trying to reclaim focus while final unfocus is deferred.
+    func prepareForDeferredUnfocus()
+
     /// Trigger a focus flash animation for this panel.
     func triggerFlash()
 }
@@ -78,4 +81,5 @@ public protocol Panel: AnyObject, Identifiable, ObservableObject where ID == UUI
 extension Panel {
     public var displayIcon: String? { nil }
     public var isDirty: Bool { false }
+    func prepareForDeferredUnfocus() {}
 }

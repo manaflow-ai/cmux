@@ -136,6 +136,12 @@ final class TerminalPanel: Panel, ObservableObject {
         hostedView.setActive(false)
     }
 
+    func prepareForDeferredUnfocus() {
+        // Stop deferred ensureFocus/applyFirstResponder retries immediately, but leave
+        // the full Ghostty unfocus transition to the normal handoff-complete path.
+        hostedView.setActive(false)
+    }
+
     func close() {
         // The surface will be cleaned up by its deinit
         // Detach from the window portal on real close so stale hosted views

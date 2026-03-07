@@ -5,6 +5,17 @@ import Bonsplit
 import CoreVideo
 import Combine
 
+#if DEBUG
+private func tabManagerHotPathDebugLogsEnabled() -> Bool {
+    ProcessInfo.processInfo.environment["CMUX_HOT_PATH_DEBUG_LOGS"] == "1"
+}
+
+private func tabManagerHotPathDlog(_ message: @autoclosure () -> String) {
+    guard tabManagerHotPathDebugLogsEnabled() else { return }
+    dlog(message())
+}
+#endif
+
 // MARK: - Tab Type Alias for Backwards Compatibility
 // The old Tab class is replaced by Workspace
 typealias Tab = Workspace
@@ -575,6 +586,16 @@ class TabManager: ObservableObject {
                 "tabCount": tabs.count
             ])
             let previousTabId = oldValue
+#if DEBUG
+            let debugSwitchAge = debugWorkspaceSwitchStartTime > 0
+                ? (CACurrentMediaTime() - debugWorkspaceSwitchStartTime)
+                : .greatestFiniteMagnitude
+            if debugWorkspaceSwitchTargetId != selectedTabId ||
+                debugWorkspaceSwitchStartTime <= 0 ||
+                debugSwitchAge > 0.25 {
+                beginDebugWorkspaceSwitch(reason: "directSelect", from: previousTabId, to: selectedTabId)
+            }
+#endif
             if let previousTabId,
                let previousPanelId = focusedPanelId(for: previousTabId) {
                 lastFocusedPanelByTab[previousTabId] = previousPanelId
@@ -587,9 +608,15 @@ class TabManager: ObservableObject {
             let switchDtMs = debugWorkspaceSwitchStartTime > 0
                 ? (CACurrentMediaTime() - debugWorkspaceSwitchStartTime) * 1000
                 : 0
-            dlog(
+            tabManagerHotPathDlog(
                 "ws.select.didSet id=\(switchId) from=\(Self.debugShortWorkspaceId(previousTabId)) " +
                 "to=\(Self.debugShortWorkspaceId(selectedTabId)) dt=\(Self.debugMsText(switchDtMs))"
+            )
+            AppDelegate.shared?.logDebugWorkspaceSwitchMetric(
+                phase: "selected.didSet",
+                switchId: switchId,
+                startedAt: debugWorkspaceSwitchStartTime,
+                details: "from=\(Self.debugShortWorkspaceId(previousTabId)) to=\(Self.debugShortWorkspaceId(selectedTabId))"
             )
 #endif
             selectionSideEffectsGeneration &+= 1
@@ -605,9 +632,15 @@ class TabManager: ObservableObject {
                 let dtMs = self.debugWorkspaceSwitchStartTime > 0
                     ? (CACurrentMediaTime() - self.debugWorkspaceSwitchStartTime) * 1000
                     : 0
-                dlog(
+                tabManagerHotPathDlog(
                     "ws.select.asyncDone id=\(self.debugWorkspaceSwitchId) dt=\(Self.debugMsText(dtMs)) " +
                     "selected=\(Self.debugShortWorkspaceId(self.selectedTabId))"
+                )
+                AppDelegate.shared?.logDebugWorkspaceSwitchMetric(
+                    phase: "selected.asyncDone",
+                    switchId: self.debugWorkspaceSwitchId,
+                    startedAt: self.debugWorkspaceSwitchStartTime,
+                    details: "selected=\(Self.debugShortWorkspaceId(self.selectedTabId))"
                 )
 #endif
             }
@@ -637,9 +670,30 @@ class TabManager: ObservableObject {
     private var debugWorkspaceSwitchCounter: UInt64 = 0
     private var debugWorkspaceSwitchId: UInt64 = 0
     private var debugWorkspaceSwitchStartTime: CFTimeInterval = 0
+    private var debugWorkspaceSwitchTargetId: UUID?
 #endif
 
 #if DEBUG
+    private func beginDebugWorkspaceSwitch(reason: String, from: UUID?, to: UUID?) {
+        guard from != to else { return }
+        debugWorkspaceSwitchCounter &+= 1
+        debugWorkspaceSwitchId = debugWorkspaceSwitchCounter
+        debugWorkspaceSwitchStartTime = CACurrentMediaTime()
+        debugWorkspaceSwitchTargetId = to
+        let fromText = Self.debugShortWorkspaceId(from)
+        let toText = Self.debugShortWorkspaceId(to)
+        dlog(
+            "ws.switch.begin id=\(debugWorkspaceSwitchId) reason=\(reason) from=\(fromText) " +
+            "to=\(toText) hot=\(isWorkspaceCycleHot ? 1 : 0) tabs=\(tabs.count)"
+        )
+        AppDelegate.shared?.logDebugWorkspaceSwitchMetric(
+            phase: "begin",
+            switchId: debugWorkspaceSwitchId,
+            startedAt: debugWorkspaceSwitchStartTime,
+            details: "reason=\(reason) from=\(fromText) to=\(toText)"
+        )
+    }
+
     private var didSetupSplitCloseRightUITest = false
     private var didSetupUITestFocusShortcuts = false
     private var didSetupChildExitSplitUITest = false
@@ -1132,6 +1186,9 @@ class TabManager: ObservableObject {
     }
 
     func selectWorkspace(_ workspace: Workspace) {
+#if DEBUG
+        beginDebugWorkspaceSwitch(reason: "selectWorkspace", from: selectedTabId, to: workspace.id)
+#endif
         selectedTabId = workspace.id
     }
 
@@ -1518,7 +1575,7 @@ class TabManager: ObservableObject {
         ) else {
             pendingWorkspaceUnfocusTarget = nil
 #if DEBUG
-            dlog(
+            tabManagerHotPathDlog(
                 "ws.unfocus.drop tab=\(Self.debugShortWorkspaceId(pending.tabId)) panel=\(String(pending.panelId.uuidString.prefix(5))) reason=selected_again"
             )
 #endif
@@ -1529,12 +1586,12 @@ class TabManager: ObservableObject {
 #if DEBUG
         if let snapshot = debugCurrentWorkspaceSwitchSnapshot() {
             let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
-            dlog(
+            tabManagerHotPathDlog(
                 "ws.unfocus.complete id=\(snapshot.id) dt=\(Self.debugMsText(dtMs)) " +
                 "tab=\(Self.debugShortWorkspaceId(pending.tabId)) panel=\(String(pending.panelId.uuidString.prefix(5))) reason=\(reason)"
             )
         } else {
-            dlog(
+            tabManagerHotPathDlog(
                 "ws.unfocus.complete id=none tab=\(Self.debugShortWorkspaceId(pending.tabId)) " +
                 "panel=\(String(pending.panelId.uuidString.prefix(5))) reason=\(reason)"
             )
@@ -1557,29 +1614,34 @@ class TabManager: ObservableObject {
             ) {
                 unfocusWorkspacePanel(tabId: current.tabId, panelId: current.panelId)
 #if DEBUG
-                dlog(
+                tabManagerHotPathDlog(
                     "ws.unfocus.flush tab=\(Self.debugShortWorkspaceId(current.tabId)) panel=\(String(current.panelId.uuidString.prefix(5))) reason=replaced"
                 )
 #endif
             } else {
 #if DEBUG
-                dlog(
+                tabManagerHotPathDlog(
                     "ws.unfocus.drop tab=\(Self.debugShortWorkspaceId(current.tabId)) panel=\(String(current.panelId.uuidString.prefix(5))) reason=replaced_selected"
                 )
 #endif
             }
         }
 
+        if let tab = tabs.first(where: { $0.id == next.tabId }),
+           let panel = tab.panels[next.panelId] {
+            panel.prepareForDeferredUnfocus()
+        }
+
         pendingWorkspaceUnfocusTarget = next
 #if DEBUG
         if let snapshot = debugCurrentWorkspaceSwitchSnapshot() {
             let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
-            dlog(
+            tabManagerHotPathDlog(
                 "ws.unfocus.defer id=\(snapshot.id) dt=\(Self.debugMsText(dtMs)) " +
                 "tab=\(Self.debugShortWorkspaceId(next.tabId)) panel=\(String(next.panelId.uuidString.prefix(5)))"
             )
         } else {
-            dlog(
+            tabManagerHotPathDlog(
                 "ws.unfocus.defer id=none tab=\(Self.debugShortWorkspaceId(next.tabId)) panel=\(String(next.panelId.uuidString.prefix(5)))"
             )
         }
@@ -1755,13 +1817,7 @@ class TabManager: ObservableObject {
         let nextIndex = (currentIndex + 1) % tabs.count
 #if DEBUG
         let nextId = tabs[nextIndex].id
-        debugWorkspaceSwitchCounter &+= 1
-        debugWorkspaceSwitchId = debugWorkspaceSwitchCounter
-        debugWorkspaceSwitchStartTime = CACurrentMediaTime()
-        dlog(
-            "ws.switch.begin id=\(debugWorkspaceSwitchId) dir=next from=\(Self.debugShortWorkspaceId(currentId)) " +
-            "to=\(Self.debugShortWorkspaceId(nextId)) hot=\(isWorkspaceCycleHot ? 1 : 0) tabs=\(tabs.count)"
-        )
+        beginDebugWorkspaceSwitch(reason: "next", from: currentId, to: nextId)
 #endif
         activateWorkspaceCycleHotWindow()
         selectedTabId = tabs[nextIndex].id
@@ -1773,13 +1829,7 @@ class TabManager: ObservableObject {
         let prevIndex = (currentIndex - 1 + tabs.count) % tabs.count
 #if DEBUG
         let prevId = tabs[prevIndex].id
-        debugWorkspaceSwitchCounter &+= 1
-        debugWorkspaceSwitchId = debugWorkspaceSwitchCounter
-        debugWorkspaceSwitchStartTime = CACurrentMediaTime()
-        dlog(
-            "ws.switch.begin id=\(debugWorkspaceSwitchId) dir=prev from=\(Self.debugShortWorkspaceId(currentId)) " +
-            "to=\(Self.debugShortWorkspaceId(prevId)) hot=\(isWorkspaceCycleHot ? 1 : 0) tabs=\(tabs.count)"
-        )
+        beginDebugWorkspaceSwitch(reason: "prev", from: currentId, to: prevId)
 #endif
         activateWorkspaceCycleHotWindow()
         selectedTabId = tabs[prevIndex].id

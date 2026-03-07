@@ -5,6 +5,17 @@ import ObjectiveC
 import UniformTypeIdentifiers
 import WebKit
 
+#if DEBUG
+private func contentHotPathDebugLogsEnabled() -> Bool {
+    ProcessInfo.processInfo.environment["CMUX_HOT_PATH_DEBUG_LOGS"] == "1"
+}
+
+private func contentHotPathDlog(_ message: @autoclosure () -> String) {
+    guard contentHotPathDebugLogsEnabled() else { return }
+    dlog(message())
+}
+#endif
+
 private extension Color {
     init?(hex: String) {
         let hex = hex.trimmingCharacters(in: .init(charactersIn: "#"))
@@ -742,7 +753,7 @@ final class FileDropOverlayView: NSView {
         let signature = "\(shouldCapture ? 1 : 0)|\(debugEventName(eventType))|\(debugPasteboardTypes(pasteboardTypes))"
         guard lastHitTestLogSignature != signature else { return }
         lastHitTestLogSignature = signature
-        dlog(
+        contentHotPathDlog(
             "overlay.fileDrop.hitTest capture=\(shouldCapture ? 1 : 0) " +
             "event=\(debugEventName(eventType)) " +
             "topHit=\(debugTopHitViewForCurrentEvent()) " +
@@ -766,7 +777,7 @@ final class FileDropOverlayView: NSView {
         ].joined(separator: "|")
         guard lastDragRouteLogSignatureByPhase[phase] != signature else { return }
         lastDragRouteLogSignatureByPhase[phase] = signature
-        dlog(
+        contentHotPathDlog(
             "overlay.fileDrop.\(phase) capture=\(shouldCapture ? 1 : 0) " +
             "localSource=\(hasLocalDraggingSource ? 1 : 0) " +
             "hasTerminal=\(hasTerminalTarget ? 1 : 0) " +
@@ -2136,11 +2147,23 @@ struct ContentView: View {
 #if DEBUG
             if let snapshot = tabManager.debugCurrentWorkspaceSwitchSnapshot() {
                 let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
-                dlog(
+                contentHotPathDlog(
                     "ws.view.selectedChange id=\(snapshot.id) dt=\(debugMsText(dtMs)) selected=\(debugShortWorkspaceId(newValue))"
                 )
+                AppDelegate.shared?.logDebugWorkspaceSwitchMetric(
+                    phase: "view.selectedChange",
+                    switchId: snapshot.id,
+                    startedAt: snapshot.startedAt,
+                    details: "selected=\(debugShortWorkspaceId(newValue))"
+                )
             } else {
-                dlog("ws.view.selectedChange id=none selected=\(debugShortWorkspaceId(newValue))")
+                contentHotPathDlog("ws.view.selectedChange id=none selected=\(debugShortWorkspaceId(newValue))")
+                AppDelegate.shared?.logDebugWorkspaceSwitchMetric(
+                    phase: "view.selectedChange",
+                    switchId: nil,
+                    startedAt: nil,
+                    details: "selected=\(debugShortWorkspaceId(newValue))"
+                )
             }
 #endif
             tabManager.applyWindowBackgroundForSelectedTab()
@@ -2158,11 +2181,11 @@ struct ContentView: View {
 #if DEBUG
             if let snapshot = tabManager.debugCurrentWorkspaceSwitchSnapshot() {
                 let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
-                dlog(
+                contentHotPathDlog(
                     "ws.view.hotChange id=\(snapshot.id) dt=\(debugMsText(dtMs)) hot=\(tabManager.isWorkspaceCycleHot ? 1 : 0)"
                 )
             } else {
-                dlog("ws.view.hotChange id=none hot=\(tabManager.isWorkspaceCycleHot ? 1 : 0)")
+                contentHotPathDlog("ws.view.hotChange id=none hot=\(tabManager.isWorkspaceCycleHot ? 1 : 0)")
             }
 #endif
             reconcileMountedWorkspaceIds()
@@ -2559,16 +2582,28 @@ struct ContentView: View {
             let removed = previousMountedIds.filter { !mountedWorkspaceIds.contains($0) }
             if let snapshot = tabManager.debugCurrentWorkspaceSwitchSnapshot() {
                 let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
-                dlog(
+                contentHotPathDlog(
                     "ws.mount.reconcile id=\(snapshot.id) dt=\(debugMsText(dtMs)) hot=\(isCycleHot ? 1 : 0) " +
                     "selected=\(debugShortWorkspaceId(effectiveSelectedId)) " +
                     "mounted=\(debugShortWorkspaceIds(mountedWorkspaceIds)) " +
                     "added=\(debugShortWorkspaceIds(added)) removed=\(debugShortWorkspaceIds(removed))"
                 )
+                AppDelegate.shared?.logDebugWorkspaceSwitchMetric(
+                    phase: "mount.reconcile",
+                    switchId: snapshot.id,
+                    startedAt: snapshot.startedAt,
+                    details: "selected=\(debugShortWorkspaceId(effectiveSelectedId)) added=\(debugShortWorkspaceIds(added)) removed=\(debugShortWorkspaceIds(removed))"
+                )
             } else {
-                dlog(
+                contentHotPathDlog(
                     "ws.mount.reconcile id=none hot=\(isCycleHot ? 1 : 0) selected=\(debugShortWorkspaceId(effectiveSelectedId)) " +
                     "mounted=\(debugShortWorkspaceIds(mountedWorkspaceIds))"
+                )
+                AppDelegate.shared?.logDebugWorkspaceSwitchMetric(
+                    phase: "mount.reconcile",
+                    switchId: nil,
+                    startedAt: nil,
+                    details: "selected=\(debugShortWorkspaceId(effectiveSelectedId))"
                 )
             }
         }
@@ -2627,13 +2662,25 @@ struct ContentView: View {
 #if DEBUG
         if let snapshot = tabManager.debugCurrentWorkspaceSwitchSnapshot() {
             let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
-            dlog(
+            contentHotPathDlog(
                 "ws.handoff.start id=\(snapshot.id) dt=\(debugMsText(dtMs)) old=\(debugShortWorkspaceId(oldSelectedId)) " +
                 "new=\(debugShortWorkspaceId(newSelectedId))"
             )
+            AppDelegate.shared?.logDebugWorkspaceSwitchMetric(
+                phase: "handoff.start",
+                switchId: snapshot.id,
+                startedAt: snapshot.startedAt,
+                details: "old=\(debugShortWorkspaceId(oldSelectedId)) new=\(debugShortWorkspaceId(newSelectedId))"
+            )
         } else {
-            dlog(
+            contentHotPathDlog(
                 "ws.handoff.start id=none old=\(debugShortWorkspaceId(oldSelectedId)) new=\(debugShortWorkspaceId(newSelectedId))"
+            )
+            AppDelegate.shared?.logDebugWorkspaceSwitchMetric(
+                phase: "handoff.start",
+                switchId: nil,
+                startedAt: nil,
+                details: "old=\(debugShortWorkspaceId(oldSelectedId)) new=\(debugShortWorkspaceId(newSelectedId))"
             )
         }
 #endif
@@ -2676,11 +2723,23 @@ struct ContentView: View {
 #if DEBUG
         if let snapshot = tabManager.debugCurrentWorkspaceSwitchSnapshot() {
             let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
-            dlog(
+            contentHotPathDlog(
                 "ws.handoff.complete id=\(snapshot.id) dt=\(debugMsText(dtMs)) reason=\(reason) retiring=\(debugShortWorkspaceId(retiring))"
             )
+            AppDelegate.shared?.logDebugWorkspaceSwitchMetric(
+                phase: "handoff.complete",
+                switchId: snapshot.id,
+                startedAt: snapshot.startedAt,
+                details: "reason=\(reason) retiring=\(debugShortWorkspaceId(retiring))"
+            )
         } else {
-            dlog("ws.handoff.complete id=none reason=\(reason) retiring=\(debugShortWorkspaceId(retiring))")
+            contentHotPathDlog("ws.handoff.complete id=none reason=\(reason) retiring=\(debugShortWorkspaceId(retiring))")
+            AppDelegate.shared?.logDebugWorkspaceSwitchMetric(
+                phase: "handoff.complete",
+                switchId: nil,
+                startedAt: nil,
+                details: "reason=\(reason) retiring=\(debugShortWorkspaceId(retiring))"
+            )
         }
 #endif
     }
@@ -7390,7 +7449,7 @@ private struct TabItemView: View {
         if mods.contains(.shift) { modStr += "shift " }
         if mods.contains(.option) { modStr += "opt " }
         if mods.contains(.control) { modStr += "ctrl " }
-        dlog("sidebar.select workspace=\(tab.id.uuidString.prefix(5)) modifiers=\(modStr.isEmpty ? "none" : modStr.trimmingCharacters(in: .whitespaces))")
+        contentHotPathDlog("sidebar.select workspace=\(tab.id.uuidString.prefix(5)) modifiers=\(modStr.isEmpty ? "none" : modStr.trimmingCharacters(in: .whitespaces))")
         #endif
         let modifiers = NSEvent.modifierFlags
         let isCommand = modifiers.contains(.command)
