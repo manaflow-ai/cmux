@@ -13,7 +13,19 @@ sys.path.insert(0, str(Path(__file__).parent))
 from cmux import cmux, cmuxError
 
 
-SOCKET_PATH = os.environ.get("CMUX_SOCKET", "/tmp/cmux-debug.sock")
+def _resolve_socket_path() -> str:
+    explicit = os.environ.get("CMUX_SOCKET")
+    if explicit:
+        return explicit
+
+    tag = os.environ.get("CMUX_TAG")
+    if tag:
+        return f"/tmp/cmux-debug-{tag}.sock"
+
+    raise cmuxError("Set CMUX_SOCKET or CMUX_TAG before running tests_v2 page parity against a tagged cmux build")
+
+
+SOCKET_PATH = _resolve_socket_path()
 
 
 def _must(cond: bool, msg: str) -> None:
@@ -123,8 +135,8 @@ def main() -> int:
             listed = c._call("page.list", {"workspace_id": workspace_id}) or {}
             titles, selected_titles = _page_titles_and_selected(listed)
             _must(titles == ["agents", "editor"], f"page.list returned unexpected titles after create: {listed}")
-            _must(selected_titles == ["editor"], f"page.list should report editor selected after create: {listed}")
-            _must(str(listed.get("page_id") or "") == second_page_id, f"page.list should mirror active page: {listed}")
+            _must(selected_titles == ["agents"], f"page.list should keep the current page selected after create: {listed}")
+            _must(str(listed.get("page_id") or "") == first_page_id, f"page.list should mirror the unchanged active page: {listed}")
 
             selected = _run_cli_json(
                 cli,
@@ -164,8 +176,8 @@ def main() -> int:
                 f"system.tree page order did not match reorder result: {workspace}",
             )
             _must(
-                str(workspace.get("selected_page_id") or "") == duplicate_page_id,
-                f"system.tree selected page did not mirror active duplicated page: {workspace}",
+                str(workspace.get("selected_page_id") or "") == first_page_id,
+                f"system.tree should keep the previously selected page active after duplicate/reorder: {workspace}",
             )
 
             last_page = c._call("page.last", {"workspace_id": workspace_id}) or {}
@@ -176,6 +188,8 @@ def main() -> int:
                 str(current_cli.get("page_id") or "") == second_page_id,
                 f"current-page CLI should agree with page.last: {current_cli}",
             )
+            current_cli_text = _run_cli(cli, ["current-page", "--workspace", workspace_id], json_output=False).strip()
+            _must(current_cli_text == second_page_ref, f"current-page text output should be the page ref: {current_cli_text!r}")
 
             closed = _run_cli_json(
                 cli,
@@ -183,15 +197,15 @@ def main() -> int:
             )
             _must(str(closed.get("page_id") or "") == duplicate_page_id, f"close-page closed wrong page: {closed}")
             _must(
-                str(closed.get("selected_page_id") or "") == first_page_id,
-                f"close-page should select the nearest surviving neighbor after closing the leftmost active page: {closed}",
+                str(closed.get("selected_page_id") or "") == second_page_id,
+                f"close-page should preserve the selected page when closing an inactive page: {closed}",
             )
 
             final_list = _run_cli_json(cli, ["list-pages", "--workspace", workspace_id])
             final_titles, final_selected = _page_titles_and_selected(final_list)
             _must(final_titles == ["agents", "editor"], f"list-pages should reflect closed duplicate page: {final_list}")
-            _must(final_selected == ["agents"], f"list-pages should report agents selected after close: {final_list}")
-            _must(str(final_list.get("page_id") or "") == first_page_id, f"list-pages active page mismatch after close: {final_list}")
+            _must(final_selected == ["editor"], f"list-pages should keep editor selected after closing an inactive page: {final_list}")
+            _must(str(final_list.get("page_id") or "") == second_page_id, f"list-pages active page mismatch after close: {final_list}")
             _must(
                 second_page_ref.startswith("page:"),
                 f"new-page should return a page ref handle: {created_page}",
