@@ -335,11 +335,156 @@ func resolveTerminalCommandClickFileURL(
     workingDirectory: String?,
     fileExists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }
 ) -> URL? {
-    _ = line
-    _ = clickedColumn
-    _ = workingDirectory
-    _ = fileExists
+    guard let token = terminalCommandClickToken(in: line, clickedColumn: clickedColumn) else {
+        return nil
+    }
+
+    for candidate in terminalCommandClickPathCandidates(token: token, workingDirectory: workingDirectory) {
+        if fileExists(candidate.path) {
+            return URL(fileURLWithPath: candidate.path).standardizedFileURL
+        }
+    }
+
     return nil
+}
+
+private let terminalCommandClickSeparators: Set<Character> = [
+    " ", "\t", "\n", "\r",
+    "\"", "'", "`",
+    "(", ")", "[", "]", "{", "}",
+    "<", ">", ",", ";",
+]
+
+private let terminalCommandClickTrimCharacters = CharacterSet(charactersIn: "\"'`()[]{}<>,;")
+private let terminalCommandClickLsClassifySuffixes: Set<Character> = ["*", "@", "|", "="]
+
+private func terminalCommandClickToken(in line: String, clickedColumn: Int) -> String? {
+    let characters = Array(line)
+    guard !characters.isEmpty else { return nil }
+
+    let clampedColumn = min(max(clickedColumn, 0), characters.count - 1)
+    guard !terminalCommandClickSeparators.contains(characters[clampedColumn]) else {
+        return nil
+    }
+
+    var start = clampedColumn
+    while start > 0, !terminalCommandClickSeparators.contains(characters[start - 1]) {
+        start -= 1
+    }
+
+    var end = clampedColumn
+    while end + 1 < characters.count, !terminalCommandClickSeparators.contains(characters[end + 1]) {
+        end += 1
+    }
+
+    let token = String(characters[start...end]).trimmingCharacters(in: terminalCommandClickTrimCharacters)
+    return token.isEmpty ? nil : token
+}
+
+private func terminalCommandClickPathCandidates(
+    token: String,
+    workingDirectory: String?
+) -> [URL] {
+    let trimmedWorkingDirectory = workingDirectory?
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+    var tokenVariants: [String] = []
+
+    func appendTokenVariant(_ value: String) {
+        guard !value.isEmpty, !tokenVariants.contains(value) else { return }
+        tokenVariants.append(value)
+    }
+
+    let trimmedToken = token.trimmingCharacters(in: terminalCommandClickTrimCharacters)
+    appendTokenVariant(trimmedToken)
+    appendTokenVariant(terminalCommandClickStrippingLineInfo(trimmedToken))
+
+    for variant in Array(tokenVariants) {
+        appendTokenVariant(terminalCommandClickStrippingLsClassifySuffix(variant))
+    }
+
+    for variant in Array(tokenVariants) {
+        appendTokenVariant(terminalCommandClickUnescapingShellToken(variant))
+    }
+
+    for variant in Array(tokenVariants) {
+        appendTokenVariant(terminalCommandClickStrippingLineInfo(variant))
+    }
+
+    var urls: [URL] = []
+
+    func appendURL(_ url: URL) {
+        let standardized = url.standardizedFileURL
+        guard !urls.contains(where: { $0.standardizedFileURL == standardized }) else { return }
+        urls.append(standardized)
+    }
+
+    for variant in tokenVariants {
+        let expandedVariant = (variant as NSString).expandingTildeInPath
+
+        if let fileURL = URL(string: expandedVariant), fileURL.isFileURL {
+            appendURL(fileURL)
+        }
+
+        if NSString(string: expandedVariant).isAbsolutePath {
+            appendURL(URL(fileURLWithPath: expandedVariant))
+            continue
+        }
+
+        guard let trimmedWorkingDirectory, !trimmedWorkingDirectory.isEmpty else { continue }
+        let workingDirectoryURL = URL(
+            fileURLWithPath: (trimmedWorkingDirectory as NSString).expandingTildeInPath,
+            isDirectory: true
+        )
+        appendURL(URL(fileURLWithPath: expandedVariant, relativeTo: workingDirectoryURL))
+    }
+
+    return urls
+}
+
+private func terminalCommandClickStrippingLineInfo(_ token: String) -> String {
+    var candidate = token
+    while let colonIndex = candidate.lastIndex(of: ":") {
+        let suffixStart = candidate.index(after: colonIndex)
+        let suffix = candidate[suffixStart...]
+        guard !suffix.isEmpty, suffix.allSatisfy(\.isNumber) else { break }
+        candidate = String(candidate[..<colonIndex])
+    }
+    return candidate
+}
+
+private func terminalCommandClickStrippingLsClassifySuffix(_ token: String) -> String {
+    guard let last = token.last, terminalCommandClickLsClassifySuffixes.contains(last) else {
+        return token
+    }
+    return String(token.dropLast())
+}
+
+private func terminalCommandClickUnescapingShellToken(_ token: String) -> String {
+    guard token.contains("\\") else { return token }
+
+    var result = ""
+    var isEscaping = false
+
+    for character in token {
+        if isEscaping {
+            result.append(character)
+            isEscaping = false
+            continue
+        }
+
+        if character == "\\" {
+            isEscaping = true
+            continue
+        }
+
+        result.append(character)
+    }
+
+    if isEscaping {
+        result.append("\\")
+    }
+
+    return result
 }
 
 enum TerminalKeyboardCopyModeSelectionMove: String, Equatable {
@@ -2946,6 +3091,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// a 1-cell selection as a visible cursor. This flag determines whether
     /// movements should extend the selection (visual) or scroll the viewport.
     private var keyboardCopyModeVisualActive = false
+    private struct PendingCommandClickFileOpen {
+        let url: URL
+        let origin: CGPoint
+    }
+    private var pendingCommandClickFileOpen: PendingCommandClickFileOpen?
     fileprivate var isKeyboardCopyModeActive: Bool { keyboardCopyModeActive }
 #if DEBUG
     private static let keyLatencyProbeEnabled: Bool = {
@@ -4266,12 +4416,25 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     private func modsFromEvent(_ event: NSEvent) -> ghostty_input_mods_e {
+        modsFromFlags(event.modifierFlags)
+    }
+
+    private func modsFromFlags(_ flags: NSEvent.ModifierFlags) -> ghostty_input_mods_e {
         var mods = GHOSTTY_MODS_NONE.rawValue
-        if event.modifierFlags.contains(.shift) { mods |= GHOSTTY_MODS_SHIFT.rawValue }
-        if event.modifierFlags.contains(.control) { mods |= GHOSTTY_MODS_CTRL.rawValue }
-        if event.modifierFlags.contains(.option) { mods |= GHOSTTY_MODS_ALT.rawValue }
-        if event.modifierFlags.contains(.command) { mods |= GHOSTTY_MODS_SUPER.rawValue }
+        if flags.contains(.shift) { mods |= GHOSTTY_MODS_SHIFT.rawValue }
+        if flags.contains(.control) { mods |= GHOSTTY_MODS_CTRL.rawValue }
+        if flags.contains(.option) { mods |= GHOSTTY_MODS_ALT.rawValue }
+        if flags.contains(.command) { mods |= GHOSTTY_MODS_SUPER.rawValue }
         return ghostty_input_mods_e(rawValue: mods)
+    }
+
+    private func mouseModifierFlags(
+        _ event: NSEvent,
+        suppressCommandClick: Bool
+    ) -> NSEvent.ModifierFlags {
+        let normalized = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        guard suppressCommandClick else { return normalized }
+        return normalized.subtracting([.command])
     }
 
     /// Consumed mods are modifiers that were used for text translation.
@@ -4432,6 +4595,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     // MARK: - Mouse Handling
 
+    private static let commandClickDragTolerance: CGFloat = 4
+
     #if DEBUG
     private func debugModifierString(_ flags: NSEvent.ModifierFlags) -> String {
         [
@@ -4443,6 +4608,130 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
     #endif
 
+    private func currentWorkingDirectoryForCommandClick() -> String? {
+        guard let surfaceId = terminalSurface?.id,
+              let tabId,
+              let app = AppDelegate.shared,
+              let resolved = app.workspaceContainingPanel(
+                panelId: surfaceId,
+                preferredWorkspaceId: tabId
+              ) else {
+            return nil
+        }
+
+        let workspace = resolved.workspace
+        if let directory = workspace.panelDirectories[surfaceId]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !directory.isEmpty {
+            return directory
+        }
+
+        let directory = workspace.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+        return directory.isEmpty ? nil : directory
+    }
+
+    private func visibleViewportLines(surface: ghostty_surface_t) -> [String]? {
+        let topLeft = ghostty_point_s(
+            tag: GHOSTTY_POINT_VIEWPORT,
+            coord: GHOSTTY_POINT_COORD_TOP_LEFT,
+            x: 0,
+            y: 0
+        )
+        let bottomRight = ghostty_point_s(
+            tag: GHOSTTY_POINT_VIEWPORT,
+            coord: GHOSTTY_POINT_COORD_BOTTOM_RIGHT,
+            x: 0,
+            y: 0
+        )
+        let selection = ghostty_selection_s(
+            top_left: topLeft,
+            bottom_right: bottomRight,
+            rectangle: true
+        )
+
+        var text = ghostty_text_s()
+        guard ghostty_surface_read_text(surface, selection, &text) else {
+            return nil
+        }
+        defer { ghostty_surface_free_text(surface, &text) }
+
+        guard let ptr = text.text, text.text_len > 0 else {
+            return []
+        }
+
+        let raw = Data(bytes: ptr, count: Int(text.text_len))
+        let output = String(decoding: raw, as: UTF8.self)
+        return output
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map { String($0).trimmingCharacters(in: CharacterSet(charactersIn: "\r")) }
+    }
+
+    private func viewportTextLocation(
+        at point: CGPoint,
+        surface: ghostty_surface_t
+    ) -> (row: Int, column: Int)? {
+        let size = ghostty_surface_size(surface)
+        let rows = max(Int(size.rows), 1)
+        let columns = max(Int(size.columns), 1)
+        guard cellSize.width > 0, cellSize.height > 0 else { return nil }
+
+        let gridWidth = CGFloat(columns) * cellSize.width
+        let gridHeight = CGFloat(rows) * cellSize.height
+        let originX = max((bounds.width - gridWidth) / 2, 0)
+        let originY = max((bounds.height - gridHeight) / 2, 0)
+        let topOriginY = bounds.height - point.y
+        let localX = point.x - originX
+        let localY = topOriginY - originY
+
+        guard localX >= 0, localY >= 0, localX < gridWidth, localY < gridHeight else {
+            return nil
+        }
+
+        let column = min(max(Int(localX / cellSize.width), 0), columns - 1)
+        let row = min(max(Int(localY / cellSize.height), 0), rows - 1)
+        return (row, column)
+    }
+
+    private func resolveCommandClickFileURL(
+        at point: CGPoint,
+        surface: ghostty_surface_t
+    ) -> URL? {
+        guard let location = viewportTextLocation(at: point, surface: surface),
+              let lines = visibleViewportLines(surface: surface),
+              location.row < lines.count else {
+            return nil
+        }
+
+        return resolveTerminalCommandClickFileURL(
+            line: lines[location.row],
+            clickedColumn: location.column,
+            workingDirectory: currentWorkingDirectoryForCommandClick()
+        )
+    }
+
+    private func resolvePendingCommandClickFileOpen(
+        for event: NSEvent,
+        point: CGPoint,
+        surface: ghostty_surface_t
+    ) -> PendingCommandClickFileOpen? {
+        guard event.modifierFlags.contains(.command),
+              event.clickCount == 1,
+              !keyboardCopyModeActive,
+              !ghostty_surface_mouse_captured(surface),
+              let url = resolveCommandClickFileURL(at: point, surface: surface) else {
+            return nil
+        }
+
+        #if DEBUG
+        dlog(
+            "terminal.cmdClick.pending surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") " +
+            "url=\(url.path)"
+        )
+        #endif
+
+        return PendingCommandClickFileOpen(url: url, origin: point)
+    }
+
     override func mouseDown(with event: NSEvent) {
         #if DEBUG
         let debugPoint = convert(event.locationInWindow, from: nil)
@@ -4451,8 +4740,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         window?.makeFirstResponder(self)
         guard let surface = surface else { return }
         let point = convert(event.locationInWindow, from: nil)
-        ghostty_surface_mouse_pos(surface, point.x, bounds.height - point.y, modsFromEvent(event))
-        _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, modsFromEvent(event))
+        let pendingCommandClick = resolvePendingCommandClickFileOpen(for: event, point: point, surface: surface)
+        pendingCommandClickFileOpen = pendingCommandClick
+        let forwardedFlags = mouseModifierFlags(
+            event,
+            suppressCommandClick: pendingCommandClick != nil
+        )
+        let mods = modsFromFlags(forwardedFlags)
+        ghostty_surface_mouse_pos(surface, point.x, bounds.height - point.y, mods)
+        _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, mods)
     }
 
     override func mouseUp(with event: NSEvent) {
@@ -4460,7 +4756,35 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         dlog("terminal.mouseUp surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") mods=[\(debugModifierString(event.modifierFlags))]")
         #endif
         guard let surface = surface else { return }
-        _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, modsFromEvent(event))
+        let pendingCommandClick = pendingCommandClickFileOpen
+        pendingCommandClickFileOpen = nil
+        let forwardedFlags = mouseModifierFlags(
+            event,
+            suppressCommandClick: pendingCommandClick != nil
+        )
+        _ = ghostty_surface_mouse_button(
+            surface,
+            GHOSTTY_MOUSE_RELEASE,
+            GHOSTTY_MOUSE_LEFT,
+            modsFromFlags(forwardedFlags)
+        )
+
+        guard let pendingCommandClick else { return }
+
+        let point = convert(event.locationInWindow, from: nil)
+        let movedDistance = hypot(
+            point.x - pendingCommandClick.origin.x,
+            point.y - pendingCommandClick.origin.y
+        )
+        guard movedDistance <= Self.commandClickDragTolerance else { return }
+
+        #if DEBUG
+        dlog(
+            "terminal.cmdClick.open surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") " +
+            "url=\(pendingCommandClick.url.path)"
+        )
+        #endif
+        NSWorkspace.shared.open(pendingCommandClick.url)
     }
 
     override func rightMouseDown(with event: NSEvent) {
@@ -4633,8 +4957,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override func mouseDragged(with event: NSEvent) {
         guard let surface = surface else { return }
+        let suppressCommandClick = pendingCommandClickFileOpen != nil
+        pendingCommandClickFileOpen = nil
         let point = convert(event.locationInWindow, from: nil)
-        ghostty_surface_mouse_pos(surface, point.x, bounds.height - point.y, modsFromEvent(event))
+        ghostty_surface_mouse_pos(
+            surface,
+            point.x,
+            bounds.height - point.y,
+            modsFromFlags(mouseModifierFlags(event, suppressCommandClick: suppressCommandClick))
+        )
     }
 
     override func scrollWheel(with event: NSEvent) {
