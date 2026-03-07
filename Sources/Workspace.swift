@@ -1531,7 +1531,9 @@ final class Workspace: Identifiable, ObservableObject {
             NSSound.beep()
             return
         }
-        guard skipConfirmation || !pageNeedsConfirmClose(pageId) || confirmClosePage(pageId: pageId) else { return }
+        let shouldSkipConfirmation =
+            skipConfirmation || ProcessInfo.processInfo.environment["CMUX_UI_TEST_SKIP_CONFIRM_CLOSE_PAGE"] == "1"
+        guard shouldSkipConfirmation || !pageNeedsConfirmClose(pageId) || confirmClosePage(pageId: pageId) else { return }
         guard let index = pages.firstIndex(where: { $0.id == pageId }) else { return }
 
         let replacementPageId: UUID? = {

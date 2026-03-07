@@ -86,6 +86,7 @@ final class WorkspacePagesUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launchEnvironment["CMUX_TAG"] = launchTag
+        app.launchEnvironment["CMUX_UI_TEST_SKIP_CONFIRM_CLOSE_PAGE"] = "1"
         app.launchArguments += ["-shortcutHintAlwaysShow", "YES"]
         app.launchArguments += ["-shortcutHintTitlebarXOffset", "4"]
         app.launchArguments += ["-shortcutHintTitlebarYOffset", "0"]
