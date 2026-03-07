@@ -58,7 +58,9 @@ final class WorkspacePagesUITests: XCTestCase {
 
         XCTAssertTrue(waitForActivePageToken(firstPageToken, app: app, timeout: 6.0))
 
-        app.typeKey("w", modifierFlags: [.command, .option])
+        let closeButton = app.buttons["titlebarPageCloseButton.\(firstPageToken)"]
+        XCTAssertTrue(waitForElementExists(closeButton, timeout: 6.0))
+        closeButton.click()
 
         XCTAssertTrue(waitForPageButtonCount(1, app: app, timeout: 8.0))
         XCTAssertTrue(waitForActivePageToken(secondPageToken, app: app, timeout: 6.0))
