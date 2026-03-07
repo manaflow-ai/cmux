@@ -1250,6 +1250,7 @@ struct ContentView: View {
     @State private var retiringWorkspaceId: UUID?
     @State private var workspaceHandoffGeneration: UInt64 = 0
     @State private var workspaceHandoffFallbackTask: Task<Void, Never>?
+    @State private var workspaceHandoffReadinessTask: Task<Void, Never>?
     @State private var titlebarThemeGeneration: UInt64 = 0
     @State private var sidebarDraggedTabId: UUID?
     @State private var titlebarTextUpdateCoalescer = NotificationBurstCoalescer(delay: 1.0 / 30.0)
@@ -2266,6 +2267,8 @@ struct ContentView: View {
                 self.retiringWorkspaceId = nil
                 workspaceHandoffFallbackTask?.cancel()
                 workspaceHandoffFallbackTask = nil
+                workspaceHandoffReadinessTask?.cancel()
+                workspaceHandoffReadinessTask = nil
             }
             if let previousSelectedWorkspaceId, !existingIds.contains(previousSelectedWorkspaceId) {
                 self.previousSelectedWorkspaceId = tabManager.selectedTabId
@@ -2666,6 +2669,8 @@ struct ContentView: View {
             retiringWorkspaceId = nil
             workspaceHandoffFallbackTask?.cancel()
             workspaceHandoffFallbackTask = nil
+            workspaceHandoffReadinessTask?.cancel()
+            workspaceHandoffReadinessTask = nil
             return
         }
 
@@ -2673,6 +2678,7 @@ struct ContentView: View {
         let generation = workspaceHandoffGeneration
         retiringWorkspaceId = oldSelectedId
         workspaceHandoffFallbackTask?.cancel()
+        workspaceHandoffReadinessTask?.cancel()
 
 #if DEBUG
         if let snapshot = tabManager.debugCurrentWorkspaceSwitchSnapshot() {
@@ -2711,27 +2717,50 @@ struct ContentView: View {
                 completeWorkspaceHandoff(reason: "timeout")
             }
         }
+
+        workspaceHandoffReadinessTask = Task { [generation] in
+            await Task.yield()
+            while !Task.isCancelled {
+                let shouldContinue = await MainActor.run {
+                    guard workspaceHandoffGeneration == generation else { return false }
+                    guard retiringWorkspaceId != nil else { return false }
+                    return !completeWorkspaceHandoffIfSelectedTerminalReady(reason: "terminal_ready")
+                }
+                guard shouldContinue else { return }
+                do {
+                    try await Task.sleep(nanoseconds: 8_000_000)
+                } catch {
+                    return
+                }
+            }
+        }
     }
 
-    private func completeWorkspaceHandoffIfNeeded(focusedTabId: UUID, reason: String) {
-        guard focusedTabId == tabManager.selectedTabId else { return }
-        guard retiringWorkspaceId != nil else { return }
+    @discardableResult
+    private func completeWorkspaceHandoffIfNeeded(focusedTabId: UUID, reason: String) -> Bool {
+        guard focusedTabId == tabManager.selectedTabId else { return false }
+        guard retiringWorkspaceId != nil else { return false }
         completeWorkspaceHandoff(reason: reason)
+        return true
     }
 
-    private func completeWorkspaceHandoffIfSelectedTerminalReady(reason: String) {
-        guard retiringWorkspaceId != nil else { return }
+    @discardableResult
+    private func completeWorkspaceHandoffIfSelectedTerminalReady(reason: String) -> Bool {
+        guard retiringWorkspaceId != nil else { return false }
         guard let selectedWorkspace = tabManager.selectedWorkspace,
               let terminalPanel = selectedWorkspace.focusedTerminalPanel,
               terminalPanel.hostedView.isReadyForWorkspaceHandoff else {
-            return
+            return false
         }
         completeWorkspaceHandoff(reason: reason)
+        return true
     }
 
     private func completeWorkspaceHandoff(reason: String) {
         workspaceHandoffFallbackTask?.cancel()
         workspaceHandoffFallbackTask = nil
+        workspaceHandoffReadinessTask?.cancel()
+        workspaceHandoffReadinessTask = nil
         let retiring = retiringWorkspaceId
 
         // Hide terminal portal views for the retiring workspace BEFORE clearing
