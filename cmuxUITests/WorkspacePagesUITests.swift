@@ -19,10 +19,22 @@ private func workspacePagesPollUntil(
 
 final class WorkspacePagesUITests: XCTestCase {
     private let launchTag = "ui-tests-workspace-pages"
+    private var interruptionMonitor: NSObjectProtocol?
 
     override func setUp() {
         super.setUp()
         continueAfterFailure = false
+        interruptionMonitor = addUIInterruptionMonitor(withDescription: "Notification Center") { dialog in
+            Self.dismissInterruptingDialog(dialog)
+        }
+    }
+
+    override func tearDown() {
+        if let interruptionMonitor {
+            removeUIInterruptionMonitor(interruptionMonitor)
+        }
+        interruptionMonitor = nil
+        super.tearDown()
     }
 
     func testTitlebarPageStripCreateSelectCloseAndHintFlow() {
@@ -60,7 +72,11 @@ final class WorkspacePagesUITests: XCTestCase {
 
         let closeButton = app.buttons["titlebarPageCloseButton.\(firstPageToken)"]
         XCTAssertTrue(waitForElementExists(closeButton, timeout: 6.0))
-        closeButton.click()
+        XCTAssertTrue(clickElementHandlingInterruptions(
+            closeButton,
+            app: app,
+            successCondition: { self.waitForPageButtonCount(1, app: app, timeout: 1.0) }
+        ))
 
         XCTAssertTrue(waitForPageButtonCount(1, app: app, timeout: 8.0))
         XCTAssertTrue(waitForActivePageToken(secondPageToken, app: app, timeout: 6.0))
@@ -111,6 +127,80 @@ final class WorkspacePagesUITests: XCTestCase {
         workspacePagesPollUntil(timeout: timeout) {
             element.exists
         }
+    }
+
+    private func clickElementHandlingInterruptions(
+        _ element: XCUIElement,
+        app: XCUIApplication,
+        attempts: Int = 2,
+        successCondition: () -> Bool
+    ) -> Bool {
+        for attempt in 0..<attempts {
+            dismissNotificationCenterIfPresent()
+            if app.state != .runningForeground {
+                app.activate()
+                _ = app.wait(for: .runningForeground, timeout: 4.0)
+            }
+            guard element.exists else { return false }
+            element.click()
+            if successCondition() {
+                return true
+            }
+            let dismissedInterruption = dismissNotificationCenterIfPresent()
+            if successCondition() {
+                return true
+            }
+            guard dismissedInterruption, attempt + 1 < attempts else { continue }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+        }
+        return successCondition()
+    }
+
+    @discardableResult
+    private func dismissNotificationCenterIfPresent() -> Bool {
+        let notificationCenter = XCUIApplication(bundleIdentifier: "com.apple.UserNotificationCenter")
+        let dialog = notificationCenter.dialogs.firstMatch
+        if dialog.exists || dialog.waitForExistence(timeout: 0.2) {
+            return Self.dismissInterruptingDialog(dialog)
+        }
+        let sheet = notificationCenter.sheets.firstMatch
+        if sheet.exists || sheet.waitForExistence(timeout: 0.2) {
+            return Self.dismissInterruptingDialog(sheet)
+        }
+        return false
+    }
+
+    private static func dismissInterruptingDialog(_ dialog: XCUIElement) -> Bool {
+        let preferredButtonIDs = [
+            "Close",
+            "Dismiss",
+            "Clear",
+            "Later",
+            "Not Now",
+            "OK",
+            "Cancel",
+            "action-button-3",
+            "action-button-2",
+            "action-button-1",
+            "action-button-0",
+        ]
+        for buttonID in preferredButtonIDs {
+            let button = dialog.buttons[buttonID]
+            if button.exists {
+                button.click()
+                return true
+            }
+        }
+        let buttons = dialog.descendants(matching: .button).allElementsBoundByIndex
+        if let fallback = buttons.reversed().first(where: { $0.exists && $0.isHittable }) {
+            fallback.click()
+            return true
+        }
+        if let fallback = buttons.first(where: { $0.exists }) {
+            fallback.click()
+            return true
+        }
+        return false
     }
 
     private func activePageToken(in app: XCUIApplication) -> String? {
