@@ -73,7 +73,7 @@ struct BrowserSearchOverlay: View {
                     Image(systemName: "chevron.up")
                 }
                 .buttonStyle(SearchButtonStyle())
-                .help("Next match (Return)")
+                .safeHelp("Next match (Return)")
 
                 Button(action: {
                     #if DEBUG
@@ -84,7 +84,7 @@ struct BrowserSearchOverlay: View {
                     Image(systemName: "chevron.down")
                 }
                 .buttonStyle(SearchButtonStyle())
-                .help("Previous match (Shift+Return)")
+                .safeHelp("Previous match (Shift+Return)")
 
                 Button(action: {
                     #if DEBUG
@@ -95,7 +95,7 @@ struct BrowserSearchOverlay: View {
                     Image(systemName: "xmark")
                 }
                 .buttonStyle(SearchButtonStyle())
-                .help("Close (Esc)")
+                .safeHelp("Close (Esc)")
             }
             .padding(8)
             .background(.background)

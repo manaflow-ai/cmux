@@ -1,3 +1,4 @@
+import Bonsplit
 import SwiftUI
 
 struct NotificationsPage: View {
@@ -113,7 +114,7 @@ struct NotificationsPage: View {
             }
             .buttonStyle(.bordered)
             .keyboardShortcut(key, modifiers: jumpToUnreadShortcut.eventModifiers)
-            .help(KeyboardShortcutSettings.Action.jumpToUnread.tooltip(String(localized: "notifications.jumpToLatestUnread", defaultValue: "Jump to Latest Unread")))
+            .safeHelp(KeyboardShortcutSettings.Action.jumpToUnread.tooltip(String(localized: "notifications.jumpToLatestUnread", defaultValue: "Jump to Latest Unread")))
             .disabled(!hasUnreadNotifications)
         } else {
             Button(action: {
@@ -125,7 +126,7 @@ struct NotificationsPage: View {
                 }
             }
             .buttonStyle(.bordered)
-            .help(KeyboardShortcutSettings.Action.jumpToUnread.tooltip(String(localized: "notifications.jumpToLatestUnread", defaultValue: "Jump to Latest Unread")))
+            .safeHelp(KeyboardShortcutSettings.Action.jumpToUnread.tooltip(String(localized: "notifications.jumpToLatestUnread", defaultValue: "Jump to Latest Unread")))
             .disabled(!hasUnreadNotifications)
         }
     }

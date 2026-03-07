@@ -54,6 +54,13 @@ final class WindowTerminalHostView: NSView {
     private var lastDragRouteSignature: String?
 #endif
 
+    deinit {
+        if let trackingArea {
+            removeTrackingArea(trackingArea)
+        }
+        clearActiveDividerCursor(restoreArrow: false)
+    }
+
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         if window == nil {
