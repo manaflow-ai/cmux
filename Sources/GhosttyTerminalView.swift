@@ -2065,7 +2065,11 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private static let backgroundSurfaceStartInputRetryDelay: TimeInterval = 0.35
     private static let backgroundSurfaceStartIdleThresholdMs = 750.0
 
-    private(set) var surface: ghostty_surface_t?
+    private(set) var surface: ghostty_surface_t? {
+        didSet {
+            lastAppliedFocus = nil
+        }
+    }
     private weak var attachedView: GhosttyNSView?
     private var lastAttachedWindowNumber: Int?
     private var lastAttachedDisplayID: CGDirectDisplayID?
@@ -2098,6 +2102,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private var lastPixelHeight: UInt32 = 0
     private var lastXScale: CGFloat = 0
     private var lastYScale: CGFloat = 0
+    private var lastAppliedFocus: Bool?
     private var pendingTextQueue: [Data] = []
     private var pendingTextBytes: Int = 0
     private let maxPendingTextBytes = 1_048_576
@@ -2844,7 +2849,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
     func setFocus(_ focused: Bool) {
         guard let surface = surface else { return }
+        guard lastAppliedFocus != focused else { return }
         ghostty_surface_set_focus(surface, focused)
+        lastAppliedFocus = focused
 
         // If we focus a surface while it is being rapidly reparented (closing splits, etc),
         // Ghostty's CVDisplayLink can end up started before the display id is valid, leaving
@@ -4023,16 +4030,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                     ]
                 )
             }
-            ghostty_surface_set_focus(surface, true)
-
-            // Ghostty only restarts its vsync display link on display-id changes while focused.
-            // During rapid split close / SwiftUI reparenting, the view can reattach to a window
-            // and get its display id set *before* it becomes first responder; in that case, the
-            // renderer can remain stuck until some later screen/focus transition. Reassert the
-            // display id now that we're focused to ensure the renderer is running.
-            if let displayID = window?.screen?.displayID, displayID != 0 {
-                ghostty_surface_set_display_id(surface, displayID)
-            }
+            terminalSurface?.setFocus(true)
         }
         return result
     }
@@ -4042,11 +4040,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if result {
             desiredFocus = false
         }
-        if result, let surface = surface {
+        if result, surface != nil {
             let now = CACurrentMediaTime()
             let deltaMs = (now - lastScrollEventTime) * 1000
             Self.focusLog("resignFirstResponder: surface=\(terminalSurface?.id.uuidString ?? "nil") deltaSinceScrollMs=\(String(format: "%.2f", deltaMs))")
-            ghostty_surface_set_focus(surface, false)
+            terminalSurface?.setFocus(false)
         }
         return result
     }
@@ -4284,7 +4282,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // This avoids intermittent drops after rapid split close/reparent transitions.
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         if flags.contains(.control) && !flags.contains(.command) && !flags.contains(.option) && !hasMarkedText() {
-            ghostty_surface_set_focus(surface, true)
+            terminalSurface?.setFocus(true)
             var keyEvent = ghostty_input_key_s()
             keyEvent.action = event.isARepeat ? GHOSTTY_ACTION_REPEAT : GHOSTTY_ACTION_PRESS
             keyEvent.keycode = UInt32(event.keyCode)

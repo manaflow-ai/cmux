@@ -5253,7 +5253,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private let debugStressPaneCount = 4
     private let debugStressTabsPerPane = 1
     private let debugStressYieldInterval = 4
-    private let debugStressLagLogMinIntervalMs = 250.0
+    private let debugStressLagLogMinIntervalMs = 750.0
 
     var debugHotPathLogsEnabled: Bool {
         ProcessInfo.processInfo.environment["CMUX_HOT_PATH_DEBUG_LOGS"] == "1"
@@ -6777,6 +6777,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     self.logDeveloperToolsShortcutSnapshot(phase: "monitor.pre.\(probeKind)", event: event)
                 }
 #endif
+                if self.shouldBypassShortcutMonitorForTerminalInput(event: event) {
+                    return event
+                }
                 let shortcutStart = ProcessInfo.processInfo.systemUptime
 #if DEBUG
                 let signpostState = debugTypingPerfBeginIntervalIfNeeded(
@@ -7834,6 +7837,107 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         #endif
 
         return false
+    }
+
+    private func shouldBypassShortcutMonitorForTerminalInput(event: NSEvent) -> Bool {
+        let flags = event.modifierFlags
+            .intersection(.deviceIndependentFlagsMask)
+            .subtracting([.numericPad, .function, .capsLock])
+        guard flags == [.control] || flags == [.control, .shift] else {
+            return false
+        }
+
+        let responder = event.window?.firstResponder ?? NSApp.keyWindow?.firstResponder
+        guard cmuxOwningGhosttyView(for: responder) != nil else {
+            return false
+        }
+
+        let chars = (event.charactersIgnoringModifiers ?? "").lowercased()
+        if focusedBrowserAddressBarPanelIdForShortcutEvent(event) != nil,
+           chars == "n" || chars == "p" {
+            return false
+        }
+
+        if event.keyCode == 48 {
+            return false
+        }
+
+        if flags == [.control],
+           let digit = Int(chars),
+           (1...9).contains(digit) {
+            return false
+        }
+
+        return !matchesConfigurableShortcut(event: event, flags: flags)
+    }
+
+    private func matchesConfigurableShortcut(event: NSEvent, flags: NSEvent.ModifierFlags) -> Bool {
+        for action in KeyboardShortcutSettings.Action.allCases {
+            let shortcut = KeyboardShortcutSettings.shortcut(for: action)
+            guard shortcut.modifierFlags == flags else { continue }
+            if matchesConfigurableShortcut(event: event, action: action, shortcut: shortcut) {
+                return true
+            }
+        }
+
+        let ghosttyDirectionalShortcuts: [(StoredShortcut?, String, UInt16)] = [
+            (ghosttyGotoSplitLeftShortcut, "←", 123),
+            (ghosttyGotoSplitRightShortcut, "→", 124),
+            (ghosttyGotoSplitUpShortcut, "↑", 126),
+            (ghosttyGotoSplitDownShortcut, "↓", 125),
+        ]
+        for (shortcut, arrowGlyph, arrowKeyCode) in ghosttyDirectionalShortcuts {
+            guard let shortcut, shortcut.modifierFlags == flags else { continue }
+            if matchDirectionalShortcut(
+                event: event,
+                shortcut: shortcut,
+                arrowGlyph: arrowGlyph,
+                arrowKeyCode: arrowKeyCode
+            ) {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    private func matchesConfigurableShortcut(
+        event: NSEvent,
+        action: KeyboardShortcutSettings.Action,
+        shortcut: StoredShortcut
+    ) -> Bool {
+        switch action {
+        case .focusLeft:
+            return matchDirectionalShortcut(
+                event: event,
+                shortcut: shortcut,
+                arrowGlyph: "←",
+                arrowKeyCode: 123
+            )
+        case .focusRight:
+            return matchDirectionalShortcut(
+                event: event,
+                shortcut: shortcut,
+                arrowGlyph: "→",
+                arrowKeyCode: 124
+            )
+        case .focusUp:
+            return matchDirectionalShortcut(
+                event: event,
+                shortcut: shortcut,
+                arrowGlyph: "↑",
+                arrowKeyCode: 126
+            )
+        case .focusDown:
+            return matchDirectionalShortcut(
+                event: event,
+                shortcut: shortcut,
+                arrowGlyph: "↓",
+                arrowKeyCode: 125
+            )
+        default:
+            return matchShortcut(event: event, shortcut: shortcut)
+        }
     }
 
     private func shouldSuppressSplitShortcutForTransientTerminalFocusState(direction: SplitDirection) -> Bool {
