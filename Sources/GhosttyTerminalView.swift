@@ -5804,7 +5804,15 @@ final class GhosttySurfaceScrollView: NSView {
     func setVisibleInUI(_ visible: Bool) {
         let wasVisible = surfaceView.isVisibleInUI
         surfaceView.setVisibleInUI(visible)
-        isHidden = !visible
+        // Defer isHidden mutation to avoid reentrant layout when called during SwiftUI render.
+        // Setting isHidden triggers constraint/layout invalidation, which causes crashes when
+        // this view hierarchy contains an NSHostingView (search overlay).
+        if isHidden != !visible {
+            DispatchQueue.main.async { [weak self] in
+                guard let self = self else { return }
+                self.isHidden = !visible
+            }
+        }
 #if DEBUG
         if wasVisible != visible {
             let transition = "\(wasVisible ? 1 : 0)->\(visible ? 1 : 0)"
