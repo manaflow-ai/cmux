@@ -70,6 +70,13 @@ final class WindowBrowserHostView: NSView {
     private var activeDividerCursorKind: DividerCursorKind?
     private var hostedInspectorDividerDrag: HostedInspectorDividerDragState?
 
+    deinit {
+        if let trackingArea {
+            removeTrackingArea(trackingArea)
+        }
+        clearActiveDividerCursor(restoreArrow: false)
+    }
+
 #if DEBUG
     private static func shouldLogPointerEvent(_ event: NSEvent?) -> Bool {
         switch event?.type {

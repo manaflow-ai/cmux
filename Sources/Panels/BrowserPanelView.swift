@@ -538,7 +538,7 @@ struct BrowserPanelView: View {
             .buttonStyle(OmnibarAddressButtonStyle())
             .disabled(!panel.canGoBack)
             .opacity(panel.canGoBack ? 1.0 : 0.4)
-            .help(String(localized: "browser.goBack", defaultValue: "Go Back"))
+            .safeHelp(String(localized: "browser.goBack", defaultValue: "Go Back"))
 
             Button(action: {
                 #if DEBUG
@@ -554,7 +554,7 @@ struct BrowserPanelView: View {
             .buttonStyle(OmnibarAddressButtonStyle())
             .disabled(!panel.canGoForward)
             .opacity(panel.canGoForward ? 1.0 : 0.4)
-            .help(String(localized: "browser.goForward", defaultValue: "Go Forward"))
+            .safeHelp(String(localized: "browser.goForward", defaultValue: "Go Forward"))
 
             Button(action: {
                 if panel.isLoading {
@@ -575,7 +575,7 @@ struct BrowserPanelView: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(OmnibarAddressButtonStyle())
-            .help(panel.isLoading ? String(localized: "browser.stop", defaultValue: "Stop") : String(localized: "browser.reload", defaultValue: "Reload"))
+            .safeHelp(panel.isLoading ? String(localized: "browser.stop", defaultValue: "Stop") : String(localized: "browser.reload", defaultValue: "Reload"))
 
             if panel.isDownloading {
                 HStack(spacing: 4) {
@@ -586,7 +586,7 @@ struct BrowserPanelView: View {
                         .foregroundStyle(.secondary)
                 }
                 .padding(.leading, 6)
-                .help(String(localized: "browser.downloadInProgress", defaultValue: "Download in progress"))
+                .safeHelp(String(localized: "browser.downloadInProgress", defaultValue: "Download in progress"))
             }
         }
     }
@@ -604,7 +604,7 @@ struct BrowserPanelView: View {
         }
         .buttonStyle(OmnibarAddressButtonStyle())
         .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
-        .help(KeyboardShortcutSettings.Action.toggleBrowserDeveloperTools.tooltip(String(localized: "browser.toggleDevTools", defaultValue: "Toggle Developer Tools")))
+        .safeHelp(KeyboardShortcutSettings.Action.toggleBrowserDeveloperTools.tooltip(String(localized: "browser.toggleDevTools", defaultValue: "Toggle Developer Tools")))
         .accessibilityIdentifier("BrowserToggleDevToolsButton")
     }
 
@@ -624,7 +624,7 @@ struct BrowserPanelView: View {
         .popover(isPresented: $isBrowserThemeMenuPresented, arrowEdge: .bottom) {
             browserThemeModePopover
         }
-        .help("Browser Theme: \(browserThemeMode.displayName)")
+        .safeHelp("Browser Theme: \(browserThemeMode.displayName)")
         .accessibilityIdentifier("BrowserThemeModeButton")
     }
 
@@ -3138,6 +3138,13 @@ struct WebViewRepresentable: NSViewRepresentable {
         private var lastLoggedHostedInspectorFrames: (page: NSRect, inspector: NSRect)?
         private var hasLoggedMissingHostedInspectorCandidate = false
 #endif
+
+        deinit {
+            if let trackingArea {
+                removeTrackingArea(trackingArea)
+            }
+            clearActiveDividerCursor(restoreArrow: false)
+        }
 
 #if DEBUG
         private static func shouldLogPointerEvent(_ event: NSEvent?) -> Bool {
