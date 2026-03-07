@@ -2765,6 +2765,11 @@ struct ContentView: View {
             }
         }
 #endif
+        tabManager.debugUpdatePanelLifecycleMountedWorkspaceState(
+            mountedWorkspaceIds: mountedWorkspaceIds,
+            retiringWorkspaceId: retiringWorkspaceId,
+            handoffGeneration: workspaceHandoffGeneration
+        )
     }
 
     private enum BackgroundWorkspacePrimeState {
@@ -2879,20 +2884,32 @@ struct ContentView: View {
         previousSelectedWorkspaceId = newSelectedId
 
         guard let oldSelectedId, let newSelectedId, oldSelectedId != newSelectedId else {
+            tabManager.selectedWorkspace?.recoverVisibleTerminalPortalViewsIfNeeded()
             tabManager.completePendingWorkspaceUnfocus(reason: "no_handoff")
             retiringWorkspaceId = nil
             workspaceHandoffFallbackTask?.cancel()
             workspaceHandoffFallbackTask = nil
             workspaceHandoffReadinessTask?.cancel()
             workspaceHandoffReadinessTask = nil
+            tabManager.debugUpdatePanelLifecycleMountedWorkspaceState(
+                mountedWorkspaceIds: mountedWorkspaceIds,
+                retiringWorkspaceId: retiringWorkspaceId,
+                handoffGeneration: workspaceHandoffGeneration
+            )
             return
         }
 
         workspaceHandoffGeneration &+= 1
         let generation = workspaceHandoffGeneration
         retiringWorkspaceId = oldSelectedId
+        tabManager.selectedWorkspace?.recoverVisibleTerminalPortalViewsIfNeeded()
         workspaceHandoffFallbackTask?.cancel()
         workspaceHandoffReadinessTask?.cancel()
+        tabManager.debugUpdatePanelLifecycleMountedWorkspaceState(
+            mountedWorkspaceIds: mountedWorkspaceIds,
+            retiringWorkspaceId: retiringWorkspaceId,
+            handoffGeneration: workspaceHandoffGeneration
+        )
 
 #if DEBUG
         if let snapshot = tabManager.debugCurrentWorkspaceSwitchSnapshot() {
@@ -2989,6 +3006,12 @@ struct ContentView: View {
 
         retiringWorkspaceId = nil
         tabManager.completePendingWorkspaceUnfocus(reason: reason)
+        tabManager.selectedWorkspace?.recoverVisibleTerminalPortalViewsIfNeeded()
+        tabManager.debugUpdatePanelLifecycleMountedWorkspaceState(
+            mountedWorkspaceIds: mountedWorkspaceIds,
+            retiringWorkspaceId: retiringWorkspaceId,
+            handoffGeneration: workspaceHandoffGeneration
+        )
 #if DEBUG
         if let snapshot = tabManager.debugCurrentWorkspaceSwitchSnapshot() {
             let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000

@@ -4275,6 +4275,34 @@ struct WebViewRepresentable: NSViewRepresentable {
         }
     }
 
+#if DEBUG
+    private static func publishPanelLifecycleAnchorFact(
+        panel: BrowserPanel,
+        webView: WKWebView,
+        hostView: HostContainerView,
+        coordinator: Coordinator,
+        desiredActive: Bool
+    ) {
+        guard let app = AppDelegate.shared,
+              let manager = app.tabManagerFor(tabId: panel.workspaceId) ?? app.tabManager else {
+            return
+        }
+        manager.debugRecordPanelLifecycleAnchorFact(
+            panelId: panel.id,
+            workspaceId: panel.workspaceId,
+            panelType: .browser,
+            windowNumber: hostView.window?.windowNumber ?? webView.window?.windowNumber,
+            hasSuperview: webView.superview != nil,
+            attachedToWindow: webView.window != nil,
+            hidden: webView.isHidden,
+            geometryRevision: hostView.geometryRevision,
+            desiredVisible: coordinator.desiredPortalVisibleInUI,
+            desiredActive: desiredActive,
+            source: "browser.host"
+        )
+    }
+#endif
+
     private func updateUsingWindowPortal(_ nsView: NSView, context: Context, webView: WKWebView) {
         guard let host = nsView as? HostContainerView else { return }
 
@@ -4388,6 +4416,13 @@ struct WebViewRepresentable: NSViewRepresentable {
             generation: coordinator.attachGeneration,
             retryCount: 0,
             details: Self.attachContext(webView: webView, host: host)
+        )
+        Self.publishPanelLifecycleAnchorFact(
+            panel: panel,
+            webView: webView,
+            hostView: host,
+            coordinator: coordinator,
+            desiredActive: shouldAttachWebView && isPanelFocused
         )
         #endif
     }
@@ -4535,6 +4570,12 @@ struct WebViewRepresentable: NSViewRepresentable {
         BrowserWindowPortalRegistry.updateSearchOverlay(for: webView, configuration: nil)
         coordinator.lastPortalHostId = nil
         coordinator.lastSynchronizedHostGeometryRevision = 0
+#if DEBUG
+        if let panel {
+            let manager = AppDelegate.shared?.tabManagerFor(tabId: panel.workspaceId) ?? AppDelegate.shared?.tabManager
+            manager?.debugRemovePanelLifecycleAnchorFact(panelId: panel.id)
+        }
+#endif
     }
 
     private func currentPaneDropContext() -> BrowserPaneDropContext? {

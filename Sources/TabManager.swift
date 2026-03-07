@@ -16,6 +16,191 @@ private func tabManagerHotPathDlog(_ message: @autoclosure () -> String) {
 }
 #endif
 
+enum PanelLifecycleState: String, Codable, Sendable {
+    case parked
+    case awaitingAnchor
+    case boundHidden
+    case boundVisible
+    case handoff
+    case detaching
+    case closed
+}
+
+enum PanelResidency: String, Codable, Sendable {
+    case visibleInActiveWindow
+    case parkedOffscreen
+    case detachedRetained
+    case destroyed
+}
+
+enum PanelResidencyPolicy: String, Codable, Sendable {
+    case persistent
+    case parked
+    case regenerable
+}
+
+enum PanelInteractionModel: String, Codable, Sendable {
+    case interactive
+    case readOnly
+}
+
+enum PanelBackgroundWorkPolicy: String, Codable, Sendable {
+    case hiddenAllowed
+    case hiddenLimited
+    case hiddenRebuild
+}
+
+enum PanelFocusPolicy: String, Codable, Sendable {
+    case firstResponder
+    case none
+}
+
+enum PanelAccessibilityPolicy: String, Codable, Sendable {
+    case activeVisibleTree
+    case noneWhenHidden
+}
+
+struct PanelLifecycleBackendProfile: Codable, Sendable {
+    let panelType: PanelType
+    let residencyPolicy: PanelResidencyPolicy
+    let interactionModel: PanelInteractionModel
+    let backgroundWorkPolicy: PanelBackgroundWorkPolicy
+    let focusPolicy: PanelFocusPolicy
+    let accessibilityPolicy: PanelAccessibilityPolicy
+}
+
+struct PanelLifecycleAnchorSnapshot: Codable, Sendable {
+    let windowNumber: Int?
+    let hasSuperview: Bool
+    let attachedToWindow: Bool
+    let hidden: Bool
+    let geometryRevision: UInt64
+    let source: String
+}
+
+struct PanelLifecycleRecordSnapshot: Codable, Sendable {
+    let panelId: UUID
+    let workspaceId: UUID
+    let paneId: UUID?
+    let tabId: UUID?
+    let panelType: PanelType
+    let generation: UInt64
+    let state: PanelLifecycleState
+    let residency: PanelResidency
+    let mountedWorkspace: Bool
+    let selectedWorkspace: Bool
+    let retiringWorkspace: Bool
+    let selectedInPane: Bool
+    let desiredVisible: Bool
+    let desiredActive: Bool
+    let activeWindowMembership: Bool
+    let responderEligible: Bool
+    let accessibilityParticipation: Bool
+    let backendProfile: PanelLifecycleBackendProfile
+    let anchor: PanelLifecycleAnchorSnapshot?
+}
+
+struct PanelLifecycleSnapshotCounts: Codable, Sendable {
+    let panelCount: Int
+    let visibleInActiveWindowCount: Int
+    let responderEligibleCount: Int
+    let accessibilityParticipationCount: Int
+    let mountedWorkspaceCount: Int
+}
+
+struct PanelLifecycleSnapshot: Codable, Sendable {
+    let selectedWorkspaceId: UUID?
+    let retiringWorkspaceId: UUID?
+    let mountedWorkspaceIds: [UUID]
+    let handoffGeneration: UInt64
+    let activeWindowNumber: Int?
+    let counts: PanelLifecycleSnapshotCounts
+    let records: [PanelLifecycleRecordSnapshot]
+}
+
+enum PanelLifecycleShadowMapper {
+    static func desiredVisible(
+        isWorkspaceVisible: Bool,
+        selectedInPane: Bool,
+        isFocused: Bool
+    ) -> Bool {
+        WorkspaceContentView.panelVisibleInUI(
+            isWorkspaceVisible: isWorkspaceVisible,
+            isSelectedInPane: selectedInPane,
+            isFocused: isFocused
+        )
+    }
+
+    static func backendProfile(for panelType: PanelType) -> PanelLifecycleBackendProfile {
+        switch panelType {
+        case .terminal:
+            return PanelLifecycleBackendProfile(
+                panelType: panelType,
+                residencyPolicy: .persistent,
+                interactionModel: .interactive,
+                backgroundWorkPolicy: .hiddenLimited,
+                focusPolicy: .firstResponder,
+                accessibilityPolicy: .activeVisibleTree
+            )
+        case .browser:
+            return PanelLifecycleBackendProfile(
+                panelType: panelType,
+                residencyPolicy: .parked,
+                interactionModel: .interactive,
+                backgroundWorkPolicy: .hiddenLimited,
+                focusPolicy: .firstResponder,
+                accessibilityPolicy: .activeVisibleTree
+            )
+        case .markdown:
+            return PanelLifecycleBackendProfile(
+                panelType: panelType,
+                residencyPolicy: .regenerable,
+                interactionModel: .readOnly,
+                backgroundWorkPolicy: .hiddenRebuild,
+                focusPolicy: .none,
+                accessibilityPolicy: .activeVisibleTree
+            )
+        }
+    }
+
+    static func state(
+        mountedWorkspace: Bool,
+        retiringWorkspace: Bool,
+        desiredVisible: Bool,
+        anchorAttachedToWindow: Bool
+    ) -> PanelLifecycleState {
+        if retiringWorkspace && desiredVisible && mountedWorkspace {
+            return .handoff
+        }
+        if desiredVisible {
+            return anchorAttachedToWindow ? .boundVisible : .awaitingAnchor
+        }
+        if mountedWorkspace {
+            return .boundHidden
+        }
+        return .parked
+    }
+
+    static func residency(
+        residencyPolicy: PanelResidencyPolicy,
+        activeWindowMembership: Bool,
+        attachedToWindow: Bool,
+        hasSuperview: Bool,
+        desiredVisible: Bool
+    ) -> PanelResidency {
+        if activeWindowMembership {
+            return .visibleInActiveWindow
+        }
+        if attachedToWindow || hasSuperview {
+            return .parkedOffscreen
+        }
+        if residencyPolicy == .regenerable && !desiredVisible {
+            return .destroyed
+        }
+        return .detachedRetained
+    }
+}
+
 // MARK: - Tab Type Alias for Backwards Compatibility
 // The old Tab class is replaced by Workspace
 typealias Tab = Workspace
@@ -574,6 +759,49 @@ class TabManager: ObservableObject {
         let isDirty: Bool
     }
 
+    private struct PanelLifecycleAnchorFact: Sendable {
+        let panelId: UUID
+        let workspaceId: UUID
+        let panelType: PanelType
+        let windowNumber: Int?
+        let hasSuperview: Bool
+        let attachedToWindow: Bool
+        let hidden: Bool
+        let geometryRevision: UInt64
+        let desiredVisible: Bool
+        let desiredActive: Bool
+        let source: String
+    }
+
+    private final class PanelLifecycleShadowCoordinator {
+        private(set) var mountedWorkspaceIds: Set<UUID> = []
+        private(set) var retiringWorkspaceId: UUID?
+        private(set) var handoffGeneration: UInt64 = 0
+        private var anchorFactsByPanelId: [UUID: PanelLifecycleAnchorFact] = [:]
+
+        func updateMountedWorkspaceState(
+            mountedWorkspaceIds: [UUID],
+            retiringWorkspaceId: UUID?,
+            handoffGeneration: UInt64
+        ) {
+            self.mountedWorkspaceIds = Set(mountedWorkspaceIds)
+            self.retiringWorkspaceId = retiringWorkspaceId
+            self.handoffGeneration = handoffGeneration
+        }
+
+        func recordAnchorFact(_ fact: PanelLifecycleAnchorFact) {
+            anchorFactsByPanelId[fact.panelId] = fact
+        }
+
+        func removeAnchorFact(panelId: UUID) {
+            anchorFactsByPanelId.removeValue(forKey: panelId)
+        }
+
+        func anchorFact(panelId: UUID) -> PanelLifecycleAnchorFact? {
+            anchorFactsByPanelId[panelId]
+        }
+    }
+
     /// The window that owns this TabManager. Set by AppDelegate.registerMainWindow().
     /// Used to apply title updates to the correct window instead of NSApp.keyWindow.
     weak var window: NSWindow?
@@ -690,6 +918,7 @@ class TabManager: ObservableObject {
     private var workspaceCycleGeneration: UInt64 = 0
     private var workspaceCycleCooldownTask: Task<Void, Never>?
     private var pendingWorkspaceUnfocusTarget: (tabId: UUID, panelId: UUID)?
+    private let panelLifecycleShadowCoordinator = PanelLifecycleShadowCoordinator()
 #if DEBUG
     private var debugWorkspaceSwitchCounter: UInt64 = 0
     private var debugWorkspaceSwitchId: UInt64 = 0
@@ -2129,6 +2358,177 @@ class TabManager: ObservableObject {
         String(format: "%.2fms", ms)
     }
 #endif
+
+    func debugUpdatePanelLifecycleMountedWorkspaceState(
+        mountedWorkspaceIds: [UUID],
+        retiringWorkspaceId: UUID?,
+        handoffGeneration: UInt64
+    ) {
+        panelLifecycleShadowCoordinator.updateMountedWorkspaceState(
+            mountedWorkspaceIds: mountedWorkspaceIds,
+            retiringWorkspaceId: retiringWorkspaceId,
+            handoffGeneration: handoffGeneration
+        )
+    }
+
+    func debugRecordPanelLifecycleAnchorFact(
+        panelId: UUID,
+        workspaceId: UUID,
+        panelType: PanelType,
+        windowNumber: Int?,
+        hasSuperview: Bool,
+        attachedToWindow: Bool,
+        hidden: Bool,
+        geometryRevision: UInt64,
+        desiredVisible: Bool,
+        desiredActive: Bool,
+        source: String
+    ) {
+        panelLifecycleShadowCoordinator.recordAnchorFact(
+            PanelLifecycleAnchorFact(
+                panelId: panelId,
+                workspaceId: workspaceId,
+                panelType: panelType,
+                windowNumber: windowNumber,
+                hasSuperview: hasSuperview,
+                attachedToWindow: attachedToWindow,
+                hidden: hidden,
+                geometryRevision: geometryRevision,
+                desiredVisible: desiredVisible,
+                desiredActive: desiredActive,
+                source: source
+            )
+        )
+    }
+
+    func debugRemovePanelLifecycleAnchorFact(panelId: UUID) {
+        panelLifecycleShadowCoordinator.removeAnchorFact(panelId: panelId)
+    }
+
+    func debugPanelLifecycleSnapshot() -> PanelLifecycleSnapshot {
+        let mountedWorkspaceIds = panelLifecycleShadowCoordinator.mountedWorkspaceIds
+        let retiringWorkspaceId = panelLifecycleShadowCoordinator.retiringWorkspaceId
+        let handoffGeneration = panelLifecycleShadowCoordinator.handoffGeneration
+        let activeWindowNumber = window?.windowNumber
+        var records: [PanelLifecycleRecordSnapshot] = []
+
+        for workspace in tabs {
+            let mountedWorkspace = mountedWorkspaceIds.contains(workspace.id)
+            let selectedWorkspace = selectedTabId == workspace.id
+            let retiringWorkspace = retiringWorkspaceId == workspace.id
+
+            var selectedPanelIds = Set<UUID>()
+            for paneId in workspace.bonsplitController.allPaneIds {
+                if let selectedSurfaceId = workspace.bonsplitController.selectedTab(inPane: paneId)?.id,
+                   let selectedPanelId = workspace.panelIdFromSurfaceId(selectedSurfaceId) {
+                    selectedPanelIds.insert(selectedPanelId)
+                }
+            }
+
+            for panel in workspace.panels.values {
+                let paneId = workspace.paneId(forPanelId: panel.id)?.id
+                let tabId = workspace.surfaceIdFromPanelId(panel.id)?.uuid
+                let selectedInPane = selectedPanelIds.contains(panel.id)
+                let desiredActive = selectedWorkspace && workspace.focusedPanelId == panel.id
+                let desiredVisible = PanelLifecycleShadowMapper.desiredVisible(
+                    isWorkspaceVisible: mountedWorkspace && (selectedWorkspace || retiringWorkspace),
+                    selectedInPane: selectedInPane,
+                    isFocused: workspace.focusedPanelId == panel.id
+                )
+                let backendProfile = PanelLifecycleShadowMapper.backendProfile(for: panel.panelType)
+                let anchorFact = panelLifecycleShadowCoordinator.anchorFact(panelId: panel.id)
+
+                let anchor = anchorFact.map {
+                    PanelLifecycleAnchorSnapshot(
+                        windowNumber: $0.windowNumber,
+                        hasSuperview: $0.hasSuperview,
+                        attachedToWindow: $0.attachedToWindow,
+                        hidden: $0.hidden,
+                        geometryRevision: $0.geometryRevision,
+                        source: $0.source
+                    )
+                }
+
+                let activeWindowMembership =
+                    (anchorFact?.windowNumber == activeWindowNumber) &&
+                    (anchorFact?.attachedToWindow ?? false) &&
+                    !(anchorFact?.hidden ?? false)
+
+                let responderEligible =
+                    activeWindowMembership &&
+                    desiredActive &&
+                    backendProfile.focusPolicy == .firstResponder
+
+                let accessibilityParticipation =
+                    activeWindowMembership &&
+                    backendProfile.accessibilityPolicy == .activeVisibleTree
+
+                let state = PanelLifecycleShadowMapper.state(
+                    mountedWorkspace: mountedWorkspace,
+                    retiringWorkspace: retiringWorkspace,
+                    desiredVisible: desiredVisible,
+                    anchorAttachedToWindow: anchorFact?.attachedToWindow ?? desiredVisible
+                )
+
+                let residency = PanelLifecycleShadowMapper.residency(
+                    residencyPolicy: backendProfile.residencyPolicy,
+                    activeWindowMembership: activeWindowMembership,
+                    attachedToWindow: anchorFact?.attachedToWindow ?? false,
+                    hasSuperview: anchorFact?.hasSuperview ?? false,
+                    desiredVisible: desiredVisible
+                )
+
+                let generation: UInt64 = (selectedWorkspace || retiringWorkspace) ? handoffGeneration : 0
+
+                records.append(
+                    PanelLifecycleRecordSnapshot(
+                        panelId: panel.id,
+                        workspaceId: workspace.id,
+                        paneId: paneId,
+                        tabId: tabId,
+                        panelType: panel.panelType,
+                        generation: generation,
+                        state: state,
+                        residency: residency,
+                        mountedWorkspace: mountedWorkspace,
+                        selectedWorkspace: selectedWorkspace,
+                        retiringWorkspace: retiringWorkspace,
+                        selectedInPane: selectedInPane,
+                        desiredVisible: desiredVisible,
+                        desiredActive: desiredActive,
+                        activeWindowMembership: activeWindowMembership,
+                        responderEligible: responderEligible,
+                        accessibilityParticipation: accessibilityParticipation,
+                        backendProfile: backendProfile,
+                        anchor: anchor
+                    )
+                )
+            }
+        }
+
+        records.sort {
+            if $0.workspaceId != $1.workspaceId {
+                return $0.workspaceId.uuidString < $1.workspaceId.uuidString
+            }
+            return $0.panelId.uuidString < $1.panelId.uuidString
+        }
+
+        return PanelLifecycleSnapshot(
+            selectedWorkspaceId: selectedTabId,
+            retiringWorkspaceId: retiringWorkspaceId,
+            mountedWorkspaceIds: mountedWorkspaceIds.sorted { $0.uuidString < $1.uuidString },
+            handoffGeneration: handoffGeneration,
+            activeWindowNumber: activeWindowNumber,
+            counts: PanelLifecycleSnapshotCounts(
+                panelCount: records.count,
+                visibleInActiveWindowCount: records.filter(\.activeWindowMembership).count,
+                responderEligibleCount: records.filter(\.responderEligible).count,
+                accessibilityParticipationCount: records.filter(\.accessibilityParticipation).count,
+                mountedWorkspaceCount: mountedWorkspaceIds.count
+            ),
+            records: records
+        )
+    }
 
     func selectTab(at index: Int) {
         guard index >= 0 && index < tabs.count else { return }

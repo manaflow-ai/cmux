@@ -46,4 +46,58 @@ final class WorkspaceContentViewVisibilityTests: XCTestCase {
             )
         )
     }
+
+    func testPanelLifecycleStatePrefersHandoffForRetiringVisiblePanel() {
+        XCTAssertEqual(
+            PanelLifecycleShadowMapper.state(
+                mountedWorkspace: true,
+                retiringWorkspace: true,
+                desiredVisible: true,
+                anchorAttachedToWindow: false
+            ),
+            .handoff
+        )
+    }
+
+    func testPanelLifecycleStateUsesAwaitingAnchorForSelectedVisiblePanelWithoutAnchor() {
+        XCTAssertEqual(
+            PanelLifecycleShadowMapper.state(
+                mountedWorkspace: true,
+                retiringWorkspace: false,
+                desiredVisible: true,
+                anchorAttachedToWindow: false
+            ),
+            .awaitingAnchor
+        )
+    }
+
+    func testPanelLifecycleDesiredVisibleMatchesFocusedGapRule() {
+        XCTAssertTrue(
+            PanelLifecycleShadowMapper.desiredVisible(
+                isWorkspaceVisible: true,
+                selectedInPane: false,
+                isFocused: true
+            )
+        )
+    }
+
+    func testPanelLifecycleResidencyDestroysHiddenRegenerablePanels() {
+        XCTAssertEqual(
+            PanelLifecycleShadowMapper.residency(
+                residencyPolicy: .regenerable,
+                activeWindowMembership: false,
+                attachedToWindow: false,
+                hasSuperview: false,
+                desiredVisible: false
+            ),
+            .destroyed
+        )
+    }
+
+    func testPanelLifecycleBackendProfileClassifiesMarkdownAsRegenerable() {
+        let profile = PanelLifecycleShadowMapper.backendProfile(for: .markdown)
+        XCTAssertEqual(profile.residencyPolicy, .regenerable)
+        XCTAssertEqual(profile.interactionModel, .readOnly)
+        XCTAssertEqual(profile.focusPolicy, .none)
+    }
 }

@@ -2046,6 +2046,8 @@ class TerminalController {
             return v2Result(id: id, self.v2DebugFlashCount(params: params))
         case "debug.flash.reset":
             return v2Result(id: id, self.v2DebugResetFlashCounts())
+        case "debug.panel_lifecycle":
+            return v2Result(id: id, self.v2DebugPanelLifecycle())
         case "debug.panel_snapshot":
             return v2Result(id: id, self.v2DebugPanelSnapshot(params: params))
         case "debug.panel_snapshot.reset":
@@ -2245,6 +2247,7 @@ class TerminalController {
             "debug.notification.focus",
             "debug.flash.count",
             "debug.flash.reset",
+            "debug.panel_lifecycle",
             "debug.panel_snapshot",
             "debug.panel_snapshot.reset",
             "debug.window.screenshot",
@@ -9348,6 +9351,22 @@ class TerminalController {
     private func v2DebugResetFlashCounts() -> V2CallResult {
         let resp = resetFlashCounts()
         return resp == "OK" ? .ok([:]) : .err(code: "internal_error", message: resp, data: nil)
+    }
+
+    private func v2DebugPanelLifecycle() -> V2CallResult {
+        let snapshot: PanelLifecycleSnapshot? = v2MainSync {
+            tabManager?.debugPanelLifecycleSnapshot()
+        }
+        guard let snapshot else {
+            return .err(code: "internal_error", message: "TabManager not available", data: nil)
+        }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        guard let data = try? encoder.encode(snapshot),
+              let obj = try? JSONSerialization.jsonObject(with: data, options: []) else {
+            return .err(code: "internal_error", message: "panel_lifecycle JSON encode failed", data: nil)
+        }
+        return .ok(["snapshot": obj])
     }
 
     private func v2DebugPanelSnapshot(params: [String: Any]) -> V2CallResult {

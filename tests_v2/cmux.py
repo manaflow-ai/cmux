@@ -995,6 +995,10 @@ class cmux:
             res["panel_id"] = res.get("surface_id")
         return res
 
+    def panel_lifecycle(self) -> dict:
+        res = dict(self._call("debug.panel_lifecycle") or {})
+        return dict(res.get("snapshot") or {})
+
     def bonsplit_underflow_count(self) -> int:
         res = self._call("debug.bonsplit_underflow.count") or {}
         return int(res.get("count") or 0)

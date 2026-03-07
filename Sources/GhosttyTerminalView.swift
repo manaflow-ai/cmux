@@ -7224,6 +7224,33 @@ struct GhosttyTerminalView: NSViewRepresentable {
         )
     }
 
+#if DEBUG
+    private static func publishPanelLifecycleAnchorFact(
+        terminalSurface: TerminalSurface,
+        hostedView: GhosttySurfaceScrollView,
+        hostView: HostContainerView?,
+        coordinator: Coordinator
+    ) {
+        guard let app = AppDelegate.shared,
+              let manager = app.tabManagerFor(tabId: terminalSurface.tabId) ?? app.tabManager else {
+            return
+        }
+        manager.debugRecordPanelLifecycleAnchorFact(
+            panelId: terminalSurface.id,
+            workspaceId: terminalSurface.tabId,
+            panelType: .terminal,
+            windowNumber: hostView?.window?.windowNumber ?? hostedView.window?.windowNumber,
+            hasSuperview: hostedView.superview != nil,
+            attachedToWindow: hostedView.window != nil,
+            hidden: hostedView.isHidden,
+            geometryRevision: hostView?.geometryRevision ?? 0,
+            desiredVisible: coordinator.desiredIsVisibleInUI,
+            desiredActive: coordinator.desiredIsActive,
+            source: "terminal.host"
+        )
+    }
+#endif
+
     func makeNSView(context: Context) -> NSView {
         let container = HostContainerView()
         container.wantsLayer = false
@@ -7447,6 +7474,14 @@ struct GhosttyTerminalView: NSViewRepresentable {
             hostedView: hostedView,
             coordinator: coordinator
         )
+#if DEBUG
+        Self.publishPanelLifecycleAnchorFact(
+            terminalSurface: terminalSurface,
+            hostedView: hostedView,
+            hostView: hostContainer,
+            coordinator: coordinator
+        )
+#endif
     }
 
     static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
@@ -7487,6 +7522,12 @@ struct GhosttyTerminalView: NSViewRepresentable {
         hostedView?.setFocusHandler(nil)
         hostedView?.setTriggerFlashHandler(nil)
         hostedView?.setDropZoneOverlay(zone: nil)
+#if DEBUG
+        if let surfaceId = hostedView?.debugSurfaceId,
+           let manager = AppDelegate.shared?.locateSurface(surfaceId: surfaceId)?.tabManager {
+            manager.debugRemovePanelLifecycleAnchorFact(panelId: surfaceId)
+        }
+#endif
         coordinator.hostedView = nil
 
         nsView.subviews.forEach { $0.removeFromSuperview() }
