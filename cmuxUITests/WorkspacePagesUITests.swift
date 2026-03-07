@@ -52,7 +52,7 @@ final class WorkspacePagesUITests: XCTestCase {
             return
         }
 
-        XCTAssertTrue(waitForElementExists(app.staticTexts["titlebarPageHint.1"], timeout: 6.0))
+        XCTAssertTrue(waitForElementVisible(app.staticTexts["titlebarPageHint.1"], timeout: 6.0))
 
         app.typeKey("n", modifierFlags: [.command, .option])
 
@@ -62,7 +62,7 @@ final class WorkspacePagesUITests: XCTestCase {
             return
         }
         XCTAssertNotEqual(secondPageToken, firstPageToken)
-        XCTAssertTrue(waitForElementExists(app.staticTexts["titlebarPageHint.2"], timeout: 6.0))
+        XCTAssertTrue(waitForElementVisible(app.staticTexts["titlebarPageHint.2"], timeout: 6.0))
 
         let firstPageButton = app.buttons["titlebarPageButton.\(firstPageToken)"]
         XCTAssertTrue(waitForElementExists(firstPageButton, timeout: 6.0))
