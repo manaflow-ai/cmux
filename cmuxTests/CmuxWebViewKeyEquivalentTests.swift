@@ -10745,6 +10745,61 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         )
     }
 
+    func testVisiblePortalEntryStaysVisibleDuringOffWindowAnchorReparentUntilRebind() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        realizeWindowLayout(window)
+        let portal = WindowBrowserPortal(window: window)
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let anchorFrame = NSRect(x: 40, y: 24, width: 220, height: 160)
+        let anchor = NSView(frame: anchorFrame)
+        contentView.addSubview(anchor)
+
+        let webView = TrackingPortalWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        portal.bind(webView: webView, to: anchor, visibleInUI: true)
+        portal.synchronizeWebViewForAnchor(anchor)
+        advanceAnimations()
+
+        guard let slot = webView.superview as? WindowBrowserSlotView else {
+            XCTFail("Expected browser slot")
+            return
+        }
+
+        let offWindowContainer = NSView(frame: anchorFrame)
+        anchor.removeFromSuperview()
+        offWindowContainer.addSubview(anchor)
+        portal.synchronizeWebViewForAnchor(anchor)
+        advanceAnimations()
+
+        XCTAssertTrue(
+            webView.superview === slot,
+            "Off-window anchor reparent should preserve the hosted browser slot during drag churn"
+        )
+        XCTAssertFalse(
+            slot.isHidden,
+            "Off-window anchor reparent should keep the visible browser portal alive until the anchor returns"
+        )
+        XCTAssertEqual(portal.debugEntryCount(), 1)
+
+        contentView.addSubview(anchor)
+        portal.synchronizeWebViewForAnchor(anchor)
+        advanceAnimations()
+
+        XCTAssertTrue(webView.superview === slot, "Rebinding after off-window reparent should reuse the existing portal slot")
+        XCTAssertFalse(slot.isHidden)
+        XCTAssertEqual(portal.debugEntryCount(), 1)
+    }
+
     func testRegistryDetachRemovesPortalHostedWebView() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
