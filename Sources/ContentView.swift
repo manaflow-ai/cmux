@@ -8807,7 +8807,7 @@ private struct SidebarHelpMenuButton: View {
             helpPopover
         }
         .accessibilityElement(children: .ignore)
-        .help(helpTitle)
+        .safeHelp(helpTitle)
         .accessibilityLabel(helpTitle)
         .accessibilityIdentifier("SidebarHelpMenuButton")
     }
@@ -9433,7 +9433,7 @@ private struct TabItemView: View {
                             .foregroundColor(activeSecondaryColor(0.7))
                     }
                     .buttonStyle(.plain)
-                    .help(KeyboardShortcutSettings.Action.closeWorkspace.tooltip(closeWorkspaceTooltip))
+                    .safeHelp(KeyboardShortcutSettings.Action.closeWorkspace.tooltip(closeWorkspaceTooltip))
                     .frame(width: 16, height: 16, alignment: .center)
                     .opacity(showCloseButton && !showsWorkspaceShortcutHint ? 1 : 0)
                     .allowsHitTesting(showCloseButton && !showsWorkspaceShortcutHint)
@@ -9606,7 +9606,7 @@ private struct TabItemView: View {
                             .foregroundColor(pullRequestForegroundColor)
                         }
                         .buttonStyle(.plain)
-                        .help(String(localized: "sidebar.pullRequest.openTooltip", defaultValue: "Open \(pullRequest.label) #\(pullRequest.number)"))
+                        .safeHelp(String(localized: "sidebar.pullRequest.openTooltip", defaultValue: "Open \(pullRequest.label) #\(pullRequest.number)"))
                     }
                 }
             }
@@ -10473,7 +10473,7 @@ private struct SidebarMetadataRows: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        .help(helpText)
+        .safeHelp(helpText)
     }
 
     private var activeSecondaryTextColor: Color {
@@ -10513,7 +10513,7 @@ private struct SidebarMetadataEntryRow: View {
                     rowContent(underlined: true)
                 }
                 .buttonStyle(.plain)
-                .help(url.absoluteString)
+                .safeHelp(url.absoluteString)
             } else {
                 rowContent(underlined: false)
                     .contentShape(Rectangle())
@@ -11307,7 +11307,7 @@ private struct DraggableFolderIcon: View {
     var body: some View {
         DraggableFolderIconRepresentable(directory: directory)
             .frame(width: 16, height: 16)
-            .help(String(localized: "sidebar.folderIcon.dragHint", defaultValue: "Drag to open in Finder or another app"))
+            .safeHelp(String(localized: "sidebar.folderIcon.dragHint", defaultValue: "Drag to open in Finder or another app"))
             .onTapGesture(count: 2) {
                 NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: directory)
             }
