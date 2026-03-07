@@ -63,7 +63,7 @@ Implemented on this branch:
 5. Page close-button visibility follows the active/hover rules in the titlebar strip.
 6. Page context menus support create, duplicate, rename, close, close others, move left, and move right.
 7. Page switching detaches inactive Ghostty and WKWebView-backed panels from the live hierarchy instead of killing PTYs or browser state.
-8. Holding the direct-select shortcut modifiers, `Command+Option` by default, reveals page shortcut badges in the titlebar strip, using the existing shortcut-hint pattern.
+8. Holding `Command` reveals page shortcut badges in the titlebar strip, using the existing shortcut-hint pattern and showing the current direct-select bindings.
 9. Customizable page shortcuts exist in `KeyboardShortcutSettings`, and the default bindings are wired through app-level shortcut handling.
 10. `Cmd+Shift+P` exposes page create, duplicate, rename, close, close others, next/previous, move left/right, and direct page selection commands.
 11. The app menu exposes page create, duplicate, rename, close, close others, move left/right, next/previous, and direct page selection actions.
@@ -94,7 +94,7 @@ V1 strip rules:
 5. A page `+` control sits at the far right of the fake titlebar lane, outside the scrollable page list.
 6. Right click on a page opens its context menu.
 7. Empty titlebar space remains draggable.
-8. Holding the direct-select shortcut modifiers, `Command+Option` by default, should reveal the shortcut labels for visible pages instead of adding permanent chrome.
+8. Holding `Command` should reveal the shortcut labels for visible pages instead of adding permanent chrome.
 9. The page `+` control is only visible while hovering the fake titlebar.
 
 The current titlebar folder icon goes away in V1. `Open Folder` remains available through existing menu, command palette, and shortcut paths.
@@ -189,7 +189,7 @@ Tooltips and hints:
 
 1. Hovering a page should show the full page title when truncated.
 2. Hovering the `+` affordance should show `New Page` plus its effective shortcut.
-3. Holding the direct-select shortcut modifiers should show page-index shortcut hints in the strip, following the same “hold modifier to reveal hints” idea already used elsewhere in cmux.
+3. Holding `Command` should show page-index shortcut hints in the strip, following the same “hold modifier to reveal hints” idea already used elsewhere in cmux.
 
 ## Page Behavior
 
