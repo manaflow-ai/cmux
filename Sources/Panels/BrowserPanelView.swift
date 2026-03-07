@@ -232,6 +232,8 @@ struct BrowserPanelView: View {
     @State private var omnibarPillFrame: CGRect = .zero
     @State private var addressBarHeight: CGFloat = 0
     @State private var lastHandledAddressBarFocusRequestId: UUID?
+    @State private var pendingAddressBarFocusRetryRequestId: UUID?
+    @State private var pendingAddressBarFocusRetryGeneration: UInt64 = 0
     @State private var isBrowserThemeMenuPresented = false
     @State private var ghosttyBackgroundGeneration: Int = 0
     // Keep this below half of the compact omnibar height so it reads as a squircle,
@@ -451,6 +453,7 @@ struct BrowserPanelView: View {
                 applyPendingAddressBarFocusRequestIfNeeded()
                 autoFocusOmnibarIfBlank()
             } else {
+                panel.invalidateAddressBarPageFocusRestoreAttempts()
                 hideSuggestions()
                 setAddressBarFocused(false, reason: "panelFocus.onChange.unfocused")
             }
@@ -895,16 +898,6 @@ struct BrowserPanelView: View {
         addressBarFocused = focused
     }
 
-#if DEBUG
-    private func browserFocusWindow() -> NSWindow? {
-        panel.webView.window ?? NSApp.keyWindow ?? NSApp.mainWindow
-    }
-
-    private func browserFocusResponderDescription(_ responder: NSResponder?) -> String {
-        guard let responder else { return "nil" }
-        return String(describing: type(of: responder))
-    }
-
     private func browserFocusResponderChainContains(
         _ start: NSResponder?,
         target: NSResponder
@@ -917,6 +910,30 @@ struct BrowserPanelView: View {
             hops += 1
         }
         return false
+    }
+
+    private func isPanelFocusedInModel() -> Bool {
+        guard let app = AppDelegate.shared,
+              let manager = app.tabManagerFor(tabId: panel.workspaceId),
+              manager.selectedTabId == panel.workspaceId,
+              let workspace = manager.tabs.first(where: { $0.id == panel.workspaceId }) else {
+            return false
+        }
+        return workspace.focusedPanelId == panel.id
+    }
+
+    private func shouldApplyAddressBarExitFallback(in window: NSWindow) -> Bool {
+        panel.webView.window === window && isPanelFocusedInModel()
+    }
+
+#if DEBUG
+    private func browserFocusWindow() -> NSWindow? {
+        panel.webView.window ?? NSApp.keyWindow ?? NSApp.mainWindow
+    }
+
+    private func browserFocusResponderDescription(_ responder: NSResponder?) -> String {
+        guard let responder else { return "nil" }
+        return String(describing: type(of: responder))
     }
 
     private func logBrowserFocusState(event: String, detail: String = "") {
@@ -969,8 +986,29 @@ struct BrowserPanelView: View {
         return false
     }
 
+    private func clearPendingAddressBarFocusRetry() {
+        pendingAddressBarFocusRetryRequestId = nil
+        pendingAddressBarFocusRetryGeneration &+= 1
+    }
+
+    private func schedulePendingAddressBarFocusRetryIfNeeded(requestId: UUID) {
+        guard pendingAddressBarFocusRetryRequestId != requestId else { return }
+        pendingAddressBarFocusRetryRequestId = requestId
+        pendingAddressBarFocusRetryGeneration &+= 1
+        let generation = pendingAddressBarFocusRetryGeneration
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.10) {
+            guard pendingAddressBarFocusRetryGeneration == generation else { return }
+            pendingAddressBarFocusRetryRequestId = nil
+            guard panel.pendingAddressBarFocusRequestId == requestId else { return }
+            applyPendingAddressBarFocusRequestIfNeeded()
+        }
+    }
+
     private func applyPendingAddressBarFocusRequestIfNeeded() {
-        guard let requestId = panel.pendingAddressBarFocusRequestId else { return }
+        guard let requestId = panel.pendingAddressBarFocusRequestId else {
+            clearPendingAddressBarFocusRetry()
+            return
+        }
         guard !isCommandPaletteVisibleForPanelWindow() else {
 #if DEBUG
             logBrowserFocusState(
@@ -978,8 +1016,10 @@ struct BrowserPanelView: View {
                 detail: "reason=command_palette_visible request=\(requestId.uuidString.prefix(8))"
             )
 #endif
+            schedulePendingAddressBarFocusRetryIfNeeded(requestId: requestId)
             return
         }
+        clearPendingAddressBarFocusRetry()
         guard lastHandledAddressBarFocusRequestId != requestId else {
 #if DEBUG
             logBrowserFocusState(
@@ -1444,9 +1484,18 @@ struct BrowserPanelView: View {
             syncWebViewResponderPolicyWithViewState(reason: "effects.blurToWebView.preHandoff")
             setAddressBarFocused(false, reason: "effects.blurToWebView")
             DispatchQueue.main.async {
-                guard isFocused else { return }
                 guard let window = panel.webView.window,
                       !panel.webView.isHiddenOrHasHiddenAncestor else { return }
+                guard shouldApplyAddressBarExitFallback(in: window) else {
+#if DEBUG
+                    dlog(
+                        "browser.focus.addressBar.exit.handoff panel=\(panel.id.uuidString.prefix(5)) " +
+                        "result=skip_not_focused"
+                    )
+#endif
+                    NotificationCenter.default.post(name: .browserDidExitAddressBar, object: panel.id)
+                    return
+                }
                 syncWebViewResponderPolicyWithViewState(reason: "effects.blurToWebView.handoff")
                 panel.clearWebViewFocusSuppression()
                 let focusedWebView = window.makeFirstResponder(panel.webView)
@@ -1457,6 +1506,16 @@ struct BrowserPanelView: View {
                 )
 #endif
                 panel.restoreAddressBarPageFocusIfNeeded { restored in
+                    guard shouldApplyAddressBarExitFallback(in: window) else {
+#if DEBUG
+                        dlog(
+                            "browser.focus.addressBar.exit.handoff panel=\(panel.id.uuidString.prefix(5)) " +
+                            "result=skip_stale_restore restored=\(restored ? 1 : 0)"
+                        )
+#endif
+                        NotificationCenter.default.post(name: .browserDidExitAddressBar, object: panel.id)
+                        return
+                    }
                     let hasWebViewResponder =
                         browserFocusResponderChainContains(window.firstResponder, target: panel.webView)
                     if !hasWebViewResponder {

@@ -1412,14 +1412,26 @@ final class BrowserPanel: Panel, ObservableObject {
     /// Used to keep omnibar text-field focus from being immediately stolen by panel focus.
     private var suppressWebViewFocusUntil: Date?
     private var suppressWebViewFocusForAddressBar: Bool = false
+    private var addressBarFocusRestoreGeneration: UInt64 = 0
     private let blankURLString = "about:blank"
     private static let addressBarFocusCaptureScript = """
     (() => {
       try {
-        const existing = window.__cmuxAddressBarFocusState;
+        const syncState = (state) => {
+          window.__cmuxAddressBarFocusState = state;
+          try {
+            if (window.top && window.top !== window) {
+              window.top.postMessage({ cmuxAddressBarFocusState: state }, "*");
+            } else if (window.top) {
+              window.top.__cmuxAddressBarFocusState = state;
+            }
+          } catch (_) {}
+        };
+
         const active = document.activeElement;
         if (!active) {
-          return (existing && existing.id) ? ("preserved:" + existing.id) : "none";
+          syncState(null);
+          return "cleared:none";
         }
 
         const tag = (active.tagName || "").toLowerCase();
@@ -1429,7 +1441,8 @@ final class BrowserPanel: Panel, ObservableObject {
           tag === "textarea" ||
           (tag === "input" && type !== "hidden");
         if (!isEditable) {
-          return (existing && existing.id) ? ("preserved:" + existing.id) : "noneditable";
+          syncState(null);
+          return "cleared:noneditable";
         }
 
         let id = active.getAttribute("data-cmux-addressbar-focus-id");
@@ -1443,7 +1456,7 @@ final class BrowserPanel: Panel, ObservableObject {
           state.selectionStart = active.selectionStart;
           state.selectionEnd = active.selectionEnd;
         }
-        window.__cmuxAddressBarFocusState = state;
+        syncState(state);
         return "captured:" + id;
       } catch (_) {
         return "error";
@@ -1455,6 +1468,28 @@ final class BrowserPanel: Panel, ObservableObject {
       try {
         if (window.__cmuxAddressBarFocusTrackerInstalled) return true;
         window.__cmuxAddressBarFocusTrackerInstalled = true;
+
+        const syncState = (state) => {
+          window.__cmuxAddressBarFocusState = state;
+          try {
+            if (window.top && window.top !== window) {
+              window.top.postMessage({ cmuxAddressBarFocusState: state }, "*");
+            } else if (window.top) {
+              window.top.__cmuxAddressBarFocusState = state;
+            }
+          } catch (_) {}
+        };
+
+        if (window.top === window && !window.__cmuxAddressBarFocusMessageBridgeInstalled) {
+          window.__cmuxAddressBarFocusMessageBridgeInstalled = true;
+          window.addEventListener("message", (ev) => {
+            try {
+              const data = ev ? ev.data : null;
+              if (!data || !Object.prototype.hasOwnProperty.call(data, "cmuxAddressBarFocusState")) return;
+              window.__cmuxAddressBarFocusState = data.cmuxAddressBarFocusState || null;
+            } catch (_) {}
+          }, true);
+        }
 
         const isEditable = (el) => {
           if (!el) return false;
@@ -1473,7 +1508,10 @@ final class BrowserPanel: Panel, ObservableObject {
         };
 
         const snapshot = (el) => {
-          if (!isEditable(el)) return;
+          if (!isEditable(el)) {
+            syncState(null);
+            return;
+          }
           const state = {
             id: ensureFocusId(el),
             selectionStart: null,
@@ -1483,7 +1521,7 @@ final class BrowserPanel: Panel, ObservableObject {
             state.selectionStart = el.selectionStart;
             state.selectionEnd = el.selectionEnd;
           }
-          window.__cmuxAddressBarFocusState = state;
+          syncState(state);
         };
 
         document.addEventListener("focusin", (ev) => {
@@ -1495,8 +1533,14 @@ final class BrowserPanel: Panel, ObservableObject {
         document.addEventListener("input", () => {
           snapshot(document.activeElement);
         }, true);
+        document.addEventListener("mousedown", (ev) => {
+          const target = ev && ev.target ? ev.target : null;
+          if (!isEditable(target)) {
+            syncState(null);
+          }
+        }, true);
         window.addEventListener("beforeunload", () => {
-          window.__cmuxAddressBarFocusState = null;
+          syncState(null);
         }, true);
 
         snapshot(document.activeElement);
@@ -1509,15 +1553,54 @@ final class BrowserPanel: Panel, ObservableObject {
     private static let addressBarFocusRestoreScript = """
     (() => {
       try {
-        const state = window.__cmuxAddressBarFocusState;
+        const readState = () => {
+          let state = window.__cmuxAddressBarFocusState;
+          try {
+            if ((!state || typeof state.id !== "string" || !state.id) &&
+                window.top && window.top.__cmuxAddressBarFocusState) {
+              state = window.top.__cmuxAddressBarFocusState;
+            }
+          } catch (_) {}
+          return state;
+        };
+
+        const clearState = () => {
+          window.__cmuxAddressBarFocusState = null;
+          try {
+            if (window.top && window.top !== window) {
+              window.top.postMessage({ cmuxAddressBarFocusState: null }, "*");
+            } else if (window.top) {
+              window.top.__cmuxAddressBarFocusState = null;
+            }
+          } catch (_) {}
+        };
+
+        const state = readState();
         if (!state || typeof state.id !== "string" || !state.id) {
           return "no_state";
         }
 
         const selector = '[data-cmux-addressbar-focus-id="' + state.id + '"]';
-        const target = document.querySelector(selector);
-        if (!target || !target.isConnected) {
-          window.__cmuxAddressBarFocusState = null;
+        const findTarget = (doc) => {
+          if (!doc) return null;
+          const direct = doc.querySelector(selector);
+          if (direct && direct.isConnected) return direct;
+          const frames = doc.querySelectorAll("iframe,frame");
+          for (let i = 0; i < frames.length; i += 1) {
+            const frame = frames[i];
+            try {
+              const childDoc = frame.contentDocument;
+              if (!childDoc) continue;
+              const nested = findTarget(childDoc);
+              if (nested) return nested;
+            } catch (_) {}
+          }
+          return null;
+        };
+
+        const target = findTarget(document);
+        if (!target) {
+          clearState();
           return "missing_target";
         }
 
@@ -1527,8 +1610,12 @@ final class BrowserPanel: Panel, ObservableObject {
           try { target.focus(); } catch (_) {}
         }
 
-        const active = document.activeElement;
-        const focused = active === target || (active && typeof target.contains === "function" && target.contains(active));
+        let focused = false;
+        try {
+          focused =
+            target === target.ownerDocument.activeElement ||
+            (typeof target.matches === "function" && target.matches(":focus"));
+        } catch (_) {}
         if (!focused) {
           return "not_focused";
         }
@@ -1542,7 +1629,7 @@ final class BrowserPanel: Panel, ObservableObject {
             target.setSelectionRange(state.selectionStart, state.selectionEnd);
           } catch (_) {}
         }
-        window.__cmuxAddressBarFocusState = null;
+        clearState();
         return "restored";
       } catch (_) {
         return "error";
@@ -2946,6 +3033,7 @@ extension BrowserPanel {
 #if DEBUG
             dlog("browser.focus.addressBarSuppress.begin panel=\(id.uuidString.prefix(5))")
 #endif
+            invalidateAddressBarPageFocusRestoreAttempts()
         }
         suppressWebViewFocusForAddressBar = true
         if enteringAddressBar {
@@ -3046,18 +3134,44 @@ extension BrowserPanel {
         return AddressBarPageFocusRestoreStatus(rawValue: raw) ?? .error
     }
 
+    func invalidateAddressBarPageFocusRestoreAttempts() {
+        addressBarFocusRestoreGeneration &+= 1
+#if DEBUG
+        dlog(
+            "browser.focus.addressBar.restore.invalidate panel=\(id.uuidString.prefix(5)) " +
+            "generation=\(addressBarFocusRestoreGeneration)"
+        )
+#endif
+    }
+
     func restoreAddressBarPageFocusIfNeeded(completion: @escaping (Bool) -> Void) {
+        addressBarFocusRestoreGeneration &+= 1
+        let generation = addressBarFocusRestoreGeneration
         let delays: [TimeInterval] = [0.0, 0.03, 0.09, 0.2]
-        restoreAddressBarPageFocusAttemptIfNeeded(attempt: 0, delays: delays, completion: completion)
+        restoreAddressBarPageFocusAttemptIfNeeded(
+            attempt: 0,
+            delays: delays,
+            generation: generation,
+            completion: completion
+        )
     }
 
     private func restoreAddressBarPageFocusAttemptIfNeeded(
         attempt: Int,
         delays: [TimeInterval],
+        generation: UInt64,
         completion: @escaping (Bool) -> Void
     ) {
+        guard generation == addressBarFocusRestoreGeneration else {
+            completion(false)
+            return
+        }
         webView.evaluateJavaScript(Self.addressBarFocusRestoreScript) { [weak self] result, error in
             guard let self else {
+                completion(false)
+                return
+            }
+            guard generation == self.addressBarFocusRestoreGeneration else {
                 completion(false)
                 return
             }
@@ -3093,9 +3207,14 @@ extension BrowserPanel {
                         completion(false)
                         return
                     }
+                    guard generation == self.addressBarFocusRestoreGeneration else {
+                        completion(false)
+                        return
+                    }
                     self.restoreAddressBarPageFocusAttemptIfNeeded(
                         attempt: attempt + 1,
                         delays: delays,
+                        generation: generation,
                         completion: completion
                     )
                 }
