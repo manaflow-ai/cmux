@@ -300,8 +300,8 @@ final class VSCodeServeWebController {
     private let launchQueue = DispatchQueue(label: "cmux.vscode.serveWeb.launch")
     private let launchProcessOverride: ((URL, UInt64) -> (process: Process, url: URL)?)?
     private var serveWebProcess: Process?
-    private var serveWebConnectionTokenFileURL: URL?
     private var launchingProcess: Process?
+    private var connectionTokenFilesByProcessID: [ObjectIdentifier: URL] = [:]
     private var serveWebURL: URL?
     private var pendingCompletions: [(generation: UInt64, completion: (URL?) -> Void)] = []
     private var isLaunching = false
@@ -406,7 +406,7 @@ final class VSCodeServeWebController {
     }
 
     func stop() {
-        let (processes, completions): ([Process], [(URL?) -> Void]) = queue.sync {
+        let (processes, tokenFileURLs, completions): ([Process], [URL], [(URL?) -> Void]) = queue.sync {
             self.lifecycleGeneration &+= 1
             self.isLaunching = false
             self.activeLaunchGeneration = nil
@@ -420,14 +420,17 @@ final class VSCodeServeWebController {
             }
             self.serveWebProcess = nil
             self.launchingProcess = nil
-            if let tokenFileURL = self.serveWebConnectionTokenFileURL {
-                Self.removeConnectionTokenFile(at: tokenFileURL)
+            let tokenFileURLs = processes.compactMap {
+                self.connectionTokenFilesByProcessID.removeValue(forKey: ObjectIdentifier($0))
             }
-            self.serveWebConnectionTokenFileURL = nil
             self.serveWebURL = nil
             let completions = self.pendingCompletions.map(\.completion)
             self.pendingCompletions.removeAll()
-            return (processes, completions)
+            return (processes, tokenFileURLs, completions)
+        }
+
+        for tokenFileURL in tokenFileURLs {
+            Self.removeConnectionTokenFile(at: tokenFileURL)
         }
 
         for process in processes where process.isRunning {
@@ -500,11 +503,12 @@ final class VSCodeServeWebController {
                 }
                 if self.serveWebProcess === terminatedProcess {
                     self.serveWebProcess = nil
-                    if let tokenFileURL = self.serveWebConnectionTokenFileURL {
-                        Self.removeConnectionTokenFile(at: tokenFileURL)
-                    }
-                    self.serveWebConnectionTokenFileURL = nil
                     self.serveWebURL = nil
+                }
+                if let tokenFileURL = self.connectionTokenFilesByProcessID.removeValue(
+                    forKey: ObjectIdentifier(terminatedProcess)
+                ) {
+                    Self.removeConnectionTokenFile(at: tokenFileURL)
                 }
             }
         }
@@ -515,7 +519,7 @@ final class VSCodeServeWebController {
                 return false
             }
             self.launchingProcess = process
-            self.serveWebConnectionTokenFileURL = connectionTokenFileURL
+            self.connectionTokenFilesByProcessID[ObjectIdentifier(process)] = connectionTokenFileURL
             do {
                 try process.run()
                 return true
@@ -523,8 +527,11 @@ final class VSCodeServeWebController {
                 if self.launchingProcess === process {
                     self.launchingProcess = nil
                 }
-                Self.removeConnectionTokenFile(at: connectionTokenFileURL)
-                self.serveWebConnectionTokenFileURL = nil
+                if let tokenFileURL = self.connectionTokenFilesByProcessID.removeValue(
+                    forKey: ObjectIdentifier(process)
+                ) {
+                    Self.removeConnectionTokenFile(at: tokenFileURL)
+                }
                 return false
             }
         }
@@ -532,11 +539,6 @@ final class VSCodeServeWebController {
             stdoutPipe.fileHandleForReading.readabilityHandler = nil
             stderrPipe.fileHandleForReading.readabilityHandler = nil
             Self.removeConnectionTokenFile(at: connectionTokenFileURL)
-            queue.async {
-                if self.serveWebConnectionTokenFileURL == connectionTokenFileURL {
-                    self.serveWebConnectionTokenFileURL = nil
-                }
-            }
             return nil
         }
 
@@ -547,10 +549,18 @@ final class VSCodeServeWebController {
             if process.isRunning {
                 process.terminate()
             } else {
-                Self.removeConnectionTokenFile(at: connectionTokenFileURL)
-                queue.async {
-                    if self.serveWebConnectionTokenFileURL == connectionTokenFileURL {
-                        self.serveWebConnectionTokenFileURL = nil
+                queue.sync {
+                    if self.launchingProcess === process {
+                        self.launchingProcess = nil
+                    }
+                    if self.serveWebProcess === process {
+                        self.serveWebProcess = nil
+                        self.serveWebURL = nil
+                    }
+                    if let tokenFileURL = self.connectionTokenFilesByProcessID.removeValue(
+                        forKey: ObjectIdentifier(process)
+                    ) {
+                        Self.removeConnectionTokenFile(at: tokenFileURL)
                     }
                 }
             }
