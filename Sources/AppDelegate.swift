@@ -625,10 +625,6 @@ enum WorkspaceShortcutMapper {
         return nil
     }
 
-    static func pageIndex(forOptionDigit digit: Int, pageCount: Int) -> Int? {
-        workspaceIndex(forCommandDigit: digit, workspaceCount: pageCount)
-    }
-
     static func optionDigitForPage(at index: Int, pageCount: Int) -> Int? {
         commandDigitForWorkspace(at: index, workspaceCount: pageCount)
     }
@@ -6852,35 +6848,64 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .newPage)) {
-            _ = tabManager?.selectedWorkspace?.newPage(select: true)
+            let createdPage = tabManager?.selectedWorkspace?.newPage(select: true)
+#if DEBUG
+            dlog(
+                "shortcut.action name=newPage handled=\(createdPage == nil ? 0 : 1) " +
+                "\(debugShortcutRouteSnapshot(event: event)) " +
+                "page=\(createdPage?.id.uuidString.prefix(5) ?? "nil")"
+            )
+#endif
             return true
         }
 
         if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .renamePage)) {
-            guard let workspace = tabManager?.selectedWorkspace,
-                  let pageId = workspace.activePage?.id else {
+            guard let pageId = tabManager?.selectedWorkspace?.activePage?.id else {
+#if DEBUG
+                dlog("shortcut.action name=renamePage handled=0 \(debugShortcutRouteSnapshot(event: event))")
+#endif
                 return false
             }
-            workspace.promptRenamePage(pageId: pageId)
+            tabManager?.selectedWorkspace?.promptRenamePage(pageId: pageId)
+#if DEBUG
+            dlog(
+                "shortcut.action name=renamePage handled=1 " +
+                "\(debugShortcutRouteSnapshot(event: event)) page=\(pageId.uuidString.prefix(5))"
+            )
+#endif
             return true
         }
 
         if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .closePage)) {
-            guard let workspace = tabManager?.selectedWorkspace,
-                  let pageId = workspace.activePage?.id else {
+            guard let pageId = tabManager?.selectedWorkspace?.activePage?.id else {
+#if DEBUG
+                dlog("shortcut.action name=closePage handled=0 \(debugShortcutRouteSnapshot(event: event))")
+#endif
                 return false
             }
-            workspace.closePage(pageId)
+            tabManager?.selectedWorkspace?.closePage(pageId)
+#if DEBUG
+            dlog(
+                "shortcut.action name=closePage handled=1 " +
+                "\(debugShortcutRouteSnapshot(event: event)) page=\(pageId.uuidString.prefix(5))"
+            )
+#endif
             return true
         }
 
         if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .nextPage)) {
             tabManager?.selectedWorkspace?.selectNextPage()
+#if DEBUG
+            dlog("shortcut.action name=nextPage handled=1 \(debugShortcutRouteSnapshot(event: event))")
+#endif
             return true
         }
 
         if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .previousPage)) {
             tabManager?.selectedWorkspace?.selectPreviousPage()
+#if DEBUG
+            dlog("shortcut.action name=previousPage handled=1 \(debugShortcutRouteSnapshot(event: event))")
+#endif
             return true
         }
 
@@ -6902,6 +6927,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 } else {
                     tabManager?.selectedWorkspace?.selectLastPage()
                 }
+#if DEBUG
+                let targetText = pageIndex.map(String.init) ?? "last"
+                dlog(
+                    "shortcut.action name=\(action.rawValue) handled=1 " +
+                    "\(debugShortcutRouteSnapshot(event: event)) target=\(targetText)"
+                )
+#endif
                 return true
             }
         }

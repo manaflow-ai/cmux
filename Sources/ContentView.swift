@@ -1315,8 +1315,11 @@ struct ContentView: View {
     @State private var hoveredTitlebarPageId: UUID?
     @State private var draggedTitlebarPageId: UUID?
     @State private var titlebarPageDropIndicator: TitlebarPageDropIndicator?
+    @State private var titlebarPageWidths: [UUID: CGFloat] = [:]
     @StateObject private var titlebarPageDragAutoScrollController = TitlebarPageDragAutoScrollController()
-    @StateObject private var titlebarPageShortcutHintMonitor = ShortcutHintModifierMonitor(requiredModifierFlags: [.option])
+    @StateObject private var titlebarPageShortcutHintMonitor = ShortcutHintModifierMonitor(
+        requiredModifierFlagsProvider: { ContentView.titlebarPageShortcutHintModifierFlags() }
+    )
     @State private var titlebarPageDragMonitorTask: Task<Void, Never>?
     @State private var sidebarDraggedTabId: UUID?
     @State private var titlebarTextUpdateCoalescer = NotificationBurstCoalescer(delay: 1.0 / 30.0)
@@ -1529,6 +1532,9 @@ struct ContentView: View {
         static let workspaceShouldPin = "workspace.shouldPin"
         static let workspaceHasPullRequests = "workspace.hasPullRequests"
         static let workspaceHasSplits = "workspace.hasSplits"
+        static let workspaceHasMultiplePages = "workspace.hasMultiplePages"
+        static let pageCanMoveLeft = "page.canMoveLeft"
+        static let pageCanMoveRight = "page.canMoveRight"
 
         static let hasFocusedPanel = "panel.hasFocus"
         static let panelName = "panel.name"
@@ -2136,12 +2142,27 @@ struct ContentView: View {
 
     private func startTitlebarPageDragMonitor() {
         titlebarPageDragMonitorTask?.cancel()
+#if DEBUG
+        dlog("titlebar.page.dragMonitor.start page=\(draggedTitlebarPageId?.uuidString.prefix(5) ?? "nil")")
+#endif
         titlebarPageDragMonitorTask = Task { @MainActor in
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 50_000_000)
                 if NSEvent.pressedMouseButtons != 0 {
+#if DEBUG
+                    dlog(
+                        "titlebar.page.dragMonitor.update page=\(draggedTitlebarPageId?.uuidString.prefix(5) ?? "nil") " +
+                        "indicator=\(debugTitlebarPageDropIndicator(titlebarPageDropIndicator))"
+                    )
+#endif
                     continue
                 }
+#if DEBUG
+                dlog(
+                    "titlebar.page.dragMonitor.clear page=\(draggedTitlebarPageId?.uuidString.prefix(5) ?? "nil") " +
+                    "indicator=\(debugTitlebarPageDropIndicator(titlebarPageDropIndicator))"
+                )
+#endif
                 draggedTitlebarPageId = nil
                 titlebarPageDropIndicator = nil
                 titlebarPageDragAutoScrollController.stop()
@@ -2151,8 +2172,17 @@ struct ContentView: View {
     }
 
     private func stopTitlebarPageDragMonitor() {
+#if DEBUG
+        dlog("titlebar.page.dragMonitor.stop page=\(draggedTitlebarPageId?.uuidString.prefix(5) ?? "nil")")
+#endif
         titlebarPageDragMonitorTask?.cancel()
         titlebarPageDragMonitorTask = nil
+    }
+
+    private func debugTitlebarPageDropIndicator(_ indicator: TitlebarPageDropIndicator?) -> String {
+        guard let indicator else { return "nil" }
+        let pageText = indicator.pageId.map { String($0.uuidString.prefix(5)) } ?? "end"
+        return "\(pageText):\(indicator.edge == .leading ? "leading" : "trailing")"
     }
 
     private func titlebarPageStrip(workspace: Workspace) -> some View {
@@ -2175,7 +2205,8 @@ struct ContentView: View {
                                     workspace: workspace,
                                     draggedPageId: $draggedTitlebarPageId,
                                     dragAutoScrollController: titlebarPageDragAutoScrollController,
-                                    dropIndicator: $titlebarPageDropIndicator
+                                    dropIndicator: $titlebarPageDropIndicator,
+                                    targetPageWidth: nil
                                 )
                             )
                             .overlay(alignment: .leading) {
@@ -2186,6 +2217,10 @@ struct ContentView: View {
                             }
                     }
                     .padding(.trailing, 4)
+                    .onPreferenceChange(TitlebarPageWidthPreferenceKey.self) { widths in
+                        let livePageIds = Set(workspace.pages.map(\.id))
+                        titlebarPageWidths = widths.filter { livePageIds.contains($0.key) }
+                    }
                 }
                 .scrollClipDisabled()
                 .background(
@@ -2210,6 +2245,7 @@ struct ContentView: View {
                     }
                     .buttonStyle(.plain)
                     .help(String(localized: "workspace.page.new.tooltip", defaultValue: "New Page"))
+                    .accessibilityLabel(String(localized: "workspace.page.new.tooltip", defaultValue: "New Page"))
                     .accessibilityIdentifier("titlebarPageNewButton")
                     .transition(.opacity)
                 }
@@ -2302,6 +2338,7 @@ struct ContentView: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(!canClose)
+                .accessibilityLabel(String(localized: "workspace.page.context.close", defaultValue: "Close Page"))
                 .opacity(showCloseButton ? 1 : 0)
                 .allowsHitTesting(showCloseButton)
                 .accessibilityIdentifier(titlebarPageCloseButtonAccessibilityIdentifier(pageId: page.id))
@@ -2310,6 +2347,11 @@ struct ContentView: View {
             .animation(.easeInOut(duration: 0.12), value: showCloseButton)
             .animation(.easeInOut(duration: 0.12), value: showsShortcutHint)
         }
+        .background(
+            GeometryReader { proxy in
+                Color.clear.preference(key: TitlebarPageWidthPreferenceKey.self, value: [page.id: proxy.size.width])
+            }
+        )
         .contentShape(Rectangle())
         .opacity(isDragged ? 0.55 : 1)
         .onHover { hovering in
@@ -2338,7 +2380,8 @@ struct ContentView: View {
                 workspace: workspace,
                 draggedPageId: $draggedTitlebarPageId,
                 dragAutoScrollController: titlebarPageDragAutoScrollController,
-                dropIndicator: $titlebarPageDropIndicator
+                dropIndicator: $titlebarPageDropIndicator,
+                targetPageWidth: titlebarPageWidths[page.id]
             )
         )
         .overlay(alignment: .leading) {
@@ -4294,6 +4337,24 @@ struct ContentView: View {
         return KeyboardShortcutSettings.shortcut(for: action).displayString
     }
 
+    private static func titlebarPageShortcutHintModifierFlags() -> NSEvent.ModifierFlags {
+        let actions: [KeyboardShortcutSettings.Action] = [
+            .selectPage1,
+            .selectPage2,
+            .selectPage3,
+            .selectPage4,
+            .selectPage5,
+            .selectPage6,
+            .selectPage7,
+            .selectPage8,
+            .selectLastPage,
+        ]
+        let flags = actions
+            .map { KeyboardShortcutSettings.shortcut(for: $0).modifierFlags }
+            .filter { !$0.isEmpty }
+        return flags.first ?? [.command]
+    }
+
     private func commandPaletteShortcutHint(
         for contribution: CommandPaletteCommandContribution,
         context: CommandPaletteContextSnapshot
@@ -4424,6 +4485,14 @@ struct ContentView: View {
             snapshot.setString(CommandPaletteContextKeys.workspaceName, workspaceDisplayName(workspace))
             snapshot.setBool(CommandPaletteContextKeys.workspaceHasCustomName, workspace.customTitle != nil)
             snapshot.setBool(CommandPaletteContextKeys.workspaceShouldPin, !workspace.isPinned)
+            snapshot.setBool(CommandPaletteContextKeys.workspaceHasMultiplePages, workspace.pages.count > 1)
+            if let activePageIndex = workspace.activePageIndex {
+                snapshot.setBool(CommandPaletteContextKeys.pageCanMoveLeft, activePageIndex > 0)
+                snapshot.setBool(
+                    CommandPaletteContextKeys.pageCanMoveRight,
+                    activePageIndex < workspace.pages.count - 1
+                )
+            }
             snapshot.setBool(
                 CommandPaletteContextKeys.workspaceHasPullRequests,
                 !workspace.sidebarPullRequestsInDisplayOrder().isEmpty
@@ -4760,7 +4829,10 @@ struct ContentView: View {
                 title: constant(String(localized: "command.closePage.title", defaultValue: "Close Page")),
                 subtitle: workspaceSubtitle,
                 keywords: ["close", "page", "workspace"],
-                when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) }
+                when: {
+                    $0.bool(CommandPaletteContextKeys.hasWorkspace)
+                        && $0.bool(CommandPaletteContextKeys.workspaceHasMultiplePages)
+                }
             )
         )
         contributions.append(
@@ -4769,7 +4841,10 @@ struct ContentView: View {
                 title: constant(String(localized: "command.closeOtherPages.title", defaultValue: "Close Other Pages")),
                 subtitle: workspaceSubtitle,
                 keywords: ["close", "other", "pages", "workspace"],
-                when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) }
+                when: {
+                    $0.bool(CommandPaletteContextKeys.hasWorkspace)
+                        && $0.bool(CommandPaletteContextKeys.workspaceHasMultiplePages)
+                }
             )
         )
         contributions.append(
@@ -4796,7 +4871,10 @@ struct ContentView: View {
                 title: constant(String(localized: "command.movePageLeft.title", defaultValue: "Move Page Left")),
                 subtitle: constant(String(localized: "command.movePageLeft.subtitle", defaultValue: "Page Navigation")),
                 keywords: ["move", "page", "left", "reorder"],
-                when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) }
+                when: {
+                    $0.bool(CommandPaletteContextKeys.hasWorkspace)
+                        && $0.bool(CommandPaletteContextKeys.pageCanMoveLeft)
+                }
             )
         )
         contributions.append(
@@ -4805,7 +4883,10 @@ struct ContentView: View {
                 title: constant(String(localized: "command.movePageRight.title", defaultValue: "Move Page Right")),
                 subtitle: constant(String(localized: "command.movePageRight.subtitle", defaultValue: "Page Navigation")),
                 keywords: ["move", "page", "right", "reorder"],
-                when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) }
+                when: {
+                    $0.bool(CommandPaletteContextKeys.hasWorkspace)
+                        && $0.bool(CommandPaletteContextKeys.pageCanMoveRight)
+                }
             )
         )
 
@@ -8283,7 +8364,7 @@ private struct SidebarExternalDropDelegate: DropDelegate {
 private final class ShortcutHintModifierMonitor: ObservableObject {
     @Published private(set) var isModifierPressed = false
 
-    private let requiredModifierFlags: NSEvent.ModifierFlags
+    private let requiredModifierFlagsProvider: () -> NSEvent.ModifierFlags
     private weak var hostWindow: NSWindow?
     private var hostWindowDidBecomeKeyObserver: NSObjectProtocol?
     private var hostWindowDidResignKeyObserver: NSObjectProtocol?
@@ -8292,8 +8373,11 @@ private final class ShortcutHintModifierMonitor: ObservableObject {
     private var appResignObserver: NSObjectProtocol?
     private var pendingShowWorkItem: DispatchWorkItem?
 
-    init(requiredModifierFlags: NSEvent.ModifierFlags = [.command]) {
-        self.requiredModifierFlags = requiredModifierFlags
+    init(
+        requiredModifierFlags: NSEvent.ModifierFlags = [.command],
+        requiredModifierFlagsProvider: (() -> NSEvent.ModifierFlags)? = nil
+    ) {
+        self.requiredModifierFlagsProvider = requiredModifierFlagsProvider ?? { requiredModifierFlags }
     }
 
     func setHostWindow(_ window: NSWindow?) {
@@ -8395,7 +8479,7 @@ private final class ShortcutHintModifierMonitor: ObservableObject {
             hostWindowIsKey: hostWindow?.isKeyWindow ?? false,
             eventWindowNumber: eventWindow?.windowNumber,
             keyWindowNumber: NSApp.keyWindow?.windowNumber,
-            requiredModifierFlags: requiredModifierFlags
+            requiredModifierFlags: requiredModifierFlagsProvider()
         ) else {
             cancelPendingHintShow(resetVisible: true)
             return
@@ -8417,7 +8501,7 @@ private final class ShortcutHintModifierMonitor: ObservableObject {
                 hostWindowIsKey: self.hostWindow?.isKeyWindow ?? false,
                 eventWindowNumber: nil,
                 keyWindowNumber: NSApp.keyWindow?.windowNumber,
-                requiredModifierFlags: self.requiredModifierFlags
+                requiredModifierFlags: self.requiredModifierFlagsProvider()
             ) else { return }
             self.isModifierPressed = true
         }
@@ -11271,6 +11355,14 @@ private final class TitlebarPageDragAutoScrollController: ObservableObject {
     }
 }
 
+private struct TitlebarPageWidthPreferenceKey: PreferenceKey {
+    static var defaultValue: [UUID: CGFloat] = [:]
+
+    static func reduce(value: inout [UUID: CGFloat], nextValue: () -> [UUID: CGFloat]) {
+        value.merge(nextValue(), uniquingKeysWith: { _, new in new })
+    }
+}
+
 private enum TitlebarPageDragPayload {
     static let typeIdentifier = "com.cmux.titlebar-page-reorder"
     static let dropContentType = UTType(exportedAs: typeIdentifier)
@@ -11294,19 +11386,36 @@ private struct TitlebarPageDropDelegate: DropDelegate {
     @Binding var draggedPageId: UUID?
     let dragAutoScrollController: TitlebarPageDragAutoScrollController
     @Binding var dropIndicator: TitlebarPageDropIndicator?
+    let targetPageWidth: CGFloat?
 
     private let targetWidthEstimate: CGFloat = 80
 
     func validateDrop(info: DropInfo) -> Bool {
-        info.hasItemsConforming(to: [TitlebarPageDragPayload.typeIdentifier]) && draggedPageId != nil
+        let valid = info.hasItemsConforming(to: [TitlebarPageDragPayload.typeIdentifier]) && draggedPageId != nil
+#if DEBUG
+        dlog(
+            "titlebar.page.validateDrop target=\(targetPageId?.uuidString.prefix(5) ?? "end") " +
+            "valid=\(valid ? 1 : 0)"
+        )
+#endif
+        return valid
     }
 
     func dropEntered(info: DropInfo) {
         dragAutoScrollController.updateFromDragLocation()
         updateDropIndicator(for: info)
+#if DEBUG
+        dlog(
+            "titlebar.page.dropEntered target=\(targetPageId?.uuidString.prefix(5) ?? "end") " +
+            "indicator=\(debugIndicator(dropIndicator))"
+        )
+#endif
     }
 
     func dropExited(info: DropInfo) {
+#if DEBUG
+        dlog("titlebar.page.dropExited target=\(targetPageId?.uuidString.prefix(5) ?? "end")")
+#endif
         if dropIndicator?.pageId == targetPageId {
             dropIndicator = nil
         }
@@ -11315,6 +11424,12 @@ private struct TitlebarPageDropDelegate: DropDelegate {
     func dropUpdated(info: DropInfo) -> DropProposal? {
         dragAutoScrollController.updateFromDragLocation()
         updateDropIndicator(for: info)
+#if DEBUG
+        dlog(
+            "titlebar.page.dropUpdated target=\(targetPageId?.uuidString.prefix(5) ?? "end") " +
+            "indicator=\(debugIndicator(dropIndicator)) width=\(effectiveTargetWidth())"
+        )
+#endif
         return DropProposal(operation: .move)
     }
 
@@ -11324,6 +11439,12 @@ private struct TitlebarPageDropDelegate: DropDelegate {
             dropIndicator = nil
             dragAutoScrollController.stop()
         }
+#if DEBUG
+        dlog(
+            "titlebar.page.drop target=\(targetPageId?.uuidString.prefix(5) ?? "end") " +
+            "indicator=\(debugIndicator(dropIndicator))"
+        )
+#endif
         guard let draggedPageId else { return false }
         let pageIds = workspace.pages.map(\.id)
         guard let targetIndex = TitlebarPageDropPlanner.targetIndex(
@@ -11332,8 +11453,17 @@ private struct TitlebarPageDropDelegate: DropDelegate {
             indicator: dropIndicator,
             pageIds: pageIds
         ) else {
+#if DEBUG
+            dlog("titlebar.page.drop.abort reason=noTargetIndex")
+#endif
             return false
         }
+#if DEBUG
+        dlog(
+            "titlebar.page.drop.commit page=\(draggedPageId.uuidString.prefix(5)) " +
+            "target=\(targetIndex)"
+        )
+#endif
         return workspace.movePage(pageId: draggedPageId, toIndex: targetIndex)
     }
 
@@ -11343,8 +11473,19 @@ private struct TitlebarPageDropDelegate: DropDelegate {
             targetPageId: targetPageId,
             pageIds: workspace.pages.map(\.id),
             pointerX: targetPageId == nil ? nil : info.location.x,
-            targetWidth: targetPageId == nil ? nil : targetWidthEstimate
+            targetWidth: targetPageId == nil ? nil : effectiveTargetWidth()
         )
+    }
+
+    private func effectiveTargetWidth() -> CGFloat {
+        guard let targetPageWidth, targetPageWidth > 0 else { return targetWidthEstimate }
+        return targetPageWidth
+    }
+
+    private func debugIndicator(_ indicator: TitlebarPageDropIndicator?) -> String {
+        guard let indicator else { return "nil" }
+        let pageText = indicator.pageId.map { String($0.uuidString.prefix(5)) } ?? "end"
+        return "\(pageText):\(indicator.edge == .leading ? "leading" : "trailing")"
     }
 }
 

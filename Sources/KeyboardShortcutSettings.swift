@@ -193,27 +193,27 @@ enum KeyboardShortcutSettings {
             case .closePage:
                 return StoredShortcut(key: "w", command: true, shift: false, option: true, control: false)
             case .nextPage:
-                return StoredShortcut(key: "]", command: false, shift: false, option: true, control: false)
+                return StoredShortcut(key: "]", command: true, shift: false, option: true, control: false)
             case .previousPage:
-                return StoredShortcut(key: "[", command: false, shift: false, option: true, control: false)
+                return StoredShortcut(key: "[", command: true, shift: false, option: true, control: false)
             case .selectPage1:
-                return StoredShortcut(key: "1", command: false, shift: false, option: true, control: false)
+                return StoredShortcut(key: "1", command: true, shift: false, option: true, control: false)
             case .selectPage2:
-                return StoredShortcut(key: "2", command: false, shift: false, option: true, control: false)
+                return StoredShortcut(key: "2", command: true, shift: false, option: true, control: false)
             case .selectPage3:
-                return StoredShortcut(key: "3", command: false, shift: false, option: true, control: false)
+                return StoredShortcut(key: "3", command: true, shift: false, option: true, control: false)
             case .selectPage4:
-                return StoredShortcut(key: "4", command: false, shift: false, option: true, control: false)
+                return StoredShortcut(key: "4", command: true, shift: false, option: true, control: false)
             case .selectPage5:
-                return StoredShortcut(key: "5", command: false, shift: false, option: true, control: false)
+                return StoredShortcut(key: "5", command: true, shift: false, option: true, control: false)
             case .selectPage6:
-                return StoredShortcut(key: "6", command: false, shift: false, option: true, control: false)
+                return StoredShortcut(key: "6", command: true, shift: false, option: true, control: false)
             case .selectPage7:
-                return StoredShortcut(key: "7", command: false, shift: false, option: true, control: false)
+                return StoredShortcut(key: "7", command: true, shift: false, option: true, control: false)
             case .selectPage8:
-                return StoredShortcut(key: "8", command: false, shift: false, option: true, control: false)
+                return StoredShortcut(key: "8", command: true, shift: false, option: true, control: false)
             case .selectLastPage:
-                return StoredShortcut(key: "9", command: false, shift: false, option: true, control: false)
+                return StoredShortcut(key: "9", command: true, shift: false, option: true, control: false)
             case .focusLeft:
                 return StoredShortcut(key: "←", command: true, shift: false, option: true, control: false)
             case .focusRight:

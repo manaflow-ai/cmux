@@ -42,6 +42,15 @@ struct cmuxApp: App {
     @AppStorage(KeyboardShortcutSettings.Action.closePage.defaultsKey) private var closePageShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.nextPage.defaultsKey) private var nextPageShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.previousPage.defaultsKey) private var previousPageShortcutData = Data()
+    @AppStorage(KeyboardShortcutSettings.Action.selectPage1.defaultsKey) private var selectPage1ShortcutData = Data()
+    @AppStorage(KeyboardShortcutSettings.Action.selectPage2.defaultsKey) private var selectPage2ShortcutData = Data()
+    @AppStorage(KeyboardShortcutSettings.Action.selectPage3.defaultsKey) private var selectPage3ShortcutData = Data()
+    @AppStorage(KeyboardShortcutSettings.Action.selectPage4.defaultsKey) private var selectPage4ShortcutData = Data()
+    @AppStorage(KeyboardShortcutSettings.Action.selectPage5.defaultsKey) private var selectPage5ShortcutData = Data()
+    @AppStorage(KeyboardShortcutSettings.Action.selectPage6.defaultsKey) private var selectPage6ShortcutData = Data()
+    @AppStorage(KeyboardShortcutSettings.Action.selectPage7.defaultsKey) private var selectPage7ShortcutData = Data()
+    @AppStorage(KeyboardShortcutSettings.Action.selectPage8.defaultsKey) private var selectPage8ShortcutData = Data()
+    @AppStorage(KeyboardShortcutSettings.Action.selectLastPage.defaultsKey) private var selectLastPageShortcutData = Data()
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     init() {
@@ -969,27 +978,54 @@ struct cmuxApp: App {
     private func pageSelectionMenuShortcut(index: Int, pageCount: Int) -> StoredShortcut? {
         switch index {
         case 0:
-            return KeyboardShortcutSettings.shortcut(for: .selectPage1)
+            return decodeShortcut(
+                from: selectPage1ShortcutData,
+                fallback: KeyboardShortcutSettings.Action.selectPage1.defaultShortcut
+            )
         case 1:
-            return KeyboardShortcutSettings.shortcut(for: .selectPage2)
+            return decodeShortcut(
+                from: selectPage2ShortcutData,
+                fallback: KeyboardShortcutSettings.Action.selectPage2.defaultShortcut
+            )
         case 2:
-            return KeyboardShortcutSettings.shortcut(for: .selectPage3)
+            return decodeShortcut(
+                from: selectPage3ShortcutData,
+                fallback: KeyboardShortcutSettings.Action.selectPage3.defaultShortcut
+            )
         case 3:
-            return KeyboardShortcutSettings.shortcut(for: .selectPage4)
+            return decodeShortcut(
+                from: selectPage4ShortcutData,
+                fallback: KeyboardShortcutSettings.Action.selectPage4.defaultShortcut
+            )
         case 4:
-            return KeyboardShortcutSettings.shortcut(for: .selectPage5)
+            return decodeShortcut(
+                from: selectPage5ShortcutData,
+                fallback: KeyboardShortcutSettings.Action.selectPage5.defaultShortcut
+            )
         case 5:
-            return KeyboardShortcutSettings.shortcut(for: .selectPage6)
+            return decodeShortcut(
+                from: selectPage6ShortcutData,
+                fallback: KeyboardShortcutSettings.Action.selectPage6.defaultShortcut
+            )
         case 6:
-            return KeyboardShortcutSettings.shortcut(for: .selectPage7)
+            return decodeShortcut(
+                from: selectPage7ShortcutData,
+                fallback: KeyboardShortcutSettings.Action.selectPage7.defaultShortcut
+            )
         case 7:
-            return KeyboardShortcutSettings.shortcut(for: .selectPage8)
+            return decodeShortcut(
+                from: selectPage8ShortcutData,
+                fallback: KeyboardShortcutSettings.Action.selectPage8.defaultShortcut
+            )
         default:
             break
         }
 
         if index == pageCount - 1 {
-            return KeyboardShortcutSettings.shortcut(for: .selectLastPage)
+            return decodeShortcut(
+                from: selectLastPageShortcutData,
+                fallback: KeyboardShortcutSettings.Action.selectLastPage.defaultShortcut
+            )
         }
         return nil
     }
