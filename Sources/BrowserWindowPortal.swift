@@ -2281,6 +2281,28 @@ final class WindowBrowserPortal: NSObject {
             return
         }
         guard anchorView.window === window else {
+            let isOffWindowReparent =
+                entry.visibleInUI &&
+                anchorView.window == nil &&
+                anchorView.superview != nil
+            if isOffWindowReparent {
+                let didScheduleTransientRecovery = scheduleTransientRecoveryRetryIfNeeded(
+                    forWebViewId: webViewId,
+                    entry: &entry,
+                    webView: webView,
+                    reason: "anchorWindowMismatch"
+                )
+#if DEBUG
+                if didScheduleTransientRecovery && !containerView.isHidden {
+                    dlog(
+                        "browser.portal.hidden.deferKeep web=\(browserPortalDebugToken(webView)) " +
+                        "reason=anchorWindowMismatch.offWindow frame=\(browserPortalDebugFrame(containerView.frame))"
+                    )
+                }
+#endif
+                containerView.setDropZoneOverlay(zone: nil)
+                return
+            }
             if scheduleTransientDetachRecovery(reason: "anchorWindowMismatch") {
                 containerView.setPaneTopChromeHeight(0)
                 containerView.setSearchOverlay(nil)
