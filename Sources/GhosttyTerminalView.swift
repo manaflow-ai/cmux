@@ -3381,34 +3381,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     private func dismissNotificationIfPresent() {
-        let logPath = "/tmp/cmux-notif-dismiss-debug.log"
-        let timestamp = Date().timeIntervalSince1970
-
-        func writeLog(_ message: String) {
-            let logMessage = "[\(timestamp)] \(message)\n"
-            if let data = logMessage.data(using: .utf8) {
-                if let fileHandle = FileHandle(forWritingAtPath: logPath) {
-                    fileHandle.seekToEndOfFile()
-                    fileHandle.write(data)
-                    fileHandle.closeFile()
-                } else {
-                    try? data.write(to: URL(fileURLWithPath: logPath), options: .atomic)
-                }
-            }
-        }
-
         #if DEBUG
         dlog("dismissNotificationIfPresent: checking tabId=\(tabId?.uuidString.prefix(8) ?? "nil") surfaceId=\(terminalSurface?.id.uuidString.prefix(8) ?? "nil")")
-        writeLog("dismissNotificationIfPresent: checking tabId=\(tabId?.uuidString.prefix(8) ?? "nil") surfaceId=\(terminalSurface?.id.uuidString.prefix(8) ?? "nil")")
         #endif
 
         guard let tabId,
               let surfaceId = terminalSurface?.id,
-              let notificationStore = AppDelegate.shared?.notificationStore,
-              let tabManager = AppDelegate.shared?.tabManager else {
+              let app = AppDelegate.shared,
+              let notificationStore = app.notificationStore else {
             #if DEBUG
             dlog("dismissNotificationIfPresent: early return - missing required objects")
-            writeLog("dismissNotificationIfPresent: early return - missing required objects tabId=\(tabId == nil ? "nil" : "ok") surfaceId=\(terminalSurface?.id == nil ? "nil" : "ok") store=\(AppDelegate.shared?.notificationStore == nil ? "nil" : "ok") manager=\(AppDelegate.shared?.tabManager == nil ? "nil" : "ok")")
             #endif
             return
         }
@@ -3416,7 +3398,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let hasUnread = notificationStore.hasUnreadNotification(forTabId: tabId, surfaceId: surfaceId)
         #if DEBUG
         dlog("dismissNotificationIfPresent: hasUnread=\(hasUnread) for tab=\(tabId.uuidString.prefix(8)) surface=\(surfaceId.uuidString.prefix(8))")
-        writeLog("dismissNotificationIfPresent: hasUnread=\(hasUnread) for tab=\(tabId.uuidString.prefix(8)) surface=\(surfaceId.uuidString.prefix(8))")
         #endif
 
         guard hasUnread else {
@@ -3425,13 +3406,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
         #if DEBUG
         dlog("dismissNotificationIfPresent: dismissing notification and triggering flash")
-        writeLog("dismissNotificationIfPresent: dismissing notification and triggering flash")
         #endif
 
-        guard let workspace = tabManager.tabs.first(where: { $0.id == tabId }) else {
+        // Find the owning TabManager for this tab (handles secondary windows)
+        guard let tabManager = app.tabManagerFor(tabId: tabId),
+              let workspace = tabManager.tabs.first(where: { $0.id == tabId }) else {
             #if DEBUG
             dlog("dismissNotificationIfPresent: workspace not found, skipping dismissal")
-            writeLog("dismissNotificationIfPresent: workspace not found for tab=\(tabId.uuidString.prefix(8))")
             #endif
             return
         }
@@ -4479,6 +4460,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func rightMouseDown(with event: NSEvent) {
+        dismissNotificationIfPresent()
         guard let surface = surface else { return }
         if !ghostty_surface_mouse_captured(surface) {
             super.rightMouseDown(with: event)
@@ -4502,6 +4484,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func otherMouseDown(with event: NSEvent) {
+        dismissNotificationIfPresent()
         guard event.buttonNumber == 2 else {
             super.otherMouseDown(with: event)
             return
