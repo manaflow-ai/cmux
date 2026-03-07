@@ -140,6 +140,24 @@ final class GhosttyConfigTests: XCTestCase {
         XCTAssertEqual(config.backgroundOpacity, 0.42, accuracy: 0.0001)
     }
 
+    func testParseSplitDividerColorAcceptsNamedColor() {
+        var config = GhosttyConfig()
+        config.parse("split-divider-color = green")
+        XCTAssertEqual(config.splitDividerColor?.hexString(), "#00FF00")
+    }
+
+    func testParseSplitDividerColorUsesX11NamedColorValues() {
+        var config = GhosttyConfig()
+        config.parse("split-divider-color = orange")
+        XCTAssertEqual(config.splitDividerColor?.hexString(), "#FFA500")
+    }
+
+    func testParseSplitDividerColorSupportsMultiWordX11ColorNames() {
+        var config = GhosttyConfig()
+        config.parse("split-divider-color = medium spring green")
+        XCTAssertEqual(config.splitDividerColor?.hexString(), "#00FA9A")
+    }
+
     func testLoadThemeResolvesBuiltinAliasFromGhosttyResourcesDir() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-ghostty-themes-\(UUID().uuidString)")
@@ -533,6 +551,21 @@ final class WorkspaceChromeThemeTests: XCTestCase {
         let colors = Workspace.resolvedChromeColors(from: backgroundColor)
         XCTAssertEqual(colors.backgroundHex, "#272822")
         XCTAssertNil(colors.borderHex)
+    }
+
+    func testResolvedChromeColorsUsesExplicitSplitDividerColor() {
+        guard let backgroundColor = NSColor(hex: "#272822"),
+              let splitDividerColor = NSColor(hex: "#45475A") else {
+            XCTFail("Expected valid test colors")
+            return
+        }
+
+        let colors = Workspace.resolvedChromeColors(
+            from: backgroundColor,
+            splitDividerColor: splitDividerColor
+        )
+        XCTAssertEqual(colors.backgroundHex, "#272822")
+        XCTAssertEqual(colors.borderHex, "#45475A")
     }
 }
 
