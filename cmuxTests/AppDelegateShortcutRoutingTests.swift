@@ -1723,6 +1723,44 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual((noActiveWorkspaceResponse["error"] as? [String: Any])?["message"] as? String, "Workspace not found")
     }
 
+    func testV2PageMethodsResolveWindowScopedPageAcrossWorkspaceTabs() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            closeWindow(withId: windowId)
+        }
+
+        guard let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let firstWorkspace = manager.selectedWorkspace else {
+            XCTFail("Expected window and selected workspace")
+            return
+        }
+
+        let secondWorkspace = manager.addWorkspace(select: true)
+        let pageId = secondWorkspace.activePageId
+        secondWorkspace.setPageTitle(pageId: pageId, title: "Window Scoped")
+        manager.selectWorkspace(firstWorkspace)
+        TerminalController.shared.setActiveTabManager(manager)
+
+        let result = v2Result(
+            method: "page.rename",
+            params: [
+                "window_id": windowId.uuidString,
+                "page_id": pageId.uuidString,
+                "title": "Renamed In Other Workspace"
+            ]
+        )
+
+        XCTAssertEqual(result["workspace_id"] as? String, secondWorkspace.id.uuidString)
+        XCTAssertEqual(secondWorkspace.pageTitle(pageId: pageId), "Renamed In Other Workspace")
+        XCTAssertEqual(manager.selectedWorkspace?.id, firstWorkspace.id)
+    }
+
     func testCmdShiftNonDigitKeySymbolDoesNotMatchShiftedDigitShortcut() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")

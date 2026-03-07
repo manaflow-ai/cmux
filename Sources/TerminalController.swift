@@ -4313,6 +4313,11 @@ class TerminalController {
         pageId: UUID?
     ) -> V2PageWorkspaceResolution {
         let hasExplicitScope = v2HasExplicitPageResolutionScope(params: params)
+        let isWindowOnlyScope =
+            params["window_id"] != nil
+            && params["workspace_id"] == nil
+            && params["surface_id"] == nil
+            && params["tab_id"] == nil
         if params["window_id"] != nil && v2UUID(params, "window_id") == nil {
             return .invalidParams
         }
@@ -4360,12 +4365,21 @@ class TerminalController {
                 if workspace.pageIndex(pageId: pageId) != nil {
                     return .resolved(tabManager: routedTabManager, workspace: workspace)
                 }
+                if isWindowOnlyScope,
+                   let scopedWorkspace = routedTabManager.tabs.first(where: { $0.pageIndex(pageId: pageId) != nil }) {
+                    return .resolved(tabManager: routedTabManager, workspace: scopedWorkspace)
+                }
                 if hasExplicitScope {
                     return .pageNotFoundInScopedWorkspace
                 }
             } else {
                 return .resolved(tabManager: routedTabManager, workspace: workspace)
             }
+        } else if let routedTabManager,
+                  let pageId,
+                  isWindowOnlyScope,
+                  let scopedWorkspace = routedTabManager.tabs.first(where: { $0.pageIndex(pageId: pageId) != nil }) {
+            return .resolved(tabManager: routedTabManager, workspace: scopedWorkspace)
         }
 
         if let pageId,
