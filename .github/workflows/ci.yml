@@ -25,6 +25,9 @@ jobs:
       - name: Validate cmux scheme test configuration
         run: ./tests/test_ci_scheme_testaction_debug.sh
 
+      - name: Validate GhosttyKit checksum verification
+        run: ./tests/test_ci_ghosttykit_checksum_verification.sh
+
   web-typecheck:
     runs-on: ubuntu-latest
     defaults:
@@ -92,6 +95,30 @@ jobs:
             echo "Attempt $i/$MAX_RETRIES failed, retrying in ${RETRY_DELAY}s..."
             sleep $RETRY_DELAY
           done
+          RELEASE_API_URL="https://api.github.com/repos/manaflow-ai/ghostty/releases/tags/$TAG"
+          EXPECTED_SHA256=$(curl -fsSL \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "$RELEASE_API_URL" | python3 -c "import json,sys
+data=json.load(sys.stdin)
+for asset in data.get('assets', []):
+    if asset.get('name') == 'GhosttyKit.xcframework.tar.gz':
+        digest = asset.get('digest', '')
+        if digest.startswith('sha256:'):
+            print(digest.split(':', 1)[1])
+            break
+        break")
+          if [ -z "$EXPECTED_SHA256" ]; then
+            echo "Missing sha256 digest metadata for GhosttyKit.xcframework.tar.gz in release $TAG" >&2
+            exit 1
+          fi
+          ACTUAL_SHA256=$(shasum -a 256 GhosttyKit.xcframework.tar.gz | awk '{print $1}')
+          if [ "$ACTUAL_SHA256" != "$EXPECTED_SHA256" ]; then
+            echo "GhosttyKit.xcframework.tar.gz checksum mismatch" >&2
+            echo "Expected: $EXPECTED_SHA256" >&2
+            echo "Actual:   $ACTUAL_SHA256" >&2
+            exit 1
+          fi
           tar xzf GhosttyKit.xcframework.tar.gz
           rm GhosttyKit.xcframework.tar.gz
           test -d GhosttyKit.xcframework
@@ -225,6 +252,30 @@ jobs:
             echo "Attempt $i/$MAX_RETRIES failed, retrying in ${RETRY_DELAY}s..."
             sleep $RETRY_DELAY
           done
+          RELEASE_API_URL="https://api.github.com/repos/manaflow-ai/ghostty/releases/tags/$TAG"
+          EXPECTED_SHA256=$(curl -fsSL \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "$RELEASE_API_URL" | python3 -c "import json,sys
+data=json.load(sys.stdin)
+for asset in data.get('assets', []):
+    if asset.get('name') == 'GhosttyKit.xcframework.tar.gz':
+        digest = asset.get('digest', '')
+        if digest.startswith('sha256:'):
+            print(digest.split(':', 1)[1])
+            break
+        break")
+          if [ -z "$EXPECTED_SHA256" ]; then
+            echo "Missing sha256 digest metadata for GhosttyKit.xcframework.tar.gz in release $TAG" >&2
+            exit 1
+          fi
+          ACTUAL_SHA256=$(shasum -a 256 GhosttyKit.xcframework.tar.gz | awk '{print $1}')
+          if [ "$ACTUAL_SHA256" != "$EXPECTED_SHA256" ]; then
+            echo "GhosttyKit.xcframework.tar.gz checksum mismatch" >&2
+            echo "Expected: $EXPECTED_SHA256" >&2
+            echo "Actual:   $ACTUAL_SHA256" >&2
+            exit 1
+          fi
           tar xzf GhosttyKit.xcframework.tar.gz
           rm GhosttyKit.xcframework.tar.gz
           test -d GhosttyKit.xcframework
