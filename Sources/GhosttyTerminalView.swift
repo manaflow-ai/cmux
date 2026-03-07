@@ -3819,6 +3819,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     // For NSTextInputClient - accumulates text during key events
     private var keyTextAccumulator: [String]? = nil
     private var markedText = NSMutableAttributedString()
+    private var markedSelectedRange = NSRange(location: NSNotFound, length: 0)
     private var lastPerformKeyEvent: TimeInterval?
 
 #if DEBUG
@@ -4111,6 +4112,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // Track whether we had marked text (IME preedit) before this event,
         // so we can detect when composition ends.
         let markedTextBefore = markedText.length > 0
+        let markedTextBeforeString = markedText.string
+        let markedSelectionBefore = markedSelectedRange
 
         // Capture the keyboard layout ID before interpretation so we can
         // detect if an IME changed it (e.g. toggling input methods).
@@ -4135,6 +4138,17 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // composition overlay (e.g. for Korean, Japanese, Chinese input).
         syncPreedit(clearIfNeeded: markedTextBefore)
 
+        let accumulatedText = keyTextAccumulator ?? []
+        if shouldSuppressGhosttyKeyForwardingAfterIMEHandling(
+            markedTextBefore: markedTextBeforeString,
+            markedSelectionBefore: markedSelectionBefore,
+            markedTextAfter: markedText.string,
+            markedSelectionAfter: markedSelectedRange,
+            accumulatedText: accumulatedText
+        ) {
+            return
+        }
+
         // Build the key event
         var keyEvent = ghostty_input_key_s()
         keyEvent.action = action
@@ -4153,7 +4167,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         keyEvent.composing = markedText.length > 0 || markedTextBefore
 
         // Use accumulated text from insertText (for IME), or compute text for key
-        let accumulatedText = keyTextAccumulator ?? []
         if !accumulatedText.isEmpty {
             // Accumulated text comes from insertText (IME composition result).
             // These never have "composing" set to true because these are the
@@ -6654,7 +6667,10 @@ extension GhosttyNSView: NSTextInputClient {
     }
 
     func selectedRange() -> NSRange {
-        return NSRange(location: NSNotFound, length: 0)
+        guard markedText.length > 0 else {
+            return NSRange(location: NSNotFound, length: 0)
+        }
+        return markedSelectedRange
     }
 
     func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
@@ -6664,8 +6680,13 @@ extension GhosttyNSView: NSTextInputClient {
         case let v as String:
             markedText = NSMutableAttributedString(string: v)
         default:
-            break
+            return
         }
+
+        markedSelectedRange = normalizedMarkedSelectionRange(
+            selectedRange,
+            markedLength: markedText.length
+        )
 
         // If we're not in a keyDown event, sync preedit immediately.
         // This can happen due to external events like changing keyboard layouts
@@ -6678,6 +6699,7 @@ extension GhosttyNSView: NSTextInputClient {
     func unmarkText() {
         if markedText.length > 0 {
             markedText.mutableString.setString("")
+            markedSelectedRange = NSRange(location: NSNotFound, length: 0)
             syncPreedit()
         }
     }
@@ -6704,12 +6726,72 @@ extension GhosttyNSView: NSTextInputClient {
         }
     }
 
+    private func normalizedMarkedSelectionRange(_ range: NSRange, markedLength: Int) -> NSRange {
+        guard markedLength > 0 else {
+            return NSRange(location: NSNotFound, length: 0)
+        }
+        guard range.location != NSNotFound else {
+            return NSRange(location: markedLength, length: 0)
+        }
+
+        let clampedLocation = min(range.location, markedLength)
+        let clampedLength = min(range.length, markedLength - clampedLocation)
+        return NSRange(location: clampedLocation, length: clampedLength)
+    }
+
+    private func shouldSuppressGhosttyKeyForwardingAfterIMEHandling(
+        markedTextBefore: String,
+        markedSelectionBefore: NSRange,
+        markedTextAfter: String,
+        markedSelectionAfter: NSRange,
+        accumulatedText: [String]
+    ) -> Bool {
+        guard accumulatedText.isEmpty else { return false }
+
+        let hadMarkedTextBefore = !markedTextBefore.isEmpty
+        let hasMarkedTextAfter = !markedTextAfter.isEmpty
+        guard hadMarkedTextBefore || hasMarkedTextAfter else { return false }
+
+        if markedTextBefore != markedTextAfter {
+            return true
+        }
+
+        return markedSelectionBefore != markedSelectionAfter
+    }
+
+#if DEBUG
+    func shouldSuppressGhosttyKeyForwardingAfterIMEHandlingForTesting(
+        markedTextBefore: String,
+        markedSelectionBefore: NSRange,
+        markedTextAfter: String,
+        markedSelectionAfter: NSRange,
+        accumulatedText: [String]
+    ) -> Bool {
+        shouldSuppressGhosttyKeyForwardingAfterIMEHandling(
+            markedTextBefore: markedTextBefore,
+            markedSelectionBefore: markedSelectionBefore,
+            markedTextAfter: markedTextAfter,
+            markedSelectionAfter: markedSelectionAfter,
+            accumulatedText: accumulatedText
+        )
+    }
+#endif
+
     func validAttributesForMarkedText() -> [NSAttributedString.Key] {
         return []
     }
 
     func attributedSubstring(forProposedRange range: NSRange, actualRange: NSRangePointer?) -> NSAttributedString? {
-        return nil
+        guard markedText.length > 0, range.location != NSNotFound else {
+            actualRange?.pointee = NSRange(location: NSNotFound, length: 0)
+            return nil
+        }
+
+        let fullRange = NSRange(location: 0, length: markedText.length)
+        let actual = NSIntersectionRange(range, fullRange)
+        actualRange?.pointee = actual
+        guard actual.location != NSNotFound else { return nil }
+        return markedText.attributedSubstring(from: actual)
     }
 
     func characterIndex(for point: NSPoint) -> Int {
