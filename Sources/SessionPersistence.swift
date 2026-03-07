@@ -339,25 +339,6 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var logEntries: [SessionLogEntrySnapshot]
     var progress: SessionProgressSnapshot?
     var gitBranch: SessionGitBranchSnapshot?
-    var activePageId: UUID?
-    var pages: [SessionWorkspacePageSnapshot]?
-}
-
-struct SessionWorkspacePageStateSnapshot: Codable, Sendable {
-    var currentDirectory: String
-    var focusedPanelId: UUID?
-    var layout: SessionWorkspaceLayoutSnapshot
-    var panels: [SessionPanelSnapshot]
-    var statusEntries: [SessionStatusEntrySnapshot]
-    var logEntries: [SessionLogEntrySnapshot]
-    var progress: SessionProgressSnapshot?
-    var gitBranch: SessionGitBranchSnapshot?
-}
-
-struct SessionWorkspacePageSnapshot: Codable, Sendable {
-    var id: UUID
-    var title: String
-    var state: SessionWorkspacePageStateSnapshot
 }
 
 struct SessionTabManagerSnapshot: Codable, Sendable {
