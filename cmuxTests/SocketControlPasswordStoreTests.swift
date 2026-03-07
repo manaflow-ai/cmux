@@ -329,9 +329,9 @@ final class SocketControlPasswordStoreConstantTimeTests: XCTestCase {
             password: longPw + "x", environment: [:], fileURL: fileURL))
     }
 
-    // MARK: - Timing invariant (structural test)
+    // MARK: - Mismatch position correctness
 
-    func testVerifyProcessesAllBytesRegardlessOfMismatchPosition() throws {
+    func testVerifyMismatchAtAnyPositionReturnsFalse() throws {
         // This test verifies the constant-time property structurally:
         // both a first-byte mismatch and a last-byte mismatch should
         // go through the same code path (no early exit).

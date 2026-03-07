@@ -135,16 +135,15 @@ enum SocketControlPasswordStore {
     /// without early exit, so the duration is independent of where (or whether)
     /// a mismatch occurs.
     private static func constantTimeEqual(_ a: String, _ b: String) -> Bool {
-        let aBytes = Array(a.utf8)
-        let bBytes = Array(b.utf8)
-        let count = max(aBytes.count, bBytes.count)
-        guard count > 0 else { return true }
+        let aBytes = Array(a.precomposedStringWithCanonicalMapping.utf8)
+        let bBytes = Array(b.precomposedStringWithCanonicalMapping.utf8)
+        let count = aBytes.count
+        guard count > 0 else { return bBytes.isEmpty }
 
         var diff: UInt8 = aBytes.count != bBytes.count ? 1 : 0
         for i in 0..<count {
-            let aByte = i < aBytes.count ? aBytes[i] : 0
             let bByte = i < bBytes.count ? bBytes[i] : 0
-            diff |= aByte ^ bByte
+            diff |= aBytes[i] ^ bByte
         }
         return diff == 0
     }
