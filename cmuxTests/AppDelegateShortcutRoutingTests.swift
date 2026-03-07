@@ -1761,6 +1761,30 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(manager.selectedWorkspace?.id, firstWorkspace.id)
     }
 
+    func testFilteredStoredPaneSurfacesDropsMissingPanelReferences() {
+        let firstPanelId = UUID()
+        let missingPanelId = UUID()
+        let selectedPanelId = UUID()
+
+        let filtered = TerminalController.filteredStoredPaneSurfaces(
+            panelIds: [firstPanelId, missingPanelId, selectedPanelId],
+            selectedPanelId: selectedPanelId,
+            presentPanelIds: [firstPanelId, selectedPanelId]
+        )
+
+        XCTAssertEqual(filtered.panelIds, [firstPanelId, selectedPanelId])
+        XCTAssertEqual(filtered.selectedPanelId, selectedPanelId)
+
+        let selectedMissing = TerminalController.filteredStoredPaneSurfaces(
+            panelIds: [firstPanelId, missingPanelId],
+            selectedPanelId: missingPanelId,
+            presentPanelIds: [firstPanelId]
+        )
+
+        XCTAssertEqual(selectedMissing.panelIds, [firstPanelId])
+        XCTAssertNil(selectedMissing.selectedPanelId)
+    }
+
     func testCmdShiftNonDigitKeySymbolDoesNotMatchShiftedDigitShortcut() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")

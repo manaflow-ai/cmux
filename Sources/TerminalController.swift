@@ -2672,8 +2672,13 @@ class TerminalController {
             }
 
             let focused = surfaces.contains { ($0["focused"] as? Bool) == true }
-            let surfaceIds = pane.panelIds.map(\.uuidString)
-            let surfaceRefs = pane.panelIds.map { v2Ref(kind: .surface, uuid: $0) }
+            let storedPaneSurfaces = Self.filteredStoredPaneSurfaces(
+                panelIds: pane.panelIds,
+                selectedPanelId: pane.selectedPanelId,
+                presentPanelIds: Set(panelSnapshotsById.keys)
+            )
+            let surfaceIds = storedPaneSurfaces.panelIds.map(\.uuidString)
+            let surfaceRefs = storedPaneSurfaces.panelIds.map { v2Ref(kind: .surface, uuid: $0) }
             return [
                 "id": NSNull(),
                 "ref": NSNull(),
@@ -2681,12 +2686,22 @@ class TerminalController {
                 "focused": focused,
                 "surface_ids": surfaceIds,
                 "surface_refs": surfaceRefs,
-                "selected_surface_id": v2OrNull(pane.selectedPanelId?.uuidString),
-                "selected_surface_ref": v2Ref(kind: .surface, uuid: pane.selectedPanelId),
+                "selected_surface_id": v2OrNull(storedPaneSurfaces.selectedPanelId?.uuidString),
+                "selected_surface_ref": v2Ref(kind: .surface, uuid: storedPaneSurfaces.selectedPanelId),
                 "surface_count": surfaces.count,
                 "surfaces": surfaces
             ]
         }
+    }
+
+    static func filteredStoredPaneSurfaces(
+        panelIds: [UUID],
+        selectedPanelId: UUID?,
+        presentPanelIds: Set<UUID>
+    ) -> (panelIds: [UUID], selectedPanelId: UUID?) {
+        let filteredPanelIds = panelIds.filter { presentPanelIds.contains($0) }
+        let filteredSelectedPanelId = selectedPanelId.flatMap { filteredPanelIds.contains($0) ? $0 : nil }
+        return (filteredPanelIds, filteredSelectedPanelId)
     }
 
     private func v2TreePaneSnapshots(in layout: SessionWorkspaceLayoutSnapshot) -> [SessionPaneLayoutSnapshot] {
