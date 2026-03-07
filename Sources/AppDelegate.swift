@@ -624,14 +624,6 @@ enum WorkspaceShortcutMapper {
         }
         return nil
     }
-
-    static func pageIndex(forOptionDigit digit: Int, pageCount: Int) -> Int? {
-        workspaceIndex(forCommandDigit: digit, workspaceCount: pageCount)
-    }
-
-    static func optionDigitForPage(at index: Int, pageCount: Int) -> Int? {
-        commandDigitForWorkspace(at: index, workspaceCount: pageCount)
-    }
 }
 
 struct CmuxCLIPathInstaller {
@@ -6851,61 +6843,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return handled
         }
 
-        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .newPage)) {
-            _ = tabManager?.selectedWorkspace?.newPage(select: true)
-            return true
-        }
-
-        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .renamePage)) {
-            guard let workspace = tabManager?.selectedWorkspace,
-                  let pageId = workspace.activePage?.id else {
-                return false
-            }
-            workspace.promptRenamePage(pageId: pageId)
-            return true
-        }
-
-        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .closePage)) {
-            guard let workspace = tabManager?.selectedWorkspace,
-                  let pageId = workspace.activePage?.id else {
-                return false
-            }
-            workspace.closePage(pageId)
-            return true
-        }
-
-        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .nextPage)) {
-            tabManager?.selectedWorkspace?.selectNextPage()
-            return true
-        }
-
-        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .previousPage)) {
-            tabManager?.selectedWorkspace?.selectPreviousPage()
-            return true
-        }
-
-        let pageSelectionShortcuts: [(KeyboardShortcutSettings.Action, Int?)] = [
-            (.selectPage1, 0),
-            (.selectPage2, 1),
-            (.selectPage3, 2),
-            (.selectPage4, 3),
-            (.selectPage5, 4),
-            (.selectPage6, 5),
-            (.selectPage7, 6),
-            (.selectPage8, 7),
-            (.selectLastPage, nil),
-        ]
-        for (action, pageIndex) in pageSelectionShortcuts {
-            if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: action)) {
-                if let pageIndex {
-                    tabManager?.selectedWorkspace?.selectPage(at: pageIndex)
-                } else {
-                    tabManager?.selectedWorkspace?.selectLastPage()
-                }
-                return true
-            }
-        }
-
         // Workspace navigation: Cmd+Ctrl+] / Cmd+Ctrl+[
         if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .nextSidebarTab)) {
 #if DEBUG
@@ -7830,14 +7767,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         // Control-key combos can surface as ASCII control characters (e.g. Ctrl+H => backspace),
         // so keep ANSI keyCode fallback for control-modified shortcuts. Also allow fallback for
-        // option-only digit/punctuation shortcuts, plus command punctuation shortcuts, since
-        // non-US layouts can report different characters for the same physical key even when
-        // the shortcut should still track the ANSI digit/punctuation position.
+        // command punctuation shortcuts, since some non-US layouts report different characters
+        // for the same physical key even when menu-equivalent semantics should still apply.
         let allowANSIKeyCodeFallback = flags.contains(.control)
-            || (!flags.contains(.command)
-                && flags.contains(.option)
-                && !flags.contains(.control)
-                && !shouldRequireCharacterMatchForCommandShortcut(shortcutKey: shortcutKey))
             || (flags.contains(.command)
                 && !flags.contains(.control)
                 && (
