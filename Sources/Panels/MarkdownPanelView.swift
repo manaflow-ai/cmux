@@ -60,6 +60,7 @@ struct MarkdownPanelView: View {
                 // Rendered markdown
                 Markdown(panel.content)
                     .markdownTheme(cmuxMarkdownTheme)
+                    .markdownCodeSyntaxHighlighter(cmuxCodeSyntaxHighlighter)
                     .textSelection(.enabled)
                     .padding(.horizontal, 24)
                     .padding(.vertical, 16)
@@ -109,6 +110,10 @@ struct MarkdownPanelView: View {
         colorScheme == .dark
             ? Color(nsColor: NSColor(white: 0.12, alpha: 1.0))
             : Color(nsColor: NSColor(white: 0.98, alpha: 1.0))
+    }
+
+    private var cmuxCodeSyntaxHighlighter: CodeSyntaxHighlighter {
+        CMUXMarkdownCodeSyntaxHighlighter(colorScheme: colorScheme)
     }
 
     private var cmuxMarkdownTheme: Theme {
@@ -188,7 +193,6 @@ struct MarkdownPanelView: View {
                         .markdownTextStyle {
                             FontFamilyVariant(.monospaced)
                             FontSize(13)
-                            ForegroundColor(isDark ? Color(red: 0.9, green: 0.9, blue: 0.9) : Color(red: 0.2, green: 0.2, blue: 0.2))
                         }
                         .padding(12)
                 }
