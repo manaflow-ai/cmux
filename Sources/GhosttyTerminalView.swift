@@ -4688,6 +4688,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if let windowObserver {
             NotificationCenter.default.removeObserver(windowObserver)
         }
+        if let trackingArea {
+            removeTrackingArea(trackingArea)
+        }
         terminalSurface = nil
     }
 

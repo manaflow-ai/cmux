@@ -9704,81 +9704,91 @@ class TerminalController {
         return "OK"
     }
 
-	    private func simulateShortcut(_ args: String) -> String {
-	        let combo = args.trimmingCharacters(in: .whitespacesAndNewlines)
-	        guard !combo.isEmpty else {
-	            return "ERROR: Usage: simulate_shortcut <combo>"
-	        }
-	        guard let parsed = parseShortcutCombo(combo) else {
-	            return "ERROR: Invalid combo. Example: cmd+ctrl+h"
-	        }
+    private func prepareWindowForSyntheticInput(_ window: NSWindow?) {
+        guard let window else { return }
 
-	        // Stamp at socket-handler arrival so event.timestamp includes any wait
-	        // before the main-thread event dispatch.
-	        let requestTimestamp = ProcessInfo.processInfo.systemUptime
-	
-	        var result = "ERROR: Failed to create event"
-	        DispatchQueue.main.sync {
-	            // Prefer the current active-tab-manager window so shortcut simulation stays
-	            // scoped to the intended window even when NSApp.keyWindow is stale.
-	            let targetWindow: NSWindow? = {
-	                if let activeTabManager = self.tabManager,
-	                   let windowId = AppDelegate.shared?.windowId(for: activeTabManager),
-	                   let window = AppDelegate.shared?.mainWindow(for: windowId) {
-	                    return window
-	                }
-	                return NSApp.keyWindow
-	                    ?? NSApp.mainWindow
-	                    ?? NSApp.windows.first(where: { $0.isVisible })
-	                    ?? NSApp.windows.first
-	            }()
-	            if let targetWindow {
-	                NSApp.activate(ignoringOtherApps: true)
-	                targetWindow.makeKeyAndOrderFront(nil)
-	            }
-	            let windowNumber = targetWindow?.windowNumber ?? 0
-	            guard let keyDownEvent = NSEvent.keyEvent(
-	                with: .keyDown,
-	                location: .zero,
-	                modifierFlags: parsed.modifierFlags,
-	                timestamp: requestTimestamp,
-	                windowNumber: windowNumber,
-	                context: nil,
-	                characters: parsed.characters,
-	                charactersIgnoringModifiers: parsed.charactersIgnoringModifiers,
-	                isARepeat: false,
-	                keyCode: parsed.keyCode
-	            ) else {
-	                result = "ERROR: NSEvent.keyEvent returned nil"
-	                return
-	            }
-	            let keyUpEvent = NSEvent.keyEvent(
-	                with: .keyUp,
-	                location: .zero,
-	                modifierFlags: parsed.modifierFlags,
-	                timestamp: requestTimestamp + 0.0001,
-	                windowNumber: windowNumber,
-	                context: nil,
-	                characters: parsed.characters,
-	                charactersIgnoringModifiers: parsed.charactersIgnoringModifiers,
-	                isARepeat: false,
-	                keyCode: parsed.keyCode
-	            )
-	            // Socket-driven shortcut simulation should reuse the exact same matching logic as the
-	            // app-level shortcut monitor (so tests are hermetic), while still falling back to the
-	            // normal responder chain for plain typing.
-	            if let delegate = AppDelegate.shared, delegate.debugHandleCustomShortcut(event: keyDownEvent) {
-	                result = "OK"
-	                return
-	            }
-	            NSApp.sendEvent(keyDownEvent)
-	            if let keyUpEvent {
-	                NSApp.sendEvent(keyUpEvent)
-	            }
-	            result = "OK"
-	        }
-	        return result
-	    }
+        // Keep socket-driven input simulation focused on the intended window without
+        // paying repeated activation/order-front costs for every synthetic key event.
+        if !NSApp.isActive {
+            NSApp.activate(ignoringOtherApps: true)
+        }
+        if !window.isKeyWindow || !window.isVisible {
+            window.makeKeyAndOrderFront(nil)
+        }
+    }
+
+    private func simulateShortcut(_ args: String) -> String {
+        let combo = args.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !combo.isEmpty else {
+            return "ERROR: Usage: simulate_shortcut <combo>"
+        }
+        guard let parsed = parseShortcutCombo(combo) else {
+            return "ERROR: Invalid combo. Example: cmd+ctrl+h"
+        }
+
+        // Stamp at socket-handler arrival so event.timestamp includes any wait
+        // before the main-thread event dispatch.
+        let requestTimestamp = ProcessInfo.processInfo.systemUptime
+
+        var result = "ERROR: Failed to create event"
+        DispatchQueue.main.sync {
+            // Prefer the current active-tab-manager window so shortcut simulation stays
+            // scoped to the intended window even when NSApp.keyWindow is stale.
+            let targetWindow: NSWindow? = {
+                if let activeTabManager = self.tabManager,
+                   let windowId = AppDelegate.shared?.windowId(for: activeTabManager),
+                   let window = AppDelegate.shared?.mainWindow(for: windowId) {
+                    return window
+                }
+                return NSApp.keyWindow
+                    ?? NSApp.mainWindow
+                    ?? NSApp.windows.first(where: { $0.isVisible })
+                    ?? NSApp.windows.first
+            }()
+            prepareWindowForSyntheticInput(targetWindow)
+            let windowNumber = targetWindow?.windowNumber ?? 0
+            guard let keyDownEvent = NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: parsed.modifierFlags,
+                timestamp: requestTimestamp,
+                windowNumber: windowNumber,
+                context: nil,
+                characters: parsed.characters,
+                charactersIgnoringModifiers: parsed.charactersIgnoringModifiers,
+                isARepeat: false,
+                keyCode: parsed.keyCode
+            ) else {
+                result = "ERROR: NSEvent.keyEvent returned nil"
+                return
+            }
+            let keyUpEvent = NSEvent.keyEvent(
+                with: .keyUp,
+                location: .zero,
+                modifierFlags: parsed.modifierFlags,
+                timestamp: requestTimestamp + 0.0001,
+                windowNumber: windowNumber,
+                context: nil,
+                characters: parsed.characters,
+                charactersIgnoringModifiers: parsed.charactersIgnoringModifiers,
+                isARepeat: false,
+                keyCode: parsed.keyCode
+            )
+            // Socket-driven shortcut simulation should reuse the exact same matching logic as the
+            // app-level shortcut monitor (so tests are hermetic), while still falling back to the
+            // normal responder chain for plain typing.
+            if let delegate = AppDelegate.shared, delegate.debugHandleCustomShortcut(event: keyDownEvent) {
+                result = "OK"
+                return
+            }
+            NSApp.sendEvent(keyDownEvent)
+            if let keyUpEvent {
+                NSApp.sendEvent(keyUpEvent)
+            }
+            result = "OK"
+        }
+        return result
+    }
 
     private func activateApp() -> String {
         DispatchQueue.main.sync {
@@ -9823,8 +9833,7 @@ class TerminalController {
                 ?? NSApp.mainWindow
                 ?? NSApp.windows.first(where: { $0.isVisible })
                 ?? NSApp.windows.first else { return }
-            NSApp.activate(ignoringOtherApps: true)
-            window.makeKeyAndOrderFront(nil)
+            prepareWindowForSyntheticInput(window)
             guard let fr = window.firstResponder else {
                 result = "ERROR: No first responder"
                 return
