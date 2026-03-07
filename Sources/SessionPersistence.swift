@@ -219,6 +219,9 @@ struct SessionProgressSnapshot: Codable, Sendable {
 struct SessionGitBranchSnapshot: Codable, Sendable {
     var branch: String
     var isDirty: Bool
+    var changedCount: Int?
+    var ahead: Int?
+    var behind: Int?
 }
 
 struct SessionTerminalPanelSnapshot: Codable, Sendable {

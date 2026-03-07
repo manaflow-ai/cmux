@@ -72685,6 +72685,38 @@
           }
         }
       }
+    },
+    "settings.app.showGitStatusCounts": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Git Status Counts"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gitステータスカウントを表示"
+          }
+        }
+      }
+    },
+    "settings.app.showGitStatusCounts.subtitle": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show uncommitted changes (!3), ahead (⇡1), and behind (⇣2) counts next to the branch name."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブランチ名の横に未コミットの変更(!3)、先行(⇡1)、遅延(⇣2)のカウントを表示します。"
+          }
+        }
+      }
     }
   }
 }
