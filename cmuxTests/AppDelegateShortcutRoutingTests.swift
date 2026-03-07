@@ -1457,6 +1457,39 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(workspace.activePageId, firstPageId)
     }
 
+    func testV2PageReorderSinglePageReturnsInvalidState() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            closeWindow(withId: windowId)
+        }
+
+        guard let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let pageId = workspace.activePage?.id else {
+            XCTFail("Expected test window and workspace")
+            return
+        }
+
+        TerminalController.shared.setActiveTabManager(manager)
+
+        let response = v2Response(
+            method: "page.reorder",
+            params: [
+                "workspace_id": workspace.id.uuidString,
+                "page_id": pageId.uuidString,
+                "index": 0
+            ]
+        )
+        XCTAssertEqual(response["ok"] as? Bool, false)
+        XCTAssertEqual((response["error"] as? [String: Any])?["code"] as? String, "invalid_state")
+    }
+
     func testV2PageCloseRequiresForceAndHonorsWorkspaceScope() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
@@ -1517,6 +1550,62 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
         XCTAssertEqual(closeResult["page_id"] as? String, pageId.uuidString)
         XCTAssertEqual(firstWorkspace.pages.count, 1)
+    }
+
+    func testV2PageMethodsRejectMalformedScopedIDsAndHonorWindowScope() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let firstWindowId = appDelegate.createMainWindow()
+        let secondWindowId = appDelegate.createMainWindow()
+
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            closeWindow(withId: firstWindowId)
+            closeWindow(withId: secondWindowId)
+        }
+
+        guard let firstManager = appDelegate.tabManagerFor(windowId: firstWindowId),
+              let secondManager = appDelegate.tabManagerFor(windowId: secondWindowId),
+              let firstWorkspace = firstManager.selectedWorkspace,
+              let secondWorkspace = secondManager.selectedWorkspace,
+              let pageId = firstWorkspace.activePage?.id else {
+            XCTFail("Expected both window contexts to exist")
+            return
+        }
+
+        firstWorkspace.setPageTitle(pageId: pageId, title: "Agents")
+        let secondWorkspaceInitialTitle = secondWorkspace.pages.first?.title
+        TerminalController.shared.setActiveTabManager(secondManager)
+
+        let malformedWorkspaceResponse = v2Response(
+            method: "page.duplicate",
+            params: ["workspace_id": "not-a-uuid"]
+        )
+        XCTAssertEqual(malformedWorkspaceResponse["ok"] as? Bool, false)
+        XCTAssertEqual((malformedWorkspaceResponse["error"] as? [String: Any])?["code"] as? String, "invalid_params")
+
+        let malformedPageResponse = v2Response(
+            method: "page.duplicate",
+            params: ["page_id": "not-a-uuid"]
+        )
+        XCTAssertEqual(malformedPageResponse["ok"] as? Bool, false)
+        XCTAssertEqual((malformedPageResponse["error"] as? [String: Any])?["code"] as? String, "invalid_params")
+
+        let crossWindowRenameResponse = v2Response(
+            method: "page.rename",
+            params: [
+                "window_id": secondWindowId.uuidString,
+                "page_id": pageId.uuidString,
+                "title": "Renamed From Wrong Window"
+            ]
+        )
+        XCTAssertEqual(crossWindowRenameResponse["ok"] as? Bool, false)
+        XCTAssertEqual((crossWindowRenameResponse["error"] as? [String: Any])?["code"] as? String, "not_found")
+        XCTAssertEqual(firstWorkspace.pages.first?.title, "Agents")
+        XCTAssertEqual(secondWorkspace.pages.first?.title, secondWorkspaceInitialTitle)
     }
 
     func testCmdShiftNonDigitKeySymbolDoesNotMatchShiftedDigitShortcut() {

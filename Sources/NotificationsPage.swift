@@ -131,7 +131,7 @@ struct NotificationsPage: View {
     }
 
     private var jumpToUnreadShortcut: StoredShortcut {
-        decodeShortcut(
+        StoredShortcut.decode(
             from: jumpToUnreadShortcutData,
             fallback: KeyboardShortcutSettings.Action.jumpToUnread.defaultShortcut
         )
@@ -139,14 +139,6 @@ struct NotificationsPage: View {
 
     private var hasUnreadNotifications: Bool {
         notificationStore.notifications.contains(where: { !$0.isRead })
-    }
-
-    private func decodeShortcut(from data: Data, fallback: StoredShortcut) -> StoredShortcut {
-        guard !data.isEmpty,
-              let shortcut = try? JSONDecoder().decode(StoredShortcut.self, from: data) else {
-            return fallback
-        }
-        return shortcut
     }
 
     private func tabTitle(for tabId: UUID) -> String? {

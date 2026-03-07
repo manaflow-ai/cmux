@@ -3604,7 +3604,7 @@ class TerminalController {
         let requestedPageId = v2UUID(params, "page_id")
         let title = v2String(params, "title")
         let select = v2FocusAllowed(requested: v2Bool(params, "select") ?? false)
-        let hasExplicitWorkspaceScope = params["workspace_id"] != nil
+        let hasExplicitResolutionScope = v2HasExplicitPageResolutionScope(params: params)
         var result: V2CallResult = .err(code: "not_found", message: "Page not found", data: nil)
 
         v2MainSync {
@@ -3613,24 +3613,20 @@ class TerminalController {
             case .resolved(let tabManager, let workspace):
                 resolved = (tabManager, workspace)
             case .pageNotFoundInScopedWorkspace:
-                result = .err(code: "not_found", message: "Page not found", data: [
-                    "page_id": v2OrNull(requestedPageId?.uuidString),
-                    "page_ref": v2Ref(kind: .page, uuid: requestedPageId)
-                ])
+                result = .err(code: "not_found", message: "Page not found", data: v2ScopedPageLookupData(params: params, pageId: requestedPageId))
                 return
             case .workspaceNotFound:
-                if hasExplicitWorkspaceScope {
-                    let workspaceId = v2UUID(params, "workspace_id")
-                    result = .err(code: "not_found", message: "Workspace not found", data: [
-                        "workspace_id": v2OrNull(workspaceId?.uuidString),
-                        "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId)
-                    ])
+                if hasExplicitResolutionScope {
+                    result = .err(code: "not_found", message: "Workspace not found", data: v2ScopedWorkspaceLookupData(params: params))
                 } else {
                     result = .err(code: "not_found", message: "Page not found", data: [
                         "page_id": v2OrNull(requestedPageId?.uuidString),
                         "page_ref": v2Ref(kind: .page, uuid: requestedPageId)
                     ])
                 }
+                return
+            case .invalidParams:
+                result = v2PageResolutionInvalidParamsResult(params: params, pageId: requestedPageId)
                 return
             }
 
@@ -3709,7 +3705,7 @@ class TerminalController {
         }
 
         let force = v2Bool(params, "force") ?? false
-        let hasExplicitWorkspaceScope = params["workspace_id"] != nil
+        let hasExplicitResolutionScope = v2HasExplicitPageResolutionScope(params: params)
         let pageData: [String: Any] = [
             "page_id": pageId.uuidString,
             "page_ref": v2Ref(kind: .page, uuid: pageId)
@@ -3733,22 +3729,15 @@ class TerminalController {
             case .resolved(let tabManager, let workspace):
                 resolved = (tabManager, workspace)
             case .pageNotFoundInScopedWorkspace:
-                let workspaceId = v2UUID(params, "workspace_id")
-                result = .err(code: "not_found", message: "Page not found", data: [
-                    "workspace_id": v2OrNull(workspaceId?.uuidString),
-                    "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
-                    "page_id": pageId.uuidString,
-                    "page_ref": v2Ref(kind: .page, uuid: pageId)
-                ])
+                result = .err(code: "not_found", message: "Page not found", data: v2ScopedPageLookupData(params: params, pageId: pageId))
                 return
             case .workspaceNotFound:
-                if hasExplicitWorkspaceScope {
-                    let workspaceId = v2UUID(params, "workspace_id")
-                    result = .err(code: "not_found", message: "Workspace not found", data: [
-                        "workspace_id": v2OrNull(workspaceId?.uuidString),
-                        "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId)
-                    ])
+                if hasExplicitResolutionScope {
+                    result = .err(code: "not_found", message: "Workspace not found", data: v2ScopedWorkspaceLookupData(params: params))
                 }
+                return
+            case .invalidParams:
+                result = v2PageResolutionInvalidParamsResult(params: params, pageId: pageId)
                 return
             }
 
@@ -3784,7 +3773,7 @@ class TerminalController {
         let index = v2Int(params, "index")
         let beforeId = v2UUID(params, "before_page_id")
         let afterId = v2UUID(params, "after_page_id")
-        let hasExplicitWorkspaceScope = params["workspace_id"] != nil
+        let hasExplicitResolutionScope = v2HasExplicitPageResolutionScope(params: params)
         let targetCount = (index != nil ? 1 : 0) + (beforeId != nil ? 1 : 0) + (afterId != nil ? 1 : 0)
         if targetCount != 1 {
             return .err(
@@ -3804,22 +3793,15 @@ class TerminalController {
             case .resolved(let tabManager, let workspace):
                 resolved = (tabManager, workspace)
             case .pageNotFoundInScopedWorkspace:
-                let workspaceId = v2UUID(params, "workspace_id")
-                result = .err(code: "not_found", message: "Page not found", data: [
-                    "workspace_id": v2OrNull(workspaceId?.uuidString),
-                    "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
-                    "page_id": pageId.uuidString,
-                    "page_ref": v2Ref(kind: .page, uuid: pageId)
-                ])
+                result = .err(code: "not_found", message: "Page not found", data: v2ScopedPageLookupData(params: params, pageId: pageId))
                 return
             case .workspaceNotFound:
-                if hasExplicitWorkspaceScope {
-                    let workspaceId = v2UUID(params, "workspace_id")
-                    result = .err(code: "not_found", message: "Workspace not found", data: [
-                        "workspace_id": v2OrNull(workspaceId?.uuidString),
-                        "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId)
-                    ])
+                if hasExplicitResolutionScope {
+                    result = .err(code: "not_found", message: "Workspace not found", data: v2ScopedWorkspaceLookupData(params: params))
                 }
+                return
+            case .invalidParams:
+                result = v2PageResolutionInvalidParamsResult(params: params, pageId: pageId)
                 return
             }
 
@@ -3862,7 +3844,14 @@ class TerminalController {
                 return
             }
 
-            guard resolved.workspace.movePage(pageId: pageId, toIndex: destinationIndex) else { return }
+            guard resolved.workspace.movePage(pageId: pageId, toIndex: destinationIndex) else {
+                result = .err(
+                    code: "invalid_state",
+                    message: "Cannot reorder the only page in a workspace",
+                    data: v2ScopedPageLookupData(params: params, pageId: pageId)
+                )
+                return
+            }
 
             var payload = v2PageResultPayload(tabManager: resolved.tabManager, workspace: resolved.workspace, pageId: pageId)
             payload["index"] = v2OrNull(resolved.workspace.pageIndex(pageId: pageId))
@@ -3879,7 +3868,7 @@ class TerminalController {
             return .err(code: "invalid_params", message: "Missing or invalid title", data: nil)
         }
 
-        let hasExplicitWorkspaceScope = params["workspace_id"] != nil
+        let hasExplicitResolutionScope = v2HasExplicitPageResolutionScope(params: params)
         var result: V2CallResult = .err(code: "not_found", message: "Page not found", data: [
             "page_id": pageId.uuidString,
             "page_ref": v2Ref(kind: .page, uuid: pageId)
@@ -3890,22 +3879,15 @@ class TerminalController {
             case .resolved(let tabManager, let workspace):
                 resolved = (tabManager, workspace)
             case .pageNotFoundInScopedWorkspace:
-                let workspaceId = v2UUID(params, "workspace_id")
-                result = .err(code: "not_found", message: "Page not found", data: [
-                    "workspace_id": v2OrNull(workspaceId?.uuidString),
-                    "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
-                    "page_id": pageId.uuidString,
-                    "page_ref": v2Ref(kind: .page, uuid: pageId)
-                ])
+                result = .err(code: "not_found", message: "Page not found", data: v2ScopedPageLookupData(params: params, pageId: pageId))
                 return
             case .workspaceNotFound:
-                if hasExplicitWorkspaceScope {
-                    let workspaceId = v2UUID(params, "workspace_id")
-                    result = .err(code: "not_found", message: "Workspace not found", data: [
-                        "workspace_id": v2OrNull(workspaceId?.uuidString),
-                        "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId)
-                    ])
+                if hasExplicitResolutionScope {
+                    result = .err(code: "not_found", message: "Workspace not found", data: v2ScopedWorkspaceLookupData(params: params))
                 }
+                return
+            case .invalidParams:
+                result = v2PageResolutionInvalidParamsResult(params: params, pageId: pageId)
                 return
             }
 
@@ -4249,13 +4231,89 @@ class TerminalController {
         case resolved(tabManager: TabManager, workspace: Workspace)
         case workspaceNotFound
         case pageNotFoundInScopedWorkspace
+        case invalidParams
+    }
+
+    private func v2HasExplicitPageResolutionScope(params: [String: Any]) -> Bool {
+        params["workspace_id"] != nil
+            || params["window_id"] != nil
+            || params["surface_id"] != nil
+            || params["tab_id"] != nil
+    }
+
+    private func v2ScopedWorkspaceLookupData(params: [String: Any]) -> [String: Any]? {
+        var data: [String: Any] = [:]
+
+        if params["window_id"] != nil {
+            let windowId = v2UUID(params, "window_id")
+            data["window_id"] = v2OrNull(windowId?.uuidString)
+            data["window_ref"] = v2Ref(kind: .window, uuid: windowId)
+        }
+        if params["workspace_id"] != nil {
+            let workspaceId = v2UUID(params, "workspace_id")
+            data["workspace_id"] = v2OrNull(workspaceId?.uuidString)
+            data["workspace_ref"] = v2Ref(kind: .workspace, uuid: workspaceId)
+        }
+        if params["surface_id"] != nil {
+            let surfaceId = v2UUID(params, "surface_id")
+            data["surface_id"] = v2OrNull(surfaceId?.uuidString)
+            data["surface_ref"] = v2Ref(kind: .surface, uuid: surfaceId)
+        }
+        if params["tab_id"] != nil {
+            let tabId = v2UUID(params, "tab_id")
+            data["tab_id"] = v2OrNull(tabId?.uuidString)
+            data["tab_ref"] = v2TabRef(uuid: tabId)
+        }
+
+        return data.isEmpty ? nil : data
+    }
+
+    private func v2ScopedPageLookupData(params: [String: Any], pageId: UUID?) -> [String: Any] {
+        var data = v2ScopedWorkspaceLookupData(params: params) ?? [:]
+        data["page_id"] = v2OrNull(pageId?.uuidString)
+        data["page_ref"] = v2Ref(kind: .page, uuid: pageId)
+        return data
+    }
+
+    private func v2PageResolutionInvalidParamsResult(params: [String: Any], pageId: UUID?) -> V2CallResult {
+        if params["window_id"] != nil && v2UUID(params, "window_id") == nil {
+            return .err(code: "invalid_params", message: "Missing or invalid window_id", data: nil)
+        }
+        if params["workspace_id"] != nil && v2UUID(params, "workspace_id") == nil {
+            return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
+        }
+        if params["surface_id"] != nil && v2UUID(params, "surface_id") == nil {
+            return .err(code: "invalid_params", message: "Missing or invalid surface_id", data: nil)
+        }
+        if params["tab_id"] != nil && v2UUID(params, "tab_id") == nil {
+            return .err(code: "invalid_params", message: "Missing or invalid tab_id", data: nil)
+        }
+        if params["page_id"] != nil && pageId == nil {
+            return .err(code: "invalid_params", message: "Missing or invalid page_id", data: nil)
+        }
+        return .err(code: "invalid_params", message: "Invalid page routing parameters", data: nil)
     }
 
     private func v2ResolveWorkspaceForPage(
         params: [String: Any],
         pageId: UUID?
     ) -> V2PageWorkspaceResolution {
-        let hasExplicitWorkspaceScope = params["workspace_id"] != nil
+        let hasExplicitScope = v2HasExplicitPageResolutionScope(params: params)
+        if params["window_id"] != nil && v2UUID(params, "window_id") == nil {
+            return .invalidParams
+        }
+        if params["workspace_id"] != nil && v2UUID(params, "workspace_id") == nil {
+            return .invalidParams
+        }
+        if params["surface_id"] != nil && v2UUID(params, "surface_id") == nil {
+            return .invalidParams
+        }
+        if params["tab_id"] != nil && v2UUID(params, "tab_id") == nil {
+            return .invalidParams
+        }
+        if params["page_id"] != nil && pageId == nil {
+            return .invalidParams
+        }
 
         if let explicitTabManager = v2ResolveTabManager(params: params),
            let workspace = v2ResolveWorkspace(params: params, tabManager: explicitTabManager) {
@@ -4263,7 +4321,7 @@ class TerminalController {
                 if workspace.pageIndex(pageId: pageId) != nil {
                     return .resolved(tabManager: explicitTabManager, workspace: workspace)
                 }
-                if hasExplicitWorkspaceScope {
+                if hasExplicitScope {
                     return .pageNotFoundInScopedWorkspace
                 }
             } else {
@@ -4272,7 +4330,7 @@ class TerminalController {
         }
 
         if let pageId,
-           !hasExplicitWorkspaceScope,
+           !hasExplicitScope,
            let located = v2LocatePage(pageId) {
             return .resolved(tabManager: located.tabManager, workspace: located.workspace)
         }

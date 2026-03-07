@@ -1317,9 +1317,7 @@ struct ContentView: View {
     @State private var titlebarPageDropIndicator: TitlebarPageDropIndicator?
     @State private var titlebarPageWidths: [UUID: CGFloat] = [:]
     @StateObject private var titlebarPageDragAutoScrollController = TitlebarPageDragAutoScrollController()
-    @StateObject private var titlebarPageShortcutHintMonitor = ShortcutHintModifierMonitor(
-        requiredModifierFlagsProvider: { ContentView.titlebarPageShortcutHintModifierFlags() }
-    )
+    @StateObject private var titlebarPageShortcutHintMonitor = ShortcutHintModifierMonitor(requiredModifierFlags: [.command])
     @State private var titlebarPageDragMonitorTask: Task<Void, Never>?
     @State private var sidebarDraggedTabId: UUID?
     @State private var titlebarTextUpdateCoalescer = NotificationBurstCoalescer(delay: 1.0 / 30.0)
@@ -1533,6 +1531,7 @@ struct ContentView: View {
         static let workspaceHasPullRequests = "workspace.hasPullRequests"
         static let workspaceHasSplits = "workspace.hasSplits"
         static let workspaceHasMultiplePages = "workspace.hasMultiplePages"
+        static let pageCanClose = "page.canClose"
         static let pageCanMoveLeft = "page.canMoveLeft"
         static let pageCanMoveRight = "page.canMoveRight"
 
@@ -4337,24 +4336,6 @@ struct ContentView: View {
         return KeyboardShortcutSettings.shortcut(for: action).displayString
     }
 
-    private static func titlebarPageShortcutHintModifierFlags() -> NSEvent.ModifierFlags {
-        let actions: [KeyboardShortcutSettings.Action] = [
-            .selectPage1,
-            .selectPage2,
-            .selectPage3,
-            .selectPage4,
-            .selectPage5,
-            .selectPage6,
-            .selectPage7,
-            .selectPage8,
-            .selectLastPage,
-        ]
-        let flags = actions
-            .map { KeyboardShortcutSettings.shortcut(for: $0).modifierFlags }
-            .filter { !$0.isEmpty }
-        return flags.first ?? [.command]
-    }
-
     private func commandPaletteShortcutHint(
         for contribution: CommandPaletteCommandContribution,
         context: CommandPaletteContextSnapshot
@@ -4486,6 +4467,9 @@ struct ContentView: View {
             snapshot.setBool(CommandPaletteContextKeys.workspaceHasCustomName, workspace.customTitle != nil)
             snapshot.setBool(CommandPaletteContextKeys.workspaceShouldPin, !workspace.isPinned)
             snapshot.setBool(CommandPaletteContextKeys.workspaceHasMultiplePages, workspace.pages.count > 1)
+            if let activePage = workspace.activePage {
+                snapshot.setBool(CommandPaletteContextKeys.pageCanClose, workspace.canClosePage(activePage.id))
+            }
             if let activePageIndex = workspace.activePageIndex {
                 snapshot.setBool(CommandPaletteContextKeys.pageCanMoveLeft, activePageIndex > 0)
                 snapshot.setBool(
@@ -4831,7 +4815,7 @@ struct ContentView: View {
                 keywords: ["close", "page", "workspace"],
                 when: {
                     $0.bool(CommandPaletteContextKeys.hasWorkspace)
-                        && $0.bool(CommandPaletteContextKeys.workspaceHasMultiplePages)
+                        && $0.bool(CommandPaletteContextKeys.pageCanClose)
                 }
             )
         )
@@ -9153,7 +9137,7 @@ private struct SidebarHelpMenuButton: View {
     @State private var isPopoverPresented = false
 
     private var sendFeedbackShortcutHint: String {
-        decodeShortcut(
+        StoredShortcut.decode(
             from: sendFeedbackShortcutData,
             fallback: KeyboardShortcutSettings.Action.sendFeedback.defaultShortcut
         ).displayString
@@ -9325,13 +9309,6 @@ private struct SidebarHelpMenuButton: View {
         }
     }
 
-    private func decodeShortcut(from data: Data, fallback: StoredShortcut) -> StoredShortcut {
-        guard !data.isEmpty,
-              let shortcut = try? JSONDecoder().decode(StoredShortcut.self, from: data) else {
-            return fallback
-        }
-        return shortcut
-    }
 }
 
 private struct SidebarFooterIconButtonStyle: ButtonStyle {

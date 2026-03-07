@@ -336,19 +336,11 @@ struct EmptyPanelView: View {
     }
 
     private var newSurfaceShortcut: StoredShortcut {
-        decodeShortcut(from: newSurfaceShortcutData, fallback: KeyboardShortcutSettings.Action.newSurface.defaultShortcut)
+        StoredShortcut.decode(from: newSurfaceShortcutData, fallback: KeyboardShortcutSettings.Action.newSurface.defaultShortcut)
     }
 
     private var openBrowserShortcut: StoredShortcut {
-        decodeShortcut(from: openBrowserShortcutData, fallback: KeyboardShortcutSettings.Action.openBrowser.defaultShortcut)
-    }
-
-    private func decodeShortcut(from data: Data, fallback: StoredShortcut) -> StoredShortcut {
-        guard !data.isEmpty,
-              let shortcut = try? JSONDecoder().decode(StoredShortcut.self, from: data) else {
-            return fallback
-        }
-        return shortcut
+        StoredShortcut.decode(from: openBrowserShortcutData, fallback: KeyboardShortcutSettings.Action.openBrowser.defaultShortcut)
     }
 
     @ViewBuilder

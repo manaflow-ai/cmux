@@ -784,137 +784,137 @@ struct cmuxApp: App {
     }
 
     private var splitRightMenuShortcut: StoredShortcut {
-        decodeShortcut(from: splitRightShortcutData, fallback: KeyboardShortcutSettings.Action.splitRight.defaultShortcut)
+        StoredShortcut.decode(from: splitRightShortcutData, fallback: KeyboardShortcutSettings.Action.splitRight.defaultShortcut)
     }
 
     private var toggleSidebarMenuShortcut: StoredShortcut {
-        decodeShortcut(from: toggleSidebarShortcutData, fallback: KeyboardShortcutSettings.Action.toggleSidebar.defaultShortcut)
+        StoredShortcut.decode(from: toggleSidebarShortcutData, fallback: KeyboardShortcutSettings.Action.toggleSidebar.defaultShortcut)
     }
 
     private var newWorkspaceMenuShortcut: StoredShortcut {
-        decodeShortcut(from: newWorkspaceShortcutData, fallback: KeyboardShortcutSettings.Action.newTab.defaultShortcut)
+        StoredShortcut.decode(from: newWorkspaceShortcutData, fallback: KeyboardShortcutSettings.Action.newTab.defaultShortcut)
     }
 
     private var newWindowMenuShortcut: StoredShortcut {
-        decodeShortcut(from: newWindowShortcutData, fallback: KeyboardShortcutSettings.Action.newWindow.defaultShortcut)
+        StoredShortcut.decode(from: newWindowShortcutData, fallback: KeyboardShortcutSettings.Action.newWindow.defaultShortcut)
     }
 
     private var openFolderMenuShortcut: StoredShortcut {
-        decodeShortcut(from: openFolderShortcutData, fallback: KeyboardShortcutSettings.Action.openFolder.defaultShortcut)
+        StoredShortcut.decode(from: openFolderShortcutData, fallback: KeyboardShortcutSettings.Action.openFolder.defaultShortcut)
     }
 
     private var showNotificationsMenuShortcut: StoredShortcut {
-        decodeShortcut(
+        StoredShortcut.decode(
             from: showNotificationsShortcutData,
             fallback: KeyboardShortcutSettings.Action.showNotifications.defaultShortcut
         )
     }
 
     private var jumpToUnreadMenuShortcut: StoredShortcut {
-        decodeShortcut(
+        StoredShortcut.decode(
             from: jumpToUnreadShortcutData,
             fallback: KeyboardShortcutSettings.Action.jumpToUnread.defaultShortcut
         )
     }
 
     private var nextSurfaceMenuShortcut: StoredShortcut {
-        decodeShortcut(from: nextSurfaceShortcutData, fallback: KeyboardShortcutSettings.Action.nextSurface.defaultShortcut)
+        StoredShortcut.decode(from: nextSurfaceShortcutData, fallback: KeyboardShortcutSettings.Action.nextSurface.defaultShortcut)
     }
 
     private var prevSurfaceMenuShortcut: StoredShortcut {
-        decodeShortcut(from: prevSurfaceShortcutData, fallback: KeyboardShortcutSettings.Action.prevSurface.defaultShortcut)
+        StoredShortcut.decode(from: prevSurfaceShortcutData, fallback: KeyboardShortcutSettings.Action.prevSurface.defaultShortcut)
     }
 
     private var nextWorkspaceMenuShortcut: StoredShortcut {
-        decodeShortcut(
+        StoredShortcut.decode(
             from: nextWorkspaceShortcutData,
             fallback: KeyboardShortcutSettings.Action.nextSidebarTab.defaultShortcut
         )
     }
 
     private var prevWorkspaceMenuShortcut: StoredShortcut {
-        decodeShortcut(
+        StoredShortcut.decode(
             from: prevWorkspaceShortcutData,
             fallback: KeyboardShortcutSettings.Action.prevSidebarTab.defaultShortcut
         )
     }
 
     private var splitDownMenuShortcut: StoredShortcut {
-        decodeShortcut(from: splitDownShortcutData, fallback: KeyboardShortcutSettings.Action.splitDown.defaultShortcut)
+        StoredShortcut.decode(from: splitDownShortcutData, fallback: KeyboardShortcutSettings.Action.splitDown.defaultShortcut)
     }
 
     private var toggleBrowserDeveloperToolsMenuShortcut: StoredShortcut {
-        decodeShortcut(
+        StoredShortcut.decode(
             from: toggleBrowserDeveloperToolsShortcutData,
             fallback: KeyboardShortcutSettings.Action.toggleBrowserDeveloperTools.defaultShortcut
         )
     }
 
     private var showBrowserJavaScriptConsoleMenuShortcut: StoredShortcut {
-        decodeShortcut(
+        StoredShortcut.decode(
             from: showBrowserJavaScriptConsoleShortcutData,
             fallback: KeyboardShortcutSettings.Action.showBrowserJavaScriptConsole.defaultShortcut
         )
     }
 
     private var splitBrowserRightMenuShortcut: StoredShortcut {
-        decodeShortcut(
+        StoredShortcut.decode(
             from: splitBrowserRightShortcutData,
             fallback: KeyboardShortcutSettings.Action.splitBrowserRight.defaultShortcut
         )
     }
 
     private var splitBrowserDownMenuShortcut: StoredShortcut {
-        decodeShortcut(
+        StoredShortcut.decode(
             from: splitBrowserDownShortcutData,
             fallback: KeyboardShortcutSettings.Action.splitBrowserDown.defaultShortcut
         )
     }
 
     private var renameWorkspaceMenuShortcut: StoredShortcut {
-        decodeShortcut(
+        StoredShortcut.decode(
             from: renameWorkspaceShortcutData,
             fallback: KeyboardShortcutSettings.Action.renameWorkspace.defaultShortcut
         )
     }
 
     private var closeWorkspaceMenuShortcut: StoredShortcut {
-        decodeShortcut(
+        StoredShortcut.decode(
             from: closeWorkspaceShortcutData,
             fallback: KeyboardShortcutSettings.Action.closeWorkspace.defaultShortcut
         )
     }
 
     private var newPageMenuShortcut: StoredShortcut {
-        decodeShortcut(
+        StoredShortcut.decode(
             from: newPageShortcutData,
             fallback: KeyboardShortcutSettings.Action.newPage.defaultShortcut
         )
     }
 
     private var renamePageMenuShortcut: StoredShortcut {
-        decodeShortcut(
+        StoredShortcut.decode(
             from: renamePageShortcutData,
             fallback: KeyboardShortcutSettings.Action.renamePage.defaultShortcut
         )
     }
 
     private var closePageMenuShortcut: StoredShortcut {
-        decodeShortcut(
+        StoredShortcut.decode(
             from: closePageShortcutData,
             fallback: KeyboardShortcutSettings.Action.closePage.defaultShortcut
         )
     }
 
     private var nextPageMenuShortcut: StoredShortcut {
-        decodeShortcut(
+        StoredShortcut.decode(
             from: nextPageShortcutData,
             fallback: KeyboardShortcutSettings.Action.nextPage.defaultShortcut
         )
     }
 
     private var previousPageMenuShortcut: StoredShortcut {
-        decodeShortcut(
+        StoredShortcut.decode(
             from: previousPageShortcutData,
             fallback: KeyboardShortcutSettings.Action.previousPage.defaultShortcut
         )
@@ -928,14 +928,6 @@ struct cmuxApp: App {
         AppDelegate.shared?.synchronizeActiveMainWindowContext(
             preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
         ) ?? tabManager
-    }
-
-    private func decodeShortcut(from data: Data, fallback: StoredShortcut) -> StoredShortcut {
-        guard !data.isEmpty,
-              let shortcut = try? JSONDecoder().decode(StoredShortcut.self, from: data) else {
-            return fallback
-        }
-        return shortcut
     }
 
     private func notificationMenuItemTitle(for notification: TerminalNotification) -> String {
@@ -978,42 +970,42 @@ struct cmuxApp: App {
     private func pageSelectionMenuShortcut(index: Int, pageCount: Int) -> StoredShortcut? {
         switch index {
         case 0:
-            return decodeShortcut(
+            return StoredShortcut.decode(
                 from: selectPage1ShortcutData,
                 fallback: KeyboardShortcutSettings.Action.selectPage1.defaultShortcut
             )
         case 1:
-            return decodeShortcut(
+            return StoredShortcut.decode(
                 from: selectPage2ShortcutData,
                 fallback: KeyboardShortcutSettings.Action.selectPage2.defaultShortcut
             )
         case 2:
-            return decodeShortcut(
+            return StoredShortcut.decode(
                 from: selectPage3ShortcutData,
                 fallback: KeyboardShortcutSettings.Action.selectPage3.defaultShortcut
             )
         case 3:
-            return decodeShortcut(
+            return StoredShortcut.decode(
                 from: selectPage4ShortcutData,
                 fallback: KeyboardShortcutSettings.Action.selectPage4.defaultShortcut
             )
         case 4:
-            return decodeShortcut(
+            return StoredShortcut.decode(
                 from: selectPage5ShortcutData,
                 fallback: KeyboardShortcutSettings.Action.selectPage5.defaultShortcut
             )
         case 5:
-            return decodeShortcut(
+            return StoredShortcut.decode(
                 from: selectPage6ShortcutData,
                 fallback: KeyboardShortcutSettings.Action.selectPage6.defaultShortcut
             )
         case 6:
-            return decodeShortcut(
+            return StoredShortcut.decode(
                 from: selectPage7ShortcutData,
                 fallback: KeyboardShortcutSettings.Action.selectPage7.defaultShortcut
             )
         case 7:
-            return decodeShortcut(
+            return StoredShortcut.decode(
                 from: selectPage8ShortcutData,
                 fallback: KeyboardShortcutSettings.Action.selectPage8.defaultShortcut
             )
@@ -1022,7 +1014,7 @@ struct cmuxApp: App {
         }
 
         if index == pageCount - 1 {
-            return decodeShortcut(
+            return StoredShortcut.decode(
                 from: selectLastPageShortcutData,
                 fallback: KeyboardShortcutSettings.Action.selectLastPage.defaultShortcut
             )

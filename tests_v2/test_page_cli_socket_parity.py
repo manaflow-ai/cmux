@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from cmux import cmux, cmuxError
 
 
-def _resolve_socket_path() -> str:
+def _resolve_socket_path() -> str | None:
     explicit = os.environ.get("CMUX_SOCKET")
     if explicit:
         return explicit
@@ -22,10 +22,16 @@ def _resolve_socket_path() -> str:
     if tag:
         return f"/tmp/cmux-debug-{tag}.sock"
 
-    raise cmuxError("Set CMUX_SOCKET or CMUX_TAG before running tests_v2 page parity against a tagged cmux build")
+    return None
 
 
-SOCKET_PATH = _resolve_socket_path()
+SOCKET_PATH: str | None = _resolve_socket_path()
+
+
+def _require_socket_path() -> str:
+    if SOCKET_PATH is None:
+        raise cmuxError("Set CMUX_SOCKET or CMUX_TAG before running tests_v2 page parity against a tagged cmux build")
+    return SOCKET_PATH
 
 
 def _must(cond: bool, msg: str) -> None:
@@ -52,12 +58,13 @@ def _find_cli_binary() -> str:
 
 
 def _run_cli(cli: str, args: List[str], json_output: bool) -> str:
+    socket_path = _require_socket_path()
     env = dict(os.environ)
     env.pop("CMUX_WORKSPACE_ID", None)
     env.pop("CMUX_SURFACE_ID", None)
     env.pop("CMUX_TAB_ID", None)
 
-    cmd = [cli, "--socket", SOCKET_PATH]
+    cmd = [cli, "--socket", socket_path]
     if json_output:
         cmd.append("--json")
     cmd.extend(args)
@@ -95,12 +102,13 @@ def _workspace_node(tree: Dict, workspace_id: str) -> Dict:
 
 def main() -> int:
     cli = _find_cli_binary()
+    socket_path = _require_socket_path()
 
     help_text = _run_cli(cli, ["list-pages", "--help"], json_output=False)
     _must("page:<n>" in help_text, "list-pages --help should mention page:<n> refs")
     _must("current-page" in help_text, "list-pages --help should mention related page commands")
 
-    with cmux(SOCKET_PATH) as c:
+    with cmux(socket_path) as c:
         created = c._call("workspace.create", {}) or {}
         workspace_id = str(created.get("workspace_id") or "")
         _must(bool(workspace_id), f"workspace.create returned no workspace_id: {created}")

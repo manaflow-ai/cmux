@@ -1485,7 +1485,7 @@ final class Workspace: Identifiable, ObservableObject {
             selectPage(page.id)
         }
 
-        return page
+        return pages.first(where: { $0.id == page.id })
     }
 
     func selectPage(_ pageId: UUID) {
@@ -1755,9 +1755,10 @@ final class Workspace: Identifiable, ObservableObject {
 
         let expectedPanelIds = Set(storedState.sessionState.panels.map(\.id))
         if let runtimeState = storedState.runtimeState,
-           Set(runtimeState.detachedSurfaces.keys) == expectedPanelIds {
+           expectedPanelIds.isSubset(of: Set(runtimeState.detachedSurfaces.keys)) {
             restoreRuntimePageState(runtimeState)
         } else {
+            teardownDetachedSurfaces(storedState.runtimeState?.detachedSurfaces)
             restoreSessionPageState(storedState.sessionState)
         }
     }
@@ -1844,8 +1845,12 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func teardownStoredPageState(_ storedState: StoredPageState) {
-        guard let runtimeState = storedState.runtimeState else { return }
-        for transfer in runtimeState.detachedSurfaces.values {
+        teardownDetachedSurfaces(storedState.runtimeState?.detachedSurfaces)
+    }
+
+    private func teardownDetachedSurfaces(_ detachedSurfaces: [UUID: DetachedSurfaceTransfer]?) {
+        guard let detachedSurfaces else { return }
+        for transfer in detachedSurfaces.values {
             transfer.panel.close()
         }
     }

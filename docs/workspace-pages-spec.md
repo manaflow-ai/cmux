@@ -389,6 +389,7 @@ Identity and targeting:
 1. `system.identify` includes `page_id`, `page_ref`, `page_index`, and `page_title` inside the `focused` payload.
 2. Short refs support `page:<n>`.
 3. Commands that target panes or surfaces without an explicit page should resolve against the currently selected page in the targeted workspace.
+4. Socket clients must pass `force=true` to `page.close` because the transport cannot show confirmation UI. The CLI `close-page` command supplies that automatically.
 
 Implemented CLI surface:
 

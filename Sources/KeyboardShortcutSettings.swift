@@ -436,6 +436,14 @@ struct StoredShortcut: Codable, Equatable {
         }
     }
 
+    static func decode(from data: Data, fallback: StoredShortcut) -> StoredShortcut {
+        guard !data.isEmpty,
+              let shortcut = try? JSONDecoder().decode(StoredShortcut.self, from: data) else {
+            return fallback
+        }
+        return shortcut
+    }
+
     static func from(event: NSEvent) -> StoredShortcut? {
         guard let key = storedKey(from: event) else { return nil }
 

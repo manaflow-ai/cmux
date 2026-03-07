@@ -1141,11 +1141,16 @@ struct CMUXCLI {
             let (wsArg, rem0) = parseOption(commandArgs, name: "--workspace")
             let (titleOpt, rem1) = parseOption(rem0, name: "--title")
             let workspaceArg = wsArg ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+            let trailing = try positionalArguments(rem1, command: "new-page")
             let title: String?
             if let titleOpt {
+                guard trailing.isEmpty else {
+                    throw CLIError(message: "new-page: unexpected arguments: \(trailing.joined(separator: " "))")
+                }
                 title = titleOpt
             } else {
-                title = try trailingTextArgument(rem1, command: "new-page")
+                let trailingTitle = trailing.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+                title = trailingTitle.isEmpty ? nil : trailingTitle
             }
             var params: [String: Any] = [:]
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client, allowCurrent: true)
@@ -1159,11 +1164,16 @@ struct CMUXCLI {
             let (pageOpt, rem1) = parseOption(rem0, name: "--page")
             let (titleOpt, rem2) = parseOption(rem1, name: "--title")
             let workspaceArg = wsArg ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+            let trailing = try positionalArguments(rem2, command: "duplicate-page")
             let title: String?
             if let titleOpt {
+                guard trailing.isEmpty else {
+                    throw CLIError(message: "duplicate-page: unexpected arguments: \(trailing.joined(separator: " "))")
+                }
                 title = titleOpt
             } else {
-                title = try trailingTextArgument(rem2, command: "duplicate-page")
+                let trailingTitle = trailing.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+                title = trailingTitle.isEmpty ? nil : trailingTitle
             }
             var params: [String: Any] = [:]
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client, allowCurrent: true)
@@ -1408,11 +1418,18 @@ struct CMUXCLI {
             let (wsArg, rem0) = parseOption(commandArgs, name: "--workspace")
             let (pageOpt, rem1) = parseOption(rem0, name: "--page")
             let workspaceArg = wsArg ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+            let trailing = try positionalArguments(rem1, command: "close-page")
             let pageRaw: String?
             if let pageOpt {
+                guard trailing.isEmpty else {
+                    throw CLIError(message: "close-page: unexpected arguments: \(trailing.joined(separator: " "))")
+                }
                 pageRaw = pageOpt
             } else {
-                pageRaw = try positionalArguments(rem1, command: "close-page").first
+                guard trailing.count <= 1 else {
+                    throw CLIError(message: "close-page: unexpected arguments: \(trailing.dropFirst().joined(separator: " "))")
+                }
+                pageRaw = trailing.first
             }
             var params: [String: Any] = [:]
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client, allowCurrent: true)
