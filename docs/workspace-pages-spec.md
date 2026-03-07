@@ -221,6 +221,7 @@ Lifecycle policy:
 3. Switching pages must not kill PTYs, throw away scrollback, or reload browser state just because the page is inactive.
 4. Re-activating a page should reattach its existing panels instead of reconstructing the whole layout from scratch.
 5. Hidden pages should not keep participating in hit testing, layout, or display-driven redraw work.
+6. Rapid workspace switching must also hide portal-hosted views for superseded retiring workspaces immediately, so deferred handoff cleanup cannot leave stale terminal or browser portals alive after churn.
 
 Performance rule:
 

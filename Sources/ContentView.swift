@@ -1248,6 +1248,20 @@ enum WorkspaceMountPolicy {
     }
 }
 
+enum WorkspaceHandoffPolicy {
+    static func staleRetiringWorkspaceId(
+        currentRetiring: UUID?,
+        nextRetiring: UUID?,
+        selected: UUID?
+    ) -> UUID? {
+        guard let currentRetiring else { return nil }
+        if currentRetiring == nextRetiring || currentRetiring == selected {
+            return nil
+        }
+        return currentRetiring
+    }
+}
+
 /// Installs a FileDropOverlayView on the window's theme frame for Finder file drag support.
 func installFileDropOverlay(on window: NSWindow, tabManager: TabManager) {
     guard objc_getAssociatedObject(window, &fileDropOverlayKey) == nil,
@@ -3090,9 +3104,15 @@ struct ContentView: View {
 
     private func startWorkspaceHandoffIfNeeded(newSelectedId: UUID?) {
         let oldSelectedId = previousSelectedWorkspaceId
+        let staleRetiringWorkspaceId = WorkspaceHandoffPolicy.staleRetiringWorkspaceId(
+            currentRetiring: retiringWorkspaceId,
+            nextRetiring: oldSelectedId,
+            selected: newSelectedId
+        )
         previousSelectedWorkspaceId = newSelectedId
 
         guard let oldSelectedId, let newSelectedId, oldSelectedId != newSelectedId else {
+            hidePortalViewsForWorkspace(staleRetiringWorkspaceId, reason: "no_handoff")
             tabManager.completePendingWorkspaceUnfocus(reason: "no_handoff")
             retiringWorkspaceId = nil
             workspaceHandoffFallbackTask?.cancel()
@@ -3102,6 +3122,7 @@ struct ContentView: View {
 
         workspaceHandoffGeneration &+= 1
         let generation = workspaceHandoffGeneration
+        hidePortalViewsForWorkspace(staleRetiringWorkspaceId, reason: "superseded")
         retiringWorkspaceId = oldSelectedId
         workspaceHandoffFallbackTask?.cancel()
 
@@ -3148,10 +3169,7 @@ struct ContentView: View {
         // the workspace — but dismantleNSView intentionally doesn't hide portal views
         // during transient rebuilds. Hiding here prevents stale terminal/browser
         // portals from covering the newly selected workspace.
-        if let retiring, let workspace = tabManager.tabs.first(where: { $0.id == retiring }) {
-            workspace.hideAllTerminalPortalViews()
-            workspace.hideAllBrowserPortalViews()
-        }
+        hidePortalViewsForWorkspace(retiring, reason: reason)
 
         retiringWorkspaceId = nil
         tabManager.completePendingWorkspaceUnfocus(reason: reason)
@@ -3163,6 +3181,24 @@ struct ContentView: View {
             )
         } else {
             dlog("ws.handoff.complete id=none reason=\(reason) retiring=\(debugShortWorkspaceId(retiring))")
+        }
+#endif
+    }
+
+    private func hidePortalViewsForWorkspace(_ workspaceId: UUID?, reason: String) {
+        guard let workspaceId,
+              let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return }
+        workspace.hideAllTerminalPortalViews()
+        workspace.hideAllBrowserPortalViews()
+#if DEBUG
+        if let snapshot = tabManager.debugCurrentWorkspaceSwitchSnapshot() {
+            let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
+            dlog(
+                "ws.handoff.hide id=\(snapshot.id) dt=\(debugMsText(dtMs)) " +
+                "workspace=\(debugShortWorkspaceId(workspaceId)) reason=\(reason)"
+            )
+        } else {
+            dlog("ws.handoff.hide id=none workspace=\(debugShortWorkspaceId(workspaceId)) reason=\(reason)")
         }
 #endif
     }

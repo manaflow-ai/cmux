@@ -48,6 +48,48 @@ final class WorkspaceContentViewVisibilityTests: XCTestCase {
     }
 }
 
+final class WorkspaceHandoffPolicyTests: XCTestCase {
+    func testStaleRetiringWorkspaceReturnsSupersededWorkspace() {
+        let currentRetiring = UUID()
+        let nextRetiring = UUID()
+        let selected = UUID()
+
+        XCTAssertEqual(
+            WorkspaceHandoffPolicy.staleRetiringWorkspaceId(
+                currentRetiring: currentRetiring,
+                nextRetiring: nextRetiring,
+                selected: selected
+            ),
+            currentRetiring
+        )
+    }
+
+    func testStaleRetiringWorkspaceDoesNotHideNewlySelectedWorkspace() {
+        let currentRetiring = UUID()
+        let nextRetiring = UUID()
+
+        XCTAssertNil(
+            WorkspaceHandoffPolicy.staleRetiringWorkspaceId(
+                currentRetiring: currentRetiring,
+                nextRetiring: nextRetiring,
+                selected: currentRetiring
+            )
+        )
+    }
+
+    func testStaleRetiringWorkspaceDoesNotHideNextRetiringWorkspace() {
+        let nextRetiring = UUID()
+
+        XCTAssertNil(
+            WorkspaceHandoffPolicy.staleRetiringWorkspaceId(
+                currentRetiring: nextRetiring,
+                nextRetiring: nextRetiring,
+                selected: UUID()
+            )
+        )
+    }
+}
+
 @MainActor
 final class WorkspacePageLifecycleTests: XCTestCase {
     func testSwitchingPagesPreservesLivePanelIdentityAcrossDetachAndReattach() throws {
