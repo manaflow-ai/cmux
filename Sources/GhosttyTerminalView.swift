@@ -5310,15 +5310,15 @@ final class GhosttySurfaceScrollView: NSView {
 #if DEBUG
         logLayoutDuringActiveDrag(targetSize: targetSize)
 #endif
-        let scrollbarInset = overlayScrollbarInsetWidth()
+        let adjustedWidth = max(0, targetSize.width - overlayScrollbarInsetWidth())
         let targetSurfaceFrame = CGRect(
             origin: surfaceView.frame.origin,
-            size: CGSize(width: targetSize.width - scrollbarInset, height: targetSize.height)
+            size: CGSize(width: adjustedWidth, height: targetSize.height)
         )
         _ = setFrameIfNeeded(surfaceView, to: targetSurfaceFrame)
         let targetDocumentFrame = CGRect(
             origin: documentView.frame.origin,
-            size: CGSize(width: scrollView.bounds.width - scrollbarInset, height: documentView.frame.height)
+            size: CGSize(width: adjustedWidth, height: documentView.frame.height)
         )
         _ = setFrameIfNeeded(documentView, to: targetDocumentFrame)
         _ = setFrameIfNeeded(inactiveOverlayView, to: bounds)
