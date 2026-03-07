@@ -7030,13 +7030,24 @@ struct GhosttyTerminalView: NSViewRepresentable {
             if host.window != nil {
                 let hostId = ObjectIdentifier(host)
                 let geometryRevision = host.geometryRevision
+                let portalEntryMissing = !TerminalWindowPortalRegistry.isHostedView(hostedView, boundTo: host)
                 let shouldBindNow =
                     coordinator.lastBoundHostId != hostId ||
                     hostedView.superview == nil ||
+                    portalEntryMissing ||
                     previousDesiredIsVisibleInUI != isVisibleInUI ||
                     previousDesiredShowsUnreadNotificationRing != showsUnreadNotificationRing ||
                     previousDesiredPortalZPriority != portalZPriority
                 if shouldBindNow {
+#if DEBUG
+                    if portalEntryMissing {
+                        dlog(
+                            "ws.hostState.rebindOnUpdate surface=\(terminalSurface.id.uuidString.prefix(5)) " +
+                            "reason=portalEntryMissing visible=\(coordinator.desiredIsVisibleInUI ? 1 : 0) " +
+                            "active=\(coordinator.desiredIsActive ? 1 : 0) z=\(coordinator.desiredPortalZPriority)"
+                        )
+                    }
+#endif
                     TerminalWindowPortalRegistry.bind(
                         hostedView: hostedView,
                         to: host,
