@@ -130,6 +130,7 @@ pub fn rebuild_content(content_box: &gtk4::Box, state: &Rc<AppState>) {
     let tab_manager = state.shared.tab_manager.lock().unwrap();
     if let Some(workspace) = tab_manager.selected() {
         let widget = split_view::build_layout(
+            workspace.id,
             &workspace.layout,
             &workspace.panels,
             workspace.attention_panel_id,

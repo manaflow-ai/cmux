@@ -325,6 +325,32 @@ mod tests {
     }
 
     #[test]
+    fn test_set_divider_position_for_split_updates_nested_split() {
+        let id1 = Uuid::new_v4();
+        let id2 = Uuid::new_v4();
+        let id3 = Uuid::new_v4();
+
+        let mut node = LayoutNode::Split {
+            orientation: SplitOrientation::Horizontal,
+            divider_position: 0.5,
+            first: Box::new(LayoutNode::single_pane(id1).split(SplitOrientation::Vertical, id2)),
+            second: Box::new(LayoutNode::single_pane(id3)),
+        };
+
+        assert!(node.set_divider_position_for_split(&[id1], &[id2], 0.2));
+
+        match node {
+            LayoutNode::Split { first, .. } => match *first {
+                LayoutNode::Split {
+                    divider_position, ..
+                } => assert_eq!(divider_position, 0.2),
+                _ => panic!("expected nested split"),
+            },
+            _ => panic!("expected outer split"),
+        }
+    }
+
+    #[test]
     fn test_layout_serialization_roundtrip() {
         let id1 = Uuid::new_v4();
         let id2 = Uuid::new_v4();

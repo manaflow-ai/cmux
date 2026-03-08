@@ -16,6 +16,7 @@ use crate::ui::terminal_panel;
 /// - `LayoutNode::Pane` → GtkStack (with tabs if multiple panels) wrapping terminal widgets
 /// - `LayoutNode::Split` → GtkPaned with recursive children
 pub fn build_layout(
+    workspace_id: Uuid,
     node: &LayoutNode,
     panels: &HashMap<Uuid, Panel>,
     attention_panel_id: Option<Uuid>,
@@ -39,6 +40,7 @@ pub fn build_layout(
             first,
             second,
         } => build_split(
+            workspace_id,
             *orientation,
             *divider_position,
             first,
@@ -118,6 +120,7 @@ fn build_pane(
 
 /// Build a split widget (GtkPaned with two children).
 fn build_split(
+    workspace_id: Uuid,
     orientation: SplitOrientation,
     divider_position: f64,
     first: &LayoutNode,
@@ -138,8 +141,8 @@ fn build_split(
 
     let first_panel_ids = first.all_panel_ids();
     let second_panel_ids = second.all_panel_ids();
-    let first_widget = build_layout(first, panels, attention_panel_id, state);
-    let second_widget = build_layout(second, panels, attention_panel_id, state);
+    let first_widget = build_layout(workspace_id, first, panels, attention_panel_id, state);
+    let second_widget = build_layout(workspace_id, second, panels, attention_panel_id, state);
 
     paned.set_start_child(Some(&first_widget));
     paned.set_end_child(Some(&second_widget));
@@ -166,7 +169,13 @@ fn build_split(
         }
 
         let divider_position = (paned.position() as f64 / size as f64).clamp(0.0, 1.0);
-        if let Some(workspace) = state.shared.tab_manager.lock().unwrap().selected_mut() {
+        if let Some(workspace) = state
+            .shared
+            .tab_manager
+            .lock()
+            .unwrap()
+            .workspace_mut(workspace_id)
+        {
             let _ = workspace.layout.set_divider_position_for_split(
                 &first_panel_ids,
                 &second_panel_ids,
