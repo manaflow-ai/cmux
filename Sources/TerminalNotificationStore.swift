@@ -828,19 +828,8 @@ final class TerminalNotificationStore: ObservableObject {
             return true
         }
 
-        let isActiveTab = AppDelegate.shared?.tabManager?.selectedTabId == tabId
-        let focusedSurfaceId = AppDelegate.shared?.tabManager?.focusedSurfaceId(for: tabId)
-        let isFocusedSurface = surfaceId == nil || focusedSurfaceId == surfaceId
-        let isFocusedPanel = isActiveTab && isFocusedSurface
-        let isAppFocused = AppFocusState.isAppFocused()
-        if isAppFocused && isFocusedPanel {
-            if !idsToClear.isEmpty {
-                notifications = updated
-                center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
-                center.removePendingNotificationRequestsOffMain(withIdentifiers: idsToClear)
-            }
-            return
-        }
+        // Removed auto-dismiss logic - notifications should always show up with blue ring
+        // and be dismissed via user interaction (click/keystroke) instead
 
         if WorkspaceAutoReorderSettings.isEnabled() {
             AppDelegate.shared?.tabManager?.moveTabToTop(tabId)
