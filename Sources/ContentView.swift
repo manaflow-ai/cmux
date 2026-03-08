@@ -7148,6 +7148,23 @@ enum DevBuildBannerDebugSettings {
     }
 }
 
+enum KeyboardShortcutBehaviorSettings {
+    static let swapCmdCtrlDigitShortcutsKey = "swapCmdCtrlDigitShortcuts"
+    static let defaultSwapCmdCtrlDigitShortcuts = false
+
+    static func swapCmdCtrlDigitShortcutsEnabled(defaults: UserDefaults = .standard) -> Bool {
+        guard defaults.object(forKey: swapCmdCtrlDigitShortcutsKey) != nil else {
+            return defaultSwapCmdCtrlDigitShortcuts
+        }
+        return defaults.bool(forKey: swapCmdCtrlDigitShortcutsKey)
+    }
+
+    /// Returns the modifier glyph for workspace digit shortcuts based on swap setting
+    static func workspaceDigitModifierGlyph(defaults: UserDefaults = .standard) -> String {
+        swapCmdCtrlDigitShortcutsEnabled(defaults: defaults) ? "⌃" : "⌘"
+    }
+}
+
 private enum FeedbackComposerSettings {
     static let storedEmailKey = "sidebarHelpFeedbackEmail"
     static let endpointEnvironmentKey = "CMUX_FEEDBACK_API_URL"
@@ -8930,6 +8947,8 @@ private struct TabItemView: View {
     private var openSidebarPullRequestLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenSidebarPullRequestLinksInCmuxBrowser
     @AppStorage("sidebarShowPorts") private var sidebarShowPorts = true
     @AppStorage("sidebarShowLog") private var sidebarShowLog = true
+    @AppStorage(KeyboardShortcutBehaviorSettings.swapCmdCtrlDigitShortcutsKey)
+    private var swapCmdCtrlDigitShortcuts = KeyboardShortcutBehaviorSettings.defaultSwapCmdCtrlDigitShortcuts
     @AppStorage("sidebarShowProgress") private var sidebarShowProgress = true
     @AppStorage("sidebarShowStatusPills") private var sidebarShowMetadata = true
     @AppStorage(SidebarActiveTabIndicatorSettings.styleKey)
@@ -9020,7 +9039,7 @@ private struct TabItemView: View {
 
     private var workspaceShortcutLabel: String? {
         guard let workspaceShortcutDigit else { return nil }
-        return "⌘\(workspaceShortcutDigit)"
+        return "\(KeyboardShortcutBehaviorSettings.workspaceDigitModifierGlyph())\(workspaceShortcutDigit)"
     }
 
     private var showsWorkspaceShortcutHint: Bool {

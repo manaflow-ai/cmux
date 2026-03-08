@@ -54606,6 +54606,57 @@
         }
       }
     },
+    "settings.shortcuts.swapCmdCtrlDigits": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Swap Cmd+Number and Ctrl+Number"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd+NumberとCtrl+Numberを入れ替え"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.swapCmdCtrlDigits.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd+Number switches workspaces, Ctrl+Number switches surfaces (tabs)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd+Numberでワークスペース、Ctrl+Numberでサーフェイス（タブ）を切り替え"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.swapCmdCtrlDigits.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd+Number switches surfaces (tabs), Ctrl+Number switches workspaces. Matches Ghostty and other terminals."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd+Numberでサーフェイス（タブ）、Ctrl+Numberでワークスペースを切り替え。Ghosttyなどのターミナルと同じ動作"
+          }
+        }
+      }
+    },
     "settings.state.active": {
       "extractionState": "manual",
       "localizations": {

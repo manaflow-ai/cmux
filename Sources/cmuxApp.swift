@@ -37,6 +37,8 @@ struct cmuxApp: App {
     @AppStorage(KeyboardShortcutSettings.Action.renameWorkspace.defaultsKey) private var renameWorkspaceShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.openFolder.defaultsKey) private var openFolderShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.closeWorkspace.defaultsKey) private var closeWorkspaceShortcutData = Data()
+    @AppStorage(KeyboardShortcutBehaviorSettings.swapCmdCtrlDigitShortcutsKey)
+    private var swapCmdCtrlDigitShortcuts = KeyboardShortcutBehaviorSettings.defaultSwapCmdCtrlDigitShortcuts
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     init() {
@@ -606,6 +608,8 @@ struct cmuxApp: App {
                 Divider()
 
                 // Cmd+1 through Cmd+9 for workspace selection (9 = last workspace)
+                // Modifier respects swapCmdCtrlDigitShortcuts setting
+                let workspaceDigitModifiers: EventModifiers = swapCmdCtrlDigitShortcuts ? .control : .command
                 ForEach(1...9, id: \.self) { number in
                     Button(String(localized: "menu.view.workspace", defaultValue: "Workspace \(number)")) {
                         let manager = activeTabManager
@@ -613,7 +617,7 @@ struct cmuxApp: App {
                             manager.selectTab(at: targetIndex)
                         }
                     }
-                    .keyboardShortcut(KeyEquivalent(Character("\(number)")), modifiers: .command)
+                    .keyboardShortcut(KeyEquivalent(Character("\(number)")), modifiers: workspaceDigitModifiers)
                 }
 
                 Divider()
@@ -2875,6 +2879,8 @@ struct SettingsView: View {
     private var openSidebarPullRequestLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenSidebarPullRequestLinksInCmuxBrowser
     @AppStorage(ShortcutHintDebugSettings.showHintsOnCommandHoldKey)
     private var showShortcutHintsOnCommandHold = ShortcutHintDebugSettings.defaultShowHintsOnCommandHold
+    @AppStorage(KeyboardShortcutBehaviorSettings.swapCmdCtrlDigitShortcutsKey)
+    private var swapCmdCtrlDigitShortcuts = KeyboardShortcutBehaviorSettings.defaultSwapCmdCtrlDigitShortcuts
     @AppStorage("sidebarShowPorts") private var sidebarShowPorts = true
     @AppStorage("sidebarShowLog") private var sidebarShowLog = true
     @AppStorage("sidebarShowProgress") private var sidebarShowProgress = true
@@ -3918,6 +3924,19 @@ struct SettingsView: View {
 
                         SettingsCardDivider()
 
+                        SettingsCardRow(
+                            String(localized: "settings.shortcuts.swapCmdCtrlDigits", defaultValue: "Swap Cmd+Number and Ctrl+Number"),
+                            subtitle: swapCmdCtrlDigitShortcuts
+                                ? String(localized: "settings.shortcuts.swapCmdCtrlDigits.subtitleOn", defaultValue: "Cmd+Number switches surfaces (tabs), Ctrl+Number switches workspaces. Matches Ghostty and other terminals.")
+                                : String(localized: "settings.shortcuts.swapCmdCtrlDigits.subtitleOff", defaultValue: "Cmd+Number switches workspaces, Ctrl+Number switches surfaces (tabs).")
+                        ) {
+                            Toggle("", isOn: $swapCmdCtrlDigitShortcuts)
+                                .labelsHidden()
+                                .controlSize(.small)
+                        }
+
+                        SettingsCardDivider()
+
                         let actions = KeyboardShortcutSettings.Action.allCases
                         ForEach(Array(actions.enumerated()), id: \.element.id) { index, action in
                             ShortcutSettingRow(action: action)
@@ -4169,6 +4188,7 @@ struct SettingsView: View {
         sidebarShowPullRequest = true
         openSidebarPullRequestLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenSidebarPullRequestLinksInCmuxBrowser
         showShortcutHintsOnCommandHold = ShortcutHintDebugSettings.defaultShowHintsOnCommandHold
+        swapCmdCtrlDigitShortcuts = KeyboardShortcutBehaviorSettings.defaultSwapCmdCtrlDigitShortcuts
         sidebarShowPorts = true
         sidebarShowLog = true
         sidebarShowProgress = true

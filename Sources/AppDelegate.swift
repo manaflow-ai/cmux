@@ -7286,28 +7286,67 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         // Numeric shortcuts for specific sidebar tabs: Cmd+1-9 (9 = last workspace)
+        // OR surfaces when swap is enabled
         if flags == [.command],
            let manager = tabManager,
-           let num = Int(chars),
-           let targetIndex = WorkspaceShortcutMapper.workspaceIndex(forCommandDigit: num, workspaceCount: manager.tabs.count) {
+           let num = Int(chars) {
+            let swapEnabled = KeyboardShortcutBehaviorSettings.swapCmdCtrlDigitShortcutsEnabled()
+            if swapEnabled {
+                // Swapped: Cmd+Number selects surfaces
+                if num >= 1 && num <= 9 {
 #if DEBUG
-            dlog(
-                "shortcut.action name=workspaceDigit digit=\(num) targetIndex=\(targetIndex) manager=\(debugManagerToken(manager)) \(debugShortcutRouteSnapshot(event: event))"
-            )
+                    dlog(
+                        "shortcut.action name=surfaceDigit digit=\(num) manager=\(debugManagerToken(manager)) \(debugShortcutRouteSnapshot(event: event))"
+                    )
 #endif
-            manager.selectTab(at: targetIndex)
-            return true
+                    if num == 9 {
+                        manager.selectLastSurface()
+                    } else {
+                        manager.selectSurface(at: num - 1)
+                    }
+                    return true
+                }
+            } else {
+                // Default: Cmd+Number selects workspaces
+                if let targetIndex = WorkspaceShortcutMapper.workspaceIndex(forCommandDigit: num, workspaceCount: manager.tabs.count) {
+#if DEBUG
+                    dlog(
+                        "shortcut.action name=workspaceDigit digit=\(num) targetIndex=\(targetIndex) manager=\(debugManagerToken(manager)) \(debugShortcutRouteSnapshot(event: event))"
+                    )
+#endif
+                    manager.selectTab(at: targetIndex)
+                    return true
+                }
+            }
         }
 
         // Numeric shortcuts for surfaces within pane: Ctrl+1-9 (9 = last)
-        if flags == [.control] {
-            if let num = Int(chars), num >= 1 && num <= 9 {
-                if num == 9 {
-                    tabManager?.selectLastSurface()
-                } else {
-                    tabManager?.selectSurface(at: num - 1)
+        // OR workspaces when swap is enabled
+        if flags == [.control],
+           let manager = tabManager,
+           let num = Int(chars) {
+            let swapEnabled = KeyboardShortcutBehaviorSettings.swapCmdCtrlDigitShortcutsEnabled()
+            if swapEnabled {
+                // Swapped: Ctrl+Number selects workspaces
+                if let targetIndex = WorkspaceShortcutMapper.workspaceIndex(forCommandDigit: num, workspaceCount: manager.tabs.count) {
+#if DEBUG
+                    dlog(
+                        "shortcut.action name=workspaceDigit digit=\(num) targetIndex=\(targetIndex) manager=\(debugManagerToken(manager)) \(debugShortcutRouteSnapshot(event: event))"
+                    )
+#endif
+                    manager.selectTab(at: targetIndex)
+                    return true
                 }
-                return true
+            } else {
+                // Default: Ctrl+Number selects surfaces
+                if num >= 1 && num <= 9 {
+                    if num == 9 {
+                        manager.selectLastSurface()
+                    } else {
+                        manager.selectSurface(at: num - 1)
+                    }
+                    return true
+                }
             }
         }
 
