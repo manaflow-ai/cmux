@@ -12,7 +12,7 @@ on:
         type: boolean
 
 concurrency:
-  group: nightly-build
+  group: nightly-build-${{ github.ref_name }}
   cancel-in-progress: true
 
 permissions:
@@ -28,6 +28,7 @@ jobs:
       should_build: ${{ steps.decide.outputs.should_build }}
       head_sha: ${{ steps.decide.outputs.head_sha }}
       short_sha: ${{ steps.decide.outputs.short_sha }}
+      should_publish: ${{ steps.decide.outputs.should_publish }}
     steps:
       - name: Decide whether a nightly build is needed
         id: decide
@@ -38,46 +39,58 @@ jobs:
           script: |
             const forceBuild = process.env.FORCE_BUILD === 'true';
             const { owner, repo } = context.repo;
+            const requestedRef = context.ref.startsWith('refs/heads/')
+              ? context.ref.replace('refs/heads/', '')
+              : 'main';
+            const isMainRef = requestedRef === 'main';
 
-            const branch = await github.rest.repos.getBranch({
-              owner,
-              repo,
-              branch: 'main',
-            });
-            const headSha = branch.data.commit.sha;
-
-            let nightlySha = null;
-            try {
-              const ref = await github.rest.git.getRef({
+            let headSha = context.sha;
+            if (isMainRef) {
+              const branch = await github.rest.repos.getBranch({
                 owner,
                 repo,
-                ref: 'tags/nightly',
+                branch: 'main',
               });
-              if (ref.data.object.type === 'commit') {
-                nightlySha = ref.data.object.sha;
-              } else if (ref.data.object.type === 'tag') {
-                const tagObject = await github.rest.git.getTag({
-                  owner,
-                  repo,
-                  tag_sha: ref.data.object.sha,
-                });
-                nightlySha = tagObject.data.object.sha;
-              }
-            } catch (error) {
-              if (error.status !== 404) throw error;
+              headSha = branch.data.commit.sha;
             }
 
-            const shouldBuild = forceBuild || nightlySha !== headSha;
+            let nightlySha = null;
+            if (isMainRef) {
+              try {
+                const ref = await github.rest.git.getRef({
+                  owner,
+                  repo,
+                  ref: 'tags/nightly',
+                });
+                if (ref.data.object.type === 'commit') {
+                  nightlySha = ref.data.object.sha;
+                } else if (ref.data.object.type === 'tag') {
+                  const tagObject = await github.rest.git.getTag({
+                    owner,
+                    repo,
+                    tag_sha: ref.data.object.sha,
+                  });
+                  nightlySha = tagObject.data.object.sha;
+                }
+              } catch (error) {
+                if (error.status !== 404) throw error;
+              }
+            }
+
+            const shouldBuild = !isMainRef || forceBuild || nightlySha !== headSha;
             core.setOutput('should_build', shouldBuild ? 'true' : 'false');
             core.setOutput('head_sha', headSha);
             core.setOutput('short_sha', headSha.slice(0, 7));
+            core.setOutput('should_publish', isMainRef ? 'true' : 'false');
             core.summary
               .addHeading('Nightly build decision')
               .addTable([
-                [{data: 'main HEAD', header: true}, headSha],
+                [{data: 'requested ref', header: true}, requestedRef],
+                [{data: 'build HEAD', header: true}, headSha],
                 [{data: 'nightly tag', header: true}, nightlySha ?? '(missing)'],
                 [{data: 'force build', header: true}, String(forceBuild)],
                 [{data: 'should build', header: true}, String(shouldBuild)],
+                [{data: 'should publish', header: true}, String(isMainRef)],
               ])
               .write();
 
@@ -86,7 +99,7 @@ jobs:
     if: needs.decide.outputs.should_build == 'true'
     runs-on: macos-15
     steps:
-      - name: Checkout main
+      - name: Checkout build ref
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           ref: ${{ needs.decide.outputs.head_sha }}
@@ -141,8 +154,23 @@ jobs:
       - name: Build app (Release)
         run: |
           xcodebuild -scheme cmux -configuration Release -derivedDataPath build \
+            -destination 'generic/platform=macOS' \
             -clonedSourcePackagesDirPath .spm-cache \
+            ARCHS="arm64 x86_64" \
+            ONLY_ACTIVE_ARCH=NO \
             CODE_SIGNING_ALLOWED=NO ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon-Nightly build
+
+      - name: Verify universal binaries
+        run: |
+          set -euo pipefail
+          APP_BINARY="build/Build/Products/Release/cmux.app/Contents/MacOS/cmux"
+          CLI_BINARY="build/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux"
+          APP_ARCHS="$(lipo -archs "$APP_BINARY")"
+          CLI_ARCHS="$(lipo -archs "$CLI_BINARY")"
+          echo "App binary architectures: $APP_ARCHS"
+          echo "CLI binary architectures: $CLI_ARCHS"
+          [[ "$APP_ARCHS" == *arm64* && "$APP_ARCHS" == *x86_64* ]]
+          [[ "$CLI_ARCHS" == *arm64* && "$CLI_ARCHS" == *x86_64* ]]
 
       - name: Inject nightly identity and metadata
         run: |
@@ -310,7 +338,18 @@ jobs:
           fi
           ./scripts/sparkle_generate_appcast.sh "$NIGHTLY_DMG_IMMUTABLE" nightly appcast.xml
 
+      - name: Upload branch nightly artifacts
+        if: needs.decide.outputs.should_publish != 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: cmux-nightly-${{ needs.decide.outputs.short_sha }}
+          path: |
+            cmux-nightly-macos*.dmg
+            appcast.xml
+          if-no-files-found: error
+
       - name: Move nightly tag to built commit
+        if: needs.decide.outputs.should_publish == 'true'
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
@@ -319,6 +358,7 @@ jobs:
           git push origin refs/tags/nightly --force
 
       - name: Publish nightly release assets
+        if: needs.decide.outputs.should_publish == 'true'
         uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2
         with:
           tag_name: nightly
