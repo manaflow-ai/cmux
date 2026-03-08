@@ -527,6 +527,49 @@ func browserShouldOpenURLExternally(_ url: URL) -> Bool {
     return !browserEmbeddedNavigationSchemes.contains(scheme)
 }
 
+/// OAuth and SSO flows must open in the system browser because identity providers
+/// (Google, Microsoft, GitHub, Apple) block or degrade OAuth in embedded WebViews.
+/// Google explicitly disallows it: https://developers.google.com/identity/protocols/oauth2/policies#browsers
+func browserIsOAuthFlowURL(_ url: URL) -> Bool {
+    // Only intercept web URLs — file:// and other schemes should not be affected.
+    guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else {
+        return false
+    }
+
+    let host = url.host?.lowercased() ?? ""
+    let pathSegments = Set(url.path.lowercased().split(separator: "/").map(String.init))
+
+    // Standard OAuth authorize/callback endpoints — match as a path segment,
+    // not a substring, so "/docs/oauth" or "/oauth-settings" won't trigger.
+    if pathSegments.contains("oauth") || pathSegments.contains("oauth2") {
+        return true
+    }
+
+    // Google sign-in (the redirect target after /oauth/authorize)
+    if host == "accounts.google.com" && (url.path.hasPrefix("/signin") || url.path.hasPrefix("/o/oauth2")) {
+        return true
+    }
+
+    // Microsoft identity platform — boundary-aware match to avoid
+    // "evillogin.microsoftonline.com" false positives.
+    if host == "login.microsoftonline.com" || host.hasSuffix(".login.microsoftonline.com")
+        || host == "login.live.com" {
+        return true
+    }
+
+    // GitHub OAuth
+    if host == "github.com" && url.path.lowercased().hasPrefix("/login/oauth") {
+        return true
+    }
+
+    // Apple ID
+    if host == "appleid.apple.com" && url.path.lowercased().hasPrefix("/auth") {
+        return true
+    }
+
+    return false
+}
+
 enum BrowserUserAgentSettings {
     // Force a Safari UA. Some WebKit builds return a minimal UA without Version/Safari tokens,
     // and some installs may have legacy Chrome UA overrides. Both can cause Google to serve
@@ -3953,6 +3996,22 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
             )
 #endif
             handleBlockedInsecureHTTPNavigation?(navigationAction.request, intent)
+            decisionHandler(.cancel)
+            return
+        }
+
+        // OAuth/SSO flows must open in the system browser. Identity providers like
+        // Google block OAuth in embedded WebViews, causing the flow to hang.
+        if let url = navigationAction.request.url,
+           navigationAction.targetFrame?.isMainFrame != false,
+           browserIsOAuthFlowURL(url) {
+            let opened = NSWorkspace.shared.open(url)
+            if !opened {
+                NSLog("BrowserPanel OAuth external navigation failed to open URL: %@", url.absoluteString)
+            }
+            #if DEBUG
+            dlog("browser.navigation.oauth source=navDelegate opened=\(opened ? 1 : 0) url=\(url.absoluteString)")
+            #endif
             decisionHandler(.cancel)
             return
         }
