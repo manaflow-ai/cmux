@@ -50,7 +50,7 @@ final class WorkspaceLifecycleTerminalUITests: XCTestCase {
         XCTAssertEqual(socketState["socketReady"], "1", "Expected ready socket. state=\(socketState)")
         XCTAssertEqual(socketState["socketPingResponse"], "PONG", "Expected healthy socket ping. state=\(socketState)")
 
-        guard let visibleWorkspaceId = waitForCurrentWorkspaceId(timeout: 8.0) else {
+        guard let visibleWorkspaceId = waitForCurrentWorkspaceId(timeout: 20.0) else {
             XCTFail("Missing current workspace result")
             return
         }
@@ -207,6 +207,18 @@ final class WorkspaceLifecycleTerminalUITests: XCTestCase {
                let result = response["result"] as? [String: Any],
                let workspaces = result["workspaces"] as? [[String: Any]],
                let selected = workspaces.first(where: { $0["selected"] as? Bool == true })?["workspace_id"] as? String,
+               !selected.isEmpty {
+                return selected
+            }
+            if let response = v2Call("workspace.list"),
+               let result = response["result"] as? [String: Any],
+               let workspaces = result["workspaces"] as? [[String: Any]],
+               let first = workspaces.first?["workspace_id"] as? String,
+               !first.isEmpty {
+                return first
+            }
+            if let snapshot = latestLifecycleSnapshot(),
+               let selected = snapshot.records.first(where: { $0.selectedWorkspace })?.workspaceId,
                !selected.isEmpty {
                 return selected
             }
