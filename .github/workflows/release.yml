@@ -127,17 +127,18 @@ jobs:
           echo "Derived Sparkle public key: $DERIVED_PUBLIC_KEY"
           echo "SPARKLE_PUBLIC_KEY=$DERIVED_PUBLIC_KEY" >> "$GITHUB_ENV"
 
-      - name: Build app (Release)
+      - name: Build Apple Silicon app (Release)
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         run: |
-          xcodebuild -scheme cmux -configuration Release -derivedDataPath build \
+          xcodebuild -scheme cmux -configuration Release -derivedDataPath build-arm \
+            -destination 'platform=macOS,arch=arm64' \
             -clonedSourcePackagesDirPath .spm-cache \
             CODE_SIGNING_ALLOWED=NO build
 
-      - name: Inject Sparkle keys into Info.plist
+      - name: Inject Sparkle keys into Apple Silicon Info.plist
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         run: |
-          APP_PLIST="build/Build/Products/Release/cmux.app/Contents/Info.plist"
+          APP_PLIST="build-arm/Build/Products/Release/cmux.app/Contents/Info.plist"
           /usr/libexec/PlistBuddy -c "Delete :SUPublicEDKey" "$APP_PLIST" >/dev/null 2>&1 || true
           /usr/libexec/PlistBuddy -c "Delete :SUFeedURL" "$APP_PLIST" >/dev/null 2>&1 || true
           echo "Adding SUPublicEDKey to Info.plist..."
@@ -147,6 +148,36 @@ jobs:
           echo "Verifying:"
           /usr/libexec/PlistBuddy -c "Print :SUPublicEDKey" "$APP_PLIST"
           /usr/libexec/PlistBuddy -c "Print :SUFeedURL" "$APP_PLIST"
+
+      - name: Build universal app (Release)
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        run: |
+          xcodebuild -scheme cmux -configuration Release -derivedDataPath build-universal \
+            -destination 'generic/platform=macOS' \
+            -clonedSourcePackagesDirPath .spm-cache \
+            ARCHS="arm64 x86_64" \
+            ONLY_ACTIVE_ARCH=NO \
+            CODE_SIGNING_ALLOWED=NO build
+
+      - name: Verify universal binaries
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        run: |
+          set -euo pipefail
+          APP_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/MacOS/cmux"
+          CLI_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux"
+          APP_ARCHS="$(lipo -archs "$APP_BINARY")"
+          CLI_ARCHS="$(lipo -archs "$CLI_BINARY")"
+          echo "Universal app architectures: $APP_ARCHS"
+          echo "Universal CLI architectures: $CLI_ARCHS"
+          [[ "$APP_ARCHS" == *arm64* && "$APP_ARCHS" == *x86_64* ]]
+          [[ "$CLI_ARCHS" == *arm64* && "$CLI_ARCHS" == *x86_64* ]]
+
+      - name: Prepare universal app metadata
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        run: |
+          APP_PLIST="build-universal/Build/Products/Release/cmux.app/Contents/Info.plist"
+          /usr/libexec/PlistBuddy -c "Delete :SUPublicEDKey" "$APP_PLIST" >/dev/null 2>&1 || true
+          /usr/libexec/PlistBuddy -c "Delete :SUFeedURL" "$APP_PLIST" >/dev/null 2>&1 || true
 
       - name: Import signing cert
         if: steps.guard_release_assets.outputs.skip_all != 'true'
@@ -172,7 +203,7 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" build.keychain
           security list-keychains -d user -s build.keychain
 
-      - name: Codesign app
+      - name: Codesign apps
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         env:
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
@@ -181,16 +212,20 @@ jobs:
             echo "Missing APPLE_SIGNING_IDENTITY secret" >&2
             exit 1
           fi
-          APP_PATH="build/Build/Products/Release/cmux.app"
           ENTITLEMENTS="cmux.entitlements"
-          CLI_PATH="$APP_PATH/Contents/Resources/bin/cmux"
-          if [ -f "$CLI_PATH" ]; then
-            /usr/bin/codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" --entitlements "$ENTITLEMENTS" "$CLI_PATH"
-          fi
-          /usr/bin/codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" --entitlements "$ENTITLEMENTS" --deep "$APP_PATH"
-          /usr/bin/codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+          for APP_PATH in \
+            "build-arm/Build/Products/Release/cmux.app" \
+            "build-universal/Build/Products/Release/cmux.app"
+          do
+            CLI_PATH="$APP_PATH/Contents/Resources/bin/cmux"
+            if [ -f "$CLI_PATH" ]; then
+              /usr/bin/codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" --entitlements "$ENTITLEMENTS" "$CLI_PATH"
+            fi
+            /usr/bin/codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" --entitlements "$ENTITLEMENTS" --deep "$APP_PATH"
+            /usr/bin/codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+          done
 
-      - name: Notarize app
+      - name: Notarize apps and dmgs
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
@@ -202,38 +237,54 @@ jobs:
             echo "Missing notarization secrets (APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID)" >&2
             exit 1
           fi
-          APP_PATH="build/Build/Products/Release/cmux.app"
-          ZIP_SUBMIT="cmux-notary.zip"
-          DMG_RELEASE="cmux-macos.dmg"
-          ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "$ZIP_SUBMIT"
-          APP_SUBMIT_JSON="$(xcrun notarytool submit "$ZIP_SUBMIT" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --wait --output-format json)"
-          APP_SUBMIT_ID="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])' <<<"$APP_SUBMIT_JSON")"
-          APP_STATUS="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["status"])' <<<"$APP_SUBMIT_JSON")"
-          if [ "$APP_STATUS" != "Accepted" ]; then
-            echo "App notarization failed with status: $APP_STATUS" >&2
-            xcrun notarytool log "$APP_SUBMIT_ID" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" || true
-            exit 1
-          fi
-          xcrun stapler staple "$APP_PATH"
-          xcrun stapler validate "$APP_PATH"
-          spctl -a -vv --type execute "$APP_PATH"
-          rm -f "$ZIP_SUBMIT"
-          # create-dmg generates a styled drag-to-install DMG
-          create-dmg \
-            --identity="$APPLE_SIGNING_IDENTITY" \
-            "$APP_PATH" \
-            ./
-          mv ./cmux*.dmg "$DMG_RELEASE"
-          DMG_SUBMIT_JSON="$(xcrun notarytool submit "$DMG_RELEASE" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --wait --output-format json)"
-          DMG_SUBMIT_ID="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])' <<<"$DMG_SUBMIT_JSON")"
-          DMG_STATUS="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["status"])' <<<"$DMG_SUBMIT_JSON")"
-          if [ "$DMG_STATUS" != "Accepted" ]; then
-            echo "DMG notarization failed with status: $DMG_STATUS" >&2
-            xcrun notarytool log "$DMG_SUBMIT_ID" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" || true
-            exit 1
-          fi
-          xcrun stapler staple "$DMG_RELEASE"
-          xcrun stapler validate "$DMG_RELEASE"
+          notarize_and_package() {
+            local app_path="$1"
+            local dmg_release="$2"
+            local zip_submit="${dmg_release%.dmg}-notary.zip"
+            local dmg_tmp_dir
+            local created_dmg
+
+            ditto -c -k --sequesterRsrc --keepParent "$app_path" "$zip_submit"
+            APP_SUBMIT_JSON="$(xcrun notarytool submit "$zip_submit" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --wait --output-format json)"
+            APP_SUBMIT_ID="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])' <<<"$APP_SUBMIT_JSON")"
+            APP_STATUS="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["status"])' <<<"$APP_SUBMIT_JSON")"
+            if [ "$APP_STATUS" != "Accepted" ]; then
+              echo "App notarization failed for $app_path with status: $APP_STATUS" >&2
+              xcrun notarytool log "$APP_SUBMIT_ID" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" || true
+              exit 1
+            fi
+            xcrun stapler staple "$app_path"
+            xcrun stapler validate "$app_path"
+            spctl -a -vv --type execute "$app_path"
+            rm -f "$zip_submit"
+
+            dmg_tmp_dir="$(mktemp -d)"
+            create-dmg \
+              --identity="$APPLE_SIGNING_IDENTITY" \
+              "$app_path" \
+              "$dmg_tmp_dir"
+            created_dmg="$(find "$dmg_tmp_dir" -maxdepth 1 -name '*.dmg' | head -n 1)"
+            if [ -z "$created_dmg" ]; then
+              echo "Failed to locate created DMG for $app_path" >&2
+              exit 1
+            fi
+            mv "$created_dmg" "$dmg_release"
+            rm -rf "$dmg_tmp_dir"
+
+            DMG_SUBMIT_JSON="$(xcrun notarytool submit "$dmg_release" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --wait --output-format json)"
+            DMG_SUBMIT_ID="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])' <<<"$DMG_SUBMIT_JSON")"
+            DMG_STATUS="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["status"])' <<<"$DMG_SUBMIT_JSON")"
+            if [ "$DMG_STATUS" != "Accepted" ]; then
+              echo "DMG notarization failed for $dmg_release with status: $DMG_STATUS" >&2
+              xcrun notarytool log "$DMG_SUBMIT_ID" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" || true
+              exit 1
+            fi
+            xcrun stapler staple "$dmg_release"
+            xcrun stapler validate "$dmg_release"
+          }
+
+          notarize_and_package "build-arm/Build/Products/Release/cmux.app" "cmux-macos.dmg"
+          notarize_and_package "build-universal/Build/Products/Release/cmux.app" "cmux-macos-universal.dmg"
 
       - name: Upload dSYMs to Sentry
         if: steps.guard_release_assets.outputs.skip_all != 'true'
@@ -247,7 +298,7 @@ jobs:
             exit 0
           fi
           brew install getsentry/tools/sentry-cli || true
-          sentry-cli debug-files upload --include-sources build/Build/Products/Release/
+          sentry-cli debug-files upload --include-sources build-arm/Build/Products/Release/ build-universal/Build/Products/Release/
 
       - name: Generate Sparkle appcast
         if: steps.guard_release_assets.outputs.skip_all != 'true'
@@ -266,6 +317,7 @@ jobs:
         with:
           files: |
             cmux-macos.dmg
+            cmux-macos-universal.dmg
             appcast.xml
           generate_release_notes: true
           overwrite_files: false

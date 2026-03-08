@@ -48,7 +48,12 @@ fi
 TAG="$1"
 SIGN_HASH="A050CC7E193C8221BDBA204E731B046CDCCC1B30"
 ENTITLEMENTS="cmux.entitlements"
-APP_PATH="build/Build/Products/Release/cmux.app"
+ARM_BUILD_DIR="build-arm"
+UNIVERSAL_BUILD_DIR="build-universal"
+ARM_APP_PATH="$ARM_BUILD_DIR/Build/Products/Release/cmux.app"
+UNIVERSAL_APP_PATH="$UNIVERSAL_BUILD_DIR/Build/Products/Release/cmux.app"
+ARM_DMG_PATH="cmux-macos.dmg"
+UNIVERSAL_DMG_PATH="cmux-macos-universal.dmg"
 
 # --- Pre-flight ---
 source ~/.secrets/cmuxterm.env
@@ -57,6 +62,36 @@ for tool in zig xcodebuild create-dmg xcrun codesign ditto gh; do
   command -v "$tool" >/dev/null || { echo "MISSING: $tool" >&2; exit 1; }
 done
 echo "Pre-flight checks passed"
+
+codesign_app() {
+  local app_path="$1"
+  local cli_path="$app_path/Contents/Resources/bin/cmux"
+  if [ -f "$cli_path" ]; then
+    /usr/bin/codesign --force --options runtime --timestamp --sign "$SIGN_HASH" --entitlements "$ENTITLEMENTS" "$cli_path"
+  fi
+  /usr/bin/codesign --force --options runtime --timestamp --sign "$SIGN_HASH" --entitlements "$ENTITLEMENTS" --deep "$app_path"
+  /usr/bin/codesign --verify --deep --strict --verbose=2 "$app_path"
+}
+
+notarize_app_and_dmg() {
+  local app_path="$1"
+  local dmg_path="$2"
+  local zip_submit="${dmg_path%.dmg}-notary.zip"
+
+  ditto -c -k --sequesterRsrc --keepParent "$app_path" "$zip_submit"
+  xcrun notarytool submit "$zip_submit" \
+    --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --wait
+  xcrun stapler staple "$app_path"
+  xcrun stapler validate "$app_path"
+  rm -f "$zip_submit"
+
+  rm -f "$dmg_path"
+  create-dmg --codesign "$SIGN_HASH" "$dmg_path" "$app_path"
+  xcrun notarytool submit "$dmg_path" \
+    --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --wait
+  xcrun stapler staple "$dmg_path"
+  xcrun stapler validate "$dmg_path"
+}
 
 # --- Build GhosttyKit (if needed) ---
 if [ ! -d "GhosttyKit.xcframework" ]; then
@@ -69,51 +104,56 @@ else
 fi
 
 # --- Build app (Release, unsigned) ---
-echo "Building app..."
-rm -rf build/
-xcodebuild -scheme cmux -configuration Release -derivedDataPath build CODE_SIGNING_ALLOWED=NO build 2>&1 | tail -5
-echo "Build succeeded"
+echo "Building Apple Silicon app..."
+rm -rf "$ARM_BUILD_DIR" "$UNIVERSAL_BUILD_DIR"
+xcodebuild -scheme cmux -configuration Release -derivedDataPath "$ARM_BUILD_DIR" \
+  -destination 'platform=macOS,arch=arm64' \
+  CODE_SIGNING_ALLOWED=NO build 2>&1 | tail -5
+echo "Apple Silicon build succeeded"
 
-# --- Inject Sparkle keys ---
-echo "Injecting Sparkle keys..."
+echo "Injecting Sparkle keys into Apple Silicon app..."
 SPARKLE_PUBLIC_KEY_DERIVED=$(swift scripts/derive_sparkle_public_key.swift "$SPARKLE_PRIVATE_KEY")
-APP_PLIST="$APP_PATH/Contents/Info.plist"
-/usr/libexec/PlistBuddy -c "Delete :SUPublicEDKey" "$APP_PLIST" 2>/dev/null || true
-/usr/libexec/PlistBuddy -c "Delete :SUFeedURL" "$APP_PLIST" 2>/dev/null || true
-/usr/libexec/PlistBuddy -c "Add :SUPublicEDKey string $SPARKLE_PUBLIC_KEY_DERIVED" "$APP_PLIST"
-/usr/libexec/PlistBuddy -c "Add :SUFeedURL string https://github.com/manaflow-ai/cmux/releases/latest/download/appcast.xml" "$APP_PLIST"
-echo "Sparkle keys injected"
+ARM_APP_PLIST="$ARM_APP_PATH/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Delete :SUPublicEDKey" "$ARM_APP_PLIST" 2>/dev/null || true
+/usr/libexec/PlistBuddy -c "Delete :SUFeedURL" "$ARM_APP_PLIST" 2>/dev/null || true
+/usr/libexec/PlistBuddy -c "Add :SUPublicEDKey string $SPARKLE_PUBLIC_KEY_DERIVED" "$ARM_APP_PLIST"
+/usr/libexec/PlistBuddy -c "Add :SUFeedURL string https://github.com/manaflow-ai/cmux/releases/latest/download/appcast.xml" "$ARM_APP_PLIST"
+echo "Apple Silicon Sparkle keys injected"
+
+echo "Building universal app..."
+xcodebuild -scheme cmux -configuration Release -derivedDataPath "$UNIVERSAL_BUILD_DIR" \
+  -destination 'generic/platform=macOS' \
+  ARCHS="arm64 x86_64" \
+  ONLY_ACTIVE_ARCH=NO \
+  CODE_SIGNING_ALLOWED=NO build 2>&1 | tail -5
+echo "Universal build succeeded"
+
+echo "Verifying universal binaries..."
+UNIVERSAL_APP_ARCHS="$(lipo -archs "$UNIVERSAL_APP_PATH/Contents/MacOS/cmux")"
+UNIVERSAL_CLI_ARCHS="$(lipo -archs "$UNIVERSAL_APP_PATH/Contents/Resources/bin/cmux")"
+echo "Universal app architectures: $UNIVERSAL_APP_ARCHS"
+echo "Universal CLI architectures: $UNIVERSAL_CLI_ARCHS"
+[[ "$UNIVERSAL_APP_ARCHS" == *arm64* && "$UNIVERSAL_APP_ARCHS" == *x86_64* ]]
+[[ "$UNIVERSAL_CLI_ARCHS" == *arm64* && "$UNIVERSAL_CLI_ARCHS" == *x86_64* ]]
+
+echo "Removing Sparkle metadata from universal app..."
+UNIVERSAL_APP_PLIST="$UNIVERSAL_APP_PATH/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Delete :SUPublicEDKey" "$UNIVERSAL_APP_PLIST" 2>/dev/null || true
+/usr/libexec/PlistBuddy -c "Delete :SUFeedURL" "$UNIVERSAL_APP_PLIST" 2>/dev/null || true
+echo "Universal app Sparkle metadata removed"
 
 # --- Codesign ---
-echo "Codesigning..."
-CLI_PATH="$APP_PATH/Contents/Resources/bin/cmux"
-if [ -f "$CLI_PATH" ]; then
-  /usr/bin/codesign --force --options runtime --timestamp --sign "$SIGN_HASH" --entitlements "$ENTITLEMENTS" "$CLI_PATH"
-fi
-/usr/bin/codesign --force --options runtime --timestamp --sign "$SIGN_HASH" --entitlements "$ENTITLEMENTS" --deep "$APP_PATH"
-/usr/bin/codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+echo "Codesigning Apple Silicon app..."
+codesign_app "$ARM_APP_PATH"
+echo "Codesigning universal app..."
+codesign_app "$UNIVERSAL_APP_PATH"
 echo "Codesign verified"
 
-# --- Notarize app ---
-echo "Notarizing app..."
-ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" cmux-notary.zip
-xcrun notarytool submit cmux-notary.zip \
-  --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --wait
-xcrun stapler staple "$APP_PATH"
-xcrun stapler validate "$APP_PATH"
-rm -f cmux-notary.zip
-echo "App notarized"
-
-# --- Create and notarize DMG ---
-echo "Creating DMG..."
-rm -f cmux-macos.dmg
-create-dmg --codesign "$SIGN_HASH" cmux-macos.dmg "$APP_PATH"
-echo "Notarizing DMG..."
-xcrun notarytool submit cmux-macos.dmg \
-  --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --wait
-xcrun stapler staple cmux-macos.dmg
-xcrun stapler validate cmux-macos.dmg
-echo "DMG notarized"
+echo "Notarizing Apple Silicon app and DMG..."
+notarize_app_and_dmg "$ARM_APP_PATH" "$ARM_DMG_PATH"
+echo "Notarizing universal app and DMG..."
+notarize_app_and_dmg "$UNIVERSAL_APP_PATH" "$UNIVERSAL_DMG_PATH"
+echo "DMGs notarized"
 
 # --- Generate Sparkle appcast ---
 echo "Generating appcast..."
@@ -124,7 +164,7 @@ if gh release view "$TAG" >/dev/null 2>&1; then
   echo "Release $TAG already exists"
   EXISTING_ASSETS="$(gh release view "$TAG" --json assets --jq '.assets[].name' || true)"
   HAS_CONFLICTING_ASSET="false"
-  for asset in cmux-macos.dmg appcast.xml; do
+  for asset in cmux-macos.dmg cmux-macos-universal.dmg appcast.xml; do
     if printf '%s\n' "$EXISTING_ASSETS" | grep -Fxq "$asset"; then
       HAS_CONFLICTING_ASSET="true"
       break
@@ -139,14 +179,14 @@ if gh release view "$TAG" >/dev/null 2>&1; then
 
   if [[ "$ALLOW_OVERWRITE" == "true" ]]; then
     echo "Uploading with overwrite enabled for existing release $TAG..."
-    gh release upload "$TAG" cmux-macos.dmg appcast.xml --clobber
+    gh release upload "$TAG" cmux-macos.dmg cmux-macos-universal.dmg appcast.xml --clobber
   else
     echo "Uploading to existing release $TAG..."
-    gh release upload "$TAG" cmux-macos.dmg appcast.xml
+    gh release upload "$TAG" cmux-macos.dmg cmux-macos-universal.dmg appcast.xml
   fi
 else
   echo "Creating release $TAG and uploading..."
-  gh release create "$TAG" cmux-macos.dmg appcast.xml --title "$TAG" --notes "See CHANGELOG.md for details"
+  gh release create "$TAG" cmux-macos.dmg cmux-macos-universal.dmg appcast.xml --title "$TAG" --notes "See CHANGELOG.md for details"
 fi
 
 # --- Verify ---
@@ -202,7 +242,7 @@ CASKEOF
 fi
 
 # --- Cleanup ---
-rm -rf build/ cmux-macos.dmg appcast.xml
+rm -rf "$ARM_BUILD_DIR" "$UNIVERSAL_BUILD_DIR" "$ARM_DMG_PATH" "$UNIVERSAL_DMG_PATH" appcast.xml
 echo ""
 echo "=== Release $TAG complete ==="
 say "cmux release complete"
