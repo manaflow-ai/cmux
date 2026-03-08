@@ -527,6 +527,41 @@ func browserShouldOpenURLExternally(_ url: URL) -> Bool {
     return !browserEmbeddedNavigationSchemes.contains(scheme)
 }
 
+/// OAuth and SSO flows must open in the system browser because identity providers
+/// (Google, Microsoft, GitHub, Apple) block or degrade OAuth in embedded WebViews.
+/// Google explicitly disallows it: https://developers.google.com/identity/protocols/oauth2/policies#browsers
+func browserIsOAuthFlowURL(_ url: URL) -> Bool {
+    let path = url.path.lowercased()
+    let host = url.host?.lowercased() ?? ""
+
+    // Standard OAuth authorize/callback endpoints
+    if path.contains("/oauth") || path.contains("/oauth2") || path.contains("/o/oauth2") {
+        return true
+    }
+
+    // Google sign-in
+    if host == "accounts.google.com" && (path.hasPrefix("/signin") || path.hasPrefix("/o/oauth2")) {
+        return true
+    }
+
+    // Microsoft identity platform
+    if host.hasSuffix("login.microsoftonline.com") || host == "login.live.com" {
+        return true
+    }
+
+    // GitHub OAuth
+    if host == "github.com" && path.hasPrefix("/login/oauth") {
+        return true
+    }
+
+    // Apple ID
+    if host == "appleid.apple.com" && path.hasPrefix("/auth") {
+        return true
+    }
+
+    return false
+}
+
 enum BrowserUserAgentSettings {
     // Force a Safari UA. Some WebKit builds return a minimal UA without Version/Safari tokens,
     // and some installs may have legacy Chrome UA overrides. Both can cause Google to serve
@@ -3953,6 +3988,19 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
             )
 #endif
             handleBlockedInsecureHTTPNavigation?(navigationAction.request, intent)
+            decisionHandler(.cancel)
+            return
+        }
+
+        // OAuth/SSO flows must open in the system browser. Identity providers like
+        // Google block OAuth in embedded WebViews, causing the flow to hang.
+        if let url = navigationAction.request.url,
+           navigationAction.targetFrame?.isMainFrame != false,
+           browserIsOAuthFlowURL(url) {
+            let opened = NSWorkspace.shared.open(url)
+            #if DEBUG
+            dlog("browser.navigation.oauth source=navDelegate opened=\(opened ? 1 : 0) url=\(url.absoluteString)")
+            #endif
             decisionHandler(.cancel)
             return
         }

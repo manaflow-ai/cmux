@@ -287,6 +287,12 @@ func resolveTerminalOpenURLTarget(_ rawValue: String) -> TerminalOpenURLTarget? 
     if let parsed = URL(string: trimmed),
        let scheme = parsed.scheme?.lowercased() {
         if scheme == "http" || scheme == "https" {
+            if browserIsOAuthFlowURL(parsed) {
+                #if DEBUG
+                dlog("link.resolve result=external(oauth) url=\(parsed)")
+                #endif
+                return .external(parsed)
+            }
             guard BrowserInsecureHTTPSettings.normalizeHost(parsed.host ?? "") != nil else {
                 #if DEBUG
                 dlog("link.resolve result=external(invalidHost) url=\(parsed)")
