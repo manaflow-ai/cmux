@@ -1463,12 +1463,14 @@ class GhosttyApp {
                     let command = actionTitle.isEmpty ? tabTitle : actionTitle
                     let body = actionBody
                     let surfaceId = tabManager.focusedSurfaceId(for: tabId)
+                    let wsColor = tabManager.tabs.first(where: { $0.id == tabId })?.customColor
                     TerminalNotificationStore.shared.addNotification(
                         tabId: tabId,
                         surfaceId: surfaceId,
                         title: command,
                         subtitle: "",
-                        body: body
+                        body: body,
+                        color: wsColor
                     )
                     return true
                 }
@@ -1722,12 +1724,14 @@ class GhosttyApp {
                 let tabTitle = AppDelegate.shared?.tabManager?.titleForTab(tabId) ?? "Terminal"
                 let command = actionTitle.isEmpty ? tabTitle : actionTitle
                 let body = actionBody
+                let wsColor = AppDelegate.shared?.tabManager?.tabs.first(where: { $0.id == tabId })?.customColor
                 TerminalNotificationStore.shared.addNotification(
                     tabId: tabId,
                     surfaceId: surfaceId,
                     title: command,
                     subtitle: "",
-                    body: body
+                    body: body,
+                    color: wsColor
                 )
             }
             return true

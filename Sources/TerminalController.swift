@@ -1728,6 +1728,8 @@ class TerminalController {
             return v2Result(id: id, self.v2WorkspaceReorder(params: params))
         case "workspace.rename":
             return v2Result(id: id, self.v2WorkspaceRename(params: params))
+        case "workspace.set_color":
+            return v2Result(id: id, self.v2WorkspaceSetColor(params: params))
         case "workspace.action":
             return v2Result(id: id, self.v2WorkspaceAction(params: params))
         case "workspace.next":
@@ -2092,6 +2094,7 @@ class TerminalController {
             "workspace.move_to_window",
             "workspace.reorder",
             "workspace.rename",
+            "workspace.set_color",
             "workspace.action",
             "workspace.next",
             "workspace.previous",
@@ -2863,6 +2866,7 @@ class TerminalController {
                     "ref": v2Ref(kind: .workspace, uuid: ws.id),
                     "index": index,
                     "title": ws.title,
+                    "custom_color": v2OrNull(ws.customColor),
                     "selected": ws.id == tabManager.selectedTabId,
                     "pinned": ws.isPinned
                 ]
@@ -3117,6 +3121,49 @@ class TerminalController {
             "window_id": v2OrNull(windowId?.uuidString),
             "window_ref": v2Ref(kind: .window, uuid: windowId),
             "title": title
+        ])
+    }
+    private func v2WorkspaceSetColor(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let workspaceId = v2UUID(params, "workspace_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
+        }
+
+        let colorRaw = v2String(params, "color")
+        let color: String?
+        if let colorRaw {
+            guard let normalized = WorkspaceTabColorSettings.normalizedHex(colorRaw) else {
+                return .err(code: "invalid_params", message: "Invalid color hex. Use format #RRGGBB.", data: nil)
+            }
+            color = normalized
+        } else {
+            color = nil
+        }
+
+        var applied = false
+        // TabManager and Workspace are @MainActor-bound; color mutation requires main-thread execution.
+        v2MainSync {
+            guard tabManager.tabs.contains(where: { $0.id == workspaceId }) else { return }
+            tabManager.setTabColor(tabId: workspaceId, color: color)
+            applied = true
+        }
+
+        guard applied else {
+            return .err(code: "not_found", message: "Workspace not found", data: [
+                "workspace_id": workspaceId.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId)
+            ])
+        }
+
+        let windowId = v2ResolveWindowId(tabManager: tabManager)
+        return .ok([
+            "workspace_id": workspaceId.uuidString,
+            "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
+            "window_id": v2OrNull(windowId?.uuidString),
+            "window_ref": v2Ref(kind: .window, uuid: windowId),
+            "color": v2OrNull(color)
         ])
     }
     private func v2WorkspaceNext(params: [String: Any]) -> V2CallResult {
@@ -5263,6 +5310,7 @@ class TerminalController {
         let title = (params["title"] as? String) ?? "Notification"
         let subtitle = (params["subtitle"] as? String) ?? ""
         let body = (params["body"] as? String) ?? ""
+        let color = v2String(params, "color")
 
         var result: V2CallResult = .err(code: "internal_error", message: "Failed to notify", data: nil)
         v2MainSync {
@@ -5271,14 +5319,24 @@ class TerminalController {
                 return
             }
             let surfaceId = ws.focusedPanelId
+            let resolvedColor = color ?? ws.customColor
             TerminalNotificationStore.shared.addNotification(
                 tabId: ws.id,
                 surfaceId: surfaceId,
                 title: title,
                 subtitle: subtitle,
-                body: body
+                body: body,
+                color: resolvedColor
             )
-            result = .ok(["workspace_id": ws.id.uuidString, "surface_id": v2OrNull(surfaceId?.uuidString)])
+            let windowId = v2ResolveWindowId(tabManager: tabManager)
+            result = .ok([
+                "workspace_id": ws.id.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
+                "surface_id": v2OrNull(surfaceId?.uuidString),
+                "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
+                "window_id": v2OrNull(windowId?.uuidString),
+                "window_ref": v2Ref(kind: .window, uuid: windowId)
+            ])
         }
         return result
     }
@@ -5294,6 +5352,7 @@ class TerminalController {
         let title = (params["title"] as? String) ?? "Notification"
         let subtitle = (params["subtitle"] as? String) ?? ""
         let body = (params["body"] as? String) ?? ""
+        let color = v2String(params, "color")
 
         var result: V2CallResult = .err(code: "internal_error", message: "Failed to notify", data: nil)
         v2MainSync {
@@ -5305,12 +5364,14 @@ class TerminalController {
                 result = .err(code: "not_found", message: "Surface not found", data: ["surface_id": surfaceId.uuidString])
                 return
             }
+            let resolvedColor = color ?? ws.customColor
             TerminalNotificationStore.shared.addNotification(
                 tabId: ws.id,
                 surfaceId: surfaceId,
                 title: title,
                 subtitle: subtitle,
-                body: body
+                body: body,
+                color: resolvedColor
             )
             result = .ok(["workspace_id": ws.id.uuidString, "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id), "surface_id": surfaceId.uuidString, "surface_ref": v2Ref(kind: .surface, uuid: surfaceId), "window_id": v2OrNull(v2ResolveWindowId(tabManager: tabManager)?.uuidString), "window_ref": v2Ref(kind: .window, uuid: v2ResolveWindowId(tabManager: tabManager))])
         }
@@ -5331,6 +5392,7 @@ class TerminalController {
         let title = (params["title"] as? String) ?? "Notification"
         let subtitle = (params["subtitle"] as? String) ?? ""
         let body = (params["body"] as? String) ?? ""
+        let color = v2String(params, "color")
 
         var result: V2CallResult = .err(code: "internal_error", message: "Failed to notify", data: nil)
         v2MainSync {
@@ -5342,12 +5404,14 @@ class TerminalController {
                 result = .err(code: "not_found", message: "Surface not found", data: ["surface_id": surfaceId.uuidString])
                 return
             }
+            let resolvedColor = color ?? ws.customColor
             TerminalNotificationStore.shared.addNotification(
                 tabId: ws.id,
                 surfaceId: surfaceId,
                 title: title,
                 subtitle: subtitle,
-                body: body
+                body: body,
+                color: resolvedColor
             )
             result = .ok(["workspace_id": ws.id.uuidString, "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id), "surface_id": surfaceId.uuidString, "surface_ref": v2Ref(kind: .surface, uuid: surfaceId), "window_id": v2OrNull(v2ResolveWindowId(tabManager: tabManager)?.uuidString), "window_ref": v2Ref(kind: .window, uuid: v2ResolveWindowId(tabManager: tabManager))])
         }
@@ -5365,7 +5429,8 @@ class TerminalController {
                     "is_read": n.isRead,
                     "title": n.title,
                     "subtitle": n.subtitle,
-                    "body": n.body
+                    "body": n.body,
+                    "color": v2OrNull(n.color)
                 ]
             }
         }
@@ -10808,12 +10873,14 @@ class TerminalController {
             }
             let surfaceId = tabManager.focusedSurfaceId(for: tabId)
             let (title, subtitle, body) = parseNotificationPayload(args)
+            let wsColor = tabManager.tabs.first(where: { $0.id == tabId })?.customColor
             TerminalNotificationStore.shared.addNotification(
                 tabId: tabId,
                 surfaceId: surfaceId,
                 title: title,
                 subtitle: subtitle,
-                body: body
+                body: body,
+                color: wsColor
             )
         }
         return result
@@ -10845,7 +10912,8 @@ class TerminalController {
                 surfaceId: surfaceId,
                 title: title,
                 subtitle: subtitle,
-                body: body
+                body: body,
+                color: tab.customColor
             )
         }
         return result
@@ -10886,7 +10954,8 @@ class TerminalController {
                 surfaceId: panelId,
                 title: title,
                 subtitle: subtitle,
-                body: body
+                body: body,
+                color: tab.customColor
             )
         }
         return result

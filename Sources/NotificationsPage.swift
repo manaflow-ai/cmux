@@ -172,22 +172,31 @@ private struct ShortcutAnnotation: View {
 }
 
 private struct NotificationRow: View {
+    @Environment(\.colorScheme) private var colorScheme
     let notification: TerminalNotification
     let tabTitle: String?
     let onOpen: () -> Void
     let onClear: () -> Void
     let focusedNotificationId: FocusState<UUID?>.Binding
 
+    private var dotColor: Color {
+        if let hex = notification.color,
+           let custom = WorkspaceTabColorSettings.displayColor(hex: hex, colorScheme: colorScheme) {
+            return custom
+        }
+        return cmuxAccentColor()
+    }
+
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
             Button(action: onOpen) {
                 HStack(alignment: .top, spacing: 12) {
                     Circle()
-                        .fill(notification.isRead ? Color.clear : cmuxAccentColor())
+                        .fill(notification.isRead ? Color.clear : dotColor)
                         .frame(width: 8, height: 8)
                         .overlay(
                             Circle()
-                                .stroke(cmuxAccentColor().opacity(notification.isRead ? 0.2 : 1), lineWidth: 1)
+                                .stroke(dotColor.opacity(notification.isRead ? 0.2 : 1), lineWidth: 1)
                         )
                         .padding(.top, 6)
 
@@ -236,8 +245,19 @@ private struct NotificationRow: View {
         }
         .padding(12)
         .background(
-            RoundedRectangle(cornerRadius: 10)
-                .fill(Color(nsColor: .controlBackgroundColor))
+            ZStack(alignment: .leading) {
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(Color(nsColor: .controlBackgroundColor))
+                if notification.color != nil {
+                    HStack(spacing: 0) {
+                        Rectangle()
+                            .fill(dotColor)
+                            .frame(width: 3)
+                        Spacer()
+                    }
+                }
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 10))
         )
     }
 }

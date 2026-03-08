@@ -1363,6 +1363,28 @@ struct CMUXCLI {
             let payload = try client.sendV2(method: "workspace.rename", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["workspace"]))
 
+        case "set-workspace-color":
+            let (wsArg, rem0) = parseOption(commandArgs, name: "--workspace")
+            let workspaceArg = wsArg ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+            let isClear = rem0.contains("--clear")
+            let rem1 = rem0.filter { $0 != "--clear" }
+            let hasPositionalArgs = !rem1.filter({ !$0.hasPrefix("--") }).isEmpty
+            if isClear, hasPositionalArgs {
+                throw CLIError(message: "set-workspace-color: --clear and a color value are mutually exclusive")
+            }
+            let wsId = try resolveWorkspaceId(workspaceArg, client: client)
+            var params: [String: Any] = ["workspace_id": wsId]
+            if !isClear {
+                let colorArgs = rem1.dropFirst(rem1.first == "--" ? 1 : 0)
+                let color = colorArgs.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !color.isEmpty else {
+                    throw CLIError(message: "set-workspace-color requires a color hex (e.g. \"#C0392B\") or --clear")
+                }
+                params["color"] = color
+            }
+            let payload = try client.sendV2(method: "workspace.set_color", params: params)
+            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["workspace"]))
+
         case "current-workspace":
             let response = try sendV1Command("current_workspace", client: client)
             if jsonOutput {
@@ -1479,17 +1501,30 @@ struct CMUXCLI {
             let title = optionValue(commandArgs, name: "--title") ?? "Notification"
             let subtitle = optionValue(commandArgs, name: "--subtitle") ?? ""
             let body = optionValue(commandArgs, name: "--body") ?? ""
+            let color = optionValue(commandArgs, name: "--color")
 
             let notifyWsFlag = optionValue(commandArgs, name: "--workspace")
             let workspaceArg = notifyWsFlag ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
             let surfaceArg = optionValue(commandArgs, name: "--surface") ?? (notifyWsFlag == nil && windowId == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
 
-            let targetWorkspace = try resolveWorkspaceId(workspaceArg, client: client)
-            let targetSurface = try resolveSurfaceId(surfaceArg, workspaceId: targetWorkspace, client: client)
+            let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client)
+            let sfId = try normalizeSurfaceHandle(surfaceArg, client: client, workspaceHandle: wsId)
 
-            let payload = "\(title)|\(subtitle)|\(body)"
-            let response = try sendV1Command("notify_target \(targetWorkspace) \(targetSurface) \(payload)", client: client)
-            print(response)
+            var params: [String: Any] = ["title": title, "subtitle": subtitle, "body": body]
+            if let wsId { params["workspace_id"] = wsId }
+            if let sfId { params["surface_id"] = sfId }
+            if let color { params["color"] = color }
+
+            let method: String
+            if wsId != nil, sfId != nil {
+                method = "notification.create_for_target"
+            } else if sfId != nil {
+                method = "notification.create_for_surface"
+            } else {
+                method = "notification.create"
+            }
+            let payload = try client.sendV2(method: method, params: params)
+            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat))
 
         case "list-notifications":
             let response = try sendV1Command("list_notifications", client: client)
@@ -4531,6 +4566,21 @@ struct CMUXCLI {
               cmux rename-workspace "backend logs"
               cmux rename-window --workspace workspace:2 "agent run"
             """
+        case "set-workspace-color":
+            return """
+            Usage: cmux set-workspace-color [--workspace <id|ref>] [--clear] [--] <#hex>
+
+            Set or clear the custom color for a workspace tab.
+
+            Flags:
+              --workspace <id|ref>   Workspace to color (default: current/$CMUX_WORKSPACE_ID)
+              --clear                Remove the custom color
+
+            Example:
+              cmux set-workspace-color "#C0392B"
+              cmux set-workspace-color --workspace workspace:2 "#1565C0"
+              cmux set-workspace-color --clear
+            """
         case "current-workspace":
             return """
             Usage: cmux current-workspace
@@ -4799,18 +4849,21 @@ struct CMUXCLI {
             return """
             Usage: cmux notify [flags]
 
-            Send a notification to a workspace/surface.
+            Send a notification to a workspace/surface. If the workspace has a custom
+            color and no explicit --color is given, the notification inherits the
+            workspace color automatically.
 
             Flags:
               --title <text>         Notification title (default: "Notification")
               --subtitle <text>      Notification subtitle
               --body <text>          Notification body
+              --color <#hex>         Notification accent color (default: workspace color or blue)
               --workspace <id|ref>   Target workspace (default: $CMUX_WORKSPACE_ID)
               --surface <id|ref>     Target surface (default: $CMUX_SURFACE_ID)
 
             Example:
               cmux notify --title "Build done" --body "All tests passed"
-              cmux notify --title "Error" --subtitle "test.swift" --body "Line 42: syntax error"
+              cmux notify --title "Error" --body "Failed" --color "#C0392B"
             """
         case "list-notifications":
             return """
@@ -6950,13 +7003,14 @@ struct CMUXCLI {
           select-workspace --workspace <id|ref>
           rename-workspace [--workspace <id|ref>] <title>
           rename-window [--workspace <id|ref>] <title>
+          set-workspace-color [--workspace <id|ref>] [--clear] <#hex>
           current-workspace
           read-screen [--workspace <id|ref>] [--surface <id|ref>] [--scrollback] [--lines <n>]
           send [--workspace <id|ref>] [--surface <id|ref>] <text>
           send-key [--workspace <id|ref>] [--surface <id|ref>] <key>
           send-panel --panel <id|ref> [--workspace <id|ref>] <text>
           send-key-panel --panel <id|ref> [--workspace <id|ref>] <key>
-          notify --title <text> [--subtitle <text>] [--body <text>] [--workspace <id|ref>] [--surface <id|ref>]
+          notify --title <text> [--subtitle <text>] [--body <text>] [--color <#hex>] [--workspace <id|ref>] [--surface <id|ref>]
           list-notifications
           clear-notifications
           claude-hook <session-start|stop|notification> [--workspace <id|ref>] [--surface <id|ref>]

@@ -611,6 +611,7 @@ struct TerminalNotification: Identifiable, Hashable {
     let title: String
     let subtitle: String
     let body: String
+    let color: String?
     let createdAt: Date
     var isRead: Bool
 }
@@ -819,7 +820,7 @@ final class TerminalNotificationStore: ObservableObject {
         indexes.latestUnreadByTabId[tabId] ?? indexes.latestByTabId[tabId]
     }
 
-    func addNotification(tabId: UUID, surfaceId: UUID?, title: String, subtitle: String, body: String) {
+    func addNotification(tabId: UUID, surfaceId: UUID?, title: String, subtitle: String, body: String, color: String? = nil) {
         var updated = notifications
         var idsToClear: [String] = []
         updated.removeAll { existing in
@@ -853,6 +854,7 @@ final class TerminalNotificationStore: ObservableObject {
             title: title,
             subtitle: subtitle,
             body: body,
+            color: color,
             createdAt: Date(),
             isRead: false
         )
