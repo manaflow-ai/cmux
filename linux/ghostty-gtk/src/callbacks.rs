@@ -3,11 +3,18 @@
 //! The host application provides callbacks that ghostty invokes for:
 //! - Wakeup: ghostty needs the host to call `tick()` on the main thread
 //! - Action: ghostty wants the host to perform an action (new split, title change, etc.)
-//! - Clipboard: read/write system clipboard
-//! - Close surface: a terminal surface wants to close
+//!
+//! Clipboard and close-surface callbacks are different: ghostty passes the
+//! surface userdata for those, not the application userdata. We therefore
+//! dispatch them directly to `GhosttyGlSurface` instead of routing them
+//! through the application-level handler trait.
 
 use ghostty_sys::*;
+use gtk4::glib;
+use gtk4::glib::translate::from_glib_none;
 use std::os::raw::{c_char, c_void};
+
+use crate::surface::GhosttyGlSurface;
 
 /// Trait for handling ghostty runtime events.
 ///
@@ -20,28 +27,6 @@ pub trait GhosttyCallbackHandler: 'static {
     /// Called when ghostty wants the host to perform an action.
     /// Returns `true` if the action was handled.
     fn on_action(&self, target: ghostty_target_s, action: ghostty_action_s) -> bool;
-
-    /// Called when ghostty wants to read the system clipboard.
-    fn on_read_clipboard(&self, clipboard: ghostty_clipboard_e, context: *mut c_void);
-
-    /// Called when ghostty wants confirmation before reading clipboard.
-    fn on_confirm_read_clipboard(
-        &self,
-        content: &str,
-        context: *mut c_void,
-        request: ghostty_clipboard_request_e,
-    );
-
-    /// Called when ghostty wants to write to the system clipboard.
-    fn on_write_clipboard(
-        &self,
-        clipboard: ghostty_clipboard_e,
-        content: &[ghostty_clipboard_content_s],
-        confirm: bool,
-    );
-
-    /// Called when a surface wants to close.
-    fn on_close_surface(&self, process_alive: bool);
 }
 
 /// Stores the callback configuration for the ghostty runtime.
@@ -142,9 +127,12 @@ unsafe extern "C" fn read_clipboard_trampoline(
     clipboard: ghostty_clipboard_e,
     context: *mut c_void,
 ) {
-    if let Some(handler) = handler_from_userdata(userdata) {
-        handler.on_read_clipboard(clipboard, context);
-    }
+    let userdata = userdata as usize;
+    let context = context as usize;
+    glib::MainContext::default().invoke(move || {
+        let surface = surface_from_userdata(userdata as *mut c_void);
+        surface.read_clipboard_request(clipboard, context as *mut c_void);
+    });
 }
 
 unsafe extern "C" fn confirm_read_clipboard_trampoline(
@@ -153,14 +141,19 @@ unsafe extern "C" fn confirm_read_clipboard_trampoline(
     context: *mut c_void,
     request: ghostty_clipboard_request_e,
 ) {
-    if let Some(handler) = handler_from_userdata(userdata) {
-        let content_str = if content.is_null() {
-            ""
-        } else {
-            std::ffi::CStr::from_ptr(content).to_str().unwrap_or("")
-        };
-        handler.on_confirm_read_clipboard(content_str, context, request);
-    }
+    let userdata = userdata as usize;
+    let context = context as usize;
+    let content = if content.is_null() {
+        String::new()
+    } else {
+        std::ffi::CStr::from_ptr(content)
+            .to_string_lossy()
+            .into_owned()
+    };
+    glib::MainContext::default().invoke(move || {
+        let surface = surface_from_userdata(userdata as *mut c_void);
+        surface.confirm_clipboard_read(&content, context as *mut c_void, request);
+    });
 }
 
 unsafe extern "C" fn write_clipboard_trampoline(
@@ -170,18 +163,57 @@ unsafe extern "C" fn write_clipboard_trampoline(
     content_len: usize,
     confirm: bool,
 ) {
-    if let Some(handler) = handler_from_userdata(userdata) {
-        let slice = if content.is_null() || content_len == 0 {
-            &[]
-        } else {
-            std::slice::from_raw_parts(content, content_len)
-        };
-        handler.on_write_clipboard(clipboard, slice, confirm);
-    }
+    let entries = if content.is_null() || content_len == 0 {
+        Vec::new()
+    } else {
+        std::slice::from_raw_parts(content, content_len)
+            .iter()
+            .map(|entry| ClipboardContent {
+                mime: c_string(entry.mime),
+                data: c_string(entry.data),
+            })
+            .collect()
+    };
+    let userdata = userdata as usize;
+    glib::MainContext::default().invoke(move || {
+        let surface = surface_from_userdata(userdata as *mut c_void);
+        surface.write_clipboard(clipboard, &entries, confirm);
+    });
 }
 
 unsafe extern "C" fn close_surface_trampoline(userdata: *mut c_void, process_alive: bool) {
-    if let Some(handler) = handler_from_userdata(userdata) {
-        handler.on_close_surface(process_alive);
+    let userdata = userdata as usize;
+    glib::MainContext::default().invoke(move || {
+        let surface = surface_from_userdata(userdata as *mut c_void);
+        surface.close_requested(process_alive);
+    });
+}
+
+fn surface_from_userdata(userdata: *mut c_void) -> GhosttyGlSurface {
+    debug_assert!(!userdata.is_null());
+    unsafe { from_glib_none(userdata as *mut _) }
+}
+
+fn c_string(ptr: *const c_char) -> Option<String> {
+    if ptr.is_null() {
+        None
+    } else {
+        Some(unsafe { std::ffi::CStr::from_ptr(ptr) }.to_string_lossy().into_owned())
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ClipboardContent {
+    pub mime: Option<String>,
+    pub data: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::c_string;
+
+    #[test]
+    fn c_string_returns_none_for_null() {
+        assert_eq!(c_string(std::ptr::null()), None);
     }
 }

@@ -2,7 +2,6 @@
 
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
-use std::os::raw::c_void;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
@@ -252,32 +251,6 @@ impl ghostty_gtk::callbacks::GhosttyCallbackHandler for CmuxCallbackHandler {
                 false
             }
         }
-    }
-
-    fn on_read_clipboard(&self, _clipboard: ghostty_clipboard_e, _context: *mut c_void) {
-        tracing::debug!("ghostty: read_clipboard requested");
-    }
-
-    fn on_confirm_read_clipboard(
-        &self,
-        _content: &str,
-        _context: *mut c_void,
-        _request: ghostty_clipboard_request_e,
-    ) {
-        tracing::debug!("ghostty: confirm_read_clipboard requested");
-    }
-
-    fn on_write_clipboard(
-        &self,
-        _clipboard: ghostty_clipboard_e,
-        _content: &[ghostty_clipboard_content_s],
-        _confirm: bool,
-    ) {
-        tracing::debug!("ghostty: write_clipboard requested");
-    }
-
-    fn on_close_surface(&self, _process_alive: bool) {
-        tracing::debug!("ghostty: close_surface requested");
     }
 }
 

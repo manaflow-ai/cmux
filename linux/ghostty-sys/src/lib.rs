@@ -13,6 +13,10 @@ use std::os::raw::{c_char, c_double, c_int, c_void};
 
 pub const GHOSTTY_SUCCESS: c_int = 0;
 
+pub fn bundled_resources_dir() -> Option<&'static str> {
+    option_env!("GHOSTTY_BUNDLED_RESOURCES_DIR")
+}
+
 // -----------------------------------------------------------------------
 // Opaque types
 // -----------------------------------------------------------------------

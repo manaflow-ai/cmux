@@ -23,6 +23,7 @@ impl GhosttyApp {
     /// This calls into the C FFI. Should only be called once per process.
     #[cfg(feature = "link-ghostty")]
     pub fn init() -> Result<(), String> {
+        configure_bundled_resources_dir();
         let ret = unsafe { ghostty_init(0, ptr::null_mut()) };
         if ret != GHOSTTY_SUCCESS {
             return Err(format!("ghostty_init failed with code {}", ret));
@@ -130,6 +131,24 @@ impl GhosttyApp {
     /// Get the config handle for creating surfaces with inherited config.
     pub fn config(&self) -> ghostty_config_t {
         self.config
+    }
+}
+
+#[cfg(feature = "link-ghostty")]
+fn configure_bundled_resources_dir() {
+    const KEY: &str = "GHOSTTY_RESOURCES_DIR";
+
+    if std::env::var_os(KEY).is_some() {
+        return;
+    }
+
+    let Some(dir) = ghostty_sys::bundled_resources_dir() else {
+        return;
+    };
+
+    if std::path::Path::new(dir).exists() {
+        std::env::set_var(KEY, dir);
+        tracing::info!(resources_dir = dir, "Configured bundled Ghostty resources dir");
     }
 }
 

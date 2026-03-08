@@ -13,10 +13,10 @@ use gtk4::prelude::*;
 use gtk4::subclass::prelude::*;
 use std::cell::{Cell, RefCell};
 use std::os::raw::c_char;
-#[cfg(feature = "link-ghostty")]
 use std::os::raw::c_void;
 use std::ptr;
 
+use crate::callbacks::ClipboardContent;
 use crate::keys;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -676,6 +676,60 @@ impl GhosttyGlSurface {
         let _ = text;
     }
 
+    pub fn read_clipboard_request(&self, clipboard: ghostty_clipboard_e, context: *mut c_void) {
+        let clipboard = self.clipboard_for_kind(clipboard);
+        let surface = self.clone();
+        let context = SendPtr(context);
+        clipboard.read_text_async(None::<&gtk4::gio::Cancellable>, move |result| {
+            let text = match result {
+                Ok(Some(text)) => text.to_string(),
+                Ok(None) => String::new(),
+                Err(err) => {
+                    tracing::warn!("Failed to read clipboard text: {}", err);
+                    String::new()
+                }
+            };
+
+            surface.complete_clipboard_request(&text, context.0, false);
+        });
+    }
+
+    pub fn confirm_clipboard_read(
+        &self,
+        content: &str,
+        context: *mut c_void,
+        request: ghostty_clipboard_request_e,
+    ) {
+        tracing::warn!(
+            ?request,
+            "Auto-confirming Ghostty clipboard request in embedded host"
+        );
+        self.complete_clipboard_request(content, context, true);
+    }
+
+    pub fn write_clipboard(
+        &self,
+        clipboard: ghostty_clipboard_e,
+        content: &[ClipboardContent],
+        _confirm: bool,
+    ) {
+        let clipboard = self.clipboard_for_kind(clipboard);
+        if let Some(text) = content
+            .iter()
+            .find_map(|entry| match (entry.mime.as_deref(), entry.data.as_deref()) {
+                (Some("text/plain"), Some(text)) => Some(text),
+                _ => None,
+            })
+            .or_else(|| content.iter().find_map(|entry| entry.data.as_deref()))
+        {
+            clipboard.set_text(text);
+        }
+    }
+
+    pub fn close_requested(&self, process_alive: bool) {
+        tracing::debug!(process_alive, "ghostty requested surface close");
+    }
+
     fn setup_ime(&self) {
         let Some(im_context) = self.imp().im_context.borrow().as_ref().cloned() else {
             return;
@@ -862,7 +916,44 @@ impl GhosttyGlSurface {
         #[cfg(not(feature = "link-ghostty"))]
         None
     }
+
+    fn clipboard_for_kind(&self, clipboard: ghostty_clipboard_e) -> gdk4::Clipboard {
+        match clipboard {
+            ghostty_clipboard_e::GHOSTTY_CLIPBOARD_SELECTION => self.primary_clipboard(),
+            _ => self.clipboard(),
+        }
+    }
+
+    fn complete_clipboard_request(&self, text: &str, context: *mut c_void, confirmed: bool) {
+        let surface = self.imp().surface.get();
+        if surface.is_null() {
+            return;
+        }
+
+        #[cfg(feature = "link-ghostty")]
+        {
+            let Some(cstr) = cstring_input(text, "clipboard request") else {
+                return;
+            };
+
+            unsafe {
+                ghostty_surface_complete_clipboard_request(
+                    surface,
+                    cstr.as_ptr(),
+                    context,
+                    confirmed,
+                );
+            }
+        }
+        #[cfg(not(feature = "link-ghostty"))]
+        let _ = (text, context, confirmed);
+    }
 }
+
+#[derive(Clone, Copy)]
+struct SendPtr(*mut c_void);
+
+unsafe impl Send for SendPtr {}
 
 #[cfg(test)]
 mod tests {
