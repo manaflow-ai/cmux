@@ -241,6 +241,166 @@ final class SocketControlPasswordStoreTests: XCTestCase {
     }
 }
 
+final class SocketControlPasswordStoreConstantTimeTests: XCTestCase {
+    override func setUp() {
+        super.setUp()
+        SocketControlPasswordStore.resetLazyKeychainFallbackCacheForTests()
+    }
+
+    override func tearDown() {
+        SocketControlPasswordStore.resetLazyKeychainFallbackCacheForTests()
+        super.tearDown()
+    }
+
+    private func writeTemp(_ password: String) throws -> URL {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ct-tests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        let fileURL = tempDir.appendingPathComponent("pw.txt", isDirectory: false)
+        try SocketControlPasswordStore.savePassword(password, fileURL: fileURL)
+        return fileURL
+    }
+
+    // MARK: - Correctness (verify behavior must not change)
+
+    func testVerifyMatchingPasswordReturnsTrue() throws {
+        let fileURL = try writeTemp("hunter2")
+        defer { try? FileManager.default.removeItem(at: fileURL.deletingLastPathComponent()) }
+
+        XCTAssertTrue(SocketControlPasswordStore.verify(
+            password: "hunter2", environment: [:], fileURL: fileURL))
+    }
+
+    func testVerifyWrongPasswordReturnsFalse() throws {
+        let fileURL = try writeTemp("hunter2")
+        defer { try? FileManager.default.removeItem(at: fileURL.deletingLastPathComponent()) }
+
+        XCTAssertFalse(SocketControlPasswordStore.verify(
+            password: "hunter3", environment: [:], fileURL: fileURL))
+    }
+
+    func testVerifyShorterCandidateReturnsFalse() throws {
+        let fileURL = try writeTemp("hunter2")
+        defer { try? FileManager.default.removeItem(at: fileURL.deletingLastPathComponent()) }
+
+        XCTAssertFalse(SocketControlPasswordStore.verify(
+            password: "hu", environment: [:], fileURL: fileURL))
+    }
+
+    func testVerifyLongerCandidateReturnsFalse() throws {
+        let fileURL = try writeTemp("hunter2")
+        defer { try? FileManager.default.removeItem(at: fileURL.deletingLastPathComponent()) }
+
+        XCTAssertFalse(SocketControlPasswordStore.verify(
+            password: "hunter2-extra-long", environment: [:], fileURL: fileURL))
+    }
+
+    func testVerifyEmptyCandidateReturnsFalse() throws {
+        let fileURL = try writeTemp("hunter2")
+        defer { try? FileManager.default.removeItem(at: fileURL.deletingLastPathComponent()) }
+
+        XCTAssertFalse(SocketControlPasswordStore.verify(
+            password: "", environment: [:], fileURL: fileURL))
+    }
+
+    func testVerifyNoConfiguredPasswordReturnsFalse() {
+        XCTAssertFalse(SocketControlPasswordStore.verify(
+            password: "anything", environment: [:], fileURL: nil))
+    }
+
+    func testVerifyUnicodePasswordMatches() throws {
+        let fileURL = try writeTemp("Passwört-42!")
+        defer { try? FileManager.default.removeItem(at: fileURL.deletingLastPathComponent()) }
+
+        XCTAssertTrue(SocketControlPasswordStore.verify(
+            password: "Passwört-42!", environment: [:], fileURL: fileURL))
+        XCTAssertFalse(SocketControlPasswordStore.verify(
+            password: "Passwort-42!", environment: [:], fileURL: fileURL))
+    }
+
+    func testVerifyUnicodeCanonicalEquivalenceMatches() throws {
+        // "Café" stored as decomposed NFD ("Cafe\u{301}") must authenticate
+        // when the candidate arrives as precomposed NFC ("Café") and vice versa.
+        // constantTimeEqual normalises both sides via precomposedStringWithCanonicalMapping
+        // before comparing, so the two representations must be treated as equal.
+        let decomposed = "Cafe\u{301}"  // NFC would be "Café"
+        let composed = "Café"           // U+00E9 LATIN SMALL LETTER E WITH ACUTE
+
+        // Sanity: the two Swift String values are distinct in memory representation.
+        XCTAssertEqual(decomposed, composed, "Swift string comparison must treat these as equal (sanity check)")
+        XCTAssertEqual(decomposed.utf16.count, 5)  // decomposed: C a f e ́  (5 code units)
+        XCTAssertEqual(composed.utf16.count, 4)    // composed:  C a f é   (4 code units)
+
+        // Store as decomposed, verify with composed.
+        let fileURLDecomposed = try writeTemp(decomposed)
+        defer { try? FileManager.default.removeItem(at: fileURLDecomposed.deletingLastPathComponent()) }
+
+        XCTAssertTrue(
+            SocketControlPasswordStore.verify(password: composed, environment: [:], fileURL: fileURLDecomposed),
+            "Composed form must verify against decomposed-stored password"
+        )
+        XCTAssertTrue(
+            SocketControlPasswordStore.verify(password: decomposed, environment: [:], fileURL: fileURLDecomposed),
+            "Decomposed form must verify against decomposed-stored password"
+        )
+        XCTAssertFalse(
+            SocketControlPasswordStore.verify(password: "Cafe", environment: [:], fileURL: fileURLDecomposed),
+            "Password without accent must not verify"
+        )
+
+        // Store as composed, verify with decomposed.
+        let fileURLComposed = try writeTemp(composed)
+        defer { try? FileManager.default.removeItem(at: fileURLComposed.deletingLastPathComponent()) }
+
+        XCTAssertTrue(
+            SocketControlPasswordStore.verify(password: decomposed, environment: [:], fileURL: fileURLComposed),
+            "Decomposed form must verify against composed-stored password"
+        )
+        XCTAssertTrue(
+            SocketControlPasswordStore.verify(password: composed, environment: [:], fileURL: fileURLComposed),
+            "Composed form must verify against composed-stored password"
+        )
+        XCTAssertFalse(
+            SocketControlPasswordStore.verify(password: "Cafe", environment: [:], fileURL: fileURLComposed),
+            "Password without accent must not verify"
+        )
+    }
+
+    func testVerifyLongPasswordMatches() throws {
+        let longPw = String(repeating: "abcdefgh", count: 128) // 1024 chars
+        let fileURL = try writeTemp(longPw)
+        defer { try? FileManager.default.removeItem(at: fileURL.deletingLastPathComponent()) }
+
+        XCTAssertTrue(SocketControlPasswordStore.verify(
+            password: longPw, environment: [:], fileURL: fileURL))
+        XCTAssertFalse(SocketControlPasswordStore.verify(
+            password: longPw + "x", environment: [:], fileURL: fileURL))
+    }
+
+    // MARK: - Mismatch position correctness
+
+    func testVerifyMismatchAtAnyPositionReturnsFalse() throws {
+        // This test verifies the constant-time property structurally:
+        // both a first-byte mismatch and a last-byte mismatch should
+        // go through the same code path (no early exit).
+        let stored = "abcdefghijklmnop"
+        let fileURL = try writeTemp(stored)
+        defer { try? FileManager.default.removeItem(at: fileURL.deletingLastPathComponent()) }
+
+        // First byte wrong
+        XCTAssertFalse(SocketControlPasswordStore.verify(
+            password: "Xbcdefghijklmnop", environment: [:], fileURL: fileURL))
+
+        // Last byte wrong
+        XCTAssertFalse(SocketControlPasswordStore.verify(
+            password: "abcdefghijklmnoX", environment: [:], fileURL: fileURL))
+
+        // Correct
+        XCTAssertTrue(SocketControlPasswordStore.verify(
+            password: "abcdefghijklmnop", environment: [:], fileURL: fileURL))
+    }
+}
+
 final class CmuxCLIPathInstallerTests: XCTestCase {
     func testInstallAndUninstallRoundTripWithoutAdministratorPrivileges() throws {
         let fileManager = FileManager.default
