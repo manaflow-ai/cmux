@@ -16,11 +16,11 @@ do
 done
 
 if ! awk '
-  /\/\* Release \*\// { in_release=1; saw_only_active_arch=0; next }
-  in_release && /name = / { in_release=0 }
+  /\/\* Release \*\// { in_release=1; next }
   in_release && /ONLY_ACTIVE_ARCH = YES;/ { saw_yes=1 }
-  in_release && /ONLY_ACTIVE_ARCH = NO;/ { saw_only_active_arch=1 }
-  END { exit !(saw_only_active_arch && !saw_yes) }
+  in_release && /ONLY_ACTIVE_ARCH = NO;/ { saw_no=1 }
+  in_release && /name = Release;/ { in_release=0 }
+  END { exit !(saw_no && !saw_yes) }
 ' "$ROOT_DIR/GhosttyTabs.xcodeproj/project.pbxproj"; then
   echo "FAIL: Release configurations in project.pbxproj must use ONLY_ACTIVE_ARCH = NO"
   exit 1
