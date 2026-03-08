@@ -121,11 +121,7 @@ impl Workspace {
     }
 
     /// Add a new panel by splitting the focused pane.
-    pub fn split(
-        &mut self,
-        orientation: SplitOrientation,
-        panel_type: PanelType,
-    ) -> Uuid {
+    pub fn split(&mut self, orientation: SplitOrientation, panel_type: PanelType) -> Uuid {
         let new_panel = match panel_type {
             PanelType::Terminal => Panel::new_terminal(),
             PanelType::Browser => Panel::new_browser(),
@@ -134,6 +130,7 @@ impl Workspace {
         self.panels.insert(new_id, new_panel);
 
         // Find the focused pane and split it
+        let mut split_done = false;
         if let Some(focused_id) = self.focused_panel_id {
             if let Some(pane) = self.layout.find_pane_with_panel(focused_id) {
                 let old = std::mem::replace(
@@ -144,8 +141,11 @@ impl Workspace {
                     },
                 );
                 *pane = old.split(orientation, new_id);
+                split_done = true;
             }
-        } else {
+        }
+
+        if !split_done {
             // No focused panel — just split the root
             let old = std::mem::replace(
                 &mut self.layout,
@@ -245,12 +245,7 @@ impl Workspace {
     }
 
     /// Record an attention event from a notification.
-    pub fn record_notification(
-        &mut self,
-        title: &str,
-        body: &str,
-        panel_id: Option<Uuid>,
-    ) {
+    pub fn record_notification(&mut self, title: &str, body: &str, panel_id: Option<Uuid>) {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
@@ -273,8 +268,12 @@ impl Workspace {
             return false;
         }
 
-        self.focused_panel_id = Some(panel_id);
-        self.layout.select_panel(panel_id)
+        if self.layout.select_panel(panel_id) {
+            self.focused_panel_id = Some(panel_id);
+            true
+        } else {
+            false
+        }
     }
 }
 
@@ -332,7 +331,12 @@ mod tests {
         let new_id = ws.split(SplitOrientation::Horizontal, PanelType::Terminal);
         assert_eq!(ws.panels.len(), 2);
         assert_eq!(ws.focused_panel_id, Some(new_id));
-        assert_eq!(ws.panels.get(&new_id).and_then(|panel| panel.directory.as_deref()), None);
+        assert_eq!(
+            ws.panels
+                .get(&new_id)
+                .and_then(|panel| panel.directory.as_deref()),
+            None
+        );
     }
 
     #[test]
@@ -384,7 +388,9 @@ mod tests {
     #[test]
     fn test_record_notification_does_not_steal_focus() {
         let mut ws = Workspace::new();
-        let original_focus = ws.focused_panel_id.expect("workspace should have a focused panel");
+        let original_focus = ws
+            .focused_panel_id
+            .expect("workspace should have a focused panel");
         let other_panel_id = ws.split(SplitOrientation::Horizontal, PanelType::Terminal);
         assert_eq!(ws.focused_panel_id, Some(other_panel_id));
 
@@ -403,5 +409,28 @@ mod tests {
 
         ws.mark_notifications_read();
         assert_eq!(ws.unread_count, 0);
+    }
+
+    #[test]
+    fn test_split_falls_back_to_root_when_focused_panel_is_stale() {
+        let mut ws = Workspace::new();
+        ws.focused_panel_id = Some(uuid::Uuid::new_v4());
+
+        let new_id = ws.split(SplitOrientation::Horizontal, PanelType::Terminal);
+
+        assert_eq!(ws.focused_panel_id, Some(new_id));
+        assert!(ws.layout.all_panel_ids().contains(&new_id));
+    }
+
+    #[test]
+    fn test_focus_panel_does_not_update_focus_when_layout_select_fails() {
+        let mut ws = Workspace::new();
+        let original_focus = ws.focused_panel_id;
+        let panel_id = original_focus.expect("workspace should have a focused panel");
+
+        ws.layout = LayoutNode::single_pane(uuid::Uuid::new_v4());
+
+        assert!(!ws.focus_panel(panel_id));
+        assert_eq!(ws.focused_panel_id, original_focus);
     }
 }

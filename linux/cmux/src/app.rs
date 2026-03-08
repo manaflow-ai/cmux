@@ -153,22 +153,30 @@ pub fn run() -> i32 {
 }
 
 fn activate(app: &adw::Application, state: &Rc<AppState>) {
+    if let Some(window) = app.active_window() {
+        window.present();
+        return;
+    }
+
     let (ui_event_tx, ui_event_rx) = std::sync::mpsc::channel();
     state.shared.install_ui_event_sender(ui_event_tx);
 
-    // Start the socket server in a background tokio runtime
-    let shared_for_socket = state.shared.clone();
-    std::thread::spawn(move || {
-        let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
-        rt.block_on(async {
-            if let Err(e) = socket::server::run_socket_server(shared_for_socket).await {
-                tracing::error!("Socket server error: {}", e);
-            }
+    let needs_runtime_init = state.ghostty_app.borrow().is_none();
+    if needs_runtime_init {
+        // Start the socket server in a background tokio runtime
+        let shared_for_socket = state.shared.clone();
+        std::thread::spawn(move || {
+            let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
+            rt.block_on(async {
+                if let Err(e) = socket::server::run_socket_server(shared_for_socket).await {
+                    tracing::error!("Socket server error: {}", e);
+                }
+            });
         });
-    });
 
-    // Initialize ghostty runtime
-    init_ghostty(state);
+        // Initialize ghostty runtime once per app lifetime.
+        init_ghostty(state);
+    }
 
     // Create the main window
     let window = ui::window::create_window(app, state, ui_event_rx);

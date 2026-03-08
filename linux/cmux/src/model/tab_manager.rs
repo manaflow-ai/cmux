@@ -220,12 +220,21 @@ impl TabManager {
         if from >= self.workspaces.len() || to >= self.workspaces.len() {
             return false;
         }
+        let previous_selection = self.selected_index;
         let ws = self.workspaces.remove(from);
         self.workspaces.insert(to, ws);
 
         // Adjust selection to follow the moved workspace
-        if self.selected_index == Some(from) {
-            self.selected_index = Some(to);
+        if let Some(selected) = previous_selection {
+            self.selected_index = if selected == from {
+                Some(to)
+            } else if from < to && selected > from && selected <= to {
+                Some(selected - 1)
+            } else if from > to && selected >= to && selected < from {
+                Some(selected + 1)
+            } else {
+                Some(selected)
+            };
         }
         true
     }
@@ -333,5 +342,21 @@ mod tests {
         let selected = tm.select_latest_unread();
         assert_eq!(selected, Some(ws2_id));
         assert_ne!(selected, Some(ws1_id));
+    }
+
+    #[test]
+    fn test_move_workspace_remaps_shifted_selection() {
+        let mut tm = TabManager::new();
+        tm.add_workspace(Workspace::new());
+        tm.add_workspace(Workspace::new());
+        tm.add_workspace(Workspace::new());
+
+        tm.select(2);
+        assert!(tm.move_workspace(0, 3));
+        assert_eq!(tm.selected_index(), Some(1));
+
+        tm.select(1);
+        assert!(tm.move_workspace(3, 0));
+        assert_eq!(tm.selected_index(), Some(2));
     }
 }

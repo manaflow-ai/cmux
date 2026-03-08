@@ -122,7 +122,10 @@ fn send_desktop_notification(title: &str, body: &str) {
             use gio::prelude::ApplicationExt;
             app.send_notification(None, &notification);
         } else {
-            tracing::info!("Desktop notification (app unavailable): {} - {}", title, body);
+            tracing::debug!(
+                title = %title,
+                "Desktop notification unavailable; body omitted"
+            );
         }
     });
 }

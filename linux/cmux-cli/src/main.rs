@@ -2,11 +2,13 @@
 
 use clap::{Parser, Subcommand};
 use serde_json::Value;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
+use std::os::unix::fs::MetadataExt;
 use std::os::unix::net::UnixStream;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-const SOCKET_PATH: &str = "/tmp/cmux.sock";
+const IO_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+const MAX_RESPONSE_LEN: usize = 1024 * 1024;
 
 static REQUEST_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -17,7 +19,7 @@ struct Cli {
     command: Commands,
 
     /// Socket path override
-    #[arg(long, default_value = SOCKET_PATH, global = true)]
+    #[arg(long, default_value_t = default_socket_path(), global = true)]
     socket: String,
 
     /// Output raw JSON
@@ -157,24 +159,20 @@ fn main() -> anyhow::Result<()> {
                     "title": title,
                 }),
             ),
-            WorkspaceCommands::Select { index } => (
-                "workspace.select",
-                serde_json::json!({"index": index}),
-            ),
-            WorkspaceCommands::Next { wrap } => (
-                "workspace.next",
-                serde_json::json!({"wrap": wrap}),
-            ),
-            WorkspaceCommands::Previous { wrap } => (
-                "workspace.previous",
-                serde_json::json!({"wrap": wrap}),
-            ),
+            WorkspaceCommands::Select { index } => {
+                ("workspace.select", serde_json::json!({"index": index}))
+            }
+            WorkspaceCommands::Next { wrap } => {
+                ("workspace.next", serde_json::json!({"wrap": wrap}))
+            }
+            WorkspaceCommands::Previous { wrap } => {
+                ("workspace.previous", serde_json::json!({"wrap": wrap}))
+            }
             WorkspaceCommands::Last => ("workspace.last", serde_json::json!({})),
             WorkspaceCommands::LatestUnread => ("workspace.latest_unread", serde_json::json!({})),
-            WorkspaceCommands::Close { index } => (
-                "workspace.close",
-                serde_json::json!({"index": index}),
-            ),
+            WorkspaceCommands::Close { index } => {
+                ("workspace.close", serde_json::json!({"index": index}))
+            }
             WorkspaceCommands::SetStatus {
                 key,
                 value,
@@ -206,10 +204,9 @@ fn main() -> anyhow::Result<()> {
         },
 
         Commands::Pane(pane) => match pane {
-            PaneCommands::New { orientation } => (
-                "pane.new",
-                serde_json::json!({"orientation": orientation}),
-            ),
+            PaneCommands::New { orientation } => {
+                ("pane.new", serde_json::json!({"orientation": orientation}))
+            }
         },
 
         Commands::Notify {
@@ -250,6 +247,8 @@ fn main() -> anyhow::Result<()> {
 fn send_request(socket_path: &str, method: &str, params: Value) -> anyhow::Result<Value> {
     let mut stream = UnixStream::connect(socket_path)
         .map_err(|e| anyhow::anyhow!("Cannot connect to cmux at {}: {}", socket_path, e))?;
+    stream.set_read_timeout(Some(IO_TIMEOUT))?;
+    stream.set_write_timeout(Some(IO_TIMEOUT))?;
 
     let id = REQUEST_ID.fetch_add(1, Ordering::Relaxed);
     let request = serde_json::json!({
@@ -264,20 +263,53 @@ fn send_request(socket_path: &str, method: &str, params: Value) -> anyhow::Resul
     stream.flush()?;
 
     let mut reader = BufReader::new(stream);
-    let mut line = String::new();
-    reader.read_line(&mut line)?;
+    let mut buf = Vec::new();
+    let bytes_read = reader
+        .by_ref()
+        .take((MAX_RESPONSE_LEN + 1) as u64)
+        .read_until(b'\n', &mut buf)?;
 
+    if bytes_read == 0 {
+        anyhow::bail!("cmux closed the connection without sending a response");
+    }
+    if buf.len() > MAX_RESPONSE_LEN || !buf.ends_with(b"\n") {
+        anyhow::bail!("cmux response exceeded {} bytes", MAX_RESPONSE_LEN);
+    }
+
+    let line = String::from_utf8(buf)?;
     let response: Value = serde_json::from_str(line.trim())?;
     Ok(response)
 }
 
+fn default_socket_path() -> String {
+    if let Ok(dir) = std::env::var("XDG_RUNTIME_DIR") {
+        let path = std::path::Path::new(&dir);
+        if path.is_absolute() {
+            if let Ok(meta) = std::fs::metadata(path) {
+                let my_uid = unsafe { libc::getuid() };
+                if meta.is_dir() && meta.uid() == my_uid && (meta.mode() & 0o777) == 0o700 {
+                    return format!("{}/cmux.sock", dir);
+                }
+            }
+        }
+    }
+
+    format!("/tmp/cmux-{}.sock", unsafe { libc::getuid() })
+}
+
 /// Pretty-print a response for human consumption.
 fn format_response(method: &str, response: &Value) {
-    let ok = response.get("ok").and_then(|v| v.as_bool()).unwrap_or(false);
+    let ok = response
+        .get("ok")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
 
     if !ok {
         if let Some(error) = response.get("error") {
-            let code = error.get("code").and_then(|v| v.as_str()).unwrap_or("unknown");
+            let code = error
+                .get("code")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown");
             let msg = error.get("message").and_then(|v| v.as_str()).unwrap_or("");
             eprintln!("Error [{}]: {}", code, msg);
         }
@@ -290,12 +322,17 @@ fn format_response(method: &str, response: &Value) {
         "system.ping" => println!("pong"),
 
         "workspace.list" => {
-            if let Some(workspaces) = result.and_then(|r| r.get("workspaces")).and_then(|w| w.as_array())
+            if let Some(workspaces) = result
+                .and_then(|r| r.get("workspaces"))
+                .and_then(|w| w.as_array())
             {
                 for ws in workspaces {
                     let index = ws.get("index").and_then(|v| v.as_u64()).unwrap_or(0);
                     let title = ws.get("title").and_then(|v| v.as_str()).unwrap_or("?");
-                    let selected = ws.get("is_selected").and_then(|v| v.as_bool()).unwrap_or(false);
+                    let selected = ws
+                        .get("is_selected")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false);
                     let panels = ws.get("panel_count").and_then(|v| v.as_u64()).unwrap_or(0);
                     let marker = if selected { "*" } else { " " };
                     println!("{}{} {} ({} panels)", marker, index, title, panels);
@@ -304,7 +341,9 @@ fn format_response(method: &str, response: &Value) {
         }
 
         "system.capabilities" => {
-            if let Some(methods) = result.and_then(|r| r.get("methods")).and_then(|m| m.as_array())
+            if let Some(methods) = result
+                .and_then(|r| r.get("methods"))
+                .and_then(|m| m.as_array())
             {
                 for m in methods {
                     if let Some(s) = m.as_str() {

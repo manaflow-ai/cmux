@@ -74,11 +74,7 @@ pub fn dispatch(json_line: &str, state: &Arc<SharedState>) -> Response {
     let req: Request = match serde_json::from_str(json_line) {
         Ok(r) => r,
         Err(e) => {
-            return Response::error(
-                Value::Null,
-                "parse_error",
-                &format!("Invalid JSON: {}", e),
-            );
+            return Response::error(Value::Null, "parse_error", &format!("Invalid JSON: {}", e));
         }
     };
 
@@ -92,6 +88,7 @@ pub fn dispatch(json_line: &str, state: &Arc<SharedState>) -> Response {
         // Workspace commands
         "workspace.list" => handle_workspace_list(id, state),
         "workspace.new" => handle_workspace_new(id, &req.params, state),
+        "workspace.create" => handle_workspace_create(id, &req.params, state),
         "workspace.select" => handle_workspace_select(id, &req.params, state),
         "workspace.next" => handle_workspace_next(id, &req.params, state),
         "workspace.previous" => handle_workspace_previous(id, &req.params, state),
@@ -130,6 +127,7 @@ fn handle_capabilities(id: Value) -> Response {
         "system.capabilities",
         "workspace.list",
         "workspace.new",
+        "workspace.create",
         "workspace.select",
         "workspace.next",
         "workspace.previous",
@@ -157,6 +155,7 @@ fn handle_workspace_list(id: Value, state: &Arc<SharedState>) -> Response {
         .iter()
         .enumerate()
         .map(|(i, ws)| {
+            let selected = tm.selected_index() == Some(i);
             serde_json::json!({
                 "index": i,
                 "id": ws.id.to_string(),
@@ -166,7 +165,8 @@ fn handle_workspace_list(id: Value, state: &Arc<SharedState>) -> Response {
                 "unread_count": ws.unread_count,
                 "latest_notification": ws.latest_notification,
                 "attention_panel_id": ws.attention_panel_id.map(|id| id.to_string()),
-                "is_selected": tm.selected_index() == Some(i),
+                "selected": selected,
+                "is_selected": selected,
             })
         })
         .collect();
@@ -175,7 +175,23 @@ fn handle_workspace_list(id: Value, state: &Arc<SharedState>) -> Response {
 }
 
 fn handle_workspace_new(id: Value, params: &Value, state: &Arc<SharedState>) -> Response {
-    let directory = params.get("directory").and_then(|v| v.as_str());
+    create_workspace(id, params, state, false)
+}
+
+fn handle_workspace_create(id: Value, params: &Value, state: &Arc<SharedState>) -> Response {
+    create_workspace(id, params, state, true)
+}
+
+fn create_workspace(
+    id: Value,
+    params: &Value,
+    state: &Arc<SharedState>,
+    preserve_selection: bool,
+) -> Response {
+    let directory = params
+        .get("directory")
+        .or_else(|| params.get("cwd"))
+        .and_then(|v| v.as_str());
     let title = params.get("title").and_then(|v| v.as_str());
 
     let mut ws = if let Some(dir) = directory {
@@ -189,18 +205,34 @@ fn handle_workspace_new(id: Value, params: &Value, state: &Arc<SharedState>) -> 
     }
 
     let ws_id = ws.id;
-    state.tab_manager.lock().unwrap().add_workspace(ws);
+    let mut tab_manager = state.tab_manager.lock().unwrap();
+    let previously_selected = if preserve_selection {
+        tab_manager.selected_id()
+    } else {
+        None
+    };
+    tab_manager.add_workspace(ws);
+    if let Some(selected_id) = previously_selected {
+        let _ = tab_manager.select_by_id(selected_id);
+    }
+    drop(tab_manager);
     state.notify_ui_refresh();
 
-    Response::success(id, serde_json::json!({"workspace": ws_id.to_string()}))
+    Response::success(
+        id,
+        serde_json::json!({
+            "workspace_id": ws_id.to_string(),
+            "workspace": ws_id.to_string()
+        }),
+    )
 }
 
 fn handle_workspace_select(id: Value, params: &Value, state: &Arc<SharedState>) -> Response {
-    let index = params.get("index").and_then(|v| v.as_u64()).map(|v| v as usize);
-    let ws_id = params
-        .get("workspace")
-        .and_then(|v| v.as_str())
-        .and_then(|s| uuid::Uuid::parse_str(s).ok());
+    let index = match parse_usize_param(&id, params, "index") {
+        Ok(index) => index,
+        Err(response) => return response,
+    };
+    let ws_id = parse_workspace_param(params);
 
     let mut tm = state.tab_manager.lock().unwrap();
 
@@ -209,7 +241,11 @@ fn handle_workspace_select(id: Value, params: &Value, state: &Arc<SharedState>) 
     } else if let Some(wid) = ws_id {
         tm.select_by_id(wid)
     } else {
-        return Response::error(id, "invalid_params", "Provide 'index' or 'workspace'");
+        return Response::error(
+            id,
+            "invalid_params",
+            "Provide 'index' or 'workspace'/'workspace_id'",
+        );
     };
 
     if selected {
@@ -278,6 +314,7 @@ fn handle_workspace_latest_unread(id: Value, state: &Arc<SharedState>) -> Respon
         Response::success(
             id,
             serde_json::json!({
+                "workspace_id": workspace_id.to_string(),
                 "workspace": workspace_id.to_string(),
                 "selected": true
             }),
@@ -288,11 +325,11 @@ fn handle_workspace_latest_unread(id: Value, state: &Arc<SharedState>) -> Respon
 }
 
 fn handle_workspace_close(id: Value, params: &Value, state: &Arc<SharedState>) -> Response {
-    let index = params.get("index").and_then(|v| v.as_u64()).map(|v| v as usize);
-    let ws_id = params
-        .get("workspace")
-        .and_then(|v| v.as_str())
-        .and_then(|s| uuid::Uuid::parse_str(s).ok());
+    let index = match parse_usize_param(&id, params, "index") {
+        Ok(index) => index,
+        Err(response) => return response,
+    };
+    let ws_id = parse_workspace_param(params);
 
     let mut tm = state.tab_manager.lock().unwrap();
 
@@ -315,10 +352,7 @@ fn handle_workspace_close(id: Value, params: &Value, state: &Arc<SharedState>) -
 }
 
 fn handle_workspace_set_status(id: Value, params: &Value, state: &Arc<SharedState>) -> Response {
-    let ws_id = params
-        .get("workspace")
-        .and_then(|v| v.as_str())
-        .and_then(|s| uuid::Uuid::parse_str(s).ok());
+    let ws_id = parse_workspace_param(params);
     let key = params.get("key").and_then(|v| v.as_str());
     let value = params.get("value").and_then(|v| v.as_str());
     let icon = params.get("icon").and_then(|v| v.as_str());
@@ -353,12 +387,12 @@ fn handle_workspace_set_status(id: Value, params: &Value, state: &Arc<SharedStat
 }
 
 fn handle_workspace_report_git(id: Value, params: &Value, state: &Arc<SharedState>) -> Response {
-    let ws_id = params
-        .get("workspace")
-        .and_then(|v| v.as_str())
-        .and_then(|s| uuid::Uuid::parse_str(s).ok());
+    let ws_id = parse_workspace_param(params);
     let branch = params.get("branch").and_then(|v| v.as_str());
-    let is_dirty = params.get("is_dirty").and_then(|v| v.as_bool()).unwrap_or(false);
+    let is_dirty = params
+        .get("is_dirty")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
 
     let Some(branch) = branch else {
         return Response::error(id, "invalid_params", "Provide 'branch'");
@@ -392,10 +426,7 @@ fn handle_workspace_report_git(id: Value, params: &Value, state: &Arc<SharedStat
 }
 
 fn handle_workspace_set_progress(id: Value, params: &Value, state: &Arc<SharedState>) -> Response {
-    let ws_id = params
-        .get("workspace")
-        .and_then(|v| v.as_str())
-        .and_then(|s| uuid::Uuid::parse_str(s).ok());
+    let ws_id = parse_workspace_param(params);
     let value = params.get("value").and_then(|v| v.as_f64());
     let label = params.get("label").and_then(|v| v.as_str());
 
@@ -431,12 +462,12 @@ fn handle_workspace_set_progress(id: Value, params: &Value, state: &Arc<SharedSt
 }
 
 fn handle_workspace_append_log(id: Value, params: &Value, state: &Arc<SharedState>) -> Response {
-    let ws_id = params
-        .get("workspace")
-        .and_then(|v| v.as_str())
-        .and_then(|s| uuid::Uuid::parse_str(s).ok());
+    let ws_id = parse_workspace_param(params);
     let message = params.get("message").and_then(|v| v.as_str());
-    let level = params.get("level").and_then(|v| v.as_str()).unwrap_or("info");
+    let level = params
+        .get("level")
+        .and_then(|v| v.as_str())
+        .unwrap_or("info");
     let source = params.get("source").and_then(|v| v.as_str());
 
     let Some(message) = message else {
@@ -545,12 +576,12 @@ fn handle_surface_send_input(id: Value, params: &Value, state: &Arc<SharedState>
 // -----------------------------------------------------------------------
 
 fn handle_notification_create(id: Value, params: &Value, state: &Arc<SharedState>) -> Response {
-    let title = params.get("title").and_then(|v| v.as_str()).unwrap_or("cmux");
-    let body = params.get("body").and_then(|v| v.as_str()).unwrap_or("");
-    let workspace_id = params
-        .get("workspace")
+    let title = params
+        .get("title")
         .and_then(|v| v.as_str())
-        .and_then(|s| uuid::Uuid::parse_str(s).ok());
+        .unwrap_or("cmux");
+    let body = params.get("body").and_then(|v| v.as_str()).unwrap_or("");
+    let workspace_id = parse_workspace_param(params);
     let panel_id = params
         .get("surface")
         .or_else(|| params.get("panel"))
@@ -612,8 +643,34 @@ fn mark_workspace_read(state: &Arc<SharedState>, workspace_id: uuid::Uuid) {
         .unwrap()
         .mark_workspace_read(workspace_id);
 
-    if let Some(workspace) = state.tab_manager.lock().unwrap().workspace_mut(workspace_id) {
+    if let Some(workspace) = state
+        .tab_manager
+        .lock()
+        .unwrap()
+        .workspace_mut(workspace_id)
+    {
         workspace.mark_notifications_read();
+    }
+}
+
+fn parse_workspace_param(params: &Value) -> Option<uuid::Uuid> {
+    params
+        .get("workspace")
+        .or_else(|| params.get("workspace_id"))
+        .and_then(|v| v.as_str())
+        .and_then(|s| uuid::Uuid::parse_str(s).ok())
+}
+
+fn parse_usize_param(id: &Value, params: &Value, key: &str) -> Result<Option<usize>, Response> {
+    match params.get(key).and_then(|v| v.as_u64()) {
+        Some(value) => usize::try_from(value).map(Some).map_err(|_| {
+            Response::error(
+                id.clone(),
+                "invalid_params",
+                &format!("'{key}' is out of range"),
+            )
+        }),
+        None => Ok(None),
     }
 }
 
@@ -708,8 +765,20 @@ mod tests {
 
         let tab_manager = state.tab_manager.lock().unwrap();
         assert_eq!(tab_manager.selected_id(), Some(workspace_two_id));
-        assert_eq!(tab_manager.workspace(workspace_two_id).unwrap().unread_count, 0);
-        assert_eq!(tab_manager.workspace(workspace_one_id).unwrap().unread_count, 1);
+        assert_eq!(
+            tab_manager
+                .workspace(workspace_two_id)
+                .unwrap()
+                .unread_count,
+            0
+        );
+        assert_eq!(
+            tab_manager
+                .workspace(workspace_one_id)
+                .unwrap()
+                .unread_count,
+            1
+        );
     }
 
     #[test]
@@ -737,11 +806,103 @@ mod tests {
 
         let event = rx.try_recv().expect("expected a UI event");
         match event {
-            UiEvent::SendInput { panel_id: actual, text } => {
+            UiEvent::SendInput {
+                panel_id: actual,
+                text,
+            } => {
                 assert_eq!(actual, panel_id);
                 assert_eq!(text, "ls\n");
             }
             other => panic!("unexpected event: {other:?}"),
         }
+    }
+
+    #[test]
+    fn test_workspace_create_alias_and_legacy_response_field() {
+        let state = Arc::new(SharedState::new());
+        let selected_before = state.tab_manager.lock().unwrap().selected_id();
+
+        let response = dispatch(
+            r#"{"id":1,"method":"workspace.create","params":{"title":"Legacy"}}"#,
+            &state,
+        );
+
+        assert!(response.ok);
+        let result = response.result.unwrap();
+        let workspace_id = result
+            .get("workspace_id")
+            .and_then(|v| v.as_str())
+            .expect("legacy workspace_id should be present");
+        assert_eq!(
+            result.get("workspace").and_then(|v| v.as_str()),
+            Some(workspace_id)
+        );
+        assert_eq!(
+            state.tab_manager.lock().unwrap().selected_id(),
+            selected_before
+        );
+    }
+
+    #[test]
+    fn test_workspace_list_keeps_selected_alias() {
+        let state = Arc::new(SharedState::new());
+
+        let response = dispatch(r#"{"id":1,"method":"workspace.list","params":{}}"#, &state);
+
+        assert!(response.ok);
+        let result = response.result.unwrap();
+        let workspaces = result["workspaces"].as_array().expect("workspaces array");
+        let first = &workspaces[0];
+        assert_eq!(first.get("selected").and_then(|v| v.as_bool()), Some(true));
+        assert_eq!(
+            first.get("is_selected").and_then(|v| v.as_bool()),
+            Some(true)
+        );
+    }
+
+    #[test]
+    fn test_workspace_select_accepts_legacy_workspace_id_param() {
+        let state = Arc::new(SharedState::new());
+        let workspace_id = state.tab_manager.lock().unwrap().selected_id().unwrap();
+
+        let response = dispatch(
+            &serde_json::json!({
+                "id": 1,
+                "method": "workspace.select",
+                "params": {
+                    "workspace_id": workspace_id.to_string()
+                }
+            })
+            .to_string(),
+            &state,
+        );
+
+        assert!(response.ok);
+        assert_eq!(
+            state.tab_manager.lock().unwrap().selected_id(),
+            Some(workspace_id)
+        );
+    }
+
+    #[test]
+    fn test_workspace_create_accepts_legacy_cwd_param() {
+        let state = Arc::new(SharedState::new());
+
+        let response = dispatch(
+            r#"{"id":1,"method":"workspace.create","params":{"cwd":"/tmp/cmux-legacy"}}"#,
+            &state,
+        );
+
+        assert!(response.ok);
+        let workspace_id = response.result.as_ref().unwrap()["workspace_id"]
+            .as_str()
+            .expect("workspace_id should be present");
+        let workspace_id = uuid::Uuid::parse_str(workspace_id).expect("valid uuid");
+
+        let tab_manager = state.tab_manager.lock().unwrap();
+        let workspace = tab_manager
+            .workspace(workspace_id)
+            .expect("workspace should exist");
+        assert_eq!(workspace.current_directory, "/tmp/cmux-legacy");
     }
 }

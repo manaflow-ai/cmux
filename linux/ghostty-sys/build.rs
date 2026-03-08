@@ -95,10 +95,7 @@ pub fn main() !void {
         .expect("Failed to generate ghostty terminfo source");
 
     if !output.status.success() {
-        panic!(
-            "ghostty-build-data failed with status: {}",
-            output.status
-        );
+        panic!("ghostty-build-data failed with status: {}", output.status);
     }
 
     fs::write(&terminfo_source, &output.stdout).expect("failed to write ghostty terminfo source");
@@ -127,6 +124,18 @@ pub fn main() !void {
 
     // Link libghostty as a shared library (includes all vendored deps)
     let lib_dir = install_dir.join("lib");
+    let profile_dir = output_dir
+        .ancestors()
+        .nth(3)
+        .expect("OUT_DIR should be nested under target/<profile>/build")
+        .to_path_buf();
+    let profile_deps_dir = profile_dir.join("deps");
+    fs::create_dir_all(&profile_deps_dir).expect("failed to create target deps dir");
+    copy_runtime_libraries(
+        &lib_dir,
+        &[profile_dir.as_path(), profile_deps_dir.as_path()],
+    );
+
     println!("cargo:rustc-link-search=native={}", lib_dir.display());
     println!("cargo:rustc-link-lib=dylib=ghostty");
     println!(
@@ -137,4 +146,30 @@ pub fn main() !void {
     // Rerun if ghostty source changes or feature flag changes
     println!("cargo:rerun-if-changed={}", ghostty_dir.display());
     println!("cargo:rerun-if-env-changed=CARGO_FEATURE_LINK_GHOSTTY");
+}
+
+fn copy_runtime_libraries(lib_dir: &std::path::Path, destinations: &[&std::path::Path]) {
+    let entries = fs::read_dir(lib_dir).expect("failed to list built Ghostty libs");
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+
+        let Some(file_name) = path.file_name() else {
+            continue;
+        };
+
+        for destination in destinations {
+            let target = destination.join(file_name);
+            fs::copy(&path, &target).unwrap_or_else(|error| {
+                panic!(
+                    "failed to copy {} to {}: {}",
+                    path.display(),
+                    target.display(),
+                    error
+                )
+            });
+        }
+    }
 }
