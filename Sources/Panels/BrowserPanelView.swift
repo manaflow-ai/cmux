@@ -4264,6 +4264,11 @@ struct WebViewRepresentable: NSViewRepresentable {
     }
 
     private static func installPortalAnchorView(_ anchorView: NSView, in host: NSView) {
+        // SwiftUI can keep transient replacement hosts alive off-window during split
+        // reparenting. Never let those hosts steal the shared portal anchor, or the
+        // portal will bind against an anchor with no real window and WKWebView will
+        // fall into a hidden/unrendered state.
+        guard host.window != nil else { return }
         if anchorView.superview !== host {
             anchorView.removeFromSuperview()
             anchorView.frame = host.bounds
@@ -4288,13 +4293,15 @@ struct WebViewRepresentable: NSViewRepresentable {
         let paneDropContext = shouldAttachWebView ? currentPaneDropContext() : nil
         let activeSearchOverlay = shouldAttachWebView ? searchOverlay : nil
         let portalAnchorView = panel.portalAnchorView
-        Self.installPortalAnchorView(portalAnchorView, in: host)
+        if host.window != nil {
+            Self.installPortalAnchorView(portalAnchorView, in: host)
+        }
 
         host.onDidMoveToWindow = { [weak host, weak webView, weak coordinator, weak portalAnchorView] in
             guard let host, let webView, let coordinator, let portalAnchorView else { return }
             guard coordinator.attachGeneration == generation else { return }
-            Self.installPortalAnchorView(portalAnchorView, in: host)
             guard host.window != nil else { return }
+            Self.installPortalAnchorView(portalAnchorView, in: host)
             BrowserWindowPortalRegistry.bind(
                 webView: webView,
                 to: portalAnchorView,
@@ -4314,6 +4321,7 @@ struct WebViewRepresentable: NSViewRepresentable {
             guard let host, let webView, let coordinator, let portalAnchorView else { return }
             guard coordinator.attachGeneration == generation else { return }
             guard coordinator.lastPortalHostId == ObjectIdentifier(host) else { return }
+            guard host.window != nil else { return }
             Self.installPortalAnchorView(portalAnchorView, in: host)
             if host.window != nil,
                !BrowserWindowPortalRegistry.isWebView(webView, boundTo: portalAnchorView) {
