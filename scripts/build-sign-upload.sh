@@ -61,7 +61,7 @@ echo "Pre-flight checks passed"
 # --- Build GhosttyKit (if needed) ---
 if [ ! -d "GhosttyKit.xcframework" ]; then
   echo "Building GhosttyKit..."
-  cd ghostty && zig build -Demit-xcframework=true -Demit-macos-app=false -Dxcframework-target=native -Doptimize=ReleaseFast && cd ..
+  cd ghostty && zig build -Demit-xcframework=true -Demit-macos-app=false -Dxcframework-target=universal -Doptimize=ReleaseFast && cd ..
   rm -rf GhosttyKit.xcframework
   cp -R ghostty/macos/GhosttyKit.xcframework GhosttyKit.xcframework
 else
