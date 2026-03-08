@@ -50,10 +50,7 @@ final class BrowserLifecycleCrossWindowUITests: XCTestCase {
         XCTAssertEqual(socketState["socketReady"], "1", "Expected ready socket. state=\(socketState)")
         XCTAssertEqual(socketState["socketPingResponse"], "PONG", "Expected healthy socket ping. state=\(socketState)")
 
-        guard let current = v2Call("workspace.current"),
-              let currentResult = current["result"] as? [String: Any],
-              let workspaceId = currentResult["workspace_id"] as? String,
-              !workspaceId.isEmpty else {
+        guard let workspaceId = waitForCurrentWorkspaceId(timeout: 8.0) else {
             XCTFail("Missing current workspace result")
             return
         }
@@ -179,6 +176,27 @@ final class BrowserLifecycleCrossWindowUITests: XCTestCase {
             return nil
         }
         return BrowserCrossWindowSnapshot(result: result)
+    }
+
+    private func waitForCurrentWorkspaceId(timeout: TimeInterval) -> String? {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if let response = v2Call("workspace.current"),
+               let result = response["result"] as? [String: Any],
+               let workspaceId = result["workspace_id"] as? String,
+               !workspaceId.isEmpty {
+                return workspaceId
+            }
+            if let response = v2Call("workspace.list"),
+               let result = response["result"] as? [String: Any],
+               let workspaces = result["workspaces"] as? [[String: Any]],
+               let selected = workspaces.first(where: { $0["selected"] as? Bool == true })?["workspace_id"] as? String,
+               !selected.isEmpty {
+                return selected
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        return nil
     }
 
     private func v2Call(_ method: String, params: [String: Any] = [:]) -> [String: Any]? {
