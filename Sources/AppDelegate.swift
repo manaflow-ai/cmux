@@ -420,9 +420,11 @@ final class VSCodeServeWebController {
             }
             self.serveWebProcess = nil
             self.launchingProcess = nil
-            let tokenFileURLs = processes.compactMap {
+            var tokenFileURLs = processes.compactMap {
                 self.connectionTokenFilesByProcessID.removeValue(forKey: ObjectIdentifier($0))
             }
+            tokenFileURLs.append(contentsOf: self.connectionTokenFilesByProcessID.values)
+            self.connectionTokenFilesByProcessID.removeAll()
             self.serveWebURL = nil
             let completions = self.pendingCompletions.map(\.completion)
             self.pendingCompletions.removeAll()
