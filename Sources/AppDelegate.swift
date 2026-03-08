@@ -1930,6 +1930,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         setupJumpUnreadUITestIfNeeded()
         setupGotoSplitUITestIfNeeded()
         setupMultiWindowNotificationsUITestIfNeeded()
+        setupSocketSanityUITestIfNeeded()
 
         // UI tests sometimes don't run SwiftUI `.onAppear` soon enough (or at all) on the VM.
         // The automation socket is a core testing primitive, so ensure it's started here when
@@ -6967,6 +6968,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         publish()
+    }
+
+    private func setupSocketSanityUITestIfNeeded() {
+        let env = ProcessInfo.processInfo.environment
+        guard env["CMUX_UI_TEST_SOCKET_SANITY"] == "1" else { return }
+        guard let path = env["CMUX_UI_TEST_SOCKET_SANITY_PATH"], !path.isEmpty else { return }
+        try? FileManager.default.removeItem(atPath: path)
+        publishMultiWindowNotificationSocketStateIfNeeded(at: path)
     }
 
     private func writeMultiWindowNotificationTestData(_ updates: [String: String], at path: String) {

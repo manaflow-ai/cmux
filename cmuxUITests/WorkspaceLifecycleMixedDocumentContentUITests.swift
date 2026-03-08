@@ -4,18 +4,22 @@ import Darwin
 
 final class WorkspaceLifecycleMixedDocumentContentUITests: XCTestCase {
     private var socketPath = ""
+    private var dataPath = ""
     private var launchTag = ""
 
     override func setUp() {
         super.setUp()
         continueAfterFailure = false
-        socketPath = "/tmp/cmux-ui-test-mixed-document-\(UUID().uuidString).sock"
         launchTag = "ui-tests-mixed-document-\(UUID().uuidString.prefix(8))"
+        socketPath = "/tmp/cmux-debug-\(launchTag).sock"
+        dataPath = "/tmp/cmux-ui-socket-sanity-\(launchTag).json"
         try? FileManager.default.removeItem(atPath: socketPath)
+        try? FileManager.default.removeItem(atPath: dataPath)
     }
 
     override func tearDown() {
         try? FileManager.default.removeItem(atPath: socketPath)
+        try? FileManager.default.removeItem(atPath: dataPath)
         super.tearDown()
     }
 
@@ -26,6 +30,7 @@ final class WorkspaceLifecycleMixedDocumentContentUITests: XCTestCase {
         app.launchEnvironment["CMUX_SOCKET_MODE"] = "allowAll"
         app.launchEnvironment["CMUX_SOCKET_ENABLE"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_SOCKET_SANITY"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_SOCKET_SANITY_PATH"] = dataPath
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launchEnvironment["CMUX_TAG"] = launchTag
         app.launch()
@@ -35,13 +40,15 @@ final class WorkspaceLifecycleMixedDocumentContentUITests: XCTestCase {
             "Expected app to launch for mixed document lifecycle test. state=\(app.state.rawValue)"
         )
 
-        guard let resolvedPath = resolveSocketPath(timeout: 8.0) else {
-            XCTFail("Expected control socket to exist")
+        guard let socketState = waitForSocketSanity(timeout: 20.0) else {
+            XCTFail("Expected control socket sanity data")
             return
         }
-        socketPath = resolvedPath
-
-        XCTAssertTrue(waitForSocketPong(timeout: 8.0), "Expected v2 control socket to respond to system.ping")
+        if let expectedSocketPath = socketState["socketExpectedPath"], !expectedSocketPath.isEmpty {
+            socketPath = expectedSocketPath
+        }
+        XCTAssertEqual(socketState["socketReady"], "1", "Expected ready socket. state=\(socketState)")
+        XCTAssertEqual(socketState["socketPingResponse"], "PONG", "Expected healthy socket ping. state=\(socketState)")
 
         guard let current = v2Call("workspace.current"),
               let currentResult = current["result"] as? [String: Any],
@@ -138,28 +145,25 @@ final class WorkspaceLifecycleMixedDocumentContentUITests: XCTestCase {
         return false
     }
 
-    private func resolveSocketPath(timeout: TimeInterval) -> String? {
+    private func waitForSocketSanity(timeout: TimeInterval) -> [String: String]? {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
-            if FileManager.default.fileExists(atPath: socketPath) {
-                return socketPath
+            if let data = loadSocketSanityData(),
+               data["socketReady"] == "1",
+               data["socketPingResponse"] == "PONG" {
+                return data
             }
             RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         }
-        return FileManager.default.fileExists(atPath: socketPath) ? socketPath : nil
+        return loadSocketSanityData()
     }
 
-    private func waitForSocketPong(timeout: TimeInterval) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if let response = v2Call("system.ping"),
-               let result = response["result"] as? [String: Any],
-               result["pong"] as? Bool == true {
-                return true
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+    private func loadSocketSanityData() -> [String: String]? {
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: dataPath)),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
+            return nil
         }
-        return false
+        return object
     }
 
     private func waitForLifecycleSnapshot(
@@ -287,6 +291,7 @@ private final class MixedDocumentV2SocketClient {
         guard connected == 0 else { return nil }
 
         let payload: [String: Any] = [
+            "jsonrpc": "2.0",
             "id": 1,
             "method": method,
             "params": params,
