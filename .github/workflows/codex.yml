@@ -1,0 +1,113 @@
+name: Codex
+
+on:
+  issue_comment:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      prompt:
+        description: Prompt for a manual Codex run on a macOS runner
+        required: true
+        default: Summarize the current branch and suggest the next validation step.
+
+jobs:
+  codex:
+    if: |
+      (github.event_name == 'workflow_dispatch' && github.actor == 'lawrencecchen') ||
+      (
+        github.event_name == 'issue_comment' &&
+        github.event.comment.user.login == 'lawrencecchen' &&
+        !github.event.issue.pull_request &&
+        startsWith(github.event.comment.body, '@codex fix')
+      )
+    runs-on: macos-15
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+          submodules: recursive
+
+      - name: Build prompt file
+        id: prompt
+        uses: actions/github-script@v7
+        env:
+          DISPATCH_PROMPT: ${{ inputs.prompt }}
+        with:
+          script: |
+            const fs = require("fs");
+
+            const promptFile = ".github/tmp/codex-prompt.md";
+            fs.mkdirSync(".github/tmp", { recursive: true });
+
+            let prompt;
+            if (context.eventName === "workflow_dispatch") {
+              prompt = [
+                "You are running inside a GitHub Actions macOS runner for this repository.",
+                "Use the checkout as your workspace.",
+                "Run only the smallest relevant checks for the task.",
+                "Do not run XCUITests locally. If UI coverage is needed, explain which GitHub Actions workflow should be triggered instead.",
+                "",
+                "Manual request:",
+                process.env.DISPATCH_PROMPT || "",
+              ].join("\n");
+            } else {
+              prompt = [
+                `You are responding to issue #${context.issue.number} in ${context.repo.owner}/${context.repo.repo}.`,
+                "This job runs on a macOS runner, so you may use macOS and Xcode tools when they are relevant.",
+                "Inspect the issue, make the smallest coherent fix you can justify, and summarize what you changed.",
+                "Run the narrowest useful validation. Prefer targeted shell tests or unit tests. Do not run XCUITests locally.",
+                "",
+                "Issue title:",
+                context.payload.issue.title || "",
+                "",
+                "Issue body:",
+                context.payload.issue.body || "",
+                "",
+                "Trigger comment:",
+                context.payload.comment.body || "",
+              ].join("\n");
+            }
+
+            fs.writeFileSync(promptFile, `${prompt}\n`, "utf8");
+            core.setOutput("file", promptFile);
+
+      - name: Run Codex
+        id: run_codex
+        uses: openai/codex-action@v1
+        with:
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          prompt-file: ${{ steps.prompt.outputs.file }}
+          allow-users: lawrencecchen
+          sandbox: workspace-write
+          safety-strategy: drop-sudo
+          output-file: .github/tmp/codex-final-message.md
+
+      - name: Add run summary
+        if: steps.run_codex.outputs.final-message != ''
+        env:
+          CODEX_FINAL_MESSAGE: ${{ steps.run_codex.outputs.final-message }}
+        run: |
+          {
+            echo '## Codex output'
+            echo
+            printf '%s\n' "$CODEX_FINAL_MESSAGE"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Reply on the issue
+        if: github.event_name == 'issue_comment' && steps.run_codex.outputs.final-message != ''
+        uses: actions/github-script@v7
+        env:
+          CODEX_FINAL_MESSAGE: ${{ steps.run_codex.outputs.final-message }}
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: process.env.CODEX_FINAL_MESSAGE,
+            });
