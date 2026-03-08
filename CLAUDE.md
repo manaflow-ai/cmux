@@ -49,7 +49,7 @@ xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug -des
 When rebuilding GhosttyKit.xcframework, always use Release optimizations:
 
 ```bash
-cd ghostty && zig build -Demit-xcframework=true -Doptimize=ReleaseFast
+cd ghostty && zig build -Demit-xcframework=true -Dxcframework-target=universal -Doptimize=ReleaseFast
 ```
 
 When rebuilding cmuxd for release/bundling, always use ReleaseFast:
