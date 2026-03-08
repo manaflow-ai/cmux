@@ -27,7 +27,7 @@ struct BrowserSearchOverlay: View {
     var body: some View {
         GeometryReader { geo in
             HStack(spacing: UIZoomMetrics.searchSpacing(uiZoomScale)) {
-                TextField("Search", text: $searchState.needle)
+                TextField(String(localized: "browserSearchOverlay.search", defaultValue: "Search"), text: $searchState.needle)
                     .textFieldStyle(.plain)
                     .accessibilityIdentifier("BrowserFindSearchTextField")
                     .frame(width: UIZoomMetrics.searchFieldWidth(uiZoomScale))

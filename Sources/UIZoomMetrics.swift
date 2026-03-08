@@ -14,7 +14,7 @@ enum UIZoomMetrics {
 
     static func effectiveScale() -> Double {
         let scale = UserDefaults.standard.double(forKey: appStorageKey)
-        return scale == 0 ? defaultScale : scale
+        return clamped(scale == 0 ? defaultScale : scale)
     }
 
     // MARK: - Sidebar Typography
@@ -106,13 +106,20 @@ enum UIZoomMetrics {
     static func addressBarButtonHitSize(_ scale: Double) -> CGFloat { 26 * scale }
     static func addressBarVPadding(_ scale: Double) -> CGFloat { 4 * scale }
     static func addressBarButtonFontSize(_ scale: Double) -> CGFloat { 12 * scale }
-    static func addressBarHPadding(_ scale: Double) -> CGFloat { 8 * scale }
+    static func addressBarSmallFontSize(_ scale: Double) -> CGFloat { 11 * scale }
     static func devToolsIconSize(_ scale: Double) -> CGFloat { 11 * scale }
     static func popupCornerRadius(_ scale: Double) -> CGFloat { 12 * scale }
     static func popupRowHighlightRadius(_ scale: Double) -> CGFloat { 9 * scale }
     static func popupRowHeight(_ scale: Double) -> CGFloat { 24 * scale }
     static func popupRowSpacing(_ scale: Double) -> CGFloat { 1 * scale }
     static func popupMaxHeight(_ scale: Double) -> CGFloat { 560 * scale }
+    static func popupTextFontSize(_ scale: Double) -> CGFloat { 11 * scale }
+    static func popupBadgeFontSize(_ scale: Double) -> CGFloat { 9.5 * scale }
+    static func popupBadgeHPadding(_ scale: Double) -> CGFloat { 6 * scale }
+    static func popupBadgeVPadding(_ scale: Double) -> CGFloat { 2 * scale }
+    static func popupBadgeCornerRadius(_ scale: Double) -> CGFloat { 7 * scale }
+    static func popupRowHPadding(_ scale: Double) -> CGFloat { 8 * scale }
+    static func popupRowItemSpacing(_ scale: Double) -> CGFloat { 6 * scale }
 
     // MARK: - Search Overlay
 
@@ -136,6 +143,18 @@ enum UIZoomMetrics {
     static func notificationHeaderFontSize(_ scale: Double) -> CGFloat { 10 * scale }
     static func notificationHeaderHPadding(_ scale: Double) -> CGFloat { 6 * scale }
     static func notificationHeaderVPadding(_ scale: Double) -> CGFloat { 2 * scale }
+    static func notificationRowSpacing(_ scale: Double) -> CGFloat { 12 * scale }
+    static func notificationDotSize(_ scale: Double) -> CGFloat { 8 * scale }
+    static func notificationRowTopPadding(_ scale: Double) -> CGFloat { 6 * scale }
+    static func notificationRowVStackSpacing(_ scale: Double) -> CGFloat { 6 * scale }
+    static func notificationRowTrailingPadding(_ scale: Double) -> CGFloat { 6 * scale }
+    static func notificationRowPadding(_ scale: Double) -> CGFloat { 12 * scale }
+    static func notificationRowCornerRadius(_ scale: Double) -> CGFloat { 10 * scale }
+    static func notificationTitleFontSize(_ scale: Double) -> CGFloat { 13 * scale }
+    static func notificationBodyFontSize(_ scale: Double) -> CGFloat { 12 * scale }
+    static func notificationCaptionFontSize(_ scale: Double) -> CGFloat { 11 * scale }
+    static func notificationEmptyIconSize(_ scale: Double) -> CGFloat { 32 * scale }
+    static func notificationEmptySpacing(_ scale: Double) -> CGFloat { 8 * scale }
 
     // MARK: - Markdown Panel
 
@@ -147,6 +166,23 @@ enum UIZoomMetrics {
     static func mdDividerHPadding(_ scale: Double) -> CGFloat { 16 * scale }
     static func mdContentHPadding(_ scale: Double) -> CGFloat { 24 * scale }
     static func mdContentVPadding(_ scale: Double) -> CGFloat { 16 * scale }
+    static func mdBodyFontSize(_ scale: Double) -> CGFloat { 14 * scale }
+    static func mdH1FontSize(_ scale: Double) -> CGFloat { 28 * scale }
+    static func mdH2FontSize(_ scale: Double) -> CGFloat { 22 * scale }
+    static func mdH3FontSize(_ scale: Double) -> CGFloat { 18 * scale }
+    static func mdH4FontSize(_ scale: Double) -> CGFloat { 16 * scale }
+    static func mdH5FontSize(_ scale: Double) -> CGFloat { 14 * scale }
+    static func mdH6FontSize(_ scale: Double) -> CGFloat { 13 * scale }
+    static func mdCodeFontSize(_ scale: Double) -> CGFloat { 13 * scale }
+    static func mdCodePadding(_ scale: Double) -> CGFloat { 12 * scale }
+    static func mdCodeCornerRadius(_ scale: Double) -> CGFloat { 6 * scale }
+    static func mdBlockquoteBarWidth(_ scale: Double) -> CGFloat { 3 * scale }
+    static func mdBlockquoteBarRadius(_ scale: Double) -> CGFloat { 1.5 * scale }
+    static func mdBlockquotePadding(_ scale: Double) -> CGFloat { 12 * scale }
+    static func mdFileUnavailableIconSize(_ scale: Double) -> CGFloat { 40 * scale }
+    static func mdFileUnavailablePathFontSize(_ scale: Double) -> CGFloat { 12 * scale }
+    static func mdFileUnavailableSpacing(_ scale: Double) -> CGFloat { 12 * scale }
+    static func mdFileUnavailableHPadding(_ scale: Double) -> CGFloat { 24 * scale }
 
     // MARK: - Feedback Dialog
 

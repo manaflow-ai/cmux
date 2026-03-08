@@ -7537,6 +7537,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             case .reset:
                 next = UIZoomMetrics.defaultScale
             }
+            #if DEBUG
+            dlog("uiZoom.\(uiZoomAction) current=\(current) next=\(next)")
+            #endif
             UserDefaults.standard.set(next, forKey: UIZoomMetrics.appStorageKey)
             return true
         }

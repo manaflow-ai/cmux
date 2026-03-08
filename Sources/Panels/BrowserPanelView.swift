@@ -570,7 +570,7 @@ struct BrowserPanelView: View {
                 panel.goBack()
             }) {
                 Image(systemName: "chevron.left")
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.system(size: UIZoomMetrics.addressBarButtonFontSize(uiZoomScale), weight: .medium))
                     .frame(width: addressBarButtonHitSize, height: addressBarButtonHitSize, alignment: .center)
                     .contentShape(Rectangle())
             }
@@ -586,7 +586,7 @@ struct BrowserPanelView: View {
                 panel.goForward()
             }) {
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.system(size: UIZoomMetrics.addressBarButtonFontSize(uiZoomScale), weight: .medium))
                     .frame(width: addressBarButtonHitSize, height: addressBarButtonHitSize, alignment: .center)
                     .contentShape(Rectangle())
             }
@@ -609,7 +609,7 @@ struct BrowserPanelView: View {
                 }
             }) {
                 Image(systemName: panel.isLoading ? "xmark" : "arrow.clockwise")
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.system(size: UIZoomMetrics.addressBarButtonFontSize(uiZoomScale), weight: .medium))
                     .frame(width: addressBarButtonHitSize, height: addressBarButtonHitSize, alignment: .center)
                     .contentShape(Rectangle())
             }
@@ -621,7 +621,7 @@ struct BrowserPanelView: View {
                     ProgressView()
                         .controlSize(.small)
                     Text(String(localized: "browser.downloading", defaultValue: "Downloading..."))
-                        .font(.system(size: 11))
+                        .font(.system(size: UIZoomMetrics.addressBarSmallFontSize(uiZoomScale)))
                         .foregroundStyle(.secondary)
                 }
                 .padding(.leading, 6)
@@ -725,6 +725,7 @@ struct BrowserPanelView: View {
                 isFocused: $addressBarFocused,
                 inlineCompletion: inlineCompletion,
                 placeholder: String(localized: "browser.addressBar.placeholder", defaultValue: "Search or enter URL"),
+                uiZoomScale: uiZoomScale,
                 onTap: {
                     handleOmnibarTap()
                 },
@@ -2678,6 +2679,7 @@ private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
     @Binding var isFocused: Bool
     let inlineCompletion: OmnibarInlineCompletion?
     let placeholder: String
+    let uiZoomScale: Double
     let onTap: () -> Void
     let onSubmit: () -> Void
     let onEscape: () -> Void
@@ -3067,7 +3069,7 @@ private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
 
     func makeNSView(context: Context) -> OmnibarNativeTextField {
         let field = OmnibarNativeTextField(frame: .zero)
-        field.font = .systemFont(ofSize: 12)
+        field.font = .systemFont(ofSize: UIZoomMetrics.addressBarButtonFontSize(uiZoomScale))
         field.placeholderString = placeholder
         field.delegate = context.coordinator
         field.target = nil
@@ -3090,6 +3092,10 @@ private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
         context.coordinator.parent = self
         context.coordinator.parentField = nsView
         nsView.placeholderString = placeholder
+        let scaledFont = NSFont.systemFont(ofSize: UIZoomMetrics.addressBarButtonFontSize(uiZoomScale))
+        if nsView.font != scaledFont {
+            nsView.font = scaledFont
+        }
 
         let activeInlineCompletion = omnibarInlineCompletionIfBufferMatchesTypedPrefix(
             bufferText: text,
@@ -3388,26 +3394,26 @@ private struct OmnibarSuggestionsView: View {
                 #endif
                 onCommit(item)
             } label: {
-                HStack(spacing: 6) {
+                HStack(spacing: UIZoomMetrics.popupRowItemSpacing(uiZoomScale)) {
                         Text(item.listText)
-                            .font(.system(size: 11))
+                            .font(.system(size: UIZoomMetrics.popupTextFontSize(uiZoomScale)))
                             .foregroundStyle(listTextColor)
                             .lineLimit(1)
                             .truncationMode(.tail)
                         if let badge = item.trailingBadgeText {
                             Text(badge)
-                                .font(.system(size: 9.5, weight: .medium))
+                                .font(.system(size: UIZoomMetrics.popupBadgeFontSize(uiZoomScale), weight: .medium))
                                 .foregroundStyle(badgeTextColor)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
+                                .padding(.horizontal, UIZoomMetrics.popupBadgeHPadding(uiZoomScale))
+                                .padding(.vertical, UIZoomMetrics.popupBadgeVPadding(uiZoomScale))
                                 .background(
-                                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                    RoundedRectangle(cornerRadius: UIZoomMetrics.popupBadgeCornerRadius(uiZoomScale), style: .continuous)
                                         .fill(badgeBackgroundColor)
                                 )
                         }
                         Spacer(minLength: 0)
                     }
-                    .padding(.horizontal, 8)
+                    .padding(.horizontal, UIZoomMetrics.popupRowHPadding(uiZoomScale))
                     .frame(
                         maxWidth: .infinity,
                         minHeight: rowHeight(for: item),
