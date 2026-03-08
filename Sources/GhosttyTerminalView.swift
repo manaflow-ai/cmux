@@ -311,6 +311,12 @@ func resolveTerminalOpenURLTarget(_ rawValue: String) -> TerminalOpenURLTarget? 
     }
 
     if let webURL = resolveBrowserNavigableURL(trimmed) {
+        if browserIsOAuthFlowURL(webURL) {
+            #if DEBUG
+            dlog("link.resolve result=external(bareHost-oauth) url=\(webURL)")
+            #endif
+            return .external(webURL)
+        }
         guard BrowserInsecureHTTPSettings.normalizeHost(webURL.host ?? "") != nil else {
             #if DEBUG
             dlog("link.resolve result=external(bareHost-invalidHost) url=\(webURL)")
