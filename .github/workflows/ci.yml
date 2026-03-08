@@ -25,6 +25,9 @@ jobs:
       - name: Validate cmux scheme test configuration
         run: ./tests/test_ci_scheme_testaction_debug.sh
 
+      - name: Validate GhosttyKit checksum verification
+        run: ./tests/test_ci_ghosttykit_checksum_verification.sh
+
   web-typecheck:
     runs-on: ubuntu-latest
     defaults:
@@ -70,31 +73,8 @@ jobs:
           xcrun --sdk macosx --show-sdk-path
 
       - name: Download pre-built GhosttyKit.xcframework
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          set -euo pipefail
-          GHOSTTY_SHA=$(git -C ghostty rev-parse HEAD)
-          TAG="xcframework-$GHOSTTY_SHA"
-          URL="https://github.com/manaflow-ai/ghostty/releases/download/$TAG/GhosttyKit.xcframework.tar.gz"
-          echo "Downloading xcframework for ghostty $GHOSTTY_SHA"
-          MAX_RETRIES=30
-          RETRY_DELAY=20
-          for i in $(seq 1 $MAX_RETRIES); do
-            if curl -fSL -o GhosttyKit.xcframework.tar.gz "$URL"; then
-              echo "Download succeeded on attempt $i"
-              break
-            fi
-            if [ "$i" -eq "$MAX_RETRIES" ]; then
-              echo "Failed to download xcframework after $MAX_RETRIES attempts" >&2
-              exit 1
-            fi
-            echo "Attempt $i/$MAX_RETRIES failed, retrying in ${RETRY_DELAY}s..."
-            sleep $RETRY_DELAY
-          done
-          tar xzf GhosttyKit.xcframework.tar.gz
-          rm GhosttyKit.xcframework.tar.gz
-          test -d GhosttyKit.xcframework
+          ./scripts/download-prebuilt-ghosttykit.sh
 
       - name: Clean DerivedData
         run: |
@@ -203,31 +183,8 @@ jobs:
           xcodebuild -version
 
       - name: Download pre-built GhosttyKit.xcframework
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          set -euo pipefail
-          GHOSTTY_SHA=$(git -C ghostty rev-parse HEAD)
-          TAG="xcframework-$GHOSTTY_SHA"
-          URL="https://github.com/manaflow-ai/ghostty/releases/download/$TAG/GhosttyKit.xcframework.tar.gz"
-          echo "Downloading xcframework for ghostty $GHOSTTY_SHA"
-          MAX_RETRIES=30
-          RETRY_DELAY=20
-          for i in $(seq 1 $MAX_RETRIES); do
-            if curl -fSL -o GhosttyKit.xcframework.tar.gz "$URL"; then
-              echo "Download succeeded on attempt $i"
-              break
-            fi
-            if [ "$i" -eq "$MAX_RETRIES" ]; then
-              echo "Failed to download xcframework after $MAX_RETRIES attempts" >&2
-              exit 1
-            fi
-            echo "Attempt $i/$MAX_RETRIES failed, retrying in ${RETRY_DELAY}s..."
-            sleep $RETRY_DELAY
-          done
-          tar xzf GhosttyKit.xcframework.tar.gz
-          rm GhosttyKit.xcframework.tar.gz
-          test -d GhosttyKit.xcframework
+          ./scripts/download-prebuilt-ghosttykit.sh
 
       - name: Clean DerivedData
         run: rm -rf ~/Library/Developer/Xcode/DerivedData/GhosttyTabs-*
