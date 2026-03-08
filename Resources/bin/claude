@@ -8,12 +8,20 @@
 
 # Find the real claude binary, skipping our own directory.
 find_real_claude() {
+    local self
+    self="$(realpath "$0")"
     local self_dir
-    self_dir="$(cd "$(dirname "$0")" && pwd)"
+    self_dir="$(dirname "$self")"
     local IFS=:
     for d in $PATH; do
         [[ "$d" == "$self_dir" ]] && continue
-        [[ -x "$d/claude" ]] && printf '%s' "$d/claude" && return 0
+        local candidate="$d/claude"
+        [[ ! -x "$candidate" ]] && continue
+        local resolved
+        resolved="$(realpath "$candidate" 2>/dev/null)"
+        [[ "$resolved" == "$self" ]] && continue
+        printf '%s' "$candidate"
+        return 0
     done
     return 1
 }
