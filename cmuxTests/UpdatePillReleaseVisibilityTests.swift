@@ -8,6 +8,18 @@ import AppKit
 @testable import cmux
 #endif
 
+private func findProjectRoot() -> URL {
+    var dir = URL(fileURLWithPath: #file).deletingLastPathComponent().deletingLastPathComponent()
+    for _ in 0..<10 {
+        let marker = dir.appendingPathComponent("GhosttyTabs.xcodeproj")
+        if FileManager.default.fileExists(atPath: marker.path) {
+            return dir
+        }
+        dir = dir.deletingLastPathComponent()
+    }
+    return URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+}
+
 /// Regression test: ensures UpdatePill is never gated behind #if DEBUG in production code paths.
 /// This prevents accidentally hiding the update UI in Release builds.
 final class UpdatePillReleaseVisibilityTests: XCTestCase {
@@ -57,19 +69,6 @@ final class UpdatePillReleaseVisibilityTests: XCTestCase {
         }
     }
 
-    private func findProjectRoot() -> URL {
-        // Walk up from the test bundle to find the project root (contains GhosttyTabs.xcodeproj).
-        var dir = URL(fileURLWithPath: #file).deletingLastPathComponent().deletingLastPathComponent()
-        for _ in 0..<10 {
-            let marker = dir.appendingPathComponent("GhosttyTabs.xcodeproj")
-            if FileManager.default.fileExists(atPath: marker.path) {
-                return dir
-            }
-            dir = dir.deletingLastPathComponent()
-        }
-        // Fallback: assume CWD is project root.
-        return URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-    }
 }
 
 /// Regression test: ensure WKWebView can load HTTP development URLs (e.g. *.localtest.me).
@@ -89,17 +88,40 @@ final class AppTransportSecurityTests: XCTestCase {
             "Resources/Info.plist must allow HTTP loads in WKWebView for local dev hostnames."
         )
     }
+}
 
-    private func findProjectRoot() -> URL {
-        var dir = URL(fileURLWithPath: #file).deletingLastPathComponent().deletingLastPathComponent()
-        for _ in 0..<10 {
-            let marker = dir.appendingPathComponent("GhosttyTabs.xcodeproj")
-            if FileManager.default.fileExists(atPath: marker.path) {
-                return dir
-            }
-            dir = dir.deletingLastPathComponent()
-        }
-        return URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+final class PasskeyEntitlementTests: XCTestCase {
+    func testEntitlementsContainPublicKeyCredential() throws {
+        let projectRoot = findProjectRoot()
+        let entitlementsURL = projectRoot.appendingPathComponent("cmux.entitlements")
+        let data = try Data(contentsOf: entitlementsURL)
+        var format = PropertyListSerialization.PropertyListFormat.xml
+        let plist = try XCTUnwrap(
+            PropertyListSerialization.propertyList(from: data, options: [], format: &format) as? [String: Any]
+        )
+        XCTAssertEqual(
+            plist["com.apple.developer.web-browser.public-key-credential"] as? Bool,
+            true,
+            "cmux.entitlements must include com.apple.developer.web-browser.public-key-credential for WebAuthn passkey support in WKWebView."
+        )
+    }
+
+    func testInfoPlistContainsBluetoothUsageDescriptionForPasskeys() throws {
+        let projectRoot = findProjectRoot()
+        let infoPlistURL = projectRoot.appendingPathComponent("Resources/Info.plist")
+        let data = try Data(contentsOf: infoPlistURL)
+        var format = PropertyListSerialization.PropertyListFormat.xml
+        let plist = try XCTUnwrap(
+            PropertyListSerialization.propertyList(from: data, options: [], format: &format) as? [String: Any]
+        )
+        let usageDescription = try XCTUnwrap(
+            plist["NSBluetoothAlwaysUsageDescription"] as? String,
+            "Resources/Info.plist must include NSBluetoothAlwaysUsageDescription for cross-device passkey Bluetooth flows."
+        )
+        XCTAssertFalse(
+            usageDescription.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            "NSBluetoothAlwaysUsageDescription must be non-empty."
+        )
     }
 }
 
@@ -300,17 +322,5 @@ final class MainWindowLayoutStyleTests: XCTestCase {
             Without it, initial titlebar/content offsets can be wrong until a manual resize.
             """
         )
-    }
-
-    private func findProjectRoot() -> URL {
-        var dir = URL(fileURLWithPath: #file).deletingLastPathComponent().deletingLastPathComponent()
-        for _ in 0..<10 {
-            let marker = dir.appendingPathComponent("GhosttyTabs.xcodeproj")
-            if FileManager.default.fileExists(atPath: marker.path) {
-                return dir
-            }
-            dir = dir.deletingLastPathComponent()
-        }
-        return URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
     }
 }
