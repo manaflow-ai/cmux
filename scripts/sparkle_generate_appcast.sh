@@ -70,14 +70,23 @@ while (( ${#padded_key} % 4 != 0 )); do
 done
 printf "%s" "$padded_key" > "$key_file"
 
+generated_appcast_path="$archives_dir/$(basename "$OUT_PATH")"
+
 "$generate_appcast" \
   --ed-key-file "$key_file" \
   --download-url-prefix "$DOWNLOAD_URL_PREFIX" \
   --full-release-notes-url "$RELEASE_NOTES_URL" \
   "$archives_dir"
 
-if [[ ! -f "$archives_dir/appcast.xml" ]]; then
-  echo "appcast.xml not generated." >&2
+if [[ ! -f "$generated_appcast_path" ]]; then
+  fallback_generated_appcast="$(find "$archives_dir" -maxdepth 1 -name '*.xml' | head -n 1)"
+  if [[ -n "$fallback_generated_appcast" ]]; then
+    generated_appcast_path="$fallback_generated_appcast"
+  fi
+fi
+
+if [[ ! -f "$generated_appcast_path" ]]; then
+  echo "Expected appcast was not generated." >&2
   exit 1
 fi
 
@@ -85,7 +94,7 @@ fi
 # to sign the DMG and inject the signature. generate_appcast silently skips
 # signing when the public key derived from the private key doesn't match the
 # SUPublicEDKey in the app's Info.plist.
-if ! grep -q 'sparkle:edSignature' "$archives_dir/appcast.xml"; then
+if ! grep -q 'sparkle:edSignature' "$generated_appcast_path"; then
   echo "Warning: generate_appcast did not add edSignature. Using sign_update fallback..."
   SIGNATURE=$("$sign_update" -p --ed-key-file "$key_file" "$DMG_PATH")
   DMG_LENGTH=$(stat -f%z "$DMG_PATH")
@@ -95,7 +104,7 @@ if ! grep -q 'sparkle:edSignature' "$archives_dir/appcast.xml"; then
   # Inject sparkle:edSignature and correct length into the enclosure element
   python3 -c "
 import sys
-xml = open('$archives_dir/appcast.xml').read()
+xml = open('$generated_appcast_path').read()
 sig = '$SIGNATURE'
 length = '$DMG_LENGTH'
 # Add edSignature to enclosure
@@ -103,12 +112,12 @@ xml = xml.replace(
     'type=\"application/octet-stream\"',
     'sparkle:edSignature=\"' + sig + '\" length=\"' + length + '\" type=\"application/octet-stream\"'
 )
-open('$archives_dir/appcast.xml', 'w').write(xml)
+open('$generated_appcast_path', 'w').write(xml)
 print('  Injected edSignature into appcast.xml')
 "
 fi
 
-cp "$archives_dir/appcast.xml" "$OUT_PATH"
+cp "$generated_appcast_path" "$OUT_PATH"
 echo "Generated appcast at $OUT_PATH"
 
 # Verify the appcast has a signature
