@@ -90,6 +90,15 @@ jobs:
             fs.writeFileSync(promptFile, `${prompt}\n`, "utf8");
             core.setOutput("file", promptFile);
 
+      - name: Require OpenAI API key
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          if [ -z "$OPENAI_API_KEY" ]; then
+            echo "OPENAI_API_KEY is not configured for this repository or organization." >&2
+            exit 1
+          fi
+
       - name: Run Codex
         id: run_codex
         uses: openai/codex-action@f5c0ca71642badb34c1e66321d8d85685a0fa3dc # v1
