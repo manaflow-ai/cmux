@@ -3730,6 +3730,19 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override var acceptsFirstResponder: Bool { true }
 
+    // Provide a cached NSTextInputContext so that macOS text-input services
+    // (Dictation, IME activation) can discover this view even though it lives
+    // in the portal layer outside window.contentView.  The default
+    // NSView.inputContext auto-creates a context only for views in the
+    // contentView hierarchy; portal-hosted views need an explicit override.
+    private lazy var _inputContext: NSTextInputContext = {
+        NSTextInputContext(client: self)
+    }()
+
+    override var inputContext: NSTextInputContext? {
+        return _inputContext
+    }
+
     override func becomeFirstResponder() -> Bool {
         let result = super.becomeFirstResponder()
         var shouldApplySurfaceFocus = false
@@ -6654,7 +6667,11 @@ extension GhosttyNSView: NSTextInputClient {
     }
 
     func selectedRange() -> NSRange {
-        return NSRange(location: NSNotFound, length: 0)
+        guard let surface = surface else { return NSRange() }
+        var text = ghostty_text_s()
+        guard ghostty_surface_read_selection(surface, &text) else { return NSRange() }
+        defer { ghostty_surface_free_text(surface, &text) }
+        return NSRange(location: Int(text.offset_start), length: Int(text.offset_len))
     }
 
     func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
