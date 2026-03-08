@@ -3,6 +3,10 @@ name: Codex
 on:
   issue_comment:
     types: [created]
+  pull_request:
+    types: [opened, synchronize, reopened, labeled]
+    paths:
+      - .github/workflows/codex.yml
   workflow_dispatch:
     inputs:
       prompt:
@@ -14,6 +18,11 @@ jobs:
   codex:
     if: |
       (github.event_name == 'workflow_dispatch' && github.actor == 'lawrencecchen') ||
+      (
+        github.event_name == 'pull_request' &&
+        github.actor == 'lawrencecchen' &&
+        contains(github.event.pull_request.labels.*.name, 'codex-smoke-test')
+      ) ||
       (
         github.event_name == 'issue_comment' &&
         github.event.comment.user.login == 'lawrencecchen' &&
@@ -53,6 +62,12 @@ jobs:
                 "",
                 "Manual request:",
                 process.env.DISPATCH_PROMPT || "",
+              ].join("\n");
+            } else if (context.eventName === "pull_request") {
+              prompt = [
+                `You are running a smoke test for pull request #${context.issue.number} in ${context.repo.owner}/${context.repo.repo}.`,
+                "Confirm that the workflow is running on a macOS GitHub Actions runner.",
+                "Print the current working directory and stop after a short summary.",
               ].join("\n");
             } else {
               prompt = [
