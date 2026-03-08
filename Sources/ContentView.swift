@@ -10338,6 +10338,7 @@ private struct SidebarMetadataEntryRow: View {
     let entry: SidebarStatusEntry
     let isActive: Bool
     let onFocus: () -> Void
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         Group {
@@ -10375,15 +10376,26 @@ private struct SidebarMetadataEntryRow: View {
     }
 
     private var foregroundColor: Color {
-        if isActive,
-           let raw = entry.color,
-           Color(hex: raw) != nil {
-            return Color(nsColor: sidebarSelectedWorkspaceForegroundNSColor(opacity: 0.95))
+        if isActive {
+            return .white
         }
         if let raw = entry.color, let explicit = Color(hex: raw) {
-            return explicit
+            return contrastAdjusted(explicit)
         }
-        return isActive ? .white.opacity(0.8) : .secondary
+        return .secondary
+    }
+
+    private func contrastAdjusted(_ color: Color) -> Color {
+        guard let srgb = NSColor(color).usingColorSpace(.sRGB) else { return color }
+        var h: CGFloat = 0, s: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        srgb.getHue(&h, saturation: &s, brightness: &b, alpha: &a)
+        let (adjH, adjS, adjB) = Self.contrastAdjustedHSB(h: h, s: s, b: b, isDark: colorScheme == .dark)
+        if adjH == h && adjS == s && adjB == b { return color }
+        return Color(nsColor: NSColor(hue: adjH, saturation: adjS, brightness: adjB, alpha: a))
+    }
+
+    static func contrastAdjustedHSB(h: CGFloat, s: CGFloat, b: CGFloat, isDark: Bool) -> (CGFloat, CGFloat, CGFloat) {
+        MetadataColorContrast.adjustedHSB(h: h, s: s, b: b, isDark: isDark)
     }
 
     private var iconView: AnyView? {
@@ -11772,5 +11784,25 @@ extension NSColor {
             return String(format: "#%02X%02X%02X%02X", redByte, greenByte, blueByte, alphaByte)
         }
         return String(format: "#%02X%02X%02X", redByte, greenByte, blueByte)
+    }
+}
+
+enum MetadataColorContrast {
+    static func adjustedHSB(h: CGFloat, s: CGFloat, b: CGFloat, isDark: Bool) -> (CGFloat, CGFloat, CGFloat) {
+        if isDark {
+            let needsBrightnessFloor = b < 0.6
+            let needsSaturationCap = s > 0.7
+            if needsBrightnessFloor || needsSaturationCap {
+                return (h, min(s, 0.7), max(b, 0.6))
+            }
+        } else {
+            if b > 0.65 {
+                return (h, s, 0.65)
+            }
+            if b < 0.25 {
+                return (h, s, 0.25)
+            }
+        }
+        return (h, s, b)
     }
 }
