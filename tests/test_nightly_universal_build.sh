@@ -11,25 +11,31 @@ if ! awk '
   in_arm && /^      - name:/ { in_arm=0 }
   in_universal && /^      - name:/ { in_universal=0 }
   in_arm && /-destination '\''platform=macOS,arch=arm64'\''/ { saw_arm_destination=1 }
+  in_arm && /ARCHS="arm64"/ { saw_arm_archs=1 }
+  in_arm && /ONLY_ACTIVE_ARCH=YES/ { saw_arm_only_active_arch=1 }
   in_universal && /-destination '\''generic\/platform=macOS'\''/ { saw_universal_destination=1 }
   in_universal && /ARCHS="arm64 x86_64"/ { saw_universal_archs=1 }
   in_universal && /ONLY_ACTIVE_ARCH=NO/ { saw_universal_only_active_arch=1 }
   END {
-    exit !(saw_arm_destination && saw_universal_destination && saw_universal_archs && saw_universal_only_active_arch)
+    exit !(saw_arm_destination && saw_arm_archs && saw_arm_only_active_arch && saw_universal_destination && saw_universal_archs && saw_universal_only_active_arch)
   }
 ' "$WORKFLOW_FILE"; then
-  echo "FAIL: nightly workflow must build both Apple Silicon and universal variants explicitly"
+  echo "FAIL: nightly workflow must force Apple Silicon nightly to arm64-only and universal nightly to both slices"
   exit 1
 fi
 
 if ! awk '
-  /^      - name: Verify universal binaries/ { in_verify=1; next }
+  /^      - name: Verify nightly binary architectures/ { in_verify=1; next }
   in_verify && /^      - name:/ { in_verify=0 }
+  in_verify && /lipo -archs "\$ARM_APP_BINARY"/ { saw_arm_app=1 }
+  in_verify && /lipo -archs "\$ARM_CLI_BINARY"/ { saw_arm_cli=1 }
   in_verify && /lipo -archs "\$APP_BINARY"/ { saw_app=1 }
   in_verify && /lipo -archs "\$CLI_BINARY"/ { saw_cli=1 }
-  END { exit !(saw_app && saw_cli) }
+  in_verify && /\[\[ "\$ARM_APP_ARCHS" == "arm64" \]\]/ { saw_arm_app_assert=1 }
+  in_verify && /\[\[ "\$ARM_CLI_ARCHS" == "arm64" \]\]/ { saw_arm_cli_assert=1 }
+  END { exit !(saw_arm_app && saw_arm_cli && saw_app && saw_cli && saw_arm_app_assert && saw_arm_cli_assert) }
 ' "$WORKFLOW_FILE"; then
-  echo "FAIL: nightly workflow must verify both app and CLI universal slices with lipo"
+  echo "FAIL: nightly workflow must verify arm-only and universal slices with lipo"
   exit 1
 fi
 

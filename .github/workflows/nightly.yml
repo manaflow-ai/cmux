@@ -156,6 +156,8 @@ jobs:
           xcodebuild -scheme cmux -configuration Release -derivedDataPath build-arm \
             -destination 'platform=macOS,arch=arm64' \
             -clonedSourcePackagesDirPath .spm-cache \
+            ARCHS="arm64" \
+            ONLY_ACTIVE_ARCH=YES \
             CODE_SIGNING_ALLOWED=NO ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon-Nightly build
 
       - name: Build universal app (Release)
@@ -167,15 +169,23 @@ jobs:
             ONLY_ACTIVE_ARCH=NO \
             CODE_SIGNING_ALLOWED=NO ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon-Nightly build
 
-      - name: Verify universal binaries
+      - name: Verify nightly binary architectures
         run: |
           set -euo pipefail
+          ARM_APP_BINARY="build-arm/Build/Products/Release/cmux.app/Contents/MacOS/cmux"
+          ARM_CLI_BINARY="build-arm/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux"
           APP_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/MacOS/cmux"
           CLI_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux"
+          ARM_APP_ARCHS="$(lipo -archs "$ARM_APP_BINARY")"
+          ARM_CLI_ARCHS="$(lipo -archs "$ARM_CLI_BINARY")"
           APP_ARCHS="$(lipo -archs "$APP_BINARY")"
           CLI_ARCHS="$(lipo -archs "$CLI_BINARY")"
+          echo "Arm app binary architectures: $ARM_APP_ARCHS"
+          echo "Arm CLI binary architectures: $ARM_CLI_ARCHS"
           echo "App binary architectures: $APP_ARCHS"
           echo "CLI binary architectures: $CLI_ARCHS"
+          [[ "$ARM_APP_ARCHS" == "arm64" ]]
+          [[ "$ARM_CLI_ARCHS" == "arm64" ]]
           [[ "$APP_ARCHS" == *arm64* && "$APP_ARCHS" == *x86_64* ]]
           [[ "$CLI_ARCHS" == *arm64* && "$CLI_ARCHS" == *x86_64* ]]
 
