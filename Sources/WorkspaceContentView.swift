@@ -18,6 +18,7 @@ struct WorkspaceContentView: View {
     @State private var config = WorkspaceContentView.resolveGhosttyAppearanceConfig(reason: "stateInit")
     @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject var notificationStore: TerminalNotificationStore
+    @AppStorage(UIZoomMetrics.appStorageKey) private var uiZoomScale = UIZoomMetrics.defaultScale
 
     static func panelVisibleInUI(
         isWorkspaceVisible: Bool,
@@ -105,6 +106,7 @@ struct WorkspaceContentView: View {
                     workspace.bonsplitController.focusPane(paneId)
                 }
         }
+        .environment(\.bonsplitZoomScale, CGFloat(uiZoomScale))
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
             syncBonsplitNotificationBadges()

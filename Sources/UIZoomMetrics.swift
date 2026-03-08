@@ -72,7 +72,7 @@ enum UIZoomMetrics {
     static let baseMinimumSidebarWidth: Double = 186
 
     static func minimumSidebarWidth(_ scale: Double) -> Double {
-        baseMinimumSidebarWidth * clamped(scale)
+        baseMinimumSidebarWidth
     }
 
     // MARK: - Titlebar
