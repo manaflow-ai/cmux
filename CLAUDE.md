@@ -368,4 +368,31 @@ printf "send_key ctrl-c\n"            | nc -U $SOCK
 - **Never use `select_workspace`** to spy on other agents — it visibly switches the user's active tab.
 - `read_screen` by UUID only works for surfaces in the **current** workspace. To monitor a pane in another workspace without switching, coordinate via **MCP mail** (`cmux` / `cmuxcoder` agents) instead.
 - Use `list_surfaces <ws-uuid>` to get surface UUIDs, then `send_surface <uuid>` to steer without changing focus.
-- The workspace where the coding agent operates is named **`cmux_coder`** in the cmux sidebar.
+- The coding agent's tab is named **`cmux_coder`** — it is a surface tab inside the `cmux:ubuntu` workspace, not a separate workspace.
+
+### Finding a tab efficiently
+
+`read_screen` and `send_surface` behave differently across workspaces:
+
+| Command | Cross-workspace by UUID? |
+|---|---|
+| `read_screen <uuid>` | ❌ fails — only works in current workspace |
+| `send_surface <uuid> <text>` | ✅ works — delivers even if not current workspace |
+
+**Correct workflow to find an unknown tab:**
+
+```bash
+# 1. Get all surface UUIDs across all workspaces (no switching needed)
+for ws_uuid in $(printf "list_workspaces\n" | nc -U $SOCK | grep -oE '[A-F0-9-]{36}'); do
+  printf "list_surfaces $ws_uuid\n" | nc -U $SOCK
+done
+
+# 2. Try send_surface on candidate UUIDs — it works cross-workspace
+printf "send_surface <uuid> test\n" | nc -U $SOCK
+# Returns OK even across workspaces. Confirm with user which pane received it.
+
+# 3. Once confirmed, use that UUID for all future sends
+printf "send_surface <uuid> cargo test\n" | nc -U $SOCK
+```
+
+Do **not** try to read first to identify — just send and confirm. `read_screen` requires being in the right workspace; `send_surface` does not.
