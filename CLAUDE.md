@@ -396,3 +396,22 @@ printf "send_surface <uuid> cargo test\n" | nc -U $SOCK
 ```
 
 Do **not** try to read first to identify — just send and confirm. `read_screen` requires being in the right workspace; `send_surface` does not.
+
+### Typing into another agent's pane (human simulation)
+
+`send_surface` types text into the input box but does **not** submit. Use `send_key_surface enter` to submit.
+
+```bash
+# Pattern: clear → type → enter
+printf "send_key_surface 1 ctrl-a\n" | nc -U $SOCK   # go to start
+printf "send_key_surface 1 ctrl-k\n" | nc -U $SOCK   # clear line
+printf "send_surface 1 your message here\n" | nc -U $SOCK
+sleep 0.2
+printf "send_key_surface 1 enter\n" | nc -U $SOCK
+```
+
+If `send_surface` returns `ERROR: Failed to send input` — the terminal is busy running a command. Wait and retry.
+
+**Surface layout in cmux:ubuntu workspace:**
+- Surface `0` = supervisor (cmux)
+- Surface `1` = coder (cmux_coder)
