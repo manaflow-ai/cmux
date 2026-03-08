@@ -1244,7 +1244,7 @@ final class BrowserSearchState: ObservableObject {
     }
 }
 
-final class BrowserPortalAnchorView: NSView {
+final class BrowserPortalAnchorView: PanelLifecycleAnchorHostView {
     override var acceptsFirstResponder: Bool { false }
     override var isOpaque: Bool { false }
 

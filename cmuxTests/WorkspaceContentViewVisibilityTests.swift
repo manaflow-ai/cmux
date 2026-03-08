@@ -100,4 +100,45 @@ final class WorkspaceContentViewVisibilityTests: XCTestCase {
         XCTAssertEqual(profile.interactionModel, .readOnly)
         XCTAssertEqual(profile.focusPolicy, .none)
     }
+
+    func testPanelLifecycleRecordDoesNotCountHiddenPanelAsActiveWindowResident() {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let record = PanelLifecycleShadowMapper.record(
+            input: PanelLifecycleShadowRecordInput(
+                panelId: panelId,
+                workspaceId: workspaceId,
+                paneId: UUID(),
+                tabId: UUID(),
+                panelType: .browser,
+                mountedWorkspace: true,
+                selectedWorkspace: true,
+                retiringWorkspace: false,
+                selectedInPane: false,
+                isFocused: false,
+                anchorFact: PanelLifecycleAnchorFact(
+                    panelId: panelId,
+                    workspaceId: workspaceId,
+                    panelType: .browser,
+                    anchorId: UUID(),
+                    windowNumber: 42,
+                    hasSuperview: true,
+                    attachedToWindow: true,
+                    hidden: false,
+                    geometryRevision: 1,
+                    desiredVisible: false,
+                    desiredActive: false,
+                    source: "visibility"
+                ),
+                anchorGeneration: 1
+            ),
+            activeWindowNumber: 42,
+            handoffGeneration: 5
+        )
+
+        XCTAssertFalse(record.desiredVisible)
+        XCTAssertFalse(record.activeWindowMembership)
+        XCTAssertFalse(record.responderEligible)
+        XCTAssertFalse(record.accessibilityParticipation)
+    }
 }

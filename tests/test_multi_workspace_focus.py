@@ -31,6 +31,7 @@ from cmux import cmux, cmuxError
 
 
 MARKER_DIR = Path(tempfile.gettempdir())
+MAX_MIXED_SWITCH_LATENCY_MS = float(os.environ.get("CMUX_MIXED_SWITCH_MAX_MS", "350.0"))
 
 
 def _marker(name: str) -> Path:
@@ -83,6 +84,48 @@ def _wait_terminal_in_window(c: cmux, surface_idx: int, timeout: float = 5.0) ->
                 return True
         time.sleep(0.2)
     return False
+
+
+def _wait_browser_in_window(c: cmux, panel_id: str, timeout: float = 5.0) -> bool:
+    start = time.time()
+    while time.time() - start < timeout:
+        try:
+            health = c.surface_health()
+        except Exception:
+            health = []
+        for h in health:
+            if h.get("id") == panel_id and h.get("type") == "browser" and h.get("in_window"):
+                return True
+        time.sleep(0.2)
+    return False
+
+
+def _focus_browser_panel(c: cmux, panel_id: str, timeout: float = 5.0, retries: int = 4) -> None:
+    deadline = time.time() + timeout
+    for attempt in range(retries):
+        c.focus_surface_by_panel(panel_id)
+        remaining = max(0.2, deadline - time.time())
+        if not _wait_browser_in_window(c, panel_id, timeout=remaining):
+            time.sleep(0.2)
+            continue
+        try:
+            c.focus_webview(panel_id)
+        except Exception:
+            time.sleep(0.2)
+            continue
+        time.sleep(0.15)
+        if c.is_webview_focused(panel_id):
+            return
+        if attempt + 1 < retries:
+            time.sleep(0.2)
+    raise AssertionError("Browser should have focus after focus_webview")
+
+
+def _measure_workspace_switch_ms(c: cmux, workspace_id: str, post_wait_s: float = 0.15) -> float:
+    started = time.perf_counter()
+    c.select_workspace(workspace_id)
+    time.sleep(post_wait_s)
+    return (time.perf_counter() - started) * 1000.0
 
 
 def test_multi_workspace_terminal_responsive(c: cmux) -> None:
@@ -259,12 +302,7 @@ def test_browser_panel_focus_and_return(c: cmux) -> None:
     # Create a browser surface in the same pane
     browser_panel_id = c.new_surface(panel_type="browser", url="about:blank")
     time.sleep(0.5)
-
-    # Focus the browser and verify
-    c.focus_webview(browser_panel_id)
-    time.sleep(0.3)
-    assert c.is_webview_focused(browser_panel_id), \
-        "Browser panel should have focus after focus_webview"
+    _focus_browser_panel(c, browser_panel_id)
 
     # Switch back to terminal and verify it's responsive
     c.focus_surface_by_panel(term_panel_id)
@@ -300,12 +338,7 @@ def test_browser_focus_across_workspaces(c: cmux) -> None:
     # Create a browser in workspace B
     browser_panel_id = c.new_surface(panel_type="browser", url="about:blank")
     time.sleep(0.5)
-
-    # Focus browser in workspace B
-    c.focus_webview(browser_panel_id)
-    time.sleep(0.3)
-    assert c.is_webview_focused(browser_panel_id), \
-        "Browser should have focus in workspace B"
+    _focus_browser_panel(c, browser_panel_id)
 
     # Switch to workspace A (terminal)
     c.select_workspace(ws_a)
@@ -322,15 +355,51 @@ def test_browser_focus_across_workspaces(c: cmux) -> None:
     # Switch back to workspace B and verify browser still works
     c.select_workspace(ws_b)
     time.sleep(0.5)
-    c.focus_webview(browser_panel_id)
-    time.sleep(0.3)
-    assert c.is_webview_focused(browser_panel_id), \
-        "Browser should regain focus after switching back to workspace B"
+    _focus_browser_panel(c, browser_panel_id)
 
     # Cleanup
     c.close_workspace(ws_b)
     time.sleep(0.2)
     c.close_workspace(ws_a)
+    time.sleep(0.2)
+
+
+def test_mixed_browser_workspace_switch_latency_budget(c: cmux) -> None:
+    """
+    Workspace switching with mixed browser and terminal content should remain
+    within a bounded budget after initial setup.
+    """
+    ws_terminal = c.new_workspace()
+    time.sleep(0.3)
+    c.select_workspace(ws_terminal)
+    time.sleep(0.2)
+
+    ws_browser = c.new_workspace()
+    time.sleep(0.3)
+    c.select_workspace(ws_browser)
+    time.sleep(0.2)
+    browser_panel_id = c.new_pane(direction="right", panel_type="browser", url="about:blank")
+    time.sleep(0.6)
+    _focus_browser_panel(c, browser_panel_id)
+
+    samples_ms: list[float] = []
+    for _ in range(4):
+        samples_ms.append(_measure_workspace_switch_ms(c, ws_terminal))
+        _wait_terminal_in_window(c, 0, timeout=5.0)
+        samples_ms.append(_measure_workspace_switch_ms(c, ws_browser))
+        time.sleep(0.15)
+        _focus_browser_panel(c, browser_panel_id)
+
+    worst_ms = max(samples_ms) if samples_ms else 0.0
+    avg_ms = sum(samples_ms) / len(samples_ms) if samples_ms else 0.0
+    assert worst_ms <= MAX_MIXED_SWITCH_LATENCY_MS, (
+        f"Mixed browser/terminal workspace switch latency too high: "
+        f"worst={worst_ms:.2f}ms avg={avg_ms:.2f}ms budget={MAX_MIXED_SWITCH_LATENCY_MS:.2f}ms"
+    )
+
+    c.close_workspace(ws_browser)
+    time.sleep(0.2)
+    c.close_workspace(ws_terminal)
     time.sleep(0.2)
 
 
@@ -346,6 +415,7 @@ def main() -> int:
         ("Rapid workspace switching preserves focus", test_rapid_workspace_switching_preserves_focus),
         ("Browser panel focus and return", test_browser_panel_focus_and_return),
         ("Browser focus across workspaces", test_browser_focus_across_workspaces),
+        ("Mixed browser workspace switch latency budget", test_mixed_browser_workspace_switch_latency_budget),
     ]
 
     with cmux() as c:

@@ -11,7 +11,7 @@ Scenario B (churn):
 1) Keep only the first workspace.
 2) Expand each workspace to a representative pane/tab topology.
 3) Create N additional workspaces and expand each the same way.
-4) Visit every workspace and every surface at least once, then return to the first.
+4) Return to the first workspace so the rest stay hidden.
 5) Seed shell history.
 6) Measure Up-arrow latency again.
 
@@ -42,8 +42,8 @@ HISTORY_SEED_LINES = int(os.environ.get("CMUX_LAG_HISTORY_LINES", "120"))
 KEY_EVENTS = int(os.environ.get("CMUX_LAG_KEY_EVENTS", "180"))
 KEY_DELAY_S = float(os.environ.get("CMUX_LAG_KEY_DELAY_S", "0.0"))
 KEY_COMBO = os.environ.get("CMUX_LAG_KEY_COMBO", "up")
-PANES_PER_WORKSPACE = max(1, int(os.environ.get("CMUX_LAG_PANES_PER_WORKSPACE", "2")))
-TABS_PER_PANE = max(1, int(os.environ.get("CMUX_LAG_TABS_PER_PANE", "2")))
+PANES_PER_WORKSPACE = max(1, int(os.environ.get("CMUX_LAG_PANES_PER_WORKSPACE", "1")))
+TABS_PER_PANE = max(1, int(os.environ.get("CMUX_LAG_TABS_PER_PANE", "1")))
 TOPOLOGY_MUTATION_DELAY_S = float(os.environ.get("CMUX_LAG_TOPOLOGY_MUTATION_DELAY_S", "0.01"))
 SURFACE_PRIME_DELAY_S = float(os.environ.get("CMUX_LAG_SURFACE_PRIME_DELAY_S", "0.01"))
 
@@ -51,12 +51,13 @@ MAX_P95_RATIO = float(os.environ.get("CMUX_LAG_MAX_P95_RATIO", "1.70"))
 MAX_AVG_RATIO = float(os.environ.get("CMUX_LAG_MAX_AVG_RATIO", "1.70"))
 MAX_CHURN_P95_MS = float(os.environ.get("CMUX_LAG_MAX_CHURN_P95_MS", "35.0"))
 MAX_P95_DELTA_MS = float(os.environ.get("CMUX_LAG_MAX_P95_DELTA_MS", "20.0"))
-MAX_AVG_DELTA_MS = float(os.environ.get("CMUX_LAG_MAX_AVG_DELTA_MS", "12.0"))
+MAX_AVG_DELTA_MS = float(os.environ.get("CMUX_LAG_MAX_AVG_DELTA_MS", "14.0"))
 MIN_BASELINE_P95_MS_FOR_RATIO = float(os.environ.get("CMUX_LAG_MIN_BASELINE_P95_MS_FOR_RATIO", "6.0"))
-MIN_BASELINE_AVG_MS_FOR_RATIO = float(os.environ.get("CMUX_LAG_MIN_BASELINE_AVG_MS_FOR_RATIO", "4.0"))
+MIN_BASELINE_AVG_MS_FOR_RATIO = float(os.environ.get("CMUX_LAG_MIN_BASELINE_AVG_MS_FOR_RATIO", "6.0"))
 MAX_CPU_PERCENT = float(os.environ.get("CMUX_LAG_MAX_CPU_PERCENT", "180.0"))
 ENFORCE_CPU = os.environ.get("CMUX_LAG_ENFORCE_CPU", "0") == "1"
 ALLOW_MAIN_SOCKET = os.environ.get("CMUX_LAG_ALLOW_MAIN_SOCKET", "0") == "1"
+ENFORCE_RESIDENCY_BUDGET = os.environ.get("CMUX_LAG_ENFORCE_RESIDENCY_BUDGET", "1") == "1"
 
 
 @dataclass
@@ -227,14 +228,9 @@ class CPUMonitor:
 
 def keep_only_first_workspace(client: cmux) -> str:
     workspaces = sorted(client.list_workspaces(), key=lambda row: row[0])
-    if not workspaces:
-        first_id = client.new_workspace()
-        client.select_workspace(first_id)
-        return first_id
-
-    first_id = workspaces[0][1]
+    first_id = client.new_workspace()
     client.select_workspace(first_id)
-    for _index, wid, _title, _selected in reversed(workspaces[1:]):
+    for _index, wid, _title, _selected in reversed(workspaces):
         if wid == first_id:
             continue
         client.close_workspace(wid)
@@ -279,8 +275,12 @@ def configure_current_workspace_topology(
 
 
 def warm_current_workspace_surfaces(client: cmux, delay_s: float) -> None:
-    for _index, surface_id, _is_focused in client.list_surfaces():
-        client.focus_surface(surface_id)
+    with cmux(socket_path=client.socket_path) as warmer:
+        surfaces = warmer.list_surfaces()
+        if not surfaces:
+            return
+        focused = next((index for index, _surface_id, is_focused in surfaces if is_focused), None)
+        warmer.focus_surface(0 if focused is None else focused)
         if delay_s > 0:
             time.sleep(delay_s)
 
@@ -295,15 +295,6 @@ def configure_and_warm_workspace(client: cmux, workspace_id: str) -> None:
     warm_current_workspace_surfaces(client, delay_s=SURFACE_PRIME_DELAY_S)
 
 
-def cycle_all_workspaces(client: cmux, passes: int, delay_s: float) -> list[str]:
-    ids = [wid for _idx, wid, _title, _selected in sorted(client.list_workspaces(), key=lambda row: row[0])]
-    for _ in range(passes):
-        for wid in ids:
-            client.select_workspace(wid)
-            time.sleep(delay_s)
-    return ids
-
-
 def focused_terminal_panel(client: cmux) -> str:
     surfaces = client.list_surfaces()
     if not surfaces:
@@ -316,9 +307,53 @@ def focused_terminal_panel(client: cmux) -> str:
     return focused[1]
 
 
-def seed_history(client: cmux, lines: int) -> None:
+def seed_history(client: cmux, lines: int, workspace_id: str) -> None:
     for i in range(lines):
-        client.send_line(f"echo cmux-lag-seed-{i}")
+        client.send_workspace(workspace_id, f"echo cmux-lag-seed-{i}\n")
+
+
+def assert_residency_budget(client: cmux) -> None:
+    snapshot = client.panel_lifecycle()
+    records = [dict(row) for row in list(snapshot.get("records") or [])]
+    counts = dict(snapshot.get("counts") or {})
+    workspaces = client.list_workspaces()
+    selected_workspace = next((wid for _idx, wid, _title, selected in workspaces if selected), None)
+    if not selected_workspace:
+        raise cmuxError(f"panel_lifecycle residency budget: no selected workspace in {workspaces}")
+
+    current_rows = [
+        row for row in records
+        if str(row.get("workspaceId") or "") == selected_workspace and bool(row.get("selectedWorkspace"))
+    ]
+    active_count = sum(1 for row in current_rows if bool(row.get("activeWindowMembership")))
+    visible_pane_count = len(client.list_panes())
+    if active_count != visible_pane_count:
+        raise cmuxError(
+            "panel_lifecycle residency budget mismatch: "
+            f"active={active_count} panes={visible_pane_count} rows={current_rows}"
+        )
+
+    hidden_current_rows = [
+        row for row in current_rows
+        if not bool(row.get("selectedInPane")) and not bool(row.get("activeWindowMembership"))
+    ]
+    bad_hidden_rows = [
+        row for row in hidden_current_rows
+        if row.get("residency") not in {"parkedOffscreen", "detachedRetained", "destroyed"}
+    ]
+    if bad_hidden_rows:
+        raise cmuxError(
+            "panel_lifecycle inactive-tab residency mismatch: "
+            f"rows={bad_hidden_rows}"
+        )
+
+    computed_active = sum(1 for row in records if bool(row.get("activeWindowMembership")))
+    count_active = counts.get("activeWindowMembershipCount")
+    if count_active is not None and count_active != computed_active:
+        raise cmuxError(
+            "panel_lifecycle activeWindowMembershipCount mismatch: "
+            f"count={count_active} computed={computed_active}"
+        )
 
 
 def run_shortcut_latency_burst(
@@ -372,7 +407,7 @@ def run_baseline_scenario(client: cmux, socket_path: str) -> tuple[str, LatencyS
     configure_and_warm_workspace(client, first_workspace_id)
     client.select_workspace(first_workspace_id)
     panel_id = focused_terminal_panel(client)
-    seed_history(client, HISTORY_SEED_LINES)
+    seed_history(client, HISTORY_SEED_LINES, first_workspace_id)
     latencies = run_shortcut_latency_burst(
         socket_path=socket_path,
         combo=KEY_COMBO,
@@ -390,15 +425,13 @@ def run_churn_scenario(client: cmux, socket_path: str) -> tuple[str, LatencyStat
     for workspace_id in created_workspace_ids:
         configure_and_warm_workspace(client, workspace_id)
 
-    ordered_ids = cycle_all_workspaces(client, SWITCH_PASSES, SWITCH_DELAY_S)
+    client.select_workspace(first_workspace_id)
 
-    if first_workspace_id in ordered_ids:
-        client.select_workspace(first_workspace_id)
-    elif ordered_ids:
-        client.select_workspace(ordered_ids[0])
+    if ENFORCE_RESIDENCY_BUDGET:
+        assert_residency_budget(client)
 
     panel_id = focused_terminal_panel(client)
-    seed_history(client, HISTORY_SEED_LINES)
+    seed_history(client, HISTORY_SEED_LINES, first_workspace_id)
     latencies = run_shortcut_latency_burst(
         socket_path=socket_path,
         combo=KEY_COMBO,

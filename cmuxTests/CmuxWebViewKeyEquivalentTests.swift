@@ -11584,36 +11584,60 @@ final class BrowserOmnibarFocusPolicyTests: XCTestCase {
 final class GhosttyTerminalViewVisibilityPolicyTests: XCTestCase {
     func testImmediateStateUpdateAllowedWhenHostNotInWindow() {
         XCTAssertTrue(
-            GhosttyTerminalView.shouldApplyImmediateHostedStateUpdate(
-                hostedViewHasSuperview: true,
+            TerminalLifecycleExecutor.hostedStateApplicationPlan(
+                target: makeRuntimeTarget(targetResidency: .visibleInActiveWindow, action: .bindVisible),
+                hostedViewHasSuperview: false,
                 isBoundToCurrentHost: false
-            )
+            ).shouldApplyImmediately
         )
     }
 
     func testImmediateStateUpdateAllowedWhenBoundToCurrentHost() {
         XCTAssertTrue(
-            GhosttyTerminalView.shouldApplyImmediateHostedStateUpdate(
+            TerminalLifecycleExecutor.hostedStateApplicationPlan(
+                target: makeRuntimeTarget(targetResidency: .visibleInActiveWindow, action: .noop),
                 hostedViewHasSuperview: true,
                 isBoundToCurrentHost: true
-            )
+            ).shouldApplyImmediately
         )
     }
 
     func testImmediateStateUpdateSkippedForStaleHostBoundElsewhere() {
         XCTAssertFalse(
-            GhosttyTerminalView.shouldApplyImmediateHostedStateUpdate(
+            TerminalLifecycleExecutor.hostedStateApplicationPlan(
+                target: makeRuntimeTarget(targetResidency: .visibleInActiveWindow, action: .bindVisible),
                 hostedViewHasSuperview: true,
                 isBoundToCurrentHost: false
-            )
+            ).shouldApplyImmediately
         )
     }
 
     func testImmediateStateUpdateAllowedWhenUnboundAndNotAttachedAnywhere() {
         XCTAssertTrue(
-            GhosttyTerminalView.shouldApplyImmediateHostedStateUpdate(
+            TerminalLifecycleExecutor.hostedStateApplicationPlan(
+                target: makeRuntimeTarget(targetResidency: .detachedRetained, action: .noop),
                 hostedViewHasSuperview: false,
                 isBoundToCurrentHost: false
+            ).shouldApplyImmediately
+        )
+    }
+
+    private func makeRuntimeTarget(
+        targetResidency: PanelResidency,
+        action: TerminalLifecycleExecutorAction
+    ) -> TerminalLifecycleExecutorRuntimeTarget {
+        TerminalLifecycleExecutorRuntimeTarget(
+            targetResidency: targetResidency,
+            targetVisible: targetResidency == .visibleInActiveWindow,
+            targetActive: targetResidency == .visibleInActiveWindow,
+            targetWindowNumber: targetResidency == .visibleInActiveWindow ? 41 : nil,
+            targetAnchorId: targetResidency == .visibleInActiveWindow ? UUID() : nil,
+            requiresCurrentGenerationAnchor: targetResidency == .visibleInActiveWindow,
+            anchorReadyForVisibility: targetResidency == .visibleInActiveWindow,
+            decision: TerminalLifecycleExecutorRuntimeDecision(
+                action: action,
+                bindingSatisfied: action == .noop,
+                shouldSynchronizeVisibleGeometry: false
             )
         )
     }

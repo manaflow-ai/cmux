@@ -30,6 +30,16 @@
 		A5001404 /* BrowserPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001414 /* BrowserPanelView.swift */; };
 		A5001420 /* MarkdownPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001418 /* MarkdownPanel.swift */; };
 		A5001421 /* MarkdownPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001419 /* MarkdownPanelView.swift */; };
+		FD000000A1B2C3D4E5F60718 /* PanelLifecycleShadowCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD000001A1B2C3D4E5F60718 /* PanelLifecycleShadowCore.swift */; };
+		FD000002A1B2C3D4E5F60718 /* PanelLifecycleAnchorHostView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD000003A1B2C3D4E5F60718 /* PanelLifecycleAnchorHostView.swift */; };
+		FD000004A1B2C3D4E5F60718 /* PanelLifecycleCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD000005A1B2C3D4E5F60718 /* PanelLifecycleCoordinator.swift */; };
+		FD000006A1B2C3D4E5F60718 /* PanelLifecycleState.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD000007A1B2C3D4E5F60718 /* PanelLifecycleState.swift */; };
+		FD000008A1B2C3D4E5F60718 /* PanelResidency.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD000009A1B2C3D4E5F60718 /* PanelResidency.swift */; };
+		FD00000AA1B2C3D4E5F60718 /* PanelLifecycleSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD00000BA1B2C3D4E5F60718 /* PanelLifecycleSnapshot.swift */; };
+		FD00000CA1B2C3D4E5F60718 /* PanelLifecycleEvent.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD00000DA1B2C3D4E5F60718 /* PanelLifecycleEvent.swift */; };
+		FE100000A1B2C3D4E5F60718 /* TerminalLifecycleExecutor.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE100001A1B2C3D4E5F60718 /* TerminalLifecycleExecutor.swift */; };
+		FE300000A1B2C3D4E5F60718 /* BrowserLifecycleExecutor.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE300001A1B2C3D4E5F60718 /* BrowserLifecycleExecutor.swift */; };
+		FE400000A1B2C3D4E5F60718 /* DocumentLifecycleExecutor.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE400001A1B2C3D4E5F60718 /* DocumentLifecycleExecutor.swift */; };
 		A5001290 /* MarkdownUI in Frameworks */ = {isa = PBXBuildFile; productRef = A5001291 /* MarkdownUI */; };
 		A5001405 /* PanelContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001415 /* PanelContentView.swift */; };
 		A5001406 /* Workspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001416 /* Workspace.swift */; };
@@ -82,6 +92,13 @@
 					D0E0F0B0A1B2C3D4E5F60718 /* BrowserPaneNavigationKeybindUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0E0F0B1A1B2C3D4E5F60718 /* BrowserPaneNavigationKeybindUITests.swift */; };
 					D0E0F0B2A1B2C3D4E5F60718 /* BrowserOmnibarSuggestionsUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0E0F0B3A1B2C3D4E5F60718 /* BrowserOmnibarSuggestionsUITests.swift */; };
 					E1000000A1B2C3D4E5F60718 /* MenuKeyEquivalentRoutingUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1000001A1B2C3D4E5F60718 /* MenuKeyEquivalentRoutingUITests.swift */; };
+					E2000000A1B2C3D4E5F60718 /* WorkspaceLifecycleTerminalUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2000001A1B2C3D4E5F60718 /* WorkspaceLifecycleTerminalUITests.swift */; };
+					E3000000A1B2C3D4E5F60718 /* MarkdownLifecycleUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3000001A1B2C3D4E5F60718 /* MarkdownLifecycleUITests.swift */; };
+					E4000000A1B2C3D4E5F60718 /* WorkspaceLifecycleMixedContentUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4000001A1B2C3D4E5F60718 /* WorkspaceLifecycleMixedContentUITests.swift */; };
+					E5000000A1B2C3D4E5F60718 /* WorkspaceLifecycleMixedDocumentContentUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5000001A1B2C3D4E5F60718 /* WorkspaceLifecycleMixedDocumentContentUITests.swift */; };
+					E6000000A1B2C3D4E5F60718 /* BrowserLifecycleDragUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6000001A1B2C3D4E5F60718 /* BrowserLifecycleDragUITests.swift */; };
+					E7000000A1B2C3D4E5F60718 /* BrowserLifecycleCrossWindowUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7000001A1B2C3D4E5F60718 /* BrowserLifecycleCrossWindowUITests.swift */; };
+					E8000000A1B2C3D4E5F60718 /* MarkdownDragPerformanceUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8000001A1B2C3D4E5F60718 /* MarkdownDragPerformanceUITests.swift */; };
 					F1000000A1B2C3D4E5F60718 /* CmuxWebViewKeyEquivalentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1000001A1B2C3D4E5F60718 /* CmuxWebViewKeyEquivalentTests.swift */; };
 					F2000000A1B2C3D4E5F60718 /* UpdatePillReleaseVisibilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2000001A1B2C3D4E5F60718 /* UpdatePillReleaseVisibilityTests.swift */; };
 					F3000000A1B2C3D4E5F60718 /* CJKIMEInputTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3000001A1B2C3D4E5F60718 /* CJKIMEInputTests.swift */; };
@@ -90,6 +107,13 @@
 					F6000000A1B2C3D4E5F60718 /* AppDelegateShortcutRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6000001A1B2C3D4E5F60718 /* AppDelegateShortcutRoutingTests.swift */; };
 					F7000000A1B2C3D4E5F60718 /* WorkspaceContentViewVisibilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7000001A1B2C3D4E5F60718 /* WorkspaceContentViewVisibilityTests.swift */; };
 					F8000000A1B2C3D4E5F60718 /* SocketControlPasswordStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8000001A1B2C3D4E5F60718 /* SocketControlPasswordStoreTests.swift */; };
+					F9000000A1B2C3D4E5F60718 /* PanelLifecycleReducerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9000001A1B2C3D4E5F60718 /* PanelLifecycleReducerTests.swift */; };
+					FA000000A1B2C3D4E5F60718 /* PanelLifecycleChaosTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA000001A1B2C3D4E5F60718 /* PanelLifecycleChaosTests.swift */; };
+					FB000000A1B2C3D4E5F60718 /* PanelLifecycleSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB000001A1B2C3D4E5F60718 /* PanelLifecycleSnapshotTests.swift */; };
+					FC000000A1B2C3D4E5F60718 /* PanelAnchorReporterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC000001A1B2C3D4E5F60718 /* PanelAnchorReporterTests.swift */; };
+					FD100000A1B2C3D4E5F60718 /* BrowserLifecycleExecutorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD100001A1B2C3D4E5F60718 /* BrowserLifecycleExecutorTests.swift */; };
+					FD200000A1B2C3D4E5F60718 /* DocumentLifecycleExecutorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD200001A1B2C3D4E5F60718 /* DocumentLifecycleExecutorTests.swift */; };
+					FE200000A1B2C3D4E5F60718 /* TerminalLifecycleExecutorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE200001A1B2C3D4E5F60718 /* TerminalLifecycleExecutorTests.swift */; };
 					A5008381 /* BrowserFindJavaScriptTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5008380 /* BrowserFindJavaScriptTests.swift */; };
 					A5008383 /* CommandPaletteSearchEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5008382 /* CommandPaletteSearchEngineTests.swift */; };
 		DA7A10CA710E000000000003 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = DA7A10CA710E000000000001 /* Localizable.xcstrings */; };
@@ -177,6 +201,16 @@
 		A5001415 /* PanelContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/PanelContentView.swift; sourceTree = "<group>"; };
 		A5001418 /* MarkdownPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownPanel.swift; sourceTree = "<group>"; };
 		A5001419 /* MarkdownPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownPanelView.swift; sourceTree = "<group>"; };
+		FD000001A1B2C3D4E5F60718 /* PanelLifecycleShadowCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelLifecycle/PanelLifecycleShadowCore.swift; sourceTree = "<group>"; };
+		FD000003A1B2C3D4E5F60718 /* PanelLifecycleAnchorHostView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelLifecycle/PanelLifecycleAnchorHostView.swift; sourceTree = "<group>"; };
+		FD000005A1B2C3D4E5F60718 /* PanelLifecycleCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelLifecycle/PanelLifecycleCoordinator.swift; sourceTree = "<group>"; };
+		FD000007A1B2C3D4E5F60718 /* PanelLifecycleState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelLifecycle/PanelLifecycleState.swift; sourceTree = "<group>"; };
+		FD000009A1B2C3D4E5F60718 /* PanelResidency.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelLifecycle/PanelResidency.swift; sourceTree = "<group>"; };
+		FD00000BA1B2C3D4E5F60718 /* PanelLifecycleSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelLifecycle/PanelLifecycleSnapshot.swift; sourceTree = "<group>"; };
+		FD00000DA1B2C3D4E5F60718 /* PanelLifecycleEvent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelLifecycle/PanelLifecycleEvent.swift; sourceTree = "<group>"; };
+		FE100001A1B2C3D4E5F60718 /* TerminalLifecycleExecutor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelLifecycle/TerminalLifecycleExecutor.swift; sourceTree = "<group>"; };
+		FE300001A1B2C3D4E5F60718 /* BrowserLifecycleExecutor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelLifecycle/BrowserLifecycleExecutor.swift; sourceTree = "<group>"; };
+		FE400001A1B2C3D4E5F60718 /* DocumentLifecycleExecutor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelLifecycle/DocumentLifecycleExecutor.swift; sourceTree = "<group>"; };
 		A5001416 /* Workspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Workspace.swift; sourceTree = "<group>"; };
 		A5001417 /* WorkspaceContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceContentView.swift; sourceTree = "<group>"; };
 		A5001090 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
@@ -223,6 +257,13 @@
 						D0E0F0B1A1B2C3D4E5F60718 /* BrowserPaneNavigationKeybindUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserPaneNavigationKeybindUITests.swift; sourceTree = "<group>"; };
 						D0E0F0B3A1B2C3D4E5F60718 /* BrowserOmnibarSuggestionsUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserOmnibarSuggestionsUITests.swift; sourceTree = "<group>"; };
 						E1000001A1B2C3D4E5F60718 /* MenuKeyEquivalentRoutingUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuKeyEquivalentRoutingUITests.swift; sourceTree = "<group>"; };
+						E2000001A1B2C3D4E5F60718 /* WorkspaceLifecycleTerminalUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceLifecycleTerminalUITests.swift; sourceTree = "<group>"; };
+						E3000001A1B2C3D4E5F60718 /* MarkdownLifecycleUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownLifecycleUITests.swift; sourceTree = "<group>"; };
+						E4000001A1B2C3D4E5F60718 /* WorkspaceLifecycleMixedContentUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceLifecycleMixedContentUITests.swift; sourceTree = "<group>"; };
+						E5000001A1B2C3D4E5F60718 /* WorkspaceLifecycleMixedDocumentContentUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceLifecycleMixedDocumentContentUITests.swift; sourceTree = "<group>"; };
+						E6000001A1B2C3D4E5F60718 /* BrowserLifecycleDragUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserLifecycleDragUITests.swift; sourceTree = "<group>"; };
+						E7000001A1B2C3D4E5F60718 /* BrowserLifecycleCrossWindowUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserLifecycleCrossWindowUITests.swift; sourceTree = "<group>"; };
+						E8000001A1B2C3D4E5F60718 /* MarkdownDragPerformanceUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownDragPerformanceUITests.swift; sourceTree = "<group>"; };
 				F1000001A1B2C3D4E5F60718 /* CmuxWebViewKeyEquivalentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxWebViewKeyEquivalentTests.swift; sourceTree = "<group>"; };
 				F2000001A1B2C3D4E5F60718 /* UpdatePillReleaseVisibilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdatePillReleaseVisibilityTests.swift; sourceTree = "<group>"; };
 				F3000001A1B2C3D4E5F60718 /* CJKIMEInputTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CJKIMEInputTests.swift; sourceTree = "<group>"; };
@@ -231,6 +272,13 @@
 				F6000001A1B2C3D4E5F60718 /* AppDelegateShortcutRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegateShortcutRoutingTests.swift; sourceTree = "<group>"; };
 				F7000001A1B2C3D4E5F60718 /* WorkspaceContentViewVisibilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceContentViewVisibilityTests.swift; sourceTree = "<group>"; };
 				F8000001A1B2C3D4E5F60718 /* SocketControlPasswordStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketControlPasswordStoreTests.swift; sourceTree = "<group>"; };
+				F9000001A1B2C3D4E5F60718 /* PanelLifecycleReducerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelLifecycleReducerTests.swift; sourceTree = "<group>"; };
+				FA000001A1B2C3D4E5F60718 /* PanelLifecycleChaosTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelLifecycleChaosTests.swift; sourceTree = "<group>"; };
+				FB000001A1B2C3D4E5F60718 /* PanelLifecycleSnapshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelLifecycleSnapshotTests.swift; sourceTree = "<group>"; };
+				FC000001A1B2C3D4E5F60718 /* PanelAnchorReporterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelAnchorReporterTests.swift; sourceTree = "<group>"; };
+				FD100001A1B2C3D4E5F60718 /* BrowserLifecycleExecutorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserLifecycleExecutorTests.swift; sourceTree = "<group>"; };
+				FD200001A1B2C3D4E5F60718 /* DocumentLifecycleExecutorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentLifecycleExecutorTests.swift; sourceTree = "<group>"; };
+				FE200001A1B2C3D4E5F60718 /* TerminalLifecycleExecutorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalLifecycleExecutorTests.swift; sourceTree = "<group>"; };
 				A5008380 /* BrowserFindJavaScriptTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserFindJavaScriptTests.swift; sourceTree = "<group>"; };
 				A5008382 /* CommandPaletteSearchEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPaletteSearchEngineTests.swift; sourceTree = "<group>"; };
 					DA7A10CA710E000000000001 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
@@ -352,6 +400,16 @@
 					A50012F2 /* KeyboardShortcutSettings.swift */,
 					A50012F4 /* KeyboardLayout.swift */,
 					A5001013 /* TabManager.swift */,
+					FD000001A1B2C3D4E5F60718 /* PanelLifecycleShadowCore.swift */,
+					FD000003A1B2C3D4E5F60718 /* PanelLifecycleAnchorHostView.swift */,
+					FD000005A1B2C3D4E5F60718 /* PanelLifecycleCoordinator.swift */,
+					FD000007A1B2C3D4E5F60718 /* PanelLifecycleState.swift */,
+					FD000009A1B2C3D4E5F60718 /* PanelResidency.swift */,
+					FD00000BA1B2C3D4E5F60718 /* PanelLifecycleSnapshot.swift */,
+					FD00000DA1B2C3D4E5F60718 /* PanelLifecycleEvent.swift */,
+					FE100001A1B2C3D4E5F60718 /* TerminalLifecycleExecutor.swift */,
+					FE300001A1B2C3D4E5F60718 /* BrowserLifecycleExecutor.swift */,
+					FE400001A1B2C3D4E5F60718 /* DocumentLifecycleExecutor.swift */,
 					A5001511 /* UITestRecorder.swift */,
 					A5001520 /* PostHogAnalytics.swift */,
 					A5001416 /* Workspace.swift */,
@@ -440,10 +498,17 @@
 							B9000016A1B2C3D4E5F60719 /* MultiWindowNotificationsUITests.swift */,
 							818DBCD4AB69EB72573E8138 /* SidebarResizeUITests.swift */,
 							B8F266256A1A3D9A45BD840F /* SidebarHelpMenuUITests.swift */,
-							D0E0F0B1A1B2C3D4E5F60718 /* BrowserPaneNavigationKeybindUITests.swift */,
-							D0E0F0B3A1B2C3D4E5F60718 /* BrowserOmnibarSuggestionsUITests.swift */,
-							C0B4D9B1A1B2C3D4E5F60718 /* UpdatePillUITests.swift */,
+						D0E0F0B1A1B2C3D4E5F60718 /* BrowserPaneNavigationKeybindUITests.swift */,
+						D0E0F0B3A1B2C3D4E5F60718 /* BrowserOmnibarSuggestionsUITests.swift */,
+						C0B4D9B1A1B2C3D4E5F60718 /* UpdatePillUITests.swift */,
 						E1000001A1B2C3D4E5F60718 /* MenuKeyEquivalentRoutingUITests.swift */,
+						E2000001A1B2C3D4E5F60718 /* WorkspaceLifecycleTerminalUITests.swift */,
+						E3000001A1B2C3D4E5F60718 /* MarkdownLifecycleUITests.swift */,
+						E4000001A1B2C3D4E5F60718 /* WorkspaceLifecycleMixedContentUITests.swift */,
+						E5000001A1B2C3D4E5F60718 /* WorkspaceLifecycleMixedDocumentContentUITests.swift */,
+						E6000001A1B2C3D4E5F60718 /* BrowserLifecycleDragUITests.swift */,
+						E7000001A1B2C3D4E5F60718 /* BrowserLifecycleCrossWindowUITests.swift */,
+						E8000001A1B2C3D4E5F60718 /* MarkdownDragPerformanceUITests.swift */,
 					);
 				path = cmuxUITests;
 				sourceTree = "<group>";
@@ -459,6 +524,13 @@
 					F6000001A1B2C3D4E5F60718 /* AppDelegateShortcutRoutingTests.swift */,
 					F7000001A1B2C3D4E5F60718 /* WorkspaceContentViewVisibilityTests.swift */,
 					F8000001A1B2C3D4E5F60718 /* SocketControlPasswordStoreTests.swift */,
+					F9000001A1B2C3D4E5F60718 /* PanelLifecycleReducerTests.swift */,
+					FA000001A1B2C3D4E5F60718 /* PanelLifecycleChaosTests.swift */,
+					FB000001A1B2C3D4E5F60718 /* PanelLifecycleSnapshotTests.swift */,
+					FC000001A1B2C3D4E5F60718 /* PanelAnchorReporterTests.swift */,
+					FD100001A1B2C3D4E5F60718 /* BrowserLifecycleExecutorTests.swift */,
+					FD200001A1B2C3D4E5F60718 /* DocumentLifecycleExecutorTests.swift */,
+					FE200001A1B2C3D4E5F60718 /* TerminalLifecycleExecutorTests.swift */,
 					A5008380 /* BrowserFindJavaScriptTests.swift */,
 					A5008382 /* CommandPaletteSearchEngineTests.swift */,
 				);
@@ -644,6 +716,16 @@
 				A5001404 /* BrowserPanelView.swift in Sources */,
 				A5001420 /* MarkdownPanel.swift in Sources */,
 				A5001421 /* MarkdownPanelView.swift in Sources */,
+				FD000000A1B2C3D4E5F60718 /* PanelLifecycleShadowCore.swift in Sources */,
+				FD000002A1B2C3D4E5F60718 /* PanelLifecycleAnchorHostView.swift in Sources */,
+				FD000004A1B2C3D4E5F60718 /* PanelLifecycleCoordinator.swift in Sources */,
+				FD000006A1B2C3D4E5F60718 /* PanelLifecycleState.swift in Sources */,
+				FD000008A1B2C3D4E5F60718 /* PanelResidency.swift in Sources */,
+				FD00000AA1B2C3D4E5F60718 /* PanelLifecycleSnapshot.swift in Sources */,
+				FD00000CA1B2C3D4E5F60718 /* PanelLifecycleEvent.swift in Sources */,
+				FE100000A1B2C3D4E5F60718 /* TerminalLifecycleExecutor.swift in Sources */,
+				FE300000A1B2C3D4E5F60718 /* BrowserLifecycleExecutor.swift in Sources */,
+				FE400000A1B2C3D4E5F60718 /* DocumentLifecycleExecutor.swift in Sources */,
 				A5001500 /* CmuxWebView.swift in Sources */,
 				A5001405 /* PanelContentView.swift in Sources */,
 				A5001201 /* UpdateController.swift in Sources */,
@@ -676,10 +758,17 @@
 							B9000015A1B2C3D4E5F60719 /* MultiWindowNotificationsUITests.swift in Sources */,
 							B8F266236A1A3D9A45BD840F /* SidebarResizeUITests.swift in Sources */,
 							B8F266246A1A3D9A45BD840F /* SidebarHelpMenuUITests.swift in Sources */,
-							D0E0F0B0A1B2C3D4E5F60718 /* BrowserPaneNavigationKeybindUITests.swift in Sources */,
-							D0E0F0B2A1B2C3D4E5F60718 /* BrowserOmnibarSuggestionsUITests.swift in Sources */,
-							C0B4D9B0A1B2C3D4E5F60718 /* UpdatePillUITests.swift in Sources */,
+						D0E0F0B0A1B2C3D4E5F60718 /* BrowserPaneNavigationKeybindUITests.swift in Sources */,
+						D0E0F0B2A1B2C3D4E5F60718 /* BrowserOmnibarSuggestionsUITests.swift in Sources */,
+						C0B4D9B0A1B2C3D4E5F60718 /* UpdatePillUITests.swift in Sources */,
 						E1000000A1B2C3D4E5F60718 /* MenuKeyEquivalentRoutingUITests.swift in Sources */,
+						E2000000A1B2C3D4E5F60718 /* WorkspaceLifecycleTerminalUITests.swift in Sources */,
+						E3000000A1B2C3D4E5F60718 /* MarkdownLifecycleUITests.swift in Sources */,
+						E4000000A1B2C3D4E5F60718 /* WorkspaceLifecycleMixedContentUITests.swift in Sources */,
+						E5000000A1B2C3D4E5F60718 /* WorkspaceLifecycleMixedDocumentContentUITests.swift in Sources */,
+						E6000000A1B2C3D4E5F60718 /* BrowserLifecycleDragUITests.swift in Sources */,
+						E7000000A1B2C3D4E5F60718 /* BrowserLifecycleCrossWindowUITests.swift in Sources */,
+						E8000000A1B2C3D4E5F60718 /* MarkdownDragPerformanceUITests.swift in Sources */,
 					);
 				runOnlyForDeploymentPostprocessing = 0;
 			};
@@ -695,6 +784,13 @@
 					F6000000A1B2C3D4E5F60718 /* AppDelegateShortcutRoutingTests.swift in Sources */,
 					F7000000A1B2C3D4E5F60718 /* WorkspaceContentViewVisibilityTests.swift in Sources */,
 					F8000000A1B2C3D4E5F60718 /* SocketControlPasswordStoreTests.swift in Sources */,
+					F9000000A1B2C3D4E5F60718 /* PanelLifecycleReducerTests.swift in Sources */,
+					FA000000A1B2C3D4E5F60718 /* PanelLifecycleChaosTests.swift in Sources */,
+					FB000000A1B2C3D4E5F60718 /* PanelLifecycleSnapshotTests.swift in Sources */,
+					FC000000A1B2C3D4E5F60718 /* PanelAnchorReporterTests.swift in Sources */,
+					FD100000A1B2C3D4E5F60718 /* BrowserLifecycleExecutorTests.swift in Sources */,
+					FD200000A1B2C3D4E5F60718 /* DocumentLifecycleExecutorTests.swift in Sources */,
+					FE200000A1B2C3D4E5F60718 /* TerminalLifecycleExecutorTests.swift in Sources */,
 					A5008381 /* BrowserFindJavaScriptTests.swift in Sources */,
 					A5008383 /* CommandPaletteSearchEngineTests.swift in Sources */,
 				);

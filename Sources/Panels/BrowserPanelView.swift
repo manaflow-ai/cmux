@@ -3520,22 +3520,11 @@ struct WebViewRepresentable: NSViewRepresentable {
         var lastSynchronizedHostGeometryRevision: UInt64 = 0
     }
 
-    final class HostContainerView: NSView {
-        var onDidMoveToWindow: (() -> Void)?
-        var onGeometryChanged: (() -> Void)?
-        private(set) var geometryRevision: UInt64 = 0
-        private var lastReportedGeometryState: GeometryState?
+    final class HostContainerView: PanelLifecycleAnchorHostView {
         private struct HostedInspectorDividerHit {
             let containerView: NSView
             let pageView: NSView
             let inspectorView: NSView
-        }
-
-        private struct GeometryState: Equatable {
-            let frame: CGRect
-            let bounds: CGRect
-            let windowNumber: Int?
-            let superviewID: ObjectIdentifier?
         }
 
         private struct HostedInspectorDividerDragState {
@@ -3668,71 +3657,43 @@ struct WebViewRepresentable: NSViewRepresentable {
                 abs(lhs.height - rhs.height) <= epsilon
         }
 
-        private func currentGeometryState() -> GeometryState {
-            GeometryState(
-                frame: frame,
-                bounds: bounds,
-                windowNumber: window?.windowNumber,
-                superviewID: superview.map(ObjectIdentifier.init)
-            )
-        }
-
-        private func notifyGeometryChangedIfNeeded() {
-            let state = currentGeometryState()
-            guard state != lastReportedGeometryState else { return }
-            lastReportedGeometryState = state
-            geometryRevision &+= 1
-            onGeometryChanged?()
-        }
-
-        override func viewDidMoveToWindow() {
-            super.viewDidMoveToWindow()
+        override func panelLifecycleViewDidMoveToWindow() {
             if window == nil {
                 clearActiveDividerCursor(restoreArrow: false)
             } else {
                 reapplyHostedInspectorDividerIfNeeded(reason: "viewDidMoveToWindow")
             }
             window?.invalidateCursorRects(for: self)
-            onDidMoveToWindow?()
-            notifyGeometryChangedIfNeeded()
 #if DEBUG
             debugLogHostedInspectorLayoutIfNeeded(reason: "viewDidMoveToWindow")
 #endif
         }
 
-        override func viewDidMoveToSuperview() {
-            super.viewDidMoveToSuperview()
+        override func panelLifecycleViewDidMoveToSuperview() {
             reapplyHostedInspectorDividerIfNeeded(reason: "viewDidMoveToSuperview")
-            notifyGeometryChangedIfNeeded()
 #if DEBUG
             debugLogHostedInspectorLayoutIfNeeded(reason: "viewDidMoveToSuperview")
 #endif
         }
 
-        override func layout() {
-            super.layout()
+        override func panelLifecycleViewDidLayout() {
             reapplyHostedInspectorDividerIfNeeded(reason: "layout")
-            notifyGeometryChangedIfNeeded()
 #if DEBUG
             debugLogHostedInspectorLayoutIfNeeded(reason: "layout")
 #endif
         }
 
-        override func setFrameOrigin(_ newOrigin: NSPoint) {
-            super.setFrameOrigin(newOrigin)
+        override func panelLifecycleViewDidSetFrameOrigin() {
             window?.invalidateCursorRects(for: self)
             reapplyHostedInspectorDividerIfNeeded(reason: "setFrameOrigin")
-            notifyGeometryChangedIfNeeded()
 #if DEBUG
             debugLogHostedInspectorLayoutIfNeeded(reason: "setFrameOrigin")
 #endif
         }
 
-        override func setFrameSize(_ newSize: NSSize) {
-            super.setFrameSize(newSize)
+        override func panelLifecycleViewDidSetFrameSize() {
             window?.invalidateCursorRects(for: self)
             reapplyHostedInspectorDividerIfNeeded(reason: "setFrameSize")
-            notifyGeometryChangedIfNeeded()
 #if DEBUG
             debugLogHostedInspectorLayoutIfNeeded(reason: "setFrameSize")
 #endif
@@ -4257,10 +4218,9 @@ struct WebViewRepresentable: NSViewRepresentable {
         return container
     }
 
-    private static func clearPortalCallbacks(for host: NSView) {
-        guard let host = host as? HostContainerView else { return }
-        host.onDidMoveToWindow = nil
-        host.onGeometryChanged = nil
+    private static func clearPortalCallbacks(for anchorView: PanelLifecycleAnchorHostView) {
+        anchorView.onDidMoveToWindow = nil
+        anchorView.onGeometryChanged = nil
     }
 
     private static func installPortalAnchorView(_ anchorView: NSView, in host: NSView) {
@@ -4275,11 +4235,9 @@ struct WebViewRepresentable: NSViewRepresentable {
         }
     }
 
-#if DEBUG
     private static func publishPanelLifecycleAnchorFact(
         panel: BrowserPanel,
-        webView: WKWebView,
-        hostView: HostContainerView,
+        anchorView: PanelLifecycleAnchorHostView,
         coordinator: Coordinator,
         desiredActive: Bool
     ) {
@@ -4291,17 +4249,17 @@ struct WebViewRepresentable: NSViewRepresentable {
             panelId: panel.id,
             workspaceId: panel.workspaceId,
             panelType: .browser,
-            windowNumber: hostView.window?.windowNumber ?? webView.window?.windowNumber,
-            hasSuperview: webView.superview != nil,
-            attachedToWindow: webView.window != nil,
-            hidden: webView.isHidden,
-            geometryRevision: hostView.geometryRevision,
+            anchorId: anchorView.panelLifecycleAnchorId,
+            windowNumber: anchorView.window?.windowNumber,
+            hasSuperview: anchorView.superview != nil,
+            attachedToWindow: anchorView.window != nil,
+            hidden: anchorView.isHidden,
+            geometryRevision: anchorView.geometryRevision,
             desiredVisible: coordinator.desiredPortalVisibleInUI,
             desiredActive: desiredActive,
-            source: "browser.host"
+            source: "browser.anchorHost"
         )
     }
-#endif
 
     private func updateUsingWindowPortal(_ nsView: NSView, context: Context, webView: WKWebView) {
         guard let host = nsView as? HostContainerView else { return }
@@ -4309,64 +4267,103 @@ struct WebViewRepresentable: NSViewRepresentable {
         let coordinator = context.coordinator
         let previousVisible = coordinator.desiredPortalVisibleInUI
         let previousZPriority = coordinator.desiredPortalZPriority
-        coordinator.desiredPortalVisibleInUI = shouldAttachWebView
+        let lifecycleManager = AppDelegate.shared?.tabManagerFor(tabId: panel.workspaceId) ?? AppDelegate.shared?.tabManager
+        let lifecycleDesiredRecord = lifecycleManager?.panelLifecycleDesiredRecord(for: panel.id)
+        let portalAnchorView = panel.portalAnchorView
+        let lifecycleRuntimeTarget = BrowserLifecycleExecutor.runtimeTarget(
+            desiredRecord: lifecycleDesiredRecord,
+            fallbackVisible: shouldAttachWebView,
+            fallbackActive: isPanelFocused,
+            expectedAnchorId: portalAnchorView.panelLifecycleAnchorId,
+            binding: BrowserWindowPortalRegistry.bindingSnapshot(forPanelId: panel.id)
+        )
+        coordinator.desiredPortalVisibleInUI = lifecycleRuntimeTarget.targetVisible
         coordinator.desiredPortalZPriority = portalZPriority
         coordinator.attachGeneration += 1
         let generation = coordinator.attachGeneration
-        let paneDropContext = shouldAttachWebView ? currentPaneDropContext() : nil
-        let activeSearchOverlay = shouldAttachWebView ? searchOverlay : nil
-        let portalAnchorView = panel.portalAnchorView
-        Self.installPortalAnchorView(portalAnchorView, in: host)
+        let shouldMountLiveAnchor = lifecycleRuntimeTarget.shouldMountLiveAnchor
+        let paneDropContext = lifecycleRuntimeTarget.targetVisible ? currentPaneDropContext() : nil
+        let activeSearchOverlay = lifecycleRuntimeTarget.targetVisible ? searchOverlay : nil
 
-        host.onDidMoveToWindow = { [weak host, weak webView, weak coordinator, weak portalAnchorView] in
-            guard let host, let webView, let coordinator, let portalAnchorView else { return }
-            guard coordinator.attachGeneration == generation else { return }
+        if shouldMountLiveAnchor {
             Self.installPortalAnchorView(portalAnchorView, in: host)
-            guard host.window != nil else { return }
-            BrowserWindowPortalRegistry.bind(
+
+            portalAnchorView.onDidMoveToWindow = { [weak host, weak webView, weak coordinator, weak portalAnchorView] in
+                guard let host, let webView, let coordinator, let portalAnchorView else { return }
+                guard coordinator.attachGeneration == generation else { return }
+                Self.installPortalAnchorView(portalAnchorView, in: host)
+                guard portalAnchorView.window != nil else { return }
+                _ = BrowserWindowPortalRegistry.reconcileRuntimeTarget(
+                    webView: webView,
+                    panelId: panel.id,
+                    expectedGeneration: lifecycleDesiredRecord?.generation,
+                    target: lifecycleRuntimeTarget,
+                    anchorView: portalAnchorView,
+                    zPriority: coordinator.desiredPortalZPriority
+                )
+                BrowserWindowPortalRegistry.updatePaneTopChromeHeight(
+                    for: webView,
+                    height: coordinator.desiredPortalVisibleInUI ? paneTopChromeHeight : 0
+                )
+                BrowserWindowPortalRegistry.updatePaneDropContext(for: webView, context: paneDropContext)
+                BrowserWindowPortalRegistry.updateSearchOverlay(for: webView, configuration: activeSearchOverlay)
+                coordinator.lastPortalHostId = ObjectIdentifier(portalAnchorView)
+                coordinator.lastSynchronizedHostGeometryRevision = portalAnchorView.geometryRevision
+            }
+            portalAnchorView.onGeometryChanged = { [weak host, weak coordinator, weak portalAnchorView] in
+                guard let host, let coordinator, let portalAnchorView else { return }
+                guard coordinator.attachGeneration == generation else { return }
+                guard coordinator.lastPortalHostId == ObjectIdentifier(portalAnchorView) else { return }
+                Self.installPortalAnchorView(portalAnchorView, in: host)
+                _ = BrowserWindowPortalRegistry.reconcileRuntimeTarget(
+                    webView: panel.webView,
+                    panelId: panel.id,
+                    expectedGeneration: lifecycleDesiredRecord?.generation,
+                    target: lifecycleRuntimeTarget,
+                    anchorView: portalAnchorView,
+                    zPriority: coordinator.desiredPortalZPriority
+                )
+                coordinator.lastSynchronizedHostGeometryRevision = portalAnchorView.geometryRevision
+            }
+        } else {
+            Self.clearPortalCallbacks(for: portalAnchorView)
+            portalAnchorView.removeFromSuperview()
+            _ = BrowserWindowPortalRegistry.reconcileRuntimeTarget(
                 webView: webView,
-                to: portalAnchorView,
-                visibleInUI: coordinator.desiredPortalVisibleInUI,
+                panelId: panel.id,
+                expectedGeneration: lifecycleDesiredRecord?.generation,
+                target: lifecycleRuntimeTarget,
+                anchorView: portalAnchorView,
                 zPriority: coordinator.desiredPortalZPriority
             )
-            BrowserWindowPortalRegistry.updatePaneTopChromeHeight(
-                for: webView,
-                height: coordinator.desiredPortalVisibleInUI ? paneTopChromeHeight : 0
-            )
-            BrowserWindowPortalRegistry.updatePaneDropContext(for: webView, context: paneDropContext)
-            BrowserWindowPortalRegistry.updateSearchOverlay(for: webView, configuration: activeSearchOverlay)
-            coordinator.lastPortalHostId = ObjectIdentifier(host)
-            coordinator.lastSynchronizedHostGeometryRevision = host.geometryRevision
-        }
-        host.onGeometryChanged = { [weak host, weak coordinator, weak portalAnchorView] in
-            guard let host, let coordinator, let portalAnchorView else { return }
-            guard coordinator.attachGeneration == generation else { return }
-            guard coordinator.lastPortalHostId == ObjectIdentifier(host) else { return }
-            Self.installPortalAnchorView(portalAnchorView, in: host)
-            BrowserWindowPortalRegistry.synchronizeForAnchor(portalAnchorView)
-            coordinator.lastSynchronizedHostGeometryRevision = host.geometryRevision
+            coordinator.lastPortalHostId = nil
+            coordinator.lastSynchronizedHostGeometryRevision = 0
+            let manager = AppDelegate.shared?.tabManagerFor(tabId: panel.workspaceId) ?? AppDelegate.shared?.tabManager
+            manager?.debugRemovePanelLifecycleAnchorFact(panelId: panel.id)
         }
 
-        if !shouldAttachWebView {
+        if !lifecycleRuntimeTarget.targetVisible {
             // In portal mode we no longer detach/re-attach to preserve DevTools state.
             // Sync the inspector preference directly so manual closes are respected.
             panel.syncDeveloperToolsPreferenceFromInspector()
         }
 
-        if host.window != nil {
-            let hostId = ObjectIdentifier(host)
-            let geometryRevision = host.geometryRevision
+        if shouldMountLiveAnchor, portalAnchorView.window != nil {
+            let hostId = ObjectIdentifier(portalAnchorView)
+            let geometryRevision = portalAnchorView.geometryRevision
             let shouldBindNow =
                 coordinator.lastPortalHostId != hostId ||
                 webView.superview == nil ||
-                previousVisible != shouldAttachWebView ||
+                previousVisible != lifecycleRuntimeTarget.targetVisible ||
                 previousZPriority != portalZPriority
             if shouldBindNow {
                 Self.installPortalAnchorView(portalAnchorView, in: host)
-                BrowserWindowPortalRegistry.bind(
+                _ = BrowserWindowPortalRegistry.reconcileRuntimeTarget(
                     webView: webView,
-                    to: portalAnchorView,
-                    visibleInUI: coordinator.desiredPortalVisibleInUI,
+                    panelId: panel.id,
+                    expectedGeneration: lifecycleDesiredRecord?.generation,
+                    target: lifecycleRuntimeTarget,
+                    anchorView: portalAnchorView,
                     zPriority: coordinator.desiredPortalZPriority
                 )
                 coordinator.lastPortalHostId = hostId
@@ -4379,27 +4376,34 @@ struct WebViewRepresentable: NSViewRepresentable {
             BrowserWindowPortalRegistry.updateSearchOverlay(for: webView, configuration: activeSearchOverlay)
             if !shouldBindNow,
                coordinator.lastSynchronizedHostGeometryRevision != geometryRevision {
-                BrowserWindowPortalRegistry.synchronizeForAnchor(portalAnchorView)
+                _ = BrowserWindowPortalRegistry.reconcileRuntimeTarget(
+                    webView: webView,
+                    panelId: panel.id,
+                    expectedGeneration: lifecycleDesiredRecord?.generation,
+                    target: lifecycleRuntimeTarget,
+                    anchorView: portalAnchorView,
+                    zPriority: coordinator.desiredPortalZPriority
+                )
                 coordinator.lastSynchronizedHostGeometryRevision = geometryRevision
             }
-        } else {
-            // Bind is deferred until host moves into a window. Keep the current
-            // portal entry's desired state in sync so stale callbacks cannot keep
-            // the previous anchor visible while this host is temporarily off-window.
-            BrowserWindowPortalRegistry.updateEntryVisibility(
-                for: webView,
-                visibleInUI: coordinator.desiredPortalVisibleInUI,
+        } else if shouldMountLiveAnchor {
+            _ = BrowserWindowPortalRegistry.reconcileRuntimeTarget(
+                webView: webView,
+                panelId: panel.id,
+                expectedGeneration: lifecycleDesiredRecord?.generation,
+                target: lifecycleRuntimeTarget,
+                anchorView: portalAnchorView,
                 zPriority: coordinator.desiredPortalZPriority
             )
         }
 
         BrowserWindowPortalRegistry.updateDropZoneOverlay(
             for: webView,
-            zone: shouldAttachWebView ? paneDropZone : nil
+            zone: lifecycleRuntimeTarget.targetVisible ? paneDropZone : nil
         )
         BrowserWindowPortalRegistry.updatePaneTopChromeHeight(
             for: webView,
-            height: shouldAttachWebView ? paneTopChromeHeight : 0
+            height: lifecycleRuntimeTarget.targetVisible ? paneTopChromeHeight : 0
         )
         BrowserWindowPortalRegistry.updatePaneDropContext(
             for: webView,
@@ -4417,13 +4421,14 @@ struct WebViewRepresentable: NSViewRepresentable {
             retryCount: 0,
             details: Self.attachContext(webView: webView, host: host)
         )
-        Self.publishPanelLifecycleAnchorFact(
-            panel: panel,
-            webView: webView,
-            hostView: host,
-            coordinator: coordinator,
-            desiredActive: shouldAttachWebView && isPanelFocused
-        )
+        if shouldMountLiveAnchor {
+            Self.publishPanelLifecycleAnchorFact(
+                panel: panel,
+                anchorView: portalAnchorView,
+                coordinator: coordinator,
+                desiredActive: shouldAttachWebView && isPanelFocused
+            )
+        }
         #endif
     }
 
@@ -4443,7 +4448,7 @@ struct WebViewRepresentable: NSViewRepresentable {
             isPanelFocused: isPanelFocused
         )
 
-        Self.clearPortalCallbacks(for: nsView)
+        Self.clearPortalCallbacks(for: panel.portalAnchorView)
         updateUsingWindowPortal(nsView, context: context, webView: webView)
 
         Self.applyFocus(
@@ -4535,10 +4540,12 @@ struct WebViewRepresentable: NSViewRepresentable {
 
     static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
         coordinator.attachGeneration += 1
-        clearPortalCallbacks(for: nsView)
+        let panel = coordinator.panel
+        if let panel {
+            clearPortalCallbacks(for: panel.portalAnchorView)
+        }
 
         guard let webView = coordinator.webView else { return }
-        let panel = coordinator.panel
 
         // If we're being torn down while the WKWebView (or one of its subviews) is first responder,
         // resign it before detaching.
@@ -4568,14 +4575,15 @@ struct WebViewRepresentable: NSViewRepresentable {
         BrowserWindowPortalRegistry.updatePaneTopChromeHeight(for: webView, height: 0)
         BrowserWindowPortalRegistry.updatePaneDropContext(for: webView, context: nil)
         BrowserWindowPortalRegistry.updateSearchOverlay(for: webView, configuration: nil)
+        if let panel {
+            panel.portalAnchorView.removeFromSuperview()
+        }
         coordinator.lastPortalHostId = nil
         coordinator.lastSynchronizedHostGeometryRevision = 0
-#if DEBUG
         if let panel {
             let manager = AppDelegate.shared?.tabManagerFor(tabId: panel.workspaceId) ?? AppDelegate.shared?.tabManager
             manager?.debugRemovePanelLifecycleAnchorFact(panelId: panel.id)
         }
-#endif
     }
 
     private func currentPaneDropContext() -> BrowserPaneDropContext? {

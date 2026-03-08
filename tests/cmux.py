@@ -262,6 +262,35 @@ class cmux:
         except socket.error as e:
             raise cmuxError(f"Socket error: {e}")
 
+    def _recv_line(self, timeout_s: float = 5.0) -> str:
+        """Receive a single newline-delimited response line."""
+        if self._socket is None:
+            raise cmuxError("Not connected")
+
+        if "\n" in self._recv_buffer:
+            line, rest = self._recv_buffer.split("\n", 1)
+            self._recv_buffer = rest
+            return line
+
+        deadline = time.time() + timeout_s
+        while time.time() < deadline:
+            remaining = max(0.0, deadline - time.time())
+            ready, _, _ = select.select([self._socket], [], [], min(0.2, remaining))
+            if not ready:
+                continue
+
+            chunk = self._socket.recv(8192)
+            if not chunk:
+                raise cmuxError("Socket closed")
+            self._recv_buffer += chunk.decode("utf-8", errors="replace")
+
+            if "\n" in self._recv_buffer:
+                line, rest = self._recv_buffer.split("\n", 1)
+                self._recv_buffer = rest
+                return line
+
+        raise cmuxError("Timed out waiting for response")
+
     def ping(self) -> bool:
         """Check if the server is responding"""
         response = self._send_command("ping")
@@ -390,6 +419,13 @@ class cmux:
         """Send text to a specific surface by ID or index in the current tab."""
         escaped = text.replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t")
         response = self._send_command(f"send_surface {surface} {escaped}")
+        if not response.startswith("OK"):
+            raise cmuxError(response)
+
+    def send_workspace(self, workspace: str, text: str) -> None:
+        """Send text to the selected terminal in a workspace."""
+        escaped = text.replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t")
+        response = self._send_command(f"send_workspace {workspace} {escaped}")
         if not response.startswith("OK"):
             raise cmuxError(response)
 
@@ -1070,6 +1106,8 @@ class cmux:
     def activate_app(self) -> None:
         """Bring app + main window to front (debug builds only)."""
         response = self._send_command("activate_app")
+        if response.startswith("ERROR: Unknown command 'activate_app'"):
+            return
         if not response.startswith("OK"):
             raise cmuxError(response)
 
@@ -1159,6 +1197,28 @@ class cmux:
             "height": int(height),
             "path": path,
         }
+
+    def panel_lifecycle(self) -> dict:
+        """Return lifecycle snapshot from the DEBUG v2 socket method."""
+        if self._socket is None:
+            raise cmuxError("Not connected")
+
+        payload = json.dumps(
+            {"id": 1, "method": "debug.panel_lifecycle", "params": {}},
+            separators=(",", ":"),
+        )
+        self._socket.sendall((payload + "\n").encode("utf-8"))
+        response = self._recv_line(timeout_s=5.0)
+        try:
+            obj = json.loads(response)
+        except json.JSONDecodeError as e:
+            raise cmuxError(f"Invalid JSON response: {e}: {response[:200]}")
+        if not isinstance(obj, dict):
+            raise cmuxError(f"Invalid response type: {type(obj).__name__}")
+        if obj.get("error"):
+            raise cmuxError(f"panel_lifecycle error: {obj['error']}")
+        result = obj.get("result") or {}
+        return dict(result.get("snapshot") or {})
 
     def bonsplit_underflow_count(self) -> int:
         """Return bonsplit arranged-subview underflow counter."""

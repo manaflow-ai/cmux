@@ -7,6 +7,7 @@ struct PanelContentView: View {
     let isFocused: Bool
     let isSelectedInPane: Bool
     let isVisibleInUI: Bool
+    let isTabDragActive: Bool
     let portalPriority: Int
     let isSplit: Bool
     let appearance: PanelAppearance
@@ -47,6 +48,7 @@ struct PanelContentView: View {
                     panel: markdownPanel,
                     isFocused: isFocused,
                     isVisibleInUI: isVisibleInUI,
+                    isTabDragActive: isTabDragActive,
                     portalPriority: portalPriority,
                     onRequestPanelFocus: onRequestPanelFocus
                 )

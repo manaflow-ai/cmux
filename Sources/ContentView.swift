@@ -2289,7 +2289,7 @@ struct ContentView: View {
             tabManager.applyWindowBackgroundForSelectedTab()
             startWorkspaceHandoffIfNeeded(newSelectedId: newValue)
             reconcileMountedWorkspaceIds(selectedId: newValue)
-            completeWorkspaceHandoffIfSelectedTerminalReady(reason: "terminal_ready")
+            completeWorkspaceHandoffIfSelectedPanelReady(reason: "panel_ready")
             guard let newValue else { return }
             if selectedTabIds.count <= 1 {
                 selectedTabIds = [newValue]
@@ -2339,7 +2339,6 @@ struct ContentView: View {
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .ghosttyDidFocusSurface)) { notification in
             guard let tabId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID,
                   tabId == tabManager.selectedTabId else { return }
-            completeWorkspaceHandoffIfNeeded(focusedTabId: tabId, reason: "focus")
             scheduleTitlebarTextRefresh()
         })
 
@@ -2348,40 +2347,6 @@ struct ContentView: View {
             GhosttyApp.shared.logBackground(
                 "titlebar theme refresh applied oldGeneration=\(oldValue) generation=\(newValue) appBg=\(GhosttyApp.shared.defaultBackgroundColor.hexString()) appOpacity=\(String(format: "%.3f", GhosttyApp.shared.defaultBackgroundOpacity))"
             )
-        })
-
-        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .ghosttyDidBecomeFirstResponderSurface)) { notification in
-            guard let tabId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID,
-                  tabId == tabManager.selectedTabId else { return }
-            completeWorkspaceHandoffIfNeeded(focusedTabId: tabId, reason: "first_responder")
-        })
-
-        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .ghosttySurfaceReadyForWorkspaceHandoff)) { notification in
-            guard let tabId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID,
-                  let surfaceId = notification.userInfo?[GhosttyNotificationKey.surfaceId] as? UUID,
-                  tabId == tabManager.selectedTabId,
-                  let selectedWorkspace = tabManager.selectedWorkspace,
-                  selectedWorkspace.focusedPanelId == surfaceId else { return }
-            completeWorkspaceHandoffIfNeeded(focusedTabId: tabId, reason: "terminal_ready")
-        })
-
-        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .browserDidBecomeFirstResponderWebView)) { notification in
-            guard let webView = notification.object as? WKWebView,
-                  let selectedTabId = tabManager.selectedTabId,
-                  let selectedWorkspace = tabManager.selectedWorkspace,
-                  let focusedPanelId = selectedWorkspace.focusedPanelId,
-                  let focusedBrowser = selectedWorkspace.browserPanel(for: focusedPanelId),
-                  focusedBrowser.webView === webView else { return }
-            completeWorkspaceHandoffIfNeeded(focusedTabId: selectedTabId, reason: "browser_first_responder")
-        })
-
-        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .browserDidFocusAddressBar)) { notification in
-            guard let panelId = notification.object as? UUID,
-                  let selectedTabId = tabManager.selectedTabId,
-                  let selectedWorkspace = tabManager.selectedWorkspace,
-                  selectedWorkspace.focusedPanelId == panelId,
-                  selectedWorkspace.browserPanel(for: panelId) != nil else { return }
-            completeWorkspaceHandoffIfNeeded(focusedTabId: selectedTabId, reason: "browser_address_bar")
         })
 
         view = AnyView(view.onReceive(tabManager.$tabs) { tabs in
@@ -2884,7 +2849,6 @@ struct ContentView: View {
         previousSelectedWorkspaceId = newSelectedId
 
         guard let oldSelectedId, let newSelectedId, oldSelectedId != newSelectedId else {
-            tabManager.selectedWorkspace?.recoverVisibleTerminalPortalViewsIfNeeded()
             tabManager.completePendingWorkspaceUnfocus(reason: "no_handoff")
             retiringWorkspaceId = nil
             workspaceHandoffFallbackTask?.cancel()
@@ -2902,7 +2866,6 @@ struct ContentView: View {
         workspaceHandoffGeneration &+= 1
         let generation = workspaceHandoffGeneration
         retiringWorkspaceId = oldSelectedId
-        tabManager.selectedWorkspace?.recoverVisibleTerminalPortalViewsIfNeeded()
         workspaceHandoffFallbackTask?.cancel()
         workspaceHandoffReadinessTask?.cancel()
         tabManager.debugUpdatePanelLifecycleMountedWorkspaceState(
@@ -2945,7 +2908,40 @@ struct ContentView: View {
             }
             await MainActor.run {
                 guard workspaceHandoffGeneration == generation else { return }
-                completeWorkspaceHandoff(reason: "timeout")
+                guard let selectedWorkspace = tabManager.selectedWorkspace else {
+                    completeWorkspaceHandoff(reason: "timeout.no_selected_workspace")
+                    return
+                }
+                guard let focusedPanelId = selectedWorkspace.focusedPanelId else {
+                    completeWorkspaceHandoff(reason: "timeout.no_focused_panel")
+                    return
+                }
+#if DEBUG
+                if let snapshot = tabManager.debugCurrentWorkspaceSwitchSnapshot() {
+                    let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
+                    contentHotPathDlog(
+                        "ws.handoff.timeout_observed id=\(snapshot.id) dt=\(debugMsText(dtMs)) " +
+                        "panel=\(debugShortPanelId(focusedPanelId))"
+                    )
+                    AppDelegate.shared?.logDebugWorkspaceSwitchMetric(
+                        phase: "handoff.timeoutObserved",
+                        switchId: snapshot.id,
+                        startedAt: snapshot.startedAt,
+                        details: "panel=\(debugShortPanelId(focusedPanelId))"
+                    )
+                } else {
+                    contentHotPathDlog(
+                        "ws.handoff.timeout_observed id=none panel=\(debugShortPanelId(focusedPanelId))"
+                    )
+                    AppDelegate.shared?.logDebugWorkspaceSwitchMetric(
+                        phase: "handoff.timeoutObserved",
+                        switchId: nil,
+                        startedAt: nil,
+                        details: "panel=\(debugShortPanelId(focusedPanelId))"
+                    )
+                }
+#endif
+                completeWorkspaceHandoff(reason: "timeout.focused_panel")
             }
         }
 
@@ -2955,7 +2951,7 @@ struct ContentView: View {
                 let shouldContinue = await MainActor.run {
                     guard workspaceHandoffGeneration == generation else { return false }
                     guard retiringWorkspaceId != nil else { return false }
-                    return !completeWorkspaceHandoffIfSelectedTerminalReady(reason: "terminal_ready")
+                    return !completeWorkspaceHandoffIfSelectedPanelReady(reason: "panel_ready")
                 }
                 guard shouldContinue else { return }
                 do {
@@ -2968,20 +2964,21 @@ struct ContentView: View {
     }
 
     @discardableResult
-    private func completeWorkspaceHandoffIfNeeded(focusedTabId: UUID, reason: String) -> Bool {
-        guard focusedTabId == tabManager.selectedTabId else { return false }
-        guard retiringWorkspaceId != nil else { return false }
-        completeWorkspaceHandoff(reason: reason)
-        return true
-    }
-
-    @discardableResult
-    private func completeWorkspaceHandoffIfSelectedTerminalReady(reason: String) -> Bool {
+    private func completeWorkspaceHandoffIfSelectedPanelReady(reason: String) -> Bool {
         guard retiringWorkspaceId != nil else { return false }
         guard let selectedWorkspace = tabManager.selectedWorkspace,
-              let terminalPanel = selectedWorkspace.focusedTerminalPanel,
-              terminalPanel.hostedView.isReadyForWorkspaceHandoff else {
-            return false
+              let focusedPanelId = selectedWorkspace.focusedPanelId else { return false }
+        if let terminalPanel = selectedWorkspace.terminalPanel(for: focusedPanelId) {
+            guard tabManager.isTerminalPanelReadyForWorkspaceHandoff(panelId: terminalPanel.id) else {
+                return false
+            }
+        } else if selectedWorkspace.browserPanel(for: focusedPanelId) != nil {
+            guard tabManager.isBrowserPanelReadyForWorkspaceHandoff(panelId: focusedPanelId) else {
+                return false
+            }
+        } else {
+            completeWorkspaceHandoff(reason: reason)
+            return true
         }
         completeWorkspaceHandoff(reason: reason)
         return true
@@ -3006,7 +3003,6 @@ struct ContentView: View {
 
         retiringWorkspaceId = nil
         tabManager.completePendingWorkspaceUnfocus(reason: reason)
-        tabManager.selectedWorkspace?.recoverVisibleTerminalPortalViewsIfNeeded()
         tabManager.debugUpdatePanelLifecycleMountedWorkspaceState(
             mountedWorkspaceIds: mountedWorkspaceIds,
             retiringWorkspaceId: retiringWorkspaceId,
@@ -6277,6 +6273,11 @@ struct ContentView: View {
 
 #if DEBUG
     private func debugShortWorkspaceId(_ id: UUID?) -> String {
+        guard let id else { return "nil" }
+        return String(id.uuidString.prefix(5))
+    }
+
+    private func debugShortPanelId(_ id: UUID?) -> String {
         guard let id else { return "nil" }
         return String(id.uuidString.prefix(5))
     }

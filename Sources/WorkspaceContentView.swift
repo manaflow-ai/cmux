@@ -72,6 +72,7 @@ struct WorkspaceContentView: View {
                     isFocused: isFocused,
                     isSelectedInPane: isSelectedInPane,
                     isVisibleInUI: isVisibleInUI,
+                    isTabDragActive: workspace.bonsplitController.isTabDragActive,
                     portalPriority: workspacePortalPriority,
                     isSplit: isSplit,
                     appearance: appearance,

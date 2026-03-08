@@ -6140,7 +6140,12 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     private func publishWorkspaceHandoffReadinessIfNeeded() {
-        let isReady = isActive && isReadyForWorkspaceHandoff
+        let lifecycleReady: Bool? = {
+            guard let terminalSurface = surfaceView.terminalSurface else { return nil }
+            return (AppDelegate.shared?.tabManagerFor(tabId: terminalSurface.tabId) ?? AppDelegate.shared?.tabManager)?
+                .isTerminalPanelReadyForWorkspaceHandoff(panelId: terminalSurface.id)
+        }()
+        let isReady = lifecycleReady ?? (isActive && isReadyForWorkspaceHandoff)
         guard isReady != lastReportedWorkspaceHandoffReady else { return }
         lastReportedWorkspaceHandoffReady = isReady
         guard isReady,
@@ -7117,62 +7122,8 @@ struct GhosttyTerminalView: NSViewRepresentable {
     var onFocus: ((UUID) -> Void)? = nil
     var onTriggerFlash: (() -> Void)? = nil
 
-    private final class HostContainerView: NSView {
-        var onDidMoveToWindow: (() -> Void)?
-        var onGeometryChanged: (() -> Void)?
-        private(set) var geometryRevision: UInt64 = 0
-        private var lastReportedGeometryState: GeometryState?
-
-        private struct GeometryState: Equatable {
-            let frame: CGRect
-            let bounds: CGRect
-            let windowNumber: Int?
-            let superviewID: ObjectIdentifier?
-        }
-
-        private func currentGeometryState() -> GeometryState {
-            GeometryState(
-                frame: frame,
-                bounds: bounds,
-                windowNumber: window?.windowNumber,
-                superviewID: superview.map(ObjectIdentifier.init)
-            )
-        }
-
-        private func notifyGeometryChangedIfNeeded() {
-            let state = currentGeometryState()
-            guard state != lastReportedGeometryState else { return }
-            lastReportedGeometryState = state
-            geometryRevision &+= 1
-            onGeometryChanged?()
-        }
-
-        override func viewDidMoveToWindow() {
-            super.viewDidMoveToWindow()
-            onDidMoveToWindow?()
-            notifyGeometryChangedIfNeeded()
-        }
-
-        override func viewDidMoveToSuperview() {
-            super.viewDidMoveToSuperview()
-            notifyGeometryChangedIfNeeded()
-        }
-
-        override func layout() {
-            super.layout()
-            notifyGeometryChangedIfNeeded()
-        }
-
-        override func setFrameOrigin(_ newOrigin: NSPoint) {
-            super.setFrameOrigin(newOrigin)
-            notifyGeometryChangedIfNeeded()
-        }
-
-        override func setFrameSize(_ newSize: NSSize) {
-            super.setFrameSize(newSize)
-            notifyGeometryChangedIfNeeded()
-        }
-    }
+    final class HostContainerView: NSView {}
+    final class PortalAnchorView: PanelLifecycleAnchorHostView {}
 
     final class Coordinator {
         var attachGeneration: Int = 0
@@ -7181,10 +7132,10 @@ struct GhosttyTerminalView: NSViewRepresentable {
         var desiredIsVisibleInUI: Bool = true
         var desiredShowsUnreadNotificationRing: Bool = false
         var desiredPortalZPriority: Int = 0
-        var lastBoundHostId: ObjectIdentifier?
         var lastPaneDropZone: DropZone?
         var lastReportedReadyForWorkspaceHandoff: Bool = false
         var lastSynchronizedHostGeometryRevision: UInt64 = 0
+        let portalAnchorView = PortalAnchorView()
         weak var hostedView: GhosttySurfaceScrollView?
     }
 
@@ -7192,25 +7143,19 @@ struct GhosttyTerminalView: NSViewRepresentable {
         Coordinator()
     }
 
-    static func shouldApplyImmediateHostedStateUpdate(
-        hostedViewHasSuperview: Bool,
-        isBoundToCurrentHost: Bool
-    ) -> Bool {
-        // If this update originates from a stale/replaced host while the hosted view is
-        // already attached elsewhere, do not mutate visibility/active state here.
-        if isBoundToCurrentHost { return true }
-        return !hostedViewHasSuperview
-    }
-
     static func publishWorkspaceHandoffReadinessIfNeeded(
         terminalSurface: TerminalSurface,
         hostedView: GhosttySurfaceScrollView,
         coordinator: Coordinator
     ) {
-        let isReady =
+        let lifecycleReady: Bool? =
+            (AppDelegate.shared?.tabManagerFor(tabId: terminalSurface.tabId) ?? AppDelegate.shared?.tabManager)?
+                .isTerminalPanelReadyForWorkspaceHandoff(panelId: terminalSurface.id)
+        let isReady = lifecycleReady ?? (
             coordinator.desiredIsActive &&
             coordinator.desiredIsVisibleInUI &&
             hostedView.isReadyForWorkspaceHandoff
+        )
         guard isReady != coordinator.lastReportedReadyForWorkspaceHandoff else { return }
         coordinator.lastReportedReadyForWorkspaceHandoff = isReady
         guard isReady else { return }
@@ -7224,11 +7169,9 @@ struct GhosttyTerminalView: NSViewRepresentable {
         )
     }
 
-#if DEBUG
     private static func publishPanelLifecycleAnchorFact(
         terminalSurface: TerminalSurface,
-        hostedView: GhosttySurfaceScrollView,
-        hostView: HostContainerView?,
+        anchorView: PortalAnchorView,
         coordinator: Coordinator
     ) {
         guard let app = AppDelegate.shared,
@@ -7239,17 +7182,34 @@ struct GhosttyTerminalView: NSViewRepresentable {
             panelId: terminalSurface.id,
             workspaceId: terminalSurface.tabId,
             panelType: .terminal,
-            windowNumber: hostView?.window?.windowNumber ?? hostedView.window?.windowNumber,
-            hasSuperview: hostedView.superview != nil,
-            attachedToWindow: hostedView.window != nil,
-            hidden: hostedView.isHidden,
-            geometryRevision: hostView?.geometryRevision ?? 0,
+            anchorId: anchorView.panelLifecycleAnchorId,
+            windowNumber: anchorView.window?.windowNumber,
+            hasSuperview: anchorView.superview != nil,
+            attachedToWindow: anchorView.window != nil,
+            hidden: anchorView.isHidden,
+            geometryRevision: anchorView.geometryRevision,
             desiredVisible: coordinator.desiredIsVisibleInUI,
             desiredActive: coordinator.desiredIsActive,
-            source: "terminal.host"
+            source: "terminal.anchorHost"
         )
     }
-#endif
+
+    private static func clearPortalCallbacks(for anchorView: PortalAnchorView) {
+        anchorView.onDidMoveToWindow = nil
+        anchorView.onGeometryChanged = nil
+    }
+
+    private static func installPortalAnchorView(_ anchorView: PortalAnchorView, in host: HostContainerView) {
+        if anchorView.superview !== host {
+            anchorView.removeFromSuperview()
+            anchorView.frame = host.bounds
+            anchorView.translatesAutoresizingMaskIntoConstraints = true
+            anchorView.autoresizingMask = [.width, .height]
+            host.addSubview(anchorView)
+        } else if anchorView.frame != host.bounds {
+            anchorView.frame = host.bounds
+        }
+    }
 
     func makeNSView(context: Context) -> NSView {
         let container = HostContainerView()
@@ -7271,6 +7231,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
         let desiredStateChanged =
             previousDesiredIsActive != isActive ||
             previousDesiredIsVisibleInUI != isVisibleInUI ||
+            previousDesiredShowsUnreadNotificationRing != showsUnreadNotificationRing ||
             previousDesiredPortalZPriority != portalZPriority
         coordinator.desiredIsActive = isActive
         coordinator.desiredIsVisibleInUI = isVisibleInUI
@@ -7313,7 +7274,36 @@ struct GhosttyTerminalView: NSViewRepresentable {
         hostedView.setTriggerFlashHandler(onTriggerFlash)
         let portalExpectedSurfaceId = terminalSurface.id
         let portalExpectedGeneration = terminalSurface.portalBindingGeneration()
+        let lifecycleManager = AppDelegate.shared?.tabManagerFor(tabId: terminalSurface.tabId) ?? AppDelegate.shared?.tabManager
+        let lifecycleDesiredRecord = lifecycleManager?.panelLifecycleDesiredRecord(for: terminalSurface.id)
+        let portalAnchorView = coordinator.portalAnchorView
+        func makeLifecycleRuntimeTarget(
+            currentGeometryRevision: UInt64?,
+            lastSynchronizedGeometryRevision: UInt64?
+        ) -> TerminalLifecycleExecutorRuntimeTarget {
+            TerminalLifecycleExecutor.runtimeTarget(
+                desiredRecord: lifecycleDesiredRecord,
+                fallbackVisible: isVisibleInUI,
+                fallbackActive: isActive,
+                expectedAnchorId: portalAnchorView.panelLifecycleAnchorId,
+                binding: TerminalWindowPortalRegistry.bindingSnapshot(for: hostedView),
+                currentGeometryRevision: currentGeometryRevision,
+                lastSynchronizedGeometryRevision: lastSynchronizedGeometryRevision
+            )
+        }
+        func applyHostedStateApplicationPlan(
+            _ plan: TerminalLifecycleExecutorHostedStateApplicationPlan
+        ) {
+            guard plan.shouldApplyImmediately else { return }
+            hostedView.setVisibleInUI(plan.visibleInUI)
+            hostedView.setActive(plan.active)
+        }
+        let lifecycleRuntimeTarget = makeLifecycleRuntimeTarget(
+            currentGeometryRevision: portalAnchorView.geometryRevision,
+            lastSynchronizedGeometryRevision: coordinator.lastSynchronizedHostGeometryRevision
+        )
         let forwardedDropZone = isVisibleInUI ? paneDropZone : nil
+        let shouldMountLiveAnchor = lifecycleRuntimeTarget.shouldMountLiveAnchor
 #if DEBUG
         if coordinator.lastPaneDropZone != paneDropZone {
             let oldZone = coordinator.lastPaneDropZone.map { String(describing: $0) } ?? "none"
@@ -7340,121 +7330,150 @@ struct GhosttyTerminalView: NSViewRepresentable {
 
         let hostContainer = nsView as? HostContainerView
         if let host = hostContainer {
-            host.onDidMoveToWindow = { [weak host, weak hostedView, weak coordinator] in
-                guard let host, let hostedView, let coordinator else { return }
-                guard coordinator.attachGeneration == generation else { return }
-                guard host.window != nil else { return }
-                TerminalWindowPortalRegistry.bind(
+            if shouldMountLiveAnchor {
+                Self.installPortalAnchorView(portalAnchorView, in: host)
+                portalAnchorView.onDidMoveToWindow = { [weak hostedView, weak coordinator, weak portalAnchorView] in
+                    guard let hostedView, let coordinator, let portalAnchorView else { return }
+                    guard coordinator.attachGeneration == generation else { return }
+                    guard portalAnchorView.window != nil else { return }
+                    let runtimeTarget = makeLifecycleRuntimeTarget(
+                        currentGeometryRevision: portalAnchorView.geometryRevision,
+                        lastSynchronizedGeometryRevision: coordinator.lastSynchronizedHostGeometryRevision
+                    )
+                    _ = TerminalWindowPortalRegistry.reconcileRuntimeTarget(
+                        panelId: terminalSurface.id,
+                        hostedView: hostedView,
+                        target: runtimeTarget,
+                        anchorView: portalAnchorView,
+                        zPriority: coordinator.desiredPortalZPriority,
+                        expectedSurfaceId: portalExpectedSurfaceId,
+                        expectedGeneration: portalExpectedGeneration
+                    )
+                    coordinator.lastSynchronizedHostGeometryRevision = portalAnchorView.geometryRevision
+                    applyHostedStateApplicationPlan(
+                        TerminalLifecycleExecutor.hostedStateApplicationPlan(
+                            target: runtimeTarget,
+                            hostedViewHasSuperview: hostedView.superview != nil,
+                            isBoundToCurrentHost: true
+                        )
+                    )
+                    hostedView.setNotificationRing(visible: coordinator.desiredShowsUnreadNotificationRing)
+                    Self.publishWorkspaceHandoffReadinessIfNeeded(
+                        terminalSurface: terminalSurface,
+                        hostedView: hostedView,
+                        coordinator: coordinator
+                    )
+                }
+                portalAnchorView.onGeometryChanged = { [weak hostedView, weak coordinator, weak portalAnchorView] in
+                    guard let hostedView, let coordinator, let portalAnchorView else { return }
+                    guard coordinator.attachGeneration == generation else { return }
+                    guard portalAnchorView.window != nil else { return }
+                    let runtimeTarget = makeLifecycleRuntimeTarget(
+                        currentGeometryRevision: portalAnchorView.geometryRevision,
+                        lastSynchronizedGeometryRevision: coordinator.lastSynchronizedHostGeometryRevision
+                    )
+                    let decision = TerminalWindowPortalRegistry.reconcileRuntimeTarget(
+                        panelId: terminalSurface.id,
+                        hostedView: hostedView,
+                        target: runtimeTarget,
+                        anchorView: portalAnchorView,
+                        zPriority: coordinator.desiredPortalZPriority,
+                        expectedSurfaceId: portalExpectedSurfaceId,
+                        expectedGeneration: portalExpectedGeneration
+                    )
+                    if decision.shouldAdvanceSynchronizedGeometryRevision {
+                        coordinator.lastSynchronizedHostGeometryRevision = portalAnchorView.geometryRevision
+                    }
+                    applyHostedStateApplicationPlan(
+                        TerminalLifecycleExecutor.hostedStateApplicationPlan(
+                            target: runtimeTarget,
+                            hostedViewHasSuperview: hostedView.superview != nil,
+                            isBoundToCurrentHost: true
+                        )
+                    )
+                    hostedView.setNotificationRing(visible: coordinator.desiredShowsUnreadNotificationRing)
+                    Self.publishWorkspaceHandoffReadinessIfNeeded(
+                        terminalSurface: terminalSurface,
+                        hostedView: hostedView,
+                        coordinator: coordinator
+                    )
+                }
+
+                if portalAnchorView.window != nil {
+                    let geometryRevision = portalAnchorView.geometryRevision
+                    let runtimeTarget = makeLifecycleRuntimeTarget(
+                        currentGeometryRevision: geometryRevision,
+                        lastSynchronizedGeometryRevision: coordinator.lastSynchronizedHostGeometryRevision
+                    )
+                    let decision = TerminalWindowPortalRegistry.reconcileRuntimeTarget(
+                        panelId: terminalSurface.id,
+                        hostedView: hostedView,
+                        target: runtimeTarget,
+                        anchorView: portalAnchorView,
+                        zPriority: coordinator.desiredPortalZPriority,
+                        expectedSurfaceId: portalExpectedSurfaceId,
+                        expectedGeneration: portalExpectedGeneration
+                    )
+                    if decision.shouldAdvanceSynchronizedGeometryRevision {
+                        coordinator.lastSynchronizedHostGeometryRevision = geometryRevision
+                    }
+                } else {
+                    let runtimeTarget = makeLifecycleRuntimeTarget(
+                        currentGeometryRevision: portalAnchorView.geometryRevision,
+                        lastSynchronizedGeometryRevision: coordinator.lastSynchronizedHostGeometryRevision
+                    )
+                    let decision = TerminalWindowPortalRegistry.reconcileRuntimeTarget(
+                        panelId: terminalSurface.id,
+                        hostedView: hostedView,
+                        target: runtimeTarget,
+                        anchorView: portalAnchorView,
+                        zPriority: coordinator.desiredPortalZPriority,
+                        expectedSurfaceId: portalExpectedSurfaceId,
+                        expectedGeneration: portalExpectedGeneration
+                    )
+    #if DEBUG
+                    if desiredStateChanged, decision.action == .waitForAnchor {
+                        ghosttyHotPathDlog(
+                            "ws.hostState.deferBind surface=\(terminalSurface.id.uuidString.prefix(5)) " +
+                            "reason=anchorNoWindow visible=\(coordinator.desiredIsVisibleInUI ? 1 : 0) " +
+                            "active=\(coordinator.desiredIsActive ? 1 : 0) z=\(coordinator.desiredPortalZPriority) " +
+                            "hostedWindow=\(hostedView.window != nil ? 1 : 0) hostedSuperview=\(hostedView.superview != nil ? 1 : 0)"
+                        )
+                    }
+    #endif
+                }
+            } else {
+                Self.clearPortalCallbacks(for: portalAnchorView)
+                if portalAnchorView.superview != nil {
+                    portalAnchorView.removeFromSuperview()
+                }
+                _ = TerminalWindowPortalRegistry.reconcileRuntimeTarget(
+                    panelId: terminalSurface.id,
                     hostedView: hostedView,
-                    to: host,
-                    visibleInUI: coordinator.desiredIsVisibleInUI,
-                    zPriority: coordinator.desiredPortalZPriority,
+                    target: lifecycleRuntimeTarget,
+                    anchorView: nil,
                     expectedSurfaceId: portalExpectedSurfaceId,
                     expectedGeneration: portalExpectedGeneration
                 )
-                coordinator.lastBoundHostId = ObjectIdentifier(host)
-                coordinator.lastSynchronizedHostGeometryRevision = host.geometryRevision
-                hostedView.setVisibleInUI(coordinator.desiredIsVisibleInUI)
-                hostedView.setActive(coordinator.desiredIsActive)
-                hostedView.setNotificationRing(visible: coordinator.desiredShowsUnreadNotificationRing)
-                Self.publishWorkspaceHandoffReadinessIfNeeded(
-                    terminalSurface: terminalSurface,
-                    hostedView: hostedView,
-                    coordinator: coordinator
-                )
-            }
-            host.onGeometryChanged = { [weak host, weak hostedView, weak coordinator] in
-                guard let host, let hostedView, let coordinator else { return }
-                guard coordinator.attachGeneration == generation else { return }
-                guard coordinator.lastBoundHostId == ObjectIdentifier(host) else { return }
-                if host.window != nil,
-                   !TerminalWindowPortalRegistry.isHostedView(hostedView, boundTo: host) {
-#if DEBUG
-                    ghosttyHotPathDlog(
-                        "ws.hostState.rebindOnGeometry surface=\(terminalSurface.id.uuidString.prefix(5)) " +
-                        "reason=portalEntryMissing visible=\(coordinator.desiredIsVisibleInUI ? 1 : 0) " +
-                        "active=\(coordinator.desiredIsActive ? 1 : 0) z=\(coordinator.desiredPortalZPriority)"
-                    )
-#endif
-                    TerminalWindowPortalRegistry.bind(
-                        hostedView: hostedView,
-                        to: host,
-                        visibleInUI: coordinator.desiredIsVisibleInUI,
-                        zPriority: coordinator.desiredPortalZPriority,
-                        expectedSurfaceId: portalExpectedSurfaceId,
-                        expectedGeneration: portalExpectedGeneration
-                    )
-                    coordinator.lastBoundHostId = ObjectIdentifier(host)
-                    hostedView.setVisibleInUI(coordinator.desiredIsVisibleInUI)
-                    hostedView.setActive(coordinator.desiredIsActive)
-                    hostedView.setNotificationRing(visible: coordinator.desiredShowsUnreadNotificationRing)
+                coordinator.lastSynchronizedHostGeometryRevision = 0
+                if let manager = AppDelegate.shared?.tabManagerFor(tabId: terminalSurface.tabId) ?? AppDelegate.shared?.tabManager {
+                    manager.debugRemovePanelLifecycleAnchorFact(panelId: terminalSurface.id)
                 }
-                TerminalWindowPortalRegistry.synchronizeForAnchor(host)
-                Self.publishWorkspaceHandoffReadinessIfNeeded(
-                    terminalSurface: terminalSurface,
-                    hostedView: hostedView,
-                    coordinator: coordinator
-                )
-                coordinator.lastSynchronizedHostGeometryRevision = host.geometryRevision
-            }
-
-            if host.window != nil {
-                let hostId = ObjectIdentifier(host)
-                let geometryRevision = host.geometryRevision
-                let shouldBindNow =
-                    coordinator.lastBoundHostId != hostId ||
-                    hostedView.superview == nil ||
-                    previousDesiredIsVisibleInUI != isVisibleInUI ||
-                    previousDesiredShowsUnreadNotificationRing != showsUnreadNotificationRing ||
-                    previousDesiredPortalZPriority != portalZPriority
-                if shouldBindNow {
-                    TerminalWindowPortalRegistry.bind(
-                        hostedView: hostedView,
-                        to: host,
-                        visibleInUI: coordinator.desiredIsVisibleInUI,
-                        zPriority: coordinator.desiredPortalZPriority,
-                        expectedSurfaceId: portalExpectedSurfaceId,
-                        expectedGeneration: portalExpectedGeneration
-                    )
-                    coordinator.lastBoundHostId = hostId
-                    coordinator.lastSynchronizedHostGeometryRevision = geometryRevision
-                } else if coordinator.lastSynchronizedHostGeometryRevision != geometryRevision {
-                    TerminalWindowPortalRegistry.synchronizeForAnchor(host)
-                    coordinator.lastSynchronizedHostGeometryRevision = geometryRevision
-                }
-            } else {
-                // Bind is deferred until host moves into a window. Update the
-                // existing portal entry's visibleInUI now so that any portal sync
-                // that runs before the deferred bind completes won't hide the view.
-#if DEBUG
-                if desiredStateChanged {
-                    ghosttyHotPathDlog(
-                        "ws.hostState.deferBind surface=\(terminalSurface.id.uuidString.prefix(5)) " +
-                        "reason=hostNoWindow visible=\(coordinator.desiredIsVisibleInUI ? 1 : 0) " +
-                        "active=\(coordinator.desiredIsActive ? 1 : 0) z=\(coordinator.desiredPortalZPriority) " +
-                        "hostedWindow=\(hostedView.window != nil ? 1 : 0) hostedSuperview=\(hostedView.superview != nil ? 1 : 0)"
-                    )
-                }
-#endif
-                TerminalWindowPortalRegistry.updateEntryVisibility(
-                    for: hostedView,
-                    visibleInUI: coordinator.desiredIsVisibleInUI
-                )
             }
         }
 
-        let hostWindowAttached = hostContainer?.window != nil
-        let isBoundToCurrentHost = hostContainer.map { host in
-            TerminalWindowPortalRegistry.isHostedView(hostedView, boundTo: host)
-        } ?? true
-        let shouldApplyImmediateHostedState = Self.shouldApplyImmediateHostedStateUpdate(
+        let hostWindowAttached = portalAnchorView.window != nil
+        let isBoundToCurrentHost = shouldMountLiveAnchor
+            ? TerminalWindowPortalRegistry.isHostedView(hostedView, boundTo: portalAnchorView)
+            : hostedView.superview == nil
+        let hostedStateApplicationPlan = TerminalLifecycleExecutor.hostedStateApplicationPlan(
+            target: lifecycleRuntimeTarget,
             hostedViewHasSuperview: hostedView.superview != nil,
             isBoundToCurrentHost: isBoundToCurrentHost
         )
 
-        if shouldApplyImmediateHostedState {
-            hostedView.setVisibleInUI(isVisibleInUI)
-            hostedView.setActive(isActive)
+        if hostedStateApplicationPlan.shouldApplyImmediately {
+            applyHostedStateApplicationPlan(hostedStateApplicationPlan)
         } else {
             // Preserve portal entry visibility while a stale host is still receiving SwiftUI updates.
             // The currently bound host remains authoritative for immediate visible/active state.
@@ -7474,14 +7493,13 @@ struct GhosttyTerminalView: NSViewRepresentable {
             hostedView: hostedView,
             coordinator: coordinator
         )
-#if DEBUG
-        Self.publishPanelLifecycleAnchorFact(
-            terminalSurface: terminalSurface,
-            hostedView: hostedView,
-            hostView: hostContainer,
-            coordinator: coordinator
-        )
-#endif
+        if shouldMountLiveAnchor {
+            Self.publishPanelLifecycleAnchorFact(
+                terminalSurface: terminalSurface,
+                anchorView: portalAnchorView,
+                coordinator: coordinator
+            )
+        }
     }
 
     static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
@@ -7490,7 +7508,6 @@ struct GhosttyTerminalView: NSViewRepresentable {
         coordinator.desiredIsVisibleInUI = false
         coordinator.desiredShowsUnreadNotificationRing = false
         coordinator.desiredPortalZPriority = 0
-        coordinator.lastBoundHostId = nil
         coordinator.lastReportedReadyForWorkspaceHandoff = false
         let hostedView = coordinator.hostedView
 #if DEBUG
@@ -7511,10 +7528,8 @@ struct GhosttyTerminalView: NSViewRepresentable {
         }
 #endif
 
-        if let host = nsView as? HostContainerView {
-            host.onDidMoveToWindow = nil
-            host.onGeometryChanged = nil
-        }
+        Self.clearPortalCallbacks(for: coordinator.portalAnchorView)
+        coordinator.portalAnchorView.removeFromSuperview()
 
         // SwiftUI can transiently dismantle/rebuild NSViewRepresentable instances during split
         // tree updates. Do not force visible/active false here; that causes avoidable blackouts
@@ -7522,12 +7537,10 @@ struct GhosttyTerminalView: NSViewRepresentable {
         hostedView?.setFocusHandler(nil)
         hostedView?.setTriggerFlashHandler(nil)
         hostedView?.setDropZoneOverlay(zone: nil)
-#if DEBUG
         if let surfaceId = hostedView?.debugSurfaceId,
            let manager = AppDelegate.shared?.locateSurface(surfaceId: surfaceId)?.tabManager {
             manager.debugRemovePanelLifecycleAnchorFact(panelId: surfaceId)
         }
-#endif
         coordinator.hostedView = nil
 
         nsView.subviews.forEach { $0.removeFromSuperview() }

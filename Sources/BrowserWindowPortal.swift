@@ -1557,17 +1557,20 @@ final class WindowBrowserSlotView: NSView {
 
 @MainActor
 final class WindowBrowserPortal: NSObject {
-    private static let transientRecoveryRetryBudget: Int = 12
+    private static let tinyVisibleThreshold: CGFloat = 1
 
     private weak var window: NSWindow?
     private let hostView = WindowBrowserHostView(frame: .zero)
     private weak var installedContainerView: NSView?
     private weak var installedReferenceView: NSView?
     private var hasDeferredFullSyncScheduled = false
+    private var deferredFullSyncScheduledAt: TimeInterval = 0
+    private var deferredFullSyncGeneration: UInt64 = 0
     private var hasExternalGeometrySyncScheduled = false
     private var geometryObservers: [NSObjectProtocol] = []
 
     private struct Entry {
+        var panelId: UUID?
         weak var webView: WKWebView?
         weak var containerView: WindowBrowserSlotView?
         weak var anchorView: NSView?
@@ -1577,8 +1580,7 @@ final class WindowBrowserPortal: NSObject {
         var paneDropContext: BrowserPaneDropContext?
         var searchOverlay: BrowserPortalSearchOverlayConfiguration?
         var paneTopChromeHeight: CGFloat
-        var transientRecoveryReason: String?
-        var transientRecoveryRetriesRemaining: Int
+        var guardGeneration: UInt64?
     }
 
     private var entriesByWebViewId: [ObjectIdentifier: Entry] = [:]
@@ -2024,7 +2026,49 @@ final class WindowBrowserPortal: NSObject {
         entry.containerView?.setPaneTopChromeHeight(resolvedHeight)
     }
 
-    func bind(webView: WKWebView, to anchorView: NSView, visibleInUI: Bool, zPriority: Int = 0) {
+    func setPanelId(forWebViewId webViewId: ObjectIdentifier, panelId: UUID?) {
+        guard var entry = entriesByWebViewId[webViewId] else { return }
+        entry.panelId = panelId
+        entriesByWebViewId[webViewId] = entry
+    }
+
+    func bindingSnapshot(forWebViewId webViewId: ObjectIdentifier) -> BrowserLifecycleExecutorBindingSnapshot? {
+        guard let entry = entriesByWebViewId[webViewId],
+              let panelId = entry.panelId else { return nil }
+        return BrowserLifecycleExecutorBindingSnapshot(
+            panelId: panelId,
+            anchorId: (entry.anchorView as? PanelLifecycleAnchorHostView)?.panelLifecycleAnchorId,
+            windowNumber: entry.containerView?.window?.windowNumber,
+            anchorWindowNumber: entry.anchorView?.window?.windowNumber,
+            visibleInUI: entry.visibleInUI,
+            containerHidden: entry.containerView?.isHidden ?? true,
+            attachedToPortalHost: entry.containerView?.superview === hostView,
+            zPriority: entry.zPriority,
+            guardGeneration: entry.guardGeneration
+        )
+    }
+
+    func bindingSnapshot(forPanelId panelId: UUID) -> BrowserLifecycleExecutorBindingSnapshot? {
+        for webViewId in entriesByWebViewId.keys {
+            guard let snapshot = bindingSnapshot(forWebViewId: webViewId) else { continue }
+            if snapshot.panelId == panelId {
+                return snapshot
+            }
+        }
+        return nil
+    }
+
+    func debugBindingSnapshots() -> [BrowserLifecycleExecutorBindingSnapshot] {
+        entriesByWebViewId.keys.compactMap(bindingSnapshot(forWebViewId:))
+    }
+
+    func bind(
+        webView: WKWebView,
+        guardGeneration: UInt64? = nil,
+        to anchorView: NSView,
+        visibleInUI: Bool,
+        zPriority: Int = 0
+    ) {
         guard ensureInstalled() else { return }
 
         let webViewId = ObjectIdentifier(webView)
@@ -2032,6 +2076,7 @@ final class WindowBrowserPortal: NSObject {
         let previousEntry = entriesByWebViewId[webViewId]
         let containerView = ensureContainerView(
             for: previousEntry ?? Entry(
+                panelId: nil,
                 webView: nil,
                 containerView: nil,
                 anchorView: nil,
@@ -2041,8 +2086,7 @@ final class WindowBrowserPortal: NSObject {
                 paneDropContext: nil,
                 searchOverlay: nil,
                 paneTopChromeHeight: 0,
-                transientRecoveryReason: nil,
-                transientRecoveryRetriesRemaining: 0
+                guardGeneration: nil
             ),
             webView: webView
         )
@@ -2068,6 +2112,7 @@ final class WindowBrowserPortal: NSObject {
 
         webViewByAnchorId[anchorId] = webViewId
         entriesByWebViewId[webViewId] = Entry(
+            panelId: previousEntry?.panelId,
             webView: webView,
             containerView: containerView,
             anchorView: anchorView,
@@ -2077,8 +2122,7 @@ final class WindowBrowserPortal: NSObject {
             paneDropContext: previousEntry?.paneDropContext,
             searchOverlay: previousEntry?.searchOverlay,
             paneTopChromeHeight: previousEntry?.paneTopChromeHeight ?? 0,
-            transientRecoveryReason: previousEntry?.transientRecoveryReason,
-            transientRecoveryRetriesRemaining: previousEntry?.transientRecoveryRetriesRemaining ?? 0
+            guardGeneration: guardGeneration
         )
 
         let didChangeAnchor: Bool = {
@@ -2168,19 +2212,90 @@ final class WindowBrowserPortal: NSObject {
         scheduleDeferredFullSynchronizeAll()
     }
 
-    private func scheduleDeferredFullSynchronizeAll() {
-        guard !hasDeferredFullSyncScheduled else { return }
+    private func scheduleDeferredFullSynchronizeAll(after delay: TimeInterval = 0) {
+        let now = ProcessInfo.processInfo.systemUptime
+        let scheduledAt = now + max(0, delay)
+        if hasDeferredFullSyncScheduled {
+            if scheduledAt >= deferredFullSyncScheduledAt {
+                return
+            }
+            hasDeferredFullSyncScheduled = false
+        }
         hasDeferredFullSyncScheduled = true
+        deferredFullSyncScheduledAt = scheduledAt
+        deferredFullSyncGeneration &+= 1
+        let generation = deferredFullSyncGeneration
 #if DEBUG
-        dlog("browser.portal.sync.defer.schedule entries=\(entriesByWebViewId.count)")
+        dlog(
+            "browser.portal.sync.defer.schedule entries=\(entriesByWebViewId.count) " +
+            "delayMs=\(Int(max(0, delay) * 1000))"
+        )
 #endif
-        DispatchQueue.main.async { [weak self] in
+        Task { @MainActor [weak self] in
+            if delay > 0 {
+                try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            } else {
+                await Task.yield()
+            }
             guard let self else { return }
+            guard self.hasDeferredFullSyncScheduled else { return }
+            guard self.deferredFullSyncGeneration == generation else { return }
             self.hasDeferredFullSyncScheduled = false
+            self.deferredFullSyncScheduledAt = 0
 #if DEBUG
             dlog("browser.portal.sync.defer.tick entries=\(self.entriesByWebViewId.count)")
 #endif
             self.synchronizeAllWebViews(excluding: nil, source: "deferredTick")
+        }
+    }
+
+    private func applyPresentationApplicationPlan(
+        _ plan: BrowserLifecycleExecutorPresentationApplicationPlan,
+        entry: Entry,
+        webView: WKWebView,
+        containerView: WindowBrowserSlotView,
+        targetFrame: NSRect,
+        hostBounds: NSRect,
+        anchorHidden: Bool,
+        tinyFrame: Bool,
+        hasFiniteFrame: Bool,
+        outsideHostBounds: Bool,
+        refreshReasons: inout [String]
+    ) {
+        if plan.shouldHideContainer, !containerView.isHidden {
+#if DEBUG
+            dlog(
+                "browser.portal.hidden container=\(browserPortalDebugToken(containerView)) " +
+                "web=\(browserPortalDebugToken(webView)) value=\(plan.shouldHideContainer ? 1 : 0) " +
+                "visibleInUI=\(entry.visibleInUI ? 1 : 0) anchorHidden=\(anchorHidden ? 1 : 0) " +
+                "tiny=\(tinyFrame ? 1 : 0) finite=\(hasFiniteFrame ? 1 : 0) " +
+                "outside=\(outsideHostBounds ? 1 : 0) frame=\(browserPortalDebugFrame(targetFrame)) " +
+                "host=\(browserPortalDebugFrame(hostBounds))"
+            )
+#endif
+            containerView.isHidden = true
+        } else if plan.shouldRevealContainer {
+#if DEBUG
+            dlog(
+                "browser.portal.hidden container=\(browserPortalDebugToken(containerView)) " +
+                "web=\(browserPortalDebugToken(webView)) value=0 " +
+                "visibleInUI=\(entry.visibleInUI ? 1 : 0) anchorHidden=\(anchorHidden ? 1 : 0) " +
+                "tiny=\(tinyFrame ? 1 : 0) finite=\(hasFiniteFrame ? 1 : 0) " +
+                "outside=\(outsideHostBounds ? 1 : 0) frame=\(browserPortalDebugFrame(targetFrame)) " +
+                "host=\(browserPortalDebugFrame(hostBounds))"
+            )
+#endif
+            containerView.isHidden = false
+        }
+        containerView.setPaneTopChromeHeight(plan.paneTopChromeHeight)
+        containerView.setSearchOverlay(
+            plan.shouldShowSearchOverlay ? entry.searchOverlay : nil
+        )
+        containerView.setDropZoneOverlay(
+            zone: plan.shouldShowDropZone && !containerView.isHidden ? entry.dropZone : nil
+        )
+        if plan.shouldRefreshForReveal {
+            refreshReasons.append("reveal")
         }
     }
 
@@ -2192,47 +2307,6 @@ final class WindowBrowserPortal: NSObject {
             if webViewId == webViewIdToSkip { continue }
             synchronizeWebView(withId: webViewId, source: source)
         }
-    }
-
-    private func resetTransientRecoveryRetryIfNeeded(forWebViewId webViewId: ObjectIdentifier, entry: inout Entry) {
-        guard entry.transientRecoveryRetriesRemaining != 0 || entry.transientRecoveryReason != nil else { return }
-        entry.transientRecoveryReason = nil
-        entry.transientRecoveryRetriesRemaining = 0
-        entriesByWebViewId[webViewId] = entry
-    }
-
-    private func scheduleTransientRecoveryRetryIfNeeded(
-        forWebViewId webViewId: ObjectIdentifier,
-        entry: inout Entry,
-        webView: WKWebView,
-        reason: String
-    ) -> Bool {
-        if entry.transientRecoveryReason != reason {
-            entry.transientRecoveryReason = reason
-            entry.transientRecoveryRetriesRemaining = Self.transientRecoveryRetryBudget
-        }
-#if DEBUG
-        if entry.transientRecoveryRetriesRemaining <= 0 {
-            dlog(
-                "browser.portal.sync.deferRecover.skip web=\(browserPortalDebugToken(webView)) " +
-                "reason=\(reason) exhausted=1"
-            )
-        }
-#endif
-        guard entry.transientRecoveryRetriesRemaining > 0 else { return false }
-
-        entry.transientRecoveryRetriesRemaining -= 1
-        entriesByWebViewId[webViewId] = entry
-#if DEBUG
-        dlog(
-            "browser.portal.sync.deferRecover web=\(browserPortalDebugToken(webView)) " +
-            "reason=\(reason) remaining=\(entry.transientRecoveryRetriesRemaining)"
-        )
-#endif
-        if entry.transientRecoveryRetriesRemaining > 0 {
-            scheduleDeferredFullSynchronizeAll()
-        }
-        return true
     }
 
     private func synchronizeWebView(
@@ -2253,38 +2327,74 @@ final class WindowBrowserPortal: NSObject {
             }
             return
         }
-        func scheduleTransientDetachRecovery(reason: String) -> Bool {
-            guard entry.visibleInUI else { return false }
-            return scheduleTransientRecoveryRetryIfNeeded(
-                forWebViewId: webViewId,
-                entry: &entry,
-                webView: webView,
-                reason: reason
+        func transientRecoveryPlan(
+            for reason: BrowserLifecycleExecutorTransientRecoveryReason
+        ) -> BrowserLifecycleExecutorTransientRecoveryPlan {
+            let didScheduleTransientRecovery = entry.visibleInUI
+                ? {
+                    entriesByWebViewId[webViewId] = entry
+#if DEBUG
+                    dlog(
+                        "browser.portal.sync.deferRecover web=\(browserPortalDebugToken(webView)) " +
+                        "reason=\(reason.rawValue)"
+                    )
+#endif
+                    scheduleDeferredFullSynchronizeAll()
+                    return true
+                }()
+                : false
+            return BrowserLifecycleExecutor.transientRecoveryPlan(
+                context: BrowserLifecycleExecutorTransientRecoveryContext(
+                    reason: reason,
+                    entryVisibleInUI: entry.visibleInUI,
+                    containerHidden: containerView.isHidden,
+                    recoveryScheduled: didScheduleTransientRecovery
+                )
             )
         }
-        guard let anchorView = entry.anchorView, let window else {
-            if scheduleTransientDetachRecovery(reason: "missingAnchorOrWindow") {
-                containerView.setPaneTopChromeHeight(0)
-                containerView.setSearchOverlay(nil)
-                containerView.setDropZoneOverlay(zone: nil)
-                containerView.isHidden = true
-                return
-            }
-            if !entry.visibleInUI {
-                resetTransientRecoveryRetryIfNeeded(forWebViewId: webViewId, entry: &entry)
-            }
+        func applyTransientRecoveryPlan(
+            _ plan: BrowserLifecycleExecutorTransientRecoveryPlan,
+            reason: BrowserLifecycleExecutorTransientRecoveryReason,
+            preserveVisibleLog: String? = nil
+        ) {
 #if DEBUG
-            if !containerView.isHidden {
-                dlog(
-                    "browser.portal.hidden container=\(browserPortalDebugToken(containerView)) " +
-                    "web=\(browserPortalDebugToken(webView)) value=1 reason=missingAnchorOrWindow"
-                )
+            if let preserveVisibleLog, plan.shouldPreserveVisible {
+                dlog(preserveVisibleLog)
             }
 #endif
-            containerView.setPaneTopChromeHeight(0)
-            containerView.setSearchOverlay(nil)
-            containerView.setDropZoneOverlay(zone: nil)
-            containerView.isHidden = true
+            if plan.shouldResetRecoveryState {
+                entriesByWebViewId[webViewId] = entry
+            }
+            if plan.shouldScheduleDeferredFullSynchronize {
+                scheduleDeferredFullSynchronizeAll()
+            }
+            if plan.shouldClearPaneTopChrome {
+                containerView.setPaneTopChromeHeight(0)
+            }
+            if plan.shouldClearSearchOverlay {
+                containerView.setSearchOverlay(nil)
+            }
+            if plan.shouldClearDropZone {
+                containerView.setDropZoneOverlay(zone: nil)
+            }
+            if plan.shouldHideContainer {
+#if DEBUG
+                if !containerView.isHidden {
+                    dlog(
+                        "browser.portal.hidden container=\(browserPortalDebugToken(containerView)) " +
+                        "web=\(browserPortalDebugToken(webView)) value=1 reason=\(reason.rawValue)"
+                    )
+                }
+#endif
+                containerView.isHidden = true
+            }
+        }
+        guard let anchorView = entry.anchorView, let window else {
+            let transientRecoveryPlan = transientRecoveryPlan(for: .missingAnchorOrWindow)
+            applyTransientRecoveryPlan(
+                transientRecoveryPlan,
+                reason: .missingAnchorOrWindow
+            )
             return
         }
         guard anchorView.window === window else {
@@ -2293,46 +2403,21 @@ final class WindowBrowserPortal: NSObject {
                 anchorView.window == nil &&
                 anchorView.superview != nil
             if isOffWindowReparent {
-                let didScheduleTransientRecovery = scheduleTransientRecoveryRetryIfNeeded(
-                    forWebViewId: webViewId,
-                    entry: &entry,
-                    webView: webView,
-                    reason: "anchorWindowMismatch"
-                )
-#if DEBUG
-                if didScheduleTransientRecovery && !containerView.isHidden {
-                    dlog(
+                let transientRecoveryPlan = transientRecoveryPlan(for: .anchorWindowMismatchOffWindowReparent)
+                applyTransientRecoveryPlan(
+                    transientRecoveryPlan,
+                    reason: .anchorWindowMismatchOffWindowReparent,
+                    preserveVisibleLog:
                         "browser.portal.hidden.deferKeep web=\(browserPortalDebugToken(webView)) " +
                         "reason=anchorWindowMismatch.offWindow frame=\(browserPortalDebugFrame(containerView.frame))"
-                    )
-                }
-#endif
-                containerView.setDropZoneOverlay(zone: nil)
-                return
-            }
-            if scheduleTransientDetachRecovery(reason: "anchorWindowMismatch") {
-                containerView.setPaneTopChromeHeight(0)
-                containerView.setSearchOverlay(nil)
-                containerView.setDropZoneOverlay(zone: nil)
-                containerView.isHidden = true
-                return
-            }
-#if DEBUG
-            if !containerView.isHidden {
-                dlog(
-                    "browser.portal.hidden container=\(browserPortalDebugToken(containerView)) " +
-                    "web=\(browserPortalDebugToken(webView)) value=1 " +
-                    "reason=anchorWindowMismatch anchorWindow=\(browserPortalDebugToken(anchorView.window?.contentView))"
                 )
+                return
             }
-#endif
-            if !entry.visibleInUI {
-                resetTransientRecoveryRetryIfNeeded(forWebViewId: webViewId, entry: &entry)
-            }
-            containerView.setPaneTopChromeHeight(0)
-            containerView.setSearchOverlay(nil)
-            containerView.setDropZoneOverlay(zone: nil)
-            containerView.isHidden = true
+            let transientRecoveryPlan = transientRecoveryPlan(for: .anchorWindowMismatch)
+            applyTransientRecoveryPlan(
+                transientRecoveryPlan,
+                reason: .anchorWindowMismatch
+            )
             return
         }
 
@@ -2386,45 +2471,19 @@ final class WindowBrowserPortal: NSObject {
 #if DEBUG
             dlog(
                 "browser.portal.sync.defer container=\(browserPortalDebugToken(containerView)) " +
-                "web=\(browserPortalDebugToken(webView)) " +
-                "reason=hostBoundsNotReady host=\(browserPortalDebugFrame(hostBounds)) " +
-                "anchor=\(browserPortalDebugFrame(frameInHost)) visibleInUI=\(entry.visibleInUI ? 1 : 0)"
+                    "web=\(browserPortalDebugToken(webView)) " +
+                    "reason=hostBoundsNotReady host=\(browserPortalDebugFrame(hostBounds)) " +
+                    "anchor=\(browserPortalDebugFrame(frameInHost)) visibleInUI=\(entry.visibleInUI ? 1 : 0)"
             )
 #endif
-            if entry.visibleInUI {
-                let shouldPreserveVisibleOnTransient = !containerView.isHidden &&
-                    scheduleTransientRecoveryRetryIfNeeded(
-                        forWebViewId: webViewId,
-                        entry: &entry,
-                        webView: webView,
-                        reason: "hostBoundsNotReady"
-                    )
-                if shouldPreserveVisibleOnTransient {
-#if DEBUG
-                    dlog(
-                        "browser.portal.hidden.deferKeep web=\(browserPortalDebugToken(webView)) " +
-                        "reason=hostBoundsNotReady frame=\(browserPortalDebugFrame(containerView.frame))"
-                    )
-#endif
-                    return
-                }
-            } else {
-                resetTransientRecoveryRetryIfNeeded(forWebViewId: webViewId, entry: &entry)
-            }
-            containerView.setSearchOverlay(nil)
-            containerView.setDropZoneOverlay(zone: nil)
-            containerView.isHidden = true
-            if entry.visibleInUI {
-                _ = scheduleTransientRecoveryRetryIfNeeded(
-                    forWebViewId: webViewId,
-                    entry: &entry,
-                    webView: webView,
-                    reason: "hostBoundsNotReady"
-                )
-            } else {
-                scheduleDeferredFullSynchronizeAll()
-            }
-            containerView.setPaneTopChromeHeight(0)
+            let transientRecoveryPlan = transientRecoveryPlan(for: .hostBoundsNotReady)
+            applyTransientRecoveryPlan(
+                transientRecoveryPlan,
+                reason: .hostBoundsNotReady,
+                preserveVisibleLog:
+                    "browser.portal.hidden.deferKeep web=\(browserPortalDebugToken(webView)) " +
+                    "reason=hostBoundsNotReady frame=\(browserPortalDebugFrame(containerView.frame))"
+            )
             return
         }
         let oldFrame = containerView.frame
@@ -2448,28 +2507,26 @@ final class WindowBrowserPortal: NSObject {
             tinyFrame ||
             !hasFiniteFrame ||
             outsideHostBounds
-        let transientRecoveryReason: String? = {
-            guard entry.visibleInUI else { return nil }
-            if anchorHidden { return "anchorHidden" }
-            if !hasFiniteFrame { return "nonFiniteFrame" }
-            if outsideHostBounds { return "outsideHostBounds" }
-            if tinyFrame { return "tinyFrame" }
-            return nil
-        }()
-        let didScheduleTransientRecovery: Bool = {
-            guard let transientRecoveryReason else { return false }
-            return scheduleTransientRecoveryRetryIfNeeded(
-                forWebViewId: webViewId,
-                entry: &entry,
-                webView: webView,
-                reason: transientRecoveryReason
-            )
-        }()
+        let transientRecoveryReason = BrowserLifecycleExecutor.transientRecoveryReason(
+            entryVisibleInUI: entry.visibleInUI,
+            anchorHidden: anchorHidden,
+            hasFiniteFrame: hasFiniteFrame,
+            outsideHostBounds: outsideHostBounds,
+            tinyFrame: tinyFrame
+        )
+        let transientRecoveryPlan = transientRecoveryReason.map(transientRecoveryPlan)
         let shouldPreserveVisibleOnTransientGeometry =
-            didScheduleTransientRecovery &&
-            shouldHide &&
-            entry.visibleInUI &&
-            !containerView.isHidden
+            transientRecoveryPlan?.shouldPreserveVisible == true &&
+            shouldHide
+        let presentationPlan = BrowserLifecycleExecutor.presentationPlan(
+            targetVisible: entry.visibleInUI,
+            shouldHideContainer: shouldHide
+        )
+        let presentationApplicationPlan = BrowserLifecycleExecutor.presentationApplicationPlan(
+            presentation: presentationPlan,
+            containerHidden: containerView.isHidden,
+            paneTopChromeHeight: entry.paneTopChromeHeight
+        )
 #if DEBUG
         let frameWasClamped = hasFiniteFrame && !Self.rectApproximatelyEqual(frameInHost, targetFrame)
         if frameWasClamped {
@@ -2500,7 +2557,7 @@ final class WindowBrowserPortal: NSObject {
 #if DEBUG
             dlog(
                 "browser.portal.hidden.deferKeep web=\(browserPortalDebugToken(webView)) " +
-                "reason=\(transientRecoveryReason ?? "unknown") frame=\(browserPortalDebugFrame(containerView.frame))"
+                "reason=\(transientRecoveryReason?.rawValue ?? "unknown") frame=\(browserPortalDebugFrame(containerView.frame))"
             )
 #endif
         }
@@ -2558,45 +2615,39 @@ final class WindowBrowserPortal: NSObject {
             refreshReasons.append("webFrame")
         }
 
-        let revealedForDisplay = !shouldHide && containerView.isHidden
-        if shouldHide, !containerView.isHidden, !shouldPreserveVisibleOnTransientGeometry {
-#if DEBUG
-            dlog(
-                "browser.portal.hidden container=\(browserPortalDebugToken(containerView)) " +
-                "web=\(browserPortalDebugToken(webView)) value=\(shouldHide ? 1 : 0) " +
-                "visibleInUI=\(entry.visibleInUI ? 1 : 0) anchorHidden=\(anchorHidden ? 1 : 0) " +
-                "tiny=\(tinyFrame ? 1 : 0) finite=\(hasFiniteFrame ? 1 : 0) " +
-                    "outside=\(outsideHostBounds ? 1 : 0) frame=\(browserPortalDebugFrame(targetFrame)) " +
-                    "host=\(browserPortalDebugFrame(hostBounds))"
+        if !shouldPreserveVisibleOnTransientGeometry {
+            applyPresentationApplicationPlan(
+                presentationApplicationPlan,
+                entry: entry,
+                webView: webView,
+                containerView: containerView,
+                targetFrame: targetFrame,
+                hostBounds: hostBounds,
+                anchorHidden: anchorHidden,
+                tinyFrame: tinyFrame,
+                hasFiniteFrame: hasFiniteFrame,
+                outsideHostBounds: outsideHostBounds,
+                refreshReasons: &refreshReasons
             )
-#endif
-            containerView.isHidden = true
-        } else if !shouldHide, containerView.isHidden {
-#if DEBUG
-            dlog(
-                "browser.portal.hidden container=\(browserPortalDebugToken(containerView)) " +
-                "web=\(browserPortalDebugToken(webView)) value=0 " +
-                "visibleInUI=\(entry.visibleInUI ? 1 : 0) anchorHidden=\(anchorHidden ? 1 : 0) " +
-                "tiny=\(tinyFrame ? 1 : 0) finite=\(hasFiniteFrame ? 1 : 0) " +
-                "outside=\(outsideHostBounds ? 1 : 0) frame=\(browserPortalDebugFrame(targetFrame)) " +
-                "host=\(browserPortalDebugFrame(hostBounds))"
-            )
-#endif
-            containerView.isHidden = false
-        }
-        containerView.setPaneTopChromeHeight(shouldHide ? 0 : entry.paneTopChromeHeight)
-        containerView.setSearchOverlay(shouldHide ? nil : entry.searchOverlay)
-        containerView.setDropZoneOverlay(zone: containerView.isHidden ? nil : entry.dropZone)
-        if revealedForDisplay {
-            refreshReasons.append("reveal")
         }
         if forcePresentationRefresh {
             refreshReasons.append("anchor")
         }
-        if transientRecoveryReason == nil {
-            resetTransientRecoveryRetryIfNeeded(forWebViewId: webViewId, entry: &entry)
+        if let transientRecoveryPlan, let transientRecoveryReason,
+           presentationApplicationPlan.shouldHideContainer {
+            applyTransientRecoveryPlan(
+                transientRecoveryPlan,
+                reason: transientRecoveryReason,
+                preserveVisibleLog:
+                    shouldPreserveVisibleOnTransientGeometry
+                    ? "browser.portal.hidden.deferKeep web=\(browserPortalDebugToken(webView)) " +
+                        "reason=\(transientRecoveryReason.rawValue) frame=\(browserPortalDebugFrame(containerView.frame))"
+                    : nil
+            )
+        } else if transientRecoveryReason == nil {
+            entriesByWebViewId[webViewId] = entry
         }
-        if !shouldHide, !refreshReasons.isEmpty {
+        if !presentationApplicationPlan.shouldHideContainer, !refreshReasons.isEmpty {
             refreshHostedWebViewPresentation(
                 webView,
                 in: containerView,
@@ -2611,7 +2662,7 @@ final class WindowBrowserPortal: NSObject {
             "anchor=\(browserPortalDebugToken(anchorView)) host=\(browserPortalDebugToken(hostView)) " +
             "hostWin=\(hostView.window?.windowNumber ?? -1) " +
             "old=\(browserPortalDebugFrame(oldFrame)) raw=\(browserPortalDebugFrame(frameInHost)) " +
-            "target=\(browserPortalDebugFrame(targetFrame)) hide=\(shouldHide ? 1 : 0) " +
+            "target=\(browserPortalDebugFrame(targetFrame)) hide=\(presentationApplicationPlan.shouldHideContainer ? 1 : 0) " +
             "entryVisible=\(entry.visibleInUI ? 1 : 0) " +
             "containerHidden=\(containerView.isHidden ? 1 : 0) webHidden=\(webView.isHidden ? 1 : 0) " +
             "containerBounds=\(browserPortalDebugFrame(containerView.bounds)) " +
@@ -2630,9 +2681,7 @@ final class WindowBrowserPortal: NSObject {
         let deadWebViewIds = entriesByWebViewId.compactMap { webViewId, entry -> ObjectIdentifier? in
             guard entry.webView != nil else { return webViewId }
             guard let container = entry.containerView else { return webViewId }
-            guard let anchor = entry.anchorView else {
-                return entry.visibleInUI ? nil : webViewId
-            }
+            guard let anchor = entry.anchorView else { return webViewId }
             if container.superview == nil || !container.isDescendant(of: hostView) {
                 return webViewId
             }
@@ -2641,7 +2690,7 @@ final class WindowBrowserPortal: NSObject {
                 anchor.superview == nil ||
                 (installedReferenceView.map { !anchor.isDescendant(of: $0) } ?? false)
             if anchorInvalidForCurrentHost {
-                return entry.visibleInUI ? nil : webViewId
+                return webViewId
             }
             return nil
         }
@@ -2671,6 +2720,60 @@ final class WindowBrowserPortal: NSObject {
     }
 
 #if DEBUG
+    struct DebugStats {
+        let windowNumber: Int
+        let entryCount: Int
+        let hostSubviewCount: Int
+        let containerSubviewCount: Int
+        let mappedContainerSubviewCount: Int
+        let orphanContainerSubviewCount: Int
+        let visibleOrphanContainerSubviewCount: Int
+        let staleEntryCount: Int
+    }
+
+    func debugStats() -> DebugStats {
+        let containerSubviews = hostView.subviews.compactMap { $0 as? WindowBrowserSlotView }
+        var mappedContainerSubviewCount = 0
+        var orphanContainerSubviewCount = 0
+        var visibleOrphanContainerSubviewCount = 0
+
+        for container in containerSubviews {
+            let isMapped = entriesByWebViewId.values.contains { entry in
+                entry.containerView === container
+            }
+            if isMapped {
+                mappedContainerSubviewCount += 1
+            } else {
+                orphanContainerSubviewCount += 1
+                if container.window != nil,
+                   !container.isHidden,
+                   container.frame.width > Self.tinyVisibleThreshold,
+                   container.frame.height > Self.tinyVisibleThreshold {
+                    visibleOrphanContainerSubviewCount += 1
+                }
+            }
+        }
+
+        let staleEntryCount = entriesByWebViewId.values.reduce(0) { partialResult, entry in
+            guard entry.webView != nil,
+                  let container = entry.containerView else {
+                return partialResult + 1
+            }
+            return (container.superview === hostView) ? partialResult : (partialResult + 1)
+        }
+
+        return DebugStats(
+            windowNumber: window?.windowNumber ?? -1,
+            entryCount: entriesByWebViewId.count,
+            hostSubviewCount: hostView.subviews.count,
+            containerSubviewCount: containerSubviews.count,
+            mappedContainerSubviewCount: mappedContainerSubviewCount,
+            orphanContainerSubviewCount: orphanContainerSubviewCount,
+            visibleOrphanContainerSubviewCount: visibleOrphanContainerSubviewCount,
+            staleEntryCount: staleEntryCount
+        )
+    }
+
     func debugEntryCount() -> Int {
         entriesByWebViewId.count
     }
@@ -2765,6 +2868,24 @@ enum BrowserWindowPortalRegistry {
     }
 
     static func bind(webView: WKWebView, to anchorView: NSView, visibleInUI: Bool, zPriority: Int = 0) {
+        bind(
+            webView: webView,
+            panelId: nil,
+            guardGeneration: nil,
+            to: anchorView,
+            visibleInUI: visibleInUI,
+            zPriority: zPriority
+        )
+    }
+
+    static func bind(
+        webView: WKWebView,
+        panelId: UUID?,
+        guardGeneration: UInt64?,
+        to anchorView: NSView,
+        visibleInUI: Bool,
+        zPriority: Int = 0
+    ) {
         guard let window = anchorView.window else { return }
 
         let windowId = ObjectIdentifier(window)
@@ -2776,7 +2897,14 @@ enum BrowserWindowPortalRegistry {
             portalsByWindowId[oldWindowId]?.detachWebView(withId: webViewId)
         }
 
-        nextPortal.bind(webView: webView, to: anchorView, visibleInUI: visibleInUI, zPriority: zPriority)
+        nextPortal.bind(
+            webView: webView,
+            guardGeneration: guardGeneration,
+            to: anchorView,
+            visibleInUI: visibleInUI,
+            zPriority: zPriority
+        )
+        nextPortal.setPanelId(forWebViewId: webViewId, panelId: panelId)
         webViewToWindowId[webViewId] = windowId
         pruneWebViewMappings(for: windowId, validWebViewIds: nextPortal.webViewIds())
     }
@@ -2801,6 +2929,46 @@ enum BrowserWindowPortalRegistry {
         guard let windowId = webViewToWindowId[webViewId],
               let portal = portalsByWindowId[windowId] else { return }
         portal.hideWebView(withId: webViewId, source: source)
+    }
+
+    @discardableResult
+    static func reconcileRuntimeTarget(
+        webView: WKWebView,
+        panelId: UUID?,
+        expectedGeneration: UInt64?,
+        target: BrowserLifecycleExecutorRuntimeTarget,
+        anchorView: NSView,
+        zPriority: Int
+    ) -> BrowserLifecycleExecutorRuntimeApplicationPlan {
+        let plan = BrowserLifecycleExecutor.runtimeApplicationPlan(target: target)
+        if plan.shouldDetachWebView {
+            detach(webView: webView)
+            return plan
+        }
+        if plan.shouldHideWebView {
+            hide(webView: webView, source: "lifecycleRuntimeTarget")
+            return plan
+        }
+        if plan.shouldUpdateEntryVisibility {
+            updateEntryVisibility(
+                for: webView,
+                visibleInUI: plan.entryVisibleInUI,
+                zPriority: zPriority
+            )
+        }
+        if plan.shouldBindVisible {
+            bind(
+                webView: webView,
+                panelId: panelId,
+                guardGeneration: expectedGeneration,
+                to: anchorView,
+                visibleInUI: true,
+                zPriority: zPriority
+            )
+        } else if plan.shouldSynchronizeForAnchor {
+            synchronizeForAnchor(anchorView)
+        }
+        return plan
     }
 
     static func updateDropZoneOverlay(for webView: WKWebView, zone: DropZone?) {
@@ -2846,9 +3014,87 @@ enum BrowserWindowPortalRegistry {
         return portal.webViewAtWindowPoint(windowPoint)
     }
 
+    static func bindingSnapshot(forPanelId panelId: UUID) -> BrowserLifecycleExecutorBindingSnapshot? {
+        for portal in portalsByWindowId.values {
+            if let snapshot = portal.bindingSnapshot(forPanelId: panelId) {
+                return snapshot
+            }
+        }
+        return nil
+    }
+
+    static func debugPanelLifecycleBindings() -> [BrowserLifecycleExecutorBindingSnapshot] {
+        portalsByWindowId.values
+            .flatMap { $0.debugBindingSnapshots() }
+            .sorted { $0.panelId.uuidString < $1.panelId.uuidString }
+    }
+
 #if DEBUG
     static func debugPortalCount() -> Int {
         portalsByWindowId.count
+    }
+
+    static func debugPanelLifecycleAudit() -> PanelLifecycleExecutorKindAuditSnapshot {
+        var portals: [PanelLifecycleExecutorAuditWindowSnapshot] = []
+        var totals = PanelLifecycleExecutorAuditTotals(
+            entryCount: 0,
+            mappedObjectCount: 0,
+            hostSubviewCount: 0,
+            hostedSubviewCount: 0,
+            mappedHostedSubviewCount: 0,
+            orphanHostedSubviewCount: 0,
+            visibleOrphanHostedSubviewCount: 0,
+            staleEntryCount: 0
+        )
+
+        for (windowId, portal) in portalsByWindowId {
+            let stats = portal.debugStats()
+            let mappedWebViewCount = webViewToWindowId.values.reduce(0) { partialResult, mappedWindowId in
+                partialResult + (mappedWindowId == windowId ? 1 : 0)
+            }
+            let integrityOK =
+                stats.orphanContainerSubviewCount == 0 &&
+                stats.visibleOrphanContainerSubviewCount == 0 &&
+                stats.staleEntryCount == 0 &&
+                mappedWebViewCount == stats.entryCount
+
+            portals.append(
+                PanelLifecycleExecutorAuditWindowSnapshot(
+                    windowNumber: stats.windowNumber,
+                    entryCount: stats.entryCount,
+                    mappedObjectCount: mappedWebViewCount,
+                    hostSubviewCount: stats.hostSubviewCount,
+                    hostedSubviewCount: stats.containerSubviewCount,
+                    mappedHostedSubviewCount: stats.mappedContainerSubviewCount,
+                    orphanHostedSubviewCount: stats.orphanContainerSubviewCount,
+                    visibleOrphanHostedSubviewCount: stats.visibleOrphanContainerSubviewCount,
+                    staleEntryCount: stats.staleEntryCount,
+                    integrityOK: integrityOK
+                )
+            )
+
+            totals = PanelLifecycleExecutorAuditTotals(
+                entryCount: totals.entryCount + stats.entryCount,
+                mappedObjectCount: totals.mappedObjectCount + mappedWebViewCount,
+                hostSubviewCount: totals.hostSubviewCount + stats.hostSubviewCount,
+                hostedSubviewCount: totals.hostedSubviewCount + stats.containerSubviewCount,
+                mappedHostedSubviewCount: totals.mappedHostedSubviewCount + stats.mappedContainerSubviewCount,
+                orphanHostedSubviewCount: totals.orphanHostedSubviewCount + stats.orphanContainerSubviewCount,
+                visibleOrphanHostedSubviewCount: totals.visibleOrphanHostedSubviewCount + stats.visibleOrphanContainerSubviewCount,
+                staleEntryCount: totals.staleEntryCount + stats.staleEntryCount
+            )
+        }
+
+        portals.sort { $0.windowNumber < $1.windowNumber }
+
+        return PanelLifecycleExecutorKindAuditSnapshot(
+            portalCount: portals.count,
+            mappingCount: webViewToWindowId.count,
+            guardedBindBlockedCount: nil,
+            guardedBindBlockedReasons: nil,
+            totals: totals,
+            portals: portals
+        )
     }
 #endif
 }

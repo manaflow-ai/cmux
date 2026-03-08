@@ -35,7 +35,7 @@ class cmuxError(Exception):
 def _default_socket_path() -> str:
     # Backwards/forward compatibility: some scripts export CMUX_SOCKET,
     # while the client historically used CMUX_SOCKET_PATH.
-    override = os.environ.get("CMUX_SOCKET_PATH") or os.environ.get("CMUX_SOCKET")
+    override = os.environ.get("CMUX_SOCKET") or os.environ.get("CMUX_SOCKET_PATH")
     if override:
         return override
     candidates = ["/tmp/cmux-debug.sock", "/tmp/cmux.sock"]
@@ -108,7 +108,7 @@ class cmux:
     DEFAULT_SOCKET_PATH = _default_socket_path()
 
     def __init__(self, socket_path: str = None):
-        self.socket_path = socket_path or self.DEFAULT_SOCKET_PATH
+        self.socket_path = socket_path or _default_socket_path()
         self._socket: Optional[socket.socket] = None
         self._recv_buffer: str = ""
         self._next_id: int = 1
@@ -203,6 +203,7 @@ class cmux:
         self._next_id += 1
 
         payload = {
+            "jsonrpc": "2.0",
             "id": req_id,
             "method": method,
             "params": params or {},
@@ -397,6 +398,20 @@ class cmux:
     def select_workspace(self, workspace: Union[str, int]) -> None:
         wsid = self._resolve_workspace_id(workspace)
         self._call("workspace.select", {"workspace_id": wsid})
+
+    def markdown_open(
+        self,
+        path: str,
+        workspace: Union[str, int, None] = None,
+        surface: Union[str, int, None] = None,
+    ) -> dict:
+        params: Dict[str, Any] = {"path": str(path)}
+        wsid = self._resolve_workspace_id(workspace)
+        if wsid:
+            params["workspace_id"] = wsid
+        if surface is not None:
+            params["surface_id"] = self._resolve_surface_id(surface)
+        return dict(self._call("markdown.open", params) or {})
 
     def rename_workspace(self, title: str, workspace: Union[str, int, None] = None) -> None:
         renamed = str(title).strip()

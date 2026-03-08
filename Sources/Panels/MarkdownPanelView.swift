@@ -7,6 +7,7 @@ struct MarkdownPanelView: View {
     @ObservedObject var panel: MarkdownPanel
     let isFocused: Bool
     let isVisibleInUI: Bool
+    let isTabDragActive: Bool
     let portalPriority: Int
     let onRequestPanelFocus: () -> Void
 
@@ -58,13 +59,30 @@ struct MarkdownPanelView: View {
                     .padding(.horizontal, 16)
 
                 // Rendered markdown
-                Markdown(panel.content)
-                    .markdownTheme(cmuxMarkdownTheme)
-                    .textSelection(.enabled)
-                    .padding(.horizontal, 24)
-                    .padding(.vertical, 16)
+                if isTabDragActive {
+                    markdownDragPreview
+                } else {
+                    Markdown(panel.content)
+                        .markdownTheme(cmuxMarkdownTheme)
+                        .textSelection(.enabled)
+                        .padding(.horizontal, 24)
+                        .padding(.vertical, 16)
+                }
             }
         }
+    }
+
+    private var markdownDragPreview: some View {
+        ScrollView {
+            Text(panel.content)
+                .font(.system(size: 13, design: .monospaced))
+                .foregroundColor(colorScheme == .dark ? .white.opacity(0.82) : .primary.opacity(0.88))
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+                .textSelection(.disabled)
+                .padding(.horizontal, 24)
+                .padding(.vertical, 16)
+        }
+        .allowsHitTesting(false)
     }
 
     private var filePathHeader: some View {
