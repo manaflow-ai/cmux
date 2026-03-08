@@ -318,6 +318,54 @@ final class SocketControlPasswordStoreConstantTimeTests: XCTestCase {
             password: "Passwort-42!", environment: [:], fileURL: fileURL))
     }
 
+    func testVerifyUnicodeCanonicalEquivalenceMatches() throws {
+        // "Café" stored as decomposed NFD ("Cafe\u{301}") must authenticate
+        // when the candidate arrives as precomposed NFC ("Café") and vice versa.
+        // constantTimeEqual normalises both sides via precomposedStringWithCanonicalMapping
+        // before comparing, so the two representations must be treated as equal.
+        let decomposed = "Cafe\u{301}"  // NFC would be "Café"
+        let composed = "Café"           // U+00E9 LATIN SMALL LETTER E WITH ACUTE
+
+        // Sanity: the two Swift String values are distinct in memory representation.
+        XCTAssertEqual(decomposed, composed, "Swift string comparison must treat these as equal (sanity check)")
+        XCTAssertEqual(decomposed.utf16.count, 5)  // decomposed: C a f e ́  (5 code units)
+        XCTAssertEqual(composed.utf16.count, 4)    // composed:  C a f é   (4 code units)
+
+        // Store as decomposed, verify with composed.
+        let fileURLDecomposed = try writeTemp(decomposed)
+        defer { try? FileManager.default.removeItem(at: fileURLDecomposed.deletingLastPathComponent()) }
+
+        XCTAssertTrue(
+            SocketControlPasswordStore.verify(password: composed, environment: [:], fileURL: fileURLDecomposed),
+            "Composed form must verify against decomposed-stored password"
+        )
+        XCTAssertTrue(
+            SocketControlPasswordStore.verify(password: decomposed, environment: [:], fileURL: fileURLDecomposed),
+            "Decomposed form must verify against decomposed-stored password"
+        )
+        XCTAssertFalse(
+            SocketControlPasswordStore.verify(password: "Cafe", environment: [:], fileURL: fileURLDecomposed),
+            "Password without accent must not verify"
+        )
+
+        // Store as composed, verify with decomposed.
+        let fileURLComposed = try writeTemp(composed)
+        defer { try? FileManager.default.removeItem(at: fileURLComposed.deletingLastPathComponent()) }
+
+        XCTAssertTrue(
+            SocketControlPasswordStore.verify(password: decomposed, environment: [:], fileURL: fileURLComposed),
+            "Decomposed form must verify against composed-stored password"
+        )
+        XCTAssertTrue(
+            SocketControlPasswordStore.verify(password: composed, environment: [:], fileURL: fileURLComposed),
+            "Composed form must verify against composed-stored password"
+        )
+        XCTAssertFalse(
+            SocketControlPasswordStore.verify(password: "Cafe", environment: [:], fileURL: fileURLComposed),
+            "Password without accent must not verify"
+        )
+    }
+
     func testVerifyLongPasswordMatches() throws {
         let longPw = String(repeating: "abcdefgh", count: 128) // 1024 chars
         let fileURL = try writeTemp(longPw)
