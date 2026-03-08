@@ -37,6 +37,8 @@ struct cmuxApp: App {
     @AppStorage(KeyboardShortcutSettings.Action.renameWorkspace.defaultsKey) private var renameWorkspaceShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.openFolder.defaultsKey) private var openFolderShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.closeWorkspace.defaultsKey) private var closeWorkspaceShortcutData = Data()
+    @AppStorage(KeyboardShortcutBehaviorSettings.swapCmdCtrlDigitShortcutsKey)
+    private var swapCmdCtrlDigitShortcuts = KeyboardShortcutBehaviorSettings.defaultSwapCmdCtrlDigitShortcuts
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     init() {

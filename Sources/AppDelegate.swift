@@ -7341,9 +7341,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 // Default: Ctrl+Number selects surfaces
                 if num >= 1 && num <= 9 {
                     if num == 9 {
-                        tabManager?.selectLastSurface()
+                        manager.selectLastSurface()
                     } else {
-                        tabManager?.selectSurface(at: num - 1)
+                        manager.selectSurface(at: num - 1)
                     }
                     return true
                 }
