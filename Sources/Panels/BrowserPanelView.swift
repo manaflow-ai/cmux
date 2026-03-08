@@ -4310,11 +4310,27 @@ struct WebViewRepresentable: NSViewRepresentable {
             coordinator.lastPortalHostId = ObjectIdentifier(host)
             coordinator.lastSynchronizedHostGeometryRevision = host.geometryRevision
         }
-        host.onGeometryChanged = { [weak host, weak coordinator, weak portalAnchorView] in
-            guard let host, let coordinator, let portalAnchorView else { return }
+        host.onGeometryChanged = { [weak host, weak webView, weak coordinator, weak portalAnchorView] in
+            guard let host, let webView, let coordinator, let portalAnchorView else { return }
             guard coordinator.attachGeneration == generation else { return }
             guard coordinator.lastPortalHostId == ObjectIdentifier(host) else { return }
             Self.installPortalAnchorView(portalAnchorView, in: host)
+            if host.window != nil,
+               !BrowserWindowPortalRegistry.isWebView(webView, boundTo: portalAnchorView) {
+                BrowserWindowPortalRegistry.bind(
+                    webView: webView,
+                    to: portalAnchorView,
+                    visibleInUI: coordinator.desiredPortalVisibleInUI,
+                    zPriority: coordinator.desiredPortalZPriority
+                )
+                BrowserWindowPortalRegistry.updatePaneTopChromeHeight(
+                    for: webView,
+                    height: coordinator.desiredPortalVisibleInUI ? paneTopChromeHeight : 0
+                )
+                BrowserWindowPortalRegistry.updatePaneDropContext(for: webView, context: paneDropContext)
+                BrowserWindowPortalRegistry.updateSearchOverlay(for: webView, configuration: activeSearchOverlay)
+                coordinator.lastPortalHostId = ObjectIdentifier(host)
+            }
             BrowserWindowPortalRegistry.synchronizeForAnchor(portalAnchorView)
             coordinator.lastSynchronizedHostGeometryRevision = host.geometryRevision
         }
@@ -4328,9 +4344,11 @@ struct WebViewRepresentable: NSViewRepresentable {
         if host.window != nil {
             let hostId = ObjectIdentifier(host)
             let geometryRevision = host.geometryRevision
+            let portalEntryMissing = !BrowserWindowPortalRegistry.isWebView(webView, boundTo: portalAnchorView)
             let shouldBindNow =
                 coordinator.lastPortalHostId != hostId ||
                 webView.superview == nil ||
+                portalEntryMissing ||
                 previousVisible != shouldAttachWebView ||
                 previousZPriority != portalZPriority
             if shouldBindNow {

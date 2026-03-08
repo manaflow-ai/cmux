@@ -19,6 +19,68 @@ private func browserPortalDebugFrame(_ rect: NSRect) -> String {
 }
 #endif
 
+private extension NSObject {
+    @discardableResult
+    func browserPortalCallVoidIfAvailable(_ rawSelector: String) -> Bool {
+        let selector = NSSelectorFromString(rawSelector)
+        guard responds(to: selector) else { return false }
+        typealias Fn = @convention(c) (AnyObject, Selector) -> Void
+        let fn = unsafeBitCast(method(for: selector), to: Fn.self)
+        fn(self, selector)
+        return true
+    }
+}
+
+private extension WKWebView {
+    func browserPortalNotifyHidden(reason: String) {
+        let firedSelectors = ["viewDidHide", "_exitInWindow"].filter {
+            browserPortalCallVoidIfAvailable($0)
+        }
+#if DEBUG
+        if !firedSelectors.isEmpty {
+            dlog(
+                "browser.portal.webview.hidden web=\(browserPortalDebugToken(self)) " +
+                "reason=\(reason) selectors=\(firedSelectors.joined(separator: ","))"
+            )
+        }
+#endif
+    }
+
+    func browserPortalReattachRenderingState(reason: String) {
+        guard window != nil else { return }
+
+        let firedSelectors = [
+            "viewDidUnhide",
+            "_enterInWindow",
+            "_endDeferringViewInWindowChangesSync",
+        ].filter {
+            browserPortalCallVoidIfAvailable($0)
+        }
+
+        if let scrollView = enclosingScrollView {
+            scrollView.needsLayout = true
+            scrollView.needsDisplay = true
+            scrollView.setNeedsDisplay(scrollView.bounds)
+            scrollView.contentView.needsLayout = true
+            scrollView.contentView.needsDisplay = true
+        }
+
+        needsLayout = true
+        needsDisplay = true
+        setNeedsDisplay(bounds)
+
+#if DEBUG
+        if !firedSelectors.isEmpty {
+            dlog(
+                "browser.portal.webview.reattach web=\(browserPortalDebugToken(self)) " +
+                "reason=\(reason) selectors=\(firedSelectors.joined(separator: ",")) " +
+                "frame=\(browserPortalDebugFrame(frame))"
+            )
+        }
+#endif
+    }
+}
+
 final class WindowBrowserHostView: NSView {
     private struct DividerRegion {
         let rectInWindow: NSRect
@@ -1867,10 +1929,11 @@ final class WindowBrowserPortal: NSObject {
         return created
     }
 
-    private func refreshHostedWebViewPresentation(
+    private func runHostedWebViewRefreshPass(
         _ webView: WKWebView,
         in containerView: WindowBrowserSlotView,
-        reason: String
+        reason: String,
+        phase: String
     ) {
         guard !containerView.isHidden else { return }
 
@@ -1882,30 +1945,59 @@ final class WindowBrowserPortal: NSObject {
             scrollView.needsLayout = true
             scrollView.needsDisplay = true
             scrollView.setNeedsDisplay(scrollView.bounds)
+            scrollView.contentView.needsLayout = true
+            scrollView.contentView.needsDisplay = true
         }
 
         webView.needsLayout = true
         webView.needsDisplay = true
         webView.setNeedsDisplay(webView.bounds)
-        DispatchQueue.main.async { [weak self, weak webView, weak containerView] in
-            guard let self, let webView, let containerView, !containerView.isHidden else { return }
 
-            containerView.layoutSubtreeIfNeeded()
-            if let scrollView = webView.enclosingScrollView {
-                scrollView.layoutSubtreeIfNeeded()
-                scrollView.displayIfNeeded()
-            }
-            webView.layoutSubtreeIfNeeded()
-            containerView.displayIfNeeded()
-            webView.displayIfNeeded()
-            (webView.window ?? self.hostView.window)?.displayIfNeeded()
+        containerView.layoutSubtreeIfNeeded()
+        if let scrollView = webView.enclosingScrollView {
+            scrollView.layoutSubtreeIfNeeded()
+            scrollView.contentView.layoutSubtreeIfNeeded()
+            scrollView.displayIfNeeded()
+        }
+        webView.layoutSubtreeIfNeeded()
+        webView.browserPortalReattachRenderingState(reason: "\(reason):\(phase)")
+        containerView.displayIfNeeded()
+        webView.displayIfNeeded()
+        (webView.window ?? hostView.window)?.displayIfNeeded()
 #if DEBUG
-            dlog(
-                "browser.portal.refresh web=\(browserPortalDebugToken(webView)) " +
-                "container=\(browserPortalDebugToken(containerView)) reason=\(reason) " +
-                "frame=\(browserPortalDebugFrame(containerView.frame))"
-            )
+        dlog(
+            "browser.portal.refresh web=\(browserPortalDebugToken(webView)) " +
+            "container=\(browserPortalDebugToken(containerView)) reason=\(reason) " +
+            "phase=\(phase) frame=\(browserPortalDebugFrame(containerView.frame))"
+        )
 #endif
+    }
+
+    private func refreshHostedWebViewPresentation(
+        _ webView: WKWebView,
+        in containerView: WindowBrowserSlotView,
+        reason: String
+    ) {
+        guard !containerView.isHidden else { return }
+
+        runHostedWebViewRefreshPass(webView, in: containerView, reason: reason, phase: "immediate")
+        DispatchQueue.main.async { [weak self, weak webView, weak containerView] in
+            guard let self, let webView, let containerView else { return }
+            self.runHostedWebViewRefreshPass(
+                webView,
+                in: containerView,
+                reason: reason,
+                phase: "async"
+            )
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) { [weak self, weak webView, weak containerView] in
+            guard let self, let webView, let containerView else { return }
+            self.runHostedWebViewRefreshPass(
+                webView,
+                in: containerView,
+                reason: reason,
+                phase: "delayed"
+            )
         }
     }
 
@@ -1965,6 +2057,7 @@ final class WindowBrowserPortal: NSObject {
             "hadContainerSuperview=\(hadContainerSuperview) hadWebSuperview=\(hadWebSuperview)"
         )
 #endif
+        entry.webView?.browserPortalNotifyHidden(reason: "detach")
         entry.webView?.removeFromSuperview()
         entry.containerView?.removeFromSuperview()
     }
@@ -1978,6 +2071,12 @@ final class WindowBrowserPortal: NSObject {
         entry.visibleInUI = visibleInUI
         entry.zPriority = zPriority
         entriesByWebViewId[webViewId] = entry
+    }
+
+    func isWebViewBoundToAnchor(withId webViewId: ObjectIdentifier, anchorView: NSView) -> Bool {
+        guard let entry = entriesByWebViewId[webViewId],
+              let boundAnchor = entry.anchorView else { return false }
+        return boundAnchor === anchorView
     }
 
     func hideWebView(withId webViewId: ObjectIdentifier, source: String = "externalHide") {
@@ -2022,6 +2121,26 @@ final class WindowBrowserPortal: NSObject {
         entry.paneTopChromeHeight = resolvedHeight
         entriesByWebViewId[webViewId] = entry
         entry.containerView?.setPaneTopChromeHeight(resolvedHeight)
+    }
+
+    func forceRefreshWebView(withId webViewId: ObjectIdentifier, reason: String) {
+        guard ensureInstalled() else { return }
+        synchronizeWebView(
+            withId: webViewId,
+            source: "forceRefresh",
+            forcePresentationRefresh: true
+        )
+        guard let entry = entriesByWebViewId[webViewId],
+              let webView = entry.webView,
+              let containerView = entry.containerView,
+              !containerView.isHidden else {
+            return
+        }
+        refreshHostedWebViewPresentation(
+            webView,
+            in: containerView,
+            reason: reason
+        )
     }
 
     func bind(webView: WKWebView, to anchorView: NSView, visibleInUI: Bool, zPriority: Int = 0) {
@@ -2253,6 +2372,15 @@ final class WindowBrowserPortal: NSObject {
             }
             return
         }
+        func hideContainerView(reason: String) {
+            containerView.setPaneTopChromeHeight(0)
+            containerView.setSearchOverlay(nil)
+            containerView.setDropZoneOverlay(zone: nil)
+            if !containerView.isHidden {
+                webView.browserPortalNotifyHidden(reason: reason)
+            }
+            containerView.isHidden = true
+        }
         func scheduleTransientDetachRecovery(reason: String) -> Bool {
             guard entry.visibleInUI else { return false }
             return scheduleTransientRecoveryRetryIfNeeded(
@@ -2264,10 +2392,7 @@ final class WindowBrowserPortal: NSObject {
         }
         guard let anchorView = entry.anchorView, let window else {
             if scheduleTransientDetachRecovery(reason: "missingAnchorOrWindow") {
-                containerView.setPaneTopChromeHeight(0)
-                containerView.setSearchOverlay(nil)
-                containerView.setDropZoneOverlay(zone: nil)
-                containerView.isHidden = true
+                hideContainerView(reason: "missingAnchorOrWindow")
                 return
             }
             if !entry.visibleInUI {
@@ -2281,10 +2406,7 @@ final class WindowBrowserPortal: NSObject {
                 )
             }
 #endif
-            containerView.setPaneTopChromeHeight(0)
-            containerView.setSearchOverlay(nil)
-            containerView.setDropZoneOverlay(zone: nil)
-            containerView.isHidden = true
+            hideContainerView(reason: "missingAnchorOrWindow")
             return
         }
         guard anchorView.window === window else {
@@ -2311,10 +2433,7 @@ final class WindowBrowserPortal: NSObject {
                 return
             }
             if scheduleTransientDetachRecovery(reason: "anchorWindowMismatch") {
-                containerView.setPaneTopChromeHeight(0)
-                containerView.setSearchOverlay(nil)
-                containerView.setDropZoneOverlay(zone: nil)
-                containerView.isHidden = true
+                hideContainerView(reason: "anchorWindowMismatch")
                 return
             }
 #if DEBUG
@@ -2329,10 +2448,7 @@ final class WindowBrowserPortal: NSObject {
             if !entry.visibleInUI {
                 resetTransientRecoveryRetryIfNeeded(forWebViewId: webViewId, entry: &entry)
             }
-            containerView.setPaneTopChromeHeight(0)
-            containerView.setSearchOverlay(nil)
-            containerView.setDropZoneOverlay(zone: nil)
-            containerView.isHidden = true
+            hideContainerView(reason: "anchorWindowMismatch")
             return
         }
 
@@ -2411,9 +2527,7 @@ final class WindowBrowserPortal: NSObject {
             } else {
                 resetTransientRecoveryRetryIfNeeded(forWebViewId: webViewId, entry: &entry)
             }
-            containerView.setSearchOverlay(nil)
-            containerView.setDropZoneOverlay(zone: nil)
-            containerView.isHidden = true
+            hideContainerView(reason: "hostBoundsNotReady")
             if entry.visibleInUI {
                 _ = scheduleTransientRecoveryRetryIfNeeded(
                     forWebViewId: webViewId,
@@ -2570,7 +2684,7 @@ final class WindowBrowserPortal: NSObject {
                     "host=\(browserPortalDebugFrame(hostBounds))"
             )
 #endif
-            containerView.isHidden = true
+            hideContainerView(reason: transientRecoveryReason ?? "geometryHidden")
         } else if !shouldHide, containerView.isHidden {
 #if DEBUG
             dlog(
@@ -2796,6 +2910,15 @@ enum BrowserWindowPortalRegistry {
         portal.updateEntryVisibility(forWebViewId: webViewId, visibleInUI: visibleInUI, zPriority: zPriority)
     }
 
+    static func isWebView(_ webView: WKWebView, boundTo anchorView: NSView) -> Bool {
+        let webViewId = ObjectIdentifier(webView)
+        guard let window = anchorView.window else { return false }
+        let windowId = ObjectIdentifier(window)
+        guard webViewToWindowId[webViewId] == windowId,
+              let portal = portalsByWindowId[windowId] else { return false }
+        return portal.isWebViewBoundToAnchor(withId: webViewId, anchorView: anchorView)
+    }
+
     static func hide(webView: WKWebView, source: String = "externalHide") {
         let webViewId = ObjectIdentifier(webView)
         guard let windowId = webViewToWindowId[webViewId],
@@ -2844,6 +2967,13 @@ enum BrowserWindowPortalRegistry {
         let windowId = ObjectIdentifier(window)
         guard let portal = portalsByWindowId[windowId] else { return nil }
         return portal.webViewAtWindowPoint(windowPoint)
+    }
+
+    static func refresh(webView: WKWebView, reason: String) {
+        let webViewId = ObjectIdentifier(webView)
+        guard let windowId = webViewToWindowId[webViewId],
+              let portal = portalsByWindowId[windowId] else { return }
+        portal.forceRefreshWebView(withId: webViewId, reason: reason)
     }
 
 #if DEBUG
