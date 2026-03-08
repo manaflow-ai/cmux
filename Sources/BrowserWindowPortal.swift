@@ -2390,7 +2390,28 @@ final class WindowBrowserPortal: NSObject {
                 reason: reason
             )
         }
+        func preserveVisibleDuringTransientDetach(reason: String) -> Bool {
+            guard entry.visibleInUI, !containerView.isHidden else { return false }
+            let didScheduleTransientRecovery = scheduleTransientRecoveryRetryIfNeeded(
+                forWebViewId: webViewId,
+                entry: &entry,
+                webView: webView,
+                reason: reason
+            )
+            guard didScheduleTransientRecovery else { return false }
+#if DEBUG
+            dlog(
+                "browser.portal.hidden.deferKeep web=\(browserPortalDebugToken(webView)) " +
+                "reason=\(reason) frame=\(browserPortalDebugFrame(containerView.frame))"
+            )
+#endif
+            containerView.setDropZoneOverlay(zone: nil)
+            return true
+        }
         guard let anchorView = entry.anchorView, let window else {
+            if preserveVisibleDuringTransientDetach(reason: "missingAnchorOrWindow") {
+                return
+            }
             if scheduleTransientDetachRecovery(reason: "missingAnchorOrWindow") {
                 hideContainerView(reason: "missingAnchorOrWindow")
                 return
@@ -2415,21 +2436,15 @@ final class WindowBrowserPortal: NSObject {
                 anchorView.window == nil &&
                 anchorView.superview != nil
             if isOffWindowReparent {
-                let didScheduleTransientRecovery = scheduleTransientRecoveryRetryIfNeeded(
-                    forWebViewId: webViewId,
-                    entry: &entry,
-                    webView: webView,
-                    reason: "anchorWindowMismatch"
-                )
-#if DEBUG
-                if didScheduleTransientRecovery && !containerView.isHidden {
-                    dlog(
-                        "browser.portal.hidden.deferKeep web=\(browserPortalDebugToken(webView)) " +
-                        "reason=anchorWindowMismatch.offWindow frame=\(browserPortalDebugFrame(containerView.frame))"
-                    )
+                if preserveVisibleDuringTransientDetach(reason: "anchorWindowMismatch.offWindow") {
+                    return
                 }
-#endif
-                containerView.setDropZoneOverlay(zone: nil)
+                if scheduleTransientDetachRecovery(reason: "anchorWindowMismatch") {
+                    hideContainerView(reason: "anchorWindowMismatch")
+                    return
+                }
+            }
+            if preserveVisibleDuringTransientDetach(reason: "anchorWindowMismatch") {
                 return
             }
             if scheduleTransientDetachRecovery(reason: "anchorWindowMismatch") {
