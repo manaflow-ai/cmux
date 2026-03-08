@@ -9229,15 +9229,13 @@ private struct SidebarMetadataEntryRow: View {
     }
 
     private var foregroundColor: Color {
-        if isActive,
-           let raw = entry.color,
-           Color(hex: raw) != nil {
-            return Color(nsColor: sidebarSelectedWorkspaceForegroundNSColor(opacity: 0.95))
+        if isActive {
+            return .white
         }
         if let raw = entry.color, let explicit = Color(hex: raw) {
             return contrastAdjusted(explicit)
         }
-        return isActive ? .white.opacity(0.8) : .secondary
+        return .secondary
     }
 
     private func contrastAdjusted(_ color: Color) -> Color {
