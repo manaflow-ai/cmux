@@ -370,7 +370,29 @@ printf "send_key ctrl-c\n"            | nc -U $SOCK
 - Use `list_surfaces <ws-uuid>` to get surface UUIDs, then `send_surface <uuid>` to steer without changing focus.
 - The coding agent's tab is named **`cmux_coder`** — it is a surface tab inside the `cmux:ubuntu` workspace, not a separate workspace.
 
-### Finding a tab efficiently
+### Finding a tab — always use workspace NAME
+
+**Never rely on workspace index or surface index.** The user can switch workspaces at any time,
+shifting indices. Always look up by workspace name:
+
+```bash
+# 1. Find workspace by name
+printf "list_workspaces\n" | nc -U $SOCK
+# Output example:
+#   0: D267DC10-... cmux: ubuntu
+# * 1: 9075D919-... exp: statusline   ← user may be here, irrelevant
+#   2: 258EB4B4-... o: mctrl
+
+# 2. Get surfaces in the named workspace
+WS_UUID=$(printf "list_workspaces\n" | nc -U $SOCK | grep "cmux: ubuntu" | grep -oE '[A-F0-9-]{36}')
+printf "list_surfaces $WS_UUID\n" | nc -U $SOCK
+# Output:
+#   * 0: 87DB76A9-...   supervisor
+#     1: F05FCE84-...   cmux_coder
+
+# 3. Send by UUID — works regardless of which workspace user has focused
+printf "send_surface F05FCE84-ECA7-4944-BCAA-7DFFC105D0D9 your message\n" | nc -U $SOCK
+```
 
 `read_screen` and `send_surface` behave differently across workspaces:
 
@@ -379,39 +401,23 @@ printf "send_key ctrl-c\n"            | nc -U $SOCK
 | `read_screen <uuid>` | ❌ fails — only works in current workspace |
 | `send_surface <uuid> <text>` | ✅ works — delivers even if not current workspace |
 
-**Correct workflow to find an unknown tab:**
-
-```bash
-# 1. Get all surface UUIDs across all workspaces (no switching needed)
-for ws_uuid in $(printf "list_workspaces\n" | nc -U $SOCK | grep -oE '[A-F0-9-]{36}'); do
-  printf "list_surfaces $ws_uuid\n" | nc -U $SOCK
-done
-
-# 2. Try send_surface on candidate UUIDs — it works cross-workspace
-printf "send_surface <uuid> test\n" | nc -U $SOCK
-# Returns OK even across workspaces. Confirm with user which pane received it.
-
-# 3. Once confirmed, use that UUID for all future sends
-printf "send_surface <uuid> cargo test\n" | nc -U $SOCK
-```
-
-Do **not** try to read first to identify — just send and confirm. `read_screen` requires being in the right workspace; `send_surface` does not.
-
 ### Typing into another agent's pane (human simulation)
 
 `send_surface` types text into the input box but does **not** submit. Use `send_key_surface enter` to submit.
 
 ```bash
+UUID="F05FCE84-ECA7-4944-BCAA-7DFFC105D0D9"  # cmux_coder
+
 # Pattern: clear → type → enter
-printf "send_key_surface 1 ctrl-a\n" | nc -U $SOCK   # go to start
-printf "send_key_surface 1 ctrl-k\n" | nc -U $SOCK   # clear line
-printf "send_surface 1 your message here\n" | nc -U $SOCK
+printf "send_key_surface $UUID ctrl-a\n" | nc -U $SOCK
+printf "send_key_surface $UUID ctrl-k\n" | nc -U $SOCK
+printf "send_surface $UUID your message here\n" | nc -U $SOCK
 sleep 0.2
-printf "send_key_surface 1 enter\n" | nc -U $SOCK
+printf "send_key_surface $UUID enter\n" | nc -U $SOCK
 ```
 
 If `send_surface` returns `ERROR: Failed to send input` — the terminal is busy running a command. Wait and retry.
 
-**Surface layout in cmux:ubuntu workspace:**
-- Surface `0` = supervisor (cmux)
-- Surface `1` = coder (cmux_coder)
+**Surface layout in `cmux: ubuntu` workspace (UUID: D267DC10-B8C2-437C-B481-2AFD3167BA69):**
+- Surface `0` (UUID: `87DB76A9-60A8-43FC-BFC2-51A5DECEA9B8`) = supervisor (cmux)
+- Surface `1` (UUID: `F05FCE84-ECA7-4944-BCAA-7DFFC105D0D9`) = coder (cmux_coder)
