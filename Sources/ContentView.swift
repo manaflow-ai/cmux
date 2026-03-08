@@ -8488,9 +8488,13 @@ private struct SidebarHelpMenuButton: View {
         }
         .buttonStyle(SidebarFooterIconButtonStyle())
         .frame(width: buttonSize, height: buttonSize, alignment: .center)
-        .popover(isPresented: $isPopoverPresented, arrowEdge: .bottom) {
+        .background(ArrowlessPopoverAnchor(
+            isPresented: $isPopoverPresented,
+            preferredEdge: .maxY,
+            detachedGap: 4
+        ) {
             helpPopover
-        }
+        })
         .accessibilityElement(children: .ignore)
         .safeHelp(helpTitle)
         .accessibilityLabel(helpTitle)
@@ -8648,6 +8652,153 @@ private struct SidebarHelpMenuButton: View {
             return fallback
         }
         return shortcut
+    }
+}
+
+private struct ArrowlessPopoverAnchor<PopoverContent: View>: NSViewRepresentable {
+    @Binding var isPresented: Bool
+    let preferredEdge: NSRectEdge
+    let detachedGap: CGFloat
+    @ViewBuilder let content: () -> PopoverContent
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        context.coordinator.anchorView = view
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        context.coordinator.anchorView = nsView
+        context.coordinator.updateRootView(AnyView(content()))
+
+        if isPresented {
+            context.coordinator.present(
+                preferredEdge: preferredEdge,
+                detachedGap: detachedGap
+            )
+        } else {
+            context.coordinator.dismiss()
+        }
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(isPresented: $isPresented)
+    }
+
+    final class Coordinator: NSObject, NSPopoverDelegate {
+        @Binding var isPresented: Bool
+
+        weak var anchorView: NSView?
+        private let hostingController = NSHostingController(rootView: AnyView(EmptyView()))
+        private var popover: NSPopover?
+
+        init(isPresented: Binding<Bool>) {
+            _isPresented = isPresented
+        }
+
+        func updateRootView(_ rootView: AnyView) {
+            hostingController.rootView = AnyView(rootView.fixedSize())
+            hostingController.view.invalidateIntrinsicContentSize()
+            hostingController.view.layoutSubtreeIfNeeded()
+        }
+
+        func present(preferredEdge: NSRectEdge, detachedGap: CGFloat) {
+            guard let anchorView else {
+                isPresented = false
+                dismiss()
+                return
+            }
+
+            let popover = popover ?? makePopover()
+            if popover.isShown {
+                return
+            }
+
+            hostingController.view.invalidateIntrinsicContentSize()
+            hostingController.view.layoutSubtreeIfNeeded()
+            let fittingSize = hostingController.view.fittingSize
+            if fittingSize.width > 0, fittingSize.height > 0 {
+                popover.contentSize = NSSize(
+                    width: ceil(fittingSize.width),
+                    height: ceil(fittingSize.height)
+                )
+            }
+
+            popover.show(
+                relativeTo: positioningRect(
+                    for: anchorView.bounds,
+                    preferredEdge: preferredEdge,
+                    detachedGap: detachedGap
+                ),
+                of: anchorView,
+                preferredEdge: preferredEdge
+            )
+        }
+
+        func dismiss() {
+            popover?.performClose(nil)
+            popover = nil
+        }
+
+        func popoverDidClose(_ notification: Notification) {
+            popover = nil
+            if isPresented {
+                isPresented = false
+            }
+        }
+
+        private func makePopover() -> NSPopover {
+            let popover = NSPopover()
+            popover.behavior = .semitransient
+            popover.animates = true
+            popover.setValue(true, forKeyPath: "shouldHideAnchor")
+            popover.contentViewController = hostingController
+            popover.delegate = self
+            self.popover = popover
+            return popover
+        }
+
+        private func positioningRect(
+            for bounds: CGRect,
+            preferredEdge: NSRectEdge,
+            detachedGap: CGFloat
+        ) -> CGRect {
+            let hiddenArrowInset: CGFloat = 13
+            let compensation = max(hiddenArrowInset - detachedGap, 0)
+
+            switch preferredEdge {
+            case .maxY:
+                return NSRect(
+                    x: bounds.minX,
+                    y: bounds.maxY - compensation,
+                    width: bounds.width,
+                    height: compensation
+                )
+            case .minY:
+                return NSRect(
+                    x: bounds.minX,
+                    y: bounds.minY,
+                    width: bounds.width,
+                    height: compensation
+                )
+            case .maxX:
+                return NSRect(
+                    x: bounds.maxX - compensation,
+                    y: bounds.minY,
+                    width: compensation,
+                    height: bounds.height
+                )
+            case .minX:
+                return NSRect(
+                    x: bounds.minX,
+                    y: bounds.minY,
+                    width: compensation,
+                    height: bounds.height
+                )
+            @unknown default:
+                return bounds
+            }
+        }
     }
 }
 
