@@ -11207,6 +11207,90 @@ final class TerminalOpenURLTargetResolutionTests: XCTestCase {
     }
 }
 
+final class TerminalCommandClickPathResolutionTests: XCTestCase {
+    func testResolvesRelativeFilenameAgainstWorkingDirectory() throws {
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let file = root.appendingPathComponent("README.md")
+        try Data("hello".utf8).write(to: file)
+
+        let resolved = resolveTerminalCommandClickFileURL(
+            line: "README.md",
+            clickedColumn: 2,
+            workingDirectory: root.path
+        )
+
+        XCTAssertEqual(resolved?.standardizedFileURL, file.standardizedFileURL)
+    }
+
+    func testResolvesLineColumnSuffixToUnderlyingFile() throws {
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let file = root.appendingPathComponent("Sources/AppDelegate.swift")
+        try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("hello".utf8).write(to: file)
+
+        let resolved = resolveTerminalCommandClickFileURL(
+            line: "Sources/AppDelegate.swift:42:7",
+            clickedColumn: 10,
+            workingDirectory: root.path
+        )
+
+        XCTAssertEqual(resolved?.standardizedFileURL, file.standardizedFileURL)
+    }
+
+    func testResolvesLsClassifyDirectoryMarker() throws {
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let directory = root.appendingPathComponent("docs", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+
+        let resolved = resolveTerminalCommandClickFileURL(
+            line: "docs/",
+            clickedColumn: 2,
+            workingDirectory: root.path
+        )
+
+        XCTAssertEqual(resolved?.standardizedFileURL, directory.standardizedFileURL)
+    }
+
+    func testResolvesLsClassifyExecutableMarker() throws {
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let file = root.appendingPathComponent("build-tool")
+        try Data("hello".utf8).write(to: file)
+
+        let resolved = resolveTerminalCommandClickFileURL(
+            line: "build-tool*",
+            clickedColumn: 3,
+            workingDirectory: root.path
+        )
+
+        XCTAssertEqual(resolved?.standardizedFileURL, file.standardizedFileURL)
+    }
+
+    func testReturnsNilWithoutWorkingDirectoryForRelativePath() {
+        XCTAssertNil(
+            resolveTerminalCommandClickFileURL(
+                line: "README.md",
+                clickedColumn: 2,
+                workingDirectory: nil
+            )
+        )
+    }
+
+    private func makeTemporaryDirectory() throws -> URL {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+        let directory = root.appendingPathComponent("TerminalCommandClickPathResolutionTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory
+    }
+}
+
 final class BrowserNavigableURLResolutionTests: XCTestCase {
     func testResolvesFileSchemeAsNavigableURL() throws {
         let resolved = try XCTUnwrap(resolveBrowserNavigableURL("file:///tmp/cmux-local-test.html"))
