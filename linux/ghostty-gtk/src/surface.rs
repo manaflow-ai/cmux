@@ -27,6 +27,16 @@ enum ImeKeyEventState {
     Composing,
 }
 
+fn cstring_input(text: &str, context: &'static str) -> Option<std::ffi::CString> {
+    match std::ffi::CString::new(text) {
+        Ok(cstr) => Some(cstr),
+        Err(_) => {
+            tracing::warn!("Ignoring {} containing interior NUL", context);
+            None
+        }
+    }
+}
+
 // Minimal GL bindings for viewport setup.
 // GtkGLArea does NOT set glViewport before emitting the render signal,
 // but ghostty's renderer reads GL_VIEWPORT to determine the surface size.
@@ -178,9 +188,12 @@ mod imp {
             if !surface.is_null() && width > 0 && height > 0 {
                 #[cfg(feature = "link-ghostty")]
                 unsafe {
-                    let scale = self.obj().scale_factor() as f64;
+                    let scale = self.obj().scale_factor();
+                    let width_px = width.saturating_mul(scale) as u32;
+                    let height_px = height.saturating_mul(scale) as u32;
+                    let scale = scale as f64;
                     ghostty_surface_set_content_scale(surface, scale, scale);
-                    ghostty_surface_set_size(surface, width as u32, height as u32);
+                    ghostty_surface_set_size(surface, width_px, height_px);
                 }
 
                 self.obj().schedule_resize_focus_restore();
@@ -653,7 +666,9 @@ impl GhosttyGlSurface {
 
         #[cfg(feature = "link-ghostty")]
         {
-            let cstr = std::ffi::CString::new(text).unwrap();
+            let Some(cstr) = cstring_input(text, "terminal text input") else {
+                return;
+            };
             unsafe {
                 ghostty_surface_text(surface, cstr.as_ptr(), text.len());
             }
@@ -731,8 +746,7 @@ impl GhosttyGlSurface {
         #[cfg(not(feature = "link-ghostty"))]
         let _ = text;
 
-        let Ok(cstr) = std::ffi::CString::new(text) else {
-            tracing::warn!("Ignoring IME commit containing interior NUL");
+        let Some(cstr) = cstring_input(text, "IME commit") else {
             return;
         };
 
@@ -762,8 +776,7 @@ impl GhosttyGlSurface {
 
         #[cfg(feature = "link-ghostty")]
         {
-            let Ok(cstr) = std::ffi::CString::new(text) else {
-                tracing::warn!("Ignoring IME preedit containing interior NUL");
+            let Some(cstr) = cstring_input(text, "IME preedit") else {
                 return;
             };
 
@@ -848,6 +861,21 @@ impl GhosttyGlSurface {
         }
         #[cfg(not(feature = "link-ghostty"))]
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::cstring_input;
+
+    #[test]
+    fn cstring_input_accepts_valid_text() {
+        assert!(cstring_input("hello", "test").is_some());
+    }
+
+    #[test]
+    fn cstring_input_rejects_interior_nul() {
+        assert!(cstring_input("hel\0lo", "test").is_none());
     }
 }
 

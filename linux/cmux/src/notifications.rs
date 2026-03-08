@@ -111,14 +111,18 @@ impl NotificationStore {
 
 /// Send a desktop notification using gio::Notification.
 fn send_desktop_notification(title: &str, body: &str) {
-    // Use gio::Notification for GNOME-native notifications
-    let notification = gio::Notification::new(title);
-    notification.set_body(Some(body));
+    let title = title.to_string();
+    let body = body.to_string();
 
-    if let Some(app) = gio::Application::default() {
-        use gio::prelude::ApplicationExt;
-        app.send_notification(None, &notification);
-    } else {
-        tracing::info!("Desktop notification (app unavailable): {} - {}", title, body);
-    }
+    glib::MainContext::default().invoke(move || {
+        let notification = gio::Notification::new(&title);
+        notification.set_body(Some(&body));
+
+        if let Some(app) = gio::Application::default() {
+            use gio::prelude::ApplicationExt;
+            app.send_notification(None, &notification);
+        } else {
+            tracing::info!("Desktop notification (app unavailable): {} - {}", title, body);
+        }
+    });
 }

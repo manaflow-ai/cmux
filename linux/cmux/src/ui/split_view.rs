@@ -1,5 +1,6 @@
 //! Split view — recursive GtkPaned tree from LayoutNode.
 
+use std::cell::Cell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
@@ -135,21 +136,42 @@ fn build_split(
     paned.set_hexpand(true);
     paned.set_vexpand(true);
 
+    let first_panel_ids = first.all_panel_ids();
+    let second_panel_ids = second.all_panel_ids();
     let first_widget = build_layout(first, panels, attention_panel_id, state);
     let second_widget = build_layout(second, panels, attention_panel_id, state);
 
     paned.set_start_child(Some(&first_widget));
     paned.set_end_child(Some(&second_widget));
 
-    // Set divider position after the widget is mapped
     let pos = divider_position;
-    paned.connect_map(move |paned| {
+    let initial_position_applied = Rc::new(Cell::new(false));
+    let state = Rc::clone(state);
+    let initial_position_applied_for_notify = Rc::clone(&initial_position_applied);
+    paned.connect_position_notify(move |paned| {
         let size = match paned.orientation() {
             gtk4::Orientation::Horizontal => paned.width(),
             _ => paned.height(),
         };
-        if size > 0 {
-            paned.set_position((size as f64 * pos) as i32);
+        if size <= 0 {
+            return;
+        }
+
+        if !initial_position_applied_for_notify.replace(true) {
+            let desired_position = (size as f64 * pos) as i32;
+            if paned.position() != desired_position {
+                paned.set_position(desired_position);
+            }
+            return;
+        }
+
+        let divider_position = (paned.position() as f64 / size as f64).clamp(0.0, 1.0);
+        if let Some(workspace) = state.shared.tab_manager.lock().unwrap().selected_mut() {
+            let _ = workspace.layout.set_divider_position_for_split(
+                &first_panel_ids,
+                &second_panel_ids,
+                divider_position,
+            );
         }
     });
 

@@ -76,6 +76,7 @@ pub struct Progress {
 impl Workspace {
     /// Create a new workspace with a single terminal panel.
     pub fn new() -> Self {
+        let current_directory = std::env::var("HOME").unwrap_or_else(|_| "/".to_string());
         let panel = Panel::new_terminal();
         let panel_id = panel.id;
         let mut panels = HashMap::new();
@@ -87,7 +88,7 @@ impl Workspace {
             custom_title: None,
             custom_color: None,
             is_pinned: false,
-            current_directory: std::env::var("HOME").unwrap_or_else(|_| "/".to_string()),
+            current_directory,
             focused_panel_id: Some(panel_id),
             layout: LayoutNode::single_pane(panel_id),
             panels,
@@ -106,6 +107,11 @@ impl Workspace {
     pub fn with_directory(directory: &str) -> Self {
         let mut ws = Self::new();
         ws.current_directory = directory.to_string();
+        if let Some(panel_id) = ws.focused_panel_id {
+            if let Some(panel) = ws.panels.get_mut(&panel_id) {
+                panel.directory = Some(directory.to_string());
+            }
+        }
         ws
     }
 
@@ -254,10 +260,6 @@ impl Workspace {
         self.latest_notification = Some(notification_summary(title, body));
         self.latest_notification_at = Some(now);
         self.attention_panel_id = panel_id.filter(|id| self.panels.contains_key(id));
-
-        if let Some(panel_id) = self.attention_panel_id {
-            let _ = self.focus_panel(panel_id);
-        }
     }
 
     /// Mark all workspace notifications as read.
@@ -315,6 +317,13 @@ mod tests {
         assert_eq!(ws.panels.len(), 1);
         assert!(ws.focused_panel_id.is_some());
         assert_eq!(ws.display_title(), "Terminal");
+        let panel_id = ws.focused_panel_id.expect("workspace should have a panel");
+        assert_eq!(
+            ws.panels
+                .get(&panel_id)
+                .and_then(|panel| panel.directory.as_deref()),
+            None
+        );
     }
 
     #[test]
@@ -323,6 +332,20 @@ mod tests {
         let new_id = ws.split(SplitOrientation::Horizontal, PanelType::Terminal);
         assert_eq!(ws.panels.len(), 2);
         assert_eq!(ws.focused_panel_id, Some(new_id));
+        assert_eq!(ws.panels.get(&new_id).and_then(|panel| panel.directory.as_deref()), None);
+    }
+
+    #[test]
+    fn test_with_directory_updates_initial_terminal_panel() {
+        let ws = Workspace::with_directory("/tmp/cmux-test");
+        let panel_id = ws.focused_panel_id.expect("workspace should have a panel");
+        assert_eq!(ws.current_directory, "/tmp/cmux-test");
+        assert_eq!(
+            ws.panels
+                .get(&panel_id)
+                .and_then(|panel| panel.directory.as_deref()),
+            Some("/tmp/cmux-test")
+        );
     }
 
     #[test]
@@ -356,6 +379,20 @@ mod tests {
         );
         assert_eq!(ws.attention_panel_id, panel_id);
         assert!(ws.latest_notification_at.is_some());
+    }
+
+    #[test]
+    fn test_record_notification_does_not_steal_focus() {
+        let mut ws = Workspace::new();
+        let original_focus = ws.focused_panel_id.expect("workspace should have a focused panel");
+        let other_panel_id = ws.split(SplitOrientation::Horizontal, PanelType::Terminal);
+        assert_eq!(ws.focused_panel_id, Some(other_panel_id));
+
+        ws.focus_panel(original_focus);
+        ws.record_notification("Codex", "Waiting for input", Some(other_panel_id));
+
+        assert_eq!(ws.focused_panel_id, Some(original_focus));
+        assert_eq!(ws.attention_panel_id, Some(other_panel_id));
     }
 
     #[test]

@@ -221,6 +221,41 @@ impl LayoutNode {
         }
     }
 
+    /// Update the divider position for the split identified by its child panel sets.
+    pub fn set_divider_position_for_split(
+        &mut self,
+        first_panel_ids: &[Uuid],
+        second_panel_ids: &[Uuid],
+        divider_position: f64,
+    ) -> bool {
+        match self {
+            LayoutNode::Pane { .. } => false,
+            LayoutNode::Split {
+                divider_position: current,
+                first,
+                second,
+                ..
+            } => {
+                let is_target = same_panel_set(first, first_panel_ids)
+                    && same_panel_set(second, second_panel_ids);
+                if is_target {
+                    *current = divider_position.clamp(0.0, 1.0);
+                    true
+                } else {
+                    first.set_divider_position_for_split(
+                        first_panel_ids,
+                        second_panel_ids,
+                        divider_position,
+                    ) || second.set_divider_position_for_split(
+                        first_panel_ids,
+                        second_panel_ids,
+                        divider_position,
+                    )
+                }
+            }
+        }
+    }
+
     /// Check if this node contains no panels.
     pub fn is_empty(&self) -> bool {
         match self {
@@ -228,6 +263,14 @@ impl LayoutNode {
             LayoutNode::Split { first, second, .. } => first.is_empty() && second.is_empty(),
         }
     }
+}
+
+fn same_panel_set(node: &LayoutNode, expected: &[Uuid]) -> bool {
+    let mut actual = node.all_panel_ids();
+    let mut expected = expected.to_vec();
+    actual.sort_unstable();
+    expected.sort_unstable();
+    actual == expected
 }
 
 #[cfg(test)]
@@ -260,7 +303,25 @@ mod tests {
         assert!(node.remove_panel(id2));
         assert_eq!(node.all_panel_ids(), vec![id1]);
         // Should have collapsed back to a single pane
-        matches!(node, LayoutNode::Pane { .. });
+        assert!(matches!(node, LayoutNode::Pane { .. }));
+    }
+
+    #[test]
+    fn test_set_divider_position_for_split_updates_matching_split() {
+        let id1 = Uuid::new_v4();
+        let id2 = Uuid::new_v4();
+        let id3 = Uuid::new_v4();
+        let mut node = LayoutNode::single_pane(id1).split(SplitOrientation::Horizontal, id2);
+        node = node.split(SplitOrientation::Vertical, id3);
+
+        assert!(node.set_divider_position_for_split(&[id1, id2], &[id3], 0.75));
+
+        match node {
+            LayoutNode::Split {
+                divider_position, ..
+            } => assert_eq!(divider_position, 0.75),
+            _ => panic!("expected split layout"),
+        }
     }
 
     #[test]
