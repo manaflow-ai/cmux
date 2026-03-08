@@ -35,14 +35,14 @@ jobs:
       issues: write
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
         with:
           fetch-depth: 1
           submodules: recursive
 
       - name: Build prompt file
         id: prompt
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         env:
           DISPATCH_PROMPT: ${{ inputs.prompt }}
         with:
@@ -92,7 +92,7 @@ jobs:
 
       - name: Run Codex
         id: run_codex
-        uses: openai/codex-action@v1
+        uses: openai/codex-action@f5c0ca71642badb34c1e66321d8d85685a0fa3dc # v1
         with:
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
           prompt-file: ${{ steps.prompt.outputs.file }}
@@ -114,7 +114,7 @@ jobs:
 
       - name: Reply on the issue
         if: github.event_name == 'issue_comment' && steps.run_codex.outputs.final-message != ''
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         env:
           CODEX_FINAL_MESSAGE: ${{ steps.run_codex.outputs.final-message }}
         with:
