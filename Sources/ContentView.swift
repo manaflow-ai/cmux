@@ -7158,6 +7158,11 @@ enum KeyboardShortcutBehaviorSettings {
         }
         return defaults.bool(forKey: swapCmdCtrlDigitShortcutsKey)
     }
+
+    /// Returns the modifier glyph for workspace digit shortcuts based on swap setting
+    static func workspaceDigitModifierGlyph(defaults: UserDefaults = .standard) -> String {
+        swapCmdCtrlDigitShortcutsEnabled(defaults: defaults) ? "⌃" : "⌘"
+    }
 }
 
 private enum FeedbackComposerSettings {
@@ -9032,7 +9037,7 @@ private struct TabItemView: View {
 
     private var workspaceShortcutLabel: String? {
         guard let workspaceShortcutDigit else { return nil }
-        return "⌘\(workspaceShortcutDigit)"
+        return "\(KeyboardShortcutBehaviorSettings.workspaceDigitModifierGlyph())\(workspaceShortcutDigit)"
     }
 
     private var showsWorkspaceShortcutHint: Bool {

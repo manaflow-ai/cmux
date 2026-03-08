@@ -606,6 +606,8 @@ struct cmuxApp: App {
                 Divider()
 
                 // Cmd+1 through Cmd+9 for workspace selection (9 = last workspace)
+                // Modifier respects swapCmdCtrlDigitShortcuts setting
+                let workspaceDigitModifiers: EventModifiers = swapCmdCtrlDigitShortcuts ? .control : .command
                 ForEach(1...9, id: \.self) { number in
                     Button(String(localized: "menu.view.workspace", defaultValue: "Workspace \(number)")) {
                         let manager = activeTabManager
@@ -613,7 +615,7 @@ struct cmuxApp: App {
                             manager.selectTab(at: targetIndex)
                         }
                     }
-                    .keyboardShortcut(KeyEquivalent(Character("\(number)")), modifiers: .command)
+                    .keyboardShortcut(KeyEquivalent(Character("\(number)")), modifiers: workspaceDigitModifiers)
                 }
 
                 Divider()
@@ -4184,6 +4186,7 @@ struct SettingsView: View {
         sidebarShowPullRequest = true
         openSidebarPullRequestLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenSidebarPullRequestLinksInCmuxBrowser
         showShortcutHintsOnCommandHold = ShortcutHintDebugSettings.defaultShowHintsOnCommandHold
+        swapCmdCtrlDigitShortcuts = KeyboardShortcutBehaviorSettings.defaultSwapCmdCtrlDigitShortcuts
         sidebarShowPorts = true
         sidebarShowLog = true
         sidebarShowProgress = true

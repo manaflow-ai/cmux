@@ -7294,10 +7294,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             if swapEnabled {
                 // Swapped: Cmd+Number selects surfaces
                 if num >= 1 && num <= 9 {
+#if DEBUG
+                    dlog(
+                        "shortcut.action name=surfaceDigit digit=\(num) manager=\(debugManagerToken(manager)) \(debugShortcutRouteSnapshot(event: event))"
+                    )
+#endif
                     if num == 9 {
-                        tabManager?.selectLastSurface()
+                        manager.selectLastSurface()
                     } else {
-                        tabManager?.selectSurface(at: num - 1)
+                        manager.selectSurface(at: num - 1)
                     }
                     return true
                 }
