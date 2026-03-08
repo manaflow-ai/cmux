@@ -2313,6 +2313,20 @@ final class TerminalSurface: Identifiable, ObservableObject {
 #if DEBUG
             dlog("surface.attach.create.done surface=\(id.uuidString.prefix(5)) hasSurface=\(surface != nil ? 1 : 0)")
 #endif
+            // The surface may be created before the window becomes key (e.g.,
+            // when launched by a script that retains focus). Schedule a
+            // deferred refresh so the renderer starts even without a
+            // didBecomeKey trigger.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+                guard let self, let surface = self.surface else { return }
+                if let view = self.attachedView,
+                   let displayID = (view.window?.screen ?? NSScreen.main)?.displayID,
+                   displayID != 0 {
+                    ghostty_surface_set_display_id(surface, displayID)
+                }
+                self.attachedView?.forceRefreshSurface()
+                ghostty_surface_refresh(surface)
+            }
         } else if let screen = view.window?.screen ?? NSScreen.main,
                   let displayID = screen.displayID,
                   displayID != 0,
@@ -5414,6 +5428,17 @@ final class GhosttySurfaceScrollView: NSView {
             dlog("find.window.didBecomeKey surface=\(self.surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") searchActive=\(searchActive) focusTarget=\(self.searchFocusTarget) firstResponder=\(String(describing: self.window?.firstResponder))")
 #endif
             self.applyFirstResponderIfNeeded()
+
+            // When the window becomes key and the surface view is already the
+            // first responder, applyFirstResponderIfNeeded() returns early.
+            // Force a display-link restart + redraw so the terminal renders.
+            // Without this, the terminal can stay blank after launch because
+            // becomeFirstResponder ran before the window was key.
+            if let window = self.window,
+               let fr = window.firstResponder as? NSView,
+               (fr === self.surfaceView || fr.isDescendant(of: self.surfaceView)) {
+                self.surfaceView.terminalSurface?.forceRefresh(reason: "didBecomeKey")
+            }
         })
         windowObservers.append(NotificationCenter.default.addObserver(
             forName: NSWindow.didResignKeyNotification,
@@ -5437,6 +5462,21 @@ final class GhosttySurfaceScrollView: NSView {
             }
         })
         if window.isKeyWindow { applyFirstResponderIfNeeded() }
+
+        // Also refresh when the app itself becomes active (e.g., user switches
+        // to cmux after it was launched by a script in another terminal).
+        windowObservers.append(NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self,
+                  let window = self.window,
+                  window.isKeyWindow,
+                  let fr = window.firstResponder as? NSView,
+                  (fr === self.surfaceView || fr.isDescendant(of: self.surfaceView)) else { return }
+            self.surfaceView.terminalSurface?.forceRefresh(reason: "appDidBecomeActive")
+        })
     }
 
     func attachSurface(_ terminalSurface: TerminalSurface) {
