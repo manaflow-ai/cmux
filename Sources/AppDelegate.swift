@@ -1163,6 +1163,46 @@ struct CommandPaletteDebugSnapshot {
     static let empty = CommandPaletteDebugSnapshot(query: "", mode: "commands", results: [])
 }
 
+enum UIZoomShortcutAction: Equatable {
+    case zoomIn
+    case zoomOut
+    case reset
+}
+
+func uiZoomShortcutAction(
+    flags: NSEvent.ModifierFlags,
+    chars: String,
+    keyCode: UInt16,
+    literalChars: String? = nil
+) -> UIZoomShortcutAction? {
+    let normalizedFlags = flags
+        .intersection(.deviceIndependentFlagsMask)
+        .subtracting([.numericPad, .function])
+    // Require exactly Cmd+Shift (no Control, no Option)
+    guard normalizedFlags.contains(.command),
+          normalizedFlags.contains(.shift),
+          normalizedFlags.isDisjoint(with: [.control, .option]) else { return nil }
+    let keys = browserZoomShortcutKeyCandidates(
+        chars: chars,
+        literalChars: literalChars,
+        keyCode: keyCode
+    )
+
+    if keys.contains("=") || keys.contains("+") || keyCode == 24 || keyCode == 69 { // kVK_ANSI_Equal / kVK_ANSI_KeypadPlus
+        return .zoomIn
+    }
+
+    if keys.contains("-") || keys.contains("_") || keyCode == 27 || keyCode == 78 { // kVK_ANSI_Minus / kVK_ANSI_KeypadMinus
+        return .zoomOut
+    }
+
+    if keys.contains("0") || keyCode == 29 || keyCode == 82 { // kVK_ANSI_0 / kVK_ANSI_Keypad0
+        return .reset
+    }
+
+    return nil
+}
+
 func browserZoomShortcutAction(
     flags: NSEvent.ModifierFlags,
     chars: String,
@@ -7478,6 +7518,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             if openBrowserAndFocusAddressBar(insertAtEnd: true) != nil {
                 return true
             }
+        }
+
+        // UI zoom: Cmd+Shift+=/Cmd+Shift+-/Cmd+Shift+0
+        if let uiZoomAction = uiZoomShortcutAction(
+            flags: flags,
+            chars: chars,
+            keyCode: event.keyCode,
+            literalChars: event.characters
+        ) {
+            let current = UIZoomMetrics.effectiveScale()
+            let next: Double
+            switch uiZoomAction {
+            case .zoomIn:
+                next = UIZoomMetrics.clamped(current + UIZoomMetrics.step)
+            case .zoomOut:
+                next = UIZoomMetrics.clamped(current - UIZoomMetrics.step)
+            case .reset:
+                next = UIZoomMetrics.defaultScale
+            }
+            #if DEBUG
+            dlog("uiZoom.\(uiZoomAction) current=\(current) next=\(next)")
+            #endif
+            UserDefaults.standard.set(next, forKey: UIZoomMetrics.appStorageKey)
+            return true
         }
 
         #if DEBUG

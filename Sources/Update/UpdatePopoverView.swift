@@ -5,6 +5,7 @@ import Sparkle
 /// Popover view that displays detailed update information and actions.
 struct UpdatePopoverView: View {
     @ObservedObject var model: UpdateViewModel
+    @AppStorage(UIZoomMetrics.appStorageKey) private var uiZoomScale = UIZoomMetrics.defaultScale
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -38,7 +39,7 @@ struct UpdatePopoverView: View {
                 UpdateErrorView(error: error, dismiss: dismiss)
             }
         }
-        .frame(width: 300)
+        .frame(width: UIZoomMetrics.updatePopoverWidth(uiZoomScale))
     }
 }
 

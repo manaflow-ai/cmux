@@ -7,6 +7,7 @@ struct NotificationsPage: View {
     @Binding var selection: SidebarSelection
     @FocusState private var focusedNotificationId: UUID?
     @AppStorage(KeyboardShortcutSettings.Action.jumpToUnread.defaultsKey) private var jumpToUnreadShortcutData = Data()
+    @AppStorage(UIZoomMetrics.appStorageKey) private var uiZoomScale = UIZoomMetrics.defaultScale
 
     var body: some View {
         VStack(spacing: 0) {
@@ -41,7 +42,7 @@ struct NotificationsPage: View {
                             )
                         }
                     }
-                    .padding(16)
+                    .padding(UIZoomMetrics.notificationContainerPadding(uiZoomScale))
                 }
             }
         }
@@ -83,19 +84,19 @@ struct NotificationsPage: View {
                 .buttonStyle(.bordered)
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
+        .padding(.horizontal, UIZoomMetrics.notificationItemHPadding(uiZoomScale))
+        .padding(.vertical, UIZoomMetrics.notificationItemVPadding(uiZoomScale))
     }
 
     private var emptyState: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: UIZoomMetrics.notificationEmptySpacing(uiZoomScale)) {
             Image(systemName: "bell.slash")
-                .font(.system(size: 32))
+                .font(.system(size: UIZoomMetrics.notificationEmptyIconSize(uiZoomScale)))
                 .foregroundColor(.secondary)
             Text(String(localized: "notifications.empty.title", defaultValue: "No notifications yet"))
-                .font(.headline)
+                .font(.system(size: UIZoomMetrics.notificationTitleFontSize(uiZoomScale), weight: .semibold))
             Text(String(localized: "notifications.empty.description", defaultValue: "Desktop notifications will appear here for quick review."))
-                .font(.subheadline)
+                .font(.system(size: UIZoomMetrics.notificationBodyFontSize(uiZoomScale)))
                 .foregroundColor(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -157,13 +158,14 @@ struct NotificationsPage: View {
 
 private struct ShortcutAnnotation: View {
     let text: String
+    @AppStorage(UIZoomMetrics.appStorageKey) private var uiZoomScale = UIZoomMetrics.defaultScale
 
     var body: some View {
         Text(text)
-            .font(.system(size: 10, weight: .semibold, design: .rounded))
+            .font(.system(size: UIZoomMetrics.notificationHeaderFontSize(uiZoomScale), weight: .semibold, design: .rounded))
             .foregroundStyle(.primary)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
+            .padding(.horizontal, UIZoomMetrics.notificationHeaderHPadding(uiZoomScale))
+            .padding(.vertical, UIZoomMetrics.notificationHeaderVPadding(uiZoomScale))
             .background(
                 RoundedRectangle(cornerRadius: 5)
                     .fill(Color(nsColor: .controlBackgroundColor))
@@ -177,48 +179,49 @@ private struct NotificationRow: View {
     let onOpen: () -> Void
     let onClear: () -> Void
     let focusedNotificationId: FocusState<UUID?>.Binding
+    @AppStorage(UIZoomMetrics.appStorageKey) private var uiZoomScale = UIZoomMetrics.defaultScale
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
+        HStack(alignment: .top, spacing: UIZoomMetrics.notificationRowSpacing(uiZoomScale)) {
             Button(action: onOpen) {
-                HStack(alignment: .top, spacing: 12) {
+                HStack(alignment: .top, spacing: UIZoomMetrics.notificationRowSpacing(uiZoomScale)) {
                     Circle()
                         .fill(notification.isRead ? Color.clear : cmuxAccentColor())
-                        .frame(width: 8, height: 8)
+                        .frame(width: UIZoomMetrics.notificationDotSize(uiZoomScale), height: UIZoomMetrics.notificationDotSize(uiZoomScale))
                         .overlay(
                             Circle()
                                 .stroke(cmuxAccentColor().opacity(notification.isRead ? 0.2 : 1), lineWidth: 1)
                         )
-                        .padding(.top, 6)
+                        .padding(.top, UIZoomMetrics.notificationRowTopPadding(uiZoomScale))
 
-                    VStack(alignment: .leading, spacing: 6) {
+                    VStack(alignment: .leading, spacing: UIZoomMetrics.notificationRowVStackSpacing(uiZoomScale)) {
                         HStack {
                             Text(notification.title)
-                                .font(.headline)
+                                .font(.system(size: UIZoomMetrics.notificationTitleFontSize(uiZoomScale), weight: .semibold))
                                 .foregroundColor(.primary)
                             Spacer()
                             Text(notification.createdAt.formatted(date: .omitted, time: .shortened))
-                                .font(.caption)
+                                .font(.system(size: UIZoomMetrics.notificationCaptionFontSize(uiZoomScale)))
                                 .foregroundColor(.secondary)
                         }
 
                         if !notification.body.isEmpty {
                             Text(notification.body)
-                                .font(.subheadline)
+                                .font(.system(size: UIZoomMetrics.notificationBodyFontSize(uiZoomScale)))
                                 .foregroundColor(.secondary)
                                 .lineLimit(3)
                         }
 
                         if let tabTitle {
                             Text(tabTitle)
-                                .font(.caption)
+                                .font(.system(size: UIZoomMetrics.notificationCaptionFontSize(uiZoomScale)))
                                 .foregroundColor(.secondary)
                         }
                     }
 
                     Spacer(minLength: 0)
                 }
-                .padding(.trailing, 6)
+                .padding(.trailing, UIZoomMetrics.notificationRowTrailingPadding(uiZoomScale))
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
             }
@@ -234,9 +237,9 @@ private struct NotificationRow: View {
             }
             .buttonStyle(.plain)
         }
-        .padding(12)
+        .padding(UIZoomMetrics.notificationRowPadding(uiZoomScale))
         .background(
-            RoundedRectangle(cornerRadius: 10)
+            RoundedRectangle(cornerRadius: UIZoomMetrics.notificationRowCornerRadius(uiZoomScale))
                 .fill(Color(nsColor: .controlBackgroundColor))
         )
     }
