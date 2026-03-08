@@ -2,6 +2,103 @@
 
 All notable changes to cmux are documented here.
 
+## [0.62.0] - 2026-03-07
+
+### Added
+- Markdown viewer panel with live file watching ([#883](https://github.com/manaflow-ai/cmux/pull/883))
+- Find-in-page (Cmd+F) for browser panels ([#837](https://github.com/manaflow-ai/cmux/issues/837), [#875](https://github.com/manaflow-ai/cmux/pull/875))
+- Keyboard copy mode for terminal scrollback with vi-style navigation ([#792](https://github.com/manaflow-ai/cmux/pull/792))
+- Custom notification sounds with file picker support ([#839](https://github.com/manaflow-ai/cmux/pull/839), [#869](https://github.com/manaflow-ai/cmux/pull/869))
+- Browser camera and microphone permission support ([#760](https://github.com/manaflow-ai/cmux/issues/760), [#913](https://github.com/manaflow-ai/cmux/pull/913))
+- Language setting for per-app locale override ([#886](https://github.com/manaflow-ai/cmux/pull/886))
+- Japanese localization ([#819](https://github.com/manaflow-ai/cmux/pull/819))
+- 16 new languages added to localization ([#895](https://github.com/manaflow-ai/cmux/pull/895))
+- Kagi as a search provider option ([#561](https://github.com/manaflow-ai/cmux/pull/561))
+- Open Folder command (Cmd+O) ([#656](https://github.com/manaflow-ai/cmux/pull/656))
+- Dark mode app icon for macOS Sequoia ([#702](https://github.com/manaflow-ai/cmux/pull/702))
+- Close other pane tabs with confirmation ([#475](https://github.com/manaflow-ai/cmux/pull/475))
+- Flash Focused Panel command palette action ([#638](https://github.com/manaflow-ai/cmux/pull/638))
+- Zoom/maximize focused pane in splits ([#634](https://github.com/manaflow-ai/cmux/pull/634))
+- `cmux tree` command for full CLI hierarchy view ([#592](https://github.com/manaflow-ai/cmux/pull/592))
+- Install or uninstall the `cmux` CLI from the command palette ([#626](https://github.com/manaflow-ai/cmux/pull/626))
+- Clipboard image paste in terminal with Cmd+V ([#562](https://github.com/manaflow-ai/cmux/pull/562), [#853](https://github.com/manaflow-ai/cmux/pull/853))
+- Middle-click X11-style selection paste in terminal ([#369](https://github.com/manaflow-ai/cmux/pull/369))
+- Honor Ghostty `background-opacity` across all cmux chrome ([#667](https://github.com/manaflow-ai/cmux/pull/667))
+- Setting to hide Cmd-hold shortcut hints ([#765](https://github.com/manaflow-ai/cmux/pull/765))
+- Focus-follows-mouse on terminal hover ([#519](https://github.com/manaflow-ai/cmux/pull/519))
+- Sidebar help menu in the footer ([#958](https://github.com/manaflow-ai/cmux/pull/958))
+- External URL bypass rules for the embedded browser ([#768](https://github.com/manaflow-ai/cmux/pull/768))
+- Telemetry opt-out setting ([#610](https://github.com/manaflow-ai/cmux/pull/610))
+- Browser automation docs page ([#622](https://github.com/manaflow-ai/cmux/pull/622))
+
+### Changed
+- Command palette search is now async and decoupled from typing for reduced lag
+- Fuzzy matching improved with single-edit and omitted-character word matches
+- Replaced keychain password storage with file-based storage ([#576](https://github.com/manaflow-ai/cmux/pull/576))
+- Fullscreen shortcut changed to Cmd+Ctrl+F, and Cmd+Enter also toggles fullscreen ([#530](https://github.com/manaflow-ai/cmux/pull/530))
+- Workspace rename shortcut Cmd+Shift+R now uses the command palette flow
+- Renamed tab color to workspace color in user-facing strings ([#637](https://github.com/manaflow-ai/cmux/pull/637))
+- Feedback recipient changed to `feedback@manaflow.com` ([#1007](https://github.com/manaflow-ai/cmux/pull/1007))
+- Regenerated app icons from Icon Composer ([#1005](https://github.com/manaflow-ai/cmux/pull/1005))
+- Moved update logs into the Debug menu ([#1008](https://github.com/manaflow-ai/cmux/pull/1008))
+
+### Fixed
+- Frozen blank launch from session restore race condition ([#399](https://github.com/manaflow-ai/cmux/issues/399), [#565](https://github.com/manaflow-ai/cmux/pull/565))
+- Crash on launch from an exclusive access violation in drag-handle hit testing ([#490](https://github.com/manaflow-ai/cmux/issues/490))
+- Use-after-free in `ghostty_surface_refresh` after sleep/wake ([#432](https://github.com/manaflow-ai/cmux/issues/432), [#619](https://github.com/manaflow-ai/cmux/pull/619))
+- Startup SIGSEGV by pre-warming locale before `SentrySDK.start` ([#927](https://github.com/manaflow-ai/cmux/pull/927))
+- IME issues: Shift+Space toggle inserting a space ([#641](https://github.com/manaflow-ai/cmux/issues/641), [#670](https://github.com/manaflow-ai/cmux/pull/670)), Ctrl fast path blocking IME events, browser address bar Japanese IME ([#789](https://github.com/manaflow-ai/cmux/issues/789), [#867](https://github.com/manaflow-ai/cmux/pull/867)), and Cmd shortcuts during IME composition
+- CLI socket autodiscovery for tagged sockets ([#832](https://github.com/manaflow-ai/cmux/pull/832))
+- Flaky CLI socket listener recovery ([#952](https://github.com/manaflow-ai/cmux/issues/952), [#954](https://github.com/manaflow-ai/cmux/pull/954))
+- Side-docked dev tools resize ([#712](https://github.com/manaflow-ai/cmux/pull/712))
+- Dvorak Cmd+C colliding with the notifications shortcut ([#762](https://github.com/manaflow-ai/cmux/pull/762))
+- Terminal drag hover overlay flicker
+- Titlebar controls clipped at the bottom edge ([#1016](https://github.com/manaflow-ai/cmux/pull/1016))
+- Sidebar git branch recovery after sleep/wake and agent checkout ([#494](https://github.com/manaflow-ai/cmux/issues/494), [#671](https://github.com/manaflow-ai/cmux/pull/671), [#905](https://github.com/manaflow-ai/cmux/pull/905))
+- Browser portal routing, uploads, and click focus regressions ([#908](https://github.com/manaflow-ai/cmux/pull/908), [#961](https://github.com/manaflow-ai/cmux/pull/961))
+- Notification unread persistence on workspace focus
+- Escape propagation when the command palette is visible ([#847](https://github.com/manaflow-ai/cmux/pull/847))
+- Cmd+Shift+Enter pane zoom regression in browser focus ([#826](https://github.com/manaflow-ai/cmux/pull/826))
+- Cross-window theme background after jump-to-unread ([#861](https://github.com/manaflow-ai/cmux/pull/861))
+- `window.open()` and `target=_blank` not opening in a new tab ([#693](https://github.com/manaflow-ai/cmux/pull/693))
+- Terminal wrap width for the overlay scrollbar ([#522](https://github.com/manaflow-ai/cmux/pull/522))
+- Orphaned child processes when closing workspace tabs ([#889](https://github.com/manaflow-ai/cmux/pull/889))
+- Cmd+F Escape passthrough into terminal ([#918](https://github.com/manaflow-ai/cmux/pull/918))
+- Terminal link opens staying in the source workspace ([#912](https://github.com/manaflow-ai/cmux/pull/912))
+- Ghost terminal surface rebind after close ([#808](https://github.com/manaflow-ai/cmux/pull/808))
+- Cmd+plus zoom handling on non-US keyboard layouts ([#680](https://github.com/manaflow-ai/cmux/pull/680))
+- Menubar icon invisible in light mode ([#741](https://github.com/manaflow-ai/cmux/pull/741))
+- Various drag-handle crash fixes and reentrancy guards
+- Background workspace git metadata refresh after external checkout
+- Markdown panel text click focus ([#991](https://github.com/manaflow-ai/cmux/pull/991))
+- Browser Cmd+F overlay clipping in portal mode ([#916](https://github.com/manaflow-ai/cmux/pull/916))
+- Voice dictation text insertion ([#857](https://github.com/manaflow-ai/cmux/pull/857))
+- Browser panel lifecycle after WebContent process termination ([#892](https://github.com/manaflow-ai/cmux/pull/892))
+- Typing lag reduction by hiding invisible views from the accessibility tree ([#862](https://github.com/manaflow-ai/cmux/pull/862))
+
+### Thanks to 21 contributors!
+- [@afxjzs](https://github.com/afxjzs)
+- [@AI-per](https://github.com/AI-per)
+- [@atani](https://github.com/atani)
+- [@austinywang](https://github.com/austinywang)
+- [@cheulyop](https://github.com/cheulyop)
+- [@ConnorCallison](https://github.com/ConnorCallison)
+- [@harukitosa](https://github.com/harukitosa)
+- [@homanp](https://github.com/homanp)
+- [@JLeeChan](https://github.com/JLeeChan)
+- [@josemasri](https://github.com/josemasri)
+- [@lawrencecchen](https://github.com/lawrencecchen)
+- [@novarii](https://github.com/novarii)
+- [@orkhanrz](https://github.com/orkhanrz)
+- [@qianwan](https://github.com/qianwan)
+- [@rjwittams](https://github.com/rjwittams)
+- [@sminamot](https://github.com/sminamot)
+- [@tmcarr](https://github.com/tmcarr)
+- [@trydis](https://github.com/trydis)
+- [@ukoasis](https://github.com/ukoasis)
+- [@y-agatsuma](https://github.com/y-agatsuma)
+- [@yasunogithub](https://github.com/yasunogithub)
+
 ## [0.61.0] - 2026-02-25
 
 ### Added
