@@ -985,6 +985,45 @@ final class TabManagerNotificationOrderingSourceTests: XCTestCase {
     }
 }
 
+final class GhosttySurfaceSplitActionRoutingSourceTests: XCTestCase {
+    func testSplitActionsResolveTabManagerFromActionTabContext() throws {
+        let projectRoot = findProjectRoot()
+        let sourceURL = projectRoot.appendingPathComponent("Sources/GhosttyTerminalView.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+
+        guard let splitStart = source.range(of: "case GHOSTTY_ACTION_NEW_SPLIT:"),
+              let scrollbarStart = source.range(
+                of: "case GHOSTTY_ACTION_SCROLLBAR:",
+                range: splitStart.upperBound..<source.endIndex
+              ) else {
+            XCTFail("Failed to locate Ghostty split action block in Sources/GhosttyTerminalView.swift")
+            return
+        }
+
+        let splitActionBlock = String(source[splitStart.lowerBound..<scrollbarStart.lowerBound])
+        XCTAssertTrue(
+            splitActionBlock.contains("tabManagerForSurfaceAction(tabId: tabId)"),
+            "Expected Ghostty split/equalize passthrough to resolve manager by action tab ID."
+        )
+        XCTAssertFalse(
+            splitActionBlock.contains("AppDelegate.shared?.tabManager"),
+            "Expected Ghostty split/equalize passthrough to avoid active-manager-only routing."
+        )
+    }
+
+    private func findProjectRoot() -> URL {
+        var dir = URL(fileURLWithPath: #file).deletingLastPathComponent().deletingLastPathComponent()
+        for _ in 0..<10 {
+            let marker = dir.appendingPathComponent("GhosttyTabs.xcodeproj")
+            if FileManager.default.fileExists(atPath: marker.path) {
+                return dir
+            }
+            dir = dir.deletingLastPathComponent()
+        }
+        return URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+    }
+}
+
 final class SocketControlSettingsTests: XCTestCase {
     func testMigrateModeSupportsExpandedSocketModes() {
         XCTAssertEqual(SocketControlSettings.migrateMode("off"), .off)
