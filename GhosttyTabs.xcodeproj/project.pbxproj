@@ -66,6 +66,11 @@
 		A5001100 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A5001101 /* Assets.xcassets */; };
 		A5001230 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = A5001231 /* Sparkle */; };
 		B9000002A1B2C3D4E5F60719 /* cmux.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000001A1B2C3D4E5F60719 /* cmux.swift */; };
+		243B3E44AC275A78C3BAF5C0 /* MCPTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCA15693F84B14C6AC4D9AE1 /* MCPTypes.swift */; };
+		31C1EAB308E18D1A993BED6C /* MCPProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = D86CFFFD2606490315F9B31E /* MCPProtocol.swift */; };
+		32D70A3BF76F739044CAFAC5 /* MCPToolRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = F948F2D6E93413373C43A5EC /* MCPToolRegistry.swift */; };
+		50B61F52049A28102138F522 /* MCPMain.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54663DAD2AA26C0267C9AB1C /* MCPMain.swift */; };
+		F153290401B7D581368680E3 /* MCPBackend.swift in Sources */ = {isa = PBXBuildFile; fileRef = A02574EA3CBE62F9A447CC5D /* MCPBackend.swift */; };
 		B900000BA1B2C3D4E5F60719 /* cmux in Copy CLI */ = {isa = PBXBuildFile; fileRef = B9000004A1B2C3D4E5F60719 /* cmux */; };
 		C1ADE00002A1B2C3D4E5F719 /* claude in Copy CLI */ = {isa = PBXBuildFile; fileRef = C1ADE00001A1B2C3D4E5F719 /* claude */; };
 		D1BEF00002A1B2C3D4E5F719 /* open in Copy CLI */ = {isa = PBXBuildFile; fileRef = D1BEF00001A1B2C3D4E5F719 /* open */; };
@@ -214,6 +219,11 @@
 		D1BEF00001A1B2C3D4E5F719 /* open */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = "Resources/bin/open"; sourceTree = SOURCE_ROOT; };
 		A5002001 /* THIRD_PARTY_LICENSES.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = THIRD_PARTY_LICENSES.md; sourceTree = SOURCE_ROOT; };
 		B9000001A1B2C3D4E5F60719 /* cmux.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = cmux.swift; sourceTree = "<group>"; };
+		54663DAD2AA26C0267C9AB1C /* MCPMain.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MCPMain.swift; sourceTree = "<group>"; };
+		A02574EA3CBE62F9A447CC5D /* MCPBackend.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MCPBackend.swift; sourceTree = "<group>"; };
+		CCA15693F84B14C6AC4D9AE1 /* MCPTypes.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MCPTypes.swift; sourceTree = "<group>"; };
+		D86CFFFD2606490315F9B31E /* MCPProtocol.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MCPProtocol.swift; sourceTree = "<group>"; };
+		F948F2D6E93413373C43A5EC /* MCPToolRegistry.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MCPToolRegistry.swift; sourceTree = "<group>"; };
 		B9000004A1B2C3D4E5F60719 /* cmux */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = cmux; sourceTree = BUILT_PRODUCTS_DIR; };
 				B9000011A1B2C3D4E5F60719 /* AutomationSocketUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutomationSocketUITests.swift; sourceTree = "<group>"; };
 					B9000013A1B2C3D4E5F60719 /* JumpToUnreadUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JumpToUnreadUITests.swift; sourceTree = "<group>"; };
@@ -403,6 +413,11 @@
 			isa = PBXGroup;
 			children = (
 				B9000001A1B2C3D4E5F60719 /* cmux.swift */,
+				CCA15693F84B14C6AC4D9AE1 /* MCPTypes.swift */,
+				D86CFFFD2606490315F9B31E /* MCPProtocol.swift */,
+				F948F2D6E93413373C43A5EC /* MCPToolRegistry.swift */,
+				A02574EA3CBE62F9A447CC5D /* MCPBackend.swift */,
+				54663DAD2AA26C0267C9AB1C /* MCPMain.swift */,
 			);
 			path = CLI;
 			sourceTree = "<group>";
@@ -705,6 +720,11 @@
 			buildActionMask = 2147483647;
 			files = (
 				B9000002A1B2C3D4E5F60719 /* cmux.swift in Sources */,
+				243B3E44AC275A78C3BAF5C0 /* MCPTypes.swift in Sources */,
+				31C1EAB308E18D1A993BED6C /* MCPProtocol.swift in Sources */,
+				32D70A3BF76F739044CAFAC5 /* MCPToolRegistry.swift in Sources */,
+				F153290401B7D581368680E3 /* MCPBackend.swift in Sources */,
+				50B61F52049A28102138F522 /* MCPMain.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
