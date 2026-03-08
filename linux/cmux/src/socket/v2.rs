@@ -15,7 +15,7 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::app::SharedState;
+use crate::app::{SharedState, UiEvent};
 use crate::model::panel::SplitOrientation;
 use crate::model::PanelType;
 use crate::model::Workspace;
@@ -91,11 +91,12 @@ pub fn dispatch(json_line: &str, state: &Arc<SharedState>) -> Response {
 
         // Workspace commands
         "workspace.list" => handle_workspace_list(id, state),
-        "workspace.new" | "workspace.create" => handle_workspace_new(id, &req.params, state),
+        "workspace.new" => handle_workspace_new(id, &req.params, state),
         "workspace.select" => handle_workspace_select(id, &req.params, state),
         "workspace.next" => handle_workspace_next(id, &req.params, state),
         "workspace.previous" => handle_workspace_previous(id, &req.params, state),
         "workspace.last" => handle_workspace_last(id, state),
+        "workspace.latest_unread" => handle_workspace_latest_unread(id, state),
         "workspace.close" => handle_workspace_close(id, &req.params, state),
         "workspace.set_status" => handle_workspace_set_status(id, &req.params, state),
         "workspace.report_git_branch" => handle_workspace_report_git(id, &req.params, state),
@@ -111,23 +112,11 @@ pub fn dispatch(json_line: &str, state: &Arc<SharedState>) -> Response {
         // Notification commands
         "notification.create" => handle_notification_create(id, &req.params, state),
 
-        _ => {
-            let method_display = if req.method.len() > 200 {
-                // Truncate at a char boundary to avoid panic on multi-byte UTF-8
-                let mut end = 200;
-                while end > 0 && !req.method.is_char_boundary(end) {
-                    end -= 1;
-                }
-                &req.method[..end]
-            } else {
-                &req.method
-            };
-            Response::error(
-                id,
-                "unknown_method",
-                &format!("Unknown method: {}", method_display),
-            )
-        }
+        _ => Response::error(
+            id,
+            "unknown_method",
+            &format!("Unknown method: {}", req.method),
+        ),
     }
 }
 
@@ -140,20 +129,20 @@ fn handle_capabilities(id: Value) -> Response {
         "system.ping",
         "system.capabilities",
         "workspace.list",
-        "workspace.new",      // alias: workspace.create
-        "workspace.create",
+        "workspace.new",
         "workspace.select",
         "workspace.next",
         "workspace.previous",
         "workspace.last",
+        "workspace.latest_unread",
         "workspace.close",
         "workspace.set_status",
         "workspace.report_git_branch",
         "workspace.set_progress",
         "workspace.append_log",
         "pane.new",
-        // surface.send_input and notification.create are recognized but not yet
-        // implemented — omitted from capabilities until functional (Phase 0/3).
+        "surface.send_input",
+        "notification.create",
     ];
     Response::success(id, serde_json::json!({"methods": methods}))
 }
@@ -163,36 +152,21 @@ fn handle_capabilities(id: Value) -> Response {
 // -----------------------------------------------------------------------
 
 fn handle_workspace_list(id: Value, state: &Arc<SharedState>) -> Response {
-    // Collect workspace data under lock, then release before JSON serialization
-    let (ws_data, selected) = {
-        let tm = state.lock_tab_manager();
-        let selected = tm.selected_index();
-        let data: Vec<(usize, String, String, String, usize)> = tm
-            .iter()
-            .enumerate()
-            .map(|(i, ws)| {
-                (
-                    i,
-                    ws.id.to_string(),
-                    ws.display_title().to_string(),
-                    ws.current_directory.clone(),
-                    ws.panels.len(),
-                )
-            })
-            .collect();
-        (data, selected)
-    }; // MutexGuard dropped
-
-    let workspaces: Vec<Value> = ws_data
-        .into_iter()
-        .map(|(i, id_str, title, directory, panel_count)| {
+    let tm = state.tab_manager.lock().unwrap();
+    let workspaces: Vec<Value> = tm
+        .iter()
+        .enumerate()
+        .map(|(i, ws)| {
             serde_json::json!({
                 "index": i,
-                "id": id_str,
-                "title": title,
-                "directory": directory,
-                "panel_count": panel_count,
-                "selected": selected == Some(i),
+                "id": ws.id.to_string(),
+                "title": ws.display_title(),
+                "directory": ws.current_directory,
+                "panel_count": ws.panels.len(),
+                "unread_count": ws.unread_count,
+                "latest_notification": ws.latest_notification,
+                "attention_panel_id": ws.attention_panel_id.map(|id| id.to_string()),
+                "is_selected": tm.selected_index() == Some(i),
             })
         })
         .collect();
@@ -201,10 +175,8 @@ fn handle_workspace_list(id: Value, state: &Arc<SharedState>) -> Response {
 }
 
 fn handle_workspace_new(id: Value, params: &Value, state: &Arc<SharedState>) -> Response {
-    let directory = params.get("directory").and_then(|v| v.as_str())
-        .map(|s| crate::model::workspace::truncate_str(s, 4096));
-    let title = params.get("title").and_then(|v| v.as_str())
-        .map(|s| crate::model::workspace::truncate_str(s, 1024));
+    let directory = params.get("directory").and_then(|v| v.as_str());
+    let title = params.get("title").and_then(|v| v.as_str());
 
     let mut ws = if let Some(dir) = directory {
         Workspace::with_directory(dir)
@@ -217,29 +189,36 @@ fn handle_workspace_new(id: Value, params: &Value, state: &Arc<SharedState>) -> 
     }
 
     let ws_id = ws.id;
-    state.lock_tab_manager().add_workspace(ws);
+    state.tab_manager.lock().unwrap().add_workspace(ws);
+    state.notify_ui_refresh();
 
-    Response::success(id, serde_json::json!({"workspace_id": ws_id.to_string()}))
+    Response::success(id, serde_json::json!({"workspace": ws_id.to_string()}))
 }
 
 fn handle_workspace_select(id: Value, params: &Value, state: &Arc<SharedState>) -> Response {
-    let index = params.get("index").and_then(|v| v.as_u64()).and_then(|v| usize::try_from(v).ok());
+    let index = params.get("index").and_then(|v| v.as_u64()).map(|v| v as usize);
     let ws_id = params
-        .get("workspace_id")
+        .get("workspace")
         .and_then(|v| v.as_str())
         .and_then(|s| uuid::Uuid::parse_str(s).ok());
 
-    let mut tm = state.lock_tab_manager();
+    let mut tm = state.tab_manager.lock().unwrap();
 
     let selected = if let Some(idx) = index {
         tm.select(idx)
     } else if let Some(wid) = ws_id {
         tm.select_by_id(wid)
     } else {
-        return Response::error(id, "invalid_params", "Provide 'index' or 'workspace_id'");
+        return Response::error(id, "invalid_params", "Provide 'index' or 'workspace'");
     };
 
     if selected {
+        let selected_workspace = tm.selected_id();
+        drop(tm);
+        if let Some(workspace_id) = selected_workspace {
+            mark_workspace_read(state, workspace_id);
+        }
+        state.notify_ui_refresh();
         Response::success(id, serde_json::json!({"selected": true}))
     } else {
         Response::error(id, "not_found", "Workspace not found")
@@ -248,29 +227,74 @@ fn handle_workspace_select(id: Value, params: &Value, state: &Arc<SharedState>) 
 
 fn handle_workspace_next(id: Value, params: &Value, state: &Arc<SharedState>) -> Response {
     let wrap = params.get("wrap").and_then(|v| v.as_bool()).unwrap_or(true);
-    state.lock_tab_manager().select_next(wrap);
+    let selected_workspace = {
+        let mut tm = state.tab_manager.lock().unwrap();
+        tm.select_next(wrap);
+        tm.selected_id()
+    };
+    if let Some(workspace_id) = selected_workspace {
+        mark_workspace_read(state, workspace_id);
+    }
+    state.notify_ui_refresh();
     Response::success(id, serde_json::json!({"ok": true}))
 }
 
 fn handle_workspace_previous(id: Value, params: &Value, state: &Arc<SharedState>) -> Response {
     let wrap = params.get("wrap").and_then(|v| v.as_bool()).unwrap_or(true);
-    state.lock_tab_manager().select_previous(wrap);
+    let selected_workspace = {
+        let mut tm = state.tab_manager.lock().unwrap();
+        tm.select_previous(wrap);
+        tm.selected_id()
+    };
+    if let Some(workspace_id) = selected_workspace {
+        mark_workspace_read(state, workspace_id);
+    }
+    state.notify_ui_refresh();
     Response::success(id, serde_json::json!({"ok": true}))
 }
 
 fn handle_workspace_last(id: Value, state: &Arc<SharedState>) -> Response {
-    state.lock_tab_manager().select_last();
+    let selected_workspace = {
+        let mut tm = state.tab_manager.lock().unwrap();
+        tm.select_last();
+        tm.selected_id()
+    };
+    if let Some(workspace_id) = selected_workspace {
+        mark_workspace_read(state, workspace_id);
+    }
+    state.notify_ui_refresh();
     Response::success(id, serde_json::json!({"ok": true}))
 }
 
+fn handle_workspace_latest_unread(id: Value, state: &Arc<SharedState>) -> Response {
+    let selected_workspace = {
+        let mut tm = state.tab_manager.lock().unwrap();
+        tm.select_latest_unread()
+    };
+
+    if let Some(workspace_id) = selected_workspace {
+        mark_workspace_read(state, workspace_id);
+        state.notify_ui_refresh();
+        Response::success(
+            id,
+            serde_json::json!({
+                "workspace": workspace_id.to_string(),
+                "selected": true
+            }),
+        )
+    } else {
+        Response::error(id, "not_found", "No unread workspace")
+    }
+}
+
 fn handle_workspace_close(id: Value, params: &Value, state: &Arc<SharedState>) -> Response {
-    let index = params.get("index").and_then(|v| v.as_u64()).and_then(|v| usize::try_from(v).ok());
+    let index = params.get("index").and_then(|v| v.as_u64()).map(|v| v as usize);
     let ws_id = params
-        .get("workspace_id")
+        .get("workspace")
         .and_then(|v| v.as_str())
         .and_then(|s| uuid::Uuid::parse_str(s).ok());
 
-    let mut tm = state.lock_tab_manager();
+    let mut tm = state.tab_manager.lock().unwrap();
 
     let removed = if let Some(idx) = index {
         tm.remove(idx).is_some()
@@ -283,6 +307,7 @@ fn handle_workspace_close(id: Value, params: &Value, state: &Arc<SharedState>) -
     };
 
     if removed {
+        state.notify_ui_refresh();
         Response::success(id, serde_json::json!({"closed": true}))
     } else {
         Response::error(id, "not_found", "Workspace not found")
@@ -291,7 +316,7 @@ fn handle_workspace_close(id: Value, params: &Value, state: &Arc<SharedState>) -
 
 fn handle_workspace_set_status(id: Value, params: &Value, state: &Arc<SharedState>) -> Response {
     let ws_id = params
-        .get("workspace_id")
+        .get("workspace")
         .and_then(|v| v.as_str())
         .and_then(|s| uuid::Uuid::parse_str(s).ok());
     let key = params.get("key").and_then(|v| v.as_str());
@@ -303,15 +328,24 @@ fn handle_workspace_set_status(id: Value, params: &Value, state: &Arc<SharedStat
         return Response::error(id, "invalid_params", "Provide 'key' and 'value'");
     };
 
-    let mut tm = state.lock_tab_manager();
-    let ws = if let Some(wid) = ws_id {
-        tm.workspace_mut(wid)
-    } else {
-        tm.selected_mut()
+    let updated = {
+        let mut tm = state.tab_manager.lock().unwrap();
+        let ws = if let Some(wid) = ws_id {
+            tm.workspace_mut(wid)
+        } else {
+            tm.selected_mut()
+        };
+
+        if let Some(ws) = ws {
+            ws.set_status(key, value, icon, color);
+            true
+        } else {
+            false
+        }
     };
 
-    if let Some(ws) = ws {
-        ws.set_status(key, value, icon, color);
+    if updated {
+        state.notify_ui_refresh();
         Response::success(id, serde_json::json!({"ok": true}))
     } else {
         Response::error(id, "not_found", "Workspace not found")
@@ -320,7 +354,7 @@ fn handle_workspace_set_status(id: Value, params: &Value, state: &Arc<SharedStat
 
 fn handle_workspace_report_git(id: Value, params: &Value, state: &Arc<SharedState>) -> Response {
     let ws_id = params
-        .get("workspace_id")
+        .get("workspace")
         .and_then(|v| v.as_str())
         .and_then(|s| uuid::Uuid::parse_str(s).ok());
     let branch = params.get("branch").and_then(|v| v.as_str());
@@ -329,20 +363,28 @@ fn handle_workspace_report_git(id: Value, params: &Value, state: &Arc<SharedStat
     let Some(branch) = branch else {
         return Response::error(id, "invalid_params", "Provide 'branch'");
     };
-    let branch = crate::model::workspace::truncate_str(branch, 256);
 
-    let mut tm = state.lock_tab_manager();
-    let ws = if let Some(wid) = ws_id {
-        tm.workspace_mut(wid)
-    } else {
-        tm.selected_mut()
+    let updated = {
+        let mut tm = state.tab_manager.lock().unwrap();
+        let ws = if let Some(wid) = ws_id {
+            tm.workspace_mut(wid)
+        } else {
+            tm.selected_mut()
+        };
+
+        if let Some(ws) = ws {
+            ws.git_branch = Some(crate::model::panel::GitBranch {
+                branch: branch.to_string(),
+                is_dirty,
+            });
+            true
+        } else {
+            false
+        }
     };
 
-    if let Some(ws) = ws {
-        ws.git_branch = Some(crate::model::panel::GitBranch {
-            branch: branch.to_string(),
-            is_dirty,
-        });
+    if updated {
+        state.notify_ui_refresh();
         Response::success(id, serde_json::json!({"ok": true}))
     } else {
         Response::error(id, "not_found", "Workspace not found")
@@ -351,40 +393,37 @@ fn handle_workspace_report_git(id: Value, params: &Value, state: &Arc<SharedStat
 
 fn handle_workspace_set_progress(id: Value, params: &Value, state: &Arc<SharedState>) -> Response {
     let ws_id = params
-        .get("workspace_id")
+        .get("workspace")
         .and_then(|v| v.as_str())
         .and_then(|s| uuid::Uuid::parse_str(s).ok());
     let value = params.get("value").and_then(|v| v.as_f64());
-    let label = params.get("label").and_then(|v| v.as_str())
-        .map(|s| crate::model::workspace::truncate_str(s, 1024));
+    let label = params.get("label").and_then(|v| v.as_str());
 
-    // Validate progress value before acquiring lock
-    if let Some(value) = value {
-        if !value.is_finite() || value < 0.0 || value > 1.0 {
-            return Response::error(
-                id,
-                "invalid_params",
-                "Progress value must be a finite number between 0.0 and 1.0",
-            );
+    let updated = {
+        let mut tm = state.tab_manager.lock().unwrap();
+        let ws = if let Some(wid) = ws_id {
+            tm.workspace_mut(wid)
+        } else {
+            tm.selected_mut()
+        };
+
+        if let Some(ws) = ws {
+            if let Some(value) = value {
+                ws.progress = Some(crate::model::workspace::Progress {
+                    value,
+                    label: label.map(|s| s.to_string()),
+                });
+            } else {
+                ws.progress = None;
+            }
+            true
+        } else {
+            false
         }
-    }
-
-    let mut tm = state.lock_tab_manager();
-    let ws = if let Some(wid) = ws_id {
-        tm.workspace_mut(wid)
-    } else {
-        tm.selected_mut()
     };
 
-    if let Some(ws) = ws {
-        if let Some(value) = value {
-            ws.progress = Some(crate::model::workspace::Progress {
-                value,
-                label: label.map(|s| s.to_string()),
-            });
-        } else {
-            ws.progress = None;
-        }
+    if updated {
+        state.notify_ui_refresh();
         Response::success(id, serde_json::json!({"ok": true}))
     } else {
         Response::error(id, "not_found", "Workspace not found")
@@ -393,7 +432,7 @@ fn handle_workspace_set_progress(id: Value, params: &Value, state: &Arc<SharedSt
 
 fn handle_workspace_append_log(id: Value, params: &Value, state: &Arc<SharedState>) -> Response {
     let ws_id = params
-        .get("workspace_id")
+        .get("workspace")
         .and_then(|v| v.as_str())
         .and_then(|s| uuid::Uuid::parse_str(s).ok());
     let message = params.get("message").and_then(|v| v.as_str());
@@ -404,17 +443,24 @@ fn handle_workspace_append_log(id: Value, params: &Value, state: &Arc<SharedStat
         return Response::error(id, "invalid_params", "Provide 'message'");
     };
 
-    // level/source are truncated inside append_log for defense-in-depth
+    let updated = {
+        let mut tm = state.tab_manager.lock().unwrap();
+        let ws = if let Some(wid) = ws_id {
+            tm.workspace_mut(wid)
+        } else {
+            tm.selected_mut()
+        };
 
-    let mut tm = state.lock_tab_manager();
-    let ws = if let Some(wid) = ws_id {
-        tm.workspace_mut(wid)
-    } else {
-        tm.selected_mut()
+        if let Some(ws) = ws {
+            ws.append_log(message, level, source);
+            true
+        } else {
+            false
+        }
     };
 
-    if let Some(ws) = ws {
-        ws.append_log(message, level, source);
+    if updated {
+        state.notify_ui_refresh();
         Response::success(id, serde_json::json!({"ok": true}))
     } else {
         Response::error(id, "not_found", "Workspace not found")
@@ -432,9 +478,11 @@ fn handle_pane_new(id: Value, params: &Value, state: &Arc<SharedState>) -> Respo
         _ => SplitOrientation::Horizontal,
     };
 
-    let mut tm = state.lock_tab_manager();
+    let mut tm = state.tab_manager.lock().unwrap();
     if let Some(ws) = tm.selected_mut() {
         let panel_id = ws.split(orientation, PanelType::Terminal);
+        drop(tm);
+        state.notify_ui_refresh();
         Response::success(id, serde_json::json!({"panel_id": panel_id.to_string()}))
     } else {
         Response::error(id, "not_found", "No workspace selected")
@@ -445,12 +493,50 @@ fn handle_pane_new(id: Value, params: &Value, state: &Arc<SharedState>) -> Respo
 // Surface handlers
 // -----------------------------------------------------------------------
 
-fn handle_surface_send_input(id: Value, _params: &Value, _state: &Arc<SharedState>) -> Response {
-    // TODO: Forward to ghostty surface via GTK main thread (requires Phase 0 ghostty integration)
-    Response::error(
+fn handle_surface_send_input(id: Value, params: &Value, state: &Arc<SharedState>) -> Response {
+    let Some(input) = params.get("input").and_then(|v| v.as_str()) else {
+        return Response::error(id, "invalid_params", "Provide 'input'");
+    };
+
+    let explicit_panel_id = params
+        .get("surface")
+        .or_else(|| params.get("panel"))
+        .and_then(|v| v.as_str())
+        .and_then(|s| uuid::Uuid::parse_str(s).ok());
+
+    let panel_id = {
+        let tab_manager = state.tab_manager.lock().unwrap();
+        if let Some(panel_id) = explicit_panel_id {
+            if tab_manager.find_workspace_with_panel(panel_id).is_none() {
+                return Response::error(id, "not_found", "Surface not found");
+            }
+            panel_id
+        } else if let Some(workspace) = tab_manager.selected() {
+            let Some(panel_id) = workspace
+                .focused_panel_id
+                .or_else(|| workspace.panel_ids().into_iter().next())
+            else {
+                return Response::error(id, "not_found", "No focused surface");
+            };
+            panel_id
+        } else {
+            return Response::error(id, "not_found", "No workspace selected");
+        }
+    };
+
+    if !state.send_ui_event(UiEvent::SendInput {
+        panel_id,
+        text: input.to_string(),
+    }) {
+        return Response::error(id, "not_ready", "UI is not ready");
+    }
+
+    Response::success(
         id,
-        "not_implemented",
-        "surface.send_input is not yet implemented (requires ghostty integration)",
+        serde_json::json!({
+            "sent": true,
+            "surface": panel_id.to_string(),
+        }),
     )
 }
 
@@ -458,16 +544,204 @@ fn handle_surface_send_input(id: Value, _params: &Value, _state: &Arc<SharedStat
 // Notification handlers
 // -----------------------------------------------------------------------
 
-fn handle_notification_create(id: Value, params: &Value, _state: &Arc<SharedState>) -> Response {
+fn handle_notification_create(id: Value, params: &Value, state: &Arc<SharedState>) -> Response {
     let title = params.get("title").and_then(|v| v.as_str()).unwrap_or("cmux");
     let body = params.get("body").and_then(|v| v.as_str()).unwrap_or("");
+    let workspace_id = params
+        .get("workspace")
+        .and_then(|v| v.as_str())
+        .and_then(|s| uuid::Uuid::parse_str(s).ok());
+    let panel_id = params
+        .get("surface")
+        .or_else(|| params.get("panel"))
+        .and_then(|v| v.as_str())
+        .and_then(|s| uuid::Uuid::parse_str(s).ok());
+    let send_desktop = params
+        .get("send_desktop")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
 
-    // TODO: Add to notification store + send desktop notification (Phase 3)
-    tracing::info!("Notification (stub): {} - {}", title, body);
+    let target = {
+        let mut tm = state.tab_manager.lock().unwrap();
+        let target_workspace_id = if let Some(workspace_id) = workspace_id {
+            if tm.workspace(workspace_id).is_some() {
+                Some(workspace_id)
+            } else {
+                return Response::error(id, "not_found", "Workspace not found");
+            }
+        } else if let Some(panel_id) = panel_id {
+            tm.find_workspace_with_panel(panel_id).map(|ws| ws.id)
+        } else {
+            tm.selected_id()
+        };
 
-    Response::error(
+        let Some(target_workspace_id) = target_workspace_id else {
+            return Response::error(id, "not_found", "No workspace selected");
+        };
+
+        let workspace = tm.workspace_mut(target_workspace_id).unwrap();
+        let resolved_panel_id = panel_id.filter(|id| workspace.panels.contains_key(id));
+        workspace.record_notification(title, body, resolved_panel_id);
+        (target_workspace_id, resolved_panel_id)
+    };
+
+    let (target_workspace_id, resolved_panel_id) = target;
+    state.notifications.lock().unwrap().add(
+        title,
+        body,
+        Some(target_workspace_id),
+        resolved_panel_id,
+        send_desktop,
+    );
+    state.notify_ui_refresh();
+
+    Response::success(
         id,
-        "not_implemented",
-        "notification.create is not yet implemented (Phase 3)",
+        serde_json::json!({
+            "notified": true,
+            "workspace": target_workspace_id.to_string(),
+            "surface": resolved_panel_id.map(|panel_id| panel_id.to_string()),
+        }),
     )
+}
+
+fn mark_workspace_read(state: &Arc<SharedState>, workspace_id: uuid::Uuid) {
+    state
+        .notifications
+        .lock()
+        .unwrap()
+        .mark_workspace_read(workspace_id);
+
+    if let Some(workspace) = state.tab_manager.lock().unwrap().workspace_mut(workspace_id) {
+        workspace.mark_notifications_read();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_notification_create_updates_workspace_attention() {
+        let state = Arc::new(SharedState::new());
+        let (workspace_id, panel_id) = {
+            let tab_manager = state.tab_manager.lock().unwrap();
+            let workspace = tab_manager.selected().unwrap();
+            (workspace.id, workspace.focused_panel_id.unwrap())
+        };
+
+        let request = serde_json::json!({
+            "id": 1,
+            "method": "notification.create",
+            "params": {
+                "title": "Codex",
+                "body": "Waiting for input",
+                "workspace": workspace_id.to_string(),
+                "surface": panel_id.to_string(),
+                "send_desktop": false
+            }
+        });
+
+        let response = dispatch(&request.to_string(), &state);
+        assert!(response.ok);
+
+        let tab_manager = state.tab_manager.lock().unwrap();
+        let workspace = tab_manager.workspace(workspace_id).unwrap();
+        assert_eq!(workspace.unread_count, 1);
+        assert_eq!(
+            workspace.latest_notification.as_deref(),
+            Some("Codex: Waiting for input")
+        );
+        assert_eq!(workspace.attention_panel_id, Some(panel_id));
+    }
+
+    #[test]
+    fn test_workspace_latest_unread_selects_newest_workspace() {
+        let state = Arc::new(SharedState::new());
+        let workspace_one_id = state.tab_manager.lock().unwrap().selected_id().unwrap();
+
+        let new_workspace_request = serde_json::json!({
+            "id": 1,
+            "method": "workspace.new",
+            "params": {
+                "title": "Second"
+            }
+        });
+        let response = dispatch(&new_workspace_request.to_string(), &state);
+        assert!(response.ok);
+
+        let workspace_two_id = state.tab_manager.lock().unwrap().selected_id().unwrap();
+
+        let first_notification = serde_json::json!({
+            "id": 2,
+            "method": "notification.create",
+            "params": {
+                "title": "Claude Code",
+                "body": "Needs approval",
+                "workspace": workspace_one_id.to_string(),
+                "send_desktop": false
+            }
+        });
+        assert!(dispatch(&first_notification.to_string(), &state).ok);
+
+        std::thread::sleep(std::time::Duration::from_millis(1));
+
+        let second_notification = serde_json::json!({
+            "id": 3,
+            "method": "notification.create",
+            "params": {
+                "title": "Codex",
+                "body": "Waiting for input",
+                "workspace": workspace_two_id.to_string(),
+                "send_desktop": false
+            }
+        });
+        assert!(dispatch(&second_notification.to_string(), &state).ok);
+
+        let latest_unread = serde_json::json!({
+            "id": 4,
+            "method": "workspace.latest_unread",
+            "params": {}
+        });
+        let response = dispatch(&latest_unread.to_string(), &state);
+        assert!(response.ok);
+
+        let tab_manager = state.tab_manager.lock().unwrap();
+        assert_eq!(tab_manager.selected_id(), Some(workspace_two_id));
+        assert_eq!(tab_manager.workspace(workspace_two_id).unwrap().unread_count, 0);
+        assert_eq!(tab_manager.workspace(workspace_one_id).unwrap().unread_count, 1);
+    }
+
+    #[test]
+    fn test_surface_send_input_dispatches_ui_event() {
+        let state = Arc::new(SharedState::new());
+        let (tx, rx) = std::sync::mpsc::channel();
+        state.install_ui_event_sender(tx);
+
+        let panel_id = {
+            let tab_manager = state.tab_manager.lock().unwrap();
+            tab_manager.selected().unwrap().focused_panel_id.unwrap()
+        };
+
+        let request = serde_json::json!({
+            "id": 1,
+            "method": "surface.send_input",
+            "params": {
+                "surface": panel_id.to_string(),
+                "input": "ls\n"
+            }
+        });
+
+        let response = dispatch(&request.to_string(), &state);
+        assert!(response.ok);
+
+        let event = rx.try_recv().expect("expected a UI event");
+        match event {
+            UiEvent::SendInput { panel_id: actual, text } => {
+                assert_eq!(actual, panel_id);
+                assert_eq!(text, "ls\n");
+            }
+            other => panic!("unexpected event: {other:?}"),
+        }
+    }
 }

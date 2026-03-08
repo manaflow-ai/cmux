@@ -17,20 +17,35 @@ use crate::ui::terminal_panel;
 pub fn build_layout(
     node: &LayoutNode,
     panels: &HashMap<Uuid, Panel>,
+    attention_panel_id: Option<Uuid>,
     state: &Rc<AppState>,
 ) -> gtk4::Widget {
     match node {
         LayoutNode::Pane {
             panel_ids,
             selected_panel_id,
-        } => build_pane(panel_ids, *selected_panel_id, panels, state),
+        } => build_pane(
+            panel_ids,
+            *selected_panel_id,
+            panels,
+            attention_panel_id,
+            state,
+        ),
 
         LayoutNode::Split {
             orientation,
             divider_position,
             first,
             second,
-        } => build_split(*orientation, *divider_position, first, second, panels, state),
+        } => build_split(
+            *orientation,
+            *divider_position,
+            first,
+            second,
+            panels,
+            attention_panel_id,
+            state,
+        ),
     }
 }
 
@@ -39,6 +54,7 @@ fn build_pane(
     panel_ids: &[Uuid],
     selected_id: Option<Uuid>,
     panels: &HashMap<Uuid, Panel>,
+    attention_panel_id: Option<Uuid>,
     state: &Rc<AppState>,
 ) -> gtk4::Widget {
     if panel_ids.is_empty() {
@@ -53,7 +69,11 @@ fn build_pane(
         // Single panel — no tabs needed
         let panel_id = panel_ids[0];
         if let Some(panel) = panels.get(&panel_id) {
-            return terminal_panel::create_panel_widget(panel, state);
+            return terminal_panel::create_panel_widget(
+                panel,
+                attention_panel_id == Some(panel_id),
+                state,
+            );
         }
         let label = gtk4::Label::new(Some("Panel not found"));
         return label.upcast();
@@ -64,21 +84,17 @@ fn build_pane(
     stack.set_hexpand(true);
     stack.set_vexpand(true);
 
-    let mut added = 0;
     for &panel_id in panel_ids {
         if let Some(panel) = panels.get(&panel_id) {
-            let widget = terminal_panel::create_panel_widget(panel, state);
+            let widget = terminal_panel::create_panel_widget(
+                panel,
+                attention_panel_id == Some(panel_id),
+                state,
+            );
             let page = stack.add_child(&widget);
             page.set_title(panel.display_title());
             page.set_name(&panel_id.to_string());
-            added += 1;
         }
-    }
-
-    // If no panels resolved, show a placeholder
-    if added == 0 {
-        let label = gtk4::Label::new(Some("Panel not found"));
-        stack.add_child(&label);
     }
 
     // Select the active panel
@@ -106,6 +122,7 @@ fn build_split(
     first: &LayoutNode,
     second: &LayoutNode,
     panels: &HashMap<Uuid, Panel>,
+    attention_panel_id: Option<Uuid>,
     state: &Rc<AppState>,
 ) -> gtk4::Widget {
     let gtk_orientation = match orientation {
@@ -118,14 +135,14 @@ fn build_split(
     paned.set_hexpand(true);
     paned.set_vexpand(true);
 
-    let first_widget = build_layout(first, panels, state);
-    let second_widget = build_layout(second, panels, state);
+    let first_widget = build_layout(first, panels, attention_panel_id, state);
+    let second_widget = build_layout(second, panels, attention_panel_id, state);
 
     paned.set_start_child(Some(&first_widget));
     paned.set_end_child(Some(&second_widget));
 
     // Set divider position after the widget is mapped
-    let pos = divider_position.clamp(0.0, 1.0);
+    let pos = divider_position;
     paned.connect_map(move |paned| {
         let size = match paned.orientation() {
             gtk4::Orientation::Horizontal => paned.width(),

@@ -168,6 +168,26 @@ impl LayoutNode {
         }
     }
 
+    /// Select the given panel if it exists in this layout tree.
+    pub fn select_panel(&mut self, panel_id: Uuid) -> bool {
+        match self {
+            LayoutNode::Pane {
+                panel_ids,
+                selected_panel_id,
+            } => {
+                if panel_ids.contains(&panel_id) {
+                    *selected_panel_id = Some(panel_id);
+                    true
+                } else {
+                    false
+                }
+            }
+            LayoutNode::Split { first, second, .. } => {
+                first.select_panel(panel_id) || second.select_panel(panel_id)
+            }
+        }
+    }
+
     /// Remove a panel from the layout. If a pane becomes empty, the split
     /// is collapsed. Returns true if the panel was found and removed.
     pub fn remove_panel(&mut self, panel_id: Uuid) -> bool {
@@ -240,7 +260,7 @@ mod tests {
         assert!(node.remove_panel(id2));
         assert_eq!(node.all_panel_ids(), vec![id1]);
         // Should have collapsed back to a single pane
-        assert!(matches!(node, LayoutNode::Pane { .. }));
+        matches!(node, LayoutNode::Pane { .. });
     }
 
     #[test]
@@ -251,5 +271,25 @@ mod tests {
         let json = serde_json::to_string(&node).unwrap();
         let restored: LayoutNode = serde_json::from_str(&json).unwrap();
         assert_eq!(restored.all_panel_ids().len(), 2);
+    }
+
+    #[test]
+    fn test_select_panel_in_split() {
+        let id1 = Uuid::new_v4();
+        let id2 = Uuid::new_v4();
+        let mut node = LayoutNode::single_pane(id1).split(SplitOrientation::Vertical, id2);
+        assert!(node.select_panel(id2));
+
+        let mut selected = None;
+        if let LayoutNode::Split { second, .. } = &node {
+            if let LayoutNode::Pane {
+                selected_panel_id, ..
+            } = second.as_ref()
+            {
+                selected = *selected_panel_id;
+            }
+        }
+
+        assert_eq!(selected, Some(id2));
     }
 }

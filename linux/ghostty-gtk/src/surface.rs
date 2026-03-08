@@ -7,15 +7,39 @@
 //! - Manages the ghostty_surface_t lifecycle
 
 use ghostty_sys::*;
-use glib::translate::{FromGlib, IntoGlib};
+use glib::translate::IntoGlib;
 use gtk4::glib;
 use gtk4::prelude::*;
 use gtk4::subclass::prelude::*;
 use std::cell::{Cell, RefCell};
-use std::os::raw::{c_char, c_void};
+use std::os::raw::c_char;
+#[cfg(feature = "link-ghostty")]
+use std::os::raw::c_void;
 use std::ptr;
 
 use crate::keys;
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+enum ImeKeyEventState {
+    #[default]
+    Idle,
+    NotComposing,
+    Composing,
+}
+
+// Minimal GL bindings for viewport setup.
+// GtkGLArea does NOT set glViewport before emitting the render signal,
+// but ghostty's renderer reads GL_VIEWPORT to determine the surface size.
+#[cfg(feature = "link-ghostty")]
+mod gl_raw {
+    pub type GLint = i32;
+    pub type GLsizei = i32;
+
+    #[link(name = "GL")]
+    extern "C" {
+        pub fn glViewport(x: GLint, y: GLint, width: GLsizei, height: GLsizei);
+    }
+}
 
 // -----------------------------------------------------------------------
 // GObject subclass for the GL surface widget
@@ -30,6 +54,14 @@ mod imp {
         pub(super) app: Cell<ghostty_app_t>,
         pub(super) title: RefCell<String>,
         pub(super) im_context: RefCell<Option<gtk4::IMMulticontext>>,
+        pub(super) im_composing: Cell<bool>,
+        pub(super) in_keyevent: Cell<ImeKeyEventState>,
+        pub(super) im_commit_text: RefCell<Vec<u8>>,
+        pub(super) focused: Cell<bool>,
+        pub(super) focus_idle_queued: Cell<bool>,
+        pub(super) focus_restore_armed: Cell<bool>,
+        pub(super) focus_disarm_source: RefCell<Option<glib::SourceId>>,
+        pub(super) resize_focus_restore_source: RefCell<Option<glib::SourceId>>,
     }
 
     #[glib::object_subclass]
@@ -44,7 +76,9 @@ mod imp {
             self.parent_constructed();
 
             let gl_area = self.obj();
-            gl_area.set_auto_render(false);
+            // Match Ghostty's GTK surface behavior so resizes and renderer-driven
+            // invalidations can produce fresh frames without our own manual loop.
+            gl_area.set_auto_render(true);
             gl_area.set_has_depth_buffer(false);
             gl_area.set_has_stencil_buffer(false);
             // Request OpenGL 4.3 (required by ghostty renderer)
@@ -55,9 +89,20 @@ mod imp {
             // Set up IME context
             let im_context = gtk4::IMMulticontext::new();
             *self.im_context.borrow_mut() = Some(im_context);
+            gl_area.setup_ime();
         }
 
         fn dispose(&self) {
+            if let Some(source) = self.focus_disarm_source.borrow_mut().take() {
+                source.remove();
+            }
+            if let Some(source) = self.resize_focus_restore_source.borrow_mut().take() {
+                source.remove();
+            }
+            if let Some(im_context) = self.im_context.borrow().as_ref() {
+                im_context.set_client_widget(Option::<&gtk4::Widget>::None);
+            }
+
             let surface = self.surface.get();
             if !surface.is_null() {
                 #[cfg(feature = "link-ghostty")]
@@ -66,8 +111,6 @@ mod imp {
                 }
                 self.surface.set(ptr::null_mut());
             }
-            // Note: GObject automatically chains dispose to parent classes;
-            // no explicit parent_dispose() call needed in gtk4-rs.
         }
     }
 
@@ -80,7 +123,6 @@ mod imp {
                 tracing::error!("Failed to make GL context current");
                 return;
             }
-            tracing::debug!("GhosttyGlSurface realized with GL context");
         }
 
         fn unrealize(&self) {
@@ -89,11 +131,42 @@ mod imp {
     }
 
     impl GLAreaImpl for GhosttyGlSurface {
+        fn create_context(&self) -> Option<gdk4::GLContext> {
+            use gdk4::prelude::GLContextExt;
+            use gtk4::prelude::NativeExt;
+            let widget = self.obj();
+            let native = widget.native()?;
+            let surface = native.surface()?;
+            match surface.create_gl_context() {
+                Ok(ctx) => {
+                    // Force desktop OpenGL (not GLES) and require 4.3 core profile
+                    ctx.set_use_es(0); // 0 = desktop GL, not GLES
+                    ctx.set_required_version(4, 3);
+                    // Do NOT call ctx.realize() here — GtkGLArea handles that
+                    // during its own realize phase with proper FBO setup.
+                    Some(ctx)
+                }
+                Err(e) => {
+                    tracing::error!("Failed to create GL context: {}", e);
+                    None
+                }
+            }
+        }
+
         fn render(&self, _context: &gdk4::GLContext) -> glib::Propagation {
             let surface = self.surface.get();
             if !surface.is_null() {
                 #[cfg(feature = "link-ghostty")]
                 unsafe {
+                    // GtkGLArea does NOT set glViewport before the render signal.
+                    // Ghostty's renderer reads GL_VIEWPORT via surfaceSize() to
+                    // determine the render area. We must set it here.
+                    let widget = self.obj();
+                    let scale = widget.scale_factor();
+                    let w = widget.width() * scale;
+                    let h = widget.height() * scale;
+                    gl_raw::glViewport(0, 0, w, h);
+
                     ghostty_surface_draw(surface);
                 }
             }
@@ -105,8 +178,12 @@ mod imp {
             if !surface.is_null() && width > 0 && height > 0 {
                 #[cfg(feature = "link-ghostty")]
                 unsafe {
+                    let scale = self.obj().scale_factor() as f64;
+                    ghostty_surface_set_content_scale(surface, scale, scale);
                     ghostty_surface_set_size(surface, width as u32, height as u32);
                 }
+
+                self.obj().schedule_resize_focus_restore();
             }
         }
     }
@@ -148,41 +225,31 @@ impl GhosttyGlSurface {
         let wd = working_directory.map(|s| s.to_string());
         let cmd = command.map(|s| s.to_string());
 
-        self.connect_realize(move |_| {
+        self.connect_realize(move |w| {
             widget.create_surface(app, wd.as_deref(), cmd.as_deref());
+            // Grab focus so keyboard events go to this terminal
+            w.grab_focus();
         });
     }
 
     fn create_surface(
         &self,
         app: ghostty_app_t,
-        working_directory: Option<&str>,
-        command: Option<&str>,
+        _working_directory: Option<&str>,
+        _command: Option<&str>,
     ) {
         if app.is_null() {
             tracing::warn!("Cannot create surface: app is null (stub mode)");
             return;
         }
 
-        // Guard against re-realize: don't leak existing surface
         if !self.imp().surface.get().is_null() {
-            tracing::debug!("Surface already created, skipping re-create");
             return;
         }
 
         #[cfg(feature = "link-ghostty")]
         {
             let mut config = unsafe { ghostty_surface_config_new() };
-
-            // Explicitly zero out optional fields (ghostty_surface_config_new
-            // may not zero-initialize all fields)
-            config.working_directory = ptr::null();
-            config.command = ptr::null();
-            config.env_vars = ptr::null_mut();
-            config.env_var_count = 0;
-            config.initial_input = ptr::null();
-            config.font_size = 0.0;
-            config.wait_after_command = false;
 
             // Set platform to Linux with our GtkGLArea
             config.platform_tag = ghostty_platform_e::GHOSTTY_PLATFORM_LINUX;
@@ -197,15 +264,14 @@ impl GhosttyGlSurface {
 
             // Set working directory
             let wd_cstr;
-            if let Some(wd) = working_directory {
+            if let Some(wd) = _working_directory {
                 wd_cstr = std::ffi::CString::new(wd).ok();
-                config.working_directory =
-                    wd_cstr.as_ref().map_or(ptr::null(), |c| c.as_ptr());
+                config.working_directory = wd_cstr.as_ref().map_or(ptr::null(), |c| c.as_ptr());
             }
 
             // Set command
             let cmd_cstr;
-            if let Some(cmd) = command {
+            if let Some(cmd) = _command {
                 cmd_cstr = std::ffi::CString::new(cmd).ok();
                 config.command = cmd_cstr.as_ref().map_or(ptr::null(), |c| c.as_ptr());
             }
@@ -220,7 +286,6 @@ impl GhosttyGlSurface {
             }
 
             self.imp().surface.set(surface);
-            tracing::debug!("ghostty surface created successfully");
         }
     }
 
@@ -259,6 +324,8 @@ impl GhosttyGlSurface {
         {
             let surface_widget = self.clone();
             click.connect_pressed(move |gesture, _n_press, x, y| {
+                // Grab focus on click so key events go to this widget
+                surface_widget.grab_focus();
                 let button = gesture.current_button();
                 surface_widget.on_mouse_button(
                     button,
@@ -325,7 +392,7 @@ impl GhosttyGlSurface {
 
     fn on_key_event(
         &self,
-        _controller: &gtk4::EventControllerKey,
+        controller: &gtk4::EventControllerKey,
         keyval: u32,
         keycode: u32,
         state: gdk4::ModifierType,
@@ -336,21 +403,82 @@ impl GhosttyGlSurface {
             return glib::Propagation::Proceed;
         }
 
+        let was_composing = self.imp().im_composing.get();
+        if action == ghostty_input_action_e::GHOSTTY_ACTION_PRESS {
+            if let Some(im_context) = self.imp().im_context.borrow().as_ref() {
+                if let Some(event) = controller.current_event() {
+                    self.update_ime_cursor_location();
+                    self.imp().in_keyevent.set(if was_composing {
+                        ImeKeyEventState::Composing
+                    } else {
+                        ImeKeyEventState::NotComposing
+                    });
+                    let ime_handled = im_context.filter_keypress(&event);
+                    self.imp().in_keyevent.set(ImeKeyEventState::Idle);
+
+                    if ime_handled {
+                        let is_composing = self.imp().im_composing.get();
+                        let has_committed_text = !self.imp().im_commit_text.borrow().is_empty();
+                        if is_composing || was_composing || !has_committed_text {
+                            return glib::Propagation::Stop;
+                        }
+                    }
+                }
+            }
+        }
+
         let mods = keys::gdk_mods_to_ghostty(state);
 
-        // Derive unshifted codepoint: use to_lower() to strip Shift from the keyval,
-        // e.g. Shift+a yields keyval 'A' → to_lower() gives 'a' → codepoint 0x61.
-        let gdk_key = unsafe { gdk4::Key::from_glib(keyval) };
-        let unshifted_codepoint = gdk_key.to_lower().to_unicode().map(|c| c as u32).unwrap_or(0);
+        // Convert keyval to a GDK Key for unicode conversion
+        let key: gdk4::Key = unsafe { glib::translate::from_glib(keyval) };
+
+        let committed_text = {
+            let mut text = self.imp().im_commit_text.borrow_mut();
+            std::mem::take(&mut *text)
+        };
+
+        let mut text_buf = [0u8; 8];
+        let text_cstr;
+        let committed_text_cstr;
+        let text_ptr = if !committed_text.is_empty() {
+            match std::ffi::CString::new(committed_text) {
+                Ok(cstr) => {
+                    committed_text_cstr = cstr;
+                    committed_text_cstr.as_ptr()
+                }
+                Err(_) => {
+                    tracing::warn!("Ignoring IME commit containing interior NUL");
+                    ptr::null()
+                }
+            }
+        } else if action == ghostty_input_action_e::GHOSTTY_ACTION_PRESS {
+            if let Some(ch) = key.to_unicode() {
+                if ch >= '\x20' {
+                    let len = ch.encode_utf8(&mut text_buf).len();
+                    text_buf[len] = 0;
+                    text_cstr = &text_buf[..=len];
+                    text_cstr.as_ptr() as *const c_char
+                } else {
+                    ptr::null()
+                }
+            } else {
+                ptr::null()
+            }
+        } else {
+            ptr::null()
+        };
+
+        // Unshifted codepoint: the unicode value of the key without Shift
+        let unshifted_codepoint = key.to_lower().to_unicode().map(|c| c as u32).unwrap_or(0);
 
         let key_event = ghostty_input_key_s {
             action,
             mods,
             consumed_mods: 0,
             keycode,
-            text: ptr::null(),
+            text: text_ptr,
             unshifted_codepoint,
-            composing: false,
+            composing: self.imp().im_composing.get(),
         };
 
         #[cfg(feature = "link-ghostty")]
@@ -365,13 +493,7 @@ impl GhosttyGlSurface {
         glib::Propagation::Proceed
     }
 
-    fn on_mouse_button(
-        &self,
-        button: u32,
-        _x: f64,
-        _y: f64,
-        state: ghostty_input_mouse_state_e,
-    ) {
+    fn on_mouse_button(&self, button: u32, _x: f64, _y: f64, state: ghostty_input_mouse_state_e) {
         let surface = self.imp().surface.get();
         if surface.is_null() {
             return;
@@ -407,22 +529,102 @@ impl GhosttyGlSurface {
 
         #[cfg(feature = "link-ghostty")]
         unsafe {
-            ghostty_surface_mouse_scroll(surface, dx, dy, 0);
+            // Ghostty expects positive deltas for up/right and negative for
+            // down/left. GTK delivers the inverse "natural scrolling" sign.
+            ghostty_surface_mouse_scroll(surface, -dx, -dy, 0);
         }
         let _ = (dx, dy);
     }
 
     fn on_focus_change(&self, focused: bool) {
+        self.imp().focused.set(focused);
         let surface = self.imp().surface.get();
-        if surface.is_null() {
+        if let Some(im_context) = self.imp().im_context.borrow().as_ref() {
+            if focused {
+                im_context.focus_in();
+                self.update_ime_cursor_location();
+            } else {
+                self.imp().im_composing.set(false);
+                self.imp().im_commit_text.borrow_mut().clear();
+                im_context.focus_out();
+                im_context.reset();
+                self.update_preedit("");
+            }
+        }
+
+        if focused {
+            self.cancel_focus_disarm();
+            self.imp().focus_restore_armed.set(true);
+        } else {
+            self.schedule_focus_disarm();
+        }
+
+        if surface.is_null() || self.imp().focus_idle_queued.replace(true) {
             return;
         }
 
-        #[cfg(feature = "link-ghostty")]
-        unsafe {
-            ghostty_surface_set_focus(surface, focused);
+        let surface_widget = self.clone();
+        glib::idle_add_local_once(move || {
+            let imp = surface_widget.imp();
+            imp.focus_idle_queued.set(false);
+
+            let surface = imp.surface.get();
+            if surface.is_null() {
+                return;
+            }
+
+            #[cfg(feature = "link-ghostty")]
+            unsafe {
+                ghostty_surface_set_focus(surface, imp.focused.get());
+            }
+        });
+    }
+
+    fn schedule_focus_disarm(&self) {
+        self.cancel_focus_disarm();
+
+        let surface_widget = self.clone();
+        let source =
+            glib::timeout_add_local_once(std::time::Duration::from_millis(250), move || {
+                surface_widget.imp().focus_disarm_source.borrow_mut().take();
+                if !surface_widget.imp().focused.get() {
+                    surface_widget.imp().focus_restore_armed.set(false);
+                }
+            });
+        *self.imp().focus_disarm_source.borrow_mut() = Some(source);
+    }
+
+    fn cancel_focus_disarm(&self) {
+        if let Some(source) = self.imp().focus_disarm_source.borrow_mut().take() {
+            source.remove();
         }
-        let _ = focused;
+    }
+
+    fn schedule_resize_focus_restore(&self) {
+        if !self.imp().focus_restore_armed.get() {
+            return;
+        }
+
+        self.cancel_focus_disarm();
+
+        if let Some(source) = self.imp().resize_focus_restore_source.borrow_mut().take() {
+            source.remove();
+        }
+
+        let surface_widget = self.clone();
+        let source =
+            glib::timeout_add_local_once(std::time::Duration::from_millis(150), move || {
+                surface_widget
+                    .imp()
+                    .resize_focus_restore_source
+                    .borrow_mut()
+                    .take();
+
+                if !surface_widget.imp().focused.get() {
+                    let _ = surface_widget.grab_focus();
+                }
+            });
+        *self.imp().resize_focus_restore_source.borrow_mut() = Some(source);
     }
 
     /// Get the raw ghostty surface pointer.
@@ -451,25 +653,152 @@ impl GhosttyGlSurface {
 
         #[cfg(feature = "link-ghostty")]
         {
-            let Ok(cstr) = std::ffi::CString::new(text) else {
-                // Text contains NUL bytes — split on NUL and send each segment
-                for segment in text.split('\0') {
-                    if segment.is_empty() {
-                        continue;
-                    }
-                    if let Ok(c) = std::ffi::CString::new(segment) {
-                        unsafe {
-                            ghostty_surface_text(surface, c.as_ptr(), segment.len());
-                        }
-                    }
-                }
-                return;
-            };
+            let cstr = std::ffi::CString::new(text).unwrap();
             unsafe {
                 ghostty_surface_text(surface, cstr.as_ptr(), text.len());
             }
         }
         let _ = text;
+    }
+
+    fn setup_ime(&self) {
+        let Some(im_context) = self.imp().im_context.borrow().as_ref().cloned() else {
+            return;
+        };
+
+        im_context.set_client_widget(Some(self));
+        im_context.set_use_preedit(true);
+
+        let surface_widget = self.clone();
+        im_context.connect_preedit_start(move |_context| {
+            surface_widget.im_preedit_start();
+        });
+
+        let surface_widget = self.clone();
+        im_context.connect_commit(move |_context, text| {
+            surface_widget.im_commit(text);
+        });
+
+        let surface_widget = self.clone();
+        im_context.connect_preedit_changed(move |context| {
+            surface_widget.im_preedit_changed(context);
+        });
+
+        let surface_widget = self.clone();
+        im_context.connect_preedit_end(move |_context| {
+            surface_widget.im_preedit_end();
+        });
+    }
+
+    fn im_preedit_start(&self) {
+        self.imp().im_composing.set(true);
+        self.imp().im_commit_text.borrow_mut().clear();
+    }
+
+    fn im_preedit_changed(&self, context: &gtk4::IMMulticontext) {
+        self.imp().im_composing.set(true);
+        let (text, _attrs, _cursor_pos) = context.preedit_string();
+        self.update_preedit(text.as_str());
+        self.update_ime_cursor_location();
+    }
+
+    fn im_preedit_end(&self) {
+        self.imp().im_composing.set(false);
+        self.update_preedit("");
+    }
+
+    fn im_commit(&self, text: &str) {
+        match self.imp().in_keyevent.get() {
+            ImeKeyEventState::NotComposing => {
+                let mut committed = self.imp().im_commit_text.borrow_mut();
+                committed.clear();
+                committed.extend_from_slice(text.as_bytes());
+            }
+            ImeKeyEventState::Composing | ImeKeyEventState::Idle => {
+                self.imp().im_composing.set(false);
+                self.update_preedit("");
+                self.send_text_as_key(text);
+            }
+        }
+    }
+
+    fn send_text_as_key(&self, text: &str) {
+        let surface = self.imp().surface.get();
+        if surface.is_null() {
+            return;
+        }
+
+        #[cfg(not(feature = "link-ghostty"))]
+        let _ = text;
+
+        let Ok(cstr) = std::ffi::CString::new(text) else {
+            tracing::warn!("Ignoring IME commit containing interior NUL");
+            return;
+        };
+
+        #[cfg(feature = "link-ghostty")]
+        unsafe {
+            let event = ghostty_input_key_s {
+                action: ghostty_input_action_e::GHOSTTY_ACTION_PRESS,
+                mods: 0,
+                consumed_mods: 0,
+                keycode: 0,
+                text: cstr.as_ptr(),
+                unshifted_codepoint: 0,
+                composing: false,
+            };
+            let _ = ghostty_surface_key(surface, event);
+        }
+
+        #[cfg(not(feature = "link-ghostty"))]
+        let _ = cstr;
+    }
+
+    fn update_preedit(&self, text: &str) {
+        let surface = self.imp().surface.get();
+        if surface.is_null() {
+            return;
+        }
+
+        #[cfg(feature = "link-ghostty")]
+        {
+            let Ok(cstr) = std::ffi::CString::new(text) else {
+                tracing::warn!("Ignoring IME preedit containing interior NUL");
+                return;
+            };
+
+            unsafe {
+                ghostty_surface_preedit(surface, cstr.as_ptr(), text.len());
+            }
+        }
+        let _ = text;
+    }
+
+    fn update_ime_cursor_location(&self) {
+        let surface = self.imp().surface.get();
+        if surface.is_null() {
+            return;
+        }
+
+        #[cfg(feature = "link-ghostty")]
+        unsafe {
+            let Some(im_context) = self.imp().im_context.borrow().as_ref().cloned() else {
+                return;
+            };
+
+            let mut x = 0.0;
+            let mut y = 0.0;
+            let mut w = 0.0;
+            let mut h = 0.0;
+            ghostty_surface_ime_point(surface, &mut x, &mut y, &mut w, &mut h);
+            let rect = gdk4::Rectangle::new(
+                x.round() as i32,
+                y.round() as i32,
+                w.max(1.0).round() as i32,
+                h.max(1.0).round() as i32,
+            );
+            im_context.set_cursor_location(&rect);
+        }
     }
 
     /// Set the current title (called from action callback).

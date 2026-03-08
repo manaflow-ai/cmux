@@ -1,7 +1,6 @@
 //! Safe wrapper around ghostty_app_t lifecycle.
 
 use ghostty_sys::*;
-use std::os::raw::{c_char, c_void};
 use std::ptr;
 
 use crate::callbacks::RuntimeCallbacks;
@@ -58,9 +57,6 @@ impl GhosttyApp {
         let diag_count = unsafe { ghostty_config_diagnostics_count(config) };
         for i in 0..diag_count {
             let diag = unsafe { ghostty_config_get_diagnostic(config, i) };
-            if diag.message.is_null() {
-                continue;
-            }
             let msg = unsafe { std::ffi::CStr::from_ptr(diag.message) };
             tracing::warn!("ghostty config diagnostic: {:?}", msg);
         }

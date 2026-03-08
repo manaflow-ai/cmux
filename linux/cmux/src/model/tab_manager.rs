@@ -50,6 +50,11 @@ impl TabManager {
         self.selected_index.and_then(|i| self.workspaces.get(i))
     }
 
+    /// Get the currently selected workspace ID.
+    pub fn selected_id(&self) -> Option<Uuid> {
+        self.selected().map(|ws| ws.id)
+    }
+
     /// Get the currently selected workspace mutably.
     pub fn selected_mut(&mut self) -> Option<&mut Workspace> {
         self.selected_index.and_then(|i| self.workspaces.get_mut(i))
@@ -189,23 +194,38 @@ impl TabManager {
         self.workspaces.iter()
     }
 
+    /// Select the workspace with the newest unread notification.
+    pub fn select_latest_unread(&mut self) -> Option<Uuid> {
+        let index = self.latest_unread_index()?;
+        self.selected_index = Some(index);
+        self.workspaces.get(index).map(|ws| ws.id)
+    }
+
+    /// Index of the workspace with the newest unread notification.
+    pub fn latest_unread_index(&self) -> Option<usize> {
+        self.workspaces
+            .iter()
+            .enumerate()
+            .filter(|(_, ws)| ws.unread_count > 0)
+            .max_by(|(_, a), (_, b)| {
+                let a_ts = a.latest_notification_at.unwrap_or(0.0);
+                let b_ts = b.latest_notification_at.unwrap_or(0.0);
+                a_ts.total_cmp(&b_ts)
+            })
+            .map(|(index, _)| index)
+    }
+
     /// Move a workspace from one index to another.
     pub fn move_workspace(&mut self, from: usize, to: usize) -> bool {
-        if from >= self.workspaces.len() || to >= self.workspaces.len() || from == to {
-            return from == to && from < self.workspaces.len();
+        if from >= self.workspaces.len() || to >= self.workspaces.len() {
+            return false;
         }
         let ws = self.workspaces.remove(from);
         self.workspaces.insert(to, ws);
 
-        // Remap selected_index for all affected positions
-        if let Some(sel) = self.selected_index {
-            if sel == from {
-                self.selected_index = Some(to);
-            } else if from < to && from < sel && sel <= to {
-                self.selected_index = Some(sel - 1);
-            } else if from > to && to <= sel && sel < from {
-                self.selected_index = Some(sel + 1);
-            }
+        // Adjust selection to follow the moved workspace
+        if self.selected_index == Some(from) {
+            self.selected_index = Some(to);
         }
         true
     }
@@ -292,5 +312,26 @@ mod tests {
 
         tm.select_last();
         assert_eq!(tm.selected_index(), Some(2));
+    }
+
+    #[test]
+    fn test_select_latest_unread_prefers_newest_notification() {
+        let mut tm = TabManager::empty();
+
+        let mut ws1 = Workspace::new();
+        ws1.record_notification("Claude Code", "Waiting for input", None);
+        let ws1_id = ws1.id;
+        tm.add_workspace(ws1);
+
+        std::thread::sleep(std::time::Duration::from_millis(1));
+
+        let mut ws2 = Workspace::new();
+        ws2.record_notification("Codex", "Approval needed", None);
+        let ws2_id = ws2.id;
+        tm.add_workspace(ws2);
+
+        let selected = tm.select_latest_unread();
+        assert_eq!(selected, Some(ws2_id));
+        assert_ne!(selected, Some(ws1_id));
     }
 }

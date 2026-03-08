@@ -1,21 +1,23 @@
 //! Sidebar — workspace list using GtkListBox.
 
+use std::path::Path;
 use std::rc::Rc;
 
 use gtk4::prelude::*;
 
 use crate::app::AppState;
+use crate::model::Workspace;
+
+pub struct SidebarWidgets {
+    pub root: gtk4::Box,
+    pub list_box: gtk4::ListBox,
+}
 
 /// Create the sidebar widget containing the workspace list.
-/// Returns both the sidebar box and the inner ListBox (for external refresh).
-pub fn create_sidebar(
-    state: &Rc<AppState>,
-    content_box: &gtk4::Box,
-) -> (gtk4::Box, gtk4::ListBox) {
+pub fn create_sidebar(state: &Rc<AppState>) -> SidebarWidgets {
     let sidebar_box = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
     sidebar_box.add_css_class("sidebar");
 
-    // Scrolled window for the workspace list
     let scrolled = gtk4::ScrolledWindow::new();
     scrolled.set_policy(gtk4::PolicyType::Never, gtk4::PolicyType::Automatic);
     scrolled.set_vexpand(true);
@@ -24,112 +26,141 @@ pub fn create_sidebar(
     list_box.set_selection_mode(gtk4::SelectionMode::Single);
     list_box.add_css_class("navigation-sidebar");
 
-    // Populate the list
-    populate_workspace_list(&list_box, state);
-
-    // Handle selection changes — also rebuild the content area
-    {
-        let state = state.clone();
-        let content_box = content_box.clone();
-        list_box.connect_row_selected(move |_list_box, row| {
-            if let Some(row) = row {
-                let i = row.index();
-                if i >= 0 {
-                    let index = i as usize;
-                    if state.tab_manager().select(index) {
-                        super::window::rebuild_content(&content_box, &state);
-                        tracing::debug!("Workspace selected: index={}", index);
-                    }
-                }
-            }
-        });
-    }
+    refresh_sidebar(&list_box, state);
 
     scrolled.set_child(Some(&list_box));
     sidebar_box.append(&scrolled);
 
-    (sidebar_box, list_box)
+    SidebarWidgets {
+        root: sidebar_box,
+        list_box,
+    }
 }
 
-/// Refresh the sidebar list from the current tab manager state.
+/// Refresh the workspace list from shared state.
 pub fn refresh_sidebar(list_box: &gtk4::ListBox, state: &Rc<AppState>) {
-    populate_workspace_list(list_box, state);
-}
-
-/// Populate the workspace list from the current tab manager state.
-///
-/// Important: collects all rows while holding the TabManager lock, then drops
-/// the lock before calling `select_row` to avoid deadlock (the `row-selected`
-/// signal handler also acquires the lock).
-fn populate_workspace_list(list_box: &gtk4::ListBox, state: &Rc<AppState>) {
-    // Remove existing rows
     while let Some(child) = list_box.first_child() {
         list_box.remove(&child);
     }
 
-    // Build rows while holding the lock
-    let (rows, selected_index) = {
-        let tm = state.tab_manager();
-        let selected = tm.selected_index();
-        let rows: Vec<gtk4::ListBoxRow> = tm
+    // Build rows and capture selection index while holding the lock, then
+    // release the lock before calling list_box.select_row.  select_row emits
+    // `row-selected` synchronously; the connected handler tries to acquire
+    // the same tab_manager lock, which would deadlock on std::sync::Mutex.
+    let (rows, selected_index): (Vec<gtk4::ListBoxRow>, Option<usize>) = {
+        let tab_manager = state.shared.tab_manager.lock().unwrap();
+        let selected_index = tab_manager.selected_index();
+        let rows = tab_manager
             .iter()
             .enumerate()
-            .map(|(i, ws)| create_workspace_row(ws, i))
+            .map(|(index, workspace)| create_workspace_row(workspace, index))
             .collect();
-        (rows, selected)
+        (rows, selected_index)
     };
-    // Lock released here — safe to trigger signals
 
-    for (i, row) in rows.iter().enumerate() {
+    for (index, row) in rows.iter().enumerate() {
         list_box.append(row);
-        if selected_index == Some(i) {
+        if selected_index == Some(index) {
             list_box.select_row(Some(row));
         }
     }
 }
 
-/// Create a list box row for a workspace.
-fn create_workspace_row(ws: &crate::model::Workspace, index: usize) -> gtk4::ListBoxRow {
+fn create_workspace_row(workspace: &Workspace, index: usize) -> gtk4::ListBoxRow {
     let row = gtk4::ListBoxRow::new();
+    row.add_css_class("workspace-row");
 
-    let hbox = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
-    hbox.set_margin_start(8);
-    hbox.set_margin_end(8);
-    hbox.set_margin_top(6);
-    hbox.set_margin_bottom(6);
+    let outer = gtk4::Box::new(gtk4::Orientation::Vertical, 4);
+    outer.set_margin_start(10);
+    outer.set_margin_end(10);
+    outer.set_margin_top(8);
+    outer.set_margin_bottom(8);
 
-    // Workspace index label (1-based)
+    let header = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
+
     let index_label = gtk4::Label::new(Some(&format!("{}", index + 1)));
     index_label.add_css_class("dim-label");
     index_label.add_css_class("caption");
-    hbox.append(&index_label);
+    header.append(&index_label);
 
-    // Title
-    let title_label = gtk4::Label::new(Some(ws.display_title()));
+    let title_label = gtk4::Label::new(Some(workspace.display_title()));
     title_label.set_hexpand(true);
     title_label.set_halign(gtk4::Align::Start);
     title_label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
-    hbox.append(&title_label);
+    header.append(&title_label);
 
-    // Unread badge
-    if ws.unread_count > 0 {
-        let badge = gtk4::Label::new(Some(&ws.unread_count.to_string()));
+    if workspace.unread_count > 0 {
+        let badge = gtk4::Label::new(Some(&workspace.unread_count.to_string()));
         badge.add_css_class("badge");
         badge.add_css_class("accent");
-        hbox.append(&badge);
+        header.append(&badge);
     }
 
-    // Git branch indicator
-    if let Some(ref git) = ws.git_branch {
-        let branch_label = gtk4::Label::new(Some(&git.branch));
-        branch_label.add_css_class("dim-label");
-        branch_label.add_css_class("caption");
-        if git.is_dirty {
-            branch_label.add_css_class("warning");
-        }
-        hbox.append(&branch_label);
-    }
+    outer.append(&header);
 
-    row.set_child(Some(&hbox));
+    let meta_label = gtk4::Label::new(Some(&workspace_meta_text(workspace)));
+    meta_label.set_halign(gtk4::Align::Start);
+    meta_label.set_wrap(false);
+    meta_label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
+    meta_label.add_css_class("caption");
+    meta_label.add_css_class("dim-label");
+    outer.append(&meta_label);
+
+    let notification_text = workspace
+        .latest_notification
+        .clone()
+        .unwrap_or_else(|| compact_path(&workspace.current_directory));
+    let notification_label = gtk4::Label::new(Some(&notification_text));
+    notification_label.set_halign(gtk4::Align::Start);
+    notification_label.set_wrap(false);
+    notification_label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
+    notification_label.add_css_class("caption");
+    if workspace.unread_count > 0 {
+        notification_label.add_css_class("sidebar-notification");
+    } else {
+        notification_label.add_css_class("dim-label");
+    }
+    outer.append(&notification_label);
+
+    row.set_child(Some(&outer));
     row
+}
+
+fn workspace_meta_text(workspace: &Workspace) -> String {
+    let mut parts = Vec::new();
+
+    if let Some(status) = workspace.sidebar_status_label() {
+        parts.push(status.to_string());
+    }
+
+    if let Some(git_branch) = &workspace.git_branch {
+        parts.push(if git_branch.is_dirty {
+            format!("git {} *", git_branch.branch)
+        } else {
+            format!("git {}", git_branch.branch)
+        });
+    } else {
+        parts.push(compact_path(&workspace.current_directory));
+    }
+
+    parts.join(" | ")
+}
+
+fn compact_path(path: &str) -> String {
+    if path.is_empty() {
+        return "/".to_string();
+    }
+
+    if let Ok(home) = std::env::var("HOME") {
+        if let Some(stripped) = path.strip_prefix(&home) {
+            return format!("~{}", stripped);
+        }
+    }
+
+    let path = Path::new(path);
+    if let Some(name) = path.file_name().and_then(|name| name.to_str()) {
+        return name.to_string();
+    }
+
+    path.to_string_lossy().into_owned()
 }

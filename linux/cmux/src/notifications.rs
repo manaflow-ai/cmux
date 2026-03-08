@@ -1,8 +1,4 @@
 //! Notification store and desktop notification integration.
-//!
-//! Currently unused — will be wired up in Phase 3 (notifications + agent integration).
-
-#![allow(dead_code)]
 
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -25,9 +21,6 @@ pub struct NotificationStore {
     notifications: Vec<Notification>,
 }
 
-/// Maximum number of notifications retained.
-const MAX_NOTIFICATIONS: usize = 500;
-
 impl NotificationStore {
     pub fn new() -> Self {
         Self {
@@ -49,9 +42,6 @@ impl NotificationStore {
             .unwrap_or_default()
             .as_secs_f64();
 
-        let title = crate::model::workspace::truncate_str(title, 1024);
-        let body = crate::model::workspace::truncate_str(body, 8192);
-
         let notification = Notification {
             id: Uuid::new_v4(),
             title: title.to_string(),
@@ -66,11 +56,6 @@ impl NotificationStore {
 
         if send_desktop {
             send_desktop_notification(title, body);
-        }
-
-        // Evict oldest notifications if at capacity
-        if self.notifications.len() >= MAX_NOTIFICATIONS {
-            self.notifications.drain(..self.notifications.len() / 4);
         }
 
         self.notifications.push(notification);
@@ -102,6 +87,15 @@ impl NotificationStore {
         }
     }
 
+    /// Mark all notifications for a workspace as read.
+    pub fn mark_workspace_read(&mut self, workspace_id: Uuid) {
+        for notification in &mut self.notifications {
+            if notification.source_workspace_id == Some(workspace_id) {
+                notification.is_read = true;
+            }
+        }
+    }
+
     /// Mark all notifications as read.
     pub fn mark_all_read(&mut self) {
         for n in &mut self.notifications {
@@ -116,9 +110,15 @@ impl NotificationStore {
 }
 
 /// Send a desktop notification using gio::Notification.
-fn send_desktop_notification(_title: &str, _body: &str) {
-    // TODO: Send via gio::Notification once GtkApplication reference is available.
-    // gio::Notification requires an Application instance to dispatch.
-    // This will be wired up when the notification system is fully integrated (Phase 3).
-    tracing::debug!("Desktop notification queued (dispatch not yet wired)");
+fn send_desktop_notification(title: &str, body: &str) {
+    // Use gio::Notification for GNOME-native notifications
+    let notification = gio::Notification::new(title);
+    notification.set_body(Some(body));
+
+    if let Some(app) = gio::Application::default() {
+        use gio::prelude::ApplicationExt;
+        app.send_notification(None, &notification);
+    } else {
+        tracing::info!("Desktop notification (app unavailable): {} - {}", title, body);
+    }
 }

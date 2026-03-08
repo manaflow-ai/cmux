@@ -8,28 +8,37 @@ use crate::app::AppState;
 use crate::model::panel::{Panel, PanelType};
 
 /// Create a GTK widget for a panel.
-pub fn create_panel_widget(panel: &Panel, _state: &Rc<AppState>) -> gtk4::Widget {
+pub fn create_panel_widget(
+    panel: &Panel,
+    is_attention_source: bool,
+    state: &Rc<AppState>,
+) -> gtk4::Widget {
     match panel.panel_type {
-        PanelType::Terminal => create_terminal_widget(panel),
-        PanelType::Browser => create_browser_placeholder(panel),
+        PanelType::Terminal => create_terminal_widget(panel, is_attention_source, state),
+        PanelType::Browser => create_browser_placeholder(panel, is_attention_source),
     }
 }
 
 /// Create a terminal panel widget backed by GhosttyGlSurface.
-fn create_terminal_widget(panel: &Panel) -> gtk4::Widget {
+fn create_terminal_widget(
+    panel: &Panel,
+    is_attention_source: bool,
+    state: &Rc<AppState>,
+) -> gtk4::Widget {
     let container = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
     container.set_hexpand(true);
     container.set_vexpand(true);
+    container.add_css_class("panel-shell");
+    if is_attention_source {
+        container.add_css_class("attention-panel");
+    }
 
-    // Create the ghostty GL surface
-    let gl_surface = ghostty_gtk::surface::GhosttyGlSurface::new();
-    gl_surface.set_hexpand(true);
-    gl_surface.set_vexpand(true);
-
-    // The surface will be initialized with the ghostty app when the app state
-    // is fully set up. For now, just add it to the container.
-    // TODO: Connect to ghostty app in Phase 1 integration
-    // gl_surface.initialize(app.raw(), panel.directory.as_deref(), None);
+    let gl_surface = state.terminal_surface_for(panel.id, panel.directory.as_deref());
+    if let Some(parent) = gl_surface.parent() {
+        if let Ok(parent_box) = parent.downcast::<gtk4::Box>() {
+            parent_box.remove(&gl_surface);
+        }
+    }
 
     container.append(&gl_surface);
 
@@ -40,10 +49,14 @@ fn create_terminal_widget(panel: &Panel) -> gtk4::Widget {
 }
 
 /// Create a placeholder for the browser panel (Phase 4).
-fn create_browser_placeholder(panel: &Panel) -> gtk4::Widget {
+fn create_browser_placeholder(panel: &Panel, is_attention_source: bool) -> gtk4::Widget {
     let container = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
     container.set_hexpand(true);
     container.set_vexpand(true);
+    container.add_css_class("panel-shell");
+    if is_attention_source {
+        container.add_css_class("attention-panel");
+    }
 
     let label = gtk4::Label::new(Some("Browser panel (coming in Phase 4)"));
     label.set_hexpand(true);

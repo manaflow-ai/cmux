@@ -2,53 +2,57 @@ use std::env;
 use std::path::PathBuf;
 
 fn main() {
+    // Without the link-ghostty feature, compile in stub mode — no zig build needed.
+    if env::var("CARGO_FEATURE_LINK_GHOSTTY").is_err() {
+        return;
+    }
+
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
     let workspace_dir = manifest_dir.parent().unwrap();
 
-    // Path to the ghostty submodule (will be initialized in Phase 0)
+    // Path to the ghostty submodule
     let ghostty_dir = workspace_dir.join("ghostty");
 
-    if ghostty_dir.join("build.zig").exists() {
-        // Build libghostty as a static library using zig build
-        let output_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
-
-        let status = std::process::Command::new("zig")
-            .arg("build")
-            .arg("-Dapp-runtime=embedded")
-            .arg("-Demit-static-lib=true")
-            .arg("-Doptimize=ReleaseFast")
-            .arg(&format!(
-                "-Dprefix={}",
-                output_dir.join("ghostty-install").display()
-            ))
-            .current_dir(&ghostty_dir)
-            .status()
-            .expect("Failed to run zig build. Is zig installed?");
-
-        if !status.success() {
-            panic!("zig build failed with status: {}", status);
-        }
-
-        // Link the static library
-        let lib_dir = output_dir.join("ghostty-install").join("lib");
-        println!("cargo:rustc-link-search=native={}", lib_dir.display());
-        println!("cargo:rustc-link-lib=static=ghostty");
-
-        // System dependencies that libghostty requires
-        println!("cargo:rustc-link-lib=dylib=GL");
-        println!("cargo:rustc-link-lib=dylib=EGL");
-        println!("cargo:rustc-link-lib=dylib=fontconfig");
-        println!("cargo:rustc-link-lib=dylib=freetype");
-
-        // Rerun if ghostty source changes (enumerate key files)
-        println!("cargo:rerun-if-changed={}", ghostty_dir.join("build.zig").display());
-        println!("cargo:rerun-if-changed={}", ghostty_dir.join("build.zig.zon").display());
-        println!("cargo:rerun-if-changed={}", ghostty_dir.join("src").display());
-    } else {
-        // Ghostty submodule not initialized yet — build with stub mode
-        println!(
-            "cargo:warning=ghostty submodule not found at {}. Building in stub mode.",
+    if !ghostty_dir.join("build.zig").exists() {
+        panic!(
+            "ghostty submodule not found at {}. Run: git submodule update --init ghostty",
             ghostty_dir.display()
         );
     }
+
+    // Build libghostty as a static library using zig build
+    let output_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
+
+    let install_dir = output_dir.join("ghostty-install");
+
+    let status = std::process::Command::new("zig")
+        .arg("build")
+        .arg("-Dapp-runtime=none") // none = libghostty (embedded runtime)
+        .arg("-Doptimize=ReleaseFast")
+        .arg("--prefix")
+        .arg(install_dir.as_os_str())
+        .current_dir(&ghostty_dir)
+        .status()
+        .expect("Failed to run zig build. Is zig installed?");
+
+    if !status.success() {
+        panic!("zig build failed with status: {}", status);
+    }
+
+    // Compile GLAD (OpenGL loader) — ghostty's build excludes it from libghostty,
+    // expecting the host application to provide it.
+    let glad_dir = ghostty_dir.join("vendor").join("glad");
+    cc::Build::new()
+        .file(glad_dir.join("src").join("gl.c"))
+        .include(glad_dir.join("include"))
+        .compile("glad");
+
+    // Link libghostty as a shared library (includes all vendored deps)
+    let lib_dir = install_dir.join("lib");
+    println!("cargo:rustc-link-search=native={}", lib_dir.display());
+    println!("cargo:rustc-link-lib=dylib=ghostty");
+
+    // Rerun if ghostty source changes or feature flag changes
+    println!("cargo:rerun-if-changed={}", ghostty_dir.display());
+    println!("cargo:rerun-if-env-changed=CARGO_FEATURE_LINK_GHOSTTY");
 }

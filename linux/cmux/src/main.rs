@@ -1,7 +1,6 @@
 mod app;
 mod model;
 mod notifications;
-#[allow(dead_code)] // Phase 5: session persistence
 mod session;
 mod socket;
 mod ui;
@@ -9,6 +8,8 @@ mod ui;
 use tracing_subscriber::EnvFilter;
 
 fn main() {
+    prefer_desktop_opengl();
+
     // Initialize logging
     tracing_subscriber::fmt()
         .with_env_filter(
@@ -18,13 +19,17 @@ fn main() {
 
     tracing::info!("cmux starting");
 
-    // Initialize ghostty runtime
-    if let Err(e) = ghostty_gtk::app::GhosttyApp::init() {
-        tracing::error!("Failed to initialize ghostty: {}", e);
-        std::process::exit(1);
-    }
-
     // Run the GTK application
     let exit_code = app::run();
     std::process::exit(exit_code);
+}
+
+fn prefer_desktop_opengl() {
+    const FLAG: &str = "gl-prefer-gl";
+    match std::env::var("GDK_DEBUG") {
+        Ok(existing) if existing.split(',').any(|flag| flag.trim() == FLAG) => {}
+        Ok(existing) if existing.trim().is_empty() => std::env::set_var("GDK_DEBUG", FLAG),
+        Ok(existing) => std::env::set_var("GDK_DEBUG", format!("{existing},{FLAG}")),
+        Err(_) => std::env::set_var("GDK_DEBUG", FLAG),
+    }
 }
