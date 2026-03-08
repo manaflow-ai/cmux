@@ -1005,9 +1005,12 @@ class GhosttyApp {
     }
 
     /// When the user has not configured `font-codepoint-map` for CJK ranges,
-    /// macOS Core Text may pick an inappropriate fallback font (e.g. LingWai,
-    /// a decorative calligraphic font) for CJK characters. This injects a
-    /// sensible default based on the system's preferred languages.
+    /// Ghostty's `CTFontCollection` scoring may pick an inappropriate fallback
+    /// font for Hiragana, Katakana, and CJK symbols. The scoring prioritizes
+    /// monospace fonts, so decorative fonts with monospace attributes (e.g.
+    /// AB_appare from Adobe CC, or LingWai) can be selected depending on what
+    /// is installed. This injects a sensible default based on the system's
+    /// preferred languages.
     ///
     /// See: https://github.com/manaflow-ai/cmux/pull/1017
     private func loadCJKFontFallbackIfNeeded(_ config: ghostty_config_t) {
