@@ -1216,16 +1216,19 @@ class TabManager: ObservableObject {
         return trimmed
     }
 
-    func closeWorkspace(_ workspace: Workspace) {
-        guard tabs.count > 1 else { return }
-        guard let index = tabs.firstIndex(where: { $0.id == workspace.id }) else { return }
+    @discardableResult
+    func closeWorkspace(_ workspace: Workspace) -> Bool {
+        guard tabs.count > 1 else { return false }
+        guard teardownWorkspacePanels(workspace) else { return false }
         sentryBreadcrumb("workspace.close", data: ["tabCount": tabs.count - 1])
         clearInitialWorkspaceGitProbe(workspaceId: workspace.id)
 
         AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: workspace.id)
         unwireClosedBrowserTracking(for: workspace)
-        workspace.teardownAllPanels()
 
+        guard let index = tabs.firstIndex(where: { $0.id == workspace.id }) else {
+            return false
+        }
         tabs.remove(at: index)
 
         if selectedTabId == workspace.id {
@@ -1235,6 +1238,7 @@ class TabManager: ObservableObject {
             let newIndex = min(index, max(0, tabs.count - 1))
             selectedTabId = tabs[newIndex].id
         }
+        return true
     }
 
     /// Detach a workspace from this window without closing its panels.
@@ -1415,6 +1419,32 @@ class TabManager: ObservableObject {
         return String(localized: "tab.untitled", defaultValue: "Untitled Tab")
     }
 
+    /// Tears down all panels in the workspace with process cleanup, logging
+    /// telemetry on partial failure. Returns `true` if all panels closed.
+    private func teardownWorkspacePanels(_ workspace: Workspace) -> Bool {
+        let teardown = workspace.closeAllPanelsForWorkspaceClose()
+#if DEBUG
+        if !teardown.allClosed {
+            dlog(
+                "workspace.close.teardown.partial workspace=\(workspace.id.uuidString.prefix(5)) " +
+                "requested=\(teardown.requestedCount) closed=\(teardown.closedCount) failed=\(teardown.failedPanelIds.count)"
+            )
+        }
+#endif
+        guard teardown.allClosed else {
+            sentryBreadcrumb(
+                "workspace.close.teardown.partial",
+                data: [
+                    "requested": teardown.requestedCount,
+                    "closed": teardown.closedCount,
+                    "failed": teardown.failedPanelIds.count
+                ]
+            )
+            return false
+        }
+        return true
+    }
+
     private func closeWorkspaceIfRunningProcess(_ workspace: Workspace) {
         let willCloseWindow = tabs.count <= 1
         if workspaceNeedsConfirmClose(workspace),
@@ -1426,6 +1456,7 @@ class TabManager: ObservableObject {
             return
         }
         if tabs.count <= 1 {
+            guard teardownWorkspacePanels(workspace) else { return }
             // Last workspace in this window: close the window (Cmd+Shift+W behavior).
             AppDelegate.shared?.closeMainWindowContainingTabId(workspace.id)
         } else {

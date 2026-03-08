@@ -4,6 +4,7 @@ import AppKit
 import Bonsplit
 import Combine
 import CoreText
+import Darwin
 
 func cmuxSurfaceContextName(_ context: ghostty_surface_context_e) -> String {
     switch context {
@@ -1269,6 +1270,25 @@ final class Workspace: Identifiable, ObservableObject {
     private var pendingDetachedSurfaces: [TabID: DetachedSurfaceTransfer] = [:]
     private var activeDetachCloseTransactions: Int = 0
     private var isDetachingCloseTransaction: Bool { activeDetachCloseTransactions > 0 }
+    private var activeWorkspaceCloseTransactions: Int = 0
+    var isWorkspaceClosingTransaction: Bool { activeWorkspaceCloseTransactions > 0 }
+
+    /// Result payload for deterministic workspace-close teardown.
+    struct WorkspaceCloseResult {
+        let requestedCount: Int
+        let closedCount: Int
+        let failedPanelIds: [UUID]
+
+        var allClosed: Bool {
+            failedPanelIds.isEmpty && closedCount == requestedCount
+        }
+    }
+
+    /// Process identity snapshot for a terminal session discovered via `ps`.
+    private struct TTYProcessInfo {
+        let pid: Int32
+        let processGroupId: Int32
+    }
 
 #if DEBUG
     private func debugElapsedMs(since start: TimeInterval) -> String {
@@ -2357,6 +2377,210 @@ final class Workspace: Identifiable, ObservableObject {
         terminalInheritanceFontPointsByPanelId.removeAll(keepingCapacity: false)
         lastTerminalConfigInheritancePanelId = nil
         lastTerminalConfigInheritanceFontPoints = nil
+    }
+
+    // MARK: - Workspace Close with Process Cleanup
+
+    /// Closes all panels as part of a workspace-close operation, ensuring child
+    /// processes are terminated even if ARC deallocation is delayed.
+    /// Inspired by IgorTavcar's approach (https://github.com/IgorTavcar/cmux/commit/2b8a9ab).
+    func closeAllPanelsForWorkspaceClose() -> WorkspaceCloseResult {
+        let requestedPanelIds = panels.keys.sorted(by: { $0.uuidString < $1.uuidString })
+        guard !requestedPanelIds.isEmpty else {
+            return WorkspaceCloseResult(requestedCount: 0, closedCount: 0, failedPanelIds: [])
+        }
+
+        activeWorkspaceCloseTransactions += 1
+        defer { activeWorkspaceCloseTransactions -= 1 }
+
+        var closedCount = 0
+        var failedPanelIds: [UUID] = []
+
+        for panelId in requestedPanelIds {
+            if panels[panelId] == nil {
+                closedCount += 1
+                continue
+            }
+
+            guard closePanel(panelId, force: true) else {
+                failedPanelIds.append(panelId)
+                continue
+            }
+
+            if waitForPanelClose(panelId, timeout: 0.6) {
+                closedCount += 1
+                continue
+            }
+
+            // Panel didn't close in time — terminate processes on its TTY
+            // and retry once before declaring failure.
+            let signaled = terminateTTYProcesses(forPanelId: panelId)
+            if signaled {
+                _ = closePanel(panelId, force: true)
+            }
+
+            if waitForPanelClose(panelId, timeout: 0.6) {
+                closedCount += 1
+            } else {
+                failedPanelIds.append(panelId)
+            }
+        }
+
+#if DEBUG
+        dlog(
+            "workspace.close.teardown workspace=\(id.uuidString.prefix(5)) " +
+            "requested=\(requestedPanelIds.count) closed=\(closedCount) failed=\(failedPanelIds.count)"
+        )
+#endif
+
+        return WorkspaceCloseResult(
+            requestedCount: requestedPanelIds.count,
+            closedCount: closedCount,
+            failedPanelIds: failedPanelIds
+        )
+    }
+
+    /// Waits for a panel to be removed from the workspace, draining the
+    /// RunLoop so the UI stays responsive.
+    private func waitForPanelClose(_ panelId: UUID, timeout: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while panels[panelId] != nil && Date() < deadline {
+            _ = RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
+        }
+        return panels[panelId] == nil
+    }
+
+    /// Locates processes on the panel's TTY and sends SIGTERM, escalating
+    /// to SIGKILL if they don't exit within 1 second.
+    private func terminateTTYProcesses(forPanelId panelId: UUID) -> Bool {
+        guard panels[panelId] is TerminalPanel else { return false }
+        guard let ttyName = normalizedTTYName(surfaceTTYNames[panelId]) else {
+#if DEBUG
+            dlog(
+                "workspace.close.kill.skip workspace=\(id.uuidString.prefix(5)) " +
+                "panel=\(panelId.uuidString.prefix(5)) reason=missing_tty"
+            )
+#endif
+            return false
+        }
+
+        let processInfos = ttyProcessInfos(forTTY: ttyName)
+        let appPid = Int32(ProcessInfo.processInfo.processIdentifier)
+        let trackedPids = Set(processInfos.map(\.pid).filter { $0 > 1 && $0 != appPid })
+        var targetGroups = Set(
+            processInfos.map(\.processGroupId).filter { $0 > 1 && $0 != appPid }
+        )
+        guard !trackedPids.isEmpty, !targetGroups.isEmpty else {
+#if DEBUG
+            dlog(
+                "workspace.close.kill.skip workspace=\(id.uuidString.prefix(5)) " +
+                "panel=\(panelId.uuidString.prefix(5)) tty=\(ttyName) reason=no_targets"
+            )
+#endif
+            return false
+        }
+
+        // SIGTERM first — give processes a chance to clean up
+        signalProcessGroups(targetGroups, signal: SIGTERM)
+        var remaining = waitForProcessesToExit(trackedPids, timeout: 1.0)
+
+        // Escalate to SIGKILL for stubborn processes
+        if !remaining.isEmpty {
+            let refreshed = ttyProcessInfos(forTTY: ttyName)
+            targetGroups = Set(
+                refreshed
+                    .filter { remaining.contains($0.pid) }
+                    .map(\.processGroupId)
+                    .filter { $0 > 1 }
+            )
+            if !targetGroups.isEmpty {
+                signalProcessGroups(targetGroups, signal: SIGKILL)
+            }
+            remaining = waitForProcessesToExit(remaining, timeout: 1.0)
+        }
+
+#if DEBUG
+        dlog(
+            "workspace.close.kill workspace=\(id.uuidString.prefix(5)) " +
+            "panel=\(panelId.uuidString.prefix(5)) tty=\(ttyName) " +
+            "tracked=\(trackedPids.count) remaining=\(remaining.count)"
+        )
+#endif
+        return remaining.isEmpty
+    }
+
+    /// Strips `/dev/` prefix for `ps -t` usage.
+    private func normalizedTTYName(_ rawTTY: String?) -> String? {
+        guard let raw = rawTTY?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !raw.isEmpty else { return nil }
+        if raw.hasPrefix("/dev/") {
+            let short = String(raw.dropFirst("/dev/".count))
+            return short.isEmpty ? nil : short
+        }
+        return raw
+    }
+
+    /// Enumerates PIDs and process groups attached to the given TTY.
+    private func ttyProcessInfos(forTTY ttyName: String) -> [TTYProcessInfo] {
+        let process = Process()
+        let pipe = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/bin/ps")
+        process.arguments = ["-t", ttyName, "-o", "pid=,pgid="]
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+
+        do {
+            try process.run()
+        } catch {
+            return []
+        }
+
+        let deadline = Date().addingTimeInterval(5.0)
+        while process.isRunning && Date() < deadline {
+            _ = RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
+        }
+        guard !process.isRunning, process.terminationStatus == 0 else { return [] }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        guard let output = String(data: data, encoding: .utf8), !output.isEmpty else {
+            return []
+        }
+
+        var result: [TTYProcessInfo] = []
+        for line in output.split(whereSeparator: \.isNewline) {
+            let parts = line.split(whereSeparator: \.isWhitespace)
+            guard parts.count >= 2,
+                  let pid = Int32(parts[0]),
+                  let pgid = Int32(parts[1]) else { continue }
+            result.append(TTYProcessInfo(pid: pid, processGroupId: pgid))
+        }
+        return result
+    }
+
+    /// Sends a POSIX signal to each process group (negative PID = group signal).
+    private func signalProcessGroups(_ groups: Set<Int32>, signal: Int32) {
+        for pgid in groups where pgid > 1 {
+            _ = Darwin.kill(-pgid, signal)
+        }
+    }
+
+    /// Waits for processes to exit, returns those still alive after timeout.
+    private func waitForProcessesToExit(_ pids: Set<Int32>, timeout: TimeInterval) -> Set<Int32> {
+        guard !pids.isEmpty else { return [] }
+        let deadline = Date().addingTimeInterval(timeout)
+        var remaining = pids
+        while !remaining.isEmpty && Date() < deadline {
+            remaining = remaining.filter { isProcessAlive($0) }
+            if !remaining.isEmpty {
+                _ = RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
+            }
+        }
+        return remaining
+    }
+
+    /// Returns true if a process is still alive (or we lack permission to check).
+    private func isProcessAlive(_ pid: Int32) -> Bool {
+        if Darwin.kill(pid, 0) == 0 { return true }
+        return errno == EPERM
     }
 
     /// Close a panel.
@@ -4075,7 +4299,7 @@ extension Workspace: BonsplitDelegate {
         // Detach/move flows intentionally allow a temporary empty workspace so AppDelegate can
         // prune the source workspace/window after the tab is attached elsewhere.
         if panels.isEmpty {
-            if isDetaching {
+            if isDetaching || isWorkspaceClosingTransaction {
 #if DEBUG
                 dlog(
                     "surface.didCloseTab.end tab=\(String(describing: tabId).prefix(5)) " +
