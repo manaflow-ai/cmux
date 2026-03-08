@@ -64,6 +64,33 @@ final class GhosttyConfigTests: XCTestCase {
         XCTAssertEqual(resolved, "Builtin Solarized Dark")
     }
 
+    func testResolveThemeNamePrefersLightEntryForDarkThenLightPairedTheme() {
+        let resolved = GhosttyConfig.resolveThemeName(
+            from: "dark:Builtin Solarized Dark,light:Builtin Solarized Light",
+            preferredColorScheme: .light
+        )
+
+        XCTAssertEqual(resolved, "Builtin Solarized Light")
+    }
+
+    func testCurrentSystemColorSchemePreferenceUsesDarkAppleInterfaceStyle() {
+        XCTAssertEqual(
+            GhosttyConfig.currentSystemColorSchemePreference(appleInterfaceStyle: "Dark"),
+            .dark
+        )
+    }
+
+    func testCurrentSystemColorSchemePreferenceDefaultsToLightWithoutDarkStyle() {
+        XCTAssertEqual(
+            GhosttyConfig.currentSystemColorSchemePreference(appleInterfaceStyle: nil),
+            .light
+        )
+        XCTAssertEqual(
+            GhosttyConfig.currentSystemColorSchemePreference(appleInterfaceStyle: "Light"),
+            .light
+        )
+    }
+
     func testThemeNameCandidatesIncludeBuiltinAliasForms() {
         let candidates = GhosttyConfig.themeNameCandidates(from: "Builtin Solarized Light")
         XCTAssertEqual(candidates.first, "Builtin Solarized Light")
