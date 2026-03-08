@@ -4161,7 +4161,7 @@ class TerminalController {
             var refreshedCount = 0
             for panel in ws.panels.values {
                 if let terminalPanel = panel as? TerminalPanel {
-                    terminalPanel.surface.forceRefresh()
+                    terminalPanel.surface.forceRefresh(reason: "terminalController.v2SurfaceRefresh")
                     refreshedCount += 1
                 }
             }
@@ -4243,7 +4243,7 @@ class TerminalController {
                 // Ensure we present a new frame after injecting input so snapshot-based tests (and
                 // socket-driven agents) can observe the updated terminal without requiring a focus
                 // change to trigger a draw.
-                terminalPanel.surface.forceRefresh()
+                terminalPanel.surface.forceRefresh(reason: "terminalController.v2SurfaceSendText")
                 queued = false
             } else {
                 // Avoid blocking the main actor waiting for view/surface attachment.
@@ -4301,7 +4301,7 @@ class TerminalController {
                 result = .err(code: "invalid_params", message: "Unknown key", data: ["key": key])
                 return
             }
-            terminalPanel.surface.forceRefresh()
+            terminalPanel.surface.forceRefresh(reason: "terminalController.v2SurfaceSendKey")
             result = .ok(["workspace_id": ws.id.uuidString, "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id), "surface_id": surfaceId.uuidString, "surface_ref": v2Ref(kind: .surface, uuid: surfaceId), "window_id": v2OrNull(v2ResolveWindowId(tabManager: tabManager)?.uuidString), "window_ref": v2Ref(kind: .window, uuid: v2ResolveWindowId(tabManager: tabManager))])
         }
         return result
@@ -4333,7 +4333,7 @@ class TerminalController {
                 return
             }
 
-            terminalPanel.surface.forceRefresh()
+            terminalPanel.surface.forceRefresh(reason: "terminalController.v2SurfaceClearHistory")
             let windowId = v2ResolveWindowId(tabManager: tabManager)
             result = .ok([
                 "workspace_id": ws.id.uuidString,
@@ -9704,81 +9704,91 @@ class TerminalController {
         return "OK"
     }
 
-	    private func simulateShortcut(_ args: String) -> String {
-	        let combo = args.trimmingCharacters(in: .whitespacesAndNewlines)
-	        guard !combo.isEmpty else {
-	            return "ERROR: Usage: simulate_shortcut <combo>"
-	        }
-	        guard let parsed = parseShortcutCombo(combo) else {
-	            return "ERROR: Invalid combo. Example: cmd+ctrl+h"
-	        }
+    private func prepareWindowForSyntheticInput(_ window: NSWindow?) {
+        guard let window else { return }
 
-	        // Stamp at socket-handler arrival so event.timestamp includes any wait
-	        // before the main-thread event dispatch.
-	        let requestTimestamp = ProcessInfo.processInfo.systemUptime
-	
-	        var result = "ERROR: Failed to create event"
-	        DispatchQueue.main.sync {
-	            // Prefer the current active-tab-manager window so shortcut simulation stays
-	            // scoped to the intended window even when NSApp.keyWindow is stale.
-	            let targetWindow: NSWindow? = {
-	                if let activeTabManager = self.tabManager,
-	                   let windowId = AppDelegate.shared?.windowId(for: activeTabManager),
-	                   let window = AppDelegate.shared?.mainWindow(for: windowId) {
-	                    return window
-	                }
-	                return NSApp.keyWindow
-	                    ?? NSApp.mainWindow
-	                    ?? NSApp.windows.first(where: { $0.isVisible })
-	                    ?? NSApp.windows.first
-	            }()
-	            if let targetWindow {
-	                NSApp.activate(ignoringOtherApps: true)
-	                targetWindow.makeKeyAndOrderFront(nil)
-	            }
-	            let windowNumber = targetWindow?.windowNumber ?? 0
-	            guard let keyDownEvent = NSEvent.keyEvent(
-	                with: .keyDown,
-	                location: .zero,
-	                modifierFlags: parsed.modifierFlags,
-	                timestamp: requestTimestamp,
-	                windowNumber: windowNumber,
-	                context: nil,
-	                characters: parsed.characters,
-	                charactersIgnoringModifiers: parsed.charactersIgnoringModifiers,
-	                isARepeat: false,
-	                keyCode: parsed.keyCode
-	            ) else {
-	                result = "ERROR: NSEvent.keyEvent returned nil"
-	                return
-	            }
-	            let keyUpEvent = NSEvent.keyEvent(
-	                with: .keyUp,
-	                location: .zero,
-	                modifierFlags: parsed.modifierFlags,
-	                timestamp: requestTimestamp + 0.0001,
-	                windowNumber: windowNumber,
-	                context: nil,
-	                characters: parsed.characters,
-	                charactersIgnoringModifiers: parsed.charactersIgnoringModifiers,
-	                isARepeat: false,
-	                keyCode: parsed.keyCode
-	            )
-	            // Socket-driven shortcut simulation should reuse the exact same matching logic as the
-	            // app-level shortcut monitor (so tests are hermetic), while still falling back to the
-	            // normal responder chain for plain typing.
-	            if let delegate = AppDelegate.shared, delegate.debugHandleCustomShortcut(event: keyDownEvent) {
-	                result = "OK"
-	                return
-	            }
-	            NSApp.sendEvent(keyDownEvent)
-	            if let keyUpEvent {
-	                NSApp.sendEvent(keyUpEvent)
-	            }
-	            result = "OK"
-	        }
-	        return result
-	    }
+        // Keep socket-driven input simulation focused on the intended window without
+        // paying repeated activation/order-front costs for every synthetic key event.
+        if !NSApp.isActive {
+            NSApp.activate(ignoringOtherApps: true)
+        }
+        if !window.isKeyWindow || !window.isVisible {
+            window.makeKeyAndOrderFront(nil)
+        }
+    }
+
+    private func simulateShortcut(_ args: String) -> String {
+        let combo = args.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !combo.isEmpty else {
+            return "ERROR: Usage: simulate_shortcut <combo>"
+        }
+        guard let parsed = parseShortcutCombo(combo) else {
+            return "ERROR: Invalid combo. Example: cmd+ctrl+h"
+        }
+
+        // Stamp at socket-handler arrival so event.timestamp includes any wait
+        // before the main-thread event dispatch.
+        let requestTimestamp = ProcessInfo.processInfo.systemUptime
+
+        var result = "ERROR: Failed to create event"
+        DispatchQueue.main.sync {
+            // Prefer the current active-tab-manager window so shortcut simulation stays
+            // scoped to the intended window even when NSApp.keyWindow is stale.
+            let targetWindow: NSWindow? = {
+                if let activeTabManager = self.tabManager,
+                   let windowId = AppDelegate.shared?.windowId(for: activeTabManager),
+                   let window = AppDelegate.shared?.mainWindow(for: windowId) {
+                    return window
+                }
+                return NSApp.keyWindow
+                    ?? NSApp.mainWindow
+                    ?? NSApp.windows.first(where: { $0.isVisible })
+                    ?? NSApp.windows.first
+            }()
+            prepareWindowForSyntheticInput(targetWindow)
+            let windowNumber = targetWindow?.windowNumber ?? 0
+            guard let keyDownEvent = NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: parsed.modifierFlags,
+                timestamp: requestTimestamp,
+                windowNumber: windowNumber,
+                context: nil,
+                characters: parsed.characters,
+                charactersIgnoringModifiers: parsed.charactersIgnoringModifiers,
+                isARepeat: false,
+                keyCode: parsed.keyCode
+            ) else {
+                result = "ERROR: NSEvent.keyEvent returned nil"
+                return
+            }
+            let keyUpEvent = NSEvent.keyEvent(
+                with: .keyUp,
+                location: .zero,
+                modifierFlags: parsed.modifierFlags,
+                timestamp: requestTimestamp + 0.0001,
+                windowNumber: windowNumber,
+                context: nil,
+                characters: parsed.characters,
+                charactersIgnoringModifiers: parsed.charactersIgnoringModifiers,
+                isARepeat: false,
+                keyCode: parsed.keyCode
+            )
+            // Socket-driven shortcut simulation should reuse the exact same matching logic as the
+            // app-level shortcut monitor (so tests are hermetic), while still falling back to the
+            // normal responder chain for plain typing.
+            if let delegate = AppDelegate.shared, delegate.debugHandleCustomShortcut(event: keyDownEvent) {
+                result = "OK"
+                return
+            }
+            NSApp.sendEvent(keyDownEvent)
+            if let keyUpEvent {
+                NSApp.sendEvent(keyUpEvent)
+            }
+            result = "OK"
+        }
+        return result
+    }
 
     private func activateApp() -> String {
         DispatchQueue.main.sync {
@@ -9823,8 +9833,7 @@ class TerminalController {
                 ?? NSApp.mainWindow
                 ?? NSApp.windows.first(where: { $0.isVisible })
                 ?? NSApp.windows.first else { return }
-            NSApp.activate(ignoringOtherApps: true)
-            window.makeKeyAndOrderFront(nil)
+            prepareWindowForSyntheticInput(window)
             guard let fr = window.firstResponder else {
                 result = "ERROR: No first responder"
                 return
@@ -11146,7 +11155,7 @@ class TerminalController {
             var cgImage = view.debugCopyIOSurfaceCGImage()
             if cgImage == nil {
                 // If the surface is mid-attach we may not have contents yet. Nudge a draw and retry once.
-                terminalPanel.surface.forceRefresh()
+                terminalPanel.surface.forceRefresh(reason: "terminalController.debugCopyIOSurfaceRetry")
                 cgImage = view.debugCopyIOSurfaceCGImage()
             }
             guard let cgImage else {
@@ -13712,7 +13721,7 @@ class TerminalController {
             // (resets cached metrics so the Metal layer drawable resizes correctly)
             for panel in tab.panels.values {
                 if let terminalPanel = panel as? TerminalPanel {
-                    terminalPanel.surface.forceRefresh()
+                    terminalPanel.surface.forceRefresh(reason: "terminalController.refreshAllTerminalPanels")
                     refreshedCount += 1
                 }
             }

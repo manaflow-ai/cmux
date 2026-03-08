@@ -70,6 +70,13 @@ final class WindowBrowserHostView: NSView {
     private var activeDividerCursorKind: DividerCursorKind?
     private var hostedInspectorDividerDrag: HostedInspectorDividerDragState?
 
+    deinit {
+        if let trackingArea {
+            removeTrackingArea(trackingArea)
+        }
+        clearActiveDividerCursor(restoreArrow: false)
+    }
+
 #if DEBUG
     private static func shouldLogPointerEvent(_ event: NSEvent?) -> Bool {
         switch event?.type {
@@ -1765,6 +1772,20 @@ final class WindowBrowserPortal: NSObject {
         )
     }
 
+    private static func searchOverlayConfigurationsEquivalent(
+        _ lhs: BrowserPortalSearchOverlayConfiguration?,
+        _ rhs: BrowserPortalSearchOverlayConfiguration?
+    ) -> Bool {
+        switch (lhs, rhs) {
+        case (nil, nil):
+            return true
+        case let (lhs?, rhs?):
+            return lhs.panelId == rhs.panelId && lhs.searchState === rhs.searchState
+        default:
+            return false
+        }
+    }
+
     /// Convert an anchor view's bounds to window coordinates while honoring ancestor clipping.
     /// SwiftUI/AppKit hosting layers can briefly report an anchor bounds rect larger than the
     /// visible split pane during rearrangement; intersecting through ancestor bounds keeps the
@@ -1953,6 +1974,7 @@ final class WindowBrowserPortal: NSObject {
     /// do not keep an old anchor visible.
     func updateEntryVisibility(forWebViewId webViewId: ObjectIdentifier, visibleInUI: Bool, zPriority: Int) {
         guard var entry = entriesByWebViewId[webViewId] else { return }
+        guard entry.visibleInUI != visibleInUI || entry.zPriority != zPriority else { return }
         entry.visibleInUI = visibleInUI
         entry.zPriority = zPriority
         entriesByWebViewId[webViewId] = entry
@@ -1968,6 +1990,7 @@ final class WindowBrowserPortal: NSObject {
 
     func updateDropZoneOverlay(forWebViewId webViewId: ObjectIdentifier, zone: DropZone?) {
         guard var entry = entriesByWebViewId[webViewId] else { return }
+        guard entry.dropZone != zone else { return }
         entry.dropZone = zone
         entriesByWebViewId[webViewId] = entry
         entry.containerView?.setDropZoneOverlay(zone: zone)
@@ -1975,6 +1998,7 @@ final class WindowBrowserPortal: NSObject {
 
     func updatePaneDropContext(forWebViewId webViewId: ObjectIdentifier, context: BrowserPaneDropContext?) {
         guard var entry = entriesByWebViewId[webViewId] else { return }
+        guard entry.paneDropContext != context else { return }
         entry.paneDropContext = context
         entriesByWebViewId[webViewId] = entry
         entry.containerView?.setPaneDropContext(context)
@@ -1985,6 +2009,7 @@ final class WindowBrowserPortal: NSObject {
         configuration: BrowserPortalSearchOverlayConfiguration?
     ) {
         guard var entry = entriesByWebViewId[webViewId] else { return }
+        guard !Self.searchOverlayConfigurationsEquivalent(entry.searchOverlay, configuration) else { return }
         entry.searchOverlay = configuration
         entriesByWebViewId[webViewId] = entry
         entry.containerView?.setSearchOverlay(configuration)
@@ -2263,6 +2288,28 @@ final class WindowBrowserPortal: NSObject {
             return
         }
         guard anchorView.window === window else {
+            let isOffWindowReparent =
+                entry.visibleInUI &&
+                anchorView.window == nil &&
+                anchorView.superview != nil
+            if isOffWindowReparent {
+                let didScheduleTransientRecovery = scheduleTransientRecoveryRetryIfNeeded(
+                    forWebViewId: webViewId,
+                    entry: &entry,
+                    webView: webView,
+                    reason: "anchorWindowMismatch"
+                )
+#if DEBUG
+                if didScheduleTransientRecovery && !containerView.isHidden {
+                    dlog(
+                        "browser.portal.hidden.deferKeep web=\(browserPortalDebugToken(webView)) " +
+                        "reason=anchorWindowMismatch.offWindow frame=\(browserPortalDebugFrame(containerView.frame))"
+                    )
+                }
+#endif
+                containerView.setDropZoneOverlay(zone: nil)
+                return
+            }
             if scheduleTransientDetachRecovery(reason: "anchorWindowMismatch") {
                 containerView.setPaneTopChromeHeight(0)
                 containerView.setSearchOverlay(nil)
