@@ -3223,6 +3223,48 @@ final class Workspace: Identifiable, ObservableObject {
         return true
     }
 
+    /// Join the focused pane into an adjacent pane, merging all its tabs.
+    /// The source pane auto-collapses when emptied.
+    func joinFocusedPane() {
+        let allPanes = bonsplitController.allPaneIds
+        guard allPanes.count > 1 else { return }
+        guard let sourcePaneId = bonsplitController.focusedPaneId else { return }
+
+        // Remember the user's current tab so we can restore focus after merging.
+        let currentPanelId = focusedPanelId
+
+        // Find an adjacent pane by trying each direction.
+        var targetPaneId: PaneID?
+        for dir: NavigationDirection in [.left, .right, .up, .down] {
+            bonsplitController.navigateFocus(direction: dir)
+            if let candidate = bonsplitController.focusedPaneId, candidate != sourcePaneId {
+                targetPaneId = candidate
+                break
+            }
+        }
+
+        guard let targetPaneId else {
+            // Restore focus if no neighbor found (shouldn't happen with >1 pane).
+            bonsplitController.focusPane(sourcePaneId)
+            return
+        }
+
+        // Restore focus to the source pane for clean detach.
+        bonsplitController.focusPane(sourcePaneId)
+
+        // Move all tabs from source pane to the target pane.
+        let sourceTabs = bonsplitController.tabs(inPane: sourcePaneId)
+        for tab in sourceTabs {
+            guard let panelId = surfaceIdToPanelId[tab.id] else { continue }
+            moveSurface(panelId: panelId, toPane: targetPaneId, focus: false)
+        }
+
+        // Re-focus the tab the user was on before the join.
+        if let currentPanelId {
+            focusPanel(currentPanelId)
+        }
+    }
+
     // MARK: - Context Menu Shortcuts
 
     static func buildContextMenuShortcuts() -> [TabContextAction: KeyboardShortcut] {
@@ -4529,4 +4571,24 @@ extension Workspace: BonsplitDelegate {
     }
 
     // No post-close polling refresh loop: we rely on view invariants and Ghostty's wakeups.
+}
+
+// MARK: - NavigationDirection + Split Helpers
+
+private extension NavigationDirection {
+    /// The split orientation corresponding to this navigation direction.
+    var splitOrientation: SplitOrientation {
+        switch self {
+        case .left, .right: return .horizontal
+        case .up, .down: return .vertical
+        }
+    }
+
+    /// Whether the new pane should be inserted before the source pane.
+    var splitInsertFirst: Bool {
+        switch self {
+        case .left, .up: return true
+        case .right, .down: return false
+        }
+    }
 }

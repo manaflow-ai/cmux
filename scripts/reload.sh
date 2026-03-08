@@ -316,6 +316,11 @@ OPEN_CLEAN_ENV=(
   -u XDG_DATA_DIRS
 )
 
+# Copy production preferences so the tagged build inherits the user's configuration.
+if [[ -n "${TAG_SLUG:-}" ]]; then
+  defaults export com.cmuxterm.app - 2>/dev/null | defaults import "$BUNDLE_ID" - 2>/dev/null || true
+fi
+
 if [[ -n "${TAG_SLUG:-}" && -n "${CMUX_SOCKET:-}" ]]; then
   # Ensure tag-specific socket paths win even if the caller has CMUX_* overrides.
   "${OPEN_CLEAN_ENV[@]}" CMUX_TAG="$TAG_SLUG" CMUX_SOCKET_PATH="$CMUX_SOCKET" CMUXD_UNIX_PATH="$CMUXD_SOCKET" CMUX_DEBUG_LOG="$CMUX_DEBUG_LOG" open -g "$APP_PATH"
