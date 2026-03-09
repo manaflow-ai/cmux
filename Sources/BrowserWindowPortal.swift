@@ -2656,12 +2656,23 @@ final class WindowBrowserPortal: NSObject {
         }
 #endif
         if shouldPreserveVisibleOnTransientGeometry {
+            let hasExistingVisibleFrame =
+                oldFrame.width > 1 &&
+                oldFrame.height > 1 &&
+                containerView.bounds.width > 1 &&
+                containerView.bounds.height > 1
 #if DEBUG
             dlog(
                 "browser.portal.hidden.deferKeep web=\(browserPortalDebugToken(webView)) " +
-                "reason=\(transientRecoveryReason ?? "unknown") frame=\(browserPortalDebugFrame(containerView.frame))"
+                "reason=\(transientRecoveryReason ?? "unknown") frame=\(browserPortalDebugFrame(containerView.frame)) " +
+                "keepFrame=\(hasExistingVisibleFrame ? 1 : 0)"
             )
 #endif
+            if hasExistingVisibleFrame {
+                containerView.setDropZoneOverlay(zone: nil)
+                containerView.setPaneDropContext(nil)
+                return
+            }
         }
         if !Self.rectApproximatelyEqual(oldFrame, targetFrame) {
             CATransaction.begin()
