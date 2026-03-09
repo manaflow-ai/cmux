@@ -4234,6 +4234,58 @@ final class WorkspaceReorderTests: XCTestCase {
 }
 
 @MainActor
+final class WorkspaceNotificationReorderTests: XCTestCase {
+    func testNotificationAutoReorderDoesNotMovePinnedWorkspace() {
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let manager = TabManager()
+        let notificationStore = TerminalNotificationStore.shared
+
+        let originalTabManager = appDelegate.tabManager
+        let originalNotificationStore = appDelegate.notificationStore
+        let defaults = UserDefaults.standard
+        let originalAutoReorderSetting = defaults.object(forKey: WorkspaceAutoReorderSettings.key)
+        let originalAppFocusOverride = AppFocusState.overrideIsFocused
+
+        notificationStore.replaceNotificationsForTesting([])
+        notificationStore.configureNotificationDeliveryHandlerForTesting { _, _ in }
+        appDelegate.tabManager = manager
+        appDelegate.notificationStore = notificationStore
+        defaults.set(true, forKey: WorkspaceAutoReorderSettings.key)
+        AppFocusState.overrideIsFocused = false
+
+        defer {
+            notificationStore.replaceNotificationsForTesting([])
+            notificationStore.resetNotificationDeliveryHandlerForTesting()
+            appDelegate.tabManager = originalTabManager
+            appDelegate.notificationStore = originalNotificationStore
+            AppFocusState.overrideIsFocused = originalAppFocusOverride
+            if let originalAutoReorderSetting {
+                defaults.set(originalAutoReorderSetting, forKey: WorkspaceAutoReorderSettings.key)
+            } else {
+                defaults.removeObject(forKey: WorkspaceAutoReorderSettings.key)
+            }
+        }
+
+        let firstPinned = manager.tabs[0]
+        manager.setPinned(firstPinned, pinned: true)
+        let secondPinned = manager.addWorkspace()
+        manager.setPinned(secondPinned, pinned: true)
+        let unpinned = manager.addWorkspace()
+        let expectedOrder = [firstPinned.id, secondPinned.id, unpinned.id]
+
+        notificationStore.addNotification(
+            tabId: secondPinned.id,
+            surfaceId: nil,
+            title: "Build finished",
+            subtitle: "",
+            body: "Pinned workspaces should stay put"
+        )
+
+        XCTAssertEqual(manager.tabs.map(\.id), expectedOrder)
+    }
+}
+
+@MainActor
 final class TabManagerChildExitCloseTests: XCTestCase {
     func testChildExitOnLastPanelClosesSelectedWorkspaceAndKeepsIndexStable() {
         let manager = TabManager()
