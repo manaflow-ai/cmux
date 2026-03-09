@@ -5316,11 +5316,14 @@ class TerminalController {
         let subtitle = (params["subtitle"] as? String) ?? ""
         let body = (params["body"] as? String) ?? ""
         let color: String?
-        if let raw = v2String(params, "color") {
-            guard let normalized = WorkspaceTabColorSettings.normalizedHex(raw) else {
+        if let rawValue = params["color"] {
+            if rawValue is NSNull {
+                color = nil
+            } else if let raw = rawValue as? String, let normalized = WorkspaceTabColorSettings.normalizedHex(raw) {
+                color = normalized
+            } else {
                 return .err(code: "invalid_params", message: "Invalid color hex. Use format #RRGGBB.", data: nil)
             }
-            color = normalized
         } else {
             color = nil
         }
@@ -5366,11 +5369,14 @@ class TerminalController {
         let subtitle = (params["subtitle"] as? String) ?? ""
         let body = (params["body"] as? String) ?? ""
         let color: String?
-        if let raw = v2String(params, "color") {
-            guard let normalized = WorkspaceTabColorSettings.normalizedHex(raw) else {
+        if let rawValue = params["color"] {
+            if rawValue is NSNull {
+                color = nil
+            } else if let raw = rawValue as? String, let normalized = WorkspaceTabColorSettings.normalizedHex(raw) {
+                color = normalized
+            } else {
                 return .err(code: "invalid_params", message: "Invalid color hex. Use format #RRGGBB.", data: nil)
             }
-            color = normalized
         } else {
             color = nil
         }
@@ -5415,11 +5421,14 @@ class TerminalController {
         let subtitle = (params["subtitle"] as? String) ?? ""
         let body = (params["body"] as? String) ?? ""
         let color: String?
-        if let raw = v2String(params, "color") {
-            guard let normalized = WorkspaceTabColorSettings.normalizedHex(raw) else {
+        if let rawValue = params["color"] {
+            if rawValue is NSNull {
+                color = nil
+            } else if let raw = rawValue as? String, let normalized = WorkspaceTabColorSettings.normalizedHex(raw) {
+                color = normalized
+            } else {
                 return .err(code: "invalid_params", message: "Invalid color hex. Use format #RRGGBB.", data: nil)
             }
-            color = normalized
         } else {
             color = nil
         }

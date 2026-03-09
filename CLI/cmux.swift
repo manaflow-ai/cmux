@@ -1507,6 +1507,9 @@ struct CMUXCLI {
             let subtitle = optionValue(commandArgs, name: "--subtitle") ?? ""
             let body = optionValue(commandArgs, name: "--body") ?? ""
             let color = optionValue(commandArgs, name: "--color")
+            if commandArgs.contains("--color"), color == nil || (color?.hasPrefix("-") ?? false) {
+                throw CLIError(message: "notify: --color requires a hex value (e.g. \"#C0392B\")")
+            }
 
             let notifyWsFlag = optionValue(commandArgs, name: "--workspace")
             let workspaceArg = notifyWsFlag ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
@@ -4863,8 +4866,8 @@ struct CMUXCLI {
               --subtitle <text>      Notification subtitle
               --body <text>          Notification body
               --color <#hex>         Notification accent color (default: workspace color or blue)
-              --workspace <id|ref>   Target workspace (default: $CMUX_WORKSPACE_ID)
-              --surface <id|ref>     Target surface (default: $CMUX_SURFACE_ID)
+              --workspace <id|ref|index>   Target workspace (default: $CMUX_WORKSPACE_ID)
+              --surface <id|ref|index>     Target surface (default: $CMUX_SURFACE_ID)
 
             Example:
               cmux notify --title "Build done" --body "All tests passed"
