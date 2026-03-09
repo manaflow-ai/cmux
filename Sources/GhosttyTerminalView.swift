@@ -5237,7 +5237,9 @@ final class GhosttySurfaceScrollView: NSView {
         keyboardCopyModeBadgeLabel.translatesAutoresizingMaskIntoConstraints = false
         keyboardCopyModeBadgeLabel.textColor = NSColor.labelColor
         keyboardCopyModeBadgeLabel.font = NSFont.systemFont(ofSize: 13, weight: .semibold)
-        keyboardCopyModeBadgeLabel.lineBreakMode = .byClipping
+        keyboardCopyModeBadgeLabel.lineBreakMode = .byTruncatingTail
+        keyboardCopyModeBadgeLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        keyboardCopyModeBadgeLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
         keyboardCopyModeBadgeContainerView.addSubview(keyboardCopyModeBadgeView)
         keyboardCopyModeBadgeView.addSubview(keyboardCopyModeBadgeIconView)
         keyboardCopyModeBadgeView.addSubview(keyboardCopyModeBadgeLabel)
@@ -5246,6 +5248,7 @@ final class GhosttySurfaceScrollView: NSView {
             keyboardCopyModeBadgeView.bottomAnchor.constraint(equalTo: keyboardCopyModeBadgeContainerView.bottomAnchor),
             keyboardCopyModeBadgeView.leadingAnchor.constraint(equalTo: keyboardCopyModeBadgeContainerView.leadingAnchor),
             keyboardCopyModeBadgeView.trailingAnchor.constraint(equalTo: keyboardCopyModeBadgeContainerView.trailingAnchor),
+            keyboardCopyModeBadgeView.widthAnchor.constraint(lessThanOrEqualToConstant: 180),
             keyboardCopyModeBadgeIconView.leadingAnchor.constraint(equalTo: keyboardCopyModeBadgeView.leadingAnchor, constant: 12),
             keyboardCopyModeBadgeIconView.centerYAnchor.constraint(equalTo: keyboardCopyModeBadgeView.centerYAnchor),
             keyboardCopyModeBadgeIconView.widthAnchor.constraint(equalToConstant: 18),
