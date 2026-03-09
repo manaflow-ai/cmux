@@ -86,14 +86,30 @@ struct CommandPaletteSwitcherSearchMetadata: Equatable, Sendable {
 
 #### 2. `CommandPaletteSwitcherSearchIndexer` — index tags as keywords
 
-In `metadataKeywordsForSearch`, add tag tokens:
+Add a new `tagTokensForSearch` helper and wire it into `metadataKeywordsForSearch`:
+
+```swift
+/// Tokenizes a single tag string into searchable keywords.
+/// Includes the original tag (for multi-word phrase matching like "open claw")
+/// plus individual components split on standard delimiters.
+/// Not detail-aware — tags are always fully tokenized regardless of workspace/surface context.
+private static func tagTokensForSearch(_ rawTag: String) -> [String] {
+    let trimmed = rawTag.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return [] }
+    let components = trimmed.components(separatedBy: metadataDelimiters).filter { !$0.isEmpty }
+    return uniqueNormalizedPreservingOrder([trimmed] + components)
+}
+```
+
+In `metadataKeywordsForSearch`, add tag tokens to both the context keywords **and** the returned list:
 
 ```swift
 let tagTokens = metadata.tags.flatMap { tagTokensForSearch($0) }
-// Split on delimiters like branches, so "open-claw" matches "open", "claw", "open-claw"
 if !tagTokens.isEmpty {
     contextKeywords.append(contentsOf: ["tag", "topic", "claude"])
 }
+
+return contextKeywords + directoryTokens + branchTokens + portTokens + tagTokens
 ```
 
 #### 3. `Workspace` model — add `tagsBySource: [String: [String]]`
@@ -112,9 +128,11 @@ return CommandPaletteSwitcherSearchMetadata(
     directories: directories,
     branches: branches,
     ports: ports,
-    tags: workspace.searchTags  // NEW — gated on cmdPSessionTags setting for display
+    tags: workspace.searchTags  // NEW — always passed; gating happens at extraction (section 6)
 )
 ```
+
+**Gating strategy**: The single gate is at **extraction time** (section 6). When `cmdPSessionTags` is disabled, no Claude-sourced tags are extracted or pushed, so `tagsBySource` stays empty for Claude sources. The metadata construction and search indexer always include whatever tags exist — this ensures manual tags (which bypass the setting) always work, and avoids double-gating complexity.
 
 #### 5. Socket command: `workspace.set_tags`
 
@@ -133,6 +151,7 @@ In the `claude-hook notification` handler, after upserting the session record:
 - **Check setting**: skip tag extraction if `cmdPSessionTags` is disabled
 - Extract topic keywords from `summary.subtitle` and `summary.body` (simple word tokenization, filter stopwords, keep meaningful tokens)
 - **Sanitize**: strip tokens that look like secrets, file paths, UUIDs, emails, or other PII patterns before persisting
+- **Validate sessionId**: before embedding in the source key, validate that `sessionId` matches `^[a-zA-Z0-9_-]{1,128}$`. Reject or skip tag push for malformed session IDs. This prevents command injection since the sessionId originates from external Claude hook stdin.
 - Send `workspace.set_tags --source claude:<sessionId>` with the extracted tags
 - On `claude-hook stop`, send `workspace.clear_tags --source claude:<sessionId>`
 
@@ -174,7 +193,9 @@ Manual tags use source `manual` and are never overwritten by Claude hooks.
 - **Tag overflow**: caps enforced per source (20 tags, 100 chars each); oldest dropped if exceeded
 - **No Claude session**: tags field is empty, no UI change
 - **Feature disabled** (default): no automatic tag extraction, socket commands still work for manual use
+- **Feature disabled after use**: Claude-sourced tags already in `tagsBySource` are **not** automatically purged — they remain inert (no new ones are added, existing ones decay naturally as sessions end and call `clear_tags`). If a user wants immediate cleanup, `cmux workspace clear-tags <id>` removes all tags. This avoids expensive migration logic for a rare toggle scenario.
 - **Sensitive data**: tag extraction sanitizes secrets/PII patterns before persisting
+- **Malformed sessionId**: session IDs that don't match `^[a-zA-Z0-9_-]{1,128}$` are rejected — tag push is skipped silently
 
 ## Key Files
 
