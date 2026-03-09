@@ -634,10 +634,17 @@ final class TerminalNotificationStore: ObservableObject {
 
     static let categoryIdentifier = "com.cmuxterm.app.userNotification"
     static let actionShowIdentifier = "com.cmuxterm.app.userNotification.show"
-    private enum AuthorizationRequestOrigin: String {
+    enum AuthorizationRequestOrigin: String {
         case notificationDelivery = "notification_delivery"
         case settingsButton = "settings_button"
         case settingsTest = "settings_test"
+    }
+    enum AuthorizationDecision: Equatable {
+        case allowDelivery
+        case promptSettingsAndDeny
+        case deferRequestAndDeny
+        case requestAuthorization
+        case denySilently
     }
 
     @Published private(set) var notifications: [TerminalNotification] = [] {
@@ -820,6 +827,41 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     func addNotification(tabId: UUID, surfaceId: UUID?, title: String, subtitle: String, body: String) {
+        addNotification(
+            tabId: tabId,
+            surfaceId: surfaceId,
+            title: title,
+            subtitle: subtitle,
+            body: body,
+            allowFocusedDelivery: false
+        )
+    }
+
+    func addTerminalEscapeNotification(
+        tabId: UUID,
+        surfaceId: UUID?,
+        title: String,
+        subtitle: String,
+        body: String
+    ) {
+        addNotification(
+            tabId: tabId,
+            surfaceId: surfaceId,
+            title: title,
+            subtitle: subtitle,
+            body: body,
+            allowFocusedDelivery: true
+        )
+    }
+
+    private func addNotification(
+        tabId: UUID,
+        surfaceId: UUID?,
+        title: String,
+        subtitle: String,
+        body: String,
+        allowFocusedDelivery: Bool
+    ) {
         var updated = notifications
         var idsToClear: [String] = []
         updated.removeAll { existing in
@@ -833,7 +875,8 @@ final class TerminalNotificationStore: ObservableObject {
         let isFocusedSurface = surfaceId == nil || focusedSurfaceId == surfaceId
         let isFocusedPanel = isActiveTab && isFocusedSurface
         let isAppFocused = AppFocusState.isAppFocused()
-        if isAppFocused && isFocusedPanel {
+        let isFocusedDeliveryTarget = isAppFocused && isFocusedPanel
+        if isFocusedDeliveryTarget && !allowFocusedDelivery {
             if !idsToClear.isEmpty {
                 notifications = updated
                 center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
@@ -854,7 +897,7 @@ final class TerminalNotificationStore: ObservableObject {
             subtitle: subtitle,
             body: body,
             createdAt: Date(),
-            isRead: false
+            isRead: isFocusedDeliveryTarget
         )
         updated.insert(notification, at: 0)
         notifications = updated
@@ -1045,30 +1088,67 @@ final class TerminalNotificationStore: ObservableObject {
                 self.logAuthorization(
                     "ensure status origin=\(origin.rawValue) status=\(Self.authorizationStatusLabel(settings.authorizationStatus)) mapped=\(self.authorizationState.statusLabel) appActive=\(AppFocusState.isAppActive())"
                 )
-                switch settings.authorizationStatus {
-                case .authorized, .provisional, .ephemeral:
+                switch Self.authorizationDecision(
+                    origin: origin,
+                    status: settings.authorizationStatus,
+                    isAppActive: AppFocusState.isAppActive()
+                ) {
+                case .allowDelivery:
                     completion(true)
-                case .denied:
+                case .promptSettingsAndDeny:
                     self.logAuthorization("ensure denied origin=\(origin.rawValue) prompting_settings")
                     self.promptToEnableNotifications()
                     completion(false)
-                case .notDetermined:
-                    if Self.shouldDeferAutomaticAuthorizationRequest(
-                        origin: origin,
-                        status: settings.authorizationStatus,
-                        isAppActive: AppFocusState.isAppActive()
-                    ) {
-                        self.logAuthorization("ensure deferred origin=\(origin.rawValue)")
-                        self.hasDeferredAuthorizationRequest = true
-                        completion(false)
-                    } else {
-                        self.requestAuthorizationIfNeeded(origin: origin, completion)
+                case .deferRequestAndDeny:
+                    self.logAuthorization("ensure deferred origin=\(origin.rawValue)")
+                    self.hasDeferredAuthorizationRequest = true
+                    completion(false)
+                case .requestAuthorization:
+                    self.requestAuthorizationIfNeeded(origin: origin, completion)
+                case .denySilently:
+                    switch settings.authorizationStatus {
+                    case .denied:
+                        self.logAuthorization("ensure denied origin=\(origin.rawValue) skipping_prompt")
+                    case .notDetermined:
+                        self.logAuthorization("ensure notDetermined origin=\(origin.rawValue) skipping_request")
+                    case .authorized, .provisional, .ephemeral:
+                        self.logAuthorization("ensure status origin=\(origin.rawValue) skipping_delivery")
+                    @unknown default:
+                        self.logAuthorization("ensure unknown status origin=\(origin.rawValue)")
                     }
-                @unknown default:
-                    self.logAuthorization("ensure unknown status origin=\(origin.rawValue)")
                     completion(false)
                 }
             }
+        }
+    }
+
+    static func authorizationDecision(
+        origin: AuthorizationRequestOrigin,
+        status: UNAuthorizationStatus,
+        isAppActive: Bool
+    ) -> AuthorizationDecision {
+        switch status {
+        case .authorized, .provisional, .ephemeral:
+            return .allowDelivery
+        case .denied:
+            if origin == .notificationDelivery {
+                return .denySilently
+            }
+            return .promptSettingsAndDeny
+        case .notDetermined:
+            if origin == .notificationDelivery {
+                return .denySilently
+            }
+            if shouldDeferAutomaticAuthorizationRequest(
+                origin: origin,
+                status: status,
+                isAppActive: isAppActive
+            ) {
+                return .deferRequestAndDeny
+            }
+            return .requestAuthorization
+        @unknown default:
+            return .denySilently
         }
     }
 

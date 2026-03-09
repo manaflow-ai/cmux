@@ -1454,24 +1454,24 @@ class GhosttyApp {
                     .flatMap { String(cString: $0) } ?? ""
                 let actionBody = action.action.desktop_notification.body
                     .flatMap { String(cString: $0) } ?? ""
-                return performOnMain {
+                DispatchQueue.main.async {
                     guard let tabManager = AppDelegate.shared?.tabManager,
                           let tabId = tabManager.selectedTabId else {
-                        return false
+                        return
                     }
                     let tabTitle = tabManager.titleForTab(tabId) ?? "Terminal"
                     let command = actionTitle.isEmpty ? tabTitle : actionTitle
                     let body = actionBody
                     let surfaceId = tabManager.focusedSurfaceId(for: tabId)
-                    TerminalNotificationStore.shared.addNotification(
+                    TerminalNotificationStore.shared.addTerminalEscapeNotification(
                         tabId: tabId,
                         surfaceId: surfaceId,
                         title: command,
                         subtitle: "",
                         body: body
                     )
-                    return true
                 }
+                return true
             }
 
             if action.tag == GHOSTTY_ACTION_RELOAD_CONFIG {
@@ -1712,17 +1712,17 @@ class GhosttyApp {
             }
             return true
         case GHOSTTY_ACTION_DESKTOP_NOTIFICATION:
-            guard let tabId = surfaceView.tabId else { return true }
-            let surfaceId = surfaceView.terminalSurface?.id
+            guard let tabId = callbackTabId ?? surfaceView.tabId else { return true }
+            let surfaceId = callbackSurfaceId ?? surfaceView.terminalSurface?.id
             let actionTitle = action.action.desktop_notification.title
                 .flatMap { String(cString: $0) } ?? ""
             let actionBody = action.action.desktop_notification.body
                 .flatMap { String(cString: $0) } ?? ""
-            performOnMain {
+            DispatchQueue.main.async {
                 let tabTitle = AppDelegate.shared?.tabManager?.titleForTab(tabId) ?? "Terminal"
                 let command = actionTitle.isEmpty ? tabTitle : actionTitle
                 let body = actionBody
-                TerminalNotificationStore.shared.addNotification(
+                TerminalNotificationStore.shared.addTerminalEscapeNotification(
                     tabId: tabId,
                     surfaceId: surfaceId,
                     title: command,

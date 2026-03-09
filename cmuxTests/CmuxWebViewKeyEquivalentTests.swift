@@ -7234,6 +7234,50 @@ final class NotificationDockBadgeTests: XCTestCase {
         )
     }
 
+    func testNotificationDeliverySkipsAuthorizationRequestWhenStatusIsNotDetermined() {
+        XCTAssertEqual(
+            TerminalNotificationStore.authorizationDecision(
+                origin: .notificationDelivery,
+                status: .notDetermined,
+                isAppActive: true
+            ),
+            .denySilently
+        )
+    }
+
+    func testNotificationDeliverySkipsSettingsPromptWhenStatusIsDenied() {
+        XCTAssertEqual(
+            TerminalNotificationStore.authorizationDecision(
+                origin: .notificationDelivery,
+                status: .denied,
+                isAppActive: true
+            ),
+            .denySilently
+        )
+    }
+
+    func testNotificationSettingsButtonStillRequestsAuthorizationWhenNotDetermined() {
+        XCTAssertEqual(
+            TerminalNotificationStore.authorizationDecision(
+                origin: .settingsButton,
+                status: .notDetermined,
+                isAppActive: true
+            ),
+            .requestAuthorization
+        )
+    }
+
+    func testNotificationSettingsButtonStillPromptsWhenDenied() {
+        XCTAssertEqual(
+            TerminalNotificationStore.authorizationDecision(
+                origin: .settingsButton,
+                status: .denied,
+                isAppActive: true
+            ),
+            .promptSettingsAndDeny
+        )
+    }
+
     func testNotificationSettingsPromptUsesSheetAndNeverRunsModal() {
         let store = TerminalNotificationStore.shared
         let alertSpy = NotificationSettingsAlertSpy()
