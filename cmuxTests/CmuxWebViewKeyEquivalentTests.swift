@@ -2513,6 +2513,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 
     func testWebViewDismantleKeepsPortalHostedWebViewAttachedWhenDeveloperToolsIntentIsVisible() {
         let (panel, _) = makePanelWithInspector()
+        let paneId = PaneID(id: UUID())
         XCTAssertTrue(panel.showDeveloperTools())
 
         let window = NSWindow(
@@ -2534,6 +2535,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 
         let representable = WebViewRepresentable(
             panel: panel,
+            paneId: paneId,
             shouldAttachWebView: true,
             shouldFocusWebView: false,
             isPanelFocused: true,
@@ -2552,6 +2554,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 
     func testWebViewDismantleKeepsPortalHostedWebViewAttachedWhenDeveloperToolsIntentIsHidden() {
         let (panel, _) = makePanelWithInspector()
+        let paneId = PaneID(id: UUID())
         XCTAssertFalse(panel.shouldPreserveWebViewAttachmentDuringTransientHide())
 
         let window = NSWindow(
@@ -2573,6 +2576,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 
         let representable = WebViewRepresentable(
             panel: panel,
+            paneId: paneId,
             shouldAttachWebView: true,
             shouldFocusWebView: false,
             isPanelFocused: true,
