@@ -378,7 +378,18 @@ enum TerminalKeyboardCopyModeResolution: Equatable {
 }
 
 private let terminalKeyboardCopyModeMaxCount = 9_999
-private let terminalKeyboardCopyModeIndicatorText = "vim"
+
+private var terminalKeyboardCopyModeIndicatorText: String {
+    String(localized: "ghostty.copy-mode.indicator", defaultValue: "vim")
+}
+
+private var terminalKeyTableIndicatorDefaultText: String {
+    String(localized: "ghostty.key-table.indicator", defaultValue: "key table")
+}
+
+private var terminalKeyTableIndicatorAccessibilityLabel: String {
+    String(localized: "ghostty.key-table.icon.accessibility", defaultValue: "Key table")
+}
 
 private func terminalKeyboardCopyModeClampCount(_ value: Int) -> Int {
     min(max(value, 1), terminalKeyboardCopyModeMaxCount)
@@ -388,14 +399,15 @@ private func terminalKeyTableIndicatorText(_ name: String) -> String {
     let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
     switch trimmed.lowercased() {
     case "", "set":
-        return "key table"
+        return terminalKeyTableIndicatorDefaultText
     case "vi", "vim":
         return terminalKeyboardCopyModeIndicatorText
     default:
         let normalized = trimmed
             .replacingOccurrences(of: "_", with: " ")
             .replacingOccurrences(of: "-", with: " ")
-        return normalized.isEmpty ? "key table" : normalized
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return normalized.isEmpty ? terminalKeyTableIndicatorDefaultText : normalized
     }
 }
 
@@ -4946,6 +4958,7 @@ final class GhosttySurfaceScrollView: NSView {
     private let notificationRingLayer: CAShapeLayer
     private let flashOverlayView: GhosttyFlashOverlayView
     private let flashLayer: CAShapeLayer
+    private let keyboardCopyModeBadgeContainerView: NSView
     private let keyboardCopyModeBadgeView: GhosttyPassthroughVisualEffectView
     private let keyboardCopyModeBadgeIconView: NSImageView
     private let keyboardCopyModeBadgeLabel: NSTextField
@@ -5115,6 +5128,7 @@ final class GhosttySurfaceScrollView: NSView {
         notificationRingLayer = CAShapeLayer()
         flashOverlayView = GhosttyFlashOverlayView(frame: .zero)
         flashLayer = CAShapeLayer()
+        keyboardCopyModeBadgeContainerView = NSView(frame: .zero)
         keyboardCopyModeBadgeView = GhosttyPassthroughVisualEffectView(frame: .zero)
         keyboardCopyModeBadgeIconView = NSImageView(frame: .zero)
         keyboardCopyModeBadgeLabel = NSTextField(labelWithString: terminalKeyboardCopyModeIndicatorText)
@@ -5190,6 +5204,13 @@ final class GhosttySurfaceScrollView: NSView {
         flashLayer.opacity = 0
         flashOverlayView.layer?.addSublayer(flashLayer)
         addSubview(flashOverlayView)
+        keyboardCopyModeBadgeContainerView.translatesAutoresizingMaskIntoConstraints = false
+        keyboardCopyModeBadgeContainerView.wantsLayer = true
+        keyboardCopyModeBadgeContainerView.layer?.masksToBounds = false
+        keyboardCopyModeBadgeContainerView.layer?.shadowColor = NSColor.black.cgColor
+        keyboardCopyModeBadgeContainerView.layer?.shadowOpacity = 0.22
+        keyboardCopyModeBadgeContainerView.layer?.shadowRadius = 10
+        keyboardCopyModeBadgeContainerView.layer?.shadowOffset = CGSize(width: 0, height: 2)
         keyboardCopyModeBadgeView.translatesAutoresizingMaskIntoConstraints = false
         keyboardCopyModeBadgeView.wantsLayer = true
         keyboardCopyModeBadgeView.material = .hudWindow
@@ -5199,10 +5220,6 @@ final class GhosttySurfaceScrollView: NSView {
         keyboardCopyModeBadgeView.layer?.masksToBounds = true
         keyboardCopyModeBadgeView.layer?.borderWidth = 1
         keyboardCopyModeBadgeView.layer?.borderColor = NSColor.white.withAlphaComponent(0.12).cgColor
-        keyboardCopyModeBadgeView.layer?.shadowColor = NSColor.black.cgColor
-        keyboardCopyModeBadgeView.layer?.shadowOpacity = 0.22
-        keyboardCopyModeBadgeView.layer?.shadowRadius = 10
-        keyboardCopyModeBadgeView.layer?.shadowOffset = CGSize(width: 0, height: 2)
         keyboardCopyModeBadgeView.alphaValue = 0.97
         keyboardCopyModeBadgeIconView.translatesAutoresizingMaskIntoConstraints = false
         keyboardCopyModeBadgeIconView.symbolConfiguration = NSImage.SymbolConfiguration(
@@ -5212,16 +5229,21 @@ final class GhosttySurfaceScrollView: NSView {
         )
         keyboardCopyModeBadgeIconView.image = NSImage(
             systemSymbolName: "keyboard.badge.ellipsis",
-            accessibilityDescription: "Key table"
+            accessibilityDescription: terminalKeyTableIndicatorAccessibilityLabel
         )
         keyboardCopyModeBadgeIconView.contentTintColor = NSColor.secondaryLabelColor
         keyboardCopyModeBadgeLabel.translatesAutoresizingMaskIntoConstraints = false
         keyboardCopyModeBadgeLabel.textColor = NSColor.labelColor
         keyboardCopyModeBadgeLabel.font = NSFont.systemFont(ofSize: 13, weight: .semibold)
         keyboardCopyModeBadgeLabel.lineBreakMode = .byClipping
+        keyboardCopyModeBadgeContainerView.addSubview(keyboardCopyModeBadgeView)
         keyboardCopyModeBadgeView.addSubview(keyboardCopyModeBadgeIconView)
         keyboardCopyModeBadgeView.addSubview(keyboardCopyModeBadgeLabel)
         NSLayoutConstraint.activate([
+            keyboardCopyModeBadgeView.topAnchor.constraint(equalTo: keyboardCopyModeBadgeContainerView.topAnchor),
+            keyboardCopyModeBadgeView.bottomAnchor.constraint(equalTo: keyboardCopyModeBadgeContainerView.bottomAnchor),
+            keyboardCopyModeBadgeView.leadingAnchor.constraint(equalTo: keyboardCopyModeBadgeContainerView.leadingAnchor),
+            keyboardCopyModeBadgeView.trailingAnchor.constraint(equalTo: keyboardCopyModeBadgeContainerView.trailingAnchor),
             keyboardCopyModeBadgeIconView.leadingAnchor.constraint(equalTo: keyboardCopyModeBadgeView.leadingAnchor, constant: 12),
             keyboardCopyModeBadgeIconView.centerYAnchor.constraint(equalTo: keyboardCopyModeBadgeView.centerYAnchor),
             keyboardCopyModeBadgeIconView.widthAnchor.constraint(equalToConstant: 18),
@@ -5231,11 +5253,11 @@ final class GhosttySurfaceScrollView: NSView {
             keyboardCopyModeBadgeLabel.topAnchor.constraint(equalTo: keyboardCopyModeBadgeView.topAnchor, constant: 8),
             keyboardCopyModeBadgeLabel.bottomAnchor.constraint(equalTo: keyboardCopyModeBadgeView.bottomAnchor, constant: -8),
         ])
-        keyboardCopyModeBadgeView.isHidden = true
-        addSubview(keyboardCopyModeBadgeView)
+        keyboardCopyModeBadgeContainerView.isHidden = true
+        addSubview(keyboardCopyModeBadgeContainerView)
         NSLayoutConstraint.activate([
-            keyboardCopyModeBadgeView.topAnchor.constraint(equalTo: topAnchor, constant: 8),
-            keyboardCopyModeBadgeView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+            keyboardCopyModeBadgeContainerView.topAnchor.constraint(equalTo: topAnchor, constant: 8),
+            keyboardCopyModeBadgeContainerView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
         ])
 
         scrollView.contentView.postsBoundsChangedNotifications = true
@@ -5586,8 +5608,8 @@ final class GhosttySurfaceScrollView: NSView {
         if let overlay = searchOverlayHostingView,
            lastSearchOverlayStateID == searchStateID,
            overlay.superview === self {
-            if !keyboardCopyModeBadgeView.isHidden {
-                addSubview(keyboardCopyModeBadgeView, positioned: .above, relativeTo: overlay)
+            if !keyboardCopyModeBadgeContainerView.isHidden {
+                addSubview(keyboardCopyModeBadgeContainerView, positioned: .above, relativeTo: overlay)
             }
             return
         }
@@ -5632,8 +5654,8 @@ final class GhosttySurfaceScrollView: NSView {
                     overlay.trailingAnchor.constraint(equalTo: trailingAnchor),
                 ])
             }
-            if !keyboardCopyModeBadgeView.isHidden {
-                addSubview(keyboardCopyModeBadgeView, positioned: .above, relativeTo: overlay)
+            if !keyboardCopyModeBadgeContainerView.isHidden {
+                addSubview(keyboardCopyModeBadgeContainerView, positioned: .above, relativeTo: overlay)
             }
             lastSearchOverlayStateID = searchStateID
             return
@@ -5649,8 +5671,8 @@ final class GhosttySurfaceScrollView: NSView {
             overlay.leadingAnchor.constraint(equalTo: leadingAnchor),
             overlay.trailingAnchor.constraint(equalTo: trailingAnchor),
         ])
-        if !keyboardCopyModeBadgeView.isHidden {
-            addSubview(keyboardCopyModeBadgeView, positioned: .above, relativeTo: overlay)
+        if !keyboardCopyModeBadgeContainerView.isHidden {
+            addSubview(keyboardCopyModeBadgeContainerView, positioned: .above, relativeTo: overlay)
         }
         searchOverlayHostingView = overlay
         lastSearchOverlayStateID = searchStateID
@@ -5666,16 +5688,16 @@ final class GhosttySurfaceScrollView: NSView {
 
         if let text, !text.isEmpty {
             keyboardCopyModeBadgeLabel.stringValue = text
-            keyboardCopyModeBadgeView.isHidden = false
+            keyboardCopyModeBadgeContainerView.isHidden = false
             if let overlay = searchOverlayHostingView {
-                addSubview(keyboardCopyModeBadgeView, positioned: .above, relativeTo: overlay)
+                addSubview(keyboardCopyModeBadgeContainerView, positioned: .above, relativeTo: overlay)
             } else {
-                addSubview(keyboardCopyModeBadgeView, positioned: .above, relativeTo: nil)
+                addSubview(keyboardCopyModeBadgeContainerView, positioned: .above, relativeTo: nil)
             }
             return
         }
 
-        keyboardCopyModeBadgeView.isHidden = true
+        keyboardCopyModeBadgeContainerView.isHidden = true
     }
 
     private func dropZoneOverlayFrame(for zone: DropZone, in size: CGSize) -> CGRect {
@@ -6003,7 +6025,7 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     func debugHasKeyboardCopyModeIndicator() -> Bool {
-        keyboardCopyModeBadgeView.superview === self && !keyboardCopyModeBadgeView.isHidden
+        keyboardCopyModeBadgeContainerView.superview === self && !keyboardCopyModeBadgeContainerView.isHidden
     }
 
 #endif
