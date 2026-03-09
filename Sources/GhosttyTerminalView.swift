@@ -4442,12 +4442,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         case GHOSTTY_KEY_TABLE_ACTIVATE:
             let namePtr = action.value.activate.name
             let nameLen = Int(action.value.activate.len)
+            let name: String
             if let namePtr, nameLen > 0 {
                 let data = Data(bytes: namePtr, count: nameLen)
-                if let name = String(data: data, encoding: .utf8) {
-                    keyTables.append(name)
-                }
+                name = String(data: data, encoding: .utf8) ?? ""
+            } else {
+                name = ""
             }
+            keyTables.append(name)
         case GHOSTTY_KEY_TABLE_DEACTIVATE:
             _ = keyTables.popLast()
         case GHOSTTY_KEY_TABLE_DEACTIVATE_ALL:
@@ -4958,7 +4960,7 @@ final class GhosttySurfaceScrollView: NSView {
     private let notificationRingLayer: CAShapeLayer
     private let flashOverlayView: GhosttyFlashOverlayView
     private let flashLayer: CAShapeLayer
-    private let keyboardCopyModeBadgeContainerView: GhosttyPassthroughVisualEffectView
+    private let keyboardCopyModeBadgeContainerView: GhosttyFlashOverlayView
     private let keyboardCopyModeBadgeView: GhosttyPassthroughVisualEffectView
     private let keyboardCopyModeBadgeIconView: NSImageView
     private let keyboardCopyModeBadgeLabel: NSTextField
@@ -5128,7 +5130,7 @@ final class GhosttySurfaceScrollView: NSView {
         notificationRingLayer = CAShapeLayer()
         flashOverlayView = GhosttyFlashOverlayView(frame: .zero)
         flashLayer = CAShapeLayer()
-        keyboardCopyModeBadgeContainerView = GhosttyPassthroughVisualEffectView(frame: .zero)
+        keyboardCopyModeBadgeContainerView = GhosttyFlashOverlayView(frame: .zero)
         keyboardCopyModeBadgeView = GhosttyPassthroughVisualEffectView(frame: .zero)
         keyboardCopyModeBadgeIconView = NSImageView(frame: .zero)
         keyboardCopyModeBadgeLabel = NSTextField(labelWithString: terminalKeyboardCopyModeIndicatorText)
@@ -5206,9 +5208,6 @@ final class GhosttySurfaceScrollView: NSView {
         addSubview(flashOverlayView)
         keyboardCopyModeBadgeContainerView.translatesAutoresizingMaskIntoConstraints = false
         keyboardCopyModeBadgeContainerView.wantsLayer = true
-        keyboardCopyModeBadgeContainerView.material = .hudWindow
-        keyboardCopyModeBadgeContainerView.blendingMode = .withinWindow
-        keyboardCopyModeBadgeContainerView.state = .active
         keyboardCopyModeBadgeContainerView.layer?.masksToBounds = false
         keyboardCopyModeBadgeContainerView.layer?.shadowColor = NSColor.black.cgColor
         keyboardCopyModeBadgeContainerView.layer?.shadowOpacity = 0.22
