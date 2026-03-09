@@ -1473,7 +1473,7 @@ struct ContentView: View {
         }
 
         var searchableTexts: [String] {
-            [title, subtitle] + keywords
+            [title, subtitle] + keywords + tags
         }
     }
 
@@ -6053,7 +6053,7 @@ enum CommandPaletteSwitcherSearchIndexer {
             contextKeywords.append(contentsOf: ["port", "ports"])
         }
         if !tagTokens.isEmpty {
-            contextKeywords.append(contentsOf: ["tag", "topic", "claude"])
+            contextKeywords.append(contentsOf: ["tag", "topic"])
         }
 
         return contextKeywords + directoryTokens + branchTokens + portTokens + tagTokens

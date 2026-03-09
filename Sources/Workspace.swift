@@ -195,7 +195,10 @@ extension Workspace {
         setCustomTitle(snapshot.customTitle)
         setCustomColor(snapshot.customColor)
         if let restoredTags = snapshot.tagsBySource {
-            tagsBySource = restoredTags
+            tagsBySource = [:]
+            for (source, tags) in restoredTags {
+                setTags(tags, source: source)
+            }
         }
         isPinned = snapshot.isPinned
 
@@ -1587,22 +1590,44 @@ final class Workspace: Identifiable, ObservableObject {
     private static let maxTagSources = 10
     private static let maxTagsPerSource = 20
     private static let maxTagLength = 100
+    private static let maxSourceLength = 200
 
     var searchTags: [String] {
-        tagsBySource.values.flatMap { $0 }
+        var seen = Set<String>()
+        var result = [String]()
+        for key in tagsBySource.keys.sorted() {
+            for tag in tagsBySource[key] ?? [] {
+                if seen.insert(tag).inserted {
+                    result.append(tag)
+                }
+            }
+        }
+        return result
     }
 
     func setTags(_ tags: [String], source: String) {
-        let sanitized = tags
-            .map { String($0.trimmingCharacters(in: .whitespacesAndNewlines).prefix(Self.maxTagLength)) }
-            .filter { !$0.isEmpty }
-            .prefix(Self.maxTagsPerSource)
+        let truncatedSource = String(source.prefix(Self.maxSourceLength))
+        var seen = Set<String>()
+        var deduped = [String]()
+        for tag in tags {
+            let trimmed = String(tag.trimmingCharacters(in: .whitespacesAndNewlines).prefix(Self.maxTagLength))
+            guard !trimmed.isEmpty else { continue }
+            if seen.insert(trimmed).inserted {
+                deduped.append(trimmed)
+            }
+        }
+        let sanitized = Array(deduped.prefix(Self.maxTagsPerSource))
+
         var updated = tagsBySource
-        updated[source] = Array(sanitized)
+        if sanitized.isEmpty {
+            updated.removeValue(forKey: truncatedSource)
+        } else {
+            updated[truncatedSource] = sanitized
+        }
         if updated.count > Self.maxTagSources {
             let sortedKeys = updated.keys.sorted()
             for key in sortedKeys {
-                if key != source, updated.count > Self.maxTagSources {
+                if key != truncatedSource, updated.count > Self.maxTagSources {
                     updated.removeValue(forKey: key)
                 }
             }

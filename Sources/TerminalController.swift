@@ -3138,12 +3138,16 @@ class TerminalController {
         guard let tagsRaw = params["tags"] as? [Any] else {
             return .err(code: "invalid_params", message: "Missing or invalid tags array", data: nil)
         }
-        let tags = tagsRaw.compactMap { $0 as? String }
+        guard let tags = tagsRaw as? [String] else {
+            return .err(code: "invalid_params", message: "All elements in tags array must be strings", data: nil)
+        }
 
         var applied = false
+        var storedTags: [String] = []
         v2MainSync {
             guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return }
             workspace.setTags(tags, source: source)
+            storedTags = workspace.tagsBySource[source] ?? []
             applied = true
         }
 
@@ -3161,7 +3165,7 @@ class TerminalController {
             "window_id": v2OrNull(windowId?.uuidString),
             "window_ref": v2Ref(kind: .window, uuid: windowId),
             "source": source,
-            "tags": tags
+            "tags": storedTags
         ])
     }
 
@@ -3172,7 +3176,12 @@ class TerminalController {
         guard let workspaceId = v2UUID(params, "workspace_id") else {
             return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
         }
+        let hasSourceKey = params.keys.contains("source")
         let source = v2String(params, "source")
+
+        if hasSourceKey && source == nil {
+            return .err(code: "invalid_params", message: "source must be a non-empty string when provided", data: nil)
+        }
 
         var applied = false
         v2MainSync {

@@ -446,11 +446,31 @@ private enum ClaudeHookTagExtractor {
         return patterns.compactMap { try? NSRegularExpression(pattern: $0, options: .caseInsensitive) }
     }()
 
+    /// Unanchored patterns for pre-redacting sensitive spans in full text before tokenization.
+    private static let sensitiveSpanPatterns: [NSRegularExpression] = {
+        let patterns = [
+            "[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}",
+            "[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}",
+            "(sk-|pk-|ghp_|gho_|Bearer |token )[a-zA-Z0-9_-]+",
+            "(/|~/)[^ ,;()\\[\\]{}\"'`]+",
+            "[A-Z_]{2,}=[^ ,;()\\[\\]{}\"'`]*",
+            "[0-9]{10,}"
+        ]
+        return patterns.compactMap { try? NSRegularExpression(pattern: $0, options: .caseInsensitive) }
+    }()
+
     private static let delimiters = CharacterSet(charactersIn: "/\\.:_- ,;()[]{}\"'`")
 
     static func extractTags(subtitle: String, body: String) -> [String] {
         let combined = "\(body) \(subtitle)"
-        let tokens = combined.components(separatedBy: delimiters)
+        // Pre-redact sensitive spans on the full string before tokenization
+        // so that UUIDs, emails, paths, etc. split across delimiters are caught.
+        var sanitized = combined
+        for pattern in sensitiveSpanPatterns {
+            let range = NSRange(sanitized.startIndex..., in: sanitized)
+            sanitized = pattern.stringByReplacingMatches(in: sanitized, range: range, withTemplate: "")
+        }
+        let tokens = sanitized.components(separatedBy: delimiters)
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { token in
                 guard token.count >= 3 else { return false }
@@ -1454,6 +1474,10 @@ struct CMUXCLI {
             }
             let wsId = try resolveWorkspaceId(workspaceArg, client: client)
             let source = srcArg ?? "manual"
+            let positionalTags = rem2.filter { !$0.hasPrefix("--") && !$0.isEmpty }
+            if isClear && !positionalTags.isEmpty {
+                throw CLIError(message: "set-workspace-tags: --clear cannot be combined with positional tag arguments")
+            }
             if isClear {
                 let payload = try client.sendV2(method: "workspace.clear_tags", params: [
                     "workspace_id": wsId,
@@ -1477,7 +1501,14 @@ struct CMUXCLI {
         case "clear-workspace-tags":
             let (wsArg, rem0) = parseOption(commandArgs, name: "--workspace")
             let workspaceArg = wsArg ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
-            let (srcArg, _) = parseOption(rem0, name: "--source")
+            let (srcArg, rem1) = parseOption(rem0, name: "--source")
+            let strayArgs = rem1.filter { !$0.hasPrefix("--") && !$0.isEmpty }
+            if !strayArgs.isEmpty {
+                throw CLIError(message: "clear-workspace-tags: unexpected arguments: \(strayArgs.joined(separator: ", "))")
+            }
+            if let unknownFlag = rem1.first(where: { $0.hasPrefix("--") && $0 != "--" }) {
+                throw CLIError(message: "clear-workspace-tags: unknown flag '\(unknownFlag)'")
+            }
             let wsId = try resolveWorkspaceId(workspaceArg, client: client)
             var params: [String: Any] = ["workspace_id": wsId]
             if let source = srcArg {
@@ -6382,7 +6413,8 @@ struct CMUXCLI {
             try clearClaudeStatus(client: client, workspaceId: workspaceId)
 
             if let sessionId = parsedInput.sessionId ?? consumedSession?.sessionId,
-               ClaudeHookTagExtractor.isValidSessionId(sessionId) {
+               ClaudeHookTagExtractor.isValidSessionId(sessionId),
+               ClaudeHookTagExtractor.isSessionTagsEnabled() {
                 _ = try? client.sendV2(method: "workspace.clear_tags", params: [
                     "workspace_id": workspaceId,
                     "source": "claude:\(sessionId)"
@@ -6468,6 +6500,12 @@ struct CMUXCLI {
                             "workspace_id": workspaceId,
                             "source": "claude:\(sessionId)",
                             "tags": tags
+                        ])
+                    } else {
+                        // Clear stale tags when extraction yields nothing
+                        _ = try? client.sendV2(method: "workspace.clear_tags", params: [
+                            "workspace_id": workspaceId,
+                            "source": "claude:\(sessionId)"
                         ])
                     }
                 }
@@ -6684,128 +6722,31 @@ struct CMUXCLI {
     }
 
     private func summarizeClaudeHookNotification(rawInput: String) -> (subtitle: String, body: String) {
-        let trimmed = rawInput.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
-            return ("Waiting", "Claude is waiting for your input")
-        }
-
-        guard let data = trimmed.data(using: .utf8),
-              let json = try? JSONSerialization.jsonObject(with: data, options: []),
-              let object = json as? [String: Any] else {
-            let fallback = truncate(normalizedSingleLine(trimmed), maxLength: 180)
-            return classifyClaudeNotification(signal: fallback, message: fallback)
-        }
-
-        let nested = (object["notification"] as? [String: Any]) ?? (object["data"] as? [String: Any]) ?? [:]
-        let signalParts = [
-            firstString(in: object, keys: ["event", "event_name", "hook_event_name", "type", "kind"]),
-            firstString(in: object, keys: ["notification_type", "matcher", "reason"]),
-            firstString(in: nested, keys: ["type", "kind", "reason"])
-        ]
-        let messageCandidates = [
-            firstString(in: object, keys: ["message", "body", "text", "prompt", "error", "description"]),
-            firstString(in: nested, keys: ["message", "body", "text", "prompt", "error", "description"])
-        ]
-        let session = firstString(in: object, keys: ["session_id", "sessionId"])
-        let message = messageCandidates.compactMap { $0 }.first ?? "Claude needs your input"
-        let dedupedMessage = dedupeBranchContextLines(message)
-        let normalizedMessage = normalizedSingleLine(dedupedMessage)
-        let signal = signalParts.compactMap { $0 }.joined(separator: " ")
-        var classified = classifyClaudeNotification(signal: signal, message: normalizedMessage)
-
-        if let session, !session.isEmpty {
-            let shortSession = String(session.prefix(8))
-            if !classified.body.contains(shortSession) {
-                classified.body = "\(classified.body) [\(shortSession)]"
-            }
-        }
-
-        classified.body = truncate(classified.body, maxLength: 180)
-        return classified
+        ClaudeHookHelpers.summarizeNotification(rawInput: rawInput)
     }
 
     private func classifyClaudeNotification(signal: String, message: String) -> (subtitle: String, body: String) {
-        let lower = "\(signal) \(message)".lowercased()
-        if lower.contains("permission") || lower.contains("approve") || lower.contains("approval") {
-            let body = message.isEmpty ? "Approval needed" : message
-            return ("Permission", body)
-        }
-        if lower.contains("error") || lower.contains("failed") || lower.contains("exception") {
-            let body = message.isEmpty ? "Claude reported an error" : message
-            return ("Error", body)
-        }
-        if lower.contains("idle") || lower.contains("wait") || lower.contains("input") || lower.contains("prompt") {
-            let body = message.isEmpty ? "Claude is waiting for your input" : message
-            return ("Waiting", body)
-        }
-        let body = message.isEmpty ? "Claude needs your input" : message
-        return ("Attention", body)
+        ClaudeHookHelpers.classifyNotification(signal: signal, message: message)
     }
 
     private func dedupeBranchContextLines(_ value: String) -> String {
-        let lines = value.components(separatedBy: .newlines)
-        guard lines.count > 1 else { return value }
-
-        var lastIndexByPath: [String: Int] = [:]
-        for (index, line) in lines.enumerated() {
-            guard let path = branchContextPath(from: line) else { continue }
-            lastIndexByPath[path] = index
-        }
-        guard !lastIndexByPath.isEmpty else { return value }
-
-        let deduped = lines.enumerated().compactMap { index, line -> String? in
-            guard let path = branchContextPath(from: line) else { return line }
-            return lastIndexByPath[path] == index ? line : nil
-        }
-        return deduped.joined(separator: "\n")
-    }
-
-    private func branchContextPath(from line: String) -> String? {
-        let parts = line.split(separator: "•", maxSplits: 1, omittingEmptySubsequences: false)
-        guard parts.count == 2 else { return nil }
-
-        let branch = parts[0].trimmingCharacters(in: .whitespacesAndNewlines)
-        let path = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !branch.isEmpty, !path.isEmpty else { return nil }
-
-        let looksLikePath = path.hasPrefix("/") || path.hasPrefix("~") || path.hasPrefix(".") || path.contains("/")
-        guard looksLikePath else { return nil }
-
-        let trimmedQuotes = path.trimmingCharacters(in: CharacterSet(charactersIn: "`'\""))
-        let expanded = NSString(string: trimmedQuotes).expandingTildeInPath
-        let standardized = NSString(string: expanded).standardizingPath
-        let normalized = standardized.trimmingCharacters(in: .whitespacesAndNewlines)
-        return normalized.isEmpty ? nil : normalized
+        ClaudeHookHelpers.dedupeBranchContextLines(value)
     }
 
     private func firstString(in object: [String: Any], keys: [String]) -> String? {
-        for key in keys {
-            guard let value = object[key] else { continue }
-            if let string = value as? String {
-                let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !trimmed.isEmpty {
-                    return trimmed
-                }
-            }
-        }
-        return nil
+        ClaudeHookHelpers.firstString(in: object, keys: keys)
     }
 
     private func normalizedSingleLine(_ value: String) -> String {
-        let collapsed = value.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
-        return collapsed.trimmingCharacters(in: .whitespacesAndNewlines)
+        ClaudeHookHelpers.normalizedSingleLine(value)
     }
 
     private func truncate(_ value: String, maxLength: Int) -> String {
-        guard value.count > maxLength else { return value }
-        let index = value.index(value.startIndex, offsetBy: max(0, maxLength - 1))
-        return String(value[..<index]) + "…"
+        ClaudeHookHelpers.truncate(value, maxLength: maxLength)
     }
 
     private func sanitizeNotificationField(_ value: String) -> String {
-        let normalized = normalizedSingleLine(value)
-            .replacingOccurrences(of: "|", with: "¦")
-        return truncate(normalized, maxLength: 180)
+        ClaudeHookHelpers.sanitizeNotificationField(value)
     }
 
     private func versionSummary() -> String {
