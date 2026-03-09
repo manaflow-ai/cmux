@@ -8237,9 +8237,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         commandPaletteSnapshotByWindowId.removeValue(forKey: removed.windowId)
 
         // Release shared tab ownership when a window closes.
-        if let windowId = removed.tabManager.windowId {
-            SharedWorkspaceStore.shared?.releaseAllTabs(fromWindow: windowId)
-        }
+        SharedWorkspaceStore.shared?.releaseAllTabs(fromWindow: removed.windowId)
 
         // Avoid stale notifications that can no longer be opened once the owning window is gone.
         // In shared mode, don't clear notifications for shared tabs (other windows may use them).

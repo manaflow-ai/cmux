@@ -596,6 +596,9 @@ class TabManager: ObservableObject {
 
     /// Reference to the shared workspace store (non-nil in shared tabs mode).
     let sharedStore: SharedWorkspaceStore?
+    /// True when this TabManager joined an already-populated shared store (i.e. second+ window).
+    /// Used to skip session restore for subsequent windows while allowing the first window to restore.
+    private let startedFromExistingSharedTabs: Bool
     /// The window ID this TabManager belongs to (set by AppDelegate after init).
     var windowId: UUID?
     /// Guard against re-entrant sync from SharedWorkspaceStore.
@@ -610,9 +613,11 @@ class TabManager: ObservableObject {
 
         tabs = newTabs
 
-        // If selected tab was removed, pick the nearest valid tab.
+        // If selected tab was removed, prefer a self-owned tab, then unclaimed, then any.
         if let selectedId = selectedTabId, !tabs.contains(where: { $0.id == selectedId }) {
-            selectedTabId = tabs.first?.id
+            selectedTabId = tabs.first(where: { sharedStore?.owner(of: $0.id) == windowId })?.id
+                ?? sharedStore?.firstUnclaimedTab()?.id
+                ?? tabs.first?.id
         }
     }
 
@@ -740,6 +745,7 @@ class TabManager: ObservableObject {
 
     init(initialWorkingDirectory: String? = nil, sharedStore: SharedWorkspaceStore? = nil) {
         self.sharedStore = sharedStore
+        self.startedFromExistingSharedTabs = sharedStore.map { !$0.tabs.isEmpty } ?? false
 
         if let sharedStore, !sharedStore.tabs.isEmpty {
             // Shared mode with existing tabs: sync from store.
@@ -806,9 +812,8 @@ class TabManager: ObservableObject {
 
     deinit {
         workspaceCycleCooldownTask?.cancel()
-        MainActor.assumeIsolated {
-            sharedStore?.unregister(self)
-        }
+        // No explicit sharedStore?.unregister(self) needed — registeredManagers
+        // is NSHashTable.weakObjects(), so entries are zeroed on deallocation.
     }
 
     private func wireClosedBrowserTracking(for workspace: Workspace) {
@@ -2093,7 +2098,10 @@ class TabManager: ObservableObject {
             ?? nearestTab(from: stolenIndex, matching: { sharedStore.owner(of: $0) != windowId })
         {
             selectedTabId = tabId
+            return
         }
+        // All tabs are owned by other windows — create a new workspace so we have somewhere to land.
+        _ = addWorkspace()
     }
 
     /// Searches outward from `index` for the nearest tab matching a predicate.
@@ -3927,7 +3935,7 @@ extension TabManager {
         // In shared mode, subsequent windows already have tabs from the shared
         // store and a valid selection from init. Skip session restore entirely
         // to avoid stealing tabs that belong to other windows.
-        if let sharedStore, !sharedStore.tabs.isEmpty {
+        if startedFromExistingSharedTabs {
             return
         }
 

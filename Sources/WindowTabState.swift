@@ -9,11 +9,13 @@ import Bonsplit
 /// `tabs` arrays synchronized through this store. selectedTabId stays per-window
 /// on each TabManager (zero view reference changes needed).
 @MainActor
-class SharedWorkspaceStore {
-    static var shared: SharedWorkspaceStore? = {
+final class SharedWorkspaceStore {
+    static let shared: SharedWorkspaceStore? = {
         guard SharedTabsSettings.isEnabled() else { return nil }
         return SharedWorkspaceStore()
     }()
+
+    private init() {}
 
     /// Canonical tab list. Updated by the source TabManager on mutation.
     private(set) var tabs: [Workspace] = []
@@ -29,10 +31,6 @@ class SharedWorkspaceStore {
 
     func register(_ manager: TabManager) {
         registeredManagers.add(manager)
-    }
-
-    func unregister(_ manager: TabManager) {
-        registeredManagers.remove(manager)
     }
 
     /// Called by a TabManager after modifying its `tabs` array.
@@ -82,6 +80,8 @@ class SharedWorkspaceStore {
     /// Claims a single tab without releasing another (used during init).
     @discardableResult
     func claim(workspaceId: UUID, forWindow windowId: UUID) -> UUID? {
+        assert(ownershipByTab[workspaceId] == nil,
+               "claim() called on already-owned tab — use switchOwnership instead")
         let previous = ownershipByTab[workspaceId]
         ownershipByTab[workspaceId] = windowId
         return previous
