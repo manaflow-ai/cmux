@@ -1350,6 +1350,8 @@ final class WindowBrowserSlotView: NSView {
     private let paneDropTargetView = BrowserPaneDropTargetView(frame: .zero)
     private let dropZoneOverlayView = BrowserDropZoneOverlayView(frame: .zero)
     private var searchOverlayHostingView: NSHostingView<BrowserSearchOverlay>?
+    private weak var hostedWebView: WKWebView?
+    private var hostedWebViewConstraints: [NSLayoutConstraint] = []
     private var forwardedDropZone: DropZone?
     private var portalDragDropZone: DropZone?
     private var displayedDropZone: DropZone?
@@ -1458,6 +1460,34 @@ final class WindowBrowserSlotView: NSView {
             overlay.trailingAnchor.constraint(equalTo: trailingAnchor),
         ])
         searchOverlayHostingView = overlay
+    }
+
+    func pinHostedWebView(_ webView: WKWebView) {
+        guard webView.superview === self else { return }
+
+        let needsNewConstraints =
+            hostedWebView !== webView ||
+            hostedWebViewConstraints.isEmpty ||
+            webView.translatesAutoresizingMaskIntoConstraints
+        guard needsNewConstraints else {
+            needsLayout = true
+            layoutSubtreeIfNeeded()
+            return
+        }
+
+        NSLayoutConstraint.deactivate(hostedWebViewConstraints)
+        hostedWebView = webView
+        webView.translatesAutoresizingMaskIntoConstraints = false
+        webView.autoresizingMask = []
+        hostedWebViewConstraints = [
+            webView.topAnchor.constraint(equalTo: topAnchor),
+            webView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            webView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            webView.trailingAnchor.constraint(equalTo: trailingAnchor),
+        ]
+        NSLayoutConstraint.activate(hostedWebViewConstraints)
+        needsLayout = true
+        layoutSubtreeIfNeeded()
     }
 
     func effectivePaneTopChromeHeight() -> CGFloat {
@@ -2241,11 +2271,11 @@ final class WindowBrowserPortal: NSObject {
             } else {
                 containerView.addSubview(webView, positioned: .above, relativeTo: nil)
             }
-            webView.translatesAutoresizingMaskIntoConstraints = true
-            webView.autoresizingMask = [.width, .height]
-            webView.frame = containerView.bounds
+            containerView.pinHostedWebView(webView)
             webView.needsLayout = true
             webView.layoutSubtreeIfNeeded()
+        } else {
+            containerView.pinHostedWebView(webView)
         }
 
         if containerView.superview !== hostView {
@@ -2496,10 +2526,10 @@ final class WindowBrowserPortal: NSObject {
             } else {
                 containerView.addSubview(webView, positioned: .above, relativeTo: nil)
             }
-            webView.translatesAutoresizingMaskIntoConstraints = true
-            webView.autoresizingMask = [.width, .height]
-            webView.frame = containerView.bounds
+            containerView.pinHostedWebView(webView)
             refreshReasons.append("syncAttachWebView")
+        } else {
+            containerView.pinHostedWebView(webView)
         }
 
         _ = synchronizeHostFrameToReference()
@@ -2626,12 +2656,23 @@ final class WindowBrowserPortal: NSObject {
         }
 #endif
         if shouldPreserveVisibleOnTransientGeometry {
+            let hasExistingVisibleFrame =
+                oldFrame.width > 1 &&
+                oldFrame.height > 1 &&
+                containerView.bounds.width > 1 &&
+                containerView.bounds.height > 1
 #if DEBUG
             dlog(
                 "browser.portal.hidden.deferKeep web=\(browserPortalDebugToken(webView)) " +
-                "reason=\(transientRecoveryReason ?? "unknown") frame=\(browserPortalDebugFrame(containerView.frame))"
+                "reason=\(transientRecoveryReason ?? "unknown") frame=\(browserPortalDebugFrame(containerView.frame)) " +
+                "keepFrame=\(hasExistingVisibleFrame ? 1 : 0)"
             )
 #endif
+            if hasExistingVisibleFrame {
+                containerView.setDropZoneOverlay(zone: nil)
+                containerView.setPaneDropContext(nil)
+                return
+            }
         }
         if !Self.rectApproximatelyEqual(oldFrame, targetFrame) {
             CATransaction.begin()
