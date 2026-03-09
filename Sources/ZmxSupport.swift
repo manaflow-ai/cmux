@@ -71,11 +71,11 @@ enum ZmxSessionProbe {
 
         var addr = sockaddr_un()
         addr.sun_family = sa_family_t(AF_UNIX)
+        let pathMax = MemoryLayout.size(ofValue: addr.sun_path) - 1
         socketPath.withCString { cstr in
-            withUnsafeMutablePointer(to: &addr.sun_path) { pathPtr in
-                let pathBytes = UnsafeMutableRawPointer(pathPtr)
-                    .assumingMemoryBound(to: CChar.self)
-                _ = strncpy(pathBytes, cstr, MemoryLayout.size(ofValue: addr.sun_path) - 1)
+            withUnsafeMutableBytes(of: &addr.sun_path) { buf in
+                let dest = buf.baseAddress!.assumingMemoryBound(to: CChar.self)
+                _ = strncpy(dest, cstr, pathMax)
             }
         }
 
@@ -138,11 +138,11 @@ enum ZmxSessionProbe {
 
         var addr = sockaddr_un()
         addr.sun_family = sa_family_t(AF_UNIX)
+        let pathMax = MemoryLayout.size(ofValue: addr.sun_path) - 1
         socketPath.withCString { cstr in
-            withUnsafeMutablePointer(to: &addr.sun_path) { pathPtr in
-                let pathBytes = UnsafeMutableRawPointer(pathPtr)
-                    .assumingMemoryBound(to: CChar.self)
-                _ = strncpy(pathBytes, cstr, MemoryLayout.size(ofValue: addr.sun_path) - 1)
+            withUnsafeMutableBytes(of: &addr.sun_path) { buf in
+                let dest = buf.baseAddress!.assumingMemoryBound(to: CChar.self)
+                _ = strncpy(dest, cstr, pathMax)
             }
         }
 
