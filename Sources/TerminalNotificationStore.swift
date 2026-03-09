@@ -848,7 +848,7 @@ final class TerminalNotificationStore: ObservableObject {
         }
 
         if WorkspaceAutoReorderSettings.isEnabled() {
-            AppDelegate.shared?.tabManager?.moveTabToTop(tabId)
+            AppDelegate.shared?.tabManager?.moveTabToTopForNotification(tabId)
         }
 
         let notification = TerminalNotification(
