@@ -19,10 +19,14 @@ enum SessionPersistencePolicy {
     static let maxScrollbackLinesPerTerminal: Int = 4000
     static let maxScrollbackCharactersPerTerminal: Int = 400_000
 
+    static func scaledMinimumSidebarWidth() -> Double {
+        UIZoomMetrics.minimumSidebarWidth(UIZoomMetrics.effectiveScale())
+    }
+
     static func sanitizedSidebarWidth(_ candidate: Double?) -> Double {
         let fallback = defaultSidebarWidth
         guard let candidate, candidate.isFinite else { return fallback }
-        return min(max(candidate, minimumSidebarWidth), maximumSidebarWidth)
+        return min(max(candidate, scaledMinimumSidebarWidth()), maximumSidebarWidth)
     }
 
     static func truncatedScrollback(_ text: String?) -> String? {

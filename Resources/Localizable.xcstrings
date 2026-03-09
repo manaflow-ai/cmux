@@ -7699,6 +7699,23 @@
         }
       }
     },
+    "browserSearchOverlay.search": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "検索"
+          }
+        }
+      }
+    },
     "cli.install.adminRequired": {
       "extractionState": "manual",
       "localizations": {

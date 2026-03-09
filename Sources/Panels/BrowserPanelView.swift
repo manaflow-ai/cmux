@@ -237,13 +237,14 @@ struct BrowserPanelView: View {
     @State private var pendingAddressBarFocusRetryGeneration: UInt64 = 0
     @State private var isBrowserThemeMenuPresented = false
     @State private var ghosttyBackgroundGeneration: Int = 0
+    @AppStorage(UIZoomMetrics.appStorageKey) private var uiZoomScale = UIZoomMetrics.defaultScale
     // Keep this below half of the compact omnibar height so it reads as a squircle,
     // not a capsule.
-    private let omnibarPillCornerRadius: CGFloat = 10
-    private let addressBarButtonSize: CGFloat = 22
-    private let addressBarButtonHitSize: CGFloat = 26
-    private let addressBarVerticalPadding: CGFloat = 4
-    private let devToolsButtonIconSize: CGFloat = 11
+    private var omnibarPillCornerRadius: CGFloat { UIZoomMetrics.omnibarCornerRadius(uiZoomScale) }
+    private var addressBarButtonSize: CGFloat { UIZoomMetrics.addressBarButtonSize(uiZoomScale) }
+    private var addressBarButtonHitSize: CGFloat { UIZoomMetrics.addressBarButtonHitSize(uiZoomScale) }
+    private var addressBarVerticalPadding: CGFloat { UIZoomMetrics.addressBarVPadding(uiZoomScale) }
+    private var devToolsButtonIconSize: CGFloat { UIZoomMetrics.devToolsIconSize(uiZoomScale) }
 
     private var searchEngine: BrowserSearchEngine {
         BrowserSearchEngine(rawValue: searchEngineRaw) ?? BrowserSearchSettings.defaultSearchEngine
@@ -580,7 +581,7 @@ struct BrowserPanelView: View {
                 panel.goBack()
             }) {
                 Image(systemName: "chevron.left")
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.system(size: UIZoomMetrics.addressBarButtonFontSize(uiZoomScale), weight: .medium))
                     .frame(width: addressBarButtonHitSize, height: addressBarButtonHitSize, alignment: .center)
                     .contentShape(Rectangle())
             }
@@ -596,7 +597,7 @@ struct BrowserPanelView: View {
                 panel.goForward()
             }) {
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.system(size: UIZoomMetrics.addressBarButtonFontSize(uiZoomScale), weight: .medium))
                     .frame(width: addressBarButtonHitSize, height: addressBarButtonHitSize, alignment: .center)
                     .contentShape(Rectangle())
             }
@@ -619,7 +620,7 @@ struct BrowserPanelView: View {
                 }
             }) {
                 Image(systemName: panel.isLoading ? "xmark" : "arrow.clockwise")
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.system(size: UIZoomMetrics.addressBarButtonFontSize(uiZoomScale), weight: .medium))
                     .frame(width: addressBarButtonHitSize, height: addressBarButtonHitSize, alignment: .center)
                     .contentShape(Rectangle())
             }
@@ -631,7 +632,7 @@ struct BrowserPanelView: View {
                     ProgressView()
                         .controlSize(.small)
                     Text(String(localized: "browser.downloading", defaultValue: "Downloading..."))
-                        .font(.system(size: 11))
+                        .font(.system(size: UIZoomMetrics.addressBarSmallFontSize(uiZoomScale)))
                         .foregroundStyle(.secondary)
                 }
                 .padding(.leading, 6)
@@ -735,6 +736,7 @@ struct BrowserPanelView: View {
                 isFocused: $addressBarFocused,
                 inlineCompletion: inlineCompletion,
                 placeholder: String(localized: "browser.addressBar.placeholder", defaultValue: "Search or enter URL"),
+                uiZoomScale: uiZoomScale,
                 onTap: {
                     handleOmnibarTap()
                 },
@@ -776,7 +778,7 @@ struct BrowserPanelView: View {
                     panel.shouldSuppressWebViewFocus()
                 }
             )
-                .frame(height: 18)
+                .frame(height: UIZoomMetrics.omnibarTextFieldHeight(uiZoomScale))
                 .accessibilityIdentifier("BrowserOmnibarTextField")
         }
         .padding(.horizontal, 8)
@@ -2692,6 +2694,7 @@ private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
     @Binding var isFocused: Bool
     let inlineCompletion: OmnibarInlineCompletion?
     let placeholder: String
+    let uiZoomScale: Double
     let onTap: () -> Void
     let onSubmit: () -> Void
     let onEscape: () -> Void
@@ -3081,7 +3084,7 @@ private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
 
     func makeNSView(context: Context) -> OmnibarNativeTextField {
         let field = OmnibarNativeTextField(frame: .zero)
-        field.font = .systemFont(ofSize: 12)
+        field.font = .systemFont(ofSize: UIZoomMetrics.addressBarButtonFontSize(uiZoomScale))
         field.placeholderString = placeholder
         field.delegate = context.coordinator
         field.target = nil
@@ -3104,6 +3107,10 @@ private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
         context.coordinator.parent = self
         context.coordinator.parentField = nsView
         nsView.placeholderString = placeholder
+        let scaledFont = NSFont.systemFont(ofSize: UIZoomMetrics.addressBarButtonFontSize(uiZoomScale))
+        if nsView.font != scaledFont {
+            nsView.font = scaledFont
+        }
 
         let activeInlineCompletion = omnibarInlineCompletionIfBufferMatchesTypedPrefix(
             bufferText: text,
@@ -3239,17 +3246,18 @@ private struct OmnibarSuggestionsView: View {
     let onCommit: (OmnibarSuggestion) -> Void
     let onHighlight: (Int) -> Void
     @Environment(\.colorScheme) private var colorScheme
+    @AppStorage(UIZoomMetrics.appStorageKey) private var uiZoomScale = UIZoomMetrics.defaultScale
 
     // Keep radii below half of the smallest rendered heights so this keeps a
     // squircle silhouette instead of auto-clamping into a capsule.
-    private let popupCornerRadius: CGFloat = 12
-    private let rowHighlightCornerRadius: CGFloat = 9
-    private let singleLineRowHeight: CGFloat = 24
-    private let rowSpacing: CGFloat = 1
+    private var popupCornerRadius: CGFloat { UIZoomMetrics.popupCornerRadius(uiZoomScale) }
+    private var rowHighlightCornerRadius: CGFloat { UIZoomMetrics.popupRowHighlightRadius(uiZoomScale) }
+    private var singleLineRowHeight: CGFloat { UIZoomMetrics.popupRowHeight(uiZoomScale) }
+    private var rowSpacing: CGFloat { UIZoomMetrics.popupRowSpacing(uiZoomScale) }
     private let topInset: CGFloat = 3
     private let bottomInset: CGFloat = 3
     private var horizontalInset: CGFloat { topInset }
-    private let maxPopupHeight: CGFloat = 560
+    private var maxPopupHeight: CGFloat { UIZoomMetrics.popupMaxHeight(uiZoomScale) }
 
     private var totalRowCount: Int {
         max(1, items.count)
@@ -3401,26 +3409,26 @@ private struct OmnibarSuggestionsView: View {
                 #endif
                 onCommit(item)
             } label: {
-                HStack(spacing: 6) {
+                HStack(spacing: UIZoomMetrics.popupRowItemSpacing(uiZoomScale)) {
                         Text(item.listText)
-                            .font(.system(size: 11))
+                            .font(.system(size: UIZoomMetrics.popupTextFontSize(uiZoomScale)))
                             .foregroundStyle(listTextColor)
                             .lineLimit(1)
                             .truncationMode(.tail)
                         if let badge = item.trailingBadgeText {
                             Text(badge)
-                                .font(.system(size: 9.5, weight: .medium))
+                                .font(.system(size: UIZoomMetrics.popupBadgeFontSize(uiZoomScale), weight: .medium))
                                 .foregroundStyle(badgeTextColor)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
+                                .padding(.horizontal, UIZoomMetrics.popupBadgeHPadding(uiZoomScale))
+                                .padding(.vertical, UIZoomMetrics.popupBadgeVPadding(uiZoomScale))
                                 .background(
-                                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                    RoundedRectangle(cornerRadius: UIZoomMetrics.popupBadgeCornerRadius(uiZoomScale), style: .continuous)
                                         .fill(badgeBackgroundColor)
                                 )
                         }
                         Spacer(minLength: 0)
                     }
-                    .padding(.horizontal, 8)
+                    .padding(.horizontal, UIZoomMetrics.popupRowHPadding(uiZoomScale))
                     .frame(
                         maxWidth: .infinity,
                         minHeight: rowHeight(for: item),

@@ -12,6 +12,7 @@ struct MarkdownPanelView: View {
 
     @State private var focusFlashOpacity: Double = 0.0
     @State private var focusFlashAnimationGeneration: Int = 0
+    @AppStorage(UIZoomMetrics.appStorageKey) private var uiZoomScale = UIZoomMetrics.defaultScale
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
@@ -50,30 +51,30 @@ struct MarkdownPanelView: View {
             VStack(alignment: .leading, spacing: 0) {
                 // File path breadcrumb
                 filePathHeader
-                    .padding(.horizontal, 24)
-                    .padding(.top, 16)
-                    .padding(.bottom, 8)
+                    .padding(.horizontal, UIZoomMetrics.mdHeaderHPadding(uiZoomScale))
+                    .padding(.top, UIZoomMetrics.mdHeaderVPadding(uiZoomScale))
+                    .padding(.bottom, UIZoomMetrics.mdHeaderSpacing(uiZoomScale) + 2)
 
                 Divider()
-                    .padding(.horizontal, 16)
+                    .padding(.horizontal, UIZoomMetrics.mdDividerHPadding(uiZoomScale))
 
                 // Rendered markdown
                 Markdown(panel.content)
                     .markdownTheme(cmuxMarkdownTheme)
                     .textSelection(.enabled)
-                    .padding(.horizontal, 24)
-                    .padding(.vertical, 16)
+                    .padding(.horizontal, UIZoomMetrics.mdContentHPadding(uiZoomScale))
+                    .padding(.vertical, UIZoomMetrics.mdContentVPadding(uiZoomScale))
             }
         }
     }
 
     private var filePathHeader: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: UIZoomMetrics.mdHeaderSpacing(uiZoomScale)) {
             Image(systemName: "doc.richtext")
                 .foregroundColor(.secondary)
-                .font(.system(size: 12))
+                .font(.system(size: UIZoomMetrics.mdHeaderIconSize(uiZoomScale)))
             Text(panel.filePath)
-                .font(.system(size: 11, design: .monospaced))
+                .font(.system(size: UIZoomMetrics.mdHeaderTextSize(uiZoomScale), design: .monospaced))
                 .foregroundColor(.secondary)
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -82,22 +83,22 @@ struct MarkdownPanelView: View {
     }
 
     private var fileUnavailableView: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: UIZoomMetrics.mdFileUnavailableSpacing(uiZoomScale)) {
             Image(systemName: "doc.questionmark")
-                .font(.system(size: 40))
+                .font(.system(size: UIZoomMetrics.mdFileUnavailableIconSize(uiZoomScale)))
                 .foregroundColor(.secondary)
             Text(String(localized: "markdown.fileUnavailable.title", defaultValue: "File unavailable"))
-                .font(.headline)
+                .font(.system(size: UIZoomMetrics.notificationTitleFontSize(uiZoomScale), weight: .semibold))
                 .foregroundColor(.primary)
             Text(panel.filePath)
-                .font(.system(size: 12, design: .monospaced))
+                .font(.system(size: UIZoomMetrics.mdFileUnavailablePathFontSize(uiZoomScale), design: .monospaced))
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
-                .padding(.horizontal, 24)
+                .padding(.horizontal, UIZoomMetrics.mdFileUnavailableHPadding(uiZoomScale))
             Text(String(localized: "markdown.fileUnavailable.message", defaultValue: "The file may have been moved or deleted."))
-                .font(.caption)
+                .font(.system(size: UIZoomMetrics.notificationCaptionFontSize(uiZoomScale)))
                 .foregroundColor(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -113,73 +114,74 @@ struct MarkdownPanelView: View {
 
     private var cmuxMarkdownTheme: Theme {
         let isDark = colorScheme == .dark
+        let scale = uiZoomScale
 
         return Theme()
             // Text
             .text {
                 ForegroundColor(isDark ? .white.opacity(0.9) : .primary)
-                FontSize(14)
+                FontSize(UIZoomMetrics.mdBodyFontSize(scale))
             }
             // Headings
             .heading1 { configuration in
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: 8 * scale) {
                     configuration.label
                         .markdownTextStyle {
                             FontWeight(.bold)
-                            FontSize(28)
+                            FontSize(UIZoomMetrics.mdH1FontSize(scale))
                             ForegroundColor(isDark ? .white : .primary)
                         }
                     Divider()
                 }
-                .markdownMargin(top: 24, bottom: 16)
+                .markdownMargin(top: 24 * scale, bottom: 16 * scale)
             }
             .heading2 { configuration in
-                VStack(alignment: .leading, spacing: 6) {
+                VStack(alignment: .leading, spacing: 6 * scale) {
                     configuration.label
                         .markdownTextStyle {
                             FontWeight(.bold)
-                            FontSize(22)
+                            FontSize(UIZoomMetrics.mdH2FontSize(scale))
                             ForegroundColor(isDark ? .white : .primary)
                         }
                     Divider()
                 }
-                .markdownMargin(top: 20, bottom: 12)
+                .markdownMargin(top: 20 * scale, bottom: 12 * scale)
             }
             .heading3 { configuration in
                 configuration.label
                     .markdownTextStyle {
                         FontWeight(.semibold)
-                        FontSize(18)
+                        FontSize(UIZoomMetrics.mdH3FontSize(scale))
                         ForegroundColor(isDark ? .white : .primary)
                     }
-                    .markdownMargin(top: 16, bottom: 8)
+                    .markdownMargin(top: 16 * scale, bottom: 8 * scale)
             }
             .heading4 { configuration in
                 configuration.label
                     .markdownTextStyle {
                         FontWeight(.semibold)
-                        FontSize(16)
+                        FontSize(UIZoomMetrics.mdH4FontSize(scale))
                         ForegroundColor(isDark ? .white : .primary)
                     }
-                    .markdownMargin(top: 12, bottom: 6)
+                    .markdownMargin(top: 12 * scale, bottom: 6 * scale)
             }
             .heading5 { configuration in
                 configuration.label
                     .markdownTextStyle {
                         FontWeight(.medium)
-                        FontSize(14)
+                        FontSize(UIZoomMetrics.mdH5FontSize(scale))
                         ForegroundColor(isDark ? .white : .primary)
                     }
-                    .markdownMargin(top: 10, bottom: 4)
+                    .markdownMargin(top: 10 * scale, bottom: 4 * scale)
             }
             .heading6 { configuration in
                 configuration.label
                     .markdownTextStyle {
                         FontWeight(.medium)
-                        FontSize(13)
+                        FontSize(UIZoomMetrics.mdH6FontSize(scale))
                         ForegroundColor(isDark ? .white.opacity(0.7) : .secondary)
                     }
-                    .markdownMargin(top: 8, bottom: 4)
+                    .markdownMargin(top: 8 * scale, bottom: 4 * scale)
             }
             // Code blocks
             .codeBlock { configuration in
@@ -187,21 +189,21 @@ struct MarkdownPanelView: View {
                     configuration.label
                         .markdownTextStyle {
                             FontFamilyVariant(.monospaced)
-                            FontSize(13)
+                            FontSize(UIZoomMetrics.mdCodeFontSize(scale))
                             ForegroundColor(isDark ? Color(red: 0.9, green: 0.9, blue: 0.9) : Color(red: 0.2, green: 0.2, blue: 0.2))
                         }
-                        .padding(12)
+                        .padding(UIZoomMetrics.mdCodePadding(scale))
                 }
                 .background(isDark
                     ? Color(nsColor: NSColor(white: 0.08, alpha: 1.0))
                     : Color(nsColor: NSColor(white: 0.93, alpha: 1.0)))
-                .clipShape(RoundedRectangle(cornerRadius: 6))
-                .markdownMargin(top: 8, bottom: 8)
+                .clipShape(RoundedRectangle(cornerRadius: UIZoomMetrics.mdCodeCornerRadius(scale)))
+                .markdownMargin(top: 8 * scale, bottom: 8 * scale)
             }
             // Inline code
             .code {
                 FontFamilyVariant(.monospaced)
-                FontSize(13)
+                FontSize(UIZoomMetrics.mdCodeFontSize(scale))
                 ForegroundColor(isDark ? Color(red: 0.85, green: 0.6, blue: 0.95) : Color(red: 0.6, green: 0.2, blue: 0.7))
                 BackgroundColor(isDark
                     ? Color(nsColor: NSColor(white: 0.18, alpha: 1.0))
@@ -210,17 +212,17 @@ struct MarkdownPanelView: View {
             // Block quotes
             .blockquote { configuration in
                 HStack(spacing: 0) {
-                    RoundedRectangle(cornerRadius: 1.5)
+                    RoundedRectangle(cornerRadius: UIZoomMetrics.mdBlockquoteBarRadius(scale))
                         .fill(isDark ? Color.white.opacity(0.2) : Color.gray.opacity(0.4))
-                        .frame(width: 3)
+                        .frame(width: UIZoomMetrics.mdBlockquoteBarWidth(scale))
                     configuration.label
                         .markdownTextStyle {
                             ForegroundColor(isDark ? .white.opacity(0.6) : .secondary)
-                            FontSize(14)
+                            FontSize(UIZoomMetrics.mdBodyFontSize(scale))
                         }
-                        .padding(.leading, 12)
+                        .padding(.leading, UIZoomMetrics.mdBlockquotePadding(scale))
                 }
-                .markdownMargin(top: 8, bottom: 8)
+                .markdownMargin(top: 8 * scale, bottom: 8 * scale)
             }
             // Links
             .link {
@@ -244,22 +246,22 @@ struct MarkdownPanelView: View {
                                 : Color(nsColor: NSColor(white: 1.0, alpha: 1.0))
                         )
                     )
-                    .markdownMargin(top: 8, bottom: 8)
+                    .markdownMargin(top: 8 * scale, bottom: 8 * scale)
             }
             // Thematic break (horizontal rule)
             .thematicBreak {
                 Divider()
-                    .markdownMargin(top: 16, bottom: 16)
+                    .markdownMargin(top: 16 * scale, bottom: 16 * scale)
             }
             // List items
             .listItem { configuration in
                 configuration.label
-                    .markdownMargin(top: 4, bottom: 4)
+                    .markdownMargin(top: 4 * scale, bottom: 4 * scale)
             }
             // Paragraphs
             .paragraph { configuration in
                 configuration.label
-                    .markdownMargin(top: 4, bottom: 8)
+                    .markdownMargin(top: 4 * scale, bottom: 8 * scale)
             }
     }
 

@@ -1337,6 +1337,7 @@ struct ContentView: View {
     private var commandPaletteRenameSelectAllOnFocus = CommandPaletteRenameSelectionSettings.defaultSelectAllOnFocus
     @AppStorage(BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowserKey)
     private var openSidebarPullRequestLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenSidebarPullRequestLinksInCmuxBrowser
+    @AppStorage(UIZoomMetrics.appStorageKey) private var uiZoomScale = UIZoomMetrics.defaultScale
     @FocusState private var isCommandPaletteSearchFocused: Bool
     @FocusState private var isCommandPaletteRenameFocused: Bool
 
@@ -1599,7 +1600,9 @@ struct ContentView: View {
     private static let commandPaletteCommandsPrefix = ">"
     private static let commandPaletteVisiblePreviewResultLimit = 48
     private static let commandPaletteVisiblePreviewCandidateLimit = 192
-    private static let minimumSidebarWidth: CGFloat = 186
+    private var minimumSidebarWidth: CGFloat {
+        CGFloat(UIZoomMetrics.minimumSidebarWidth(uiZoomScale))
+    }
     private static let maximumSidebarWidthRatio: CGFloat = 1.0 / 3.0
 
     private enum SidebarResizerHandle: Hashable {
@@ -1617,18 +1620,18 @@ struct ContentView: View {
             ?? NSApp.keyWindow?.contentView?.bounds.width
             ?? NSApp.keyWindow?.contentLayoutRect.width
         if let resolvedAvailableWidth, resolvedAvailableWidth > 0 {
-            return max(Self.minimumSidebarWidth, resolvedAvailableWidth * Self.maximumSidebarWidthRatio)
+            return max(minimumSidebarWidth, resolvedAvailableWidth * Self.maximumSidebarWidthRatio)
         }
 
         let fallbackScreenWidth = NSApp.keyWindow?.screen?.frame.width
             ?? NSScreen.main?.frame.width
             ?? 1920
-        return max(Self.minimumSidebarWidth, fallbackScreenWidth * Self.maximumSidebarWidthRatio)
+        return max(minimumSidebarWidth, fallbackScreenWidth * Self.maximumSidebarWidthRatio)
     }
 
     private func clampSidebarWidthIfNeeded(availableWidth: CGFloat? = nil) {
         let nextWidth = max(
-            Self.minimumSidebarWidth,
+            minimumSidebarWidth,
             min(maxSidebarWidth(availableWidth: availableWidth), sidebarWidth)
         )
         guard abs(nextWidth - sidebarWidth) > 0.5 else { return }
@@ -1638,7 +1641,7 @@ struct ContentView: View {
     }
 
     private func normalizedSidebarWidth(_ candidate: CGFloat) -> CGFloat {
-        let minWidth = CGFloat(SessionPersistencePolicy.minimumSidebarWidth)
+        let minWidth = minimumSidebarWidth
         let maxWidth = max(minWidth, maxSidebarWidth())
         if !candidate.isFinite {
             return CGFloat(SessionPersistencePolicy.defaultSidebarWidth)
@@ -1835,7 +1838,7 @@ struct ContentView: View {
                         activateSidebarResizerCursor()
                         let startWidth = sidebarDragStartWidth ?? sidebarWidth
                         let nextWidth = max(
-                            Self.minimumSidebarWidth,
+                            minimumSidebarWidth,
                             min(maxSidebarWidth(availableWidth: availableWidth), startWidth + value.translation.width)
                         )
                         withTransaction(Transaction(animation: nil)) {
@@ -2019,7 +2022,7 @@ struct ContentView: View {
                 }
 
                 Text(titlebarText)
-                    .font(.system(size: 13, weight: .bold))
+                    .font(.system(size: UIZoomMetrics.titlebarFontSize(uiZoomScale), weight: .bold))
                     .foregroundColor(fakeTitlebarTextColor)
                     .lineLimit(1)
                     .allowsHitTesting(false)
@@ -2027,10 +2030,10 @@ struct ContentView: View {
                 Spacer()
 
             }
-            .frame(height: 28)
-            .padding(.top, 2)
-            .padding(.leading, (isFullScreen && !sidebarState.isVisible) ? 8 : (sidebarState.isVisible ? 12 : titlebarLeadingInset + CGFloat(debugTitlebarLeadingExtra)))
-            .padding(.trailing, 8)
+            .frame(height: UIZoomMetrics.titlebarHeight(uiZoomScale))
+            .padding(.top, UIZoomMetrics.titlebarTopPadding(uiZoomScale))
+            .padding(.leading, (isFullScreen && !sidebarState.isVisible) ? UIZoomMetrics.titlebarHorizontalPadding(uiZoomScale) : (sidebarState.isVisible ? 12 : titlebarLeadingInset + CGFloat(debugTitlebarLeadingExtra)))
+            .padding(.trailing, UIZoomMetrics.titlebarHorizontalPadding(uiZoomScale))
         }
         .frame(height: titlebarPadding)
         .frame(maxWidth: .infinity)
@@ -2049,7 +2052,7 @@ struct ContentView: View {
         .overlay(alignment: .bottom) {
             Rectangle()
                 .fill(Color(nsColor: .separatorColor))
-                .frame(height: 1)
+                .frame(height: UIZoomMetrics.titlebarDividerHeight(uiZoomScale))
         }
     }
 
@@ -2950,9 +2953,9 @@ struct ContentView: View {
     private var commandPaletteCommandListView: some View {
         let visibleResults = commandPaletteVisibleResults
         let selectedIndex = commandPaletteSelectedIndex(resultCount: visibleResults.count)
-        let commandPaletteListMaxHeight: CGFloat = 450
-        let commandPaletteRowHeight: CGFloat = 24
-        let commandPaletteEmptyStateHeight: CGFloat = 44
+        let commandPaletteListMaxHeight: CGFloat = UIZoomMetrics.paletteListMaxHeight(uiZoomScale)
+        let commandPaletteRowHeight: CGFloat = UIZoomMetrics.paletteRowHeight(uiZoomScale)
+        let commandPaletteEmptyStateHeight: CGFloat = UIZoomMetrics.paletteEmptyStateHeight(uiZoomScale)
         let commandPaletteListContentHeight = visibleResults.isEmpty
             ? commandPaletteEmptyStateHeight
             : CGFloat(visibleResults.count) * commandPaletteRowHeight
@@ -2961,7 +2964,7 @@ struct ContentView: View {
             HStack(spacing: 8) {
                 TextField(commandPaletteSearchPlaceholder, text: $commandPaletteQuery)
                     .textFieldStyle(.plain)
-                    .font(.system(size: 13, weight: .regular))
+                    .font(.system(size: UIZoomMetrics.paletteFieldFontSize(uiZoomScale), weight: .regular))
                     .tint(Color(nsColor: sidebarActiveForegroundNSColor(opacity: 1.0)))
                     .focused($isCommandPaletteSearchFocused)
                     .accessibilityIdentifier("CommandPaletteSearchField")
@@ -2989,8 +2992,8 @@ struct ContentView: View {
                         handleCommandPaletteControlNavigationKey(modifiers: modifiers, delta: -1)
                     }
             }
-            .padding(.horizontal, 9)
-            .padding(.vertical, 7)
+            .padding(.horizontal, UIZoomMetrics.paletteFieldHPadding(uiZoomScale))
+            .padding(.vertical, UIZoomMetrics.paletteFieldVPadding(uiZoomScale))
 
             Divider()
 
@@ -2999,7 +3002,7 @@ struct ContentView: View {
                     if visibleResults.isEmpty {
                         if commandPaletteHasCurrentResolvedResults {
                             Text(commandPaletteEmptyStateText)
-                                .font(.system(size: 13, weight: .regular))
+                                .font(.system(size: UIZoomMetrics.paletteResultFontSize(uiZoomScale), weight: .regular))
                                 .foregroundStyle(.secondary)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(.horizontal, 12)
@@ -3025,7 +3028,7 @@ struct ContentView: View {
                                         result.command.title,
                                         matchedIndices: result.titleMatchIndices
                                     )
-                                        .font(.system(size: 13, weight: .regular))
+                                        .font(.system(size: UIZoomMetrics.paletteResultFontSize(uiZoomScale), weight: .regular))
                                         .lineLimit(1)
                                     Spacer()
 
@@ -3033,21 +3036,21 @@ struct ContentView: View {
                                         switch trailingLabel.style {
                                         case .shortcut:
                                             Text(trailingLabel.text)
-                                                .font(.system(size: 11, weight: .medium))
+                                                .font(.system(size: UIZoomMetrics.paletteTrailingFontSize(uiZoomScale), weight: .medium))
                                                 .foregroundStyle(.secondary)
-                                                .padding(.horizontal, 4)
-                                                .padding(.vertical, 1)
-                                                .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
+                                                .padding(.horizontal, UIZoomMetrics.paletteTrailingHPadding(uiZoomScale))
+                                                .padding(.vertical, UIZoomMetrics.paletteTrailingVPadding(uiZoomScale))
+                                                .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: UIZoomMetrics.paletteTrailingCornerRadius(uiZoomScale), style: .continuous))
                                         case .kind:
                                             Text(trailingLabel.text)
-                                                .font(.system(size: 11, weight: .regular))
+                                                .font(.system(size: UIZoomMetrics.paletteTrailingFontSize(uiZoomScale), weight: .regular))
                                                 .foregroundStyle(.secondary)
                                                 .lineLimit(1)
                                         }
                                     }
                                 }
-                                .padding(.horizontal, 9)
-                                .padding(.vertical, 2)
+                                .padding(.horizontal, UIZoomMetrics.paletteResultHPadding(uiZoomScale))
+                                .padding(.vertical, UIZoomMetrics.paletteResultVPadding(uiZoomScale))
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .background(rowBackground)
                                 .contentShape(Rectangle())
@@ -6923,10 +6926,10 @@ struct VerticalTabsSidebar: View {
     @StateObject private var dragFailsafeMonitor = SidebarDragFailsafeMonitor()
     @State private var draggedTabId: UUID?
     @State private var dropIndicator: SidebarDropIndicator?
+    @AppStorage(UIZoomMetrics.appStorageKey) private var uiZoomScale = UIZoomMetrics.defaultScale
 
-    /// Space at top of sidebar for traffic light buttons
-    private let trafficLightPadding: CGFloat = 28
-    private let tabRowSpacing: CGFloat = 2
+    private var trafficLightPadding: CGFloat { UIZoomMetrics.trafficLightPadding(uiZoomScale) }
+    private var tabRowSpacing: CGFloat { UIZoomMetrics.tabRowSpacing(uiZoomScale) }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -6953,7 +6956,7 @@ struct VerticalTabsSidebar: View {
                                 )
                             }
                         }
-                        .padding(.vertical, 8)
+                        .padding(.vertical, UIZoomMetrics.listVerticalPadding(uiZoomScale))
 
                         SidebarEmptyArea(
                             rowSpacing: tabRowSpacing,
@@ -6975,7 +6978,7 @@ struct VerticalTabsSidebar: View {
                     .frame(width: 0, height: 0)
                 )
                 .overlay(alignment: .top) {
-                    SidebarTopScrim(height: trafficLightPadding + 20)
+                    SidebarTopScrim(height: trafficLightPadding + UIZoomMetrics.topScrimExtraHeight(uiZoomScale))
                         .allowsHitTesting(false)
                 }
                 .overlay(alignment: .top) {
@@ -8083,6 +8086,7 @@ private enum SidebarHelpMenuAction {
 
 private struct SidebarFeedbackComposerSheet: View {
     @AppStorage(FeedbackComposerSettings.storedEmailKey) private var email = ""
+    @AppStorage(UIZoomMetrics.appStorageKey) private var uiZoomScale = UIZoomMetrics.defaultScale
     @Environment(\.dismiss) private var dismiss
 
     @State private var message = ""
@@ -8114,8 +8118,8 @@ private struct SidebarFeedbackComposerSheet: View {
                 formView
             }
         }
-        .padding(20)
-        .frame(width: 520)
+        .padding(UIZoomMetrics.feedbackDialogPadding(uiZoomScale))
+        .frame(width: UIZoomMetrics.feedbackDialogWidth(uiZoomScale))
         .accessibilityIdentifier("SidebarFeedbackDialog")
     }
 
@@ -8129,7 +8133,7 @@ private struct SidebarFeedbackComposerSheet: View {
                     defaultValue: "You can also reach us at founders@manaflow.com."
                 )
             )
-            .font(.system(size: 12))
+            .font(.system(size: UIZoomMetrics.feedbackFontSize(uiZoomScale)))
             .foregroundStyle(.secondary)
 
             HStack {
@@ -8150,12 +8154,12 @@ private struct SidebarFeedbackComposerSheet: View {
                     defaultValue: "A human will read this! You can also reach us at founders@manaflow.com."
                 )
             )
-            .font(.system(size: 12))
+            .font(.system(size: UIZoomMetrics.feedbackFontSize(uiZoomScale)))
             .foregroundStyle(.secondary)
 
             VStack(alignment: .leading, spacing: 6) {
                 Text(String(localized: "sidebar.help.feedback.email", defaultValue: "Your Email"))
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.system(size: UIZoomMetrics.feedbackFontSize(uiZoomScale), weight: .medium))
                 TextField(
                     String(localized: "sidebar.help.feedback.emailPlaceholder", defaultValue: "you@example.com"),
                     text: $email
@@ -8168,10 +8172,10 @@ private struct SidebarFeedbackComposerSheet: View {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(alignment: .firstTextBaseline) {
                     Text(String(localized: "sidebar.help.feedback.message", defaultValue: "Message"))
-                        .font(.system(size: 12, weight: .medium))
+                        .font(.system(size: UIZoomMetrics.feedbackFontSize(uiZoomScale), weight: .medium))
                     Spacer(minLength: 0)
                     Text("\(message.count)/\(FeedbackComposerSettings.maxMessageLength)")
-                        .font(.system(size: 11))
+                        .font(.system(size: UIZoomMetrics.feedbackSmallFontSize(uiZoomScale)))
                         .foregroundStyle(
                             message.count > FeedbackComposerSettings.maxMessageLength
                                 ? Color.red
@@ -8209,7 +8213,7 @@ private struct SidebarFeedbackComposerSheet: View {
                             defaultValue: "Up to 10 images."
                         )
                     )
-                    .font(.system(size: 11))
+                    .font(.system(size: UIZoomMetrics.feedbackSmallFontSize(uiZoomScale)))
                     .foregroundStyle(.secondary)
                 }
 
@@ -8220,12 +8224,12 @@ private struct SidebarFeedbackComposerSheet: View {
                                 Image(systemName: "photo")
                                     .foregroundStyle(.secondary)
                                 Text(attachment.fileName)
-                                    .font(.system(size: 12))
+                                    .font(.system(size: UIZoomMetrics.feedbackFontSize(uiZoomScale)))
                                     .lineLimit(1)
                                     .truncationMode(.middle)
                                 Spacer(minLength: 0)
                                 Text(attachment.displaySize)
-                                    .font(.system(size: 11))
+                                    .font(.system(size: UIZoomMetrics.feedbackSmallFontSize(uiZoomScale)))
                                     .foregroundStyle(.secondary)
                                 Button(
                                     String(localized: "sidebar.help.feedback.removeAttachment", defaultValue: "Remove")
@@ -8246,7 +8250,7 @@ private struct SidebarFeedbackComposerSheet: View {
 
             if let submissionErrorMessage, submissionErrorMessage.isEmpty == false {
                 Text(submissionErrorMessage)
-                    .font(.system(size: 12))
+                    .font(.system(size: UIZoomMetrics.feedbackFontSize(uiZoomScale)))
                     .foregroundStyle(.red)
             }
 
@@ -9072,6 +9076,7 @@ private struct TabItemView: View {
     @AppStorage(ShortcutHintDebugSettings.sidebarHintXKey) private var sidebarShortcutHintXOffset = ShortcutHintDebugSettings.defaultSidebarHintX
     @AppStorage(ShortcutHintDebugSettings.sidebarHintYKey) private var sidebarShortcutHintYOffset = ShortcutHintDebugSettings.defaultSidebarHintY
     @AppStorage(ShortcutHintDebugSettings.alwaysShowHintsKey) private var alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
+    @AppStorage(UIZoomMetrics.appStorageKey) private var uiZoomScale = UIZoomMetrics.defaultScale
     @AppStorage("sidebarShowGitBranch") private var sidebarShowGitBranch = true
     @AppStorage(SidebarBranchLayoutSettings.key) private var sidebarBranchVerticalLayout = SidebarBranchLayoutSettings.defaultVerticalLayout
     @AppStorage("sidebarShowBranchDirectory") private var sidebarShowBranchDirectory = true
@@ -9229,28 +9234,28 @@ private struct TabItemView: View {
             return pullRequestDisplays(orderedPanelIds: orderedPanelIds)
         }()
 
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 8) {
+        VStack(alignment: .leading, spacing: UIZoomMetrics.contentSpacing(uiZoomScale)) {
+            HStack(spacing: UIZoomMetrics.headerSpacing(uiZoomScale)) {
                 let unreadCount = notificationStore.unreadCount(forTabId: tab.id)
                 if unreadCount > 0 {
                     ZStack {
                         Circle()
                             .fill(activeUnreadBadgeFillColor)
                         Text("\(unreadCount)")
-                            .font(.system(size: 9, weight: .semibold))
+                            .font(.system(size: UIZoomMetrics.smallFontSize(uiZoomScale), weight: .semibold))
                             .foregroundColor(.white)
                     }
-                    .frame(width: 16, height: 16)
+                    .frame(width: UIZoomMetrics.badgeSize(uiZoomScale), height: UIZoomMetrics.badgeSize(uiZoomScale))
                 }
 
                 if tab.isPinned {
                     Image(systemName: "pin.fill")
-                        .font(.system(size: 9, weight: .semibold))
+                        .font(.system(size: UIZoomMetrics.smallFontSize(uiZoomScale), weight: .semibold))
                         .foregroundColor(activeSecondaryColor(0.8))
                 }
 
                 Text(tab.title)
-                    .font(.system(size: 12.5, weight: titleFontWeight))
+                    .font(.system(size: UIZoomMetrics.titleFontSize(uiZoomScale), weight: titleFontWeight))
                     .foregroundColor(activePrimaryTextColor)
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -9265,12 +9270,12 @@ private struct TabItemView: View {
                         tabManager.closeWorkspaceWithConfirmation(tab)
                     }) {
                         Image(systemName: "xmark")
-                            .font(.system(size: 9, weight: .medium))
+                            .font(.system(size: UIZoomMetrics.smallFontSize(uiZoomScale), weight: .medium))
                             .foregroundColor(activeSecondaryColor(0.7))
                     }
                     .buttonStyle(.plain)
                     .safeHelp(KeyboardShortcutSettings.Action.closeWorkspace.tooltip(closeWorkspaceTooltip))
-                    .frame(width: 16, height: 16, alignment: .center)
+                    .frame(width: UIZoomMetrics.closeButtonSize(uiZoomScale), height: UIZoomMetrics.closeButtonSize(uiZoomScale), alignment: .center)
                     .opacity(showCloseButton && !showsWorkspaceShortcutHint ? 1 : 0)
                     .allowsHitTesting(showCloseButton && !showsWorkspaceShortcutHint)
 
@@ -9278,11 +9283,11 @@ private struct TabItemView: View {
                         Text(workspaceShortcutLabel)
                             .lineLimit(1)
                             .fixedSize(horizontal: true, vertical: false)
-                            .font(.system(size: 10, weight: .semibold, design: .rounded))
+                            .font(.system(size: UIZoomMetrics.subtitleFontSize(uiZoomScale), weight: .semibold, design: .rounded))
                             .monospacedDigit()
                             .foregroundColor(activePrimaryTextColor)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
+                            .padding(.horizontal, UIZoomMetrics.shortcutHintHorizontalPadding(uiZoomScale))
+                            .padding(.vertical, UIZoomMetrics.shortcutHintVerticalPadding(uiZoomScale))
                             .background(ShortcutHintPillBackground(emphasis: shortcutHintEmphasis))
                             .offset(
                                 x: ShortcutHintDebugSettings.clamped(sidebarShortcutHintXOffset),
@@ -9292,12 +9297,12 @@ private struct TabItemView: View {
                     }
                 }
                 .animation(.easeInOut(duration: 0.14), value: showsModifierShortcutHints || alwaysShowShortcutHints)
-                .frame(width: workspaceHintSlotWidth, height: 16, alignment: .trailing)
+                .frame(width: workspaceHintSlotWidth, height: UIZoomMetrics.closeButtonSize(uiZoomScale), alignment: .trailing)
             }
 
             if let subtitle = latestNotificationSubtitle {
                 Text(subtitle)
-                    .font(.system(size: 10))
+                    .font(.system(size: UIZoomMetrics.subtitleFontSize(uiZoomScale)))
                     .foregroundColor(activeSecondaryColor(0.8))
                     .lineLimit(2)
                     .truncationMode(.tail)
@@ -9327,12 +9332,12 @@ private struct TabItemView: View {
 
             // Latest log entry
             if sidebarShowLog, let latestLog = tab.logEntries.last {
-                HStack(spacing: 4) {
+                HStack(spacing: UIZoomMetrics.logEntrySpacing(uiZoomScale)) {
                     Image(systemName: logLevelIcon(latestLog.level))
-                        .font(.system(size: 8))
+                        .font(.system(size: UIZoomMetrics.tinyFontSize(uiZoomScale)))
                         .foregroundColor(logLevelColor(latestLog.level, isActive: usesInvertedActiveForeground))
                     Text(latestLog.message)
-                        .font(.system(size: 10))
+                        .font(.system(size: UIZoomMetrics.subtitleFontSize(uiZoomScale)))
                         .foregroundColor(activeSecondaryColor(0.8))
                         .lineLimit(1)
                         .truncationMode(.tail)
@@ -9342,7 +9347,7 @@ private struct TabItemView: View {
 
             // Progress bar
             if sidebarShowProgress, let progress = tab.progress {
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: UIZoomMetrics.progressSpacing(uiZoomScale)) {
                     GeometryReader { geo in
                         ZStack(alignment: .leading) {
                             Capsule()
@@ -9352,11 +9357,11 @@ private struct TabItemView: View {
                                 .frame(width: max(0, geo.size.width * CGFloat(progress.value)))
                         }
                     }
-                    .frame(height: 3)
+                    .frame(height: UIZoomMetrics.progressBarHeight(uiZoomScale))
 
                     if let label = progress.label {
                         Text(label)
-                            .font(.system(size: 9))
+                            .font(.system(size: UIZoomMetrics.smallFontSize(uiZoomScale)))
                             .foregroundColor(activeSecondaryColor(0.6))
                             .lineLimit(1)
                     }
@@ -9368,31 +9373,31 @@ private struct TabItemView: View {
             if sidebarShowBranchDirectory {
                 if sidebarBranchVerticalLayout {
                     if !branchDirectoryLines.isEmpty {
-                        HStack(alignment: .top, spacing: 3) {
+                        HStack(alignment: .top, spacing: UIZoomMetrics.branchItemSpacing(uiZoomScale)) {
                             if sidebarShowGitBranchIcon, branchLinesContainBranch {
                                 Image(systemName: "arrow.triangle.branch")
-                                    .font(.system(size: 9))
+                                    .font(.system(size: UIZoomMetrics.smallFontSize(uiZoomScale)))
                                     .foregroundColor(activeSecondaryColor(0.6))
                             }
-                            VStack(alignment: .leading, spacing: 1) {
+                            VStack(alignment: .leading, spacing: UIZoomMetrics.branchLineSpacing(uiZoomScale)) {
                                 ForEach(Array(branchDirectoryLines.enumerated()), id: \.offset) { _, line in
-                                    HStack(spacing: 3) {
+                                    HStack(spacing: UIZoomMetrics.branchItemSpacing(uiZoomScale)) {
                                         if let branch = line.branch {
                                             Text(branch)
-                                                .font(.system(size: 10, design: .monospaced))
+                                                .font(.system(size: UIZoomMetrics.subtitleFontSize(uiZoomScale), design: .monospaced))
                                                 .foregroundColor(activeSecondaryColor(0.75))
                                                 .lineLimit(1)
                                                 .truncationMode(.tail)
                                         }
                                         if line.branch != nil, line.directory != nil {
                                             Image(systemName: "circle.fill")
-                                                .font(.system(size: 3))
+                                                .font(.system(size: UIZoomMetrics.separatorDotFontSize(uiZoomScale)))
                                                 .foregroundColor(activeSecondaryColor(0.6))
-                                                .padding(.horizontal, 1)
+                                                .padding(.horizontal, UIZoomMetrics.separatorDotHorizontalPadding(uiZoomScale))
                                         }
                                         if let directory = line.directory {
                                             Text(directory)
-                                                .font(.system(size: 10, design: .monospaced))
+                                                .font(.system(size: UIZoomMetrics.subtitleFontSize(uiZoomScale), design: .monospaced))
                                                 .foregroundColor(activeSecondaryColor(0.75))
                                                 .lineLimit(1)
                                                 .truncationMode(.tail)
@@ -9403,14 +9408,14 @@ private struct TabItemView: View {
                         }
                     }
                 } else if let dirRow = compactBranchDirectoryRow {
-                    HStack(spacing: 3) {
+                    HStack(spacing: UIZoomMetrics.branchItemSpacing(uiZoomScale)) {
                         if sidebarShowGitBranchIcon, compactGitBranchSummaryText != nil {
                             Image(systemName: "arrow.triangle.branch")
-                                .font(.system(size: 9))
+                                .font(.system(size: UIZoomMetrics.smallFontSize(uiZoomScale)))
                                 .foregroundColor(activeSecondaryColor(0.6))
                         }
                         Text(dirRow)
-                            .font(.system(size: 10, design: .monospaced))
+                            .font(.system(size: UIZoomMetrics.subtitleFontSize(uiZoomScale), design: .monospaced))
                             .foregroundColor(activeSecondaryColor(0.75))
                             .lineLimit(1)
                             .truncationMode(.tail)
@@ -9420,12 +9425,12 @@ private struct TabItemView: View {
 
             // Pull request rows
             if sidebarShowPullRequest, !pullRequestRows.isEmpty {
-                VStack(alignment: .leading, spacing: 1) {
+                VStack(alignment: .leading, spacing: UIZoomMetrics.pullRequestRowSpacing(uiZoomScale)) {
                     ForEach(pullRequestRows) { pullRequest in
                         Button(action: {
                             openPullRequestLink(pullRequest.url)
                         }) {
-                            HStack(spacing: 4) {
+                            HStack(spacing: UIZoomMetrics.pullRequestItemSpacing(uiZoomScale)) {
                                 PullRequestStatusIcon(
                                     status: pullRequest.status,
                                     color: pullRequestForegroundColor
@@ -9438,7 +9443,7 @@ private struct TabItemView: View {
                                     .lineLimit(1)
                                 Spacer(minLength: 0)
                             }
-                            .font(.system(size: 10, weight: .semibold))
+                            .font(.system(size: UIZoomMetrics.subtitleFontSize(uiZoomScale), weight: .semibold))
                             .foregroundColor(pullRequestForegroundColor)
                         }
                         .buttonStyle(.plain)
@@ -9450,7 +9455,7 @@ private struct TabItemView: View {
             // Ports row
             if sidebarShowPorts, !tab.listeningPorts.isEmpty {
                 Text(tab.listeningPorts.map { ":\($0)" }.joined(separator: ", "))
-                    .font(.system(size: 10, design: .monospaced))
+                    .font(.system(size: UIZoomMetrics.subtitleFontSize(uiZoomScale), design: .monospaced))
                     .foregroundColor(activeSecondaryColor(0.75))
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -9459,27 +9464,27 @@ private struct TabItemView: View {
         .animation(.easeInOut(duration: 0.2), value: tab.logEntries.count)
         .animation(.easeInOut(duration: 0.2), value: tab.progress != nil)
         .animation(.easeInOut(duration: 0.2), value: tab.metadataBlocks.count)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
+        .padding(.horizontal, UIZoomMetrics.horizontalPadding(uiZoomScale))
+        .padding(.vertical, UIZoomMetrics.verticalPadding(uiZoomScale))
         .background(
-            RoundedRectangle(cornerRadius: 6)
+            RoundedRectangle(cornerRadius: UIZoomMetrics.cornerRadius(uiZoomScale))
                 .fill(backgroundColor)
                 .overlay {
-                    RoundedRectangle(cornerRadius: 6)
+                    RoundedRectangle(cornerRadius: UIZoomMetrics.cornerRadius(uiZoomScale))
                         .strokeBorder(activeBorderColor, lineWidth: activeBorderLineWidth)
                 }
                 .overlay(alignment: .leading) {
                     if showsLeadingRail {
                         Capsule(style: .continuous)
                             .fill(railColor)
-                            .frame(width: 3)
-                            .padding(.leading, 4)
-                            .padding(.vertical, 5)
+                            .frame(width: UIZoomMetrics.leadingRailWidth(uiZoomScale))
+                            .padding(.leading, UIZoomMetrics.leadingRailLeadingPadding(uiZoomScale))
+                            .padding(.vertical, UIZoomMetrics.leadingRailVerticalPadding(uiZoomScale))
                             .offset(x: -1)
                     }
                 }
         )
-        .padding(.horizontal, 6)
+        .padding(.horizontal, UIZoomMetrics.outerHorizontalPadding(uiZoomScale))
         .background {
             GeometryReader { proxy in
                 Color.clear
@@ -9505,8 +9510,8 @@ private struct TabItemView: View {
             if showsCenteredTopDropIndicator {
                 Rectangle()
                     .fill(cmuxAccentColor())
-                    .frame(height: 2)
-                    .padding(.horizontal, 8)
+                    .frame(height: UIZoomMetrics.dropIndicatorHeight(uiZoomScale))
+                    .padding(.horizontal, UIZoomMetrics.dropIndicatorHorizontalPadding(uiZoomScale))
                     .offset(y: index == 0 ? 0 : -(rowSpacing / 2))
             }
         }

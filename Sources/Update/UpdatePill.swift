@@ -7,8 +7,9 @@ import SwiftUI
 struct UpdatePill: View {
     @ObservedObject var model: UpdateViewModel
     @State private var showPopover = false
+    @AppStorage(UIZoomMetrics.appStorageKey) private var uiZoomScale = UIZoomMetrics.defaultScale
 
-    private let textFont = NSFont.systemFont(ofSize: 11, weight: .medium)
+    private var textFont: NSFont { NSFont.systemFont(ofSize: UIZoomMetrics.updateBodyFontSize(uiZoomScale), weight: .medium) }
 
     var body: some View {
         let state = model.effectiveState
@@ -35,9 +36,9 @@ struct UpdatePill: View {
                 showPopover.toggle()
             }
         }) {
-            HStack(spacing: 6) {
+            HStack(spacing: UIZoomMetrics.updatePillSpacing(uiZoomScale)) {
                 UpdateBadge(model: model)
-                    .frame(width: 14, height: 14)
+                    .frame(width: UIZoomMetrics.updatePillIconSize(uiZoomScale), height: UIZoomMetrics.updatePillIconSize(uiZoomScale))
 
                 Text(model.text)
                     .font(Font(textFont))
@@ -45,8 +46,8 @@ struct UpdatePill: View {
                     .truncationMode(.tail)
                     .frame(maxWidth: textWidth, alignment: .leading)
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
+            .padding(.horizontal, UIZoomMetrics.updatePillHPadding(uiZoomScale))
+            .padding(.vertical, UIZoomMetrics.updatePillVPadding(uiZoomScale))
             .background(
                 Capsule()
                     .fill(model.backgroundColor)
