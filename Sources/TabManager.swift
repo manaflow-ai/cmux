@@ -1121,6 +1121,16 @@ class TabManager: ObservableObject {
         tabs.insert(tab, at: insertIndex)
     }
 
+    func moveTabToTopForNotification(_ tabId: UUID) {
+        guard let index = tabs.firstIndex(where: { $0.id == tabId }) else { return }
+        let pinnedCount = tabs.filter { $0.isPinned }.count
+        guard index != pinnedCount else { return }
+        let tab = tabs[index]
+        guard !tab.isPinned else { return }
+        tabs.remove(at: index)
+        tabs.insert(tab, at: pinnedCount)
+    }
+
     func moveTabsToTop(_ tabIds: Set<UUID>) {
         guard !tabIds.isEmpty else { return }
         let selectedTabs = tabs.filter { tabIds.contains($0.id) }
