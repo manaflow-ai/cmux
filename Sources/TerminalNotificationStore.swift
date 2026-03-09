@@ -615,6 +615,11 @@ struct TerminalNotification: Identifiable, Hashable {
     var isRead: Bool
 }
 
+enum TerminalNotificationSource {
+    case app
+    case terminalEscapeSequence
+}
+
 @MainActor
 final class TerminalNotificationStore: ObservableObject {
     private struct TabSurfaceKey: Hashable {
@@ -819,7 +824,14 @@ final class TerminalNotificationStore: ObservableObject {
         indexes.latestUnreadByTabId[tabId] ?? indexes.latestByTabId[tabId]
     }
 
-    func addNotification(tabId: UUID, surfaceId: UUID?, title: String, subtitle: String, body: String) {
+    func addNotification(
+        tabId: UUID,
+        surfaceId: UUID?,
+        title: String,
+        subtitle: String,
+        body: String,
+        source: TerminalNotificationSource = .app
+    ) {
         var updated = notifications
         var idsToClear: [String] = []
         updated.removeAll { existing in
@@ -833,7 +845,11 @@ final class TerminalNotificationStore: ObservableObject {
         let isFocusedSurface = surfaceId == nil || focusedSurfaceId == surfaceId
         let isFocusedPanel = isActiveTab && isFocusedSurface
         let isAppFocused = AppFocusState.isAppFocused()
-        if isAppFocused && isFocusedPanel {
+        let isFocusedDeliveryTarget = isAppFocused && isFocusedPanel
+        // Keep explicit terminal escape notifications visible even when the
+        // user is typing in the originating pane. We store them as read so
+        // they don't create unread churn, but still allow native delivery.
+        if isFocusedDeliveryTarget && source == .app {
             if !idsToClear.isEmpty {
                 notifications = updated
                 center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
@@ -854,7 +870,7 @@ final class TerminalNotificationStore: ObservableObject {
             subtitle: subtitle,
             body: body,
             createdAt: Date(),
-            isRead: false
+            isRead: isFocusedDeliveryTarget
         )
         updated.insert(notification, at: 0)
         notifications = updated

@@ -1468,7 +1468,8 @@ class GhosttyApp {
                         surfaceId: surfaceId,
                         title: command,
                         subtitle: "",
-                        body: body
+                        body: body,
+                        source: .terminalEscapeSequence
                     )
                     return true
                 }
@@ -1712,8 +1713,8 @@ class GhosttyApp {
             }
             return true
         case GHOSTTY_ACTION_DESKTOP_NOTIFICATION:
-            guard let tabId = surfaceView.tabId else { return true }
-            let surfaceId = surfaceView.terminalSurface?.id
+            guard let tabId = callbackTabId ?? surfaceView.tabId else { return true }
+            let surfaceId = callbackSurfaceId ?? surfaceView.terminalSurface?.id
             let actionTitle = action.action.desktop_notification.title
                 .flatMap { String(cString: $0) } ?? ""
             let actionBody = action.action.desktop_notification.body
@@ -1727,7 +1728,8 @@ class GhosttyApp {
                     surfaceId: surfaceId,
                     title: command,
                     subtitle: "",
-                    body: body
+                    body: body,
+                    source: .terminalEscapeSequence
                 )
             }
             return true
