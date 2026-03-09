@@ -4307,12 +4307,13 @@ struct WebViewRepresentable: NSViewRepresentable {
         host.layoutSubtreeIfNeeded()
     }
 
-    private func updateUsingWindowPortal(_ nsView: NSView, context: Context, webView: WKWebView) {
-        guard let host = nsView as? HostContainerView else { return }
+    private func updateUsingWindowPortal(_ nsView: NSView, context: Context, webView: WKWebView) -> Bool {
+        guard let host = nsView as? HostContainerView else { return false }
 
         let coordinator = context.coordinator
         let paneDropContext = currentPaneDropContext()
         let isCurrentPaneOwner = paneDropContext?.paneId.id == paneId.id
+        let hostId = ObjectIdentifier(host)
         let previousVisible = coordinator.desiredPortalVisibleInUI
         let previousZPriority = coordinator.desiredPortalZPriority
         coordinator.desiredPortalVisibleInUI = shouldAttachWebView && isCurrentPaneOwner
@@ -4322,6 +4323,22 @@ struct WebViewRepresentable: NSViewRepresentable {
         let activePaneDropContext = coordinator.desiredPortalVisibleInUI ? paneDropContext : nil
         let activeSearchOverlay = coordinator.desiredPortalVisibleInUI ? searchOverlay : nil
         let portalAnchorView = panel.portalAnchorView
+        if !shouldAttachWebView || !isCurrentPaneOwner {
+            panel.releasePortalHostIfOwned(
+                hostId: hostId,
+                reason: !isCurrentPaneOwner ? "lostPaneOwnership" : "hidden"
+            )
+        }
+        let portalHostAccepted =
+            shouldAttachWebView &&
+            isCurrentPaneOwner &&
+            panel.claimPortalHost(
+                hostId: hostId,
+                paneId: paneId,
+                inWindow: host.window != nil,
+                bounds: host.bounds,
+                reason: "update"
+            )
 #if DEBUG
         if !isCurrentPaneOwner && (shouldAttachWebView || host.window != nil) {
             dlog(
@@ -4332,15 +4349,22 @@ struct WebViewRepresentable: NSViewRepresentable {
             )
         }
 #endif
-        if host.window != nil, isCurrentPaneOwner {
+        if host.window != nil, portalHostAccepted {
             Self.installPortalAnchorView(portalAnchorView, in: host)
         }
 
-        host.onDidMoveToWindow = { [weak host, weak webView, weak coordinator, weak portalAnchorView] in
-            guard let host, let webView, let coordinator, let portalAnchorView else { return }
+        host.onDidMoveToWindow = { [weak host, weak webView, weak coordinator, weak portalAnchorView, weak browserPanel = panel] in
+            guard let host, let webView, let coordinator, let portalAnchorView, let browserPanel else { return }
             guard coordinator.attachGeneration == generation else { return }
-            guard host.window != nil else { return }
             guard currentPaneDropContext()?.paneId.id == paneId.id else { return }
+            guard browserPanel.claimPortalHost(
+                hostId: ObjectIdentifier(host),
+                paneId: paneId,
+                inWindow: host.window != nil,
+                bounds: host.bounds,
+                reason: "didMoveToWindow"
+            ) else { return }
+            guard host.window != nil else { return }
             Self.installPortalAnchorView(portalAnchorView, in: host)
             BrowserWindowPortalRegistry.bind(
                 webView: webView,
@@ -4357,14 +4381,21 @@ struct WebViewRepresentable: NSViewRepresentable {
             coordinator.lastPortalHostId = ObjectIdentifier(host)
             coordinator.lastSynchronizedHostGeometryRevision = host.geometryRevision
         }
-        host.onGeometryChanged = { [weak host, weak webView, weak coordinator, weak portalAnchorView] in
-            guard let host, let webView, let coordinator, let portalAnchorView else { return }
+        host.onGeometryChanged = { [weak host, weak webView, weak coordinator, weak portalAnchorView, weak browserPanel = panel] in
+            guard let host, let webView, let coordinator, let portalAnchorView, let browserPanel else { return }
             guard coordinator.attachGeneration == generation else { return }
-            guard coordinator.lastPortalHostId == ObjectIdentifier(host) else { return }
-            guard host.window != nil else { return }
             guard currentPaneDropContext()?.paneId.id == paneId.id else { return }
+            guard browserPanel.claimPortalHost(
+                hostId: ObjectIdentifier(host),
+                paneId: paneId,
+                inWindow: host.window != nil,
+                bounds: host.bounds,
+                reason: "geometryChanged"
+            ) else { return }
+            guard host.window != nil else { return }
+            let hostId = ObjectIdentifier(host)
             Self.installPortalAnchorView(portalAnchorView, in: host)
-            if host.window != nil,
+            if coordinator.lastPortalHostId != hostId ||
                !BrowserWindowPortalRegistry.isWebView(webView, boundTo: portalAnchorView) {
                 BrowserWindowPortalRegistry.bind(
                     webView: webView,
@@ -4378,7 +4409,7 @@ struct WebViewRepresentable: NSViewRepresentable {
                 )
                 BrowserWindowPortalRegistry.updatePaneDropContext(for: webView, context: activePaneDropContext)
                 BrowserWindowPortalRegistry.updateSearchOverlay(for: webView, configuration: activeSearchOverlay)
-                coordinator.lastPortalHostId = ObjectIdentifier(host)
+                coordinator.lastPortalHostId = hostId
             }
             BrowserWindowPortalRegistry.synchronizeForAnchor(portalAnchorView)
             coordinator.lastSynchronizedHostGeometryRevision = host.geometryRevision
@@ -4390,8 +4421,7 @@ struct WebViewRepresentable: NSViewRepresentable {
             panel.syncDeveloperToolsPreferenceFromInspector()
         }
 
-        if host.window != nil, isCurrentPaneOwner {
-            let hostId = ObjectIdentifier(host)
+        if host.window != nil, portalHostAccepted {
             let geometryRevision = host.geometryRevision
             let portalEntryMissing = !BrowserWindowPortalRegistry.isWebView(webView, boundTo: portalAnchorView)
             let shouldBindNow =
@@ -4421,7 +4451,7 @@ struct WebViewRepresentable: NSViewRepresentable {
                 BrowserWindowPortalRegistry.synchronizeForAnchor(portalAnchorView)
                 coordinator.lastSynchronizedHostGeometryRevision = geometryRevision
             }
-        } else if isCurrentPaneOwner {
+        } else if portalHostAccepted {
             // Bind is deferred until host moves into a window. Keep the current
             // portal entry's desired state in sync so stale callbacks cannot keep
             // the previous anchor visible while this host is temporarily off-window.
@@ -4432,7 +4462,7 @@ struct WebViewRepresentable: NSViewRepresentable {
             )
         }
 
-        if isCurrentPaneOwner {
+        if portalHostAccepted {
             BrowserWindowPortalRegistry.updateDropZoneOverlay(
                 for: webView,
                 zone: coordinator.desiredPortalVisibleInUI ? paneDropZone : nil
@@ -4459,6 +4489,7 @@ struct WebViewRepresentable: NSViewRepresentable {
             details: Self.attachContext(webView: webView, host: host)
         )
         #endif
+        return portalHostAccepted
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {
@@ -4472,21 +4503,21 @@ struct WebViewRepresentable: NSViewRepresentable {
         }
         coordinator.panel = panel
         coordinator.webView = webView
+
+        Self.clearPortalCallbacks(for: nsView)
+        let hostOwnsPortal = updateUsingWindowPortal(nsView, context: context, webView: webView)
         Self.applyWebViewFirstResponderPolicy(
             panel: panel,
             webView: webView,
-            isPanelFocused: isPanelFocused && isCurrentPaneOwner
+            isPanelFocused: isPanelFocused && isCurrentPaneOwner && hostOwnsPortal
         )
-
-        Self.clearPortalCallbacks(for: nsView)
-        updateUsingWindowPortal(nsView, context: context, webView: webView)
 
         Self.applyFocus(
             panel: panel,
             webView: webView,
             nsView: nsView,
-            shouldFocusWebView: shouldFocusWebView && isCurrentPaneOwner,
-            isPanelFocused: isPanelFocused && isCurrentPaneOwner
+            shouldFocusWebView: shouldFocusWebView && isCurrentPaneOwner && hostOwnsPortal,
+            isPanelFocused: isPanelFocused && isCurrentPaneOwner && hostOwnsPortal
         )
     }
 
@@ -4571,6 +4602,12 @@ struct WebViewRepresentable: NSViewRepresentable {
     static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
         coordinator.attachGeneration += 1
         clearPortalCallbacks(for: nsView)
+        if let panel = coordinator.panel, let host = nsView as? HostContainerView {
+            panel.releasePortalHostIfOwned(
+                hostId: ObjectIdentifier(host),
+                reason: "dismantle"
+            )
+        }
 
         guard let webView = coordinator.webView else { return }
         let panel = coordinator.panel
