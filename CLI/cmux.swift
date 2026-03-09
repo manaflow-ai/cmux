@@ -4576,7 +4576,7 @@ struct CMUXCLI {
             Set or clear the custom color for a workspace tab.
 
             Flags:
-              --workspace <id|ref>   Workspace to color (default: current/$CMUX_WORKSPACE_ID)
+              --workspace <id|ref|index>   Workspace to color (default: current/$CMUX_WORKSPACE_ID)
               --clear                Remove the custom color
 
             Example:
