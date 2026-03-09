@@ -3758,8 +3758,18 @@ class TerminalController {
             v2MaybeFocusWindow(for: tabManager)
             v2MaybeSelectWorkspace(tabManager, workspace: ws)
 
+            // Resolve the target pane: use pane_id if provided, otherwise the focused pane.
+            var targetPaneId: PaneID?
+            if let requestedPaneUUID = v2UUID(params, "pane_id") {
+                guard let pane = ws.bonsplitController.allPaneIds.first(where: { $0.id == requestedPaneUUID }) else {
+                    result = .err(code: "not_found", message: "Pane not found", data: ["pane_id": requestedPaneUUID.uuidString])
+                    return
+                }
+                targetPaneId = pane
+            }
+
             let before = ws.focusedPanelId
-            ws.selectLastVisitedSurface()
+            ws.selectLastVisitedSurface(inPane: targetPaneId)
             guard let after = ws.focusedPanelId, after != before else { return }
 
             let paneId = ws.paneId(forPanelId: after)?.id

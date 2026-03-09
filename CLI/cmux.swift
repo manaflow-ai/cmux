@@ -4630,12 +4630,12 @@ struct CMUXCLI {
             """
         case "last-tab":
             return """
-            Usage: cmux last-tab [--workspace <id|ref>]
+            Usage: cmux last-tab [--workspace <id|ref|index>]
 
             Switch to the previously visited surface (tab) in the focused pane.
 
             Flags:
-              --workspace <id|ref>   Workspace context (default: $CMUX_WORKSPACE_ID)
+              --workspace <id|ref|index>   Workspace context (default: $CMUX_WORKSPACE_ID)
             """
         case "last-pane":
             return """
@@ -5988,7 +5988,17 @@ struct CMUXCLI {
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client)
             if let wsId { params["workspace_id"] = wsId }
             let payload = try client.sendV2(method: "surface.last", params: params)
-            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["surface", "pane", "workspace"]))
+            var summaryParts = ["OK"]
+            if let tabHandle = formatTabHandle(payload, idFormat: idFormat) {
+                summaryParts.append("tab=\(tabHandle)")
+            }
+            if let paneHandle = formatHandle(payload, kind: "pane", idFormat: idFormat) {
+                summaryParts.append("pane=\(paneHandle)")
+            }
+            if let workspaceHandle = formatHandle(payload, kind: "workspace", idFormat: idFormat) {
+                summaryParts.append("workspace=\(workspaceHandle)")
+            }
+            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: summaryParts.joined(separator: " "))
 
         case "last-window":
             let payload = try client.sendV2(method: "workspace.last")
@@ -7001,7 +7011,7 @@ struct CMUXCLI {
           swap-pane --pane <id|ref> --target-pane <id|ref> [--workspace <id|ref>]
           break-pane [--workspace <id|ref>] [--pane <id|ref>] [--surface <id|ref>] [--no-focus]
           join-pane --target-pane <id|ref> [--workspace <id|ref>] [--pane <id|ref>] [--surface <id|ref>] [--no-focus]
-          last-tab [--workspace <id|ref>]
+          last-tab [--workspace <id|ref|index>]
           next-window | previous-window | last-window
           last-pane [--workspace <id|ref>]
           find-window [--content] [--select] <query>

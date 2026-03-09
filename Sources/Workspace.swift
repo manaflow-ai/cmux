@@ -3206,25 +3206,29 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     /// Select the previously visited surface in the currently focused pane (MRU toggle).
-    func selectLastVisitedSurface() {
-        guard let focusedPaneId = bonsplitController.focusedPaneId else { return }
-        pruneSurfaceSelectionHistory(for: focusedPaneId)
+    /// If `inPane` is provided, operates on that pane instead of the focused pane.
+    func selectLastVisitedSurface(inPane targetPane: PaneID? = nil) {
+        guard let paneId = targetPane ?? bonsplitController.focusedPaneId else { return }
+        if let targetPane, bonsplitController.focusedPaneId?.id != targetPane.id {
+            bonsplitController.focusPane(targetPane)
+        }
+        pruneSurfaceSelectionHistory(for: paneId)
 
-        guard let currentTabId = bonsplitController.selectedTab(inPane: focusedPaneId)?.id,
+        guard let currentTabId = bonsplitController.selectedTab(inPane: paneId)?.id,
               let currentPanelId = panelIdFromSurfaceId(currentTabId) else { return }
-        recordSurfaceSelection(panelId: currentPanelId, in: focusedPaneId)
+        recordSurfaceSelection(panelId: currentPanelId, in: paneId)
 
-        guard let targetPanelId = lastVisitedPanelByPaneId[focusedPaneId.id],
+        guard let targetPanelId = lastVisitedPanelByPaneId[paneId.id],
               targetPanelId != currentPanelId,
               panels[targetPanelId] != nil,
               let targetTabId = surfaceIdFromPanelId(targetPanelId),
-              bonsplitController.tabs(inPane: focusedPaneId).contains(where: { $0.id == targetTabId }) else {
+              bonsplitController.tabs(inPane: paneId).contains(where: { $0.id == targetTabId }) else {
             return
         }
 
         bonsplitController.selectTab(targetTabId)
-        if let selectedTabId = bonsplitController.selectedTab(inPane: focusedPaneId)?.id {
-            applyTabSelection(tabId: selectedTabId, inPane: focusedPaneId)
+        if let selectedTabId = bonsplitController.selectedTab(inPane: paneId)?.id {
+            applyTabSelection(tabId: selectedTabId, inPane: paneId)
         }
     }
 
@@ -4270,6 +4274,11 @@ extension Workspace: BonsplitDelegate {
     func splitTabBar(_ controller: BonsplitController, didClosePane paneId: PaneID) {
         let closedPanelIds = pendingPaneClosePanelIds.removeValue(forKey: paneId.id) ?? []
         let shouldScheduleFocusReconcile = !isDetachingCloseTransaction
+
+        // Clean up MRU history for the closed pane
+        currentSelectedPanelByPaneId.removeValue(forKey: paneId.id)
+        lastVisitedPanelByPaneId.removeValue(forKey: paneId.id)
+
 #if DEBUG
         dlog(
             "surface.didClosePane.begin pane=\(paneId.id.uuidString.prefix(5)) " +
