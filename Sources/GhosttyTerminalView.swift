@@ -2024,9 +2024,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
     /// Port ordinal for CMUX_PORT range assignment
     var portOrdinal: Int = 0
     /// zmx session name to pass to ghostty C API for session persistence
-    var zmxSessionName: String?
+    let zmxSessionName: String?
     /// Whether to create the zmx session if it doesn't exist (true = create, false = attach only)
-    var zmxCreate: Bool = true
+    let zmxCreate: Bool
     /// Snapshotted once per app session so all workspaces use consistent values
     private static let sessionPortBase: Int = {
         let val = UserDefaults.standard.integer(forKey: "cmuxPortBase")
@@ -2051,6 +2051,10 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private let maxPendingTextBytes = 1_048_576
     private var backgroundSurfaceStartQueued = false
     private var surfaceCallbackContext: Unmanaged<GhosttySurfaceCallbackContext>?
+    private var initialPresentRetryWorkItem: DispatchWorkItem?
+    private var initialPresentRetriesRemaining = 0
+    private static let initialPresentRetryDelay: TimeInterval = 0.08
+    private static let initialPresentRetryLimit = 12
     private enum PortalLifecycleState: String {
         case live
         case closing
@@ -2100,7 +2104,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
         context: ghostty_surface_context_e,
         configTemplate: ghostty_surface_config_s?,
         workingDirectory: String? = nil,
-        additionalEnvironment: [String: String] = [:]
+        additionalEnvironment: [String: String] = [:],
+        zmxSessionName: String? = nil,
+        zmxCreate: Bool = true
     ) {
         self.id = UUID()
         self.tabId = tabId
@@ -2108,6 +2114,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
         self.configTemplate = configTemplate
         self.workingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines)
         self.additionalEnvironment = additionalEnvironment
+        self.zmxSessionName = zmxSessionName
+        self.zmxCreate = zmxCreate
         // Match Ghostty's own SurfaceView: ensure a non-zero initial frame so the backing layer
         // has non-zero bounds and the renderer can initialize without presenting a blank/stretched
         // intermediate frame on the first real resize.
@@ -2151,6 +2159,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
     func beginPortalCloseLifecycle(reason: String) {
         guard portalLifecycleState != .closed else { return }
         guard portalLifecycleState != .closing else { return }
+        cancelInitialPresentRetries()
         portalLifecycleState = .closing
         portalLifecycleGeneration &+= 1
 #if DEBUG
@@ -2164,6 +2173,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
     private func markPortalLifecycleClosed(reason: String) {
         guard portalLifecycleState != .closed else { return }
+        cancelInitialPresentRetries()
         portalLifecycleState = .closed
         portalLifecycleGeneration &+= 1
 #if DEBUG
@@ -2255,6 +2265,63 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
     private func scaleApproximatelyEqual(_ lhs: CGFloat, _ rhs: CGFloat, epsilon: CGFloat = 0.0001) -> Bool {
         abs(lhs - rhs) <= epsilon
+    }
+
+    private func cancelInitialPresentRetries() {
+        initialPresentRetryWorkItem?.cancel()
+        initialPresentRetryWorkItem = nil
+        initialPresentRetriesRemaining = 0
+    }
+
+    private func scheduleInitialPresentRetries(reason: String, resetBudget: Bool = false) {
+        guard portalLifecycleState == .live else { return }
+        guard attachedView != nil else { return }
+        if resetBudget || initialPresentRetriesRemaining <= 0 {
+            initialPresentRetriesRemaining = Self.initialPresentRetryLimit
+        }
+        armInitialPresentRetry(reason: reason)
+    }
+
+    private func armInitialPresentRetry(reason: String) {
+        guard initialPresentRetriesRemaining > 0 else { return }
+        initialPresentRetryWorkItem?.cancel()
+        let workItem = DispatchWorkItem { [weak self] in
+            self?.runInitialPresentRetry(reason: reason)
+        }
+        initialPresentRetryWorkItem = workItem
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + Self.initialPresentRetryDelay,
+            execute: workItem
+        )
+    }
+
+    private func runInitialPresentRetry(reason: String) {
+        initialPresentRetryWorkItem = nil
+        guard portalLifecycleState == .live else { return }
+        guard let view = attachedView,
+              let currentSurface = surface,
+              view.window != nil,
+              view.bounds.width > 0,
+              view.bounds.height > 0 else {
+            return
+        }
+
+        if view.layer?.contents != nil {
+            cancelInitialPresentRetries()
+            return
+        }
+
+        initialPresentRetriesRemaining -= 1
+        view.forceRefreshSurface()
+        ghostty_surface_refresh(currentSurface)
+        ghostty_surface_draw(currentSurface)
+
+        if view.layer?.contents != nil || initialPresentRetriesRemaining <= 0 {
+            cancelInitialPresentRetries()
+            return
+        }
+
+        armInitialPresentRetry(reason: reason)
     }
 
     func attachToView(_ view: GhosttyNSView) {
@@ -2475,10 +2542,15 @@ final class TerminalSurface: Identifiable, ObservableObject {
             }
         }
 
+        // Start from an explicit disabled state so inherited config templates
+        // never leak another surface's zmx session into a fresh panel.
+        surfaceConfig.zmx_session = nil
+        surfaceConfig.zmx_create = false
+
         // zmx session: pass session name and create flag to ghostty
         var zmxCStr: UnsafeMutablePointer<CChar>?
         defer { zmxCStr.flatMap { free($0) } }
-        if let name = zmxSessionName {
+        if let name = zmxSessionName?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty {
             zmxCStr = strdup(name)
             surfaceConfig.zmx_session = UnsafePointer(zmxCStr)
             surfaceConfig.zmx_create = zmxCreate
@@ -2577,6 +2649,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         // transition nudges the renderer.
         view.forceRefreshSurface()
         ghostty_surface_refresh(createdSurface)
+        scheduleInitialPresentRetries(reason: "createSurface", resetBudget: true)
 
 #if DEBUG
         let runtimeFontText = cmuxCurrentSurfaceFontSizePoints(createdSurface).map {
@@ -2687,6 +2760,17 @@ final class TerminalSurface: Identifiable, ObservableObject {
         view.forceRefreshSurface()
         guard let surface = self.surface else { return }
         ghostty_surface_refresh(surface)
+        if view.layer?.contents == nil {
+            // Freshly attached surfaces can get stuck until a later hide/show cycle
+            // toggles Ghostty's visible state. Recreate that pulse locally before an
+            // immediate draw so blank first frames recover without user interaction.
+            ghostty_surface_set_occlusion(surface, false)
+            ghostty_surface_set_occlusion(surface, true)
+            ghostty_surface_draw(surface)
+            scheduleInitialPresentRetries(reason: reason)
+        } else {
+            cancelInitialPresentRetries()
+        }
     }
 
     func applyWindowBackgroundIfActive() {
@@ -2745,6 +2829,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
             guard let self else { return }
             self.backgroundSurfaceStartQueued = false
             guard self.surface == nil, let view = self.attachedView else { return }
+            guard view.window != nil else { return }
             #if DEBUG
             let startedAt = ProcessInfo.processInfo.systemUptime
             #endif
@@ -3191,6 +3276,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         superview?.layoutSubtreeIfNeeded()
         layoutSubtreeIfNeeded()
         updateSurfaceSize()
+        terminalSurface?.forceRefresh(reason: "surface.viewDidMoveToWindow")
         applySurfaceBackground()
         applySurfaceColorScheme(force: true)
         GhosttyApp.shared.synchronizeThemeWithAppearance(
