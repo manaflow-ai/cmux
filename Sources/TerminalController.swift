@@ -3131,13 +3131,18 @@ class TerminalController {
             return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
         }
 
-        let colorRaw = v2String(params, "color")
         let color: String?
-        if let colorRaw {
-            guard let normalized = WorkspaceTabColorSettings.normalizedHex(colorRaw) else {
-                return .err(code: "invalid_params", message: "Invalid color hex. Use format #RRGGBB.", data: nil)
+        if params.keys.contains("color") {
+            if params["color"] is NSNull {
+                color = nil
+            } else if let colorRaw = params["color"] as? String {
+                guard let normalized = WorkspaceTabColorSettings.normalizedHex(colorRaw) else {
+                    return .err(code: "invalid_params", message: "Invalid color hex. Use format #RRGGBB.", data: nil)
+                }
+                color = normalized
+            } else {
+                return .err(code: "invalid_params", message: "color must be a string or null", data: nil)
             }
-            color = normalized
         } else {
             color = nil
         }
@@ -5310,7 +5315,15 @@ class TerminalController {
         let title = (params["title"] as? String) ?? "Notification"
         let subtitle = (params["subtitle"] as? String) ?? ""
         let body = (params["body"] as? String) ?? ""
-        let color = v2String(params, "color")
+        let color: String?
+        if let raw = v2String(params, "color") {
+            guard let normalized = WorkspaceTabColorSettings.normalizedHex(raw) else {
+                return .err(code: "invalid_params", message: "Invalid color hex. Use format #RRGGBB.", data: nil)
+            }
+            color = normalized
+        } else {
+            color = nil
+        }
 
         var result: V2CallResult = .err(code: "internal_error", message: "Failed to notify", data: nil)
         v2MainSync {
@@ -5352,7 +5365,15 @@ class TerminalController {
         let title = (params["title"] as? String) ?? "Notification"
         let subtitle = (params["subtitle"] as? String) ?? ""
         let body = (params["body"] as? String) ?? ""
-        let color = v2String(params, "color")
+        let color: String?
+        if let raw = v2String(params, "color") {
+            guard let normalized = WorkspaceTabColorSettings.normalizedHex(raw) else {
+                return .err(code: "invalid_params", message: "Invalid color hex. Use format #RRGGBB.", data: nil)
+            }
+            color = normalized
+        } else {
+            color = nil
+        }
 
         var result: V2CallResult = .err(code: "internal_error", message: "Failed to notify", data: nil)
         v2MainSync {
@@ -5373,7 +5394,8 @@ class TerminalController {
                 body: body,
                 color: resolvedColor
             )
-            result = .ok(["workspace_id": ws.id.uuidString, "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id), "surface_id": surfaceId.uuidString, "surface_ref": v2Ref(kind: .surface, uuid: surfaceId), "window_id": v2OrNull(v2ResolveWindowId(tabManager: tabManager)?.uuidString), "window_ref": v2Ref(kind: .window, uuid: v2ResolveWindowId(tabManager: tabManager))])
+            let windowId = v2ResolveWindowId(tabManager: tabManager)
+            result = .ok(["workspace_id": ws.id.uuidString, "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id), "surface_id": surfaceId.uuidString, "surface_ref": v2Ref(kind: .surface, uuid: surfaceId), "window_id": v2OrNull(windowId?.uuidString), "window_ref": v2Ref(kind: .window, uuid: windowId)])
         }
         return result
     }
@@ -5392,7 +5414,15 @@ class TerminalController {
         let title = (params["title"] as? String) ?? "Notification"
         let subtitle = (params["subtitle"] as? String) ?? ""
         let body = (params["body"] as? String) ?? ""
-        let color = v2String(params, "color")
+        let color: String?
+        if let raw = v2String(params, "color") {
+            guard let normalized = WorkspaceTabColorSettings.normalizedHex(raw) else {
+                return .err(code: "invalid_params", message: "Invalid color hex. Use format #RRGGBB.", data: nil)
+            }
+            color = normalized
+        } else {
+            color = nil
+        }
 
         var result: V2CallResult = .err(code: "internal_error", message: "Failed to notify", data: nil)
         v2MainSync {
@@ -5413,7 +5443,8 @@ class TerminalController {
                 body: body,
                 color: resolvedColor
             )
-            result = .ok(["workspace_id": ws.id.uuidString, "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id), "surface_id": surfaceId.uuidString, "surface_ref": v2Ref(kind: .surface, uuid: surfaceId), "window_id": v2OrNull(v2ResolveWindowId(tabManager: tabManager)?.uuidString), "window_ref": v2Ref(kind: .window, uuid: v2ResolveWindowId(tabManager: tabManager))])
+            let windowId = v2ResolveWindowId(tabManager: tabManager)
+            result = .ok(["workspace_id": ws.id.uuidString, "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id), "surface_id": surfaceId.uuidString, "surface_ref": v2Ref(kind: .surface, uuid: surfaceId), "window_id": v2OrNull(windowId?.uuidString), "window_ref": v2Ref(kind: .window, uuid: windowId)])
         }
         return result
     }

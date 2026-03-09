@@ -1368,6 +1368,9 @@ struct CMUXCLI {
             let workspaceArg = wsArg ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
             let isClear = rem0.contains("--clear")
             let rem1 = rem0.filter { $0 != "--clear" }
+            if let unknownFlag = rem1.first(where: { $0.hasPrefix("--") && $0 != "--" }) {
+                throw CLIError(message: "set-workspace-color: unknown flag '\(unknownFlag)'")
+            }
             let hasPositionalArgs = !rem1.filter({ !$0.hasPrefix("--") }).isEmpty
             if isClear, hasPositionalArgs {
                 throw CLIError(message: "set-workspace-color: --clear and a color value are mutually exclusive")
@@ -4568,7 +4571,7 @@ struct CMUXCLI {
             """
         case "set-workspace-color":
             return """
-            Usage: cmux set-workspace-color [--workspace <id|ref>] [--clear] [--] <#hex>
+            Usage: cmux set-workspace-color [--workspace <id|ref|index>] (--clear | [--] <#hex>)
 
             Set or clear the custom color for a workspace tab.
 
@@ -7003,7 +7006,7 @@ struct CMUXCLI {
           select-workspace --workspace <id|ref>
           rename-workspace [--workspace <id|ref>] <title>
           rename-window [--workspace <id|ref>] <title>
-          set-workspace-color [--workspace <id|ref>] [--clear] <#hex>
+          set-workspace-color [--workspace <id|ref|index>] (--clear | <#hex>)
           current-workspace
           read-screen [--workspace <id|ref>] [--surface <id|ref>] [--scrollback] [--lines <n>]
           send [--workspace <id|ref>] [--surface <id|ref>] <text>
