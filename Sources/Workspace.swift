@@ -2924,7 +2924,6 @@ final class Workspace: Identifiable, ObservableObject {
             scheduleFocusReconcile()
         }
         scheduleTerminalGeometryReconcile()
-        scheduleMovedBrowserRefresh(panelId: detached.panelId)
 
 #if DEBUG
         dlog(
@@ -3505,25 +3504,6 @@ final class Workspace: Identifiable, ObservableObject {
 
         // Run once immediately and once on the next turn so rapid split close/reparent
         // sequences still get a post-layout redraw.
-        runRefreshPass(0)
-        runRefreshPass(0.03)
-    }
-
-    private func scheduleMovedBrowserRefresh(panelId: UUID) {
-        guard browserPanel(for: panelId) != nil else { return }
-
-        let runRefreshPass: (TimeInterval) -> Void = { [weak self] delay in
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
-                guard let self, let browser = self.browserPanel(for: panelId) else { return }
-                BrowserWindowPortalRegistry.refresh(
-                    webView: browser.webView,
-                    reason: "workspace.movedBrowserRefresh"
-                )
-            }
-        }
-
-        // Mirror terminal moved-surface refreshes so round-trip pane drags get
-        // another render pass after bonsplit has settled its reparenting.
         runRefreshPass(0)
         runRefreshPass(0.03)
     }
@@ -4195,7 +4175,6 @@ extension Workspace: BonsplitDelegate {
 #endif
         if let movedPanelId = panelIdFromSurfaceId(tab.id) {
             scheduleMovedTerminalRefresh(panelId: movedPanelId)
-            scheduleMovedBrowserRefresh(panelId: movedPanelId)
         }
 #if DEBUG
         let selectedAfter = controller.selectedTab(inPane: destination)

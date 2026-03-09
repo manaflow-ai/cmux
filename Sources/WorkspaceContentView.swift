@@ -69,6 +69,7 @@ struct WorkspaceContentView: View {
                 )
                 PanelContentView(
                     panel: panel,
+                    paneId: paneId,
                     isFocused: isFocused,
                     isSelectedInPane: isSelectedInPane,
                     isVisibleInUI: isVisibleInUI,
