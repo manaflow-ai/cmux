@@ -4958,7 +4958,7 @@ final class GhosttySurfaceScrollView: NSView {
     private let notificationRingLayer: CAShapeLayer
     private let flashOverlayView: GhosttyFlashOverlayView
     private let flashLayer: CAShapeLayer
-    private let keyboardCopyModeBadgeContainerView: NSView
+    private let keyboardCopyModeBadgeContainerView: GhosttyPassthroughVisualEffectView
     private let keyboardCopyModeBadgeView: GhosttyPassthroughVisualEffectView
     private let keyboardCopyModeBadgeIconView: NSImageView
     private let keyboardCopyModeBadgeLabel: NSTextField
@@ -5128,7 +5128,7 @@ final class GhosttySurfaceScrollView: NSView {
         notificationRingLayer = CAShapeLayer()
         flashOverlayView = GhosttyFlashOverlayView(frame: .zero)
         flashLayer = CAShapeLayer()
-        keyboardCopyModeBadgeContainerView = NSView(frame: .zero)
+        keyboardCopyModeBadgeContainerView = GhosttyPassthroughVisualEffectView(frame: .zero)
         keyboardCopyModeBadgeView = GhosttyPassthroughVisualEffectView(frame: .zero)
         keyboardCopyModeBadgeIconView = NSImageView(frame: .zero)
         keyboardCopyModeBadgeLabel = NSTextField(labelWithString: terminalKeyboardCopyModeIndicatorText)
@@ -5206,6 +5206,9 @@ final class GhosttySurfaceScrollView: NSView {
         addSubview(flashOverlayView)
         keyboardCopyModeBadgeContainerView.translatesAutoresizingMaskIntoConstraints = false
         keyboardCopyModeBadgeContainerView.wantsLayer = true
+        keyboardCopyModeBadgeContainerView.material = .hudWindow
+        keyboardCopyModeBadgeContainerView.blendingMode = .withinWindow
+        keyboardCopyModeBadgeContainerView.state = .active
         keyboardCopyModeBadgeContainerView.layer?.masksToBounds = false
         keyboardCopyModeBadgeContainerView.layer?.shadowColor = NSColor.black.cgColor
         keyboardCopyModeBadgeContainerView.layer?.shadowOpacity = 0.22
