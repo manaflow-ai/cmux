@@ -253,6 +253,8 @@ struct SessionPanelSnapshot: Codable, Sendable {
     var terminal: SessionTerminalPanelSnapshot?
     var browser: SessionBrowserPanelSnapshot?
     var markdown: SessionMarkdownPanelSnapshot?
+    /// zmx session name for this terminal panel (nil if not using zmx).
+    var zmxSessionName: String?
 }
 
 enum SessionSplitOrientation: String, Codable, Sendable {
@@ -339,6 +341,8 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var logEntries: [SessionLogEntrySnapshot]
     var progress: SessionProgressSnapshot?
     var gitBranch: SessionGitBranchSnapshot?
+    /// Stable identifier for zmx session name derivation (persists across sessions).
+    var zmxStableId: String?
 }
 
 struct SessionTabManagerSnapshot: Codable, Sendable {

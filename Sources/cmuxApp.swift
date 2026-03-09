@@ -2860,6 +2860,8 @@ struct SettingsView: View {
     @AppStorage(NotificationSoundSettings.customCommandKey) private var notificationCustomCommand = NotificationSoundSettings.defaultCustomCommand
     @AppStorage(NotificationBadgeSettings.dockBadgeEnabledKey) private var notificationDockBadgeEnabled = NotificationBadgeSettings.defaultDockBadgeEnabled
     @AppStorage(QuitWarningSettings.warnBeforeQuitKey) private var warnBeforeQuitShortcut = QuitWarningSettings.defaultWarnBeforeQuit
+    @AppStorage(ZmxPersistenceSettings.enabledKey) private var zmxPersistenceEnabled = false
+    @AppStorage(ZmxPersistenceSettings.killOnCloseKey) private var zmxKillOnWorkspaceClose = true
     @AppStorage(CommandPaletteRenameSelectionSettings.selectAllOnFocusKey)
     private var commandPaletteRenameSelectAllOnFocus = CommandPaletteRenameSelectionSettings.defaultSelectAllOnFocus
     @AppStorage(ShortcutHintDebugSettings.alwaysShowHintsKey)
@@ -3714,6 +3716,33 @@ struct SettingsView: View {
                         SettingsCardDivider()
 
                         SettingsCardNote(String(localized: "settings.automation.port.note", defaultValue: "Each workspace gets CMUX_PORT and CMUX_PORT_END env vars with a dedicated port range. New terminals inherit these values."))
+                    }
+
+                    SettingsSectionHeader(title: "zmx Session Persistence")
+                    SettingsCard {
+                        SettingsToggleRow(
+                            "Enable zmx Session Persistence",
+                            subtitle: zmxPersistenceEnabled
+                                ? "Terminal sessions survive app restart via zmx."
+                                : "Terminals start fresh on each launch.",
+                            isOn: $zmxPersistenceEnabled
+                        )
+
+                        SettingsCardDivider()
+
+                        SettingsToggleRow(
+                            "Kill Sessions on Workspace Close",
+                            subtitle: zmxKillOnWorkspaceClose
+                                ? "Closing a workspace terminates its zmx sessions."
+                                : "zmx sessions are preserved when a workspace is closed.",
+                            isOn: $zmxKillOnWorkspaceClose
+                        )
+                        .disabled(!zmxPersistenceEnabled)
+
+                        if !ZmxSessionProbe.isZmxAvailable() {
+                            SettingsCardDivider()
+                            SettingsCardNote("Requires zmx to be installed and on PATH.")
+                        }
                     }
 
                     SettingsSectionHeader(title: String(localized: "settings.section.browser", defaultValue: "Browser"))

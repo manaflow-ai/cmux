@@ -1234,6 +1234,7 @@ class TabManager: ObservableObject {
 
         AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: workspace.id)
         unwireClosedBrowserTracking(for: workspace)
+        workspace.killZmxSessions()
         workspace.teardownAllPanels()
 
         tabs.remove(at: index)
