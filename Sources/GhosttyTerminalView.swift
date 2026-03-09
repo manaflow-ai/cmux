@@ -5693,15 +5693,22 @@ final class GhosttySurfaceScrollView: NSView {
 
         if let text, !text.isEmpty {
             keyboardCopyModeBadgeLabel.stringValue = text
+            keyboardCopyModeBadgeIconView.setAccessibilityLabel(text)
+            let needsReorder = keyboardCopyModeBadgeContainerView.isHidden
+                || keyboardCopyModeBadgeContainerView.superview !== self
+                || subviews.last !== keyboardCopyModeBadgeContainerView
             keyboardCopyModeBadgeContainerView.isHidden = false
-            if let overlay = searchOverlayHostingView {
-                addSubview(keyboardCopyModeBadgeContainerView, positioned: .above, relativeTo: overlay)
-            } else {
-                addSubview(keyboardCopyModeBadgeContainerView, positioned: .above, relativeTo: nil)
+            if needsReorder {
+                if let overlay = searchOverlayHostingView {
+                    addSubview(keyboardCopyModeBadgeContainerView, positioned: .above, relativeTo: overlay)
+                } else {
+                    addSubview(keyboardCopyModeBadgeContainerView, positioned: .above, relativeTo: nil)
+                }
             }
             return
         }
 
+        keyboardCopyModeBadgeIconView.setAccessibilityLabel(terminalKeyTableIndicatorAccessibilityLabel)
         keyboardCopyModeBadgeContainerView.isHidden = true
     }
 
