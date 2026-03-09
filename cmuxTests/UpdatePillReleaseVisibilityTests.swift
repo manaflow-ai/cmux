@@ -117,7 +117,7 @@ final class AppBrowserURLSchemeTests: XCTestCase {
         let schemes = Set(
             urlTypes
                 .flatMap { $0["CFBundleURLSchemes"] as? [String] ?? [] }
-                .map(\.lowercased)
+                .map { $0.lowercased() }
         )
 
         XCTAssertTrue(
@@ -130,7 +130,7 @@ final class AppBrowserURLSchemeTests: XCTestCase {
         )
 
         let browserURLTypes = urlTypes.filter { urlType in
-            let urlSchemes = Set((urlType["CFBundleURLSchemes"] as? [String] ?? []).map(\.lowercased))
+            let urlSchemes = Set((urlType["CFBundleURLSchemes"] as? [String] ?? []).map { $0.lowercased() })
             return !urlSchemes.isDisjoint(with: ["http", "https"])
         }
         XCTAssertFalse(
