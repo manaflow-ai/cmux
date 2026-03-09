@@ -1,7 +1,7 @@
 [submodule "ghostty"]
 	path = ghostty
-	url = https://github.com/manaflow-ai/ghostty.git
-	branch = main
+	url = https://github.com/mdsakalu/ghostty.git
+	branch = zmx-termio-backend
 [submodule "homebrew-cmux"]
 	path = homebrew-cmux
 	url = https://github.com/manaflow-ai/homebrew-cmux.git
