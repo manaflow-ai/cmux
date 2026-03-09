@@ -106,6 +106,7 @@ enum UIZoomMetrics {
     static func addressBarButtonHitSize(_ scale: Double) -> CGFloat { 26 * scale }
     static func addressBarVPadding(_ scale: Double) -> CGFloat { 4 * scale }
     static func addressBarButtonFontSize(_ scale: Double) -> CGFloat { 12 * scale }
+    static func omnibarTextFieldHeight(_ scale: Double) -> CGFloat { 18 * scale }
     static func addressBarSmallFontSize(_ scale: Double) -> CGFloat { 11 * scale }
     static func devToolsIconSize(_ scale: Double) -> CGFloat { 11 * scale }
     static func popupCornerRadius(_ scale: Double) -> CGFloat { 12 * scale }
