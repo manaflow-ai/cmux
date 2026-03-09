@@ -330,6 +330,7 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var processTitle: String
     var customTitle: String?
     var customColor: String?
+    var tagsBySource: [String: [String]]?
     var isPinned: Bool
     var currentDirectory: String
     var focusedPanelId: UUID?

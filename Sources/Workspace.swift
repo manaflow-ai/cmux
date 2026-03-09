@@ -154,6 +154,7 @@ extension Workspace {
             processTitle: processTitle,
             customTitle: customTitle,
             customColor: customColor,
+            tagsBySource: tagsBySource.isEmpty ? nil : tagsBySource,
             isPinned: isPinned,
             currentDirectory: currentDirectory,
             focusedPanelId: focusedPanelId,
@@ -193,6 +194,9 @@ extension Workspace {
         applyProcessTitle(snapshot.processTitle)
         setCustomTitle(snapshot.customTitle)
         setCustomColor(snapshot.customColor)
+        if let restoredTags = snapshot.tagsBySource {
+            tagsBySource = restoredTags
+        }
         isPinned = snapshot.isPinned
 
         statusEntries = Dictionary(
@@ -917,6 +921,7 @@ final class Workspace: Identifiable, ObservableObject {
     @Published var customTitle: String?
     @Published var isPinned: Bool = false
     @Published var customColor: String?  // hex string, e.g. "#C0392B"
+    @Published var tagsBySource: [String: [String]] = [:]
     @Published var currentDirectory: String
 
     /// Ordinal for CMUX_PORT range assignment (monotonically increasing per app session)
@@ -1575,6 +1580,42 @@ final class Workspace: Identifiable, ObservableObject {
         } else {
             customColor = nil
         }
+    }
+
+    // MARK: - Search Tags
+
+    private static let maxTagSources = 10
+    private static let maxTagsPerSource = 20
+    private static let maxTagLength = 100
+
+    var searchTags: [String] {
+        tagsBySource.values.flatMap { $0 }
+    }
+
+    func setTags(_ tags: [String], source: String) {
+        let sanitized = tags
+            .map { String($0.trimmingCharacters(in: .whitespacesAndNewlines).prefix(Self.maxTagLength)) }
+            .filter { !$0.isEmpty }
+            .prefix(Self.maxTagsPerSource)
+        var updated = tagsBySource
+        updated[source] = Array(sanitized)
+        if updated.count > Self.maxTagSources {
+            let sortedKeys = updated.keys.sorted()
+            for key in sortedKeys {
+                if key != source, updated.count > Self.maxTagSources {
+                    updated.removeValue(forKey: key)
+                }
+            }
+        }
+        tagsBySource = updated
+    }
+
+    func clearTags(source: String) {
+        tagsBySource.removeValue(forKey: source)
+    }
+
+    func clearAllTags() {
+        tagsBySource.removeAll()
     }
 
     func setCustomTitle(_ title: String?) {

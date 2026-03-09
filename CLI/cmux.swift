@@ -400,6 +400,86 @@ private final class ClaudeHookSessionStore {
     }
 }
 
+private enum ClaudeHookTagExtractor {
+    private static let sessionIdPattern = try! NSRegularExpression(pattern: "^[a-zA-Z0-9_-]{1,128}$")
+
+    static func isValidSessionId(_ sessionId: String) -> Bool {
+        let range = NSRange(sessionId.startIndex..., in: sessionId)
+        return sessionIdPattern.firstMatch(in: sessionId, range: range) != nil
+    }
+
+    static func isSessionTagsEnabled() -> Bool {
+        for bundleId in ["com.cmuxterm.app", "com.cmuxterm.app.debug"] {
+            if let defaults = UserDefaults(suiteName: bundleId),
+               defaults.object(forKey: "cmdPSessionTags") != nil {
+                return defaults.bool(forKey: "cmdPSessionTags")
+            }
+        }
+        return false
+    }
+
+    private static let stopwords: Set<String> = [
+        "a", "an", "the", "is", "are", "was", "were", "be", "been", "being",
+        "have", "has", "had", "do", "does", "did", "will", "would", "shall",
+        "should", "may", "might", "must", "can", "could", "to", "of", "in",
+        "for", "on", "with", "at", "by", "from", "as", "into", "through",
+        "during", "before", "after", "above", "below", "between", "out",
+        "off", "over", "under", "again", "further", "then", "once", "here",
+        "there", "when", "where", "why", "how", "all", "each", "every",
+        "both", "few", "more", "most", "other", "some", "such", "no", "nor",
+        "not", "only", "own", "same", "so", "than", "too", "very", "just",
+        "about", "up", "down", "and", "but", "or", "if", "while", "that",
+        "this", "it", "its", "i", "me", "my", "we", "our", "you", "your",
+        "he", "she", "they", "them", "his", "her", "their", "what", "which",
+        "who", "whom", "done", "task", "complete", "completed", "finished"
+    ]
+
+    private static let sensitivePatterns: [NSRegularExpression] = {
+        let patterns = [
+            "^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$",
+            "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$",
+            "^(sk-|pk-|ghp_|gho_|Bearer |token )",
+            "^(/|~/).+/",
+            "^[A-Z_]{2,}=",
+            "^[0-9]{10,}$"
+        ]
+        return patterns.compactMap { try? NSRegularExpression(pattern: $0, options: .caseInsensitive) }
+    }()
+
+    private static let delimiters = CharacterSet(charactersIn: "/\\.:_- ,;()[]{}\"'`")
+
+    static func extractTags(subtitle: String, body: String) -> [String] {
+        let combined = "\(body) \(subtitle)"
+        let tokens = combined.components(separatedBy: delimiters)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { token in
+                guard token.count >= 3 else { return false }
+                guard !stopwords.contains(token.lowercased()) else { return false }
+                guard !isSensitive(token) else { return false }
+                return true
+            }
+        var seen: Set<String> = []
+        var result: [String] = []
+        for token in tokens {
+            let key = token.lowercased()
+            guard seen.insert(key).inserted else { continue }
+            result.append(token)
+            if result.count >= 20 { break }
+        }
+        return result
+    }
+
+    private static func isSensitive(_ token: String) -> Bool {
+        let range = NSRange(token.startIndex..., in: token)
+        for pattern in sensitivePatterns {
+            if pattern.firstMatch(in: token, range: range) != nil {
+                return true
+            }
+        }
+        return false
+    }
+}
+
 enum CLIIDFormat: String {
     case refs
     case uuids
@@ -1361,6 +1441,49 @@ struct CMUXCLI {
             let wsId = try resolveWorkspaceId(workspaceArg, client: client)
             let params: [String: Any] = ["title": title, "workspace_id": wsId]
             let payload = try client.sendV2(method: "workspace.rename", params: params)
+            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["workspace"]))
+
+        case "set-workspace-tags":
+            let (wsArg, rem0) = parseOption(commandArgs, name: "--workspace")
+            let workspaceArg = wsArg ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+            let (srcArg, rem1) = parseOption(rem0, name: "--source")
+            let isClear = rem1.contains("--clear")
+            let rem2 = rem1.filter { $0 != "--clear" }
+            if let unknownFlag = rem2.first(where: { $0.hasPrefix("--") && $0 != "--" }) {
+                throw CLIError(message: "set-workspace-tags: unknown flag '\(unknownFlag)'")
+            }
+            let wsId = try resolveWorkspaceId(workspaceArg, client: client)
+            let source = srcArg ?? "manual"
+            if isClear {
+                let payload = try client.sendV2(method: "workspace.clear_tags", params: [
+                    "workspace_id": wsId,
+                    "source": source
+                ])
+                printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["workspace"]))
+            } else {
+                let tagArgs = rem2.dropFirst(rem2.first == "--" ? 1 : 0)
+                let tags = Array(tagArgs).filter { !$0.isEmpty }
+                guard !tags.isEmpty else {
+                    throw CLIError(message: "set-workspace-tags requires at least one tag or --clear")
+                }
+                let payload = try client.sendV2(method: "workspace.set_tags", params: [
+                    "workspace_id": wsId,
+                    "source": source,
+                    "tags": tags
+                ])
+                printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["workspace"]))
+            }
+
+        case "clear-workspace-tags":
+            let (wsArg, rem0) = parseOption(commandArgs, name: "--workspace")
+            let workspaceArg = wsArg ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+            let (srcArg, _) = parseOption(rem0, name: "--source")
+            let wsId = try resolveWorkspaceId(workspaceArg, client: client)
+            var params: [String: Any] = ["workspace_id": wsId]
+            if let source = srcArg {
+                params["source"] = source
+            }
+            let payload = try client.sendV2(method: "workspace.clear_tags", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["workspace"]))
 
         case "current-workspace":
@@ -4531,6 +4654,36 @@ struct CMUXCLI {
               cmux rename-workspace "backend logs"
               cmux rename-window --workspace workspace:2 "agent run"
             """
+        case "set-workspace-tags":
+            return """
+            Usage: cmux set-workspace-tags [--workspace <id|ref|index>] [--source <key>] (--clear | <tag> [<tag>...])
+
+            Set or clear search tags for a workspace. Tags appear in cmd-p search results.
+
+            Flags:
+              --workspace <id|ref|index>   Workspace to tag (default: current/$CMUX_WORKSPACE_ID)
+              --source <key>               Tag source namespace (default: "manual")
+              --clear                      Remove tags for the given source
+
+            Example:
+              cmux set-workspace-tags "open claw" "refactor"
+              cmux set-workspace-tags --workspace workspace:2 "auth" "payments"
+              cmux set-workspace-tags --clear
+            """
+        case "clear-workspace-tags":
+            return """
+            Usage: cmux clear-workspace-tags [--workspace <id|ref|index>] [--source <key>]
+
+            Clear all tags (or tags for a specific source) from a workspace.
+
+            Flags:
+              --workspace <id|ref|index>   Workspace to clear (default: current/$CMUX_WORKSPACE_ID)
+              --source <key>               Only clear tags from this source (default: clear all)
+
+            Example:
+              cmux clear-workspace-tags
+              cmux clear-workspace-tags --source claude:abc-123
+            """
         case "current-workspace":
             return """
             Usage: cmux current-workspace
@@ -6228,6 +6381,14 @@ struct CMUXCLI {
             let workspaceId = consumedSession?.workspaceId ?? fallbackWorkspaceId
             try clearClaudeStatus(client: client, workspaceId: workspaceId)
 
+            if let sessionId = parsedInput.sessionId ?? consumedSession?.sessionId,
+               ClaudeHookTagExtractor.isValidSessionId(sessionId) {
+                _ = try? client.sendV2(method: "workspace.clear_tags", params: [
+                    "workspace_id": workspaceId,
+                    "source": "claude:\(sessionId)"
+                ])
+            }
+
             if let completion = summarizeClaudeHookStop(
                 parsedInput: parsedInput,
                 sessionRecord: consumedSession
@@ -6298,6 +6459,18 @@ struct CMUXCLI {
                     lastSubtitle: summary.subtitle,
                     lastBody: summary.body
                 )
+
+                if ClaudeHookTagExtractor.isValidSessionId(sessionId),
+                   ClaudeHookTagExtractor.isSessionTagsEnabled() {
+                    let tags = ClaudeHookTagExtractor.extractTags(subtitle: summary.subtitle, body: summary.body)
+                    if !tags.isEmpty {
+                        _ = try? client.sendV2(method: "workspace.set_tags", params: [
+                            "workspace_id": workspaceId,
+                            "source": "claude:\(sessionId)",
+                            "tags": tags
+                        ])
+                    }
+                }
             }
 
             let response = try sendV1Command("notify_target \(workspaceId) \(surfaceId) \(payload)", client: client)
@@ -6950,6 +7123,8 @@ struct CMUXCLI {
           select-workspace --workspace <id|ref>
           rename-workspace [--workspace <id|ref>] <title>
           rename-window [--workspace <id|ref>] <title>
+          set-workspace-tags [--workspace <id|ref|index>] [--source <key>] (--clear | <tag>...)
+          clear-workspace-tags [--workspace <id|ref|index>] [--source <key>]
           current-workspace
           read-screen [--workspace <id|ref>] [--surface <id|ref>] [--scrollback] [--lines <n>]
           send [--workspace <id|ref>] [--surface <id|ref>] <text>
