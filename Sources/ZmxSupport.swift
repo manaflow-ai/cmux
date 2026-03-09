@@ -39,6 +39,42 @@ enum ZmxSessionNaming {
 
 /// Non-blocking zmx daemon session probing over Unix sockets.
 enum ZmxSessionProbe {
+    private static func setNoSigPipe(fd: Int32) -> Bool {
+#if os(macOS)
+        var noSigPipe: Int32 = 1
+        let result = withUnsafePointer(to: &noSigPipe) { ptr in
+            setsockopt(
+                fd,
+                SOL_SOCKET,
+                SO_NOSIGPIPE,
+                ptr,
+                socklen_t(MemoryLayout<Int32>.size)
+            )
+        }
+        return result == 0
+#else
+        _ = fd
+        return true
+#endif
+    }
+
+    private static func writeAll(fd: Int32, bytes: [UInt8]) -> Bool {
+        bytes.withUnsafeBytes { rawBuffer in
+            guard let baseAddress = rawBuffer.baseAddress else { return false }
+            var written = 0
+            while written < rawBuffer.count {
+                let result = Darwin.write(fd, baseAddress.advanced(by: written), rawBuffer.count - written)
+                guard result > 0 else { return false }
+                written += result
+            }
+            return true
+        }
+    }
+
+    private static func socketPath(for sessionName: String) -> String {
+        "\(socketDir())/\(sessionName)"
+    }
+
     /// Resolve the zmx socket directory.
     static func socketDir() -> String {
         if let dir = ProcessInfo.processInfo.environment["ZMX_DIR"] {
@@ -54,8 +90,7 @@ enum ZmxSessionProbe {
     /// Check if a zmx session is alive by probing its Unix socket.
     /// Non-blocking connect + poll with 200ms timeout.
     static func isSessionAlive(_ sessionName: String) -> Bool {
-        let dir = socketDir()
-        let socketPath = "\(dir)/\(sessionName).sock"
+        let socketPath = socketPath(for: sessionName)
 
         // sun_path limit is typically 104 bytes on macOS
         guard socketPath.utf8.count < 104 else { return false }
@@ -127,14 +162,14 @@ enum ZmxSessionProbe {
 
     /// Kill a zmx session by sending a Kill IPC message (tag=5) via Unix socket.
     static func killSession(_ sessionName: String) {
-        let dir = socketDir()
-        let socketPath = "\(dir)/\(sessionName).sock"
+        let socketPath = socketPath(for: sessionName)
 
         guard socketPath.utf8.count < 104 else { return }
 
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else { return }
         defer { close(fd) }
+        guard setNoSigPipe(fd: fd) else { return }
 
         var addr = sockaddr_un()
         addr.sun_family = sa_family_t(AF_UNIX)
@@ -153,8 +188,9 @@ enum ZmxSessionProbe {
         }
         guard connectResult == 0 else { return }
 
-        // IPC Kill message: 4-byte LE length (1) + 1-byte tag (5)
-        var msg: [UInt8] = [1, 0, 0, 0, 5]
-        _ = send(fd, &msg, msg.count, 0)
+        // Match the daemon's packed header layout as it is emitted by Zig at runtime:
+        // tag byte, 3 bytes of padding, then a 4-byte little-endian payload length.
+        let header: [UInt8] = [5, 0, 0, 0, 0, 0, 0, 0]
+        guard writeAll(fd: fd, bytes: header) else { return }
     }
 }

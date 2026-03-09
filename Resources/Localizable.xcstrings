@@ -53589,6 +53589,142 @@
         }
       }
     },
+    "settings.zmx.persistence.enable.subtitle.disabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminals start fresh on each launch."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルは起動のたびに新しく開始されます。"
+          }
+        }
+      }
+    },
+    "settings.zmx.persistence.enable.subtitle.enabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal sessions survive app restart via zmx."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルセッションはzmxによりアプリ再起動後も保持されます。"
+          }
+        }
+      }
+    },
+    "settings.zmx.persistence.enable.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable zmx Session Persistence"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "zmxセッション永続化を有効にする"
+          }
+        }
+      }
+    },
+    "settings.zmx.persistence.killOnClose.subtitle.disabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "zmx sessions are preserved when a workspace is closed."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースを閉じてもzmxセッションは保持されます。"
+          }
+        }
+      }
+    },
+    "settings.zmx.persistence.killOnClose.subtitle.enabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Closing a workspace terminates its zmx sessions."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースを閉じると、そのzmxセッションも終了します。"
+          }
+        }
+      }
+    },
+    "settings.zmx.persistence.killOnClose.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kill Sessions on Workspace Close"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースを閉じるときにセッションを終了する"
+          }
+        }
+      }
+    },
+    "settings.zmx.persistence.note.requirements": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Requires zmx to be installed and on PATH."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "zmxがインストールされ、PATHに含まれている必要があります。"
+          }
+        }
+      }
+    },
+    "settings.zmx.persistence.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "zmx Session Persistence"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "zmxセッション永続化"
+          }
+        }
+      }
+    },
     "settings.section.automation": {
       "extractionState": "manual",
       "localizations": {

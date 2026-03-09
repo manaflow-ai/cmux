@@ -3718,30 +3718,36 @@ struct SettingsView: View {
                         SettingsCardNote(String(localized: "settings.automation.port.note", defaultValue: "Each workspace gets CMUX_PORT and CMUX_PORT_END env vars with a dedicated port range. New terminals inherit these values."))
                     }
 
-                    SettingsSectionHeader(title: "zmx Session Persistence")
+                    SettingsSectionHeader(title: String(localized: "settings.zmx.persistence.title", defaultValue: "zmx Session Persistence"))
                     SettingsCard {
-                        SettingsToggleRow(
-                            "Enable zmx Session Persistence",
+                        SettingsCardRow(
+                            String(localized: "settings.zmx.persistence.enable.title", defaultValue: "Enable zmx Session Persistence"),
                             subtitle: zmxPersistenceEnabled
-                                ? "Terminal sessions survive app restart via zmx."
-                                : "Terminals start fresh on each launch.",
-                            isOn: $zmxPersistenceEnabled
-                        )
+                                ? String(localized: "settings.zmx.persistence.enable.subtitle.enabled", defaultValue: "Terminal sessions survive app restart via zmx.")
+                                : String(localized: "settings.zmx.persistence.enable.subtitle.disabled", defaultValue: "Terminals start fresh on each launch.")
+                        ) {
+                            Toggle("", isOn: $zmxPersistenceEnabled)
+                                .labelsHidden()
+                                .controlSize(.small)
+                        }
 
                         SettingsCardDivider()
 
-                        SettingsToggleRow(
-                            "Kill Sessions on Workspace Close",
+                        SettingsCardRow(
+                            String(localized: "settings.zmx.persistence.killOnClose.title", defaultValue: "Kill Sessions on Workspace Close"),
                             subtitle: zmxKillOnWorkspaceClose
-                                ? "Closing a workspace terminates its zmx sessions."
-                                : "zmx sessions are preserved when a workspace is closed.",
-                            isOn: $zmxKillOnWorkspaceClose
-                        )
-                        .disabled(!zmxPersistenceEnabled)
+                                ? String(localized: "settings.zmx.persistence.killOnClose.subtitle.enabled", defaultValue: "Closing a workspace terminates its zmx sessions.")
+                                : String(localized: "settings.zmx.persistence.killOnClose.subtitle.disabled", defaultValue: "zmx sessions are preserved when a workspace is closed.")
+                        ) {
+                            Toggle("", isOn: $zmxKillOnWorkspaceClose)
+                                .labelsHidden()
+                                .controlSize(.small)
+                                .disabled(!zmxPersistenceEnabled)
+                        }
 
                         if !ZmxSessionProbe.isZmxAvailable() {
                             SettingsCardDivider()
-                            SettingsCardNote("Requires zmx to be installed and on PATH.")
+                            SettingsCardNote(String(localized: "settings.zmx.persistence.note.requirements", defaultValue: "Requires zmx to be installed and on PATH."))
                         }
                     }
 

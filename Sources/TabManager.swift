@@ -1217,7 +1217,6 @@ class TabManager: ObservableObject {
     }
 
     func closeWorkspace(_ workspace: Workspace) {
-        guard tabs.count > 1 else { return }
         guard let index = tabs.firstIndex(where: { $0.id == workspace.id }) else { return }
         sentryBreadcrumb("workspace.close", data: ["tabCount": tabs.count - 1])
         clearInitialWorkspaceGitProbe(workspaceId: workspace.id)
@@ -1225,8 +1224,18 @@ class TabManager: ObservableObject {
         AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: workspace.id)
         unwireClosedBrowserTracking(for: workspace)
         workspace.killZmxSessions()
-        workspace.teardownAllPanels()
 
+        if tabs.count <= 1 {
+            if let appDelegate = AppDelegate.shared {
+                appDelegate.closeMainWindowContainingTabId(workspace.id)
+            } else {
+                workspace.teardownAllPanels()
+                tabs.remove(at: index)
+            }
+            return
+        }
+
+        workspace.teardownAllPanels()
         tabs.remove(at: index)
 
         if selectedTabId == workspace.id {
@@ -1426,12 +1435,7 @@ class TabManager: ObservableObject {
            ) {
             return
         }
-        if tabs.count <= 1 {
-            // Last workspace in this window: close the window (Cmd+Shift+W behavior).
-            AppDelegate.shared?.closeMainWindowContainingTabId(workspace.id)
-        } else {
-            closeWorkspace(workspace)
-        }
+        closeWorkspace(workspace)
     }
 
     private func closePanelWithConfirmation(tab: Workspace, panelId: UUID) {
@@ -1485,12 +1489,7 @@ class TabManager: ObservableObject {
                 }
             }
 
-            AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: tab.id)
-            if willCloseWindow {
-                AppDelegate.shared?.closeMainWindowContainingTabId(tab.id)
-            } else {
-                closeWorkspace(tab)
-            }
+            closeWorkspace(tab)
             return
         }
 
@@ -1597,17 +1596,7 @@ class TabManager: ObservableObject {
         // Child-exit on the last panel should collapse the workspace, matching explicit close
         // semantics (and close the window when it was the last workspace).
         if tab.panels.count <= 1 {
-            if tabs.count <= 1 {
-                if let app = AppDelegate.shared {
-                    app.notificationStore?.clearNotifications(forTabId: tabId)
-                    app.closeMainWindowContainingTabId(tabId)
-                } else {
-                    // Headless/test fallback when no AppDelegate window context exists.
-                    closeRuntimeSurface(tabId: tabId, surfaceId: surfaceId)
-                }
-            } else {
-                closeWorkspace(tab)
-            }
+            closeWorkspace(tab)
             return
         }
 

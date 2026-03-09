@@ -94,11 +94,11 @@ final class TerminalPanel: Panel, ObservableObject {
             context: context,
             configTemplate: configTemplate,
             workingDirectory: workingDirectory,
-            additionalEnvironment: additionalEnvironment
+            additionalEnvironment: additionalEnvironment,
+            zmxSessionName: zmxSessionName,
+            zmxCreate: zmxCreate
         )
         surface.portOrdinal = portOrdinal
-        surface.zmxSessionName = zmxSessionName
-        surface.zmxCreate = zmxCreate
         self.init(workspaceId: workspaceId, surface: surface)
     }
 
