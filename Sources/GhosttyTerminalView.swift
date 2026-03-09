@@ -5967,7 +5967,11 @@ final class GhosttySurfaceScrollView: NSView {
             return
         }
 
-        if !window.isKeyWindow {
+        // In shared mode, don't promote a non-key window to key — this prevents
+        // the vacated window from stealing macOS focus. But still set first responder
+        // so the surface renders correctly.
+        let isSharedNonKeyWindow = tabManager.sharedStore != nil && !window.isKeyWindow
+        if !window.isKeyWindow && !isSharedNonKeyWindow {
             window.makeKeyAndOrderFront(nil)
         }
         _ = window.makeFirstResponder(surfaceView)
@@ -6824,6 +6828,8 @@ struct GhosttyTerminalView: NSViewRepresentable {
                     expectedSurfaceId: portalExpectedSurfaceId,
                     expectedGeneration: portalExpectedGeneration
                 )
+                // Only apply state if the bind succeeded (see onGeometryChanged comment).
+                guard TerminalWindowPortalRegistry.isHostedView(hostedView, boundTo: host) else { return }
                 coordinator.lastBoundHostId = ObjectIdentifier(host)
                 hostedView.setVisibleInUI(coordinator.desiredIsVisibleInUI)
                 hostedView.setActive(coordinator.desiredIsActive)
@@ -6850,10 +6856,15 @@ struct GhosttyTerminalView: NSViewRepresentable {
                         expectedSurfaceId: portalExpectedSurfaceId,
                         expectedGeneration: portalExpectedGeneration
                     )
-                    coordinator.lastBoundHostId = ObjectIdentifier(host)
-                    hostedView.setVisibleInUI(coordinator.desiredIsVisibleInUI)
-                    hostedView.setActive(coordinator.desiredIsActive)
-                    hostedView.setNotificationRing(visible: coordinator.desiredShowsUnreadNotificationRing)
+                    // Only apply state if the bind succeeded. In shared-tabs mode, the
+                    // cross-window guard may skip the bind, and applying stale desired
+                    // state here would override the owning window's visible/active flags.
+                    if TerminalWindowPortalRegistry.isHostedView(hostedView, boundTo: host) {
+                        coordinator.lastBoundHostId = ObjectIdentifier(host)
+                        hostedView.setVisibleInUI(coordinator.desiredIsVisibleInUI)
+                        hostedView.setActive(coordinator.desiredIsActive)
+                        hostedView.setNotificationRing(visible: coordinator.desiredShowsUnreadNotificationRing)
+                    }
                 }
                 TerminalWindowPortalRegistry.synchronizeForAnchor(host)
             }

@@ -1857,13 +1857,17 @@ struct ContentView: View {
                     let isSelectedWorkspace = selectedWorkspaceId == tab.id
                     let isRetiringWorkspace = retiringWorkspaceId == tab.id
                     let shouldPrimeInBackground = tabManager.pendingBackgroundWorkspaceLoadIds.contains(tab.id)
+                    // In shared mode, don't show a retiring workspace that's now owned by another
+                    // window — its hosted view needs to move to the other window, and keeping it
+                    // visible here with visibleInUI=true would steal it back via the portal bind.
+                    let isRetiringVisible = isRetiringWorkspace && !tabManager.isOwnedByOtherWindow(tab.id)
                     // Keep the retiring workspace visible during handoff, but never input-active.
                     // Allowing both selected+retiring workspaces to be input-active lets the
                     // old workspace steal first responder (notably with WKWebView), which can
                     // delay handoff completion and make browser returns feel laggy.
                     let isInputActive = isSelectedWorkspace
-                    let isVisible = isSelectedWorkspace || isRetiringWorkspace
-                    let portalPriority = isSelectedWorkspace ? 2 : (isRetiringWorkspace ? 1 : 0)
+                    let isVisible = isSelectedWorkspace || isRetiringVisible
+                    let portalPriority = isSelectedWorkspace ? 2 : (isRetiringVisible ? 1 : 0)
                     WorkspaceContentView(
                         workspace: tab,
                         isWorkspaceVisible: isVisible,
@@ -2611,8 +2615,8 @@ struct ContentView: View {
 
     private func reconcileMountedWorkspaceIds(tabs: [Workspace]? = nil, selectedId: UUID? = nil) {
         let currentTabs = tabs ?? tabManager.tabs
-        let orderedTabIds = currentTabs.map { $0.id }
         let effectiveSelectedId = selectedId ?? tabManager.selectedTabId
+        let orderedTabIds = currentTabs.map(\.id)
         let handoffPinnedIds = retiringWorkspaceId.map { Set([ $0 ]) } ?? []
         let pinnedIds = handoffPinnedIds.union(tabManager.pendingBackgroundWorkspaceLoadIds)
         let isCycleHot = tabManager.isWorkspaceCycleHot
@@ -2821,8 +2825,13 @@ struct ContentView: View {
         // during transient rebuilds. Hiding here prevents stale terminal/browser
         // portals from covering the newly selected workspace.
         if let retiring, let workspace = tabManager.tabs.first(where: { $0.id == retiring }) {
-            workspace.hideAllTerminalPortalViews()
-            workspace.hideAllBrowserPortalViews()
+            // In shared mode, don't hide portal views for a workspace that's now owned
+            // by another window. The stealing window renders this workspace's surfaces;
+            // hiding them here would blank out the stealing window's terminal.
+            if !tabManager.isOwnedByOtherWindow(retiring) {
+                workspace.hideAllTerminalPortalViews()
+                workspace.hideAllBrowserPortalViews()
+            }
         }
 
         retiringWorkspaceId = nil
@@ -7947,6 +7956,10 @@ private struct TabItemView: View {
         selectedTabIds.contains(tab.id)
     }
 
+    var isOwnedByOtherWindow: Bool {
+        tabManager.isOwnedByOtherWindow(tab.id)
+    }
+
     private var isBeingDragged: Bool {
         draggedTabId == tab.id
     }
@@ -8104,9 +8117,15 @@ private struct TabItemView: View {
 
                 Text(tab.title)
                     .font(.system(size: 12.5, weight: titleFontWeight))
-                    .foregroundColor(activePrimaryTextColor)
+                    .foregroundColor(isOwnedByOtherWindow ? activePrimaryTextColor.opacity(0.4) : activePrimaryTextColor)
                     .lineLimit(1)
                     .truncationMode(.tail)
+
+                if isOwnedByOtherWindow {
+                    Image(systemName: "lock.fill")
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundColor(.secondary.opacity(0.5))
+                }
 
                 Spacer()
 

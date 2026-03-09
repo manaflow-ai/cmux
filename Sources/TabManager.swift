@@ -39,6 +39,18 @@ enum NewWorkspacePlacement: String, CaseIterable, Identifiable {
     }
 }
 
+enum SharedTabsSettings {
+    static let key = "sharedTabsAcrossWindows"
+    static let defaultValue = true
+
+    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: key) == nil {
+            return defaultValue
+        }
+        return defaults.bool(forKey: key)
+    }
+}
+
 enum WorkspaceAutoReorderSettings {
     static let key = "workspaceAutoReorderOnNotification"
     static let defaultValue = true
@@ -567,9 +579,63 @@ class TabManager: ObservableObject {
     /// Used to apply title updates to the correct window instead of NSApp.keyWindow.
     weak var window: NSWindow?
 
-    @Published var tabs: [Workspace] = []
+    @Published var tabs: [Workspace] = [] {
+        didSet {
+            guard let sharedStore, !isSyncingFromSharedStore else { return }
+            let idsChanged = tabs.count != oldValue.count ||
+                !tabs.lazy.map(\.id).elementsEqual(oldValue.lazy.map(\.id))
+            if idsChanged {
+                sharedStore.broadcastTabsUpdate(from: self)
+            }
+        }
+    }
     @Published private(set) var isWorkspaceCycleHot: Bool = false
     @Published private(set) var pendingBackgroundWorkspaceLoadIds: Set<UUID> = []
+
+    // MARK: - Shared Tabs
+
+    /// Reference to the shared workspace store (non-nil in shared tabs mode).
+    let sharedStore: SharedWorkspaceStore?
+    /// The window ID this TabManager belongs to (set by AppDelegate after init).
+    var windowId: UUID?
+    /// Guard against re-entrant sync from SharedWorkspaceStore.
+    private(set) var isSyncingFromSharedStore = false
+    /// True while vacating due to a tab steal — suppresses focus side effects.
+    private(set) var isVacatingFromSteal = false
+
+    /// Called by SharedWorkspaceStore to sync tabs from another TabManager.
+    func receiveSyncedTabs(_ newTabs: [Workspace]) {
+        isSyncingFromSharedStore = true
+        defer { isSyncingFromSharedStore = false }
+
+        tabs = newTabs
+
+        // If selected tab was removed, pick the nearest valid tab.
+        if let selectedId = selectedTabId, !tabs.contains(where: { $0.id == selectedId }) {
+            selectedTabId = tabs.first?.id
+        }
+    }
+
+    /// Whether this tab is owned by a different window in shared mode.
+    func isOwnedByOtherWindow(_ workspaceId: UUID) -> Bool {
+        guard let sharedStore, let windowId else { return false }
+        guard let owner = sharedStore.owner(of: workspaceId) else { return false }
+        return owner != windowId
+    }
+
+    /// Claims a tab for this window during init (before selectedTabId didSet is active).
+    func claimTab(_ workspaceId: UUID) {
+        guard let sharedStore, let windowId else { return }
+        sharedStore.claim(workspaceId: workspaceId, forWindow: windowId)
+    }
+
+    /// Called by SharedWorkspaceStore when another window steals our tab.
+    func handleTabStolen(_ stolenTabId: UUID) {
+        guard selectedTabId == stolenTabId else { return }
+        isVacatingFromSteal = true
+        defer { isVacatingFromSteal = false }
+        vacateToNearestUnclaimed(from: stolenTabId)
+    }
 
     /// Global monotonically increasing counter for CMUX_PORT ordinal assignment.
     /// Static so port ranges don't overlap across multiple windows (each window has its own TabManager).
@@ -589,6 +655,14 @@ class TabManager: ObservableObject {
             if !isNavigatingHistory, let selectedTabId {
                 recordTabInHistory(selectedTabId)
             }
+            // In shared mode, atomically release the previous tab and claim the new one.
+            if let sharedStore, let windowId, let selectedTabId {
+                sharedStore.switchOwnership(
+                    from: previousTabId,
+                    to: selectedTabId,
+                    forWindow: windowId
+                )
+            }
 #if DEBUG
             let switchId = debugWorkspaceSwitchId
             let switchDtMs = debugWorkspaceSwitchStartTime > 0
@@ -601,9 +675,12 @@ class TabManager: ObservableObject {
 #endif
             selectionSideEffectsGeneration &+= 1
             let generation = selectionSideEffectsGeneration
+            let suppressFocusSideEffects = isVacatingFromSteal
             DispatchQueue.main.async { [weak self] in
                 guard let self, self.selectionSideEffectsGeneration == generation else { return }
-                self.focusSelectedTabPanel(previousTabId: previousTabId)
+                if !suppressFocusSideEffects {
+                    self.focusSelectedTabPanel(previousTabId: previousTabId)
+                }
                 self.updateWindowTitleForSelectedTab()
                 if let selectedTabId = self.selectedTabId {
                     self.markFocusedPanelReadIfActive(tabId: selectedTabId)
@@ -621,6 +698,7 @@ class TabManager: ObservableObject {
         }
     }
     private var observers: [NSObjectProtocol] = []
+    private var ownershipCancellable: AnyCancellable?
     private var suppressFocusFlash = false
     private var lastFocusedPanelByTab: [UUID: UUID] = [:]
     private struct PanelTitleUpdateKey: Hashable {
@@ -660,8 +738,38 @@ class TabManager: ObservableObject {
     private var uiTestCancellables = Set<AnyCancellable>()
 #endif
 
-    init(initialWorkingDirectory: String? = nil) {
-        addWorkspace(workingDirectory: initialWorkingDirectory)
+    init(initialWorkingDirectory: String? = nil, sharedStore: SharedWorkspaceStore? = nil) {
+        self.sharedStore = sharedStore
+
+        if let sharedStore, !sharedStore.tabs.isEmpty {
+            // Shared mode with existing tabs: sync from store.
+            self.tabs = sharedStore.tabs
+            // Select first unclaimed tab, or create a new one if all are claimed.
+            if let unclaimed = sharedStore.firstUnclaimedTab() {
+                self.selectedTabId = unclaimed.id
+            } else {
+                // All tabs claimed — create a new workspace for this window.
+                addWorkspace(workingDirectory: initialWorkingDirectory)
+                // Broadcast the updated tab list so other windows see the new tab.
+                sharedStore.broadcastTabsUpdate(from: self)
+            }
+        } else {
+            addWorkspace(workingDirectory: initialWorkingDirectory)
+            if let sharedStore {
+                // First TabManager in shared mode: seed the store.
+                sharedStore.broadcastTabsUpdate(from: self)
+            }
+        }
+
+        sharedStore?.register(self)
+
+        // Forward ownership changes to trigger SwiftUI re-renders (lock icon, dimming).
+        ownershipCancellable = sharedStore?.$ownershipByTab
+            .dropFirst()
+            .sink { [weak self] _ in
+                self?.objectWillChange.send()
+            }
+
         observers.append(NotificationCenter.default.addObserver(
             forName: .ghosttyDidSetTitle,
             object: nil,
@@ -698,6 +806,9 @@ class TabManager: ObservableObject {
 
     deinit {
         workspaceCycleCooldownTask?.cancel()
+        MainActor.assumeIsolated {
+            sharedStore?.unregister(self)
+        }
     }
 
     private func wireClosedBrowserTracking(for workspace: Workspace) {
@@ -1222,6 +1333,11 @@ class TabManager: ObservableObject {
         sentryBreadcrumb("workspace.close", data: ["tabCount": tabs.count - 1])
         clearInitialWorkspaceGitProbe(workspaceId: workspace.id)
 
+        // Release ownership in shared mode before removing.
+        if let windowId {
+            sharedStore?.release(workspaceId: workspace.id, fromWindow: windowId)
+        }
+
         AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: workspace.id)
         unwireClosedBrowserTracking(for: workspace)
         workspace.teardownAllPanels()
@@ -1683,7 +1799,9 @@ class TabManager: ObservableObject {
 
     private func focusSelectedTabPanel(previousTabId: UUID?) {
         guard let selectedTabId,
-              let tab = tabs.first(where: { $0.id == selectedTabId }) else { return }
+              let tab = tabs.first(where: { $0.id == selectedTabId }) else {
+            return
+        }
 
         // Try to restore previous focus
         if let restoredPanelId = lastFocusedPanelByTab[selectedTabId],
@@ -1694,7 +1812,9 @@ class TabManager: ObservableObject {
 
         // Focus the panel
         guard let panelId = tab.focusedPanelId,
-              let panel = tab.panels[panelId] else { return }
+              let panel = tab.panels[panelId] else {
+            return
+        }
 
         // Defer unfocusing the previous workspace's panel until ContentView confirms handoff
         // completion (new workspace has focus or timeout fallback), to avoid a visible freeze gap.
@@ -1729,6 +1849,12 @@ class TabManager: ObservableObject {
                 "ws.unfocus.drop tab=\(Self.debugShortWorkspaceId(pending.tabId)) panel=\(String(pending.panelId.uuidString.prefix(5))) reason=selected_again"
             )
 #endif
+            return
+        }
+        // Don't unfocus a workspace now owned by another window — it would undo
+        // focus that the new owner already applied (race during manual switch + claim).
+        guard !isOwnedByOtherWindow(pending.tabId) else {
+            pendingWorkspaceUnfocusTarget = nil
             return
         }
         pendingWorkspaceUnfocusTarget = nil
@@ -1954,6 +2080,33 @@ class TabManager: ObservableObject {
     func focusSurface(tabId: UUID, surfaceId: UUID) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
         tab.focusPanel(surfaceId)
+    }
+
+    /// In shared mode, when our selected tab is stolen, pick the nearest unclaimed tab.
+    /// Falls back to stealing the nearest tab from another window if all are claimed.
+    private func vacateToNearestUnclaimed(from stolenTabId: UUID) {
+        guard let sharedStore else { return }
+        guard let stolenIndex = tabs.firstIndex(where: { $0.id == stolenTabId }) else { return }
+
+        // First try unclaimed, then fall back to any tab not owned by us.
+        if let tabId = nearestTab(from: stolenIndex, matching: { sharedStore.owner(of: $0) == nil })
+            ?? nearestTab(from: stolenIndex, matching: { sharedStore.owner(of: $0) != windowId })
+        {
+            selectedTabId = tabId
+        }
+    }
+
+    /// Searches outward from `index` for the nearest tab matching a predicate.
+    private func nearestTab(from index: Int, matching predicate: (UUID) -> Bool) -> UUID? {
+        var lo = index - 1
+        var hi = index + 1
+        while lo >= 0 || hi < tabs.count {
+            if hi < tabs.count, predicate(tabs[hi].id) { return tabs[hi].id }
+            if lo >= 0, predicate(tabs[lo].id) { return tabs[lo].id }
+            lo -= 1
+            hi += 1
+        }
+        return nil
     }
 
     func selectNextTab() {
@@ -3771,6 +3924,13 @@ extension TabManager {
     }
 
     func restoreSessionSnapshot(_ snapshot: SessionTabManagerSnapshot) {
+        // In shared mode, subsequent windows already have tabs from the shared
+        // store and a valid selection from init. Skip session restore entirely
+        // to avoid stealing tabs that belong to other windows.
+        if let sharedStore, !sharedStore.tabs.isEmpty {
+            return
+        }
+
         for tab in tabs {
             unwireClosedBrowserTracking(for: tab)
         }

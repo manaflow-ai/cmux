@@ -1989,10 +1989,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if let startupSnapshot {
-            let additionalWindows = Array(startupSnapshot
-                .windows
-                .dropFirst()
-                .prefix(max(0, SessionPersistencePolicy.maxWindowsPerSnapshot - 1)))
+            // In shared mode, don't restore additional windows — tabs are shared
+            // across windows, so only the primary window needs to exist on launch.
+            // Users can open more windows with Cmd+N.
+            let additionalWindows: [SessionWindowSnapshot] = SharedTabsSettings.isEnabled()
+                ? []
+                : Array(startupSnapshot
+                    .windows
+                    .dropFirst()
+                    .prefix(max(0, SessionPersistencePolicy.maxWindowsPerSnapshot - 1)))
 #if DEBUG
             for (index, windowSnapshot) in additionalWindows.enumerated() {
                 dlog(
@@ -2842,6 +2847,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         sidebarSelectionState: SidebarSelectionState
     ) {
         tabManager.window = window
+        if tabManager.windowId == nil {
+            tabManager.windowId = windowId
+            // Claim the currently selected tab in shared mode.
+            if let selectedId = tabManager.selectedTabId {
+                tabManager.claimTab(selectedId)
+            }
+        }
 
         let key = ObjectIdentifier(window)
         #if DEBUG
@@ -4626,7 +4638,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         sessionWindowSnapshot: SessionWindowSnapshot? = nil
     ) -> UUID {
         let windowId = UUID()
-        let tabManager = TabManager(initialWorkingDirectory: initialWorkingDirectory)
+        let tabManager = TabManager(
+            initialWorkingDirectory: initialWorkingDirectory,
+            sharedStore: SharedWorkspaceStore.shared
+        )
+        tabManager.windowId = windowId
+        // Claim the initially selected tab now that windowId is set.
+        // (selectedTabId was set during init but claimTab couldn't run without a windowId.)
+        if let selectedId = tabManager.selectedTabId {
+            tabManager.claimTab(selectedId)
+        }
         if let tabManagerSnapshot = sessionWindowSnapshot?.tabManager {
             tabManager.restoreSessionSnapshot(tabManagerSnapshot)
         }
@@ -8215,8 +8236,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         commandPaletteSelectionByWindowId.removeValue(forKey: removed.windowId)
         commandPaletteSnapshotByWindowId.removeValue(forKey: removed.windowId)
 
+        // Release shared tab ownership when a window closes.
+        if let windowId = removed.tabManager.windowId {
+            SharedWorkspaceStore.shared?.releaseAllTabs(fromWindow: windowId)
+        }
+
         // Avoid stale notifications that can no longer be opened once the owning window is gone.
-        if let store = notificationStore {
+        // In shared mode, don't clear notifications for shared tabs (other windows may use them).
+        if let store = notificationStore, removed.tabManager.sharedStore == nil {
             for tab in removed.tabManager.tabs {
                 store.clearNotifications(forTabId: tab.id)
             }

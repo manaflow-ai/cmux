@@ -1013,7 +1013,7 @@ final class WindowTerminalPortal: NSObject {
             anchorView: anchorView,
             visibleInUI: visibleInUI,
             zPriority: zPriority,
-            transientRecoveryRetriesRemaining: 0
+            transientRecoveryRetriesRemaining: visibleInUI ? Self.transientRecoveryRetryBudget : 0
         )
 
         let didChangeAnchor: Bool = {
@@ -1304,12 +1304,18 @@ final class WindowTerminalPortal: NSObject {
             targetFrame.width >= Self.minimumRevealWidth &&
             targetFrame.height >= Self.minimumRevealHeight
         let outsideHostBounds = !hasVisibleIntersection
+        // When visibleInUI is true, don't let anchorHidden force a hide.
+        // During cross-window steals, SwiftUI transiently hides the anchor
+        // (HostContainerView) for a few layout cycles. The other geometric
+        // checks (tinyFrame, outsideHostBounds, !hasFiniteFrame) are
+        // sufficient to catch degenerate cases. We schedule a deferred sync
+        // below so the portal converges once the anchor settles.
         let shouldHide =
             !entry.visibleInUI ||
-            anchorHidden ||
             tinyFrame ||
             !hasFiniteFrame ||
             outsideHostBounds
+        let anchorHiddenButVisible = anchorHidden && entry.visibleInUI && !shouldHide
         let shouldDeferReveal = !shouldHide && hostedView.isHidden && !revealReadyForDisplay
         let transientRecoveryReason: String? = {
             guard Self.transientRecoveryEnabled else { return nil }
@@ -1436,6 +1442,22 @@ final class WindowTerminalPortal: NSObject {
 
         if transientRecoveryReason == nil {
             resetTransientRecoveryRetryIfNeeded(forHostedId: hostedId, entry: &entry)
+        }
+
+        // When the anchor is transiently hidden but the entry should be visible,
+        // schedule a deferred sync so we converge once the anchor settles.
+        // Use the transientRecoveryRetriesRemaining budget to avoid spinning forever
+        // if the anchor stays permanently hidden (e.g., unmounted SwiftUI view).
+        if anchorHiddenButVisible, entry.transientRecoveryRetriesRemaining > 0 {
+            entry.transientRecoveryRetriesRemaining -= 1
+            entriesByHostedId[hostedId] = entry
+            scheduleDeferredFullSynchronizeAll()
+        } else if !anchorHidden, entry.visibleInUI {
+            // Anchor became visible — reset the budget for future transitions.
+            if entry.transientRecoveryRetriesRemaining != Self.transientRecoveryRetryBudget {
+                entry.transientRecoveryRetriesRemaining = Self.transientRecoveryRetryBudget
+                entriesByHostedId[hostedId] = entry
+            }
         }
 
 #if DEBUG
@@ -1726,6 +1748,15 @@ enum TerminalWindowPortalRegistry {
                 "actualState=\(guardState.state)"
             )
 #endif
+            return
+        }
+
+        // In shared-tabs mode, multiple windows mount the same workspaces.
+        // Don't steal a hosted view from another window just to hide it —
+        // that would detach the Metal surface from the owning window.
+        if !visibleInUI,
+           let existingWindowId = hostedToWindowId[hostedId],
+           existingWindowId != windowId {
             return
         }
 

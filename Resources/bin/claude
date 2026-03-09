@@ -6,14 +6,18 @@
 # so that Claude Code hooks fire back into cmux for notifications/status.
 # Outside cmux, it passes through to the real claude binary unchanged.
 
-# Find the real claude binary, skipping our own directory.
+# Find the real claude binary, skipping all cmux wrapper directories.
 find_real_claude() {
     local self_dir
     self_dir="$(cd "$(dirname "$0")" && pwd)"
     local IFS=:
     for d in $PATH; do
         [[ "$d" == "$self_dir" ]] && continue
-        [[ -x "$d/claude" ]] && printf '%s' "$d/claude" && return 0
+        [[ -x "$d/claude" ]] || continue
+        # Skip other cmux wrapper copies (e.g. /Applications/cmux.app/.../bin/claude).
+        # A cmux wrapper always lives next to a cmux binary.
+        [[ -x "$d/cmux" ]] && continue
+        printf '%s' "$d/claude" && return 0
     done
     return 1
 }
@@ -30,19 +34,36 @@ cmux_socket_available() {
     [[ -n "$cmux_bin" ]] || return 1
 
     # Keep stale/hung socket checks bounded so claude startup does not block
-    # behind the CLI default timeout (15s).
+    # behind the CLI default timeout (15s). Use a hard process-level timeout
+    # as a backstop — the CLI env var timeout is not always respected (e.g.
+    # the CLI can hang on access-denied errors without exiting).
+    local pid
     CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=0.75 \
-        "$cmux_bin" --socket "$socket" ping >/dev/null 2>&1
+        "$cmux_bin" --socket "$socket" ping >/dev/null 2>&1 &
+    pid=$!
+    local i=0
+    while (( i < 15 )); do
+        if ! kill -0 "$pid" 2>/dev/null; then
+            wait "$pid" 2>/dev/null
+            return $?
+        fi
+        sleep 0.1
+        (( i++ ))
+    done
+    # Still running after 1.5s — kill and report failure.
+    kill "$pid" 2>/dev/null
+    wait "$pid" 2>/dev/null
+    return 1
 }
 
 # Pass through if not in a cmux terminal, hooks are disabled, or the cmux
 # socket is unavailable (stale env / app not running).
 IN_CMUX=0
-if [[ -n "$CMUX_SURFACE_ID" ]]; then
+if [[ -n "${CMUX_SURFACE_ID:-}" ]]; then
     IN_CMUX=1
 fi
 
-if [[ "$IN_CMUX" == "0" || "$CMUX_CLAUDE_HOOKS_DISABLED" == "1" ]] || ! cmux_socket_available; then
+if [[ "$IN_CMUX" == "0" || "${CMUX_CLAUDE_HOOKS_DISABLED:-}" == "1" ]] || ! cmux_socket_available; then
     # In cmux-launched shells, preserve old behavior and always clear nested
     # Claude session markers, even when we must pass through due to stale socket.
     if [[ "$IN_CMUX" == "1" ]]; then

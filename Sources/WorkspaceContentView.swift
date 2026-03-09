@@ -37,7 +37,14 @@ struct WorkspaceContentView: View {
 
         // Inactive workspaces are kept alive in a ZStack (for state preservation) but their
         // AppKit-backed views can still intercept drags. Disable drop acceptance for them.
-        let _ = { workspace.bonsplitController.isInteractive = isWorkspaceInputActive }()
+        // Only manage interactivity when this view is actually visible. In shared mode, a
+        // non-visible workspace might be actively displayed in another window; overriding
+        // isInteractive here would hide the Bonsplit tab strip in that window.
+        let _ = {
+            if isWorkspaceVisible {
+                workspace.bonsplitController.isInteractive = isWorkspaceInputActive
+            }
+        }()
 
         // Wire up file drop handling so bonsplit's PaneDragContainerView can forward
         // Finder file drops to the correct terminal panel.
