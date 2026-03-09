@@ -162,12 +162,18 @@ extension Workspace {
             statusEntries: statusSnapshots,
             logEntries: logSnapshots,
             progress: progressSnapshot,
-            gitBranch: gitBranchSnapshot
+            gitBranch: gitBranchSnapshot,
+            zmxStableId: zmxStableId
         )
     }
 
     func restoreSessionSnapshot(_ snapshot: SessionWorkspaceSnapshot) {
         restoredTerminalScrollbackByPanelId.removeAll(keepingCapacity: false)
+
+        // Restore zmx stable ID for session name derivation
+        if let stableId = snapshot.zmxStableId {
+            zmxStableId = stableId
+        }
 
         let normalizedCurrentDirectory = snapshot.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
         if !normalizedCurrentDirectory.isEmpty {
@@ -231,6 +237,9 @@ extension Workspace {
         } else {
             scheduleFocusReconcile()
         }
+
+        // Rehydrate zmx panel index counter to prevent session name collisions
+        rehydrateZmxPanelIndex()
     }
 
     private func sessionLayoutSnapshot(from node: ExternalTreeNode) -> SessionWorkspaceLayoutSnapshot {
@@ -362,7 +371,8 @@ extension Workspace {
             ttyName: ttyName,
             terminal: terminalSnapshot,
             browser: browserSnapshot,
-            markdown: markdownSnapshot
+            markdown: markdownSnapshot,
+            zmxSessionName: zmxSessionNames[panelId]
         )
     }
 
@@ -495,11 +505,24 @@ extension Workspace {
             let replayEnvironment = SessionScrollbackReplayStore.replayEnvironment(
                 for: snapshot.terminal?.scrollback
             )
+            // zmx session restore: if the snapshot has a zmx session name and zmx is enabled,
+            // probe whether the session is alive and pass it to the surface
+            let zmxName: String?
+            let zmxCreate: Bool
+            if let name = snapshot.zmxSessionName, ZmxPersistenceSettings.isEnabled, ZmxSessionProbe.isZmxAvailable() {
+                zmxName = name
+                zmxCreate = !ZmxSessionProbe.isSessionAlive(name)
+            } else {
+                zmxName = nil
+                zmxCreate = true
+            }
             guard let terminalPanel = newTerminalSurface(
                 inPane: paneId,
                 focus: false,
                 workingDirectory: workingDirectory,
-                startupEnvironment: replayEnvironment
+                startupEnvironment: replayEnvironment,
+                zmxSessionName: zmxName,
+                zmxCreate: zmxCreate
             ) else {
                 return nil
             }
@@ -2049,11 +2072,28 @@ final class Workspace: Identifiable, ObservableObject {
         inPane paneId: PaneID,
         focus: Bool? = nil,
         workingDirectory: String? = nil,
-        startupEnvironment: [String: String] = [:]
+        startupEnvironment: [String: String] = [:],
+        zmxSessionName: String? = nil,
+        zmxCreate: Bool = true
     ) -> TerminalPanel? {
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
 
         let inheritedConfig = inheritedTerminalConfig(inPane: paneId)
+
+        // Resolve zmx session name: explicit name from restore, or auto-assign for fresh terminals.
+        // Must be resolved before panel creation because it's passed in the ghostty surface config.
+        let resolvedZmxName: String?
+        if let zmxSessionName {
+            resolvedZmxName = zmxSessionName
+        } else if ZmxPersistenceSettings.isEnabled, ZmxSessionProbe.isZmxAvailable() {
+            // Auto-generate a new zmx session name for this fresh terminal
+            let stableId = zmxStableId ?? id.uuidString
+            if zmxStableId == nil { zmxStableId = stableId }
+            resolvedZmxName = ZmxSessionNaming.sessionName(stableId: stableId, panelIndex: zmxNextPanelIndex)
+            zmxNextPanelIndex += 1
+        } else {
+            resolvedZmxName = nil
+        }
 
         // Create new terminal panel
         let newPanel = TerminalPanel(
@@ -2062,11 +2102,16 @@ final class Workspace: Identifiable, ObservableObject {
             configTemplate: inheritedConfig,
             workingDirectory: workingDirectory,
             additionalEnvironment: startupEnvironment,
-            portOrdinal: portOrdinal
+            portOrdinal: portOrdinal,
+            zmxSessionName: resolvedZmxName,
+            zmxCreate: zmxCreate
         )
         panels[newPanel.id] = newPanel
         panelTitles[newPanel.id] = newPanel.displayTitle
         seedTerminalInheritanceFontPoints(panelId: newPanel.id, configTemplate: inheritedConfig)
+        if let resolvedZmxName {
+            zmxSessionNames[newPanel.id] = resolvedZmxName
+        }
 
         // Create tab in bonsplit
         guard let newTabId = bonsplitController.createTab(
@@ -4550,4 +4595,43 @@ extension Workspace: BonsplitDelegate {
     }
 
     // No post-close polling refresh loop: we rely on view invariants and Ghostty's wakeups.
+
+    // MARK: - zmx Session Persistence
+
+    /// Stable identifier for zmx session name derivation (persists across sessions).
+    var zmxStableId: String?
+    /// Panel ID → zmx session name mapping.
+    var zmxSessionNames: [UUID: String] = [:]
+    /// Next panel index counter for deterministic session naming.
+    private var zmxNextPanelIndex: Int = 0
+
+    /// Assign a deterministic zmx session name for a panel.
+    func assignZmxSessionName(for panelId: UUID) -> String? {
+        guard ZmxPersistenceSettings.isEnabled else { return nil }
+        let stableId = zmxStableId ?? id.uuidString
+        if zmxStableId == nil { zmxStableId = stableId }
+        let name = ZmxSessionNaming.sessionName(stableId: stableId, panelIndex: zmxNextPanelIndex)
+        zmxNextPanelIndex += 1
+        zmxSessionNames[panelId] = name
+        return name
+    }
+
+    /// Rehydrate zmxNextPanelIndex from existing session names to prevent collisions.
+    func rehydrateZmxPanelIndex() {
+        var maxIndex = -1
+        for name in zmxSessionNames.values {
+            if let idx = ZmxSessionNaming.parseIndex(from: name), idx > maxIndex {
+                maxIndex = idx
+            }
+        }
+        zmxNextPanelIndex = maxIndex + 1
+    }
+
+    /// Kill all zmx sessions owned by this workspace.
+    func killZmxSessions() {
+        guard ZmxPersistenceSettings.killOnWorkspaceClose else { return }
+        for name in zmxSessionNames.values {
+            ZmxSessionProbe.killSession(name)
+        }
+    }
 }
