@@ -10079,6 +10079,7 @@ private struct TabItemView: View {
         case .open: return String(localized: "sidebar.pullRequest.statusOpen", defaultValue: "open")
         case .merged: return String(localized: "sidebar.pullRequest.statusMerged", defaultValue: "merged")
         case .closed: return String(localized: "sidebar.pullRequest.statusClosed", defaultValue: "closed")
+        case .draft: return String(localized: "sidebar.pullRequest.statusDraft", defaultValue: "draft")
         }
     }
 
@@ -10132,6 +10133,8 @@ private struct TabItemView: View {
                     .font(.system(size: 7, weight: .regular))
                     .foregroundColor(color)
                     .frame(width: Self.frameSize, height: Self.frameSize)
+            case .draft:
+                PullRequestDraftIcon(color: color)
             }
         }
     }
@@ -10167,6 +10170,44 @@ private struct TabItemView: View {
 
                 Circle()
                     .stroke(color, lineWidth: Self.stroke.lineWidth)
+                    .frame(width: Self.nodeDiameter, height: Self.nodeDiameter)
+                    .position(x: 11.0, y: 11.0)
+            }
+            .frame(width: Self.frameSize, height: Self.frameSize)
+        }
+    }
+
+    private struct PullRequestDraftIcon: View {
+        let color: Color
+        private static let stroke = StrokeStyle(lineWidth: 1.2, lineCap: .round, lineJoin: .round, dash: [2, 2])
+        private static let nodeDiameter: CGFloat = 3.0
+        private static let frameSize: CGFloat = 13
+
+        var body: some View {
+            ZStack {
+                Path { path in
+                    path.move(to: CGPoint(x: 3.0, y: 4.8))
+                    path.addLine(to: CGPoint(x: 3.0, y: 9.2))
+
+                    path.move(to: CGPoint(x: 4.8, y: 3.0))
+                    path.addLine(to: CGPoint(x: 9.4, y: 3.0))
+                    path.addLine(to: CGPoint(x: 11.0, y: 4.6))
+                    path.addLine(to: CGPoint(x: 11.0, y: 9.2))
+                }
+                .stroke(color, style: Self.stroke)
+
+                Circle()
+                    .stroke(color, lineWidth: 1.2)
+                    .frame(width: Self.nodeDiameter, height: Self.nodeDiameter)
+                    .position(x: 3.0, y: 3.0)
+
+                Circle()
+                    .stroke(color, lineWidth: 1.2)
+                    .frame(width: Self.nodeDiameter, height: Self.nodeDiameter)
+                    .position(x: 3.0, y: 11.0)
+
+                Circle()
+                    .stroke(color, lineWidth: 1.2)
                     .frame(width: Self.nodeDiameter, height: Self.nodeDiameter)
                     .position(x: 11.0, y: 11.0)
             }

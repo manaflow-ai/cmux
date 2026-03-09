@@ -13229,7 +13229,7 @@ class TerminalController {
     private func reportPullRequest(_ args: String) -> String {
         let parsed = parseOptions(args)
         guard parsed.positional.count >= 2 else {
-            return "ERROR: Missing pull request number or URL — usage: report_pr <number> <url> [--label=PR] [--state=open|merged|closed] [--tab=X] [--panel=Y]"
+            return "ERROR: Missing pull request number or URL — usage: report_pr <number> <url> [--label=PR] [--state=open|merged|closed|draft] [--tab=X] [--panel=Y]"
         }
 
         let rawNumber = parsed.positional[0].trimmingCharacters(in: .whitespacesAndNewlines)
@@ -13247,12 +13247,12 @@ class TerminalController {
 
         let statusRaw = (parsed.options["state"] ?? "open").lowercased()
         guard let status = SidebarPullRequestStatus(rawValue: statusRaw) else {
-            return "ERROR: Invalid pull request state '\(statusRaw)' — use: open, merged, closed"
+            return "ERROR: Invalid pull request state '\(statusRaw)' — use: open, merged, closed, draft"
         }
 
         let labelRaw = normalizedOptionValue(parsed.options["label"]) ?? "PR"
         guard !labelRaw.isEmpty else {
-            return "ERROR: Invalid review label — usage: report_pr <number> <url> [--label=PR] [--state=open|merged|closed] [--tab=X] [--panel=Y]"
+            return "ERROR: Invalid review label — usage: report_pr <number> <url> [--label=PR] [--state=open|merged|closed|draft] [--tab=X] [--panel=Y]"
         }
         let label = String(labelRaw.prefix(16))
 
@@ -13269,7 +13269,7 @@ class TerminalController {
             let surfaceId: UUID
             if let panelArg {
                 if panelArg.isEmpty {
-                    result = "ERROR: Missing panel id — usage: report_pr <number> <url> [--label=PR] [--state=open|merged|closed] [--tab=X] [--panel=Y]"
+                    result = "ERROR: Missing panel id — usage: report_pr <number> <url> [--label=PR] [--state=open|merged|closed|draft] [--tab=X] [--panel=Y]"
                     return
                 }
                 guard let parsedId = UUID(uuidString: panelArg) else {

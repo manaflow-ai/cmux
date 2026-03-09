@@ -355,26 +355,30 @@ _cmux_precmd() {
             _CMUX_PR_LAST_PWD="$pwd"
             _CMUX_PR_LAST_RUN=$now
             {
-                local branch pr_tsv number state url status_opt=""
+                local branch pr_tsv number state url is_draft status_opt=""
                 branch=$(git branch --show-current 2>/dev/null)
                 if [[ -z "$branch" ]] || ! command -v gh >/dev/null 2>&1; then
                     _cmux_send "clear_pr --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
                 else
-                    pr_tsv="$(gh pr view --json number,state,url --jq '[.number, .state, .url] | @tsv' 2>/dev/null || true)"
+                    pr_tsv="$(gh pr view --json number,state,url,isDraft --jq '[.number, .state, .url, .isDraft] | @tsv' 2>/dev/null || true)"
                     if [[ -z "$pr_tsv" ]]; then
                         _cmux_send "clear_pr --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
                     else
                         local IFS=$'\t'
-                        read -r number state url <<< "$pr_tsv"
+                        read -r number state url is_draft <<< "$pr_tsv"
                         if [[ -z "$number" ]] || [[ -z "$url" ]]; then
                             _cmux_send "clear_pr --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
                         else
-                            case "$state" in
-                                MERGED) status_opt="--state=merged" ;;
-                                OPEN) status_opt="--state=open" ;;
-                                CLOSED) status_opt="--state=closed" ;;
-                                *) status_opt="" ;;
-                            esac
+                            if [[ "$is_draft" == "true" ]]; then
+                                status_opt="--state=draft"
+                            else
+                                case "$state" in
+                                    MERGED) status_opt="--state=merged" ;;
+                                    OPEN) status_opt="--state=open" ;;
+                                    CLOSED) status_opt="--state=closed" ;;
+                                    *) status_opt="" ;;
+                                esac
+                            fi
                             _cmux_send "report_pr $number $url $status_opt --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
                         fi
                     fi
