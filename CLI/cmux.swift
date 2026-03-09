@@ -1377,7 +1377,9 @@ struct CMUXCLI {
             }
             let wsId = try resolveWorkspaceId(workspaceArg, client: client)
             var params: [String: Any] = ["workspace_id": wsId]
-            if !isClear {
+            if isClear {
+                params["color"] = NSNull()
+            } else {
                 let colorArgs = rem1.dropFirst(rem1.first == "--" ? 1 : 0)
                 let color = colorArgs.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !color.isEmpty else {

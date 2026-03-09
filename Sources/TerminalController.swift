@@ -3131,20 +3131,20 @@ class TerminalController {
             return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
         }
 
+        guard params.keys.contains("color") else {
+            return .err(code: "invalid_params", message: "Missing color. Use null to clear.", data: nil)
+        }
+
         let color: String?
-        if params.keys.contains("color") {
-            if params["color"] is NSNull {
-                color = nil
-            } else if let colorRaw = params["color"] as? String {
-                guard let normalized = WorkspaceTabColorSettings.normalizedHex(colorRaw) else {
-                    return .err(code: "invalid_params", message: "Invalid color hex. Use format #RRGGBB.", data: nil)
-                }
-                color = normalized
-            } else {
-                return .err(code: "invalid_params", message: "color must be a string or null", data: nil)
-            }
-        } else {
+        if params["color"] is NSNull {
             color = nil
+        } else if let colorRaw = params["color"] as? String {
+            guard let normalized = WorkspaceTabColorSettings.normalizedHex(colorRaw) else {
+                return .err(code: "invalid_params", message: "Invalid color hex. Use format #RRGGBB.", data: nil)
+            }
+            color = normalized
+        } else {
+            return .err(code: "invalid_params", message: "color must be a string or null", data: nil)
         }
 
         var applied = false

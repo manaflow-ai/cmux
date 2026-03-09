@@ -5,12 +5,12 @@
 Set or clear the custom color for a workspace tab.
 
 ```bash
-cmux set-workspace-color [--workspace <id|ref>] [--clear] [--] <#hex>
+cmux set-workspace-color [--workspace <id|ref|index>] (--clear | [--] <#hex>)
 ```
 
 **Flags:**
-- `--workspace <id|ref>` - Target workspace (default: current / `$CMUX_WORKSPACE_ID`)
-- `--clear` - Remove the custom color
+- `--workspace <id|ref|index>` - Target workspace (default: current / `$CMUX_WORKSPACE_ID`)
+- `--clear` - Remove the custom color (mutually exclusive with `<#hex>`)
 
 **Examples:**
 ```bash
@@ -21,9 +21,12 @@ cmux set-workspace-color --workspace workspace:3 --clear
 
 **Socket method:** `workspace.set_color`
 ```json
+// Set color
 { "workspace_id": "<uuid>", "color": "#C0392B" }
+
+// Clear color
+{ "workspace_id": "<uuid>", "color": null }
 ```
-Omit `color` to clear.
 
 ## notify (color support)
 
