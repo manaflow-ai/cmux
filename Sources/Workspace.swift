@@ -994,6 +994,8 @@ final class Workspace: Identifiable, ObservableObject {
     @Published var listeningPorts: [Int] = []
     var surfaceTTYNames: [UUID: String] = [:]
     private var restoredTerminalScrollbackByPanelId: [UUID: String] = [:]
+    private var currentSelectedPanelByPaneId: [UUID: UUID] = [:]
+    private var lastVisitedPanelByPaneId: [UUID: UUID] = [:]
 
     var focusedSurfaceId: UUID? { focusedPanelId }
     var surfaceDirectories: [UUID: String] {
@@ -3203,6 +3205,29 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
+    /// Select the previously visited surface in the currently focused pane (MRU toggle).
+    func selectLastVisitedSurface() {
+        guard let focusedPaneId = bonsplitController.focusedPaneId else { return }
+        pruneSurfaceSelectionHistory(for: focusedPaneId)
+
+        guard let currentTabId = bonsplitController.selectedTab(inPane: focusedPaneId)?.id,
+              let currentPanelId = panelIdFromSurfaceId(currentTabId) else { return }
+        recordSurfaceSelection(panelId: currentPanelId, in: focusedPaneId)
+
+        guard let targetPanelId = lastVisitedPanelByPaneId[focusedPaneId.id],
+              targetPanelId != currentPanelId,
+              panels[targetPanelId] != nil,
+              let targetTabId = surfaceIdFromPanelId(targetPanelId),
+              bonsplitController.tabs(inPane: focusedPaneId).contains(where: { $0.id == targetTabId }) else {
+            return
+        }
+
+        bonsplitController.selectTab(targetTabId)
+        if let selectedTabId = bonsplitController.selectedTab(inPane: focusedPaneId)?.id {
+            applyTabSelection(tabId: selectedTabId, inPane: focusedPaneId)
+        }
+    }
+
     /// Create a new terminal surface in the currently focused pane
     @discardableResult
     func newTerminalSurfaceInFocusedPane(focus: Bool? = nil) -> TerminalPanel? {
@@ -3867,6 +3892,32 @@ extension Workspace: BonsplitDelegate {
         )
     }
 
+    private func recordSurfaceSelection(panelId: UUID, in pane: PaneID) {
+        pruneSurfaceSelectionHistory(for: pane)
+
+        let paneUUID = pane.id
+        if let previousPanelId = currentSelectedPanelByPaneId[paneUUID],
+           previousPanelId != panelId,
+           panels[previousPanelId] != nil {
+            lastVisitedPanelByPaneId[paneUUID] = previousPanelId
+        }
+        currentSelectedPanelByPaneId[paneUUID] = panelId
+    }
+
+    private func pruneSurfaceSelectionHistory(for pane: PaneID) {
+        let paneUUID = pane.id
+        let panelIdsInPane: Set<UUID> = Set(
+            bonsplitController.tabs(inPane: pane).compactMap { panelIdFromSurfaceId($0.id) }
+        )
+
+        if let current = currentSelectedPanelByPaneId[paneUUID], !panelIdsInPane.contains(current) {
+            currentSelectedPanelByPaneId.removeValue(forKey: paneUUID)
+        }
+        if let last = lastVisitedPanelByPaneId[paneUUID], !panelIdsInPane.contains(last) {
+            lastVisitedPanelByPaneId.removeValue(forKey: paneUUID)
+        }
+    }
+
     private func beginNonFocusSplitFocusReassert(
         preferredPanelId: UUID,
         splitPanelId: UUID
@@ -4139,6 +4190,9 @@ extension Workspace: BonsplitDelegate {
     }
 
     func splitTabBar(_ controller: BonsplitController, didSelectTab tab: Bonsplit.Tab, inPane pane: PaneID) {
+        if let panelId = panelIdFromSurfaceId(tab.id) {
+            recordSurfaceSelection(panelId: panelId, in: pane)
+        }
         applyTabSelection(tabId: tab.id, inPane: pane)
     }
 

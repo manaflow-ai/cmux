@@ -517,6 +517,18 @@ class cmux:
             raise cmuxError(f"Invalid surface: {surface!r}")
         self._call("surface.focus", {"surface_id": sid})
 
+    def last_surface(self, workspace: Union[str, int, None] = None) -> str:
+        params: Dict[str, Any] = {}
+        if workspace is not None:
+            wsid = self._resolve_workspace_id(workspace)
+            if wsid:
+                params["workspace_id"] = wsid
+        res = self._call("surface.last", params) or {}
+        sid = res.get("surface_id")
+        if not sid:
+            raise cmuxError(f"surface.last returned no surface_id: {res}")
+        return str(sid)
+
     def focus_surface_by_panel(self, surface_id: str) -> None:
         # In v2, surface_id is the panel UUID.
         self.focus_surface(surface_id)
