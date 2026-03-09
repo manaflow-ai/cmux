@@ -7018,7 +7018,7 @@ struct CMUXCLI {
           send-key [--workspace <id|ref>] [--surface <id|ref>] <key>
           send-panel --panel <id|ref> [--workspace <id|ref>] <text>
           send-key-panel --panel <id|ref> [--workspace <id|ref>] <key>
-          notify --title <text> [--subtitle <text>] [--body <text>] [--color <#hex>] [--workspace <id|ref>] [--surface <id|ref>]
+          notify --title <text> [--subtitle <text>] [--body <text>] [--color <#hex>] [--workspace <id|ref|index>] [--surface <id|ref|index>]
           list-notifications
           clear-notifications
           claude-hook <session-start|stop|notification> [--workspace <id|ref>] [--surface <id|ref>]

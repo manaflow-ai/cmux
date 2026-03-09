@@ -5351,7 +5351,8 @@ class TerminalController {
                 "surface_id": v2OrNull(surfaceId?.uuidString),
                 "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
                 "window_id": v2OrNull(windowId?.uuidString),
-                "window_ref": v2Ref(kind: .window, uuid: windowId)
+                "window_ref": v2Ref(kind: .window, uuid: windowId),
+                "color": v2OrNull(resolvedColor)
             ])
         }
         return result
@@ -5401,7 +5402,7 @@ class TerminalController {
                 color: resolvedColor
             )
             let windowId = v2ResolveWindowId(tabManager: tabManager)
-            result = .ok(["workspace_id": ws.id.uuidString, "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id), "surface_id": surfaceId.uuidString, "surface_ref": v2Ref(kind: .surface, uuid: surfaceId), "window_id": v2OrNull(windowId?.uuidString), "window_ref": v2Ref(kind: .window, uuid: windowId)])
+            result = .ok(["workspace_id": ws.id.uuidString, "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id), "surface_id": surfaceId.uuidString, "surface_ref": v2Ref(kind: .surface, uuid: surfaceId), "window_id": v2OrNull(windowId?.uuidString), "window_ref": v2Ref(kind: .window, uuid: windowId), "color": v2OrNull(resolvedColor)])
         }
         return result
     }
@@ -5453,7 +5454,7 @@ class TerminalController {
                 color: resolvedColor
             )
             let windowId = v2ResolveWindowId(tabManager: tabManager)
-            result = .ok(["workspace_id": ws.id.uuidString, "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id), "surface_id": surfaceId.uuidString, "surface_ref": v2Ref(kind: .surface, uuid: surfaceId), "window_id": v2OrNull(windowId?.uuidString), "window_ref": v2Ref(kind: .window, uuid: windowId)])
+            result = .ok(["workspace_id": ws.id.uuidString, "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id), "surface_id": surfaceId.uuidString, "surface_ref": v2Ref(kind: .surface, uuid: surfaceId), "window_id": v2OrNull(windowId?.uuidString), "window_ref": v2Ref(kind: .window, uuid: windowId), "color": v2OrNull(resolvedColor)])
         }
         return result
     }
