@@ -317,8 +317,10 @@ struct BrowserPanelView: View {
         // container. Rendering it here can hide it behind the portal-hosted WKWebView.
         VStack(spacing: 0) {
             addressBar
+                .fixedSize(horizontal: false, vertical: true)
             webView
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .overlay {
             // Keep Cmd+F usable when the browser is still in the empty new-tab
             // state (no WKWebView mounted yet). WebView-backed cases are hosted
@@ -839,6 +841,8 @@ struct BrowserPanelView: View {
                     }
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .layoutPriority(1)
         .zIndex(0)
     }
 
@@ -4271,13 +4275,24 @@ struct WebViewRepresentable: NSViewRepresentable {
         guard host.window != nil else { return }
         if anchorView.superview !== host {
             anchorView.removeFromSuperview()
-            anchorView.frame = host.bounds
-            anchorView.translatesAutoresizingMaskIntoConstraints = true
-            anchorView.autoresizingMask = [.width, .height]
+            anchorView.translatesAutoresizingMaskIntoConstraints = false
             host.addSubview(anchorView)
-        } else if anchorView.frame != host.bounds {
-            anchorView.frame = host.bounds
+            NSLayoutConstraint.activate([
+                anchorView.topAnchor.constraint(equalTo: host.topAnchor),
+                anchorView.bottomAnchor.constraint(equalTo: host.bottomAnchor),
+                anchorView.leadingAnchor.constraint(equalTo: host.leadingAnchor),
+                anchorView.trailingAnchor.constraint(equalTo: host.trailingAnchor),
+            ])
+        } else if anchorView.translatesAutoresizingMaskIntoConstraints {
+            anchorView.translatesAutoresizingMaskIntoConstraints = false
+            NSLayoutConstraint.activate([
+                anchorView.topAnchor.constraint(equalTo: host.topAnchor),
+                anchorView.bottomAnchor.constraint(equalTo: host.bottomAnchor),
+                anchorView.leadingAnchor.constraint(equalTo: host.leadingAnchor),
+                anchorView.trailingAnchor.constraint(equalTo: host.trailingAnchor),
+            ])
         }
+        host.layoutSubtreeIfNeeded()
     }
 
     private func updateUsingWindowPortal(_ nsView: NSView, context: Context, webView: WKWebView) {
