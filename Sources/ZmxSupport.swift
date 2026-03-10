@@ -178,6 +178,11 @@ enum ZmxSessionProbe {
         defer { close(fd) }
         guard setNoSigPipe(fd: fd) else { return }
 
+        // Use non-blocking connect with timeout to avoid hanging on wedged daemons
+        let flags = fcntl(fd, F_GETFL, 0)
+        guard flags >= 0 else { return }
+        guard fcntl(fd, F_SETFL, flags | O_NONBLOCK) >= 0 else { return }
+
         var addr = sockaddr_un()
         addr.sun_family = sa_family_t(AF_UNIX)
         let pathMax = MemoryLayout.size(ofValue: addr.sun_path) - 1
@@ -193,7 +198,17 @@ enum ZmxSessionProbe {
                 Darwin.connect(fd, sockaddrPtr, socklen_t(MemoryLayout<sockaddr_un>.size))
             }
         }
-        guard connectResult == 0 else { return }
+
+        if connectResult != 0 {
+            guard errno == EINPROGRESS else { return }
+            // Wait for connect with 500ms timeout
+            var pfd = pollfd(fd: fd, events: Int16(POLLOUT), revents: 0)
+            guard poll(&pfd, 1, 500) > 0 else { return }
+            var soError: Int32 = 0
+            var soLen = socklen_t(MemoryLayout<Int32>.size)
+            guard getsockopt(fd, SOL_SOCKET, SO_ERROR, &soError, &soLen) == 0,
+                  soError == 0 else { return }
+        }
 
         // Match the daemon's packed header layout as it is emitted by Zig at runtime:
         // tag byte, 3 bytes of padding, then a 4-byte little-endian payload length.

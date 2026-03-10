@@ -2701,13 +2701,20 @@ final class TerminalSurface: Identifiable, ObservableObject {
         }
 
         initialPresentRetriesRemaining -= 1
+
+        // Re-read surface after forceRefreshSurface (may be invalidated by reparent/teardown)
         view.forceRefreshSurface()
         guard let currentSurface = surface else {
             cancelInitialPresentRetries()
             return
         }
+
+        // Use occlusion toggle + refresh to trigger Ghostty's renderer wakeup.
+        // Do NOT call ghostty_surface_draw directly — rely on Ghostty wakeups to
+        // avoid typing lag (per coding guidelines).
+        ghostty_surface_set_occlusion(currentSurface, false)
+        ghostty_surface_set_occlusion(currentSurface, true)
         ghostty_surface_refresh(currentSurface)
-        ghostty_surface_draw(currentSurface)
 
         if view.layer?.contents != nil || initialPresentRetriesRemaining <= 0 {
             cancelInitialPresentRetries()
@@ -3158,11 +3165,11 @@ final class TerminalSurface: Identifiable, ObservableObject {
         ghostty_surface_refresh(surface)
         if view.layer?.contents == nil {
             // Freshly attached surfaces can get stuck until a later hide/show cycle
-            // toggles Ghostty's visible state. Recreate that pulse locally before an
-            // immediate draw so blank first frames recover without user interaction.
+            // toggles Ghostty's visible state. Recreate that pulse locally so
+            // Ghostty's renderer wakes up and produces the first frame.
             ghostty_surface_set_occlusion(surface, false)
             ghostty_surface_set_occlusion(surface, true)
-            ghostty_surface_draw(surface)
+            ghostty_surface_refresh(surface)
             scheduleInitialPresentRetries(reason: reason)
         } else {
             cancelInitialPresentRetries()
