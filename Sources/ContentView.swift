@@ -1902,9 +1902,12 @@ struct ContentView: View {
                 // Consume hover motion in divider band so overlapped views cannot
                 // continuously reassert their own cursor while we are resizing.
                 if event.type == .appKitDefined || event.type == .systemDefined {
-                    let evType: String = String(describing: event.type)
-                    os_log(.info, log: imeResizeSidebarLog, "sidebar.eventConsumed type=%{public}s subtype=%d dragging=%d band=%d",
-                           evType, event.subtype.rawValue, isResizerDragging ? 1 : 0, isResizerBandActive ? 1 : 0)
+                    let hasIME = (observedWindow?.firstResponder as? GhosttyNSView)?.hasMarkedText() == true
+                    if hasIME {
+                        let evType: String = String(describing: event.type)
+                        os_log(.info, log: imeResizeSidebarLog, "sidebar.eventConsumed type=%{public}@ subtype=%d dragging=%d band=%d",
+                               evType as NSString, event.subtype.rawValue, isResizerDragging ? 1 : 0, isResizerBandActive ? 1 : 0)
+                    }
                 }
                 activateSidebarResizerCursor()
                 Self.fixedSidebarResizeCursor.set()
@@ -1973,10 +1976,15 @@ struct ContentView: View {
                             isResizerDragging = true
                             sidebarDragStartWidth = sidebarWidth
                             let fr = observedWindow?.firstResponder
-                            let frType: String = fr.map { String(describing: type(of: $0)) } ?? "nil"
+                            let frType: String
+                            if let fr {
+                                frType = String(describing: type(of: fr))
+                            } else {
+                                frType = "nil"
+                            }
                             let hasMarked: Int = (fr as? GhosttyNSView)?.hasMarkedText() == true ? 1 : 0
-                            os_log(.info, log: imeResizeSidebarLog, "sidebar.resizeDragStart fr=%{public}s hasMarkedText=%d",
-                                   frType, hasMarked)
+                            os_log(.info, log: imeResizeSidebarLog, "sidebar.resizeDragStart fr=%{public}@ hasMarkedText=%d",
+                                   frType as NSString, hasMarked)
                             #if DEBUG
                             dlog("sidebar.resizeDragStart")
                             #endif
@@ -1994,10 +2002,15 @@ struct ContentView: View {
                     }
                     .onEnded { _ in
                         let fr = observedWindow?.firstResponder
-                        let frType: String = fr.map { String(describing: type(of: $0)) } ?? "nil"
+                        let frType: String
+                        if let fr {
+                            frType = String(describing: type(of: fr))
+                        } else {
+                            frType = "nil"
+                        }
                         let hasMarked: Int = (fr as? GhosttyNSView)?.hasMarkedText() == true ? 1 : 0
-                        os_log(.info, log: imeResizeSidebarLog, "sidebar.resizeDragEnd fr=%{public}s hasMarkedText=%d",
-                               frType, hasMarked)
+                        os_log(.info, log: imeResizeSidebarLog, "sidebar.resizeDragEnd fr=%{public}@ hasMarkedText=%d",
+                               frType as NSString, hasMarked)
                         if isResizerDragging {
                             TerminalWindowPortalRegistry.endInteractiveGeometryResize()
                             isResizerDragging = false

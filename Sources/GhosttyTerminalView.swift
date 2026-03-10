@@ -4045,13 +4045,28 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         invalidateTextInputCoordinates()
     }
 
+    /// Throttle interval for IME layout logging to avoid flooding during live-resize.
+    private static let imeLayoutLogInterval: CFTimeInterval = 0.2
+    private var lastIMELayoutLogTime: CFTimeInterval = 0
+
     override func layout() {
         super.layout()
         if markedText.length > 0 {
-            let surfaceId: String = String(terminalSurface?.id.uuidString.prefix(5) ?? "nil")
-            let frDesc: String = window?.firstResponder === self ? "self" : String(describing: type(of: window?.firstResponder as Any))
-            os_log(.info, log: imeResizeLog, "ime.layout markedLen=%d surface=%{public}s fr=%{public}s bounds=%.0fx%.0f",
-                   markedText.length, surfaceId, frDesc, bounds.width, bounds.height)
+            let now = CACurrentMediaTime()
+            if now - lastIMELayoutLogTime >= Self.imeLayoutLogInterval {
+                lastIMELayoutLogTime = now
+                let surfaceId: String = String(terminalSurface?.id.uuidString.prefix(5) ?? "nil")
+                let frDesc: String
+                if window?.firstResponder === self {
+                    frDesc = "self"
+                } else if let fr = window?.firstResponder {
+                    frDesc = String(describing: type(of: fr))
+                } else {
+                    frDesc = "nil"
+                }
+                os_log(.info, log: imeResizeLog, "ime.layout markedLen=%d surface=%{public}@ fr=%{public}@ bounds=%.0fx%.0f",
+                       markedText.length, surfaceId as NSString, frDesc as NSString, bounds.width, bounds.height)
+            }
         }
         updateSurfaceSize()
         invalidateTextInputCoordinates()
@@ -4657,7 +4672,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     override func becomeFirstResponder() -> Bool {
         if markedText.length > 0 {
             let surfaceId: String = String(terminalSurface?.id.uuidString.prefix(5) ?? "nil")
-            os_log(.info, log: imeResizeLog, "ime.becomeFirstResponder markedLen=%d surface=%{public}s", markedText.length, surfaceId)
+            os_log(.info, log: imeResizeLog, "ime.becomeFirstResponder markedLen=%d surface=%{public}@", markedText.length, surfaceId as NSString)
         }
         let result = super.becomeFirstResponder()
         var shouldApplySurfaceFocus = false
@@ -4733,9 +4748,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     override func resignFirstResponder() -> Bool {
         if markedText.length > 0 {
             let surfaceId: String = String(terminalSurface?.id.uuidString.prefix(5) ?? "nil")
-            let caller: String = Thread.callStackSymbols.prefix(8).joined(separator: "\n")
-            os_log(.fault, log: imeResizeLog, "ime.resignFirstResponder markedLen=%d surface=%{public}s caller=%{public}s",
-                   markedText.length, surfaceId, caller)
+            os_log(.fault, log: imeResizeLog, "ime.resignFirstResponder markedLen=%d surface=%{public}@",
+                   markedText.length, surfaceId as NSString)
         }
         let result = super.resignFirstResponder()
         if result {
@@ -4818,9 +4832,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         guard let fr = window?.firstResponder as? NSView,
               fr === self || fr.isDescendant(of: self) else {
             if markedText.length > 0 {
-                let frType: String = window?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
-                os_log(.fault, log: imeResizeLog, "ime.performKeyEquiv.REJECTED frMismatch markedLen=%d keyCode=%d frType=%{public}s",
-                       markedText.length, event.keyCode, frType)
+                let frType: String
+                if let fr = window?.firstResponder {
+                    frType = String(describing: type(of: fr))
+                } else {
+                    frType = "nil"
+                }
+                os_log(.fault, log: imeResizeLog, "ime.performKeyEquiv.REJECTED frMismatch markedLen=%d keyCode=%d frType=%{public}@",
+                       markedText.length, event.keyCode, frType as NSString)
             }
             return false
         }
@@ -4976,16 +4995,23 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #endif
         if markedText.length > 0 {
             let surfaceId: String = String(terminalSurface?.id.uuidString.prefix(5) ?? "nil")
-            let frDesc: String = window?.firstResponder === self ? "self" : String(describing: type(of: window?.firstResponder as Any))
-            os_log(.info, log: imeResizeLog, "ime.keyDown markedLen=%d keyCode=%d surface=%{public}s fr=%{public}s",
-                   markedText.length, event.keyCode, surfaceId, frDesc)
+            let frDesc: String
+            if window?.firstResponder === self {
+                frDesc = "self"
+            } else if let fr = window?.firstResponder {
+                frDesc = String(describing: type(of: fr))
+            } else {
+                frDesc = "nil"
+            }
+            os_log(.info, log: imeResizeLog, "ime.keyDown markedLen=%d keyCode=%d surface=%{public}@ fr=%{public}@",
+                   markedText.length, event.keyCode, surfaceId as NSString, frDesc as NSString)
         }
         guard let surface = ensureSurfaceReadyForInput() else {
 #if DEBUG
             ensureSurfaceMs = (ProcessInfo.processInfo.systemUptime - ensureSurfaceStart) * 1000.0
 #endif
             if markedText.length > 0 {
-                os_log(.fault, log: imeResizeLog, "ime.keyDown.REJECTED noSurface markedLen=%d keyCode=%d",
+                os_log(.fault, log: imeResizeLog, "ime.keyDown.REJECTED.noSurface markedLen=%d keyCode=%d",
                        markedText.length, event.keyCode)
             }
             super.keyDown(with: event)
@@ -8596,8 +8622,8 @@ extension GhosttyNSView: NSTextInputClient {
         do {
             let surfaceId: String = String(terminalSurface?.id.uuidString.prefix(5) ?? "nil")
             let accum: String = keyTextAccumulator != nil ? "yes" : "nil"
-            os_log(.info, log: imeResizeLog, "ime.setMarkedText prev=%d new=%d accum=%{public}s surface=%{public}s",
-                   previousLength, markedText.length, accum, surfaceId)
+            os_log(.info, log: imeResizeLog, "ime.setMarkedText prev=%d new=%d accum=%{public}@ surface=%{public}@",
+                   previousLength, markedText.length, accum as NSString, surfaceId as NSString)
         }
 
         // If we're not in a keyDown event, sync preedit immediately.
