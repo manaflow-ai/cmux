@@ -6182,6 +6182,7 @@ final class VSCodeServeWebControllerTests: XCTestCase {
 
     func testStopRemovesOrphanedConnectionTokenFiles() throws {
         let tokenFileURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: tokenFileURL) }
         try Data("token".utf8).write(to: tokenFileURL)
         XCTAssertTrue(FileManager.default.fileExists(atPath: tokenFileURL.path))
 
