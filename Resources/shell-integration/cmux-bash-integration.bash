@@ -125,9 +125,22 @@ _cmux_clear_pr_for_panel() {
     _cmux_send "clear_pr --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
 }
 
+_cmux_pr_output_indicates_no_pull_request() {
+    local output="$1"
+    output="$(printf '%s' "$output" | tr '[:upper:]' '[:lower:]')"
+    [[ "$output" == *"no pull requests found"* \
+        || "$output" == *"no pull request found"* \
+        || "$output" == *"no pull requests associated"* \
+        || "$output" == *"no pull request associated"* ]]
+}
+
 _cmux_report_pr_for_path() {
     local repo_path="$1"
     [[ -n "$repo_path" ]] || {
+        _cmux_clear_pr_for_panel
+        return 0
+    }
+    [[ -d "$repo_path" ]] || {
         _cmux_clear_pr_for_panel
         return 0
     }
@@ -135,34 +148,42 @@ _cmux_report_pr_for_path() {
     [[ -n "$CMUX_TAB_ID" ]] || return 0
     [[ -n "$CMUX_PANEL_ID" ]] || return 0
 
-    local branch pr_tsv gh_status number state url status_opt=""
+    local branch gh_output gh_error="" err_file="" gh_status number state url status_opt=""
     branch="$(git -C "$repo_path" branch --show-current 2>/dev/null)"
     if [[ -z "$branch" ]] || ! command -v gh >/dev/null 2>&1; then
         _cmux_clear_pr_for_panel
         return 0
     fi
 
-    pr_tsv="$(
+    err_file="$(/usr/bin/mktemp "${TMPDIR:-/tmp}/cmux-gh-pr-view.XXXXXX" 2>/dev/null || true)"
+    [[ -n "$err_file" ]] || return 1
+    gh_output="$(
         builtin cd "$repo_path" 2>/dev/null \
-            && gh pr list \
-                --head "$branch" \
-                --state all \
-                --json number,state,url,updatedAt \
-                --jq 'if length == 0 then "" else (sort_by(.updatedAt) | last | [.number, .state, .url] | @tsv) end' \
-                2>/dev/null
+            && gh pr view \
+                --json number,state,url \
+                --jq '[.number, .state, .url] | @tsv' \
+                2>"$err_file"
     )"
     gh_status=$?
+    if [[ -f "$err_file" ]]; then
+        gh_error="$("/bin/cat" -- "$err_file" 2>/dev/null || true)"
+        /bin/rm -f -- "$err_file" >/dev/null 2>&1 || true
+    fi
     if (( gh_status != 0 )); then
+        if _cmux_pr_output_indicates_no_pull_request "$gh_error"; then
+            _cmux_clear_pr_for_panel
+            return 0
+        fi
         # Preserve the last-known PR badge when gh fails transiently, then retry
         # on the next background poll instead of clearing visible state.
         return 1
     fi
-    if [[ -z "$pr_tsv" ]]; then
+    if [[ -z "$gh_output" ]]; then
         _cmux_clear_pr_for_panel
         return 0
     fi
 
-    IFS=$'\t' read -r number state url <<< "$pr_tsv"
+    IFS=$'\t' read -r number state url <<< "$gh_output"
     if [[ -z "$number" || -z "$url" ]]; then
         return 1
     fi
@@ -175,6 +196,37 @@ _cmux_report_pr_for_path() {
     esac
 
     _cmux_send "report_pr $number $url $status_opt --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+}
+
+_cmux_run_pr_probe_with_timeout() {
+    local repo_path="$1"
+    local probe_pid=""
+    local started_at=$SECONDS
+    local now=$started_at
+
+    (
+        _cmux_report_pr_for_path "$repo_path"
+    ) &
+    probe_pid=$!
+
+    while kill -0 "$probe_pid" >/dev/null 2>&1; do
+        sleep 1
+        now=$SECONDS
+        if (( _CMUX_ASYNC_JOB_TIMEOUT > 0 )) && (( now - started_at >= _CMUX_ASYNC_JOB_TIMEOUT )); then
+            kill "$probe_pid" >/dev/null 2>&1 || true
+            sleep 0.2
+            if kill -0 "$probe_pid" >/dev/null 2>&1; then
+                kill -9 "$probe_pid" >/dev/null 2>&1 || true
+                sleep 0.2
+            fi
+            if ! kill -0 "$probe_pid" >/dev/null 2>&1; then
+                wait "$probe_pid" >/dev/null 2>&1 || true
+            fi
+            return 1
+        fi
+    done
+
+    wait "$probe_pid"
 }
 
 _cmux_stop_pr_poll_loop() {
@@ -205,7 +257,7 @@ _cmux_start_pr_poll_loop() {
     {
         while :; do
             kill -0 "$watch_shell_pid" 2>/dev/null || break
-            _cmux_report_pr_for_path "$watch_pwd" || true
+            _cmux_run_pr_probe_with_timeout "$watch_pwd" || true
             sleep "$interval"
         done
     } >/dev/null 2>&1 &
@@ -221,6 +273,7 @@ _cmux_preexec_trap() {
     (( _CMUX_IN_PROMPT_COMMAND )) && return 0
     (( _CMUX_PREEXEC_READY )) || return 0
     _CMUX_PREEXEC_READY=0
+    _cmux_stop_pr_poll_loop
 
     local cmd="${BASH_COMMAND## }"
     case "$cmd" in
@@ -337,6 +390,12 @@ _cmux_prompt_command() {
     # Pull request metadata is remote state. Keep polling while the shell sits
     # at a prompt so newly created or merged PRs appear without another command.
     local should_restart_pr_poll=0
+    local pr_context_changed=0
+    if [[ -n "$_CMUX_PR_POLL_PWD" && "$pwd" != "$_CMUX_PR_POLL_PWD" ]]; then
+        pr_context_changed=1
+    elif [[ "$git_head_changed" == "1" ]]; then
+        pr_context_changed=1
+    fi
     if [[ "$pwd" != "$_CMUX_PR_POLL_PWD" || "$git_head_changed" == "1" ]]; then
         should_restart_pr_poll=1
     elif (( _CMUX_PR_FORCE )); then
@@ -347,6 +406,9 @@ _cmux_prompt_command() {
 
     if (( should_restart_pr_poll )); then
         _CMUX_PR_FORCE=0
+        if (( pr_context_changed )); then
+            _cmux_clear_pr_for_panel
+        fi
         _cmux_start_pr_poll_loop "$pwd" 1
     fi
 
