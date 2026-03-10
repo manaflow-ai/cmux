@@ -2688,12 +2688,12 @@ final class TerminalSurface: Identifiable, ObservableObject {
         initialPresentRetryWorkItem = nil
         guard portalLifecycleState == .live else { return }
         guard let view = attachedView,
-              let currentSurface = surface,
               view.window != nil,
               view.bounds.width > 0,
               view.bounds.height > 0 else {
             return
         }
+        guard surface != nil else { return }
 
         if view.layer?.contents != nil {
             cancelInitialPresentRetries()
@@ -2702,6 +2702,10 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
         initialPresentRetriesRemaining -= 1
         view.forceRefreshSurface()
+        guard let currentSurface = surface else {
+            cancelInitialPresentRetries()
+            return
+        }
         ghostty_surface_refresh(currentSurface)
         ghostty_surface_draw(currentSurface)
 
