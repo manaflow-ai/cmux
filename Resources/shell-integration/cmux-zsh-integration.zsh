@@ -47,10 +47,9 @@ typeset -g _CMUX_GIT_HEAD_LAST_PWD=""
 typeset -g _CMUX_GIT_HEAD_PATH=""
 typeset -g _CMUX_GIT_HEAD_SIGNATURE=""
 typeset -g _CMUX_GIT_HEAD_WATCH_PID=""
-typeset -g _CMUX_PR_LAST_PWD=""
-typeset -g _CMUX_PR_LAST_RUN=0
-typeset -g _CMUX_PR_JOB_PID=""
-typeset -g _CMUX_PR_JOB_STARTED_AT=0
+typeset -g _CMUX_PR_POLL_PID=""
+typeset -g _CMUX_PR_POLL_PWD=""
+typeset -g _CMUX_PR_POLL_INTERVAL=45
 typeset -g _CMUX_PR_FORCE=0
 typeset -g _CMUX_ASYNC_JOB_TIMEOUT=20
 
@@ -139,6 +138,101 @@ _cmux_report_git_branch_for_path() {
     else
         _cmux_send "clear_git_branch --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
     fi
+}
+
+_cmux_clear_pr_for_panel() {
+    [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
+    [[ -n "$CMUX_TAB_ID" ]] || return 0
+    [[ -n "$CMUX_PANEL_ID" ]] || return 0
+    _cmux_send "clear_pr --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+}
+
+_cmux_report_pr_for_path() {
+    local repo_path="$1"
+    [[ -n "$repo_path" ]] || {
+        _cmux_clear_pr_for_panel
+        return 0
+    }
+    [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
+    [[ -n "$CMUX_TAB_ID" ]] || return 0
+    [[ -n "$CMUX_PANEL_ID" ]] || return 0
+
+    local branch pr_tsv number state url status_opt="" gh_status
+    branch="$(git -C "$repo_path" branch --show-current 2>/dev/null)"
+    if [[ -z "$branch" ]] || ! command -v gh >/dev/null 2>&1; then
+        _cmux_clear_pr_for_panel
+        return 0
+    fi
+
+    pr_tsv="$(
+        builtin cd "$repo_path" 2>/dev/null \
+            && gh pr list \
+                --head "$branch" \
+                --state all \
+                --json number,state,url,updatedAt \
+                --jq 'if length == 0 then "" else (sort_by(.updatedAt) | last | [.number, .state, .url] | @tsv) end' \
+                2>/dev/null
+    )"
+    gh_status=$?
+    if (( gh_status != 0 )); then
+        # Keep the last-known PR badge on transient gh failures (auth hiccups,
+        # API lag after creation, or rate limiting) and retry on the next poll.
+        return 1
+    fi
+    if [[ -z "$pr_tsv" ]]; then
+        _cmux_clear_pr_for_panel
+        return 0
+    fi
+
+    local IFS=$'\t'
+    read -r number state url <<< "$pr_tsv"
+    if [[ -z "$number" ]] || [[ -z "$url" ]]; then
+        return 1
+    fi
+
+    case "$state" in
+        MERGED) status_opt="--state=merged" ;;
+        OPEN) status_opt="--state=open" ;;
+        CLOSED) status_opt="--state=closed" ;;
+        *) return 1 ;;
+    esac
+
+    _cmux_send "report_pr $number $url $status_opt --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+}
+
+_cmux_stop_pr_poll_loop() {
+    if [[ -n "$_CMUX_PR_POLL_PID" ]]; then
+        kill "$_CMUX_PR_POLL_PID" >/dev/null 2>&1 || true
+        _CMUX_PR_POLL_PID=""
+    fi
+}
+
+_cmux_start_pr_poll_loop() {
+    [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
+    [[ -n "$CMUX_TAB_ID" ]] || return 0
+    [[ -n "$CMUX_PANEL_ID" ]] || return 0
+
+    local watch_pwd="${1:-$PWD}"
+    local force_restart="${2:-0}"
+    local watch_shell_pid="$$"
+    local interval="${_CMUX_PR_POLL_INTERVAL:-45}"
+
+    if [[ "$force_restart" != "1" && "$watch_pwd" == "$_CMUX_PR_POLL_PWD" && -n "$_CMUX_PR_POLL_PID" ]] \
+        && kill -0 "$_CMUX_PR_POLL_PID" 2>/dev/null; then
+        return 0
+    fi
+
+    _cmux_stop_pr_poll_loop
+    _CMUX_PR_POLL_PWD="$watch_pwd"
+
+    {
+        while true; do
+            kill -0 "$watch_shell_pid" >/dev/null 2>&1 || break
+            _cmux_report_pr_for_path "$watch_pwd" || true
+            sleep "$interval"
+        done
+    } >/dev/null 2>&1 &!
+    _CMUX_PR_POLL_PID=$!
 }
 
 _cmux_stop_git_head_watch() {
@@ -241,17 +335,6 @@ _cmux_precmd() {
         fi
     fi
 
-    if [[ -n "$_CMUX_PR_JOB_PID" ]]; then
-        if ! kill -0 "$_CMUX_PR_JOB_PID" 2>/dev/null; then
-            _CMUX_PR_JOB_PID=""
-            _CMUX_PR_JOB_STARTED_AT=0
-        elif (( _CMUX_PR_JOB_STARTED_AT > 0 )) && (( now - _CMUX_PR_JOB_STARTED_AT >= _CMUX_ASYNC_JOB_TIMEOUT )); then
-            _CMUX_PR_JOB_PID=""
-            _CMUX_PR_JOB_STARTED_AT=0
-            _CMUX_PR_FORCE=1
-        fi
-    fi
-
     # CWD: keep the app in sync with the actual shell directory.
     # This is also the simplest way to test sidebar directory behavior end-to-end.
     if [[ "$pwd" != "$_CMUX_PWD_LAST_PWD" ]]; then
@@ -326,63 +409,21 @@ _cmux_precmd() {
         fi
     fi
 
-    # Pull request metadata (number/state/url):
-    # - refresh on cwd change, explicit git/gh commands, and occasionally for status drift
-    # - keep this independent from the git probe cadence to avoid hitting GitHub too often
-    local should_pr=0
-    if [[ "$pwd" != "$_CMUX_PR_LAST_PWD" ]]; then
-        should_pr=1
+    # Pull request metadata is remote state. Keep a lightweight background poll
+    # alive while the shell is idle so gh-created PRs and merge status changes
+    # appear even without another prompt.
+    local should_restart_pr_poll=0
+    if [[ "$pwd" != "$_CMUX_PR_POLL_PWD" ]]; then
+        should_restart_pr_poll=1
     elif (( _CMUX_PR_FORCE )); then
-        should_pr=1
-    elif (( now - _CMUX_PR_LAST_RUN >= 60 )); then
-        should_pr=1
+        should_restart_pr_poll=1
+    elif [[ -z "$_CMUX_PR_POLL_PID" ]] || ! kill -0 "$_CMUX_PR_POLL_PID" 2>/dev/null; then
+        should_restart_pr_poll=1
     fi
 
-    if (( should_pr )); then
-        local can_launch_pr=1
-        if [[ -n "$_CMUX_PR_JOB_PID" ]] && kill -0 "$_CMUX_PR_JOB_PID" 2>/dev/null; then
-            if [[ "$pwd" != "$_CMUX_PR_LAST_PWD" ]] || (( _CMUX_PR_FORCE )); then
-                kill "$_CMUX_PR_JOB_PID" >/dev/null 2>&1 || true
-                _CMUX_PR_JOB_PID=""
-                _CMUX_PR_JOB_STARTED_AT=0
-            else
-                can_launch_pr=0
-            fi
-        fi
-
-        if (( can_launch_pr )); then
-            _CMUX_PR_FORCE=0
-            _CMUX_PR_LAST_PWD="$pwd"
-            _CMUX_PR_LAST_RUN=$now
-            {
-                local branch pr_tsv number state url status_opt=""
-                branch=$(git branch --show-current 2>/dev/null)
-                if [[ -z "$branch" ]] || ! command -v gh >/dev/null 2>&1; then
-                    _cmux_send "clear_pr --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
-                else
-                    pr_tsv="$(gh pr view --json number,state,url --jq '[.number, .state, .url] | @tsv' 2>/dev/null || true)"
-                    if [[ -z "$pr_tsv" ]]; then
-                        _cmux_send "clear_pr --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
-                    else
-                        local IFS=$'\t'
-                        read -r number state url <<< "$pr_tsv"
-                        if [[ -z "$number" ]] || [[ -z "$url" ]]; then
-                            _cmux_send "clear_pr --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
-                        else
-                            case "$state" in
-                                MERGED) status_opt="--state=merged" ;;
-                                OPEN) status_opt="--state=open" ;;
-                                CLOSED) status_opt="--state=closed" ;;
-                                *) status_opt="" ;;
-                            esac
-                            _cmux_send "report_pr $number $url $status_opt --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
-                        fi
-                    fi
-                fi
-            } >/dev/null 2>&1 &!
-            _CMUX_PR_JOB_PID=$!
-            _CMUX_PR_JOB_STARTED_AT=$now
-        fi
+    if (( should_restart_pr_poll )); then
+        _CMUX_PR_FORCE=0
+        _cmux_start_pr_poll_loop "$pwd" 1
     fi
 
     # Ports: lightweight kick to the app's batched scanner.
@@ -419,6 +460,7 @@ _cmux_fix_path() {
 
 _cmux_zshexit() {
     _cmux_stop_git_head_watch
+    _cmux_stop_pr_poll_loop
 }
 
 autoload -Uz add-zsh-hook
