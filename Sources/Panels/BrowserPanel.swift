@@ -2258,12 +2258,15 @@ final class BrowserPanel: Panel, ObservableObject {
         // bonsplit/SwiftUI reshuffles views during close.
         unfocus()
 
+        // Snapshot first: popup close unregisters itself from popupControllers.
+        let popupsToClose = popupControllers
+        popupControllers.removeAll()
+
         // Close all owned popup windows before tearing down delegates
-        for popup in popupControllers {
+        for popup in popupsToClose {
             popup.closeAllChildPopups()
             popup.closePopup()
         }
-        popupControllers.removeAll()
 
         webView.stopLoading()
         webView.navigationDelegate = nil
@@ -3880,6 +3883,25 @@ func browserNavigationShouldOpenInNewTab(
     return false
 }
 
+func browserNavigationShouldCreatePopup(
+    navigationType: WKNavigationType,
+    modifierFlags: NSEvent.ModifierFlags,
+    buttonNumber: Int,
+    hasRecentMiddleClickIntent: Bool = false,
+    currentEventType: NSEvent.EventType? = NSApp.currentEvent?.type,
+    currentEventButtonNumber: Int? = NSApp.currentEvent?.buttonNumber
+) -> Bool {
+    let isUserNewTab = browserNavigationShouldOpenInNewTab(
+        navigationType: navigationType,
+        modifierFlags: modifierFlags,
+        buttonNumber: buttonNumber,
+        hasRecentMiddleClickIntent: hasRecentMiddleClickIntent,
+        currentEventType: currentEventType,
+        currentEventButtonNumber: currentEventButtonNumber
+    )
+    return navigationType == .other && !isUserNewTab
+}
+
 private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
     var didFinish: ((WKWebView) -> Void)?
     var didFailNavigation: ((WKWebView, String) -> Void)?
@@ -4274,13 +4296,12 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
         // WebKit sometimes delivers .other for Cmd+click / middle-click, so we
         // reuse browserNavigationShouldOpenInNewTab to recover user intent before
         // treating .other as a scripted popup.
-        let isUserNewTab = browserNavigationShouldOpenInNewTab(
+        let isScriptedPopup = browserNavigationShouldCreatePopup(
             navigationType: navigationAction.navigationType,
             modifierFlags: navigationAction.modifierFlags,
             buttonNumber: navigationAction.buttonNumber,
             hasRecentMiddleClickIntent: CmuxWebView.hasRecentMiddleClickIntent(for: webView)
         )
-        let isScriptedPopup = navigationAction.navigationType == .other && !isUserNewTab
 
         if isScriptedPopup, let popupWebView = openPopup?(configuration, windowFeatures) {
 #if DEBUG

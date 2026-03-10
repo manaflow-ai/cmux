@@ -3,6 +3,37 @@ import Bonsplit
 import ObjectiveC
 import WebKit
 
+func browserPopupContentRect(
+    requestedWidth: CGFloat?,
+    requestedHeight: CGFloat?,
+    requestedX: CGFloat?,
+    requestedTopY: CGFloat?,
+    visibleFrame: NSRect,
+    defaultWidth: CGFloat = 800,
+    defaultHeight: CGFloat = 600,
+    minWidth: CGFloat = 200,
+    minHeight: CGFloat = 150
+) -> NSRect {
+    let clampedWidth = min(max(requestedWidth ?? defaultWidth, minWidth), visibleFrame.width)
+    let clampedHeight = min(max(requestedHeight ?? defaultHeight, minHeight), visibleFrame.height)
+
+    let x: CGFloat
+    let y: CGFloat
+    if let requestedX, let requestedTopY {
+        x = max(visibleFrame.minX, min(requestedX, visibleFrame.maxX - clampedWidth))
+
+        // Web content expresses popup Y as distance from the screen's top edge,
+        // while AppKit window origins are bottom-up.
+        let appKitY = visibleFrame.maxY - requestedTopY - clampedHeight
+        y = max(visibleFrame.minY, min(appKitY, visibleFrame.maxY - clampedHeight))
+    } else {
+        x = visibleFrame.midX - clampedWidth / 2
+        y = visibleFrame.midY - clampedHeight / 2
+    }
+
+    return NSRect(x: x, y: y, width: clampedWidth, height: clampedHeight)
+}
+
 /// Hosts a popup `CmuxWebView` in a standalone `NSPanel`, created when a page
 /// calls `window.open()` (scripted new-window requests).
 ///
@@ -37,6 +68,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
 
     let webView: CmuxWebView
     private let panel: NSPanel
+    private let urlLabel: NSTextField
     private weak var openerPanel: BrowserPanel?
     private weak var parentPopupController: BrowserPopupWindowController?
     private let nestingDepth: Int
@@ -64,11 +96,9 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
         // internal browsing-context state for opener linkage / postMessage).
         let webView = CmuxWebView(frame: .zero, configuration: configuration)
         webView.allowsBackForwardNavigationGestures = true
-        #if DEBUG
         if #available(macOS 13.3, *) {
             webView.isInspectable = true
         }
-        #endif
         webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
         self.webView = webView
 
@@ -84,22 +114,17 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
         // Screen-clamping: use opener's screen or main screen
         let screen = openerPanel?.webView.window?.screen ?? NSScreen.main ?? NSScreen.screens.first
         let visibleFrame = screen?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
-
-        let clampedW = min(w, visibleFrame.width)
-        let clampedH = min(h, visibleFrame.height)
-
-        // Position: use features if specified, otherwise center on screen
-        let x: CGFloat
-        let y: CGFloat
-        if let fx = windowFeatures.x?.doubleValue, let fy = windowFeatures.y?.doubleValue {
-            x = max(visibleFrame.minX, min(fx, visibleFrame.maxX - clampedW))
-            y = max(visibleFrame.minY, min(fy, visibleFrame.maxY - clampedH))
-        } else {
-            x = visibleFrame.midX - clampedW / 2
-            y = visibleFrame.midY - clampedH / 2
-        }
-
-        let contentRect = NSRect(x: x, y: y, width: clampedW, height: clampedH)
+        let contentRect = browserPopupContentRect(
+            requestedWidth: w,
+            requestedHeight: h,
+            requestedX: windowFeatures.x.map { CGFloat($0.doubleValue) },
+            requestedTopY: windowFeatures.y.map { CGFloat($0.doubleValue) },
+            visibleFrame: visibleFrame,
+            defaultWidth: defaultWidth,
+            defaultHeight: defaultHeight,
+            minWidth: minWidth,
+            minHeight: minHeight
+        )
 
         // Style mask: titled + closable + resizable by default.
         // allowsResizing is a separate property from chrome-visibility flags
@@ -116,12 +141,15 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
             defer: false
         )
         panel.identifier = NSUserInterfaceItemIdentifier("cmux.browser-popup")
-        panel.level = .normal
+        panel.level = NSWindow.Level.normal
         panel.hidesOnDeactivate = false
         panel.isReleasedWhenClosed = false
         panel.minSize = NSSize(width: minWidth, height: minHeight)
         panel.title = String(localized: "browser.popup.loadingTitle", defaultValue: "Loading\u{2026}")
         self.panel = panel
+
+        let urlLabel = NSTextField(labelWithString: "")
+        self.urlLabel = urlLabel
 
         // Build delegate objects before super.init so they can be assigned
         let uiDel = PopupUIDelegate()
@@ -134,7 +162,6 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
         super.init()
 
         // --- URL label for phishing protection ---
-        let urlLabel = NSTextField(labelWithString: "")
         urlLabel.translatesAutoresizingMaskIntoConstraints = false
         urlLabel.font = .systemFont(ofSize: 11)
         urlLabel.textColor = .secondaryLabelColor
@@ -179,17 +206,15 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
 
         // --- KVO for title and URL ---
         titleObservation = webView.observe(\.title, options: [.new]) { [weak self] _, change in
-            guard let self, let newTitle = change.newValue ?? nil, !newTitle.isEmpty else { return }
-            DispatchQueue.main.async { [weak self] in
+            guard let newTitle = change.newValue ?? nil, !newTitle.isEmpty else { return }
+            Task { @MainActor [weak self] in
                 self?.panel.title = newTitle
             }
         }
         urlObservation = webView.observe(\.url, options: [.new]) { [weak self] _, change in
-            guard let self else { return }
             let displayURL = change.newValue??.absoluteString ?? ""
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                urlLabel.stringValue = displayURL
+            Task { @MainActor [weak self] in
+                self?.urlLabel.stringValue = displayURL
             }
         }
 
@@ -199,10 +224,10 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
         panel.delegate = self
 
         #if DEBUG
-        dlog("popup.init depth=\(nestingDepth) size=\(Int(clampedW))x\(Int(clampedH)) opener=\(openerPanel?.id.uuidString.prefix(5) ?? "nil")")
+        dlog("popup.init depth=\(nestingDepth) size=\(Int(contentRect.width))x\(Int(contentRect.height)) opener=\(openerPanel?.id.uuidString.prefix(5) ?? "nil")")
         #endif
 
-        panel.makeKeyAndOrderFront(nil)
+        panel.makeKeyAndOrderFront(self)
     }
 
     // MARK: - Child popup tracking
@@ -282,6 +307,14 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
         return child.webView
     }
 
+    func openInOpenerTab(_ url: URL) {
+        if let openerPanel {
+            openerPanel.openLinkInNewTab(url: url)
+        } else {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
     // MARK: - Insecure HTTP prompt (parity with main browser)
 
     /// Shows the same 3-button insecure HTTP alert as the main browser.
@@ -358,10 +391,25 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
             NSWorkspace.shared.open(url)
             return nil
         }
-        return controller?.createNestedPopup(
-            configuration: configuration,
-            windowFeatures: windowFeatures
+
+        let isScriptedPopup = browserNavigationShouldCreatePopup(
+            navigationType: navigationAction.navigationType,
+            modifierFlags: navigationAction.modifierFlags,
+            buttonNumber: navigationAction.buttonNumber,
+            hasRecentMiddleClickIntent: CmuxWebView.hasRecentMiddleClickIntent(for: webView)
         )
+
+        if isScriptedPopup {
+            return controller?.createNestedPopup(
+                configuration: configuration,
+                windowFeatures: windowFeatures
+            )
+        }
+
+        if let url = navigationAction.request.url {
+            controller?.openInOpenerTab(url)
+        }
+        return nil
     }
 
     // MARK: - JS Dialogs (parity with main browser)
@@ -507,6 +555,38 @@ private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
             dlog("popup.nav.insecureHTTP url=\(url.absoluteString)")
             #endif
             controller?.presentInsecureHTTPAlert(for: url, in: webView, decisionHandler: decisionHandler)
+            return
+        }
+
+        decisionHandler(.allow)
+    }
+
+    func webView(
+        _ webView: WKWebView,
+        decidePolicyFor navigationResponse: WKNavigationResponse,
+        decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void
+    ) {
+        if !navigationResponse.isForMainFrame {
+            decisionHandler(.allow)
+            return
+        }
+
+        if let scheme = navigationResponse.response.url?.scheme?.lowercased(),
+           scheme != "http", scheme != "https" {
+            decisionHandler(.allow)
+            return
+        }
+
+        if let response = navigationResponse.response as? HTTPURLResponse {
+            let contentDisposition = response.value(forHTTPHeaderField: "Content-Disposition") ?? ""
+            if contentDisposition.lowercased().hasPrefix("attachment") {
+                decisionHandler(.download)
+                return
+            }
+        }
+
+        if !navigationResponse.canShowMIMEType {
+            decisionHandler(.download)
             return
         }
 

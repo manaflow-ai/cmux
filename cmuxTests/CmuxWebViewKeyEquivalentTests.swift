@@ -2299,6 +2299,85 @@ final class BrowserNavigationNewTabDecisionTests: XCTestCase {
     }
 }
 
+final class BrowserPopupDecisionTests: XCTestCase {
+    func testOtherNavigationPlainLeftClickCreatesPopup() {
+        XCTAssertTrue(
+            browserNavigationShouldCreatePopup(
+                navigationType: .other,
+                modifierFlags: [],
+                buttonNumber: 0
+            )
+        )
+    }
+
+    func testOtherNavigationMiddleClickDoesNotCreatePopup() {
+        XCTAssertFalse(
+            browserNavigationShouldCreatePopup(
+                navigationType: .other,
+                modifierFlags: [],
+                buttonNumber: 2
+            )
+        )
+    }
+
+    func testLinkActivatedCmdClickDoesNotCreatePopup() {
+        XCTAssertFalse(
+            browserNavigationShouldCreatePopup(
+                navigationType: .linkActivated,
+                modifierFlags: [.command],
+                buttonNumber: 0
+            )
+        )
+    }
+}
+
+final class BrowserPopupContentRectTests: XCTestCase {
+    func testExplicitTopOriginCoordinatesConvertToAppKitBottomOrigin() {
+        let rect = browserPopupContentRect(
+            requestedWidth: 400,
+            requestedHeight: 300,
+            requestedX: 150,
+            requestedTopY: 120,
+            visibleFrame: NSRect(x: 100, y: 50, width: 1000, height: 800)
+        )
+
+        XCTAssertEqual(rect.origin.x, 150, accuracy: 0.01)
+        XCTAssertEqual(rect.origin.y, 430, accuracy: 0.01)
+        XCTAssertEqual(rect.width, 400, accuracy: 0.01)
+        XCTAssertEqual(rect.height, 300, accuracy: 0.01)
+    }
+
+    func testExplicitCoordinatesClampToVisibleFrame() {
+        let rect = browserPopupContentRect(
+            requestedWidth: 900,
+            requestedHeight: 700,
+            requestedX: 900,
+            requestedTopY: -25,
+            visibleFrame: NSRect(x: 100, y: 50, width: 1000, height: 800)
+        )
+
+        XCTAssertEqual(rect.origin.x, 200, accuracy: 0.01)
+        XCTAssertEqual(rect.origin.y, 150, accuracy: 0.01)
+        XCTAssertEqual(rect.width, 900, accuracy: 0.01)
+        XCTAssertEqual(rect.height, 700, accuracy: 0.01)
+    }
+
+    func testMissingCoordinatesCentersPopup() {
+        let rect = browserPopupContentRect(
+            requestedWidth: 300,
+            requestedHeight: 200,
+            requestedX: nil,
+            requestedTopY: nil,
+            visibleFrame: NSRect(x: 100, y: 50, width: 1000, height: 800)
+        )
+
+        XCTAssertEqual(rect.origin.x, 450, accuracy: 0.01)
+        XCTAssertEqual(rect.origin.y, 350, accuracy: 0.01)
+        XCTAssertEqual(rect.width, 300, accuracy: 0.01)
+        XCTAssertEqual(rect.height, 200, accuracy: 0.01)
+    }
+}
+
 @MainActor
 final class BrowserJavaScriptDialogDelegateTests: XCTestCase {
     func testBrowserPanelUIDelegateImplementsJavaScriptDialogSelectors() {
