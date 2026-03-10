@@ -284,11 +284,11 @@ def main() -> int:
             _must(bool(workspace_id_without_name), f"cmux ssh without --name should still create workspace: {payload2}")
             _must(
                 "ControlPath=/tmp/cmux-ssh-" in ssh_command_without_name,
-                f"cmux ssh without --name should still include shared control path: {ssh_command_without_name!r}",
+                f"cmux ssh without --name should still include control path defaults: {ssh_command_without_name!r}",
             )
             _must(
-                _extract_control_path(ssh_command) == _extract_control_path(ssh_command_without_name),
-                f"identical hosts should resolve to same control path template: {ssh_command!r} vs {ssh_command_without_name!r}",
+                _extract_control_path(ssh_command) != _extract_control_path(ssh_command_without_name),
+                f"distinct cmux ssh workspaces should get distinct control paths: {ssh_command!r} vs {ssh_command_without_name!r}",
             )
             row2 = None
             listed2 = client._call("workspace.list", {}) or {}

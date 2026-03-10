@@ -410,6 +410,10 @@ def main() -> int:
                 "Reconstructed via infocmp" not in terminal_text,
                 "ssh-terminfo bootstrap should not leak raw infocmp output into the interactive shell",
             )
+            _must(
+                "Warning: Failed to install terminfo." not in terminal_text,
+                "ssh shell bootstrap should not show a false terminfo failure warning",
+            )
 
             try:
                 term_value = _read_probe_payload(client, surface_id, "printf '%s' \"$TERM\"")
