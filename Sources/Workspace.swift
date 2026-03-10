@@ -3220,6 +3220,9 @@ final class Workspace: Identifiable, ObservableObject {
         guard let paneId = paneId(forPanelId: panelId) else { return false }
         guard bonsplitController.togglePaneZoom(inPane: paneId) else { return false }
         focusPanel(panelId)
+        if browserPanel(for: panelId) != nil {
+            scheduleBrowserPortalReconcileAfterSplitZoom(panelId: panelId, remainingPasses: 4)
+        }
         return true
     }
 
@@ -3479,6 +3482,46 @@ final class Workspace: Identifiable, ObservableObject {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.runScheduledTerminalGeometryReconcile(remainingPasses: 4)
+        }
+    }
+
+    // Browser panes host WKWebView in the window portal. After pane zoom toggles,
+    // force a few post-layout sync passes so the portal does not outlive the omnibar chrome.
+    private func scheduleBrowserPortalReconcileAfterSplitZoom(panelId: UUID, remainingPasses: Int) {
+        guard remainingPasses > 0 else { return }
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let browserPanel = self.browserPanel(for: panelId) else { return }
+
+            for window in NSApp.windows {
+                window.contentView?.layoutSubtreeIfNeeded()
+                window.contentView?.displayIfNeeded()
+            }
+
+            let anchorView = browserPanel.portalAnchorView
+            let anchorReady =
+                anchorView.window != nil &&
+                anchorView.superview != nil &&
+                anchorView.bounds.width > 1 &&
+                anchorView.bounds.height > 1
+
+            if anchorReady {
+                BrowserWindowPortalRegistry.synchronizeForAnchor(anchorView)
+                BrowserWindowPortalRegistry.refresh(
+                    webView: browserPanel.webView,
+                    reason: "workspace.toggleSplitZoom"
+                )
+            }
+
+            let portalNeedsFollowUpPass =
+                !anchorReady ||
+                browserPanel.webView.window == nil ||
+                browserPanel.webView.superview == nil
+            if portalNeedsFollowUpPass {
+                self.scheduleBrowserPortalReconcileAfterSplitZoom(
+                    panelId: panelId,
+                    remainingPasses: remainingPasses - 1
+                )
+            }
         }
     }
 
