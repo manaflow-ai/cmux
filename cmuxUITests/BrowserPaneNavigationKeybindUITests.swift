@@ -554,7 +554,7 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         )
     }
 
-    func testCmdShiftEnterKeepsBrowserOmnibarHittableWhenWebViewFocused() {
+    func testCmdShiftEnterKeepsBrowserOmnibarHittableAcrossZoomRoundTripWhenWebViewFocused() {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
@@ -579,12 +579,13 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         XCTAssertTrue(pill.waitForExistence(timeout: 6.0), "Expected browser omnibar pill before zoom")
 
         app.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [.command, .shift])
+        app.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [.command, .shift])
 
-        XCTAssertTrue(omnibar.waitForExistence(timeout: 6.0), "Expected browser omnibar text field after Cmd+Shift+Enter")
-        XCTAssertTrue(pill.waitForExistence(timeout: 6.0), "Expected browser omnibar pill after Cmd+Shift+Enter")
+        XCTAssertTrue(omnibar.waitForExistence(timeout: 6.0), "Expected browser omnibar text field after Cmd+Shift+Enter zoom round-trip")
+        XCTAssertTrue(pill.waitForExistence(timeout: 6.0), "Expected browser omnibar pill after Cmd+Shift+Enter zoom round-trip")
         XCTAssertTrue(
             waitForElementToBecomeHittable(pill, timeout: 6.0),
-            "Expected browser omnibar to stay hittable after Cmd+Shift+Enter"
+            "Expected browser omnibar to stay hittable after Cmd+Shift+Enter zoom round-trip"
         )
 
         pill.click()
