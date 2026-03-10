@@ -7683,7 +7683,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
         )
         XCTAssertTrue(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: terminalPanel.id))
 
-        let event = makeKeyEvent(characters: "a", keyCode: 0, window: window)
+        let event = makeKeyEvent(characters: "", keyCode: 122, window: window)
         surfaceView.keyDown(with: event)
         let drained = expectation(description: "flash drained")
         DispatchQueue.main.async { drained.fulfill() }
