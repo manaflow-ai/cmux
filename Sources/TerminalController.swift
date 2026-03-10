@@ -7328,9 +7328,12 @@ class TerminalController {
 
     private func v2BrowserCertBypass(params: [String: Any]) -> V2CallResult {
         let action = (params["action"] as? String) ?? (params["args"] as? [String])?.first ?? ""
+        var result: V2CallResult = .err(code: "invalid_params", message: "Unknown action '\(action)': use 'get' or 'set'", data: nil)
         switch action {
         case "get":
-            return .ok(["enabled": BrowserCertBypassSettings.isEnabled()])
+            v2MainSync {
+                result = .ok(["enabled": BrowserCertBypassSettings.isEnabled()])
+            }
         case "set":
             let rawValue = (params["args"] as? [String])?.dropFirst().first
                 ?? (params["value"] as? String)
@@ -7340,17 +7343,18 @@ class TerminalController {
             }
             switch rawValue.lowercased() {
             case "true", "1", "yes":
-                DispatchQueue.main.async { BrowserCertBypassSettings.runtimeOverride = true }
-                return .ok(["enabled": true])
+                v2MainSync { BrowserCertBypassSettings.runtimeOverride = true }
+                result = .ok(["enabled": true])
             case "false", "0", "no":
-                DispatchQueue.main.async { BrowserCertBypassSettings.runtimeOverride = false }
-                return .ok(["enabled": false])
+                v2MainSync { BrowserCertBypassSettings.runtimeOverride = false }
+                result = .ok(["enabled": false])
             default:
                 return .err(code: "invalid_params", message: "Invalid value '\(rawValue)': use 'true' or 'false'", data: nil)
             }
         default:
-            return .err(code: "invalid_params", message: "Unknown action '\(action)': use 'get' or 'set'", data: nil)
+            break
         }
+        return result
     }
 
     private func v2BrowserFocusWebView(params: [String: Any]) -> V2CallResult {
