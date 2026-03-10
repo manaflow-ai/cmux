@@ -2096,8 +2096,24 @@ final class WindowBrowserPortal: NSObject {
     /// Used when a bind is deferred (host not yet in window) so stale portal syncs
     /// do not keep an old anchor visible.
     func updateEntryVisibility(forWebViewId webViewId: ObjectIdentifier, visibleInUI: Bool, zPriority: Int) {
-        guard var entry = entriesByWebViewId[webViewId] else { return }
+        guard var entry = entriesByWebViewId[webViewId] else {
+#if DEBUG
+            dlog(
+                "browser.portal.visibility.skip webId=\(String(describing: webViewId)) " +
+                "reason=missing_entry visible=\(visibleInUI ? 1 : 0) z=\(zPriority)"
+            )
+#endif
+            return
+        }
         guard entry.visibleInUI != visibleInUI || entry.zPriority != zPriority else { return }
+#if DEBUG
+        dlog(
+            "browser.portal.visibility web=\(browserPortalDebugToken(entry.webView)) " +
+            "container=\(browserPortalDebugToken(entry.containerView)) " +
+            "visible=\(visibleInUI ? 1 : 0) prevVisible=\(entry.visibleInUI ? 1 : 0) " +
+            "z=\(zPriority) prevZ=\(entry.zPriority)"
+        )
+#endif
         entry.visibleInUI = visibleInUI
         entry.zPriority = zPriority
         entriesByWebViewId[webViewId] = entry
@@ -2110,7 +2126,22 @@ final class WindowBrowserPortal: NSObject {
     }
 
     func hideWebView(withId webViewId: ObjectIdentifier, source: String = "externalHide") {
-        guard var entry = entriesByWebViewId[webViewId] else { return }
+        guard var entry = entriesByWebViewId[webViewId] else {
+#if DEBUG
+            dlog(
+                "browser.portal.hide.skip webId=\(String(describing: webViewId)) " +
+                "reason=missing_entry source=\(source)"
+            )
+#endif
+            return
+        }
+#if DEBUG
+        dlog(
+            "browser.portal.hide web=\(browserPortalDebugToken(entry.webView)) " +
+            "container=\(browserPortalDebugToken(entry.containerView)) " +
+            "source=\(source) visible=\(entry.visibleInUI ? 1 : 0)"
+        )
+#endif
         entry.visibleInUI = false
         entry.zPriority = 0
         entriesByWebViewId[webViewId] = entry
@@ -2164,8 +2195,25 @@ final class WindowBrowserPortal: NSObject {
               let webView = entry.webView,
               let containerView = entry.containerView,
               !containerView.isHidden else {
+#if DEBUG
+            let entry = entriesByWebViewId[webViewId]
+            dlog(
+                "browser.portal.refresh.skip webId=\(String(describing: webViewId)) " +
+                "reason=missing_refresh_target request=\(reason) " +
+                "hasEntry=\(entry == nil ? 0 : 1) " +
+                "hasWeb=\(entry?.webView == nil ? 0 : 1) " +
+                "hasContainer=\(entry?.containerView == nil ? 0 : 1) " +
+                "containerHidden=\(entry?.containerView?.isHidden == true ? 1 : 0)"
+            )
+#endif
             return
         }
+#if DEBUG
+        dlog(
+            "browser.portal.refresh.begin web=\(browserPortalDebugToken(webView)) " +
+            "container=\(browserPortalDebugToken(containerView)) reason=\(reason)"
+        )
+#endif
         refreshHostedWebViewPresentation(
             webView,
             in: containerView,
@@ -2960,7 +3008,16 @@ enum BrowserWindowPortalRegistry {
     }
 
     static func bind(webView: WKWebView, to anchorView: NSView, visibleInUI: Bool, zPriority: Int = 0) {
-        guard let window = anchorView.window else { return }
+        guard let window = anchorView.window else {
+#if DEBUG
+            dlog(
+                "browser.portal.bind.skip web=\(browserPortalDebugToken(webView)) " +
+                "anchor=\(browserPortalDebugToken(anchorView)) reason=no_window " +
+                "visible=\(visibleInUI ? 1 : 0) z=\(zPriority)"
+            )
+#endif
+            return
+        }
 
         let windowId = ObjectIdentifier(window)
         let webViewId = ObjectIdentifier(webView)
@@ -2987,7 +3044,15 @@ enum BrowserWindowPortalRegistry {
     static func updateEntryVisibility(for webView: WKWebView, visibleInUI: Bool, zPriority: Int) {
         let webViewId = ObjectIdentifier(webView)
         guard let windowId = webViewToWindowId[webViewId],
-              let portal = portalsByWindowId[windowId] else { return }
+              let portal = portalsByWindowId[windowId] else {
+#if DEBUG
+            dlog(
+                "browser.portal.visibility.skip web=\(browserPortalDebugToken(webView)) " +
+                "reason=missing_window_mapping visible=\(visibleInUI ? 1 : 0) z=\(zPriority)"
+            )
+#endif
+            return
+        }
         portal.updateEntryVisibility(forWebViewId: webViewId, visibleInUI: visibleInUI, zPriority: zPriority)
     }
 
@@ -3003,7 +3068,15 @@ enum BrowserWindowPortalRegistry {
     static func hide(webView: WKWebView, source: String = "externalHide") {
         let webViewId = ObjectIdentifier(webView)
         guard let windowId = webViewToWindowId[webViewId],
-              let portal = portalsByWindowId[windowId] else { return }
+              let portal = portalsByWindowId[windowId] else {
+#if DEBUG
+            dlog(
+                "browser.portal.hide.skip web=\(browserPortalDebugToken(webView)) " +
+                "reason=missing_window_mapping source=\(source)"
+            )
+#endif
+            return
+        }
         portal.hideWebView(withId: webViewId, source: source)
     }
 
@@ -3053,7 +3126,15 @@ enum BrowserWindowPortalRegistry {
     static func refresh(webView: WKWebView, reason: String) {
         let webViewId = ObjectIdentifier(webView)
         guard let windowId = webViewToWindowId[webViewId],
-              let portal = portalsByWindowId[windowId] else { return }
+              let portal = portalsByWindowId[windowId] else {
+#if DEBUG
+            dlog(
+                "browser.portal.refresh.skip web=\(browserPortalDebugToken(webView)) " +
+                "reason=missing_window_mapping request=\(reason)"
+            )
+#endif
+            return
+        }
         portal.forceRefreshWebView(withId: webViewId, reason: reason)
     }
 

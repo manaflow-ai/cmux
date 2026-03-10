@@ -1141,6 +1141,9 @@ struct BrowserPanelView: View {
         dlog("browser.toggleDevTools panel=\(panel.id.uuidString.prefix(5))")
         #endif
         if !panel.toggleDeveloperTools() {
+#if DEBUG
+            dlog("browser.toggleDevTools.failed panel=\(panel.id.uuidString.prefix(5)) \(panel.debugDeveloperToolsDiagnosticsSummary())")
+#endif
             NSSound.beep()
         }
     }
@@ -4189,7 +4192,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         retryCount: Int,
         details: String? = nil
     ) {
-        var line = "browser.devtools event=\(event) panel=\(panel.id.uuidString.prefix(5)) generation=\(generation) retry=\(retryCount) \(panel.debugDeveloperToolsStateSummary())"
+        var line = "browser.devtools event=\(event) panel=\(panel.id.uuidString.prefix(5)) generation=\(generation) retry=\(retryCount) \(panel.debugDeveloperToolsDiagnosticsSummary())"
         if let details, !details.isEmpty {
             line += " \(details)"
         }
@@ -4324,6 +4327,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         let activeSearchOverlay = coordinator.desiredPortalVisibleInUI ? searchOverlay : nil
         let portalAnchorView = panel.portalAnchorView
         let portalHideReason = !isCurrentPaneOwner ? "lostPaneOwnership" : "hidden"
+        let portalEntryMissing = !BrowserWindowPortalRegistry.isWebView(webView, boundTo: portalAnchorView)
         let didReleasePortalHost: Bool
         if !shouldAttachWebView || !isCurrentPaneOwner {
             didReleasePortalHost = panel.releasePortalHostIfOwned(
@@ -4436,7 +4440,6 @@ struct WebViewRepresentable: NSViewRepresentable {
 
         if host.window != nil, portalHostAccepted {
             let geometryRevision = host.geometryRevision
-            let portalEntryMissing = !BrowserWindowPortalRegistry.isWebView(webView, boundTo: portalAnchorView)
             let shouldBindNow =
                 coordinator.lastPortalHostId != hostId ||
                 webView.superview == nil ||
@@ -4499,7 +4502,18 @@ struct WebViewRepresentable: NSViewRepresentable {
             event: "portal.update",
             generation: coordinator.attachGeneration,
             retryCount: 0,
-            details: Self.attachContext(webView: webView, host: host)
+            details:
+                "shouldAttach=\(shouldAttachWebView ? 1 : 0) " +
+                "paneOwner=\(isCurrentPaneOwner ? 1 : 0) " +
+                "desiredVisible=\(coordinator.desiredPortalVisibleInUI ? 1 : 0) " +
+                "desiredZ=\(coordinator.desiredPortalZPriority) " +
+                "prevVisible=\(previousVisible ? 1 : 0) " +
+                "prevZ=\(previousZPriority) " +
+                "accepted=\(portalHostAccepted ? 1 : 0) " +
+                "released=\(didReleasePortalHost ? 1 : 0) " +
+                "entryMissing=\(portalEntryMissing ? 1 : 0) " +
+                "geometryRevision=\(host.geometryRevision) " +
+                Self.attachContext(webView: webView, host: host)
         )
         #endif
         return portalHostAccepted

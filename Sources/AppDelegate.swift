@@ -7689,6 +7689,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // - Option+Command+I => Show/Toggle Web Inspector
         // - Option+Command+C => Show JavaScript Console
         if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .toggleBrowserDeveloperTools)) {
+            if event.isARepeat {
+#if DEBUG
+                logDeveloperToolsShortcutSnapshot(phase: "toggle.repeatIgnored", event: event, didHandle: true)
+#endif
+                return true
+            }
 #if DEBUG
             logDeveloperToolsShortcutSnapshot(phase: "toggle.pre", event: event)
 #endif
@@ -7704,6 +7710,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .showBrowserJavaScriptConsole)) {
+            if event.isARepeat {
+#if DEBUG
+                logDeveloperToolsShortcutSnapshot(phase: "console.repeatIgnored", event: event, didHandle: true)
+#endif
+                return true
+            }
 #if DEBUG
             logDeveloperToolsShortcutSnapshot(phase: "console.pre", event: event)
 #endif
