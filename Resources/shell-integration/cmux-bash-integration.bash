@@ -49,9 +49,6 @@ _CMUX_PR_POLL_PWD="${_CMUX_PR_POLL_PWD:-}"
 _CMUX_PR_POLL_INTERVAL="${_CMUX_PR_POLL_INTERVAL:-45}"
 _CMUX_PR_FORCE="${_CMUX_PR_FORCE:-0}"
 _CMUX_ASYNC_JOB_TIMEOUT="${_CMUX_ASYNC_JOB_TIMEOUT:-20}"
-_CMUX_PREEXEC_READY="${_CMUX_PREEXEC_READY:-0}"
-_CMUX_IN_PROMPT_COMMAND="${_CMUX_IN_PROMPT_COMMAND:-0}"
-_CMUX_DEBUG_TRAP_INSTALLED="${_CMUX_DEBUG_TRAP_INSTALLED:-0}"
 
 _CMUX_PORTS_LAST_RUN="${_CMUX_PORTS_LAST_RUN:-0}"
 _CMUX_TTY_NAME="${_CMUX_TTY_NAME:-}"
@@ -198,6 +195,27 @@ _cmux_report_pr_for_path() {
     _cmux_send "report_pr $number $url $status_opt --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
 }
 
+_cmux_child_pids() {
+    local parent_pid="$1"
+    [[ -n "$parent_pid" ]] || return 0
+    /bin/ps -ax -o pid= -o ppid= 2>/dev/null | /usr/bin/awk -v parent="$parent_pid" '$2 == parent { print $1 }'
+}
+
+_cmux_kill_process_tree() {
+    local pid="$1"
+    local signal="${2:-TERM}"
+    local child_pid=""
+    [[ -n "$pid" ]] || return 0
+
+    while IFS= read -r child_pid; do
+        [[ -n "$child_pid" ]] || continue
+        [[ "$child_pid" == "$pid" ]] && continue
+        _cmux_kill_process_tree "$child_pid" "$signal"
+    done < <(_cmux_child_pids "$pid")
+
+    kill "-$signal" "$pid" >/dev/null 2>&1 || true
+}
+
 _cmux_run_pr_probe_with_timeout() {
     local repo_path="$1"
     local probe_pid=""
@@ -213,10 +231,10 @@ _cmux_run_pr_probe_with_timeout() {
         sleep 1
         now=$SECONDS
         if (( _CMUX_ASYNC_JOB_TIMEOUT > 0 )) && (( now - started_at >= _CMUX_ASYNC_JOB_TIMEOUT )); then
-            kill "$probe_pid" >/dev/null 2>&1 || true
+            _cmux_kill_process_tree "$probe_pid" TERM
             sleep 0.2
             if kill -0 "$probe_pid" >/dev/null 2>&1; then
-                kill -9 "$probe_pid" >/dev/null 2>&1 || true
+                _cmux_kill_process_tree "$probe_pid" KILL
                 sleep 0.2
             fi
             if ! kill -0 "$probe_pid" >/dev/null 2>&1; then
@@ -231,7 +249,11 @@ _cmux_run_pr_probe_with_timeout() {
 
 _cmux_stop_pr_poll_loop() {
     if [[ -n "$_CMUX_PR_POLL_PID" ]]; then
-        kill "$_CMUX_PR_POLL_PID" >/dev/null 2>&1 || true
+        _cmux_kill_process_tree "$_CMUX_PR_POLL_PID" TERM
+        sleep 0.1
+        if kill -0 "$_CMUX_PR_POLL_PID" >/dev/null 2>&1; then
+            _cmux_kill_process_tree "$_CMUX_PR_POLL_PID" KILL
+        fi
         _CMUX_PR_POLL_PID=""
     fi
 }
@@ -269,38 +291,10 @@ _cmux_bash_cleanup() {
     _cmux_stop_pr_poll_loop
 }
 
-_cmux_preexec_trap() {
-    (( _CMUX_IN_PROMPT_COMMAND )) && return 0
-    (( _CMUX_PREEXEC_READY )) || return 0
-    _CMUX_PREEXEC_READY=0
-    _cmux_stop_pr_poll_loop
-
-    local cmd="${BASH_COMMAND## }"
-    case "$cmd" in
-        git\ *|git|gh\ *|gh|lazygit|lazygit\ *|tig|tig\ *|gitui|gitui\ *|stg\ *|jj\ *)
-            _CMUX_PR_FORCE=1
-            ;;
-    esac
-}
-
-_cmux_install_debug_trap() {
-    (( _CMUX_DEBUG_TRAP_INSTALLED )) && return 0
-
-    local existing
-    existing="$(trap -p DEBUG 2>/dev/null || true)"
-    if [[ -n "$existing" ]]; then
-        return 0
-    fi
-
-    trap '_cmux_preexec_trap' DEBUG
-    _CMUX_DEBUG_TRAP_INSTALLED=1
-}
-
 _cmux_prompt_command() {
     [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
     [[ -n "$CMUX_TAB_ID" ]] || return 0
     [[ -n "$CMUX_PANEL_ID" ]] || return 0
-    _CMUX_IN_PROMPT_COMMAND=1
 
     local now=$SECONDS
     local pwd="$PWD"
@@ -416,9 +410,6 @@ _cmux_prompt_command() {
     if (( now - _CMUX_PORTS_LAST_RUN >= 10 )); then
         _cmux_ports_kick
     fi
-
-    _CMUX_IN_PROMPT_COMMAND=0
-    _CMUX_PREEXEC_READY=1
 }
 
 _cmux_install_prompt_command() {
@@ -471,4 +462,3 @@ _cmux_fix_path
 unset -f _cmux_fix_path
 
 _cmux_install_prompt_command
-_cmux_install_debug_trap

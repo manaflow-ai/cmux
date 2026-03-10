@@ -8,6 +8,8 @@ Validates that shell integration:
    branch-name matching
 3) clears stale PR state when the branch changes and the new probe fails
 4) recovers when a gh probe wedges longer than the async timeout
+5) keeps polling in bash after prompt-render helper commands run
+6) tears down the timed-out gh probe instead of leaking it in the background
 """
 
 from __future__ import annotations
@@ -91,6 +93,7 @@ def _gh_stub() -> str:
         #!/bin/sh
         args_log="${CMUX_TEST_GH_ARGS_LOG:?}"
         count_file="${CMUX_TEST_GH_COUNT_FILE:?}"
+        pid_file="${CMUX_TEST_GH_PID_FILE:-}"
         scenario="${CMUX_TEST_SCENARIO:?}"
         head_file="${CMUX_TEST_HEAD_FILE:?}"
 
@@ -119,6 +122,9 @@ def _gh_stub() -> str:
         fi
 
         case "$scenario" in
+          prompt_helper_idle)
+            printf '1138\\tOPEN\\thttps://github.com/manaflow-ai/cmux/pull/1138\\n'
+            ;;
           transient_same_context)
             if [ "$count" -eq 1 ]; then
               printf 'rate limit exceeded\\n' >&2
@@ -140,6 +146,9 @@ def _gh_stub() -> str:
             ;;
           timeout_recovery)
             if [ "$count" -eq 1 ]; then
+              if [ -n "$pid_file" ]; then
+                printf '%s\\n' "$$" > "$pid_file"
+              fi
               sleep "${CMUX_TEST_HANG_SECONDS:-4}"
               exit 0
             fi
@@ -156,6 +165,14 @@ def _gh_stub() -> str:
 
 def _shell_command(kind: str, scenario: str) -> str:
     shared = {
+        "prompt_helper_idle": (
+            'cd "$CMUX_TEST_REPO"\n'
+            '_CMUX_PR_POLL_INTERVAL=1\n'
+            '_cmux_prompt_entry\n'
+            ': "$(/bin/printf helper)"\n'
+            'sleep 3\n'
+            '_cmux_cleanup\n'
+        ),
         "transient_same_context": (
             'cd "$CMUX_TEST_REPO"\n'
             '_CMUX_PR_POLL_INTERVAL=1\n'
@@ -197,7 +214,6 @@ def _shell_command(kind: str, scenario: str) -> str:
         return textwrap.dedent(
             f"""\
             source "$CMUX_TEST_SCRIPT"
-            trap - DEBUG
             _cmux_send() {{ printf '%s\\n' "$1" >> "$CMUX_TEST_SEND_LOG"; }}
             _cmux_prompt_entry() {{ _cmux_prompt_command; }}
             _cmux_cleanup() {{ type _cmux_bash_cleanup >/dev/null 2>&1 && _cmux_bash_cleanup; }}
@@ -221,6 +237,16 @@ def _report_line(number: int) -> str:
     )
 
 
+def _pid_exists(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
 def _run_case(base: Path, *, shell: str, shell_args: list[str], script: Path, scenario: str) -> tuple[int, str]:
     bindir = base / "bin"
     repo = base / "repo"
@@ -229,6 +255,7 @@ def _run_case(base: Path, *, shell: str, shell_args: list[str], script: Path, sc
     send_log = base / f"{shell}-{scenario}-send.log"
     gh_count_file = base / f"{shell}-{scenario}-gh-count.txt"
     gh_args_log = base / f"{shell}-{scenario}-gh-args.log"
+    gh_pid_file = base / f"{shell}-{scenario}-gh-pid.txt"
     head_file = repo_git / "HEAD"
 
     bindir.mkdir(parents=True, exist_ok=True)
@@ -248,6 +275,7 @@ def _run_case(base: Path, *, shell: str, shell_args: list[str], script: Path, sc
     env["CMUX_TEST_SEND_LOG"] = str(send_log)
     env["CMUX_TEST_GH_COUNT_FILE"] = str(gh_count_file)
     env["CMUX_TEST_GH_ARGS_LOG"] = str(gh_args_log)
+    env["CMUX_TEST_GH_PID_FILE"] = str(gh_pid_file)
     env["CMUX_TEST_SCENARIO"] = scenario
     env["CMUX_TEST_HEAD_FILE"] = str(head_file)
     env["CMUX_TEST_HANG_SECONDS"] = "4"
@@ -273,6 +301,13 @@ def _run_case(base: Path, *, shell: str, shell_args: list[str], script: Path, sc
         return (1, f"{shell}/{scenario}: expected at least one gh invocation")
     if any(not line.startswith("pr view ") for line in gh_args_lines):
         return (1, f"{shell}/{scenario}: expected gh pr view only\n" + "\n".join(gh_args_lines))
+
+    if scenario == "prompt_helper_idle":
+        if gh_count < 2:
+            return (1, f"{shell}/{scenario}: expected idle polling to survive prompt helpers, saw {gh_count}")
+        if _report_line(1138) not in send_lines:
+            return (1, f"{shell}/{scenario}: missing report_pr payload\n" + "\n".join(send_lines))
+        return (0, f"{shell}/{scenario}: ok")
 
     if scenario == "transient_same_context":
         if gh_count < 2:
@@ -303,6 +338,10 @@ def _run_case(base: Path, *, shell: str, shell_args: list[str], script: Path, sc
             return (1, f"{shell}/{scenario}: expected timed-out probe to be retried, saw {gh_count}")
         if _report_line(1138) not in send_lines:
             return (1, f"{shell}/{scenario}: missing report_pr after timeout recovery\n" + "\n".join(send_lines))
+        if gh_pid_file.exists():
+            gh_pid = int(gh_pid_file.read_text(encoding="utf-8").strip() or "0")
+            if gh_pid > 0 and _pid_exists(gh_pid):
+                return (1, f"{shell}/{scenario}: timed-out gh probe still running as pid {gh_pid}")
         return (0, f"{shell}/{scenario}: ok")
 
     return (1, f"{shell}/{scenario}: unhandled scenario")
@@ -315,6 +354,7 @@ def main() -> int:
         ("bash", ["--noprofile", "--norc", "-c"], root / "Resources" / "shell-integration" / "cmux-bash-integration.bash"),
     ]
     scenarios = [
+        "prompt_helper_idle",
         "transient_same_context",
         "branch_switch_clear",
         "timeout_recovery",
