@@ -3303,6 +3303,27 @@ extension BrowserPanel {
         return .browser(preferredFocusIntent)
     }
 
+    func prepareFocusIntentForActivation(_ intent: PanelFocusIntent) {
+        guard case .browser(let target) = intent else { return }
+
+        switch target {
+        case .webView:
+            preferredFocusIntent = .webView
+            endSuppressWebViewFocusForAddressBar()
+        case .addressBar:
+            preferredFocusIntent = .addressBar
+            beginSuppressWebViewFocusForAddressBar()
+        case .findField:
+            preferredFocusIntent = .findField
+        }
+#if DEBUG
+        dlog(
+            "browser.focus.prepare panel=\(id.uuidString.prefix(5)) " +
+            "target=\(String(describing: target)) suppressWeb=\(shouldSuppressWebViewFocus() ? 1 : 0)"
+        )
+#endif
+    }
+
     @discardableResult
     func restoreFocusIntent(_ intent: PanelFocusIntent) -> Bool {
         guard case .browser(let target) = intent else { return false }

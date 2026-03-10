@@ -6882,6 +6882,22 @@ final class GhosttySurfaceScrollView: NSView {
         return .surface
     }
 
+    func preparePanelFocusIntentForActivation(_ intent: TerminalPanelFocusIntent) {
+        switch intent {
+        case .surface:
+            searchFocusTarget = .terminal
+        case .findField:
+            guard surfaceView.terminalSurface?.searchState != nil else { return }
+            searchFocusTarget = .searchField
+        }
+#if DEBUG
+        dlog(
+            "find.preparePanelFocusIntent surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") " +
+            "target=\(intent == .findField ? "searchField" : "terminal")"
+        )
+#endif
+    }
+
     @discardableResult
     func restorePanelFocusIntent(_ intent: TerminalPanelFocusIntent) -> Bool {
         switch intent {

@@ -97,6 +97,9 @@ public protocol Panel: AnyObject, Identifiable, ObservableObject where ID == UUI
     /// Return the best focus target to restore when this panel becomes active again.
     func preferredFocusIntentForActivation() -> PanelFocusIntent
 
+    /// Prime panel-local focus state before activation side effects run.
+    func prepareFocusIntentForActivation(_ intent: PanelFocusIntent)
+
     /// Restore a previously captured focus target.
     @discardableResult
     func restoreFocusIntent(_ intent: PanelFocusIntent) -> Bool
@@ -114,6 +117,10 @@ extension Panel {
 
     func preferredFocusIntentForActivation() -> PanelFocusIntent {
         .panel
+    }
+
+    func prepareFocusIntentForActivation(_ intent: PanelFocusIntent) {
+        _ = intent
     }
 
     @discardableResult

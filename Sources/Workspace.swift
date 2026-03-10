@@ -1230,7 +1230,14 @@ final class Workspace: Identifiable, ObservableObject {
     private var pendingPaneClosePanelIds: [UUID: [UUID]] = [:]
     private var pendingClosedBrowserRestoreSnapshots: [TabID: ClosedBrowserPanelRestoreSnapshot] = [:]
     private var isApplyingTabSelection = false
-    private var pendingTabSelection: (tabId: TabID, pane: PaneID)?
+    private struct PendingTabSelectionRequest {
+        let tabId: TabID
+        let pane: PaneID
+        let reassertAppKitFocus: Bool
+        let focusIntent: PanelFocusIntent?
+        let previousTerminalHostedView: GhosttySurfaceScrollView?
+    }
+    private var pendingTabSelection: PendingTabSelectionRequest?
     private var isReconcilingFocusState = false
     private var focusReconcileScheduled = false
 #if DEBUG
@@ -3102,48 +3109,15 @@ final class Workspace: Identifiable, ObservableObject {
             bonsplitController.selectTab(tabId)
         }
 
-        // Also focus the underlying panel
-        if let panel = panels[panelId] {
-            if (currentlyFocusedPanelId != panelId || !selectionAlreadyConverged) && !shouldSuppressReentrantRefocus {
-#if DEBUG
-                dlog(
-                    "focus.panel.panelFocus workspace=\(id.uuidString.prefix(5)) " +
-                    "panel=\(panelId.uuidString.prefix(5)) type=\(String(describing: type(of: panel)))"
-                )
-#endif
-                panel.focus()
-            }
-
-            if !shouldSuppressReentrantRefocus, let terminalPanel = panel as? TerminalPanel {
-                // Avoid re-entrant focus loops when focus was initiated by AppKit first-responder
-                // (becomeFirstResponder -> onFocus -> focusPanel).
-                if !terminalPanel.hostedView.isSurfaceViewFirstResponder() {
-#if DEBUG
-                    let previousExists = previousTerminalHostedView != nil ? 1 : 0
-                    dlog(
-                        "focus.panel.moveFocus workspace=\(id.uuidString.prefix(5)) " +
-                        "panel=\(panelId.uuidString.prefix(5)) previousExists=\(previousExists) " +
-                        "to=\(panelId.uuidString.prefix(5))"
-                    )
-#endif
-                    terminalPanel.hostedView.moveFocus(from: previousTerminalHostedView)
-                }
-            }
-        }
         if let targetPaneId {
+            let activationIntent = panels[panelId]?.preferredFocusIntentForActivation()
             applyTabSelection(
                 tabId: tabId,
                 inPane: targetPaneId,
-                reassertAppKitFocus: !shouldSuppressReentrantRefocus
+                reassertAppKitFocus: !shouldSuppressReentrantRefocus,
+                focusIntent: activationIntent,
+                previousTerminalHostedView: previousTerminalHostedView
             )
-        }
-
-        if let panel = panels[panelId] {
-            _ = panel.restoreFocusIntent(panel.preferredFocusIntentForActivation())
-            if let browserPanel = panel as? BrowserPanel,
-               panel.preferredFocusIntentForActivation() == .browser(.webView) {
-                maybeAutoFocusBrowserAddressBarOnPanelFocus(browserPanel, trigger: trigger)
-            }
         }
 
         if trigger == .terminalFirstResponder,
@@ -4080,9 +4054,17 @@ extension Workspace: BonsplitDelegate {
     private func applyTabSelection(
         tabId: TabID,
         inPane pane: PaneID,
-        reassertAppKitFocus: Bool = true
+        reassertAppKitFocus: Bool = true,
+        focusIntent: PanelFocusIntent? = nil,
+        previousTerminalHostedView: GhosttySurfaceScrollView? = nil
     ) {
-        pendingTabSelection = (tabId: tabId, pane: pane)
+        pendingTabSelection = PendingTabSelectionRequest(
+            tabId: tabId,
+            pane: pane,
+            reassertAppKitFocus: reassertAppKitFocus,
+            focusIntent: focusIntent,
+            previousTerminalHostedView: previousTerminalHostedView
+        )
         guard !isApplyingTabSelection else { return }
         isApplyingTabSelection = true
         defer {
@@ -4098,7 +4080,9 @@ extension Workspace: BonsplitDelegate {
             applyTabSelectionNow(
                 tabId: request.tabId,
                 inPane: request.pane,
-                reassertAppKitFocus: reassertAppKitFocus
+                reassertAppKitFocus: request.reassertAppKitFocus,
+                focusIntent: request.focusIntent,
+                previousTerminalHostedView: request.previousTerminalHostedView
             )
         }
     }
@@ -4106,7 +4090,9 @@ extension Workspace: BonsplitDelegate {
     private func applyTabSelectionNow(
         tabId: TabID,
         inPane pane: PaneID,
-        reassertAppKitFocus: Bool
+        reassertAppKitFocus: Bool,
+        focusIntent: PanelFocusIntent?,
+        previousTerminalHostedView: GhosttySurfaceScrollView?
     ) {
         let previousFocusedPanelId = focusedPanelId
 #if DEBUG
@@ -4155,6 +4141,8 @@ extension Workspace: BonsplitDelegate {
         if shouldTreatCurrentEventAsExplicitFocusIntent() {
             markExplicitFocusIntent(on: panelId)
         }
+        let activationIntent = focusIntent ?? panel.preferredFocusIntentForActivation()
+        panel.prepareFocusIntentForActivation(activationIntent)
 
         syncPinnedStateForTab(selectedTabId, panelId: panelId)
         syncUnreadBadgeStateForPanel(panelId)
@@ -4164,11 +4152,16 @@ extension Workspace: BonsplitDelegate {
             p.unfocus()
         }
 
-        activatePanel(panel, reassertAppKitFocus: reassertAppKitFocus)
+        activatePanel(
+            panel,
+            focusIntent: activationIntent,
+            reassertAppKitFocus: reassertAppKitFocus
+        )
         let focusIntentAllowsBrowserOmnibarAutofocus =
             shouldTreatCurrentEventAsExplicitFocusIntent() ||
             TerminalController.socketCommandAllowsInAppFocusMutations()
         if let browserPanel = panel as? BrowserPanel,
+           shouldAllowBrowserOmnibarAutofocus(for: activationIntent),
            previousFocusedPanelId != panelId || focusIntentAllowsBrowserOmnibarAutofocus {
             maybeAutoFocusBrowserAddressBarOnPanelFocus(browserPanel, trigger: .standard)
         }
@@ -4197,14 +4190,30 @@ extension Workspace: BonsplitDelegate {
         // Converge AppKit first responder with bonsplit's selected tab in the focused pane.
         // Without this, keyboard input can remain on a different terminal than the blue tab indicator.
         if reassertAppKitFocus, let terminalPanel = panel as? TerminalPanel {
+            if shouldMoveTerminalSurfaceFocus(for: activationIntent),
+               !terminalPanel.hostedView.isSurfaceViewFirstResponder() {
+#if DEBUG
+                let previousExists = previousTerminalHostedView != nil ? 1 : 0
+                dlog(
+                    "focus.split.moveFocus workspace=\(id.uuidString.prefix(5)) " +
+                    "panel=\(panelId.uuidString.prefix(5)) previousExists=\(previousExists) " +
+                    "to=\(panelId.uuidString.prefix(5))"
+                )
+#endif
+                terminalPanel.hostedView.moveFocus(from: previousTerminalHostedView)
+            }
 #if DEBUG
             dlog(
                 "focus.split.ensureFocus workspace=\(id.uuidString.prefix(5)) " +
                 "panel=\(panelId.uuidString.prefix(5)) pane=\(focusedPane.id.uuidString.prefix(5)) " +
-                "tab=\(selectedTabId.uuid.uuidString.prefix(5))"
+                "tab=\(selectedTabId.uuid.uuidString.prefix(5)) intent=\(String(describing: activationIntent))"
             )
 #endif
             terminalPanel.hostedView.ensureFocus(for: id, surfaceId: panelId)
+        }
+
+        if shouldRestoreFocusIntentAfterActivation(activationIntent) {
+            _ = panel.restoreFocusIntent(activationIntent)
         }
 
         // Update current directory if this is a terminal
@@ -4236,24 +4245,64 @@ extension Workspace: BonsplitDelegate {
 
     private func activatePanel(
         _ panel: any Panel,
+        focusIntent: PanelFocusIntent,
         reassertAppKitFocus: Bool
     ) {
-        guard !reassertAppKitFocus else {
-            panel.focus()
-            return
-        }
-
-        // `GhosttyNSView.becomeFirstResponder -> onFocus -> focusPanel` is already inside
-        // AppKit's responder transition. Re-running `makeFirstResponder` here can recurse,
-        // but we still need to converge the selected panel's active/focus state and clear any
-        // stale sibling terminal activation so split-pane clicks recover cleanly.
         if let terminalPanel = panel as? TerminalPanel {
-            terminalPanel.surface.setFocus(true)
+            let shouldFocusTerminalSurface = shouldMoveTerminalSurfaceFocus(for: focusIntent)
+            terminalPanel.surface.setFocus(shouldFocusTerminalSurface)
             terminalPanel.hostedView.setActive(true)
+            if reassertAppKitFocus && shouldFocusTerminalSurface {
+                terminalPanel.focus()
+            }
             return
         }
 
-        panel.focus()
+        if let browserPanel = panel as? BrowserPanel {
+            guard shouldFocusBrowserWebView(for: focusIntent) else { return }
+            browserPanel.focus()
+            return
+        }
+
+        if reassertAppKitFocus {
+            panel.focus()
+        }
+    }
+
+    private func shouldMoveTerminalSurfaceFocus(for intent: PanelFocusIntent) -> Bool {
+        switch intent {
+        case .terminal(.findField):
+            return false
+        default:
+            return true
+        }
+    }
+
+    private func shouldFocusBrowserWebView(for intent: PanelFocusIntent) -> Bool {
+        switch intent {
+        case .browser(.addressBar), .browser(.findField):
+            return false
+        default:
+            return true
+        }
+    }
+
+    private func shouldAllowBrowserOmnibarAutofocus(for intent: PanelFocusIntent) -> Bool {
+        switch intent {
+        case .browser(.webView), .panel:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func shouldRestoreFocusIntentAfterActivation(_ intent: PanelFocusIntent) -> Bool {
+        switch intent {
+        case .browser(.addressBar), .browser(.findField), .terminal(.findField):
+            return true
+        case .panel, .browser(.webView), .terminal(.surface):
+            return false
+        }
     }
 
     private func beginNonFocusSplitFocusReassert(

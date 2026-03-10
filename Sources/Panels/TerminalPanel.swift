@@ -206,6 +206,11 @@ final class TerminalPanel: Panel, ObservableObject {
         .terminal(hostedView.preferredPanelFocusIntentForActivation())
     }
 
+    func prepareFocusIntentForActivation(_ intent: PanelFocusIntent) {
+        guard case .terminal(let target) = intent else { return }
+        hostedView.preparePanelFocusIntentForActivation(target)
+    }
+
     @discardableResult
     func restoreFocusIntent(_ intent: PanelFocusIntent) -> Bool {
         guard case .terminal(let target) = intent else { return false }
