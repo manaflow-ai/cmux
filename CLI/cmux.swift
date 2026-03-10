@@ -2653,7 +2653,7 @@ struct CMUXCLI {
         var surfaceRaw = surfaceOpt
         var args = argsWithoutSurfaceFlag
 
-        let verbsWithoutSurface: Set<String> = ["open", "open-split", "new", "identify"]
+        let verbsWithoutSurface: Set<String> = ["open", "open-split", "new", "identify", "cert-bypass"]
         if surfaceRaw == nil, let first = args.first {
             if !first.hasPrefix("-") && !verbsWithoutSurface.contains(first.lowercased()) {
                 surfaceRaw = first
@@ -5051,7 +5051,8 @@ struct CMUXCLI {
               viewport <width> <height>
               geolocation|geo <latitude> <longitude>
               offline <true|false>
-              cert-bypass <get|set> [true|false]
+              cert-bypass get
+              cert-bypass set <true|false>
               trace <start|stop> [path]
               network <route|unroute|requests> ...
                 route <pattern> [--abort] [--body <text>]
