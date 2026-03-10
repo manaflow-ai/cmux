@@ -9957,6 +9957,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         )
     }
 
+    @MainActor
     func testKeyboardCopyModeIndicatorMountsAndUnmounts() {
         let surface = TerminalSurface(
             tabId: UUID(),
@@ -9967,10 +9968,10 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         let hostedView = surface.hostedView
         XCTAssertFalse(hostedView.debugHasKeyboardCopyModeIndicator())
 
-        hostedView.setKeyboardCopyModeIndicator(visible: true)
+        hostedView.syncKeyStateIndicator(text: "vim")
         XCTAssertTrue(hostedView.debugHasKeyboardCopyModeIndicator())
 
-        hostedView.setKeyboardCopyModeIndicator(visible: false)
+        hostedView.syncKeyStateIndicator(text: nil)
         XCTAssertFalse(hostedView.debugHasKeyboardCopyModeIndicator())
     }
 
