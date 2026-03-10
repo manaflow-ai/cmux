@@ -7,6 +7,7 @@ import Sentry
 import WebKit
 import Combine
 import ObjectiveC.runtime
+import Darwin
 
 enum FinderServicePathResolver {
     private static func canonicalDirectoryPath(_ path: String) -> String {
@@ -300,6 +301,7 @@ final class VSCodeServeWebController {
     private let launchProcessOverride: ((URL, UInt64) -> (process: Process, url: URL)?)?
     private var serveWebProcess: Process?
     private var launchingProcess: Process?
+    private var connectionTokenFilesByProcessID: [ObjectIdentifier: URL] = [:]
     private var serveWebURL: URL?
     private var pendingCompletions: [(generation: UInt64, completion: (URL?) -> Void)] = []
     private var isLaunching = false
@@ -404,7 +406,7 @@ final class VSCodeServeWebController {
     }
 
     func stop() {
-        let (processes, completions): ([Process], [(URL?) -> Void]) = queue.sync {
+        let (processes, tokenFileURLs, completions): ([Process], [URL], [(URL?) -> Void]) = queue.sync {
             self.lifecycleGeneration &+= 1
             self.isLaunching = false
             self.activeLaunchGeneration = nil
@@ -418,10 +420,19 @@ final class VSCodeServeWebController {
             }
             self.serveWebProcess = nil
             self.launchingProcess = nil
+            var tokenFileURLs = processes.compactMap {
+                self.connectionTokenFilesByProcessID.removeValue(forKey: ObjectIdentifier($0))
+            }
+            tokenFileURLs.append(contentsOf: self.connectionTokenFilesByProcessID.values)
+            self.connectionTokenFilesByProcessID.removeAll()
             self.serveWebURL = nil
             let completions = self.pendingCompletions.map(\.completion)
             self.pendingCompletions.removeAll()
-            return (processes, completions)
+            return (processes, tokenFileURLs, completions)
+        }
+
+        for tokenFileURL in tokenFileURLs {
+            Self.removeConnectionTokenFile(at: tokenFileURL)
         }
 
         for process in processes where process.isRunning {
@@ -452,6 +463,10 @@ final class VSCodeServeWebController {
             vscodeApplicationURL: vscodeApplicationURL
         ) else { return nil }
 
+        guard let connectionTokenFileURL = Self.makeConnectionTokenFile() else {
+            return nil
+        }
+
         let process = Process()
         process.executableURL = launchConfiguration.executableURL
         process.arguments = launchConfiguration.argumentsPrefix + [
@@ -459,7 +474,7 @@ final class VSCodeServeWebController {
             "--accept-server-license-terms",
             "--host", "127.0.0.1",
             "--port", "0",
-            "--connection-token", Self.randomConnectionToken(),
+            "--connection-token-file", connectionTokenFileURL.path,
         ]
         process.environment = launchConfiguration.environment
 
@@ -492,6 +507,11 @@ final class VSCodeServeWebController {
                     self.serveWebProcess = nil
                     self.serveWebURL = nil
                 }
+                if let tokenFileURL = self.connectionTokenFilesByProcessID.removeValue(
+                    forKey: ObjectIdentifier(terminatedProcess)
+                ) {
+                    Self.removeConnectionTokenFile(at: tokenFileURL)
+                }
             }
         }
 
@@ -501,6 +521,7 @@ final class VSCodeServeWebController {
                 return false
             }
             self.launchingProcess = process
+            self.connectionTokenFilesByProcessID[ObjectIdentifier(process)] = connectionTokenFileURL
             do {
                 try process.run()
                 return true
@@ -508,12 +529,18 @@ final class VSCodeServeWebController {
                 if self.launchingProcess === process {
                     self.launchingProcess = nil
                 }
+                if let tokenFileURL = self.connectionTokenFilesByProcessID.removeValue(
+                    forKey: ObjectIdentifier(process)
+                ) {
+                    Self.removeConnectionTokenFile(at: tokenFileURL)
+                }
                 return false
             }
         }
         guard didStart else {
             stdoutPipe.fileHandleForReading.readabilityHandler = nil
             stderrPipe.fileHandleForReading.readabilityHandler = nil
+            Self.removeConnectionTokenFile(at: connectionTokenFileURL)
             return nil
         }
 
@@ -523,6 +550,21 @@ final class VSCodeServeWebController {
             stderrPipe.fileHandleForReading.readabilityHandler = nil
             if process.isRunning {
                 process.terminate()
+            } else {
+                queue.sync {
+                    if self.launchingProcess === process {
+                        self.launchingProcess = nil
+                    }
+                    if self.serveWebProcess === process {
+                        self.serveWebProcess = nil
+                        self.serveWebURL = nil
+                    }
+                    if let tokenFileURL = self.connectionTokenFilesByProcessID.removeValue(
+                        forKey: ObjectIdentifier(process)
+                    ) {
+                        Self.removeConnectionTokenFile(at: tokenFileURL)
+                    }
+                }
             }
             return nil
         }
@@ -540,6 +582,33 @@ final class VSCodeServeWebController {
 
     private static func randomConnectionToken() -> String {
         UUID().uuidString.replacingOccurrences(of: "-", with: "")
+    }
+
+    private static func makeConnectionTokenFile() -> URL? {
+        let token = randomConnectionToken()
+        let tokenFileName = "cmux-vscode-token-\(UUID().uuidString)"
+        let tokenFileURL = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+            .appendingPathComponent(tokenFileName, isDirectory: false)
+        guard let tokenData = token.data(using: .utf8) else { return nil }
+
+        let fileDescriptor = open(tokenFileURL.path, O_WRONLY | O_CREAT | O_EXCL, S_IRUSR | S_IWUSR)
+        guard fileDescriptor >= 0 else { return nil }
+        defer { _ = close(fileDescriptor) }
+
+        let wroteAllBytes = tokenData.withUnsafeBytes { rawBuffer in
+            guard let baseAddress = rawBuffer.baseAddress else { return false }
+            return write(fileDescriptor, baseAddress, rawBuffer.count) == rawBuffer.count
+        }
+        guard wroteAllBytes else {
+            removeConnectionTokenFile(at: tokenFileURL)
+            return nil
+        }
+
+        return tokenFileURL
+    }
+
+    private static func removeConnectionTokenFile(at url: URL) {
+        try? FileManager.default.removeItem(at: url)
     }
 }
 
