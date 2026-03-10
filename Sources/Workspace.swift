@@ -3547,6 +3547,7 @@ private final class WorkspaceRemoteSessionController {
     }
 
     func start() {
+        debugLog("remote.session.start \(debugConfigSummary())")
         queue.async { [weak self] in
             guard let self else { return }
             guard !self.isStopping else { return }
@@ -3565,6 +3566,7 @@ private final class WorkspaceRemoteSessionController {
     }
 
     private func stopAllLocked() {
+        debugLog("remote.session.stop \(debugConfigSummary())")
         isStopping = true
         reconnectWorkItem?.cancel()
         reconnectWorkItem = nil
@@ -3584,6 +3586,7 @@ private final class WorkspaceRemoteSessionController {
     private func beginConnectionAttemptLocked() {
         guard !isStopping else { return }
 
+        debugLog("remote.session.connect.begin retry=\(reconnectRetryCount) \(debugConfigSummary())")
         reconnectWorkItem = nil
         stopHeartbeatLocked(reset: true)
         let connectDetail: String
@@ -3657,10 +3660,12 @@ private final class WorkspaceRemoteSessionController {
         guard !isStopping else { return }
         switch update {
         case .connecting:
+            debugLog("remote.proxy.connecting \(debugConfigSummary())")
             if proxyEndpoint == nil {
                 publishState(.connecting, detail: "Connecting to \(configuration.displayTarget)")
             }
         case .ready(let endpoint):
+            debugLog("remote.proxy.ready host=\(endpoint.host) port=\(endpoint.port) \(debugConfigSummary())")
             reconnectWorkItem?.cancel()
             reconnectWorkItem = nil
             reconnectRetryCount = 0
@@ -3677,6 +3682,7 @@ private final class WorkspaceRemoteSessionController {
             )
             startHeartbeatLocked()
         case .error(let detail):
+            debugLog("remote.proxy.error detail=\(detail) \(debugConfigSummary())")
             proxyEndpoint = nil
             stopHeartbeatLocked(reset: false)
             publishProxyEndpoint(nil)
@@ -3929,6 +3935,10 @@ private final class WorkspaceRemoteSessionController {
         stdin: Data?,
         timeout: TimeInterval
     ) throws -> CommandResult {
+        debugLog(
+            "remote.proc.start exec=\(URL(fileURLWithPath: executable).lastPathComponent) " +
+            "timeout=\(Int(timeout)) args=\(debugShellCommand(executable: executable, arguments: arguments))"
+        )
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executable)
         process.arguments = arguments
@@ -3953,6 +3963,10 @@ private final class WorkspaceRemoteSessionController {
         do {
             try process.run()
         } catch {
+            debugLog(
+                "remote.proc.launchFailed exec=\(URL(fileURLWithPath: executable).lastPathComponent) " +
+                "error=\(error.localizedDescription)"
+            )
             throw NSError(domain: "cmux.remote.process", code: 1, userInfo: [
                 NSLocalizedDescriptionKey: "Failed to launch \(URL(fileURLWithPath: executable).lastPathComponent): \(error.localizedDescription)",
             ])
@@ -3977,6 +3991,10 @@ private final class WorkspaceRemoteSessionController {
                 _ = Darwin.kill(process.processIdentifier, SIGKILL)
                 process.waitUntilExit()
             }
+            debugLog(
+                "remote.proc.timeout exec=\(URL(fileURLWithPath: executable).lastPathComponent) " +
+                "timeout=\(Int(timeout)) args=\(debugShellCommand(executable: executable, arguments: arguments))"
+            )
             throw NSError(domain: "cmux.remote.process", code: 2, userInfo: [
                 NSLocalizedDescriptionKey: "\(URL(fileURLWithPath: executable).lastPathComponent) timed out after \(Int(timeout))s",
             ])
@@ -3986,15 +4004,26 @@ private final class WorkspaceRemoteSessionController {
         let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
         let stdout = String(data: stdoutData, encoding: .utf8) ?? ""
         let stderr = String(data: stderrData, encoding: .utf8) ?? ""
+        debugLog(
+            "remote.proc.end exec=\(URL(fileURLWithPath: executable).lastPathComponent) " +
+            "status=\(process.terminationStatus) stdout=\(Self.debugLogSnippet(stdout)) " +
+            "stderr=\(Self.debugLogSnippet(stderr))"
+        )
         return CommandResult(status: process.terminationStatus, stdout: stdout, stderr: stderr)
     }
 
     private func bootstrapDaemonLocked() throws -> DaemonHello {
+        debugLog("remote.bootstrap.begin \(debugConfigSummary())")
         let platform = try resolveRemotePlatformLocked()
         let version = Self.remoteDaemonVersion()
         let remotePath = Self.remoteDaemonPath(version: version, goOS: platform.goOS, goArch: platform.goArch)
+        debugLog(
+            "remote.bootstrap.platform os=\(platform.goOS) arch=\(platform.goArch) " +
+            "version=\(version) remotePath=\(remotePath)"
+        )
 
         let hadExistingBinary = try remoteDaemonExistsLocked(remotePath: remotePath)
+        debugLog("remote.bootstrap.binaryExists remotePath=\(remotePath) exists=\(hadExistingBinary ? 1 : 0)")
         if !hadExistingBinary {
             let localBinary = try buildLocalDaemonBinary(goOS: platform.goOS, goArch: platform.goArch, version: version)
             try uploadRemoteDaemonBinaryLocked(localBinary: localBinary, remotePath: remotePath)
@@ -4002,11 +4031,16 @@ private final class WorkspaceRemoteSessionController {
 
         var hello = try helloRemoteDaemonLocked(remotePath: remotePath)
         if hadExistingBinary, !hello.capabilities.contains("proxy.stream") {
+            debugLog("remote.bootstrap.capabilityMissing remotePath=\(remotePath) capabilities=\(hello.capabilities.joined(separator: ","))")
             let localBinary = try buildLocalDaemonBinary(goOS: platform.goOS, goArch: platform.goArch, version: version)
             try uploadRemoteDaemonBinaryLocked(localBinary: localBinary, remotePath: remotePath)
             hello = try helloRemoteDaemonLocked(remotePath: remotePath)
         }
 
+        debugLog(
+            "remote.bootstrap.ready name=\(hello.name) version=\(hello.version) " +
+            "capabilities=\(hello.capabilities.joined(separator: ",")) remotePath=\(hello.remotePath)"
+        )
         return hello
     }
 
@@ -4051,6 +4085,7 @@ private final class WorkspaceRemoteSessionController {
 
     private func buildLocalDaemonBinary(goOS: String, goArch: String, version: String) throws -> URL {
         if let bundledBinary = Self.findBundledDaemonBinary(goOS: goOS, goArch: goArch, version: version) {
+            debugLog("remote.build.bundled path=\(bundledBinary.path)")
             return bundledBinary
         }
 
@@ -4103,6 +4138,7 @@ private final class WorkspaceRemoteSessionController {
                 NSLocalizedDescriptionKey: "cmuxd-remote build output is not executable",
             ])
         }
+        debugLog("remote.build.output path=\(output.path)")
         return output
     }
 
@@ -4130,6 +4166,9 @@ private final class WorkspaceRemoteSessionController {
     private func uploadRemoteDaemonBinaryLocked(localBinary: URL, remotePath: String) throws {
         let remoteDirectory = (remotePath as NSString).deletingLastPathComponent
         let remoteTempPath = "\(remotePath).tmp-\(UUID().uuidString.prefix(8))"
+        debugLog(
+            "remote.upload.begin local=\(localBinary.path) remoteTemp=\(remoteTempPath) remote=\(remotePath)"
+        )
 
         let mkdirScript = "mkdir -p \(Self.shellSingleQuoted(remoteDirectory))"
         let mkdirCommand = "sh -c \(Self.shellSingleQuoted(mkdirScript))"
@@ -4229,6 +4268,53 @@ private final class WorkspaceRemoteSessionController {
             capabilities: capabilities,
             remotePath: remotePath
         )
+    }
+
+    private func debugLog(_ message: @autoclosure () -> String) {
+#if DEBUG
+        dlog(message())
+#endif
+    }
+
+    private func debugConfigSummary() -> String {
+        let controlPath = Self.debugSSHOptionValue(named: "ControlPath", in: configuration.sshOptions) ?? "nil"
+        return
+            "target=\(configuration.displayTarget) port=\(configuration.port.map(String.init) ?? "nil") " +
+            "relayPort=\(configuration.relayPort.map(String.init) ?? "nil") " +
+            "localSocket=\(configuration.localSocketPath ?? "nil") " +
+            "controlPath=\(controlPath)"
+    }
+
+    private func debugShellCommand(executable: String, arguments: [String]) -> String {
+        ([URL(fileURLWithPath: executable).lastPathComponent] + arguments)
+            .map(Self.shellSingleQuoted)
+            .joined(separator: " ")
+    }
+
+    private static func debugSSHOptionValue(named key: String, in options: [String]) -> String? {
+        let loweredKey = key.lowercased()
+        for option in options {
+            let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+            let parts = trimmed.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+            if parts.count == 2,
+               parts[0].trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == loweredKey {
+                return parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        }
+        return nil
+    }
+
+    private static func debugLogSnippet(_ text: String, limit: Int = 160) -> String {
+        let normalized = text
+            .replacingOccurrences(of: "\n", with: "\\n")
+            .replacingOccurrences(of: "\r", with: "\\r")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else { return "\"\"" }
+        if normalized.count <= limit {
+            return normalized
+        }
+        return String(normalized.prefix(limit)) + "..."
     }
 
     private static func shellSingleQuoted(_ value: String) -> String {

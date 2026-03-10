@@ -3327,6 +3327,15 @@ class TerminalController {
         let relayPort = v2Int(params, "relay_port")
         let localSocketPath = v2RawString(params, "local_socket_path")
 
+#if DEBUG
+        dlog(
+            "workspace.remote.configure.request workspace=\(workspaceId.uuidString.prefix(8)) " +
+            "target=\(destination) port=\(sshPort.map(String.init) ?? "nil") " +
+            "autoConnect=\(autoConnect ? 1 : 0) relayPort=\(relayPort.map(String.init) ?? "nil") " +
+            "localSocket=\(localSocketPath?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ? localSocketPath! : "nil") " +
+            "sshOptions=\(sshOptions.joined(separator: "|"))"
+        )
+#endif
         var result: V2CallResult = .err(code: "not_found", message: "Workspace not found", data: [
             "workspace_id": workspaceId.uuidString,
             "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),

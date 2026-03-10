@@ -1996,13 +1996,6 @@ struct CMUXCLI {
         process.waitUntilExit()
     }
 
-    private func sendV1Command(_ command: String, client: SocketClient) throws -> String {
-        let response = try client.send(command: command)
-        if response.hasPrefix("ERROR:") {
-            throw CLIError(message: response)
-        }
-        return response
-    }
     private func resolvedIDFormat(jsonOutput: Bool, raw: String?) throws -> CLIIDFormat {
         _ = jsonOutput
         if let parsed = try CLIIDFormat.parse(raw) {
@@ -2691,9 +2684,22 @@ struct CMUXCLI {
         let localSocketPath = client.socketPath
         let remoteRelayPort = generateRemoteRelayPort()
         let sshOptions = try parseSSHCommandOptions(commandArgs, localSocketPath: localSocketPath, remoteRelayPort: remoteRelayPort)
+        prepareSSHTerminfoIfNeeded(sshOptions)
         let sshCommand = buildSSHCommandText(sshOptions)
         let shellFeaturesValue = scopedGhosttyShellFeaturesValue()
         let sshStartupCommand = buildSSHStartupCommand(sshCommand: sshCommand, shellFeatures: shellFeaturesValue)
+        let remoteSSHOptions = sshOptionsWithControlSocketDefaults(
+            sshOptions.sshOptions,
+            remoteRelayPort: sshOptions.remoteRelayPort
+        )
+
+        cliDebugLog(
+            "cli.ssh.start target=\(sshOptions.destination) port=\(sshOptions.port.map(String.init) ?? "nil") " +
+            "relayPort=\(sshOptions.remoteRelayPort) localSocket=\(sshOptions.localSocketPath) " +
+            "controlPath=\(sshOptionValue(named: "ControlPath", in: remoteSSHOptions) ?? "nil") " +
+            "workspaceName=\(sshOptions.workspaceName?.replacingOccurrences(of: " ", with: "_") ?? "nil") " +
+            "extraArgs=\(sshOptions.extraArguments.count)"
+        )
 
         let workspaceCreateParams: [String: Any] = [
             "initial_command": sshStartupCommand,
@@ -2705,8 +2711,10 @@ struct CMUXCLI {
         }
         let workspaceWindowId = (workspaceCreate["window_id"] as? String)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
-
-        let remoteSSHOptions = sshOptionsWithControlSocketDefaults(sshOptions.sshOptions)
+        cliDebugLog(
+            "cli.ssh.workspace.created workspace=\(String(workspaceId.prefix(8))) " +
+            "window=\(workspaceWindowId.map { String($0.prefix(8)) } ?? "nil")"
+        )
         let configuredPayload: [String: Any]
         do {
             if let workspaceName = sshOptions.workspaceName?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -2736,13 +2744,26 @@ struct CMUXCLI {
                 configureParams["local_socket_path"] = sshOptions.localSocketPath
             }
 
+            cliDebugLog(
+                "cli.ssh.remote.configure workspace=\(String(workspaceId.prefix(8))) " +
+                "target=\(sshOptions.destination) relayPort=\(sshOptions.remoteRelayPort) " +
+                "controlPath=\(sshOptionValue(named: "ControlPath", in: remoteSSHOptions) ?? "nil") " +
+                "sshOptions=\(remoteSSHOptions.joined(separator: "|"))"
+            )
             configuredPayload = try client.sendV2(method: "workspace.remote.configure", params: configureParams)
             var selectParams: [String: Any] = ["workspace_id": workspaceId]
             if let workspaceWindowId, !workspaceWindowId.isEmpty {
                 selectParams["window_id"] = workspaceWindowId
             }
             _ = try client.sendV2(method: "workspace.select", params: selectParams)
+            let remoteState = ((configuredPayload["remote"] as? [String: Any])?["state"] as? String) ?? "unknown"
+            cliDebugLog(
+                "cli.ssh.remote.configure.ok workspace=\(String(workspaceId.prefix(8))) state=\(remoteState)"
+            )
         } catch {
+            cliDebugLog(
+                "cli.ssh.remote.configure.error workspace=\(String(workspaceId.prefix(8))) error=\(String(describing: error))"
+            )
             _ = try? client.sendV2(method: "workspace.close", params: ["workspace_id": workspaceId])
             throw error
         }
@@ -2857,20 +2878,7 @@ struct CMUXCLI {
     }
 
     private func buildSSHCommandText(_ options: SSHCommandOptions) -> String {
-        let effectiveSSHOptions = sshOptionsWithControlSocketDefaults(options.sshOptions)
-        var parts: [String] = ["ssh"]
-        if !hasSSHOptionKey(effectiveSSHOptions, key: "StrictHostKeyChecking") {
-            parts += ["-o", "StrictHostKeyChecking=accept-new"]
-        }
-        if let port = options.port {
-            parts += ["-p", String(port)]
-        }
-        if let identityFile = normalizedSSHIdentityPath(options.identityFile) {
-            parts += ["-i", identityFile]
-        }
-        for option in effectiveSSHOptions {
-            parts += ["-o", option]
-        }
+        var parts = baseSSHArguments(options)
 
         if options.extraArguments.isEmpty {
             // No explicit remote command provided: keep destination-only argv so Ghostty's
@@ -2903,7 +2911,67 @@ struct CMUXCLI {
         return parts.map(shellQuote).joined(separator: " ")
     }
 
-    private func sshOptionsWithControlSocketDefaults(_ options: [String]) -> [String] {
+    private func baseSSHArguments(_ options: SSHCommandOptions) -> [String] {
+        let effectiveSSHOptions = sshOptionsWithControlSocketDefaults(
+            options.sshOptions,
+            remoteRelayPort: options.remoteRelayPort
+        )
+        var parts: [String] = ["ssh"]
+        if !hasSSHOptionKey(effectiveSSHOptions, key: "StrictHostKeyChecking") {
+            parts += ["-o", "StrictHostKeyChecking=accept-new"]
+        }
+        if !hasSSHOptionKey(effectiveSSHOptions, key: "SetEnv") {
+            parts += ["-o", "SetEnv COLORTERM=truecolor"]
+        }
+        if !hasSSHOptionKey(effectiveSSHOptions, key: "SendEnv") {
+            parts += ["-o", "SendEnv TERM_PROGRAM TERM_PROGRAM_VERSION"]
+        }
+        if let port = options.port {
+            parts += ["-p", String(port)]
+        }
+        if let identityFile = normalizedSSHIdentityPath(options.identityFile) {
+            parts += ["-i", identityFile]
+        }
+        for option in effectiveSSHOptions {
+            parts += ["-o", option]
+        }
+        return parts
+    }
+
+    private func prepareSSHTerminfoIfNeeded(_ options: SSHCommandOptions) {
+        guard let terminfoSource = localXtermGhosttyTerminfoSource(), !terminfoSource.isEmpty else { return }
+
+        var args = baseSSHArguments(options)
+        args += ["-o", "BatchMode=yes", "-o", "ControlMaster=no", options.destination]
+        let installScript = """
+        infocmp xterm-ghostty >/dev/null 2>&1 && exit 0
+        command -v tic >/dev/null 2>&1 || exit 1
+        mkdir -p ~/.terminfo 2>/dev/null && tic -x - 2>/dev/null && exit 0
+        exit 1
+        """
+        args.append(installScript)
+
+        _ = runProcess(
+            executablePath: "/usr/bin/ssh",
+            arguments: Array(args.dropFirst()),
+            stdinText: terminfoSource
+        )
+    }
+
+    private func localXtermGhosttyTerminfoSource() -> String? {
+        let result = runProcess(
+            executablePath: "/usr/bin/infocmp",
+            arguments: ["-0", "-x", "xterm-ghostty"]
+        )
+        guard result.status == 0 else { return nil }
+        let output = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        return output.isEmpty ? nil : output
+    }
+
+    private func sshOptionsWithControlSocketDefaults(
+        _ options: [String],
+        remoteRelayPort: Int? = nil
+    ) -> [String] {
         var merged: [String] = []
         for option in options {
             let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -2917,7 +2985,7 @@ struct CMUXCLI {
             merged.append("ControlPersist=600")
         }
         if !hasSSHOptionKey(merged, key: "ControlPath") {
-            merged.append("ControlPath=\(defaultSSHControlPathTemplate())")
+            merged.append("ControlPath=\(defaultSSHControlPathTemplate(remoteRelayPort: remoteRelayPort))")
         }
         return merged
     }
@@ -2949,18 +3017,7 @@ struct CMUXCLI {
         let shellFeaturesBootstrap: String = trimmedFeatures.isEmpty
             ? ""
             : "export GHOSTTY_SHELL_FEATURES=\(shellQuote(trimmedFeatures))"
-        // Run through an interactive zsh so Ghostty's ssh-env/ssh-terminfo wrappers are actually loaded.
-        let sourceGhosttyZshIntegration = """
-if [[ -n "${GHOSTTY_RESOURCES_DIR:-}" ]]; then
-  _cmux_ghostty_integration="${GHOSTTY_RESOURCES_DIR}/shell-integration/zsh/ghostty-integration"
-  if [[ -r "$_cmux_ghostty_integration" ]]; then
-    builtin source -- "$_cmux_ghostty_integration"
-    (( $+functions[_ghostty_deferred_init] )) && _ghostty_deferred_init
-  fi
-  builtin unset _cmux_ghostty_integration
-fi
-"""
-        let script = [shellFeaturesBootstrap, sourceGhosttyZshIntegration, "\(sshCommand); exec ${SHELL:-/bin/zsh} -l"]
+        let script = [shellFeaturesBootstrap, "command \(sshCommand); exec ${SHELL:-/bin/zsh} -l"]
             .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
             .joined(separator: "\n")
         return "/bin/zsh -ilc \(shellQuote(script))"
@@ -2979,8 +3036,11 @@ fi
         return false
     }
 
-    private func defaultSSHControlPathTemplate() -> String {
-        "/tmp/cmux-ssh-\(getuid())-%C"
+    private func defaultSSHControlPathTemplate(remoteRelayPort: Int? = nil) -> String {
+        if let remoteRelayPort, remoteRelayPort > 0 {
+            return "/tmp/cmux-ssh-\(getuid())-\(remoteRelayPort)-%C"
+        }
+        return "/tmp/cmux-ssh-\(getuid())-%C"
     }
 
     private func normalizedSSHIdentityPath(_ rawPath: String?) -> String? {
@@ -3002,6 +3062,94 @@ fi
             return value
         }
         return "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
+    }
+
+    private func sshOptionValue(named key: String, in options: [String]) -> String? {
+        let loweredKey = key.lowercased()
+        for option in options {
+            let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+            let parts = trimmed.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+            if parts.count == 2,
+               parts[0].trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == loweredKey {
+                return parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        }
+        return nil
+    }
+
+    private func cliDebugLog(_ message: @autoclosure () -> String) {
+#if DEBUG
+        let trimmedExplicit = ProcessInfo.processInfo.environment["CMUX_DEBUG_LOG"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let path: String? = {
+            if let trimmedExplicit, !trimmedExplicit.isEmpty {
+                return trimmedExplicit
+            }
+            guard let marker = try? String(contentsOfFile: "/tmp/cmux-last-debug-log-path", encoding: .utf8) else {
+                return nil
+            }
+            let trimmedMarker = marker.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmedMarker.isEmpty ? nil : trimmedMarker
+        }()
+        guard let path else { return }
+        let timestamp = ISO8601DateFormatter().string(from: Date())
+        let line = "\(timestamp) [cmux-cli] \(message())\n"
+        guard let data = line.data(using: .utf8) else { return }
+        if !FileManager.default.fileExists(atPath: path) {
+            FileManager.default.createFile(atPath: path, contents: nil)
+        }
+        guard let handle = FileHandle(forWritingAtPath: path) else { return }
+        defer { try? handle.close() }
+        do {
+            try handle.seekToEnd()
+            try handle.write(contentsOf: data)
+        } catch {
+            return
+        }
+#endif
+    }
+
+    private func runProcess(
+        executablePath: String,
+        arguments: [String],
+        stdinText: String? = nil
+    ) -> (status: Int32, stdout: String, stderr: String) {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: executablePath)
+        process.arguments = arguments
+
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+
+        let stdinPipe: Pipe?
+        if stdinText != nil {
+            let pipe = Pipe()
+            process.standardInput = pipe
+            stdinPipe = pipe
+        } else {
+            stdinPipe = nil
+        }
+
+        do {
+            try process.run()
+        } catch {
+            return (1, "", String(describing: error))
+        }
+
+        if let stdinText, let stdinPipe {
+            if let data = stdinText.data(using: .utf8) {
+                stdinPipe.fileHandleForWriting.write(data)
+            }
+            stdinPipe.fileHandleForWriting.closeFile()
+        }
+
+        process.waitUntilExit()
+        let stdout = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        return (process.terminationStatus, stdout, stderr)
     }
 
     private func runBrowserCommand(
