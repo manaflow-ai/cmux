@@ -1981,6 +1981,8 @@ class TerminalController {
             return v2Result(id: id, self.v2BrowserInputKeyboard(params: params))
         case "browser.input_touch":
             return v2Result(id: id, self.v2BrowserInputTouch(params: params))
+        case "browser.cert_bypass":
+            return v2Result(id: id, self.v2BrowserCertBypass(params: params))
 
         // Markdown
         case "markdown.open":
@@ -7322,6 +7324,33 @@ class TerminalController {
             ])
         }
         return result
+    }
+
+    private func v2BrowserCertBypass(params: [String: Any]) -> V2CallResult {
+        let action = (params["action"] as? String) ?? (params["args"] as? [String])?.first ?? ""
+        switch action {
+        case "get":
+            return .ok(["enabled": BrowserCertBypassSettings.isEnabled()])
+        case "set":
+            let rawValue = (params["args"] as? [String])?.dropFirst().first
+                ?? (params["value"] as? String)
+                ?? (params["enabled"] as? Bool).map { $0 ? "true" : "false" }
+            guard let rawValue else {
+                return .err(code: "invalid_params", message: "Missing value: use 'set true' or 'set false'", data: nil)
+            }
+            switch rawValue.lowercased() {
+            case "true", "1", "yes":
+                DispatchQueue.main.async { BrowserCertBypassSettings.runtimeOverride = true }
+                return .ok(["enabled": true])
+            case "false", "0", "no":
+                DispatchQueue.main.async { BrowserCertBypassSettings.runtimeOverride = false }
+                return .ok(["enabled": false])
+            default:
+                return .err(code: "invalid_params", message: "Invalid value '\(rawValue)': use 'true' or 'false'", data: nil)
+            }
+        default:
+            return .err(code: "invalid_params", message: "Unknown action '\(action)': use 'get' or 'set'", data: nil)
+        }
     }
 
     private func v2BrowserFocusWebView(params: [String: Any]) -> V2CallResult {

@@ -3823,6 +3823,9 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
         if challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
            BrowserCertBypassSettings.isEnabled(),
            let serverTrust = challenge.protectionSpace.serverTrust {
+            #if DEBUG
+            dlog("browser.cert_bypass: accepting server trust for \(challenge.protectionSpace.host)")
+            #endif
             completionHandler(.useCredential, URLCredential(trust: serverTrust))
             return
         }
