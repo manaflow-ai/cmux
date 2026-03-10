@@ -1337,6 +1337,7 @@ struct ContentView: View {
     @State private var commandPaletteGhosttyResolvedCurrentTheme: String?
     @State private var commandPaletteGhosttyThemesAreLoading = false
     @State private var commandPaletteGhosttyThemeLoadTask: Task<Void, Never>?
+    @State private var commandPaletteGhosttyThemeLoadRequestID: UInt64 = 0
     @State private var isFeedbackComposerPresented = false
     @AppStorage(CommandPaletteRenameSelectionSettings.selectAllOnFocusKey)
     private var commandPaletteRenameSelectAllOnFocus = CommandPaletteRenameSelectionSettings.defaultSelectAllOnFocus
@@ -3273,6 +3274,9 @@ struct ContentView: View {
         switch commandPaletteListScope {
         case .commands:
             if commandPaletteCommandSubmenu == .ghosttyThemes {
+                if commandPaletteGhosttyThemesAreLoading {
+                    return ""
+                }
                 return String(localized: "commandPalette.search.ghosttyThemesEmpty", defaultValue: "No Ghostty themes match your search.")
             }
             return String(localized: "commandPalette.search.commandsEmpty", defaultValue: "No commands match your search.")
@@ -4022,6 +4026,8 @@ struct ContentView: View {
 
         commandPaletteGhosttyThemeLoadTask?.cancel()
         commandPaletteGhosttyThemesAreLoading = true
+        commandPaletteGhosttyThemeLoadRequestID &+= 1
+        let requestID = commandPaletteGhosttyThemeLoadRequestID
         let preferredColorScheme = GhosttyConfig.currentColorSchemePreference()
         commandPaletteGhosttyThemeLoadTask = Task.detached(priority: .userInitiated) {
             guard !Task.isCancelled else { return }
@@ -4045,6 +4051,7 @@ struct ContentView: View {
             guard !Task.isCancelled else { return }
 
             await MainActor.run {
+                guard commandPaletteGhosttyThemeLoadRequestID == requestID else { return }
                 commandPaletteGhosttyThemesAreLoading = false
                 commandPaletteGhosttyThemeLoadTask = nil
                 guard commandPaletteCommandSubmenu == .ghosttyThemes else { return }
