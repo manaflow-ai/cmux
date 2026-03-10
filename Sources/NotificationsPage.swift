@@ -1,3 +1,4 @@
+import Bonsplit
 import SwiftUI
 
 struct NotificationsPage: View {
@@ -67,7 +68,7 @@ struct NotificationsPage: View {
 
     private var header: some View {
         HStack {
-            Text("Notifications")
+            Text(String(localized: "notifications.title", defaultValue: "Notifications"))
                 .font(.title2)
                 .fontWeight(.semibold)
 
@@ -76,7 +77,7 @@ struct NotificationsPage: View {
             if !notificationStore.notifications.isEmpty {
                 jumpToUnreadButton
 
-                Button("Clear All") {
+                Button(String(localized: "notifications.clearAll", defaultValue: "Clear All")) {
                     notificationStore.clearAll()
                 }
                 .buttonStyle(.bordered)
@@ -91,9 +92,9 @@ struct NotificationsPage: View {
             Image(systemName: "bell.slash")
                 .font(.system(size: 32))
                 .foregroundColor(.secondary)
-            Text("No notifications yet")
+            Text(String(localized: "notifications.empty.title", defaultValue: "No notifications yet"))
                 .font(.headline)
-            Text("Desktop notifications will appear here for quick review.")
+            Text(String(localized: "notifications.empty.description", defaultValue: "Desktop notifications will appear here for quick review."))
                 .font(.subheadline)
                 .foregroundColor(.secondary)
         }
@@ -107,25 +108,25 @@ struct NotificationsPage: View {
                 AppDelegate.shared?.jumpToLatestUnread()
             }) {
                 HStack(spacing: 6) {
-                    Text("Jump to Latest Unread")
+                    Text(String(localized: "notifications.jumpToLatestUnread", defaultValue: "Jump to Latest Unread"))
                     ShortcutAnnotation(text: jumpToUnreadShortcut.displayString)
                 }
             }
             .buttonStyle(.bordered)
             .keyboardShortcut(key, modifiers: jumpToUnreadShortcut.eventModifiers)
-            .help(KeyboardShortcutSettings.Action.jumpToUnread.tooltip("Jump to Latest Unread"))
+            .safeHelp(KeyboardShortcutSettings.Action.jumpToUnread.tooltip(String(localized: "notifications.jumpToLatestUnread", defaultValue: "Jump to Latest Unread")))
             .disabled(!hasUnreadNotifications)
         } else {
             Button(action: {
                 AppDelegate.shared?.jumpToLatestUnread()
             }) {
                 HStack(spacing: 6) {
-                    Text("Jump to Latest Unread")
+                    Text(String(localized: "notifications.jumpToLatestUnread", defaultValue: "Jump to Latest Unread"))
                     ShortcutAnnotation(text: jumpToUnreadShortcut.displayString)
                 }
             }
             .buttonStyle(.bordered)
-            .help(KeyboardShortcutSettings.Action.jumpToUnread.tooltip("Jump to Latest Unread"))
+            .safeHelp(KeyboardShortcutSettings.Action.jumpToUnread.tooltip(String(localized: "notifications.jumpToLatestUnread", defaultValue: "Jump to Latest Unread")))
             .disabled(!hasUnreadNotifications)
         }
     }

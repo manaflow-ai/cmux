@@ -246,8 +246,8 @@ export default function ChangelogPage() {
     <div className="max-w-[640px] overflow-hidden">
       <h1 style={{ margin: 0, padding: 0, paddingBottom: 8 }}>Changelog</h1>
 
-      <div style={{ paddingTop: 32 }}>
-        {versions.map((v) => {
+      <div style={{ paddingTop: 16 }}>
+        {versions.map((v, vi) => {
           const media = changelogMedia[v.version];
 
           return (
@@ -255,7 +255,7 @@ export default function ChangelogPage() {
               key={v.version}
               id={`v${v.version}`}
               className="border-t border-border first:border-t-0"
-              style={{ display: "flex", flexDirection: "column", padding: "40px 0" }}
+              style={{ display: "flex", flexDirection: "column", paddingTop: vi === 0 ? 0 : 40, paddingBottom: 40 }}
             >
               <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                 <a

@@ -1,9 +1,11 @@
 import SwiftUI
 import Foundation
+import Bonsplit
 
 /// View that renders the appropriate panel view based on panel type
 struct PanelContentView: View {
     let panel: any Panel
+    let paneId: PaneID
     let isFocused: Bool
     let isSelectedInPane: Bool
     let isVisibleInUI: Bool
@@ -35,6 +37,17 @@ struct PanelContentView: View {
             if let browserPanel = panel as? BrowserPanel {
                 BrowserPanelView(
                     panel: browserPanel,
+                    paneId: paneId,
+                    isFocused: isFocused,
+                    isVisibleInUI: isVisibleInUI,
+                    portalPriority: portalPriority,
+                    onRequestPanelFocus: onRequestPanelFocus
+                )
+            }
+        case .markdown:
+            if let markdownPanel = panel as? MarkdownPanel {
+                MarkdownPanelView(
+                    panel: markdownPanel,
                     isFocused: isFocused,
                     isVisibleInUI: isVisibleInUI,
                     portalPriority: portalPriority,

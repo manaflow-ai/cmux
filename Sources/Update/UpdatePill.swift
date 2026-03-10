@@ -1,4 +1,5 @@
 import AppKit
+import Bonsplit
 import Foundation
 import SwiftUI
 
@@ -54,7 +55,7 @@ struct UpdatePill: View {
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
-        .help(model.text)
+        .safeHelp(model.text)
         .accessibilityLabel(model.text)
         .accessibilityIdentifier("UpdatePill")
     }
@@ -72,7 +73,7 @@ struct InstallUpdateMenuItem: View {
 
     var body: some View {
         if model.state.isInstallable {
-            Button("Install Update and Relaunch") {
+            Button(String(localized: "update.installAndRelaunch", defaultValue: "Install Update and Relaunch")) {
                 model.state.confirm()
             }
         }

@@ -26,6 +26,36 @@ export interface VersionMedia {
 }
 
 export const changelogMedia: Record<string, VersionMedia> = {
+  "0.62.0": {
+    title: "Markdown Viewer, Browser Find, Vi Copy Mode, and Localization",
+    features: [
+      {
+        title: "Markdown Viewer",
+        description:
+          "Open Markdown files in their own panel and keep them live with file watching. Notes, READMEs, and docs refresh automatically as the file changes on disk.",
+      },
+      {
+        title: "Find in Browser",
+        description:
+          "Browser panels now support Cmd+F with inline find controls, so you can search long docs, dashboards, and issue threads without leaving cmux.",
+      },
+      {
+        title: "Vi Copy Mode",
+        description:
+          "Terminal scrollback now has a keyboard copy mode with vi-style navigation, making it much easier to inspect and copy from large output buffers.",
+      },
+      {
+        title: "Custom Notification Sounds",
+        description:
+          "Choose from bundled sounds or pick your own audio file so background task notifications are easier to notice and easier to personalize.",
+      },
+      {
+        title: "Expanded Localization",
+        description:
+          "cmux now includes Japanese plus 16 additional languages, and a per-app language override lets you change the UI language without changing macOS system settings.",
+      },
+    ],
+  },
   "0.61.0": {
     title: "Tab Colors, Command Palette, Pin Workspaces",
     features: [

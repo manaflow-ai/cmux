@@ -206,11 +206,13 @@ func resolvedBrowserOmnibarPillBackgroundColor(
 /// View for rendering a browser panel with address bar
 struct BrowserPanelView: View {
     @ObservedObject var panel: BrowserPanel
+    let paneId: PaneID
     let isFocused: Bool
     let isVisibleInUI: Bool
     let portalPriority: Int
     let onRequestPanelFocus: () -> Void
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.paneDropZone) private var paneDropZone
     @State private var omnibarState = OmnibarState()
     @State private var addressBarFocused: Bool = false
     @AppStorage(BrowserSearchSettings.searchEngineKey) private var searchEngineRaw = BrowserSearchSettings.defaultSearchEngine.rawValue
@@ -229,8 +231,12 @@ struct BrowserPanelView: View {
     @State private var focusFlashOpacity: Double = 0.0
     @State private var focusFlashAnimationGeneration: Int = 0
     @State private var omnibarPillFrame: CGRect = .zero
+    @State private var addressBarHeight: CGFloat = 0
     @State private var lastHandledAddressBarFocusRequestId: UUID?
+    @State private var pendingAddressBarFocusRetryRequestId: UUID?
+    @State private var pendingAddressBarFocusRetryGeneration: UInt64 = 0
     @State private var isBrowserThemeMenuPresented = false
+    @State private var ghosttyBackgroundGeneration: Int = 0
     // Keep this below half of the compact omnibar height so it reads as a squircle,
     // not a capsule.
     private let omnibarPillCornerRadius: CGFloat = 10
@@ -275,18 +281,29 @@ struct BrowserPanelView: View {
         BrowserThemeSettings.mode(for: browserThemeModeRaw)
     }
 
+    private var browserChromeBackground: Color {
+        _ = ghosttyBackgroundGeneration
+        return Color(nsColor: GhosttyBackgroundTheme.currentColor())
+    }
+
     private var browserChromeBackgroundColor: NSColor {
-        resolvedBrowserChromeBackgroundColor(
+        _ = ghosttyBackgroundGeneration
+        return resolvedBrowserChromeBackgroundColor(
             for: colorScheme,
-            themeBackgroundColor: GhosttyApp.shared.defaultBackgroundColor
+            themeBackgroundColor: GhosttyBackgroundTheme.currentColor()
         )
     }
 
     private var browserChromeColorScheme: ColorScheme {
-        resolvedBrowserChromeColorScheme(
+        _ = ghosttyBackgroundGeneration
+        return resolvedBrowserChromeColorScheme(
             for: colorScheme,
-            themeBackgroundColor: GhosttyApp.shared.defaultBackgroundColor
+            themeBackgroundColor: GhosttyBackgroundTheme.currentColor()
         )
+    }
+
+    private var browserContentAccessibilityIdentifier: String {
+        "BrowserPanelContent.\(panel.id.uuidString)"
     }
 
     private var omnibarPillBackgroundColor: NSColor {
@@ -296,10 +313,36 @@ struct BrowserPanelView: View {
         )
     }
 
+    private var isCurrentPaneOwner: Bool {
+        guard let workspace = AppDelegate.shared?.tabManager?.tabs.first(where: { $0.id == panel.workspaceId }),
+              let currentPaneId = workspace.paneId(forPanelId: panel.id) else {
+            return false
+        }
+        return currentPaneId.id == paneId.id
+    }
+
     var body: some View {
+        // Layering contract: browser Cmd+F UI is mounted in the portal-hosted AppKit
+        // container. Rendering it here can hide it behind the portal-hosted WKWebView.
         VStack(spacing: 0) {
             addressBar
+                .fixedSize(horizontal: false, vertical: true)
             webView
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .overlay {
+            // Keep Cmd+F usable when the browser is still in the empty new-tab
+            // state (no WKWebView mounted yet). WebView-backed cases are hosted
+            // in AppKit by WindowBrowserPortal to avoid layering/clipping issues.
+            if !panel.shouldRenderWebView, let searchState = panel.searchState {
+                BrowserSearchOverlay(
+                    panelId: panel.id,
+                    searchState: searchState,
+                    onNext: { panel.findNext() },
+                    onPrevious: { panel.findPrevious() },
+                    onClose: { panel.hideFind() }
+                )
+            }
         }
         .overlay {
             RoundedRectangle(cornerRadius: FocusFlashPattern.ringCornerRadius)
@@ -334,6 +377,9 @@ struct BrowserPanelView: View {
         .onPreferenceChange(OmnibarPillFramePreferenceKey.self) { frame in
             omnibarPillFrame = frame
         }
+        .onPreferenceChange(BrowserAddressBarHeightPreferenceKey.self) { height in
+            addressBarHeight = height
+        }
         .onReceive(NotificationCenter.default.publisher(for: .webViewDidReceiveClick).filter { [weak panel] note in
             // Only handle clicks from our own webview.
             guard let webView = note.object as? CmuxWebView else { return false }
@@ -346,7 +392,15 @@ struct BrowserPanelView: View {
                 "addressFocused=\(addressBarFocused ? 1 : 0)"
             )
 #endif
-            onRequestPanelFocus()
+            if addressBarFocused {
+#if DEBUG
+                logBrowserFocusState(event: "addressBarFocus.webViewClickBlur")
+#endif
+                setAddressBarFocused(false, reason: "webView.clickIntent")
+            }
+            if !isFocused {
+                onRequestPanelFocus()
+            }
         }
         .onAppear {
             UserDefaults.standard.register(defaults: [
@@ -366,6 +420,9 @@ struct BrowserPanelView: View {
             autoFocusOmnibarIfBlank()
             syncWebViewResponderPolicyWithViewState(reason: "onAppear")
             BrowserHistoryStore.shared.loadIfNeeded()
+#if DEBUG
+            logBrowserFocusState(event: "view.onAppear")
+#endif
         }
         .onChange(of: panel.focusFlashToken) { _ in
             triggerFocusFlashAnimation()
@@ -379,7 +436,7 @@ struct BrowserPanelView: View {
                !panel.shouldSuppressWebViewFocus(),
                addressWasEmpty,
                !isWebViewBlank() {
-                addressBarFocused = false
+                setAddressBarFocused(false, reason: "panel.currentURL.loaded")
             }
         }
         .onChange(of: browserThemeModeRaw) { _ in
@@ -396,17 +453,30 @@ struct BrowserPanelView: View {
             applyPendingAddressBarFocusRequestIfNeeded()
         }
         .onChange(of: isFocused) { focused in
+#if DEBUG
+            logBrowserFocusState(
+                event: "panelFocus.onChange",
+                detail: "next=\(focused ? 1 : 0)"
+            )
+#endif
             // Ensure this view doesn't retain focus while hidden (bonsplit keepAllAlive).
             if focused {
                 applyPendingAddressBarFocusRequestIfNeeded()
                 autoFocusOmnibarIfBlank()
             } else {
+                panel.invalidateAddressBarPageFocusRestoreAttempts()
                 hideSuggestions()
-                addressBarFocused = false
+                setAddressBarFocused(false, reason: "panelFocus.onChange.unfocused")
             }
             syncWebViewResponderPolicyWithViewState(reason: "panelFocusChanged")
         }
         .onChange(of: addressBarFocused) { focused in
+#if DEBUG
+            logBrowserFocusState(
+                event: "addressBarFocus.onChange",
+                detail: "next=\(focused ? 1 : 0)"
+            )
+#endif
             let urlString = panel.preferredURLStringForOmnibar() ?? ""
             if focused {
                 panel.beginSuppressWebViewFocusForAddressBar()
@@ -414,6 +484,9 @@ struct BrowserPanelView: View {
                 // Only request panel focus if this pane isn't currently focused. When already
                 // focused (e.g. Cmd+L), forcing focus can steal first responder back to WebKit.
                 if !isFocused {
+#if DEBUG
+                    logBrowserFocusState(event: "addressBarFocus.requestPanelFocus")
+#endif
                     onRequestPanelFocus()
                 }
                 let effects = omnibarReduce(state: &omnibarState, event: .focusGained(currentURLString: urlString))
@@ -433,11 +506,17 @@ struct BrowserPanelView: View {
                 inlineCompletion = nil
             }
             syncWebViewResponderPolicyWithViewState(reason: "addressBarFocusChanged")
+#if DEBUG
+            logBrowserFocusState(event: "addressBarFocus.onChange.applied")
+#endif
         }
         .onReceive(NotificationCenter.default.publisher(for: .browserMoveOmnibarSelection)) { notification in
             guard let panelId = notification.object as? UUID, panelId == panel.id else { return }
             guard addressBarFocused, !omnibarState.suggestions.isEmpty else { return }
             guard let delta = notification.userInfo?["delta"] as? Int, delta != 0 else { return }
+#if DEBUG
+            logBrowserFocusState(event: "addressBarFocus.moveSelection", detail: "delta=\(delta)")
+#endif
             let effects = omnibarReduce(state: &omnibarState, event: .moveSelection(delta: delta))
             applyOmnibarEffects(effects)
             refreshInlineCompletion()
@@ -451,8 +530,14 @@ struct BrowserPanelView: View {
             return panelId == panel.id
         }) { _ in
             if addressBarFocused {
-                addressBarFocused = false
+#if DEBUG
+                logBrowserFocusState(event: "addressBarFocus.externalBlur")
+#endif
+                setAddressBarFocused(false, reason: "notification.externalBlur")
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)) { _ in
+            ghosttyBackgroundGeneration &+= 1
         }
     }
 
@@ -471,7 +556,16 @@ struct BrowserPanelView: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, addressBarVerticalPadding)
-        .background(Color(nsColor: browserChromeBackgroundColor))
+        .background(browserChromeBackground)
+        .background {
+            GeometryReader { geo in
+                Color.clear
+                    .preference(
+                        key: BrowserAddressBarHeightPreferenceKey.self,
+                        value: geo.size.height
+                    )
+            }
+        }
         // Keep the omnibar stack above WKWebView so the suggestions popup is visible.
         .zIndex(1)
         .environment(\.colorScheme, browserChromeColorScheme)
@@ -493,7 +587,7 @@ struct BrowserPanelView: View {
             .buttonStyle(OmnibarAddressButtonStyle())
             .disabled(!panel.canGoBack)
             .opacity(panel.canGoBack ? 1.0 : 0.4)
-            .help("Go Back")
+            .safeHelp(String(localized: "browser.goBack", defaultValue: "Go Back"))
 
             Button(action: {
                 #if DEBUG
@@ -509,7 +603,7 @@ struct BrowserPanelView: View {
             .buttonStyle(OmnibarAddressButtonStyle())
             .disabled(!panel.canGoForward)
             .opacity(panel.canGoForward ? 1.0 : 0.4)
-            .help("Go Forward")
+            .safeHelp(String(localized: "browser.goForward", defaultValue: "Go Forward"))
 
             Button(action: {
                 if panel.isLoading {
@@ -530,18 +624,18 @@ struct BrowserPanelView: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(OmnibarAddressButtonStyle())
-            .help(panel.isLoading ? "Stop" : "Reload")
+            .safeHelp(panel.isLoading ? String(localized: "browser.stop", defaultValue: "Stop") : String(localized: "browser.reload", defaultValue: "Reload"))
 
             if panel.isDownloading {
                 HStack(spacing: 4) {
                     ProgressView()
                         .controlSize(.small)
-                    Text("Downloading...")
+                    Text(String(localized: "browser.downloading", defaultValue: "Downloading..."))
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                 }
                 .padding(.leading, 6)
-                .help("Download in progress")
+                .safeHelp(String(localized: "browser.downloadInProgress", defaultValue: "Download in progress"))
             }
         }
     }
@@ -559,7 +653,7 @@ struct BrowserPanelView: View {
         }
         .buttonStyle(OmnibarAddressButtonStyle())
         .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
-        .help(KeyboardShortcutSettings.Action.toggleBrowserDeveloperTools.tooltip("Toggle Developer Tools"))
+        .safeHelp(KeyboardShortcutSettings.Action.toggleBrowserDeveloperTools.tooltip(String(localized: "browser.toggleDevTools", defaultValue: "Toggle Developer Tools")))
         .accessibilityIdentifier("BrowserToggleDevToolsButton")
     }
 
@@ -579,7 +673,7 @@ struct BrowserPanelView: View {
         .popover(isPresented: $isBrowserThemeMenuPresented, arrowEdge: .bottom) {
             browserThemeModePopover
         }
-        .help("Browser Theme: \(browserThemeMode.displayName)")
+        .safeHelp("Browser Theme: \(browserThemeMode.displayName)")
         .accessibilityIdentifier("BrowserThemeModeButton")
     }
 
@@ -640,7 +734,7 @@ struct BrowserPanelView: View {
                 ),
                 isFocused: $addressBarFocused,
                 inlineCompletion: inlineCompletion,
-                placeholder: "Search or enter URL",
+                placeholder: String(localized: "browser.addressBar.placeholder", defaultValue: "Search or enter URL"),
                 onTap: {
                     handleOmnibarTap()
                 },
@@ -651,14 +745,14 @@ struct BrowserPanelView: View {
                         panel.navigateSmart(omnibarState.buffer)
                         hideSuggestions()
                         suppressNextFocusLostRevert = true
-                        addressBarFocused = false
+                        setAddressBarFocused(false, reason: "omnibar.submit.navigate")
                     }
                 },
                 onEscape: {
                     handleOmnibarEscape()
                 },
                 onFieldLostFocus: {
-                    addressBarFocused = false
+                    setAddressBarFocused(false, reason: "omnibar.fieldLostFocus")
                 },
                 onMoveSelection: { delta in
                     guard addressBarFocused, !omnibarState.suggestions.isEmpty else { return }
@@ -712,116 +806,55 @@ struct BrowserPanelView: View {
             if panel.shouldRenderWebView {
                 WebViewRepresentable(
                     panel: panel,
-                    shouldAttachWebView: isVisibleInUI,
+                    paneId: paneId,
+                    shouldAttachWebView: isVisibleInUI && isCurrentPaneOwner,
                     shouldFocusWebView: isFocused && !addressBarFocused,
                     isPanelFocused: isFocused,
-                    portalZPriority: portalPriority
+                    portalZPriority: portalPriority,
+                    paneDropZone: paneDropZone,
+                    searchOverlay: panel.searchState.map { searchState in
+                        BrowserPortalSearchOverlayConfiguration(
+                            panelId: panel.id,
+                            searchState: searchState,
+                            onNext: { panel.findNext() },
+                            onPrevious: { panel.findPrevious() },
+                            onClose: { panel.hideFind() }
+                        )
+                    },
+                    paneTopChromeHeight: addressBarHeight
                 )
-                // Keep the representable identity stable across bonsplit structural updates.
-                // This reduces WKWebView reparenting churn (and the associated WebKit crashes).
-                .id(panel.id)
+                .accessibilityIdentifier("BrowserWebViewSurface")
+                // Keep the host stable for normal pane churn, but force a remount when
+                // BrowserPanel replaces its underlying WKWebView after process termination
+                // or when the browser moves to a different Bonsplit pane host.
+                .id("\(panel.webViewInstanceID.uuidString)-\(paneId.id.uuidString)")
                 .contentShape(Rectangle())
+                .accessibilityIdentifier(browserContentAccessibilityIdentifier)
                 .simultaneousGesture(TapGesture().onEnded {
                     // Chrome-like behavior: clicking web content while editing the
                     // omnibar should commit blur and revert transient edits.
                     if addressBarFocused {
-                        addressBarFocused = false
+#if DEBUG
+                        logBrowserFocusState(event: "webContent.tapBlur")
+#endif
+                        setAddressBarFocused(false, reason: "webContent.tapBlur")
                     }
                 })
             } else {
-                ZStack(alignment: .topLeading) {
-                    Color(nsColor: browserChromeBackgroundColor)
-                    if let status = panel.remoteWorkspaceStatus {
-                        remoteWorkspaceBlankStateIndicator(status)
-                            .padding(.top, 12)
-                            .padding(.leading, 12)
-                            .allowsHitTesting(false)
+                Color(nsColor: browserChromeBackgroundColor)
+                    .contentShape(Rectangle())
+                    .accessibilityIdentifier(browserContentAccessibilityIdentifier)
+                    .onTapGesture {
+                        onRequestPanelFocus()
+                        if addressBarFocused {
+                            setAddressBarFocused(false, reason: "placeholderContent.tapBlur")
+                        }
                     }
-                }
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    onRequestPanelFocus()
-                    if addressBarFocused {
-                        addressBarFocused = false
-                    }
-                }
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .layoutPriority(1)
         .zIndex(0)
-    }
-
-    @ViewBuilder
-    private func remoteWorkspaceBlankStateIndicator(_ status: BrowserRemoteWorkspaceStatus) -> some View {
-        HStack(spacing: 8) {
-            Image(systemName: remoteStatusSymbolName(status.connectionState))
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(remoteStatusColor(status.connectionState))
-
-            VStack(alignment: .leading, spacing: 1) {
-                Text("SSH \(status.target)")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(Color.primary.opacity(0.92))
-                    .lineLimit(1)
-                Text(remoteStatusDetailText(status))
-                    .font(.system(size: 10, weight: .regular))
-                    .foregroundStyle(Color.primary.opacity(0.72))
-                    .lineLimit(1)
-            }
-            .fixedSize(horizontal: true, vertical: false)
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background {
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(Color(nsColor: NSColor.controlBackgroundColor).opacity(0.85))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .stroke(Color.primary.opacity(0.12), lineWidth: 1)
-                )
-        }
-    }
-
-    private func remoteStatusSymbolName(_ state: WorkspaceRemoteConnectionState) -> String {
-        switch state {
-        case .connected:
-            return "network"
-        case .connecting:
-            return "arrow.triangle.2.circlepath"
-        case .error:
-            return "exclamationmark.triangle.fill"
-        case .disconnected:
-            return "network.slash"
-        }
-    }
-
-    private func remoteStatusColor(_ state: WorkspaceRemoteConnectionState) -> Color {
-        switch state {
-        case .connected:
-            return .green
-        case .connecting:
-            return .orange
-        case .error:
-            return .red
-        case .disconnected:
-            return .secondary
-        }
-    }
-
-    private func remoteStatusDetailText(_ status: BrowserRemoteWorkspaceStatus) -> String {
-        switch status.connectionState {
-        case .connected:
-            guard let lastHeartbeat = status.lastHeartbeatAt else {
-                return "Connected, waiting for heartbeat"
-            }
-            let ageSeconds = max(0, Int(Date().timeIntervalSince(lastHeartbeat)))
-            return "Connected, heartbeat #\(status.heartbeatCount) \(ageSeconds)s ago"
-        case .connecting:
-            return "Connecting..."
-        case .error:
-            return "Connection error"
-        case .disconnected:
-            return "Disconnected"
-        }
     }
 
     private func triggerFocusFlashAnimation() {
@@ -863,6 +896,82 @@ struct BrowserPanelView: View {
         cmuxWebView.allowsFirstResponderAcquisition = next
     }
 
+    private func setAddressBarFocused(_ focused: Bool, reason: String) {
+#if DEBUG
+        if addressBarFocused == focused {
+            logBrowserFocusState(
+                event: "addressBarFocus.write.noop",
+                detail: "reason=\(reason) value=\(focused ? 1 : 0)"
+            )
+        } else {
+            logBrowserFocusState(
+                event: "addressBarFocus.write",
+                detail: "reason=\(reason) old=\(addressBarFocused ? 1 : 0) new=\(focused ? 1 : 0)"
+            )
+        }
+#endif
+        addressBarFocused = focused
+    }
+
+    private func browserFocusResponderChainContains(
+        _ start: NSResponder?,
+        target: NSResponder
+    ) -> Bool {
+        var current = start
+        var hops = 0
+        while let responder = current, hops < 64 {
+            if responder === target { return true }
+            current = responder.nextResponder
+            hops += 1
+        }
+        return false
+    }
+
+    private func isPanelFocusedInModel() -> Bool {
+        guard let app = AppDelegate.shared,
+              let manager = app.tabManagerFor(tabId: panel.workspaceId),
+              manager.selectedTabId == panel.workspaceId,
+              let workspace = manager.tabs.first(where: { $0.id == panel.workspaceId }) else {
+            return false
+        }
+        return workspace.focusedPanelId == panel.id
+    }
+
+    private func shouldApplyAddressBarExitFallback(in window: NSWindow) -> Bool {
+        panel.webView.window === window && isPanelFocusedInModel()
+    }
+
+#if DEBUG
+    private func browserFocusWindow() -> NSWindow? {
+        panel.webView.window ?? NSApp.keyWindow ?? NSApp.mainWindow
+    }
+
+    private func browserFocusResponderDescription(_ responder: NSResponder?) -> String {
+        guard let responder else { return "nil" }
+        return String(describing: type(of: responder))
+    }
+
+    private func logBrowserFocusState(event: String, detail: String = "") {
+        let window = browserFocusWindow()
+        let firstResponder = window?.firstResponder
+        let firstResponderType = browserFocusResponderDescription(firstResponder)
+        let webResponder = browserFocusResponderChainContains(firstResponder, target: panel.webView) ? 1 : 0
+        var line =
+            "browser.focus.trace event=\(event) panel=\(panel.id.uuidString.prefix(5)) " +
+            "panelFocused=\(isFocused ? 1 : 0) addrFocused=\(addressBarFocused ? 1 : 0) " +
+            "suppressWeb=\(panel.shouldSuppressWebViewFocus() ? 1 : 0) " +
+            "suppressAuto=\(panel.shouldSuppressOmnibarAutofocus() ? 1 : 0) " +
+            "webResponder=\(webResponder) win=\(window?.windowNumber ?? -1) fr=\(firstResponderType)"
+        if let pending = panel.pendingAddressBarFocusRequestId {
+            line += " pending=\(pending.uuidString.prefix(8))"
+        }
+        if !detail.isEmpty {
+            line += " \(detail)"
+        }
+        dlog(line)
+    }
+#endif
+
     private func syncURLFromPanel() {
         let urlString = panel.preferredURLStringForOmnibar() ?? ""
         let effects = omnibarReduce(state: &omnibarState, event: .panelURLChanged(currentURLString: urlString))
@@ -892,12 +1001,57 @@ struct BrowserPanelView: View {
         return false
     }
 
+    private func clearPendingAddressBarFocusRetry() {
+        pendingAddressBarFocusRetryRequestId = nil
+        pendingAddressBarFocusRetryGeneration &+= 1
+    }
+
+    private func schedulePendingAddressBarFocusRetryIfNeeded(requestId: UUID) {
+        guard pendingAddressBarFocusRetryRequestId != requestId else { return }
+        pendingAddressBarFocusRetryRequestId = requestId
+        pendingAddressBarFocusRetryGeneration &+= 1
+        let generation = pendingAddressBarFocusRetryGeneration
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.10) {
+            guard pendingAddressBarFocusRetryGeneration == generation else { return }
+            pendingAddressBarFocusRetryRequestId = nil
+            guard panel.pendingAddressBarFocusRequestId == requestId else { return }
+            applyPendingAddressBarFocusRequestIfNeeded()
+        }
+    }
+
     private func applyPendingAddressBarFocusRequestIfNeeded() {
-        guard let requestId = panel.pendingAddressBarFocusRequestId else { return }
-        guard !isCommandPaletteVisibleForPanelWindow() else { return }
-        guard lastHandledAddressBarFocusRequestId != requestId else { return }
+        guard let requestId = panel.pendingAddressBarFocusRequestId else {
+            clearPendingAddressBarFocusRetry()
+            return
+        }
+        guard !isCommandPaletteVisibleForPanelWindow() else {
+#if DEBUG
+            logBrowserFocusState(
+                event: "addressBarFocus.request.apply.skip",
+                detail: "reason=command_palette_visible request=\(requestId.uuidString.prefix(8))"
+            )
+#endif
+            schedulePendingAddressBarFocusRetryIfNeeded(requestId: requestId)
+            return
+        }
+        clearPendingAddressBarFocusRetry()
+        guard lastHandledAddressBarFocusRequestId != requestId else {
+#if DEBUG
+            logBrowserFocusState(
+                event: "addressBarFocus.request.apply.skip",
+                detail: "reason=already_handled request=\(requestId.uuidString.prefix(8))"
+            )
+#endif
+            return
+        }
         lastHandledAddressBarFocusRequestId = requestId
         panel.beginSuppressWebViewFocusForAddressBar()
+#if DEBUG
+        logBrowserFocusState(
+            event: "addressBarFocus.request.apply",
+            detail: "request=\(requestId.uuidString.prefix(8))"
+        )
+#endif
 
         if addressBarFocused {
             // Re-run focus behavior (select-all/refresh suggestions) when focus is
@@ -906,11 +1060,29 @@ struct BrowserPanelView: View {
             let effects = omnibarReduce(state: &omnibarState, event: .focusGained(currentURLString: urlString))
             applyOmnibarEffects(effects)
             refreshInlineCompletion()
+#if DEBUG
+            logBrowserFocusState(
+                event: "addressBarFocus.request.apply",
+                detail: "request=\(requestId.uuidString.prefix(8)) mode=refresh"
+            )
+#endif
         } else {
-            addressBarFocused = true
+            setAddressBarFocused(true, reason: "request.apply")
+#if DEBUG
+            logBrowserFocusState(
+                event: "addressBarFocus.request.apply",
+                detail: "request=\(requestId.uuidString.prefix(8)) mode=set_focused"
+            )
+#endif
         }
 
         panel.acknowledgeAddressBarFocusRequest(requestId)
+#if DEBUG
+        logBrowserFocusState(
+            event: "addressBarFocus.request.ack",
+            detail: "request=\(requestId.uuidString.prefix(8))"
+        )
+#endif
     }
 
     /// Treat a WebView with no URL (or about:blank) as "blank" for UX purposes.
@@ -920,15 +1092,48 @@ struct BrowserPanelView: View {
     }
 
     private func autoFocusOmnibarIfBlank() {
-        guard isFocused else { return }
-        guard !addressBarFocused else { return }
-        guard !isCommandPaletteVisibleForPanelWindow() else { return }
+        guard isFocused else {
+#if DEBUG
+            logBrowserFocusState(event: "addressBarFocus.autoFocus.skip", detail: "reason=panel_not_focused")
+#endif
+            return
+        }
+        guard !addressBarFocused else {
+#if DEBUG
+            logBrowserFocusState(event: "addressBarFocus.autoFocus.skip", detail: "reason=already_focused")
+#endif
+            return
+        }
+        guard !isCommandPaletteVisibleForPanelWindow() else {
+#if DEBUG
+            logBrowserFocusState(event: "addressBarFocus.autoFocus.skip", detail: "reason=command_palette_visible")
+#endif
+            return
+        }
         // If a test/automation explicitly focused WebKit, don't steal focus back.
-        guard !panel.shouldSuppressOmnibarAutofocus() else { return }
+        guard !panel.shouldSuppressOmnibarAutofocus() else {
+#if DEBUG
+            logBrowserFocusState(event: "addressBarFocus.autoFocus.skip", detail: "reason=autofocus_suppressed")
+#endif
+            return
+        }
         // If a real navigation is underway (e.g. open_browser https://...), don't steal focus.
-        guard !panel.webView.isLoading else { return }
-        guard isWebViewBlank() else { return }
-        addressBarFocused = true
+        guard !panel.webView.isLoading else {
+#if DEBUG
+            logBrowserFocusState(event: "addressBarFocus.autoFocus.skip", detail: "reason=webview_loading")
+#endif
+            return
+        }
+        guard isWebViewBlank() else {
+#if DEBUG
+            logBrowserFocusState(event: "addressBarFocus.autoFocus.skip", detail: "reason=webview_not_blank")
+#endif
+            return
+        }
+        setAddressBarFocused(true, reason: "autoFocus.blank")
+#if DEBUG
+        logBrowserFocusState(event: "addressBarFocus.autoFocus.apply")
+#endif
     }
 
     private func openDevTools() {
@@ -948,13 +1153,15 @@ struct BrowserPanelView: View {
     }
 
     private func handleOmnibarTap() {
-        onRequestPanelFocus()
-        guard !addressBarFocused else { return }
-        // `focusPane` converges selection and can transiently move first responder to WebKit.
-        // Reassert omnibar focus on the next runloop for click-to-type behavior.
-        DispatchQueue.main.async {
-            addressBarFocused = true
+#if DEBUG
+        logBrowserFocusState(event: "addressBar.tap")
+#endif
+        if !addressBarFocused {
+            // Mark focused before pane selection converges so WebKit focus is not
+            // briefly re-acquired during `focusPane`.
+            setAddressBarFocused(true, reason: "omnibar.tap")
         }
+        onRequestPanelFocus()
     }
 
     private func hideSuggestions() {
@@ -985,7 +1192,7 @@ struct BrowserPanelView: View {
         hideSuggestions()
         inlineCompletion = nil
         suppressNextFocusLostRevert = true
-        addressBarFocused = false
+        setAddressBarFocused(false, reason: "suggestion.commit")
     }
 
     private func handleOmnibarEscape() {
@@ -1286,14 +1493,58 @@ struct BrowserPanelView: View {
         }
         if effects.shouldBlurToWebView {
             hideSuggestions()
-            addressBarFocused = false
+            // This transition is stateful: drop omnibar focus suppression before
+            // attempting responder handoff so WKWebView can actually become first responder.
+            panel.endSuppressWebViewFocusForAddressBar()
+            syncWebViewResponderPolicyWithViewState(reason: "effects.blurToWebView.preHandoff")
+            setAddressBarFocused(false, reason: "effects.blurToWebView")
             DispatchQueue.main.async {
-                guard isFocused else { return }
                 guard let window = panel.webView.window,
                       !panel.webView.isHiddenOrHasHiddenAncestor else { return }
+                guard shouldApplyAddressBarExitFallback(in: window) else {
+#if DEBUG
+                    dlog(
+                        "browser.focus.addressBar.exit.handoff panel=\(panel.id.uuidString.prefix(5)) " +
+                        "result=skip_not_focused"
+                    )
+#endif
+                    NotificationCenter.default.post(name: .browserDidExitAddressBar, object: panel.id)
+                    return
+                }
+                syncWebViewResponderPolicyWithViewState(reason: "effects.blurToWebView.handoff")
                 panel.clearWebViewFocusSuppression()
-                window.makeFirstResponder(panel.webView)
-                NotificationCenter.default.post(name: .browserDidExitAddressBar, object: panel.id)
+                let focusedWebView = window.makeFirstResponder(panel.webView)
+#if DEBUG
+                dlog(
+                    "browser.focus.addressBar.exit.handoff panel=\(panel.id.uuidString.prefix(5)) " +
+                    "focusedWebView=\(focusedWebView ? 1 : 0)"
+                )
+#endif
+                panel.restoreAddressBarPageFocusIfNeeded { restored in
+                    guard shouldApplyAddressBarExitFallback(in: window) else {
+#if DEBUG
+                        dlog(
+                            "browser.focus.addressBar.exit.handoff panel=\(panel.id.uuidString.prefix(5)) " +
+                            "result=skip_stale_restore restored=\(restored ? 1 : 0)"
+                        )
+#endif
+                        NotificationCenter.default.post(name: .browserDidExitAddressBar, object: panel.id)
+                        return
+                    }
+                    let hasWebViewResponder =
+                        browserFocusResponderChainContains(window.firstResponder, target: panel.webView)
+                    if !hasWebViewResponder {
+                        let fallbackFocusedWebView = window.makeFirstResponder(panel.webView)
+#if DEBUG
+                        dlog(
+                            "browser.focus.addressBar.exit.handoff panel=\(panel.id.uuidString.prefix(5)) " +
+                            "fallbackFocusedWebView=\(fallbackFocusedWebView ? 1 : 0) " +
+                            "restored=\(restored ? 1 : 0)"
+                        )
+#endif
+                    }
+                    NotificationCenter.default.post(name: .browserDidExitAddressBar, object: panel.id)
+                }
             }
         }
     }
@@ -1993,6 +2244,14 @@ private struct OmnibarPillFramePreferenceKey: PreferenceKey {
     }
 }
 
+private struct BrowserAddressBarHeightPreferenceKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
 // MARK: - Omnibar State Machine
 
 struct OmnibarState: Equatable {
@@ -2217,7 +2476,7 @@ struct OmnibarSuggestion: Identifiable, Hashable {
     var trailingBadgeText: String? {
         switch kind {
         case .switchToTab:
-            return "Switch to tab"
+            return String(localized: "browser.switchToTab", defaultValue: "Switch to tab")
         default:
             return nil
         }
@@ -2298,15 +2557,17 @@ struct OmnibarSuggestion: Identifiable, Hashable {
 }
 
 func browserOmnibarShouldReacquireFocusAfterEndEditing(
-    suppressWebViewFocus: Bool,
+    desiredOmnibarFocus: Bool,
     nextResponderIsOtherTextField: Bool
 ) -> Bool {
-    suppressWebViewFocus && !nextResponderIsOtherTextField
+    desiredOmnibarFocus && !nextResponderIsOtherTextField
 }
 
 private final class OmnibarNativeTextField: NSTextField {
     var onPointerDown: (() -> Void)?
     var onHandleKeyEvent: ((NSEvent, NSTextView?) -> Bool)?
+    /// Anchor index for Shift+click selection extension, reset on non-shift clicks.
+    private var shiftClickAnchor: Int?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -2324,7 +2585,11 @@ private final class OmnibarNativeTextField: NSTextField {
 
     override func mouseDown(with event: NSEvent) {
         #if DEBUG
-        dlog("browser.omnibarClick")
+        let frType = window?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
+        dlog(
+            "browser.omnibarClick win=\(window?.windowNumber ?? -1) " +
+            "fr=\(frType) hasEditor=\(currentEditor() == nil ? 0 : 1)"
+        )
         #endif
         onPointerDown?()
 
@@ -2332,39 +2597,78 @@ private final class OmnibarNativeTextField: NSTextField {
             // First click — activate editing and select all (standard URL bar behavior).
             // Avoids NSTextView's tracking loop which can spin forever if text layout
             // enters an infinite invalidation cycle (e.g. under memory pressure).
-            window?.makeFirstResponder(self)
+            let result = window?.makeFirstResponder(self) ?? false
+#if DEBUG
+            let frAfter = window?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
+            dlog(
+                "browser.omnibarClick.makeFirstResponder result=\(result ? 1 : 0) " +
+                "win=\(window?.windowNumber ?? -1) fr=\(frAfter)"
+            )
+#endif
             currentEditor()?.selectAll(nil)
+            shiftClickAnchor = nil
         } else {
-            // Already editing — allow normal click-to-place-cursor and drag-to-select.
-            // Guard against a stuck tracking loop by posting a synthetic mouseUp after
-            // a timeout. IMPORTANT: must use a background queue because super.mouseDown
-            // blocks the main thread in NSTextView's tracking loop, so
-            // DispatchQueue.main.asyncAfter would never fire.
-            let cancelled = DispatchWorkItem { /* sentinel */ }
-            let windowNumber = window?.windowNumber ?? 0
-            let location = event.locationInWindow
-            DispatchQueue.global(qos: .userInteractive).asyncAfter(deadline: .now() + 3.0) {
-                guard !cancelled.isCancelled else { return }
-                if let fakeUp = NSEvent.mouseEvent(
-                    with: .leftMouseUp,
-                    location: location,
-                    modifierFlags: [],
-                    timestamp: ProcessInfo.processInfo.systemUptime,
-                    windowNumber: windowNumber,
-                    context: nil,
-                    eventNumber: 0,
-                    clickCount: 1,
-                    pressure: 0.0
-                ) {
-                    NSApp.postEvent(fakeUp, atStart: true)
-                }
+            // Already editing — place the cursor at the click position without calling
+            // super.mouseDown, which enters NSTextView's mouse-tracking loop. That loop
+            // can spin forever when NSTextLayoutManager.enumerateTextLayoutFragments hits
+            // an infinite invalidation cycle (see #917). The previous mitigation posted a
+            // synthetic mouseUp via NSApp.postEvent after a timeout, but the tracking loop
+            // does not always dequeue events from the application event queue, so the hang
+            // persisted. By positioning the cursor ourselves we avoid the tracking loop
+            // entirely. Drag-to-select is not supported in this path, but for a single-line
+            // omnibar this is an acceptable trade-off (double-click to select word and
+            // Shift+click to extend selection still work via the field editor).
+            guard let editor = currentEditor() as? NSTextView else {
+                super.mouseDown(with: event)
+                return
             }
-            super.mouseDown(with: event)
-            cancelled.cancel()
+
+            // Double/triple-click: forward directly to the field editor (NSTextView)
+            // which handles word and line selection internally. This bypasses
+            // NSTextField's super.mouseDown (and its problematic tracking loop)
+            // while preserving multi-click semantics.
+            if event.clickCount > 1 {
+                editor.mouseDown(with: event)
+                shiftClickAnchor = nil
+                return
+            }
+
+            let localPoint = editor.convert(event.locationInWindow, from: nil)
+            let index = editor.characterIndexForInsertion(at: localPoint)
+            let textLength = (editor.string as NSString).length
+            let safeIndex = min(index, textLength)
+
+            if event.modifierFlags.contains(.shift) {
+                // Shift+click: extend the existing selection to the clicked position.
+                // Use stored anchor to handle bidirectional extension correctly;
+                // NSRange.location is always the lower index so it cannot serve as
+                // a directional anchor on its own.
+                let sel = editor.selectedRange()
+                let anchor = shiftClickAnchor ?? sel.location
+                shiftClickAnchor = anchor
+                let newRange: NSRange
+                if safeIndex >= anchor {
+                    newRange = NSRange(location: anchor, length: safeIndex - anchor)
+                } else {
+                    newRange = NSRange(location: safeIndex, length: anchor - safeIndex)
+                }
+                editor.setSelectedRange(newRange)
+            } else {
+                shiftClickAnchor = nil
+                editor.setSelectedRange(NSRange(location: safeIndex, length: 0))
+            }
         }
     }
 
     override func keyDown(with event: NSEvent) {
+        // Reset shift-click anchor on any keyboard input so that a subsequent
+        // Shift+click uses the post-keyboard selection as its anchor, not a
+        // stale value from a prior mouse interaction.
+        shiftClickAnchor = nil
+        if (currentEditor() as? NSTextView)?.hasMarkedText() == true {
+            super.keyDown(with: event)
+            return
+        }
         if onHandleKeyEvent?(event, currentEditor() as? NSTextView) == true {
             return
         }
@@ -2372,6 +2676,10 @@ private final class OmnibarNativeTextField: NSTextField {
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        shiftClickAnchor = nil
+        if (currentEditor() as? NSTextView)?.hasMarkedText() == true {
+            return super.performKeyEquivalent(with: event)
+        }
         if onHandleKeyEvent?(event, currentEditor() as? NSTextView) == true {
             return true
         }
@@ -2410,6 +2718,35 @@ private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
             self.parent = parent
         }
 
+#if DEBUG
+        func logFocusEvent(_ event: String, detail: String = "") {
+            let window = parentField?.window
+            let responder = window?.firstResponder
+            let responderType = responder.map { String(describing: type(of: $0)) } ?? "nil"
+            let responderIsField: Int = {
+                guard let field = parentField else { return 0 }
+                if responder === field { return 1 }
+                if let editor = responder as? NSTextView,
+                   (editor.delegate as? NSTextField) === field {
+                    return 1
+                }
+                return 0
+            }()
+            let pendingValue: String = {
+                guard let pendingFocusRequest else { return "nil" }
+                return pendingFocusRequest ? "focus" : "blur"
+            }()
+            var line =
+                "browser.focus.field event=\(event) focused=\(parent.isFocused ? 1 : 0) " +
+                "pending=\(pendingValue) suppressWeb=\(parent.shouldSuppressWebViewFocus() ? 1 : 0) " +
+                "win=\(window?.windowNumber ?? -1) fr=\(responderType) frIsField=\(responderIsField)"
+            if !detail.isEmpty {
+                line += " \(detail)"
+            }
+            dlog(line)
+        }
+#endif
+
         deinit {
             if let selectionObserver {
                 NotificationCenter.default.removeObserver(selectionObserver)
@@ -2432,16 +2769,77 @@ private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
             return false
         }
 
+        private func isPointerDownEvent(_ event: NSEvent) -> Bool {
+            switch event.type {
+            case .leftMouseDown, .rightMouseDown, .otherMouseDown:
+                return true
+            default:
+                return false
+            }
+        }
+
+        private func topHitViewForCurrentPointerEvent(window: NSWindow) -> NSView? {
+            guard let event = NSApp.currentEvent, isPointerDownEvent(event) else {
+                return nil
+            }
+            if event.windowNumber != 0, event.windowNumber != window.windowNumber {
+                return nil
+            }
+            if let eventWindow = event.window, eventWindow !== window {
+                return nil
+            }
+
+            if let contentView = window.contentView,
+               let themeFrame = contentView.superview {
+                let pointInTheme = themeFrame.convert(event.locationInWindow, from: nil)
+                if let hitInTheme = themeFrame.hitTest(pointInTheme) {
+                    return hitInTheme
+                }
+            }
+
+            guard let contentView = window.contentView else {
+                return nil
+            }
+            let pointInContent = contentView.convert(event.locationInWindow, from: nil)
+            return contentView.hitTest(pointInContent)
+        }
+
+        private func pointerDownBlurIntent(window: NSWindow?) -> Bool {
+            guard let window, let field = parentField else { return false }
+            guard let hitView = topHitViewForCurrentPointerEvent(window: window) else {
+                return false
+            }
+
+            if hitView === field || hitView.isDescendant(of: field) {
+                return false
+            }
+            if let textView = hitView as? NSTextView,
+               let delegateField = textView.delegate as? NSTextField,
+               delegateField === field {
+                return false
+            }
+            return true
+        }
+
         private func shouldReacquireFocusAfterEndEditing(window: NSWindow?) -> Bool {
+            if pointerDownBlurIntent(window: window) {
+                return false
+            }
             return browserOmnibarShouldReacquireFocusAfterEndEditing(
-                suppressWebViewFocus: parent.shouldSuppressWebViewFocus(),
+                desiredOmnibarFocus: parent.isFocused,
                 nextResponderIsOtherTextField: nextResponderIsOtherTextField(window: window)
             )
         }
 
         func controlTextDidBeginEditing(_ obj: Notification) {
+#if DEBUG
+            logFocusEvent("controlTextDidBeginEditing")
+#endif
             if !parent.isFocused {
                 DispatchQueue.main.async {
+#if DEBUG
+                    self.logFocusEvent("controlTextDidBeginEditing.asyncSetFocused", detail: "old=0 new=1")
+#endif
                     self.parent.isFocused = true
                 }
             }
@@ -2450,16 +2848,33 @@ private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
         }
 
         func controlTextDidEndEditing(_ obj: Notification) {
+#if DEBUG
+            let nextOther = nextResponderIsOtherTextField(window: parentField?.window)
+            let pointerBlur = pointerDownBlurIntent(window: parentField?.window)
+            logFocusEvent(
+                "controlTextDidEndEditing",
+                detail: "nextOther=\(nextOther ? 1 : 0) pointerBlur=\(pointerBlur ? 1 : 0) shouldReacquire=\(shouldReacquireFocusAfterEndEditing(window: parentField?.window) ? 1 : 0)"
+            )
+#endif
             if parent.isFocused {
                 if shouldReacquireFocusAfterEndEditing(window: parentField?.window) {
+#if DEBUG
+                    logFocusEvent("controlTextDidEndEditing.reacquire.begin")
+#endif
                     guard pendingFocusRequest != true else { return }
                     pendingFocusRequest = true
                     DispatchQueue.main.async { [weak self] in
                         guard let self else { return }
                         self.pendingFocusRequest = nil
+#if DEBUG
+                        self.logFocusEvent("controlTextDidEndEditing.reacquire.tick")
+#endif
                         guard self.parent.isFocused else { return }
                         guard let field = self.parentField, let window = field.window else { return }
                         guard self.shouldReacquireFocusAfterEndEditing(window: window) else {
+#if DEBUG
+                            self.logFocusEvent("controlTextDidEndEditing.reacquire.cancel")
+#endif
                             self.parent.onFieldLostFocus()
                             return
                         }
@@ -2470,11 +2885,21 @@ private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
                             field.currentEditor() != nil ||
                             ((fr as? NSTextView)?.delegate as? NSTextField) === field
                         if !isAlreadyFocused {
+#if DEBUG
+                            self.logFocusEvent("controlTextDidEndEditing.reacquire.apply")
+#endif
                             window.makeFirstResponder(field)
+                        } else {
+#if DEBUG
+                            self.logFocusEvent("controlTextDidEndEditing.reacquire.skip", detail: "reason=already_focused")
+#endif
                         }
                     }
                     return
                 }
+#if DEBUG
+                logFocusEvent("controlTextDidEndEditing.blur")
+#endif
                 parent.onFieldLostFocus()
             }
             detachSelectionObserver()
@@ -2686,7 +3111,7 @@ private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
         )
         let desiredDisplayText = activeInlineCompletion?.displayText ?? text
         if let editor = nsView.currentEditor() as? NSTextView {
-            if editor.string != desiredDisplayText {
+            if !editor.hasMarkedText(), editor.string != desiredDisplayText {
                 context.coordinator.isProgrammaticMutation = true
                 editor.string = desiredDisplayText
                 nsView.stringValue = desiredDisplayText
@@ -2703,34 +3128,72 @@ private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
                 nsView.currentEditor() != nil ||
                 ((firstResponder as? NSTextView)?.delegate as? NSTextField) === nsView
             if isFocused, !isFirstResponder, context.coordinator.pendingFocusRequest != true {
+#if DEBUG
+                context.coordinator.logFocusEvent(
+                    "updateNSView.requestFocus.begin",
+                    detail: "isFocused=1 isFirstResponder=0"
+                )
+#endif
                 // Defer to avoid triggering input method XPC during layout pass,
                 // which can crash via re-entrant view hierarchy modification.
                 context.coordinator.pendingFocusRequest = true
                 DispatchQueue.main.async { [weak nsView, weak coordinator = context.coordinator] in
                     coordinator?.pendingFocusRequest = nil
                     guard let nsView, let window = nsView.window else { return }
+#if DEBUG
+                    if coordinator?.parent.isFocused != true {
+                        coordinator?.logFocusEvent("updateNSView.requestFocus.cancel", detail: "reason=stale_state")
+                        return
+                    }
+#endif
+                    guard coordinator?.parent.isFocused == true else { return }
+#if DEBUG
+                    coordinator?.logFocusEvent("updateNSView.requestFocus.tick")
+#endif
                     let fr = window.firstResponder
                     let alreadyFocused = fr === nsView ||
                         nsView.currentEditor() != nil ||
                         ((fr as? NSTextView)?.delegate as? NSTextField) === nsView
                     guard !alreadyFocused else { return }
+#if DEBUG
+                    coordinator?.logFocusEvent("updateNSView.requestFocus.apply")
+#endif
                     window.makeFirstResponder(nsView)
                 }
             } else if !isFocused, isFirstResponder, context.coordinator.pendingFocusRequest != false {
+#if DEBUG
+                context.coordinator.logFocusEvent(
+                    "updateNSView.requestBlur.begin",
+                    detail: "isFocused=0 isFirstResponder=1"
+                )
+#endif
                 context.coordinator.pendingFocusRequest = false
                 DispatchQueue.main.async { [weak nsView, weak coordinator = context.coordinator] in
                     coordinator?.pendingFocusRequest = nil
                     guard let nsView, let window = nsView.window else { return }
+#if DEBUG
+                    if coordinator?.parent.isFocused == true {
+                        coordinator?.logFocusEvent("updateNSView.requestBlur.cancel", detail: "reason=stale_state")
+                        return
+                    }
+#endif
+                    guard coordinator?.parent.isFocused == false else { return }
+#if DEBUG
+                    coordinator?.logFocusEvent("updateNSView.requestBlur.tick")
+#endif
                     let fr = window.firstResponder
                     let stillFirst = fr === nsView ||
                         ((fr as? NSTextView)?.delegate as? NSTextField) === nsView
                     guard stillFirst else { return }
+#if DEBUG
+                    coordinator?.logFocusEvent("updateNSView.requestBlur.apply")
+#endif
                     window.makeFirstResponder(nil)
                 }
             }
         }
 
-        if let editor = nsView.currentEditor() as? NSTextView {
+        if let editor = nsView.currentEditor() as? NSTextView, !editor.hasMarkedText() {
             if let activeInlineCompletion {
                 let currentSelection = editor.selectedRange()
                 let desiredSelection = omnibarDesiredSelectionRangeForInlineCompletion(
@@ -3047,68 +3510,419 @@ private struct OmnibarSuggestionsView: View {
         .accessibilityElement(children: .contain)
         .accessibilityRespondsToUserInteraction(true)
         .accessibilityIdentifier("BrowserOmnibarSuggestions")
-        .accessibilityLabel("Address bar suggestions")
+        .accessibilityLabel(String(localized: "browser.addressBarSuggestions", defaultValue: "Address bar suggestions"))
     }
 }
 
 /// NSViewRepresentable wrapper for WKWebView
 struct WebViewRepresentable: NSViewRepresentable {
     let panel: BrowserPanel
+    let paneId: PaneID
     let shouldAttachWebView: Bool
     let shouldFocusWebView: Bool
     let isPanelFocused: Bool
     let portalZPriority: Int
+    let paneDropZone: DropZone?
+    let searchOverlay: BrowserPortalSearchOverlayConfiguration?
+    let paneTopChromeHeight: CGFloat
 
     final class Coordinator {
         weak var panel: BrowserPanel?
         weak var webView: WKWebView?
-        var attachRetryWorkItem: DispatchWorkItem?
-        var attachRetryCount: Int = 0
         var attachGeneration: Int = 0
-        var usesWindowPortal: Bool = false
         var desiredPortalVisibleInUI: Bool = true
         var desiredPortalZPriority: Int = 0
         var lastPortalHostId: ObjectIdentifier?
+        var lastSynchronizedHostGeometryRevision: UInt64 = 0
     }
 
-    private final class HostContainerView: NSView {
+    final class HostContainerView: NSView {
         var onDidMoveToWindow: (() -> Void)?
         var onGeometryChanged: (() -> Void)?
+        private(set) var geometryRevision: UInt64 = 0
+        private var lastReportedGeometryState: GeometryState?
+        private struct HostedInspectorDividerHit {
+            let containerView: NSView
+            let pageView: NSView
+            let inspectorView: NSView
+        }
+
+        private struct GeometryState: Equatable {
+            let frame: CGRect
+            let bounds: CGRect
+            let windowNumber: Int?
+            let superviewID: ObjectIdentifier?
+        }
+
+        private struct HostedInspectorDividerDragState {
+            let containerView: NSView
+            let pageView: NSView
+            let inspectorView: NSView
+            let initialWindowX: CGFloat
+            let initialPageFrame: NSRect
+            let initialInspectorFrame: NSRect
+        }
+
+        private enum DividerCursorKind: Equatable {
+            case vertical
+
+            var cursor: NSCursor { .resizeLeftRight }
+        }
+
+        private static let hostedInspectorDividerHitExpansion: CGFloat = 6
+        private static let minimumHostedInspectorWidth: CGFloat = 120
+        private var trackingArea: NSTrackingArea?
+        private var activeDividerCursorKind: DividerCursorKind?
+        private var hostedInspectorDividerDrag: HostedInspectorDividerDragState?
+        private var preferredHostedInspectorWidth: CGFloat?
+        private var isApplyingHostedInspectorLayout = false
+#if DEBUG
+        private var lastLoggedHostedInspectorFrames: (page: NSRect, inspector: NSRect)?
+        private var hasLoggedMissingHostedInspectorCandidate = false
+#endif
+
+        deinit {
+            if let trackingArea {
+                removeTrackingArea(trackingArea)
+            }
+            clearActiveDividerCursor(restoreArrow: false)
+        }
+
+#if DEBUG
+        private static func shouldLogPointerEvent(_ event: NSEvent?) -> Bool {
+            switch event?.type {
+            case .leftMouseDown, .leftMouseDragged, .leftMouseUp:
+                return true
+            default:
+                return false
+            }
+        }
+
+        private func debugLogHitTest(stage: String, point: NSPoint, passThrough: Bool, hitView: NSView?) {
+            let event = NSApp.currentEvent
+            guard Self.shouldLogPointerEvent(event) else { return }
+
+            let hitDesc: String = {
+                guard let hitView else { return "nil" }
+                let token = Unmanaged.passUnretained(hitView).toOpaque()
+                return "\(type(of: hitView))@\(token)"
+            }()
+            let hostRectInContent: NSRect = {
+                guard let window, let contentView = window.contentView else { return .zero }
+                return contentView.convert(bounds, from: self)
+            }()
+            dlog(
+                "browser.panel.host stage=\(stage) event=\(String(describing: event?.type)) " +
+                "point=\(String(format: "%.1f,%.1f", point.x, point.y)) pass=\(passThrough ? 1 : 0) " +
+                "hostFrameInContent=\(String(format: "%.1f,%.1f %.1fx%.1f", hostRectInContent.origin.x, hostRectInContent.origin.y, hostRectInContent.width, hostRectInContent.height)) " +
+                "hit=\(hitDesc)"
+            )
+        }
+
+        private static func debugObjectID(_ object: AnyObject?) -> String {
+            guard let object else { return "nil" }
+            return String(describing: Unmanaged.passUnretained(object).toOpaque())
+        }
+
+        private static func debugRect(_ rect: NSRect) -> String {
+            String(format: "%.1f,%.1f %.1fx%.1f", rect.origin.x, rect.origin.y, rect.width, rect.height)
+        }
+
+        private func debugLogHostedInspectorFrames(
+            stage: String,
+            point: NSPoint? = nil,
+            hit: HostedInspectorDividerHit
+        ) {
+            let pointDesc = point.map { String(format: "%.1f,%.1f", $0.x, $0.y) } ?? "nil"
+            let preferredWidthDesc = preferredHostedInspectorWidth.map { String(format: "%.1f", $0) } ?? "nil"
+            dlog(
+                "browser.panel.hostedInspector stage=\(stage) point=\(pointDesc) " +
+                "host=\(Self.debugObjectID(self)) container=\(Self.debugObjectID(hit.containerView)) " +
+                "page=\(Self.debugObjectID(hit.pageView)) inspector=\(Self.debugObjectID(hit.inspectorView)) " +
+                "preferredWidth=\(preferredWidthDesc) " +
+                "hostFrame=\(Self.debugRect(frame)) hostBounds=\(Self.debugRect(bounds)) " +
+                "containerBounds=\(Self.debugRect(hit.containerView.bounds)) " +
+                "pageFrame=\(Self.debugRect(hit.pageView.frame)) " +
+                "inspectorFrame=\(Self.debugRect(hit.inspectorView.frame))"
+            )
+        }
+
+        private func debugLogHostedInspectorLayoutIfNeeded(reason: String) {
+            guard let hit = hostedInspectorDividerCandidate() else {
+                if !hasLoggedMissingHostedInspectorCandidate,
+                   lastLoggedHostedInspectorFrames != nil || preferredHostedInspectorWidth != nil {
+                    let preferredWidthDesc = preferredHostedInspectorWidth.map {
+                        String(format: "%.1f", $0)
+                    } ?? "nil"
+                    lastLoggedHostedInspectorFrames = nil
+                    hasLoggedMissingHostedInspectorCandidate = true
+                    dlog(
+                        "browser.panel.hostedInspector stage=\(reason).candidateMissing " +
+                        "host=\(Self.debugObjectID(self)) preferredWidth=\(preferredWidthDesc)"
+                    )
+                }
+                return
+            }
+            hasLoggedMissingHostedInspectorCandidate = false
+
+            let nextFrames = (page: hit.pageView.frame, inspector: hit.inspectorView.frame)
+            if let lastLoggedHostedInspectorFrames,
+               Self.rectApproximatelyEqual(lastLoggedHostedInspectorFrames.page, nextFrames.page),
+               Self.rectApproximatelyEqual(lastLoggedHostedInspectorFrames.inspector, nextFrames.inspector) {
+                return
+            }
+
+            lastLoggedHostedInspectorFrames = nextFrames
+            debugLogHostedInspectorFrames(stage: "\(reason).layout", hit: hit)
+        }
+#endif
+
+        private static func rectApproximatelyEqual(_ lhs: NSRect, _ rhs: NSRect, epsilon: CGFloat = 0.5) -> Bool {
+            abs(lhs.origin.x - rhs.origin.x) <= epsilon &&
+                abs(lhs.origin.y - rhs.origin.y) <= epsilon &&
+                abs(lhs.width - rhs.width) <= epsilon &&
+                abs(lhs.height - rhs.height) <= epsilon
+        }
+
+        private func currentGeometryState() -> GeometryState {
+            GeometryState(
+                frame: frame,
+                bounds: bounds,
+                windowNumber: window?.windowNumber,
+                superviewID: superview.map(ObjectIdentifier.init)
+            )
+        }
+
+        private func notifyGeometryChangedIfNeeded() {
+            let state = currentGeometryState()
+            guard state != lastReportedGeometryState else { return }
+            lastReportedGeometryState = state
+            geometryRevision &+= 1
+            onGeometryChanged?()
+        }
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
+            if window == nil {
+                clearActiveDividerCursor(restoreArrow: false)
+            } else {
+                reapplyHostedInspectorDividerIfNeeded(reason: "viewDidMoveToWindow")
+            }
+            window?.invalidateCursorRects(for: self)
             onDidMoveToWindow?()
-            onGeometryChanged?()
+            notifyGeometryChangedIfNeeded()
+#if DEBUG
+            debugLogHostedInspectorLayoutIfNeeded(reason: "viewDidMoveToWindow")
+#endif
         }
 
         override func viewDidMoveToSuperview() {
             super.viewDidMoveToSuperview()
-            onGeometryChanged?()
+            reapplyHostedInspectorDividerIfNeeded(reason: "viewDidMoveToSuperview")
+            notifyGeometryChangedIfNeeded()
+#if DEBUG
+            debugLogHostedInspectorLayoutIfNeeded(reason: "viewDidMoveToSuperview")
+#endif
         }
 
         override func layout() {
             super.layout()
-            onGeometryChanged?()
+            reapplyHostedInspectorDividerIfNeeded(reason: "layout")
+            notifyGeometryChangedIfNeeded()
+#if DEBUG
+            debugLogHostedInspectorLayoutIfNeeded(reason: "layout")
+#endif
         }
 
         override func setFrameOrigin(_ newOrigin: NSPoint) {
             super.setFrameOrigin(newOrigin)
-            onGeometryChanged?()
+            window?.invalidateCursorRects(for: self)
+            reapplyHostedInspectorDividerIfNeeded(reason: "setFrameOrigin")
+            notifyGeometryChangedIfNeeded()
+#if DEBUG
+            debugLogHostedInspectorLayoutIfNeeded(reason: "setFrameOrigin")
+#endif
         }
 
         override func setFrameSize(_ newSize: NSSize) {
             super.setFrameSize(newSize)
-            onGeometryChanged?()
+            window?.invalidateCursorRects(for: self)
+            reapplyHostedInspectorDividerIfNeeded(reason: "setFrameSize")
+            notifyGeometryChangedIfNeeded()
+#if DEBUG
+            debugLogHostedInspectorLayoutIfNeeded(reason: "setFrameSize")
+#endif
+        }
+
+        override func resetCursorRects() {
+            super.resetCursorRects()
+            guard let hostedInspectorHit = hostedInspectorDividerCandidate() else { return }
+            let clipped = hostedInspectorDividerHitRect(for: hostedInspectorHit).intersection(bounds)
+            guard !clipped.isNull, clipped.width > 0, clipped.height > 0 else { return }
+            addCursorRect(clipped, cursor: NSCursor.resizeLeftRight)
+        }
+
+        override func updateTrackingAreas() {
+            if let trackingArea {
+                removeTrackingArea(trackingArea)
+            }
+            let options: NSTrackingArea.Options = [
+                .inVisibleRect,
+                .activeAlways,
+                .cursorUpdate,
+                .mouseMoved,
+                .mouseEnteredAndExited,
+                .enabledDuringMouseDrag,
+            ]
+            let next = NSTrackingArea(rect: .zero, options: options, owner: self, userInfo: nil)
+            addTrackingArea(next)
+            trackingArea = next
+            super.updateTrackingAreas()
+        }
+
+        override func cursorUpdate(with event: NSEvent) {
+            updateDividerCursor(at: convert(event.locationInWindow, from: nil))
+        }
+
+        override func mouseMoved(with event: NSEvent) {
+            updateDividerCursor(at: convert(event.locationInWindow, from: nil))
+        }
+
+        override func mouseExited(with event: NSEvent) {
+            clearActiveDividerCursor(restoreArrow: true)
         }
 
         override func hitTest(_ point: NSPoint) -> NSView? {
-            if shouldPassThroughToSidebarResizer(at: point) {
+            let hostedInspectorHit = hostedInspectorDividerHit(at: point)
+            updateDividerCursor(at: point, hostedInspectorHit: hostedInspectorHit)
+            let passThrough = shouldPassThroughToSidebarResizer(at: point, hostedInspectorHit: hostedInspectorHit)
+            if passThrough {
+#if DEBUG
+                debugLogHitTest(stage: "hitTest.pass", point: point, passThrough: true, hitView: nil)
+#endif
                 return nil
             }
-            return super.hitTest(point)
+            if let hostedInspectorHit {
+                if let nativeHit = nativeHostedInspectorHit(at: point, hostedInspectorHit: hostedInspectorHit) {
+#if DEBUG
+                    debugLogHitTest(stage: "hitTest.hostedInspectorNative", point: point, passThrough: false, hitView: nativeHit)
+#endif
+                    return nativeHit
+                }
+#if DEBUG
+                debugLogHitTest(stage: "hitTest.hostedInspectorManual", point: point, passThrough: false, hitView: hostedInspectorHit.inspectorView)
+#endif
+                return self
+            }
+            let hit = super.hitTest(point)
+#if DEBUG
+            debugLogHitTest(stage: "hitTest.result", point: point, passThrough: false, hitView: hit)
+#endif
+            return hit
         }
 
-        private func shouldPassThroughToSidebarResizer(at point: NSPoint) -> Bool {
+        override func mouseDown(with event: NSEvent) {
+            let point = convert(event.locationInWindow, from: nil)
+            guard let hostedInspectorHit = hostedInspectorDividerHit(at: point) else {
+                super.mouseDown(with: event)
+                return
+            }
+
+            hostedInspectorDividerDrag = HostedInspectorDividerDragState(
+                containerView: hostedInspectorHit.containerView,
+                pageView: hostedInspectorHit.pageView,
+                inspectorView: hostedInspectorHit.inspectorView,
+                initialWindowX: event.locationInWindow.x,
+                initialPageFrame: hostedInspectorHit.pageView.frame,
+                initialInspectorFrame: hostedInspectorHit.inspectorView.frame
+            )
+#if DEBUG
+            debugLogHostedInspectorFrames(stage: "drag.start", point: point, hit: hostedInspectorHit)
+#endif
+        }
+
+        override func mouseDragged(with event: NSEvent) {
+            guard let dragState = hostedInspectorDividerDrag else {
+                super.mouseDragged(with: event)
+                return
+            }
+
+            let containerBounds = dragState.containerView.bounds
+            let minimumInspectorWidth = min(
+                Self.minimumHostedInspectorWidth,
+                max(60, dragState.initialInspectorFrame.width)
+            )
+            let minDividerX = max(containerBounds.minX, dragState.initialPageFrame.minX)
+            let maxDividerX = max(minDividerX, containerBounds.maxX - minimumInspectorWidth)
+            let proposedDividerX = dragState.initialInspectorFrame.minX + (event.locationInWindow.x - dragState.initialWindowX)
+            let clampedDividerX = max(minDividerX, min(maxDividerX, proposedDividerX))
+            let inspectorWidth = max(0, containerBounds.maxX - clampedDividerX)
+            preferredHostedInspectorWidth = inspectorWidth
+            _ = applyHostedInspectorDividerWidth(
+                inspectorWidth,
+                to: HostedInspectorDividerHit(
+                    containerView: dragState.containerView,
+                    pageView: dragState.pageView,
+                    inspectorView: dragState.inspectorView
+                ),
+                reason: "drag"
+            )
+#if DEBUG
+            debugLogHostedInspectorFrames(
+                stage: "drag.update",
+                point: convert(event.locationInWindow, from: nil),
+                hit: HostedInspectorDividerHit(
+                    containerView: dragState.containerView,
+                    pageView: dragState.pageView,
+                    inspectorView: dragState.inspectorView
+                )
+            )
+#endif
+            updateDividerCursor(
+                at: convert(event.locationInWindow, from: nil),
+                hostedInspectorHit: HostedInspectorDividerHit(
+                    containerView: dragState.containerView,
+                    pageView: dragState.pageView,
+                    inspectorView: dragState.inspectorView
+                )
+            )
+        }
+
+        override func mouseUp(with event: NSEvent) {
+            let finalDragState = hostedInspectorDividerDrag
+            hostedInspectorDividerDrag = nil
+            updateDividerCursor(at: convert(event.locationInWindow, from: nil))
+            scheduleHostedInspectorDividerReapply(reason: "dragEndAsync")
+#if DEBUG
+            if let finalDragState {
+                let finalHit = HostedInspectorDividerHit(
+                    containerView: finalDragState.containerView,
+                    pageView: finalDragState.pageView,
+                    inspectorView: finalDragState.inspectorView
+                )
+                debugLogHostedInspectorFrames(
+                    stage: "drag.end",
+                    point: convert(event.locationInWindow, from: nil),
+                    hit: finalHit
+                )
+                DispatchQueue.main.async { [weak self] in
+                    guard let self else { return }
+                    self.reapplyHostedInspectorDividerIfNeeded(reason: "drag.end.async")
+                    self.debugLogHostedInspectorFrames(stage: "drag.end.async", hit: finalHit)
+                    self.debugLogHostedInspectorLayoutIfNeeded(reason: "dragEndAsync")
+                }
+            }
+#endif
+            super.mouseUp(with: event)
+        }
+
+        private func shouldPassThroughToSidebarResizer(
+            at point: NSPoint,
+            hostedInspectorHit: HostedInspectorDividerHit? = nil
+        ) -> Bool {
+            if hostedInspectorHit != nil {
+                return false
+            }
             // Pass through a narrow leading-edge band so the shared sidebar divider
             // handle can receive hover/click even when WKWebView is attached here.
             // Keeping this deterministic avoids flicker from dynamic left-edge scans.
@@ -3120,6 +3934,250 @@ struct WebViewRepresentable: NSViewRepresentable {
             }
             let hostRectInContent = contentView.convert(bounds, from: self)
             return hostRectInContent.minX > 1
+        }
+
+        private func updateDividerCursor(
+            at point: NSPoint,
+            hostedInspectorHit: HostedInspectorDividerHit? = nil
+        ) {
+            let resolvedHostedInspectorHit = hostedInspectorHit ?? hostedInspectorDividerHit(at: point)
+            if shouldPassThroughToSidebarResizer(at: point, hostedInspectorHit: resolvedHostedInspectorHit) {
+                clearActiveDividerCursor(restoreArrow: false)
+                return
+            }
+            guard resolvedHostedInspectorHit != nil else {
+                clearActiveDividerCursor(restoreArrow: true)
+                return
+            }
+            activeDividerCursorKind = .vertical
+            NSCursor.resizeLeftRight.set()
+        }
+
+        private func clearActiveDividerCursor(restoreArrow: Bool) {
+            guard activeDividerCursorKind != nil else { return }
+            window?.invalidateCursorRects(for: self)
+            activeDividerCursorKind = nil
+            if restoreArrow {
+                NSCursor.arrow.set()
+            }
+        }
+
+        private func nativeHostedInspectorHit(
+            at point: NSPoint,
+            hostedInspectorHit: HostedInspectorDividerHit
+        ) -> NSView? {
+            guard let nativeHit = super.hitTest(point), nativeHit !== self else { return nil }
+            if nativeHit === hostedInspectorHit.pageView ||
+                nativeHit.isDescendant(of: hostedInspectorHit.pageView) {
+                return nil
+            }
+            if nativeHit === hostedInspectorHit.inspectorView ||
+                nativeHit.isDescendant(of: hostedInspectorHit.inspectorView) {
+                return nativeHit
+            }
+            if hostedInspectorHit.inspectorView.isDescendant(of: nativeHit),
+               !(hostedInspectorHit.pageView === nativeHit || hostedInspectorHit.pageView.isDescendant(of: nativeHit)) {
+                return nativeHit
+            }
+            return nil
+        }
+
+        private func hostedInspectorDividerHit(at point: NSPoint) -> HostedInspectorDividerHit? {
+            guard let hit = hostedInspectorDividerCandidate(),
+                  hostedInspectorDividerHitRect(for: hit).contains(point) else {
+                return nil
+            }
+            return hit
+        }
+
+        private func hostedInspectorDividerCandidate() -> HostedInspectorDividerHit? {
+            let inspectorCandidates = Self.visibleDescendants(in: self)
+                .filter { Self.isVisibleHostedInspectorCandidate($0) && Self.isInspectorView($0) }
+                .sorted { lhs, rhs in
+                    let lhsFrame = convert(lhs.bounds, from: lhs)
+                    let rhsFrame = convert(rhs.bounds, from: rhs)
+                    return lhsFrame.minX < rhsFrame.minX
+                }
+
+            var bestHit: HostedInspectorDividerHit?
+            var bestScore = -CGFloat.greatestFiniteMagnitude
+
+            for inspectorCandidate in inspectorCandidates {
+                guard let candidate = hostedInspectorDividerCandidate(startingAt: inspectorCandidate) else {
+                    continue
+                }
+                let score = hostedInspectorDividerCandidateScore(candidate)
+                if score > bestScore {
+                    bestScore = score
+                    bestHit = candidate
+                }
+            }
+
+            return bestHit
+        }
+
+        private func hostedInspectorDividerHitRect(for hit: HostedInspectorDividerHit) -> NSRect {
+            let pageFrame = convert(hit.pageView.bounds, from: hit.pageView)
+            let inspectorFrame = convert(hit.inspectorView.bounds, from: hit.inspectorView)
+            let minY = max(bounds.minY, min(pageFrame.minY, inspectorFrame.minY))
+            let maxY = min(bounds.maxY, max(pageFrame.maxY, inspectorFrame.maxY))
+            return NSRect(
+                x: inspectorFrame.minX - Self.hostedInspectorDividerHitExpansion,
+                y: minY,
+                width: Self.hostedInspectorDividerHitExpansion * 2,
+                height: max(0, maxY - minY)
+            )
+        }
+
+        private func hostedInspectorDividerCandidate(startingAt inspectorLeaf: NSView) -> HostedInspectorDividerHit? {
+            var current: NSView? = inspectorLeaf
+            var bestHit: HostedInspectorDividerHit?
+
+            while let inspectorView = current, inspectorView !== self {
+                guard let containerView = inspectorView.superview else { break }
+
+                let pageCandidates = containerView.subviews.filter { candidate in
+                    guard Self.isVisibleHostedInspectorSiblingCandidate(candidate) else { return false }
+                    guard candidate !== inspectorView else { return false }
+                    guard candidate.frame.maxX <= inspectorView.frame.minX + 1 else { return false }
+                    return Self.verticalOverlap(between: candidate.frame, and: inspectorView.frame) > 8
+                }
+
+                if let pageView = pageCandidates.max(by: {
+                    hostedInspectorPageCandidateScore($0, inspectorView: inspectorView)
+                        < hostedInspectorPageCandidateScore($1, inspectorView: inspectorView)
+                }) {
+                    bestHit = HostedInspectorDividerHit(
+                        containerView: containerView,
+                        pageView: pageView,
+                        inspectorView: inspectorView
+                    )
+                }
+
+                current = containerView
+            }
+
+            return bestHit
+        }
+
+        private func hostedInspectorDividerCandidateScore(_ hit: HostedInspectorDividerHit) -> CGFloat {
+            let pageFrame = convert(hit.pageView.bounds, from: hit.pageView)
+            let inspectorFrame = convert(hit.inspectorView.bounds, from: hit.inspectorView)
+            let overlap = Self.verticalOverlap(between: pageFrame, and: inspectorFrame)
+            let coverageWidth = max(pageFrame.maxX, inspectorFrame.maxX) - min(pageFrame.minX, inspectorFrame.minX)
+            return (overlap * 1_000) + coverageWidth + pageFrame.width
+        }
+
+        private func hostedInspectorPageCandidateScore(_ pageView: NSView, inspectorView: NSView) -> CGFloat {
+            let overlap = Self.verticalOverlap(between: pageView.frame, and: inspectorView.frame)
+            let coverageWidth = max(pageView.frame.maxX, inspectorView.frame.maxX) - min(pageView.frame.minX, inspectorView.frame.minX)
+            return (overlap * 1_000) + coverageWidth + pageView.frame.width
+        }
+
+        private func scheduleHostedInspectorDividerReapply(reason: String) {
+            guard preferredHostedInspectorWidth != nil else { return }
+            DispatchQueue.main.async { [weak self] in
+                self?.reapplyHostedInspectorDividerIfNeeded(reason: reason)
+            }
+        }
+
+        private func reapplyHostedInspectorDividerIfNeeded(reason: String) {
+            guard !isApplyingHostedInspectorLayout else { return }
+            guard let preferredWidth = preferredHostedInspectorWidth else { return }
+            guard let hit = hostedInspectorDividerCandidate() else {
+#if DEBUG
+                if !hasLoggedMissingHostedInspectorCandidate {
+                    hasLoggedMissingHostedInspectorCandidate = true
+                    dlog(
+                        "browser.panel.hostedInspector stage=\(reason).reapplyMissingCandidate " +
+                        "host=\(Self.debugObjectID(self)) preferredWidth=\(String(format: "%.1f", preferredWidth))"
+                    )
+                }
+#endif
+                return
+            }
+#if DEBUG
+            hasLoggedMissingHostedInspectorCandidate = false
+#endif
+            _ = applyHostedInspectorDividerWidth(preferredWidth, to: hit, reason: reason)
+        }
+
+        @discardableResult
+        private func applyHostedInspectorDividerWidth(
+            _ preferredWidth: CGFloat,
+            to hit: HostedInspectorDividerHit,
+            reason: String
+        ) -> (pageFrame: NSRect, inspectorFrame: NSRect) {
+            let containerBounds = hit.containerView.bounds
+            let maximumInspectorWidth = max(0, containerBounds.maxX - hit.pageView.frame.minX)
+            let clampedInspectorWidth = max(0, min(maximumInspectorWidth, preferredWidth))
+            let dividerX = max(hit.pageView.frame.minX, containerBounds.maxX - clampedInspectorWidth)
+
+            var pageFrame = hit.pageView.frame
+            pageFrame.size.width = max(0, dividerX - pageFrame.minX)
+
+            var inspectorFrame = hit.inspectorView.frame
+            inspectorFrame.origin.x = dividerX
+            inspectorFrame.size.width = max(0, containerBounds.maxX - dividerX)
+
+            let pageChanged = !Self.rectApproximatelyEqual(pageFrame, hit.pageView.frame, epsilon: 0.5)
+            let inspectorChanged = !Self.rectApproximatelyEqual(inspectorFrame, hit.inspectorView.frame, epsilon: 0.5)
+            guard pageChanged || inspectorChanged else {
+                return (pageFrame, inspectorFrame)
+            }
+
+            isApplyingHostedInspectorLayout = true
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            hit.pageView.frame = pageFrame
+            hit.inspectorView.frame = inspectorFrame
+            CATransaction.commit()
+            isApplyingHostedInspectorLayout = false
+
+            hit.pageView.needsLayout = true
+            hit.inspectorView.needsLayout = true
+            hit.containerView.needsLayout = true
+            needsLayout = true
+#if DEBUG
+            dlog(
+                "browser.panel.hostedInspector stage=\(reason).reapply " +
+                "host=\(Self.debugObjectID(self)) preferredWidth=\(String(format: "%.1f", preferredWidth)) " +
+                "container=\(Self.debugObjectID(hit.containerView)) " +
+                "pageFrame=\(Self.debugRect(pageFrame)) inspectorFrame=\(Self.debugRect(inspectorFrame))"
+            )
+#endif
+            return (pageFrame, inspectorFrame)
+        }
+
+        private static func visibleDescendants(in root: NSView) -> [NSView] {
+            var descendants: [NSView] = []
+            var stack = Array(root.subviews.reversed())
+            while let view = stack.popLast() {
+                descendants.append(view)
+                stack.append(contentsOf: view.subviews.reversed())
+            }
+            return descendants
+        }
+
+        private static func isInspectorView(_ view: NSView) -> Bool {
+            String(describing: type(of: view)).contains("WKInspector")
+        }
+
+        private static func isVisibleHostedInspectorCandidate(_ view: NSView) -> Bool {
+            !view.isHidden &&
+                view.alphaValue > 0 &&
+                view.frame.width > 1 &&
+                view.frame.height > 1
+        }
+
+        private static func isVisibleHostedInspectorSiblingCandidate(_ view: NSView) -> Bool {
+            !view.isHidden &&
+                view.alphaValue > 0 &&
+                view.frame.height > 1
+        }
+
+        private static func verticalOverlap(between lhs: NSRect, and rhs: NSRect) -> CGFloat {
+            max(0, min(lhs.maxY, rhs.maxY) - max(lhs.minY, rhs.minY))
         }
     }
 
@@ -3221,34 +4279,153 @@ struct WebViewRepresentable: NSViewRepresentable {
         host.onGeometryChanged = nil
     }
 
-    private func updateUsingWindowPortal(_ nsView: NSView, context: Context, webView: WKWebView) {
-        guard let host = nsView as? HostContainerView else { return }
+    private static func installPortalAnchorView(_ anchorView: NSView, in host: NSView) {
+        // SwiftUI can keep transient replacement hosts alive off-window during split
+        // reparenting. Never let those hosts steal the shared portal anchor, or the
+        // portal will bind against an anchor with no real window and WKWebView will
+        // fall into a hidden/unrendered state.
+        guard host.window != nil else { return }
+        if anchorView.superview !== host {
+            anchorView.removeFromSuperview()
+            anchorView.translatesAutoresizingMaskIntoConstraints = false
+            host.addSubview(anchorView)
+            NSLayoutConstraint.activate([
+                anchorView.topAnchor.constraint(equalTo: host.topAnchor),
+                anchorView.bottomAnchor.constraint(equalTo: host.bottomAnchor),
+                anchorView.leadingAnchor.constraint(equalTo: host.leadingAnchor),
+                anchorView.trailingAnchor.constraint(equalTo: host.trailingAnchor),
+            ])
+        } else if anchorView.translatesAutoresizingMaskIntoConstraints {
+            anchorView.translatesAutoresizingMaskIntoConstraints = false
+            NSLayoutConstraint.activate([
+                anchorView.topAnchor.constraint(equalTo: host.topAnchor),
+                anchorView.bottomAnchor.constraint(equalTo: host.bottomAnchor),
+                anchorView.leadingAnchor.constraint(equalTo: host.leadingAnchor),
+                anchorView.trailingAnchor.constraint(equalTo: host.trailingAnchor),
+            ])
+        }
+        host.layoutSubtreeIfNeeded()
+    }
+
+    private func updateUsingWindowPortal(_ nsView: NSView, context: Context, webView: WKWebView) -> Bool {
+        guard let host = nsView as? HostContainerView else { return false }
 
         let coordinator = context.coordinator
+        let paneDropContext = currentPaneDropContext()
+        let isCurrentPaneOwner = paneDropContext?.paneId.id == paneId.id
+        let hostId = ObjectIdentifier(host)
         let previousVisible = coordinator.desiredPortalVisibleInUI
         let previousZPriority = coordinator.desiredPortalZPriority
-        coordinator.desiredPortalVisibleInUI = shouldAttachWebView
+        coordinator.desiredPortalVisibleInUI = shouldAttachWebView && isCurrentPaneOwner
         coordinator.desiredPortalZPriority = portalZPriority
         coordinator.attachGeneration += 1
         let generation = coordinator.attachGeneration
+        let activePaneDropContext = coordinator.desiredPortalVisibleInUI ? paneDropContext : nil
+        let activeSearchOverlay = coordinator.desiredPortalVisibleInUI ? searchOverlay : nil
+        let portalAnchorView = panel.portalAnchorView
+        let portalHideReason = !isCurrentPaneOwner ? "lostPaneOwnership" : "hidden"
+        let didReleasePortalHost: Bool
+        if !shouldAttachWebView || !isCurrentPaneOwner {
+            didReleasePortalHost = panel.releasePortalHostIfOwned(
+                hostId: hostId,
+                reason: portalHideReason
+            )
+            // Only the host that currently owns the portal is allowed to hide it.
+            // Older keep-alive hosts can still receive updates after a new owner binds.
+            if didReleasePortalHost {
+                BrowserWindowPortalRegistry.hide(
+                    webView: webView,
+                    source: "viewStateChanged.\(portalHideReason)"
+                )
+            }
+        } else {
+            didReleasePortalHost = false
+        }
+        let portalHostAccepted =
+            shouldAttachWebView &&
+            isCurrentPaneOwner &&
+            panel.claimPortalHost(
+                hostId: hostId,
+                paneId: paneId,
+                inWindow: host.window != nil,
+                bounds: host.bounds,
+                reason: "update"
+            )
+#if DEBUG
+        if !isCurrentPaneOwner && (shouldAttachWebView || host.window != nil) {
+            dlog(
+                "browser.portal.owner.skip panel=\(panel.id.uuidString.prefix(5)) " +
+                "viewPane=\(paneId.id.uuidString.prefix(5)) " +
+                "currentPane=\(paneDropContext?.paneId.id.uuidString.prefix(5) ?? "nil") " +
+                "host=\(Self.objectID(host)) hostInWin=\(host.window != nil ? 1 : 0) " +
+                "released=\(didReleasePortalHost ? 1 : 0)"
+            )
+        }
+#endif
+        if host.window != nil, portalHostAccepted {
+            Self.installPortalAnchorView(portalAnchorView, in: host)
+        }
 
-        host.onDidMoveToWindow = { [weak host, weak webView, weak coordinator] in
-            guard let host, let webView, let coordinator else { return }
+        host.onDidMoveToWindow = { [weak host, weak webView, weak coordinator, weak portalAnchorView, weak browserPanel = panel] in
+            guard let host, let webView, let coordinator, let portalAnchorView, let browserPanel else { return }
             guard coordinator.attachGeneration == generation else { return }
+            guard currentPaneDropContext()?.paneId.id == paneId.id else { return }
+            guard browserPanel.claimPortalHost(
+                hostId: ObjectIdentifier(host),
+                paneId: paneId,
+                inWindow: host.window != nil,
+                bounds: host.bounds,
+                reason: "didMoveToWindow"
+            ) else { return }
             guard host.window != nil else { return }
+            Self.installPortalAnchorView(portalAnchorView, in: host)
             BrowserWindowPortalRegistry.bind(
                 webView: webView,
-                to: host,
+                to: portalAnchorView,
                 visibleInUI: coordinator.desiredPortalVisibleInUI,
                 zPriority: coordinator.desiredPortalZPriority
             )
+            BrowserWindowPortalRegistry.updatePaneTopChromeHeight(
+                for: webView,
+                height: coordinator.desiredPortalVisibleInUI ? paneTopChromeHeight : 0
+            )
+            BrowserWindowPortalRegistry.updatePaneDropContext(for: webView, context: activePaneDropContext)
+            BrowserWindowPortalRegistry.updateSearchOverlay(for: webView, configuration: activeSearchOverlay)
             coordinator.lastPortalHostId = ObjectIdentifier(host)
+            coordinator.lastSynchronizedHostGeometryRevision = host.geometryRevision
         }
-        host.onGeometryChanged = { [weak host, weak coordinator] in
-            guard let host, let coordinator else { return }
+        host.onGeometryChanged = { [weak host, weak webView, weak coordinator, weak portalAnchorView, weak browserPanel = panel] in
+            guard let host, let webView, let coordinator, let portalAnchorView, let browserPanel else { return }
             guard coordinator.attachGeneration == generation else { return }
-            guard coordinator.lastPortalHostId == ObjectIdentifier(host) else { return }
-            BrowserWindowPortalRegistry.synchronizeForAnchor(host)
+            guard currentPaneDropContext()?.paneId.id == paneId.id else { return }
+            guard browserPanel.claimPortalHost(
+                hostId: ObjectIdentifier(host),
+                paneId: paneId,
+                inWindow: host.window != nil,
+                bounds: host.bounds,
+                reason: "geometryChanged"
+            ) else { return }
+            guard host.window != nil else { return }
+            let hostId = ObjectIdentifier(host)
+            Self.installPortalAnchorView(portalAnchorView, in: host)
+            if coordinator.lastPortalHostId != hostId ||
+               !BrowserWindowPortalRegistry.isWebView(webView, boundTo: portalAnchorView) {
+                BrowserWindowPortalRegistry.bind(
+                    webView: webView,
+                    to: portalAnchorView,
+                    visibleInUI: coordinator.desiredPortalVisibleInUI,
+                    zPriority: coordinator.desiredPortalZPriority
+                )
+                BrowserWindowPortalRegistry.updatePaneTopChromeHeight(
+                    for: webView,
+                    height: coordinator.desiredPortalVisibleInUI ? paneTopChromeHeight : 0
+                )
+                BrowserWindowPortalRegistry.updatePaneDropContext(for: webView, context: activePaneDropContext)
+                BrowserWindowPortalRegistry.updateSearchOverlay(for: webView, configuration: activeSearchOverlay)
+                coordinator.lastPortalHostId = hostId
+            }
+            BrowserWindowPortalRegistry.synchronizeForAnchor(portalAnchorView)
+            coordinator.lastSynchronizedHostGeometryRevision = host.geometryRevision
         }
 
         if !shouldAttachWebView {
@@ -3257,24 +4434,37 @@ struct WebViewRepresentable: NSViewRepresentable {
             panel.syncDeveloperToolsPreferenceFromInspector()
         }
 
-        if host.window != nil {
-            let hostId = ObjectIdentifier(host)
+        if host.window != nil, portalHostAccepted {
+            let geometryRevision = host.geometryRevision
+            let portalEntryMissing = !BrowserWindowPortalRegistry.isWebView(webView, boundTo: portalAnchorView)
             let shouldBindNow =
                 coordinator.lastPortalHostId != hostId ||
                 webView.superview == nil ||
+                portalEntryMissing ||
                 previousVisible != shouldAttachWebView ||
                 previousZPriority != portalZPriority
             if shouldBindNow {
+                Self.installPortalAnchorView(portalAnchorView, in: host)
                 BrowserWindowPortalRegistry.bind(
                     webView: webView,
-                    to: host,
+                    to: portalAnchorView,
                     visibleInUI: coordinator.desiredPortalVisibleInUI,
                     zPriority: coordinator.desiredPortalZPriority
                 )
                 coordinator.lastPortalHostId = hostId
+                coordinator.lastSynchronizedHostGeometryRevision = geometryRevision
             }
-            BrowserWindowPortalRegistry.synchronizeForAnchor(host)
-        } else {
+            BrowserWindowPortalRegistry.updatePaneTopChromeHeight(
+                for: webView,
+                height: coordinator.desiredPortalVisibleInUI ? paneTopChromeHeight : 0
+            )
+            BrowserWindowPortalRegistry.updateSearchOverlay(for: webView, configuration: activeSearchOverlay)
+            if !shouldBindNow,
+               coordinator.lastSynchronizedHostGeometryRevision != geometryRevision {
+                BrowserWindowPortalRegistry.synchronizeForAnchor(portalAnchorView)
+                coordinator.lastSynchronizedHostGeometryRevision = geometryRevision
+            }
+        } else if portalHostAccepted {
             // Bind is deferred until host moves into a window. Keep the current
             // portal entry's desired state in sync so stale callbacks cannot keep
             // the previous anchor visible while this host is temporarily off-window.
@@ -3285,6 +4475,22 @@ struct WebViewRepresentable: NSViewRepresentable {
             )
         }
 
+        if portalHostAccepted {
+            BrowserWindowPortalRegistry.updateDropZoneOverlay(
+                for: webView,
+                zone: coordinator.desiredPortalVisibleInUI ? paneDropZone : nil
+            )
+            BrowserWindowPortalRegistry.updatePaneTopChromeHeight(
+                for: webView,
+                height: coordinator.desiredPortalVisibleInUI ? paneTopChromeHeight : 0
+            )
+            BrowserWindowPortalRegistry.updatePaneDropContext(
+                for: webView,
+                context: activePaneDropContext
+            )
+            BrowserWindowPortalRegistry.updateSearchOverlay(for: webView, configuration: activeSearchOverlay)
+        }
+
         panel.restoreDeveloperToolsAfterAttachIfNeeded()
 
         #if DEBUG
@@ -3292,357 +4498,39 @@ struct WebViewRepresentable: NSViewRepresentable {
             panel,
             event: "portal.update",
             generation: coordinator.attachGeneration,
-            retryCount: coordinator.attachRetryCount,
+            retryCount: 0,
             details: Self.attachContext(webView: webView, host: host)
         )
         #endif
-    }
-
-    private static func attachWebView(_ webView: WKWebView, to host: NSView) {
-        // WebKit can crash if a WKWebView (or an internal first-responder object) stays first responder
-        // while being detached/reparented during bonsplit/SwiftUI structural updates.
-        if let window = webView.window {
-            let state = firstResponderResignState(window.firstResponder, webView: webView)
-            if state.needsResign {
-                window.makeFirstResponder(nil)
-            }
-        }
-
-        // The target host can already be in-window while the source host is tearing down.
-        // Re-check against the target window too (it can differ during split churn).
-        if let window = host.window {
-            let state = firstResponderResignState(window.firstResponder, webView: webView)
-            if state.needsResign {
-                window.makeFirstResponder(nil)
-            }
-        }
-
-        // Detach from any previous host (bonsplit/SwiftUI may rearrange views).
-        webView.removeFromSuperview()
-        host.subviews.forEach { $0.removeFromSuperview() }
-        host.addSubview(webView)
-
-        // Work around WebKit bug 272474 where Inspect Element can render blank/flicker
-        // when WKWebView is edge-pinned using Auto Layout constraints.
-        webView.translatesAutoresizingMaskIntoConstraints = true
-        webView.autoresizingMask = [.width, .height]
-        webView.frame = host.bounds
-
-        // Make reparenting resilient: WebKit can occasionally stay visually blank until forced to lay out.
-        webView.needsLayout = true
-        webView.layoutSubtreeIfNeeded()
-        webView.needsDisplay = true
-        webView.displayIfNeeded()
-    }
-
-    private static func scheduleAttachRetry(
-        _ webView: WKWebView,
-        panel: BrowserPanel,
-        to host: NSView,
-        coordinator: Coordinator,
-        generation: Int
-    ) {
-        let retryInterval: TimeInterval = 1.0 / 60.0
-        // Don't schedule multiple overlapping retries.
-        guard coordinator.attachRetryWorkItem == nil else { return }
-
-        let work = DispatchWorkItem { [weak host, weak webView] in
-            coordinator.attachRetryWorkItem = nil
-            guard let host, let webView else { return }
-            guard coordinator.attachGeneration == generation else { return }
-
-            // If already attached, we're done.
-            if webView.superview === host {
-                coordinator.attachRetryCount = 0
-                return
-            }
-
-            // Wait until the host is actually in a window. SwiftUI can create a new container before it
-            // is in a window during bonsplit tree updates; moving the webview too early can be flaky.
-            guard host.window != nil else {
-                coordinator.attachRetryCount += 1
-                #if DEBUG
-                if coordinator.attachRetryCount == 1 || coordinator.attachRetryCount % 20 == 0 {
-                    logDevToolsState(
-                        panel,
-                        event: "retry.waitingForWindow",
-                        generation: generation,
-                        retryCount: coordinator.attachRetryCount,
-                        details: attachContext(webView: webView, host: host)
-                    )
-                }
-                #endif
-                // Be generous here: bonsplit structural updates can keep a representable
-                // container off-window longer than a few seconds under load.
-                if coordinator.attachRetryCount < 400 {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + retryInterval) {
-                        scheduleAttachRetry(
-                            webView,
-                            panel: panel,
-                            to: host,
-                            coordinator: coordinator,
-                            generation: generation
-                        )
-                    }
-                }
-                return
-            }
-
-            coordinator.attachRetryCount = 0
-            #if DEBUG
-            logDevToolsState(
-                panel,
-                event: "retry.attach.begin",
-                generation: generation,
-                retryCount: 0,
-                details: attachContext(webView: webView, host: host)
-            )
-            #endif
-            attachWebView(webView, to: host)
-            panel.restoreDeveloperToolsAfterAttachIfNeeded()
-            #if DEBUG
-            logDevToolsState(
-                panel,
-                event: "retry.attached",
-                generation: generation,
-                retryCount: 0,
-                details: attachContext(webView: webView, host: host)
-            )
-            #endif
-        }
-
-        coordinator.attachRetryWorkItem = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + retryInterval, execute: work)
+        return portalHostAccepted
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {
         let webView = panel.webView
-        context.coordinator.panel = panel
-        context.coordinator.webView = webView
+        let coordinator = context.coordinator
+        let isCurrentPaneOwner = currentPaneDropContext()?.paneId.id == paneId.id
+        if let previousWebView = coordinator.webView, previousWebView !== webView {
+            BrowserWindowPortalRegistry.detach(webView: previousWebView)
+            coordinator.lastPortalHostId = nil
+            coordinator.lastSynchronizedHostGeometryRevision = 0
+        }
+        coordinator.panel = panel
+        coordinator.webView = webView
+
+        Self.clearPortalCallbacks(for: nsView)
+        let hostOwnsPortal = updateUsingWindowPortal(nsView, context: context, webView: webView)
         Self.applyWebViewFirstResponderPolicy(
             panel: panel,
             webView: webView,
-            isPanelFocused: isPanelFocused
+            isPanelFocused: isPanelFocused && isCurrentPaneOwner && hostOwnsPortal
         )
-
-        let shouldUseWindowPortal = panel.shouldPreserveWebViewAttachmentDuringTransientHide()
-        if shouldUseWindowPortal {
-            context.coordinator.usesWindowPortal = true
-            Self.clearPortalCallbacks(for: nsView)
-            updateUsingWindowPortal(nsView, context: context, webView: webView)
-            Self.applyFocus(
-                panel: panel,
-                webView: webView,
-                nsView: nsView,
-                shouldFocusWebView: shouldFocusWebView,
-                isPanelFocused: isPanelFocused
-            )
-            return
-        }
-
-        if context.coordinator.usesWindowPortal {
-            BrowserWindowPortalRegistry.detach(webView: webView)
-            context.coordinator.usesWindowPortal = false
-            context.coordinator.lastPortalHostId = nil
-        }
-        Self.clearPortalCallbacks(for: nsView)
-
-        // Bonsplit keepAllAlive keeps hidden tabs alive (opacity 0). WKWebView is fragile when left
-        // in the window hierarchy while hidden and rapidly switching focus between tabs. To reduce
-        // WebKit crashes, detach the WKWebView when this surface is not the selected tab in its pane.
-        if !shouldAttachWebView {
-            // Split/layout churn can briefly create an off-window phase while DevTools is open.
-            // Detaching here can blank inspector content even when visibility preference stays true.
-            if nsView.window == nil,
-               webView.superview != nil,
-               panel.shouldPreserveWebViewAttachmentDuringTransientHide() {
-                #if DEBUG
-                Self.logDevToolsState(
-                    panel,
-                    event: "detach.skipped.offWindowDevTools",
-                    generation: context.coordinator.attachGeneration,
-                    retryCount: context.coordinator.attachRetryCount,
-                    details: Self.attachContext(webView: webView, host: nsView)
-                )
-                #endif
-                return
-            }
-
-            #if DEBUG
-            Self.logDevToolsState(
-                panel,
-                event: "detach.beforeSync",
-                generation: context.coordinator.attachGeneration,
-                retryCount: context.coordinator.attachRetryCount,
-                details: Self.attachContext(webView: webView, host: nsView)
-            )
-            #endif
-            panel.syncDeveloperToolsPreferenceFromInspector(preserveVisibleIntent: true)
-            #if DEBUG
-            Self.logDevToolsState(
-                panel,
-                event: "detach.afterSync",
-                generation: context.coordinator.attachGeneration,
-                retryCount: context.coordinator.attachRetryCount,
-                details: Self.attachContext(webView: webView, host: nsView)
-            )
-            #endif
-            context.coordinator.attachRetryWorkItem?.cancel()
-            context.coordinator.attachRetryWorkItem = nil
-            context.coordinator.attachRetryCount = 0
-            context.coordinator.attachGeneration += 1
-
-            // Resign focus if WebKit currently owns first responder.
-            if let window = webView.window ?? nsView.window {
-                let state = Self.firstResponderResignState(window.firstResponder, webView: webView)
-                if state.needsResign {
-                    #if DEBUG
-                    Self.logDevToolsState(
-                        panel,
-                        event: "detach.resignFirstResponder",
-                        generation: context.coordinator.attachGeneration,
-                        retryCount: context.coordinator.attachRetryCount,
-                        details: Self.attachContext(webView: webView, host: nsView) + " " + state.flags
-                    )
-                    #endif
-                    window.makeFirstResponder(nil)
-                }
-            }
-
-            if webView.superview != nil {
-                webView.removeFromSuperview()
-            }
-            nsView.subviews.forEach { $0.removeFromSuperview() }
-            #if DEBUG
-            Self.logDevToolsState(
-                panel,
-                event: "detach.done",
-                generation: context.coordinator.attachGeneration,
-                retryCount: context.coordinator.attachRetryCount,
-                details: Self.attachContext(webView: webView, host: nsView)
-            )
-            #endif
-            return
-        }
-
-        if webView.superview !== nsView {
-            // Cancel any pending retry; we'll reschedule if needed.
-            context.coordinator.attachRetryWorkItem?.cancel()
-            context.coordinator.attachRetryWorkItem = nil
-            context.coordinator.attachGeneration += 1
-
-            if let window = webView.window ?? nsView.window {
-                let state = Self.firstResponderResignState(window.firstResponder, webView: webView)
-                if state.needsResign {
-                    #if DEBUG
-                    Self.logDevToolsState(
-                        panel,
-                        event: "attach.reparent.resignFirstResponder.begin",
-                        generation: context.coordinator.attachGeneration,
-                        retryCount: context.coordinator.attachRetryCount,
-                        details: Self.attachContext(webView: webView, host: nsView) + " " + state.flags
-                    )
-                    #endif
-                    let resigned = window.makeFirstResponder(nil)
-                    #if DEBUG
-                    Self.logDevToolsState(
-                        panel,
-                        event: "attach.reparent.resignFirstResponder.end",
-                        generation: context.coordinator.attachGeneration,
-                        retryCount: context.coordinator.attachRetryCount,
-                        details: Self.attachContext(webView: webView, host: nsView) + " " + state.flags + " resigned=\(resigned ? 1 : 0)"
-                    )
-                    #endif
-                }
-            }
-
-            if nsView.window == nil {
-                // Avoid attaching to off-window containers; during bonsplit structural updates SwiftUI
-                // can create containers that are never inserted into the window.
-                if panel.shouldPreserveWebViewAttachmentDuringTransientHide() {
-                    panel.requestDeveloperToolsRefreshAfterNextAttach(reason: "attach.defer.offWindow")
-                    #if DEBUG
-                    Self.logDevToolsState(
-                        panel,
-                        event: "attach.defer.requestRefresh",
-                        generation: context.coordinator.attachGeneration,
-                        retryCount: context.coordinator.attachRetryCount,
-                        details: Self.attachContext(webView: webView, host: nsView)
-                    )
-                    #endif
-                }
-                #if DEBUG
-                Self.logDevToolsState(
-                    panel,
-                    event: "attach.defer.offWindow",
-                    generation: context.coordinator.attachGeneration,
-                    retryCount: context.coordinator.attachRetryCount,
-                    details: Self.attachContext(webView: webView, host: nsView)
-                )
-                #endif
-                Self.scheduleAttachRetry(
-                    webView,
-                    panel: panel,
-                    to: nsView,
-                    coordinator: context.coordinator,
-                    generation: context.coordinator.attachGeneration
-                )
-            } else {
-                #if DEBUG
-                Self.logDevToolsState(
-                    panel,
-                    event: "attach.immediate.begin",
-                    generation: context.coordinator.attachGeneration,
-                    retryCount: context.coordinator.attachRetryCount,
-                    details: Self.attachContext(webView: webView, host: nsView)
-                )
-                #endif
-                Self.attachWebView(webView, to: nsView)
-                panel.restoreDeveloperToolsAfterAttachIfNeeded()
-                #if DEBUG
-                Self.logDevToolsState(
-                    panel,
-                    event: "attach.immediate",
-                    generation: context.coordinator.attachGeneration,
-                    retryCount: context.coordinator.attachRetryCount,
-                    details: Self.attachContext(webView: webView, host: nsView)
-                )
-                #endif
-            }
-        } else {
-            // Already attached; no need for any pending retry.
-            context.coordinator.attachRetryWorkItem?.cancel()
-            context.coordinator.attachRetryWorkItem = nil
-            context.coordinator.attachRetryCount = 0
-            context.coordinator.attachGeneration += 1
-            let hadPendingRefresh = panel.hasPendingDeveloperToolsRefreshAfterAttach()
-            panel.restoreDeveloperToolsAfterAttachIfNeeded()
-            #if DEBUG
-            if hadPendingRefresh {
-                Self.logDevToolsState(
-                    panel,
-                    event: "attach.alreadyAttached.consumePendingRefresh",
-                    generation: context.coordinator.attachGeneration,
-                    retryCount: context.coordinator.attachRetryCount,
-                    details: Self.attachContext(webView: webView, host: nsView)
-                )
-            }
-            Self.logDevToolsState(
-                panel,
-                event: "attach.alreadyAttached",
-                generation: context.coordinator.attachGeneration,
-                retryCount: context.coordinator.attachRetryCount,
-                details: Self.attachContext(webView: webView, host: nsView)
-            )
-            #endif
-        }
 
         Self.applyFocus(
             panel: panel,
             webView: webView,
             nsView: nsView,
-            shouldFocusWebView: shouldFocusWebView,
-            isPanelFocused: isPanelFocused
+            shouldFocusWebView: shouldFocusWebView && isCurrentPaneOwner && hostOwnsPortal,
+            isPanelFocused: isPanelFocused && isCurrentPaneOwner && hostOwnsPortal
         )
     }
 
@@ -3654,20 +4542,53 @@ struct WebViewRepresentable: NSViewRepresentable {
         isPanelFocused: Bool
     ) {
         // Focus handling. Avoid fighting the address bar when it is focused.
-        guard let window = nsView.window else { return }
+        guard let window = nsView.window else {
+#if DEBUG
+            dlog(
+                "browser.focus.content.apply panel=\(panel.id.uuidString.prefix(5)) " +
+                "action=skip reason=no_window shouldFocus=\(shouldFocusWebView ? 1 : 0) " +
+                "panelFocused=\(isPanelFocused ? 1 : 0)"
+            )
+#endif
+            return
+        }
         if shouldFocusWebView {
             if panel.shouldSuppressWebViewFocus() {
+#if DEBUG
+                dlog(
+                    "browser.focus.content.apply panel=\(panel.id.uuidString.prefix(5)) " +
+                    "action=skip reason=suppressed panelFocused=\(isPanelFocused ? 1 : 0)"
+                )
+#endif
                 return
             }
             if responderChainContains(window.firstResponder, target: webView) {
+#if DEBUG
+                dlog(
+                    "browser.focus.content.apply panel=\(panel.id.uuidString.prefix(5)) " +
+                    "action=skip reason=already_first_responder_chain"
+                )
+#endif
                 return
             }
-            window.makeFirstResponder(webView)
+            let result = window.makeFirstResponder(webView)
+#if DEBUG
+            dlog(
+                "browser.focus.content.apply panel=\(panel.id.uuidString.prefix(5)) " +
+                "action=focus result=\(result ? 1 : 0) fr=\(responderDescription(window.firstResponder))"
+            )
+#endif
         } else if !isPanelFocused && responderChainContains(window.firstResponder, target: webView) {
             // Only force-resign WebView focus when this panel itself is not focused.
             // If the panel is focused but the omnibar-focus state is briefly stale, aggressively
             // clearing first responder here can undo programmatic webview focus (socket tests).
-            window.makeFirstResponder(nil)
+            let result = window.makeFirstResponder(nil)
+#if DEBUG
+            dlog(
+                "browser.focus.content.apply panel=\(panel.id.uuidString.prefix(5)) " +
+                "action=resign result=\(result ? 1 : 0) fr=\(responderDescription(window.firstResponder))"
+            )
+#endif
         }
     }
 
@@ -3692,37 +4613,17 @@ struct WebViewRepresentable: NSViewRepresentable {
     }
 
     static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
-        coordinator.attachRetryWorkItem?.cancel()
-        coordinator.attachRetryWorkItem = nil
-        coordinator.attachRetryCount = 0
         coordinator.attachGeneration += 1
         clearPortalCallbacks(for: nsView)
+        if let panel = coordinator.panel, let host = nsView as? HostContainerView {
+            panel.releasePortalHostIfOwned(
+                hostId: ObjectIdentifier(host),
+                reason: "dismantle"
+            )
+        }
 
         guard let webView = coordinator.webView else { return }
         let panel = coordinator.panel
-
-        if coordinator.usesWindowPortal {
-            coordinator.usesWindowPortal = false
-            coordinator.lastPortalHostId = nil
-
-            // During split/layout churn we keep the WKWebView portal-hosted so DevTools
-            // does not lose state. BrowserPanel deinit explicitly detaches on real teardown.
-            if let panel, panel.shouldPreserveWebViewAttachmentDuringTransientHide() {
-                #if DEBUG
-                logDevToolsState(
-                    panel,
-                    event: "dismantle.portal.keepAttached",
-                    generation: coordinator.attachGeneration,
-                    retryCount: coordinator.attachRetryCount,
-                    details: attachContext(webView: webView, host: nsView)
-                )
-                #endif
-                return
-            }
-
-            BrowserWindowPortalRegistry.detach(webView: webView)
-            return
-        }
 
         // If we're being torn down while the WKWebView (or one of its subviews) is first responder,
         // resign it before detaching.
@@ -3736,7 +4637,7 @@ struct WebViewRepresentable: NSViewRepresentable {
                         panel,
                         event: "dismantle.resignFirstResponder",
                         generation: coordinator.attachGeneration,
-                        retryCount: coordinator.attachRetryCount,
+                        retryCount: 0,
                         details: attachContext(webView: webView, host: nsView) + " " + state.flags
                     )
                 }
@@ -3745,36 +4646,26 @@ struct WebViewRepresentable: NSViewRepresentable {
             }
         }
 
-        // During split/layout churn, SwiftUI may tear down a host view while a new one is still
-        // coming online. When DevTools is intended open, avoid eagerly detaching here.
-        if let panel,
-           panel.shouldPreserveWebViewAttachmentDuringTransientHide(),
-           webView.superview === nsView {
-            #if DEBUG
-            logDevToolsState(
-                panel,
-                event: "dismantle.skipDetach.devTools",
-                generation: coordinator.attachGeneration,
-                retryCount: coordinator.attachRetryCount,
-                details: attachContext(webView: webView, host: nsView)
-            )
-            #endif
-            return
-        }
+        // SwiftUI can transiently dismantle/rebuild the browser host view during split
+        // rearrangement. Do not detach the portal-hosted WKWebView here; explicit detach
+        // still happens on real web view replacement and panel teardown.
+        BrowserWindowPortalRegistry.updateDropZoneOverlay(for: webView, zone: nil)
+        BrowserWindowPortalRegistry.updatePaneTopChromeHeight(for: webView, height: 0)
+        BrowserWindowPortalRegistry.updatePaneDropContext(for: webView, context: nil)
+        BrowserWindowPortalRegistry.updateSearchOverlay(for: webView, configuration: nil)
+        coordinator.lastPortalHostId = nil
+        coordinator.lastSynchronizedHostGeometryRevision = 0
+    }
 
-        if webView.superview === nsView {
-            webView.removeFromSuperview()
-            #if DEBUG
-            if let panel {
-                logDevToolsState(
-                    panel,
-                    event: "dismantle.detached",
-                    generation: coordinator.attachGeneration,
-                    retryCount: coordinator.attachRetryCount,
-                    details: attachContext(webView: webView, host: nsView)
-                )
-            }
-            #endif
+    private func currentPaneDropContext() -> BrowserPaneDropContext? {
+        guard let workspace = AppDelegate.shared?.tabManager?.tabs.first(where: { $0.id == panel.workspaceId }),
+              let paneId = workspace.paneId(forPanelId: panel.id) else {
+            return nil
         }
+        return BrowserPaneDropContext(
+            workspaceId: panel.workspaceId,
+            panelId: panel.id,
+            paneId: paneId
+        )
     }
 }

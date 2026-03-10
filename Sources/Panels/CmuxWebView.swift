@@ -93,7 +93,7 @@ final class CmuxWebView: WKWebView {
 
     /// Temporarily permits focus acquisition for explicit pointer-driven interactions
     /// (mouse click into this webview) while keeping background autofocus blocked.
-    func withPointerFocusAllowance(_ body: () -> Void) {
+    func withPointerFocusAllowance<T>(_ body: () -> T) -> T {
         pointerFocusAllowanceDepth += 1
 #if DEBUG
         dlog(
@@ -110,7 +110,7 @@ final class CmuxWebView: WKWebView {
             )
 #endif
         }
-        body()
+        return body()
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
@@ -1113,11 +1113,31 @@ final class CmuxWebView: WKWebView {
         NSPasteboard.PasteboardType("com.cmux.sidebar-tab-reorder"),
     ]
 
+    static func shouldRejectInternalPaneDrag(_ pasteboardTypes: [NSPasteboard.PasteboardType]?) -> Bool {
+        DragOverlayRoutingPolicy.hasBonsplitTabTransfer(pasteboardTypes)
+            || DragOverlayRoutingPolicy.hasSidebarTabReorder(pasteboardTypes)
+    }
+
     override func registerForDraggedTypes(_ newTypes: [NSPasteboard.PasteboardType]) {
         let filtered = newTypes.filter { !Self.blockedDragTypes.contains($0) }
         if !filtered.isEmpty {
             super.registerForDraggedTypes(filtered)
         }
+    }
+
+    override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        guard !Self.shouldRejectInternalPaneDrag(sender.draggingPasteboard.types) else { return [] }
+        return super.draggingEntered(sender)
+    }
+
+    override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        guard !Self.shouldRejectInternalPaneDrag(sender.draggingPasteboard.types) else { return [] }
+        return super.draggingUpdated(sender)
+    }
+
+    override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        guard !Self.shouldRejectInternalPaneDrag(sender.draggingPasteboard.types) else { return false }
+        return super.performDragOperation(sender)
     }
 
     override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
@@ -1133,7 +1153,7 @@ final class CmuxWebView: WKWebView {
             debugLogContextMenuDownloadCandidate(item, index: index)
             if !hasDefaultBrowserOpenLinkItem,
                (item.action == #selector(contextMenuOpenLinkInDefaultBrowser(_:))
-                || item.title == "Open Link in Default Browser") {
+                || item.title == String(localized: "browser.contextMenu.openLinkInDefaultBrowser", defaultValue: "Open Link in Default Browser")) {
                 hasDefaultBrowserOpenLinkItem = true
             }
 
@@ -1148,7 +1168,7 @@ final class CmuxWebView: WKWebView {
             // by opening the link as a new surface in the same pane.
             if item.identifier?.rawValue == "WKMenuItemIdentifierOpenLinkInNewWindow"
                 || item.title.contains("Open Link in New Window") {
-                item.title = "Open Link in New Tab"
+                item.title = String(localized: "browser.contextMenu.openLinkInNewTab", defaultValue: "Open Link in New Tab")
             }
 
             if isDownloadImageMenuItem(item) {
@@ -1188,7 +1208,7 @@ final class CmuxWebView: WKWebView {
 
         if let openLinkInsertionIndex, !hasDefaultBrowserOpenLinkItem {
             let item = NSMenuItem(
-                title: "Open Link in Default Browser",
+                title: String(localized: "browser.contextMenu.openLinkInDefaultBrowser", defaultValue: "Open Link in Default Browser"),
                 action: #selector(contextMenuOpenLinkInDefaultBrowser(_:)),
                 keyEquivalent: ""
             )

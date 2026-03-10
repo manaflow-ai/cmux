@@ -53,12 +53,52 @@ struct WorkspaceContentView: View {
         }()
 
         BonsplitView(controller: workspace.bonsplitController) { tab, paneId in
-            panelView(
-                tab: tab,
-                paneId: paneId,
-                isSplit: isSplit,
-                appearance: appearance
-            )
+            // Content for each tab in bonsplit
+            let _ = Self.debugPanelLookup(tab: tab, workspace: workspace)
+            if let panel = workspace.panel(for: tab.id) {
+                let isFocused = isWorkspaceInputActive && workspace.focusedPanelId == panel.id
+                let isSelectedInPane = workspace.bonsplitController.selectedTab(inPane: paneId)?.id == tab.id
+                let isVisibleInUI = Self.panelVisibleInUI(
+                    isWorkspaceVisible: isWorkspaceVisible,
+                    isSelectedInPane: isSelectedInPane,
+                    isFocused: isFocused
+                )
+                let hasUnreadNotification = Workspace.shouldShowUnreadIndicator(
+                    hasUnreadNotification: notificationStore.hasUnreadNotification(forTabId: workspace.id, surfaceId: panel.id),
+                    isManuallyUnread: workspace.manualUnreadPanelIds.contains(panel.id)
+                )
+                PanelContentView(
+                    panel: panel,
+                    paneId: paneId,
+                    isFocused: isFocused,
+                    isSelectedInPane: isSelectedInPane,
+                    isVisibleInUI: isVisibleInUI,
+                    portalPriority: workspacePortalPriority,
+                    isSplit: isSplit,
+                    appearance: appearance,
+                    hasUnreadNotification: hasUnreadNotification,
+                    onFocus: {
+                        // Keep bonsplit focus in sync with the AppKit first responder for the
+                        // active workspace. This prevents divergence between the blue focused-tab
+                        // indicator and where keyboard input/flash-focus actually lands.
+                        guard isWorkspaceInputActive else { return }
+                        guard workspace.panels[panel.id] != nil else { return }
+                        workspace.focusPanel(panel.id, trigger: .terminalFirstResponder)
+                    },
+                    onRequestPanelFocus: {
+                        guard isWorkspaceInputActive else { return }
+                        guard workspace.panels[panel.id] != nil else { return }
+                        workspace.focusPanel(panel.id)
+                    },
+                    onTriggerFlash: { workspace.triggerDebugFlash(panelId: panel.id) }
+                )
+                .onTapGesture {
+                    workspace.bonsplitController.focusPane(paneId)
+                }
+            } else {
+                // Fallback for tabs without panels (shouldn't happen normally)
+                EmptyPanelView(workspace: workspace, paneId: paneId)
+            }
         } emptyPane: { paneId in
             // Empty pane content
             EmptyPanelView(workspace: workspace, paneId: paneId)
@@ -104,55 +144,6 @@ struct WorkspaceContentView: View {
         }
     }
 
-    @ViewBuilder
-    private func panelView(
-        tab: Bonsplit.Tab,
-        paneId: PaneID,
-        isSplit: Bool,
-        appearance: PanelAppearance
-    ) -> some View {
-        let _ = Self.debugPanelLookup(tab: tab, workspace: workspace)
-        if let panel = workspace.panel(for: tab.id) {
-            let isFocused = isWorkspaceInputActive && workspace.focusedPanelId == panel.id
-            let isSelectedInPane = workspace.bonsplitController.selectedTab(inPane: paneId)?.id == tab.id
-            let isVisibleInUI = Self.panelVisibleInUI(
-                isWorkspaceVisible: isWorkspaceVisible,
-                isSelectedInPane: isSelectedInPane,
-                isFocused: isFocused
-            )
-            let hasUnreadNotification = Workspace.shouldShowUnreadIndicator(
-                hasUnreadNotification: notificationStore.hasUnreadNotification(forTabId: workspace.id, surfaceId: panel.id),
-                isManuallyUnread: workspace.manualUnreadPanelIds.contains(panel.id)
-            )
-            PanelContentView(
-                panel: panel,
-                isFocused: isFocused,
-                isSelectedInPane: isSelectedInPane,
-                isVisibleInUI: isVisibleInUI,
-                portalPriority: workspacePortalPriority,
-                isSplit: isSplit,
-                appearance: appearance,
-                hasUnreadNotification: hasUnreadNotification,
-                onFocus: {
-                    guard isWorkspaceInputActive else { return }
-                    guard workspace.panels[panel.id] != nil else { return }
-                    workspace.focusPanel(panel.id)
-                },
-                onRequestPanelFocus: {
-                    guard isWorkspaceInputActive else { return }
-                    guard workspace.panels[panel.id] != nil else { return }
-                    workspace.focusPanel(panel.id)
-                },
-                onTriggerFlash: { workspace.triggerDebugFlash(panelId: panel.id) }
-            )
-            .onTapGesture {
-                workspace.bonsplitController.focusPane(paneId)
-            }
-        } else {
-            EmptyPanelView(workspace: workspace, paneId: paneId)
-        }
-    }
-
     private func syncBonsplitNotificationBadges() {
         let unreadFromNotifications: Set<UUID> = Set(
             notificationStore.notifications
@@ -187,7 +178,8 @@ struct WorkspaceContentView: View {
         reason: String = "unspecified",
         backgroundOverride: NSColor? = nil,
         loadConfig: () -> GhosttyConfig = { GhosttyConfig.load() },
-        defaultBackground: () -> NSColor = { GhosttyApp.shared.defaultBackgroundColor }
+        defaultBackground: () -> NSColor = { GhosttyApp.shared.defaultBackgroundColor },
+        defaultBackgroundOpacity: () -> Double = { GhosttyApp.shared.defaultBackgroundOpacity }
     ) -> GhosttyConfig {
         var next = loadConfig()
         let loadedBackgroundHex = next.backgroundColor.hexString()
@@ -204,9 +196,12 @@ struct WorkspaceContentView: View {
         }
 
         next.backgroundColor = resolvedBackground
+        // Use the runtime opacity from the Ghostty engine, which may differ from the
+        // file-level value parsed by GhosttyConfig.load().
+        next.backgroundOpacity = defaultBackgroundOpacity()
         if GhosttyApp.shared.backgroundLogEnabled {
             GhosttyApp.shared.logBackground(
-                "theme resolve reason=\(reason) loadedBg=\(loadedBackgroundHex) overrideBg=\(backgroundOverride?.hexString() ?? "nil") defaultBg=\(defaultBackgroundHex) finalBg=\(next.backgroundColor.hexString()) theme=\(next.theme ?? "nil")"
+                "theme resolve reason=\(reason) loadedBg=\(loadedBackgroundHex) overrideBg=\(backgroundOverride?.hexString() ?? "nil") defaultBg=\(defaultBackgroundHex) finalBg=\(next.backgroundColor.hexString()) opacity=\(String(format: "%.3f", next.backgroundOpacity)) theme=\(next.theme ?? "nil")"
             )
         }
         return next
@@ -228,7 +223,8 @@ struct WorkspaceContentView: View {
         let sourceLabel = backgroundSource ?? "nil"
         let payloadLabel = notificationPayloadHex ?? "nil"
         let backgroundChanged = previousBackgroundHex != next.backgroundColor.hexString()
-        let shouldRequestTitlebarRefresh = backgroundChanged || reason == "onAppear"
+        let opacityChanged = abs(config.backgroundOpacity - next.backgroundOpacity) > 0.0001
+        let shouldRequestTitlebarRefresh = backgroundChanged || opacityChanged || reason == "onAppear"
         logTheme(
             "theme refresh begin workspace=\(workspace.id.uuidString) reason=\(reason) event=\(eventLabel) source=\(sourceLabel) payload=\(payloadLabel) previousBg=\(previousBackgroundHex) nextBg=\(next.backgroundColor.hexString()) overrideBg=\(backgroundOverride?.hexString() ?? "nil")"
         )
@@ -253,8 +249,7 @@ struct WorkspaceContentView: View {
         )
         let chromeReason =
             "refreshGhosttyAppearanceConfig:reason=\(reason):event=\(eventLabel):source=\(sourceLabel):payload=\(payloadLabel)"
-        _ = chromeReason
-        workspace.applyGhosttyChrome(from: next)
+        workspace.applyGhosttyChrome(from: next, reason: chromeReason)
         if let terminalPanel = workspace.focusedTerminalPanel {
             terminalPanel.applyWindowBackgroundIfActive()
             logTheme(
@@ -411,7 +406,7 @@ struct EmptyPanelView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .background(Color(nsColor: GhosttyBackgroundTheme.currentColor()))
 #if DEBUG
         .onAppear {
             DebugUIEventCounters.emptyPanelAppearCount += 1

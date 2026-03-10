@@ -5,6 +5,7 @@ import WebKit
 import SwiftUI
 import ObjectiveC.runtime
 import Bonsplit
+import UserNotifications
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -408,6 +409,153 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
         AppDelegate.clearWindowFirstResponderGuardTesting()
         _ = window.makeFirstResponder(nil)
         XCTAssertFalse(window.makeFirstResponder(descendant), "Expected pointer bypass to be limited to click context")
+    }
+
+    @MainActor
+    func testWindowFirstResponderGuardAllowsPointerInitiatedClickFocusFromPortalHostedInspectorSibling() {
+        _ = NSApplication.shared
+        AppDelegate.installWindowResponderSwizzlesForTesting()
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let contentView = NSView(frame: window.contentRect(forFrameRect: window.frame))
+        window.contentView = contentView
+
+        window.makeKeyAndOrderFront(nil)
+        defer {
+            AppDelegate.clearWindowFirstResponderGuardTesting()
+            window.orderOut(nil)
+        }
+
+        guard let container = contentView.superview else {
+            XCTFail("Expected content container")
+            return
+        }
+
+        let hostFrame = container.convert(contentView.bounds, from: contentView)
+        let host = WindowBrowserHostView(frame: hostFrame)
+        host.autoresizingMask = [.width, .height]
+        container.addSubview(host, positioned: .above, relativeTo: contentView)
+
+        let slot = WindowBrowserSlotView(frame: host.bounds)
+        slot.autoresizingMask = [.width, .height]
+        host.addSubview(slot)
+
+        let webView = CmuxWebView(frame: slot.bounds, configuration: WKWebViewConfiguration())
+        webView.autoresizingMask = [.width, .height]
+        slot.addSubview(webView)
+
+        let inspector = FirstResponderView(frame: NSRect(x: 440, y: 0, width: 200, height: slot.bounds.height))
+        inspector.autoresizingMask = [.minXMargin, .height]
+        slot.addSubview(inspector)
+
+        webView.allowsFirstResponderAcquisition = false
+        _ = window.makeFirstResponder(nil)
+        XCTAssertFalse(
+            window.makeFirstResponder(inspector),
+            "Expected portal-hosted inspector focus to stay blocked without pointer click context"
+        )
+
+        let pointInInspector = NSPoint(x: inspector.bounds.midX, y: inspector.bounds.midY)
+        let pointInWindow = inspector.convert(pointInInspector, to: nil)
+        let pointerDownEvent = NSEvent.mouseEvent(
+            with: .leftMouseDown,
+            location: pointInWindow,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: 1,
+            clickCount: 1,
+            pressure: 1.0
+        )
+        XCTAssertNotNil(pointerDownEvent)
+
+        AppDelegate.setWindowFirstResponderGuardTesting(currentEvent: pointerDownEvent, hitView: nil)
+        _ = window.makeFirstResponder(nil)
+        XCTAssertTrue(
+            window.makeFirstResponder(inspector),
+            "Expected portal-hosted inspector click to bypass blocked policy using the overlay hit target"
+        )
+    }
+
+    @MainActor
+    func testWindowFirstResponderGuardAllowsPointerInitiatedClickFocusFromBoundPortalInspectorSiblingWhenHitTestMisses() {
+        _ = NSApplication.shared
+        AppDelegate.installWindowResponderSwizzlesForTesting()
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let contentView = NSView(frame: window.contentRect(forFrameRect: window.frame))
+        window.contentView = contentView
+
+        let anchor = NSView(frame: NSRect(x: 80, y: 60, width: 480, height: 260))
+        contentView.addSubview(anchor)
+
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+
+        window.makeKeyAndOrderFront(nil)
+        contentView.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        BrowserWindowPortalRegistry.bind(webView: webView, to: anchor, visibleInUI: true, zPriority: 1)
+        BrowserWindowPortalRegistry.synchronizeForAnchor(anchor)
+
+        defer {
+            BrowserWindowPortalRegistry.detach(webView: webView)
+            AppDelegate.clearWindowFirstResponderGuardTesting()
+            window.orderOut(nil)
+        }
+
+        guard let slot = webView.superview as? WindowBrowserSlotView else {
+            XCTFail("Expected bound portal slot")
+            return
+        }
+
+        let inspector = FirstResponderView(frame: NSRect(x: 320, y: 0, width: 160, height: slot.bounds.height))
+        inspector.autoresizingMask = [.minXMargin, .height]
+        slot.addSubview(inspector)
+
+        webView.allowsFirstResponderAcquisition = false
+        _ = window.makeFirstResponder(nil)
+        XCTAssertFalse(
+            window.makeFirstResponder(inspector),
+            "Expected bound portal inspector focus to stay blocked without pointer click context"
+        )
+
+        let pointInInspector = NSPoint(x: inspector.bounds.midX, y: inspector.bounds.midY)
+        let pointInWindow = inspector.convert(pointInInspector, to: nil)
+        XCTAssertTrue(
+            BrowserWindowPortalRegistry.webViewAtWindowPoint(pointInWindow, in: window) === webView,
+            "Expected portal registry to resolve the owning web view from a click inside inspector chrome"
+        )
+
+        let pointerDownEvent = NSEvent.mouseEvent(
+            with: .leftMouseDown,
+            location: pointInWindow,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: 1,
+            clickCount: 1,
+            pressure: 1.0
+        )
+        XCTAssertNotNil(pointerDownEvent)
+
+        AppDelegate.setWindowFirstResponderGuardTesting(currentEvent: pointerDownEvent, hitView: nil)
+        _ = window.makeFirstResponder(nil)
+        XCTAssertTrue(
+            window.makeFirstResponder(inspector),
+            "Expected bound portal inspector click to bypass blocked policy through portal registry fallback"
+        )
     }
 
     @MainActor
@@ -1217,6 +1365,21 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
         XCTAssertTrue(prevShortcut.eventModifiers.contains(.control))
     }
 
+    func testToggleTerminalCopyModeShortcutDefaultsAndMetadata() {
+        XCTAssertEqual(KeyboardShortcutSettings.Action.toggleTerminalCopyMode.label, "Toggle Terminal Copy Mode")
+        XCTAssertEqual(
+            KeyboardShortcutSettings.Action.toggleTerminalCopyMode.defaultsKey,
+            "shortcut.toggleTerminalCopyMode"
+        )
+
+        let shortcut = KeyboardShortcutSettings.Action.toggleTerminalCopyMode.defaultShortcut
+        XCTAssertEqual(shortcut.key, "m")
+        XCTAssertTrue(shortcut.command)
+        XCTAssertTrue(shortcut.shift)
+        XCTAssertFalse(shortcut.option)
+        XCTAssertFalse(shortcut.control)
+    }
+
     func testMenuItemKeyEquivalentHandlesArrowAndTabKeys() {
         XCTAssertNotNil(StoredShortcut(key: "←", command: true, shift: false, option: false, control: false).menuItemKeyEquivalent)
         XCTAssertNotNil(StoredShortcut(key: "→", command: true, shift: false, option: false, control: false).menuItemKeyEquivalent)
@@ -1231,6 +1394,537 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
     func testShortcutDefaultsKeysRemainUnique() {
         let keys = KeyboardShortcutSettings.Action.allCases.map(\.defaultsKey)
         XCTAssertEqual(Set(keys).count, keys.count)
+    }
+}
+
+final class TerminalKeyboardCopyModeActionTests: XCTestCase {
+    func testCopyModeBypassAllowsOnlyCommandShortcuts() {
+        XCTAssertTrue(terminalKeyboardCopyModeShouldBypassForShortcut(modifierFlags: [.command]))
+        XCTAssertTrue(terminalKeyboardCopyModeShouldBypassForShortcut(modifierFlags: [.command, .shift]))
+        XCTAssertTrue(terminalKeyboardCopyModeShouldBypassForShortcut(modifierFlags: [.command, .option]))
+        XCTAssertFalse(terminalKeyboardCopyModeShouldBypassForShortcut(modifierFlags: [.option]))
+        XCTAssertFalse(terminalKeyboardCopyModeShouldBypassForShortcut(modifierFlags: [.option, .shift]))
+        XCTAssertFalse(terminalKeyboardCopyModeShouldBypassForShortcut(modifierFlags: [.control]))
+    }
+
+    func testJKWithoutSelectionScrollByLine() {
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 38,
+                charactersIgnoringModifiers: "j",
+                modifierFlags: [],
+                hasSelection: false
+            ),
+            .scrollLines(1)
+        )
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 40,
+                charactersIgnoringModifiers: "k",
+                modifierFlags: [],
+                hasSelection: false
+            ),
+            .scrollLines(-1)
+        )
+    }
+
+    func testCapsLockDoesNotBlockLetterMappings() {
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 38,
+                charactersIgnoringModifiers: "j",
+                modifierFlags: [.capsLock],
+                hasSelection: false
+            ),
+            .scrollLines(1)
+        )
+    }
+
+    func testJKWithSelectionAdjustSelection() {
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 38,
+                charactersIgnoringModifiers: "j",
+                modifierFlags: [],
+                hasSelection: true
+            ),
+            .adjustSelection(.down)
+        )
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 40,
+                charactersIgnoringModifiers: "k",
+                modifierFlags: [],
+                hasSelection: true
+            ),
+            .adjustSelection(.up)
+        )
+    }
+
+    func testControlPagingSupportsPrintableAndControlCharacters() {
+        // Ctrl+U = half-page up (vim standard).
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 0,
+                charactersIgnoringModifiers: "\u{15}",
+                modifierFlags: [.control],
+                hasSelection: false
+            ),
+            .scrollHalfPage(-1)
+        )
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 0,
+                charactersIgnoringModifiers: "\u{04}",
+                modifierFlags: [.control],
+                hasSelection: true
+            ),
+            .adjustSelection(.pageDown)
+        )
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 0,
+                charactersIgnoringModifiers: "\u{02}",
+                modifierFlags: [.control],
+                hasSelection: false
+            ),
+            .scrollPage(-1)
+        )
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 0,
+                charactersIgnoringModifiers: "\u{06}",
+                modifierFlags: [.control],
+                hasSelection: true
+            ),
+            .adjustSelection(.pageDown)
+        )
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 0,
+                charactersIgnoringModifiers: "\u{19}",
+                modifierFlags: [.control],
+                hasSelection: false
+            ),
+            .scrollLines(-1)
+        )
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 0,
+                charactersIgnoringModifiers: "\u{05}",
+                modifierFlags: [.control],
+                hasSelection: true
+            ),
+            .adjustSelection(.down)
+        )
+    }
+
+    func testVGYMapping() {
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 9,
+                charactersIgnoringModifiers: "v",
+                modifierFlags: [],
+                hasSelection: false
+            ),
+            .startSelection
+        )
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 9,
+                charactersIgnoringModifiers: "v",
+                modifierFlags: [],
+                hasSelection: true
+            ),
+            .clearSelection
+        )
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 16,
+                charactersIgnoringModifiers: "y",
+                modifierFlags: [],
+                hasSelection: true
+            ),
+            .copyAndExit
+        )
+    }
+
+    func testGAndShiftGMapping() {
+        // Bare "g" is a prefix key (gg), not an immediate action.
+        XCTAssertNil(
+            terminalKeyboardCopyModeAction(
+                keyCode: 5,
+                charactersIgnoringModifiers: "g",
+                modifierFlags: [],
+                hasSelection: false
+            )
+        )
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 5,
+                charactersIgnoringModifiers: "g",
+                modifierFlags: [.shift],
+                hasSelection: false
+            ),
+            .scrollToBottom
+        )
+    }
+
+    func testLineBoundaryPromptAndSearchMappings() {
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 29,
+                charactersIgnoringModifiers: "0",
+                modifierFlags: [],
+                hasSelection: true
+            ),
+            .adjustSelection(.beginningOfLine)
+        )
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 20,
+                charactersIgnoringModifiers: "^",
+                modifierFlags: [.shift],
+                hasSelection: true
+            ),
+            .adjustSelection(.beginningOfLine)
+        )
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 21,
+                charactersIgnoringModifiers: "4",
+                modifierFlags: [.shift],
+                hasSelection: true
+            ),
+            .adjustSelection(.endOfLine)
+        )
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 33,
+                charactersIgnoringModifiers: "[",
+                modifierFlags: [.shift],
+                hasSelection: false
+            ),
+            .jumpToPrompt(-1)
+        )
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 30,
+                charactersIgnoringModifiers: "]",
+                modifierFlags: [.shift],
+                hasSelection: false
+            ),
+            .jumpToPrompt(1)
+        )
+        XCTAssertNil(
+            terminalKeyboardCopyModeAction(
+                keyCode: 21,
+                charactersIgnoringModifiers: "4",
+                modifierFlags: [],
+                hasSelection: true
+            )
+        )
+        XCTAssertNil(
+            terminalKeyboardCopyModeAction(
+                keyCode: 33,
+                charactersIgnoringModifiers: "[",
+                modifierFlags: [],
+                hasSelection: false
+            )
+        )
+        XCTAssertNil(
+            terminalKeyboardCopyModeAction(
+                keyCode: 30,
+                charactersIgnoringModifiers: "]",
+                modifierFlags: [],
+                hasSelection: false
+            )
+        )
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 44,
+                charactersIgnoringModifiers: "/",
+                modifierFlags: [],
+                hasSelection: false
+            ),
+            .startSearch
+        )
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 45,
+                charactersIgnoringModifiers: "n",
+                modifierFlags: [],
+                hasSelection: false
+            ),
+            .searchNext
+        )
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 45,
+                charactersIgnoringModifiers: "n",
+                modifierFlags: [.shift],
+                hasSelection: false
+            ),
+            .searchPrevious
+        )
+    }
+
+    func testShiftVMatchesVisualToggleBehavior() {
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 9,
+                charactersIgnoringModifiers: "v",
+                modifierFlags: [.shift],
+                hasSelection: false
+            ),
+            .startSelection
+        )
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 9,
+                charactersIgnoringModifiers: "v",
+                modifierFlags: [.shift],
+                hasSelection: true
+            ),
+            .clearSelection
+        )
+    }
+
+    func testEscapeAlwaysExits() {
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 53,
+                charactersIgnoringModifiers: "",
+                modifierFlags: [],
+                hasSelection: false
+            ),
+            .exit
+        )
+    }
+
+    func testQAlwaysExits() {
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 12, // kVK_ANSI_Q
+                charactersIgnoringModifiers: "q",
+                modifierFlags: [],
+                hasSelection: false
+            ),
+            .exit
+        )
+    }
+}
+
+final class TerminalKeyboardCopyModeResolveTests: XCTestCase {
+    private func resolve(
+        _ keyCode: UInt16,
+        chars: String,
+        modifiers: NSEvent.ModifierFlags = [],
+        hasSelection: Bool,
+        state: inout TerminalKeyboardCopyModeInputState
+    ) -> TerminalKeyboardCopyModeResolution {
+        terminalKeyboardCopyModeResolve(
+            keyCode: keyCode,
+            charactersIgnoringModifiers: chars,
+            modifierFlags: modifiers,
+            hasSelection: hasSelection,
+            state: &state
+        )
+    }
+
+    func testCountPrefixAppliesToMotion() {
+        var state = TerminalKeyboardCopyModeInputState()
+        XCTAssertEqual(resolve(20, chars: "3", hasSelection: false, state: &state), .consume)
+        XCTAssertEqual(resolve(38, chars: "j", hasSelection: false, state: &state), .perform(.scrollLines(1), count: 3))
+        XCTAssertEqual(state, TerminalKeyboardCopyModeInputState())
+    }
+
+    func testZeroAppendsCountOrActsAsMotion() {
+        var state = TerminalKeyboardCopyModeInputState()
+        XCTAssertEqual(resolve(19, chars: "2", hasSelection: false, state: &state), .consume)
+        XCTAssertEqual(resolve(29, chars: "0", hasSelection: false, state: &state), .consume)
+        XCTAssertEqual(resolve(40, chars: "k", hasSelection: false, state: &state), .perform(.scrollLines(-1), count: 20))
+
+        var selectionState = TerminalKeyboardCopyModeInputState()
+        XCTAssertEqual(
+            resolve(29, chars: "0", hasSelection: true, state: &selectionState),
+            .perform(.adjustSelection(.beginningOfLine), count: 1)
+        )
+    }
+
+    func testYankLineOperatorSupportsYYAndYWithCounts() {
+        var yyState = TerminalKeyboardCopyModeInputState()
+        XCTAssertEqual(resolve(16, chars: "y", hasSelection: false, state: &yyState), .consume)
+        XCTAssertEqual(resolve(16, chars: "y", hasSelection: false, state: &yyState), .perform(.copyLineAndExit, count: 1))
+
+        var countedState = TerminalKeyboardCopyModeInputState()
+        XCTAssertEqual(resolve(21, chars: "4", hasSelection: false, state: &countedState), .consume)
+        XCTAssertEqual(resolve(16, chars: "y", hasSelection: false, state: &countedState), .consume)
+        XCTAssertEqual(resolve(16, chars: "y", hasSelection: false, state: &countedState), .perform(.copyLineAndExit, count: 4))
+
+        var shiftYState = TerminalKeyboardCopyModeInputState()
+        XCTAssertEqual(resolve(20, chars: "3", hasSelection: false, state: &shiftYState), .consume)
+        XCTAssertEqual(
+            resolve(16, chars: "y", modifiers: [.shift], hasSelection: false, state: &shiftYState),
+            .perform(.copyLineAndExit, count: 3)
+        )
+    }
+
+    func testPendingYankLineDoesNotSwallowNextCommand() {
+        var state = TerminalKeyboardCopyModeInputState()
+        XCTAssertEqual(resolve(16, chars: "y", hasSelection: false, state: &state), .consume)
+        XCTAssertEqual(resolve(38, chars: "j", hasSelection: false, state: &state), .perform(.scrollLines(1), count: 1))
+        XCTAssertEqual(state, TerminalKeyboardCopyModeInputState())
+    }
+
+    func testSearchAndPromptMotionsUseCounts() {
+        var promptState = TerminalKeyboardCopyModeInputState()
+        XCTAssertEqual(resolve(20, chars: "3", hasSelection: false, state: &promptState), .consume)
+        XCTAssertEqual(
+            resolve(30, chars: "]", modifiers: [.shift], hasSelection: false, state: &promptState),
+            .perform(.jumpToPrompt(1), count: 3)
+        )
+
+        var searchState = TerminalKeyboardCopyModeInputState()
+        XCTAssertEqual(resolve(18, chars: "2", hasSelection: false, state: &searchState), .consume)
+        XCTAssertEqual(resolve(45, chars: "n", hasSelection: false, state: &searchState), .perform(.searchNext, count: 2))
+    }
+
+    func testInvalidKeyClearsPendingState() {
+        var state = TerminalKeyboardCopyModeInputState()
+        XCTAssertEqual(resolve(18, chars: "2", hasSelection: false, state: &state), .consume)
+        XCTAssertEqual(resolve(7, chars: "x", hasSelection: false, state: &state), .consume)
+        XCTAssertEqual(state, TerminalKeyboardCopyModeInputState())
+    }
+
+    // MARK: - gg (scroll to top via two-key sequence)
+
+    func testGGScrollsToTop() {
+        var state = TerminalKeyboardCopyModeInputState()
+        XCTAssertEqual(resolve(5, chars: "g", hasSelection: false, state: &state), .consume)
+        XCTAssertEqual(resolve(5, chars: "g", hasSelection: false, state: &state), .perform(.scrollToTop, count: 1))
+        XCTAssertEqual(state, TerminalKeyboardCopyModeInputState())
+    }
+
+    func testGGWithSelectionAdjustsToHome() {
+        var state = TerminalKeyboardCopyModeInputState()
+        XCTAssertEqual(resolve(5, chars: "g", hasSelection: true, state: &state), .consume)
+        XCTAssertEqual(resolve(5, chars: "g", hasSelection: true, state: &state), .perform(.adjustSelection(.home), count: 1))
+        XCTAssertEqual(state, TerminalKeyboardCopyModeInputState())
+    }
+
+    func testCountedGG() {
+        var state = TerminalKeyboardCopyModeInputState()
+        XCTAssertEqual(resolve(22, chars: "5", hasSelection: false, state: &state), .consume)
+        XCTAssertEqual(resolve(5, chars: "g", hasSelection: false, state: &state), .consume)
+        XCTAssertEqual(resolve(5, chars: "g", hasSelection: false, state: &state), .perform(.scrollToTop, count: 5))
+    }
+
+    func testPendingGCancelledByOtherKey() {
+        var state = TerminalKeyboardCopyModeInputState()
+        XCTAssertEqual(resolve(5, chars: "g", hasSelection: false, state: &state), .consume)
+        XCTAssertEqual(resolve(38, chars: "j", hasSelection: false, state: &state), .perform(.scrollLines(1), count: 1))
+        XCTAssertEqual(state, TerminalKeyboardCopyModeInputState())
+    }
+
+    func testShiftGStillWorksImmediately() {
+        var state = TerminalKeyboardCopyModeInputState()
+        XCTAssertEqual(
+            resolve(5, chars: "g", modifiers: [.shift], hasSelection: false, state: &state),
+            .perform(.scrollToBottom, count: 1)
+        )
+        XCTAssertEqual(state, TerminalKeyboardCopyModeInputState())
+    }
+
+    // MARK: - Ctrl+U/D half-page scroll
+
+    func testCtrlUHalfPage() {
+        var state = TerminalKeyboardCopyModeInputState()
+        XCTAssertEqual(
+            resolve(32, chars: "u", modifiers: [.control], hasSelection: false, state: &state),
+            .perform(.scrollHalfPage(-1), count: 1)
+        )
+    }
+
+    func testCtrlDHalfPage() {
+        var state = TerminalKeyboardCopyModeInputState()
+        XCTAssertEqual(
+            resolve(2, chars: "d", modifiers: [.control], hasSelection: false, state: &state),
+            .perform(.scrollHalfPage(1), count: 1)
+        )
+    }
+
+    func testCtrlBFullPage() {
+        var state = TerminalKeyboardCopyModeInputState()
+        XCTAssertEqual(
+            resolve(11, chars: "b", modifiers: [.control], hasSelection: false, state: &state),
+            .perform(.scrollPage(-1), count: 1)
+        )
+    }
+
+    func testCtrlFFullPage() {
+        var state = TerminalKeyboardCopyModeInputState()
+        XCTAssertEqual(
+            resolve(3, chars: "f", modifiers: [.control], hasSelection: false, state: &state),
+            .perform(.scrollPage(1), count: 1)
+        )
+    }
+}
+
+final class TerminalKeyboardCopyModeViewportRowTests: XCTestCase {
+    func testInitialViewportRowUsesImePointBaseline() {
+        XCTAssertEqual(
+            terminalKeyboardCopyModeInitialViewportRow(
+                rows: 24,
+                imePointY: 24,
+                imeCellHeight: 24
+            ),
+            0
+        )
+        XCTAssertEqual(
+            terminalKeyboardCopyModeInitialViewportRow(
+                rows: 24,
+                imePointY: 240,
+                imeCellHeight: 24
+            ),
+            9
+        )
+        XCTAssertEqual(
+            terminalKeyboardCopyModeInitialViewportRow(
+                rows: 24,
+                imePointY: 48,
+                imeCellHeight: 24,
+                topPadding: 24
+            ),
+            0
+        )
+    }
+
+    func testInitialViewportRowClampsBoundsAndFallsBackWhenHeightMissing() {
+        XCTAssertEqual(
+            terminalKeyboardCopyModeInitialViewportRow(
+                rows: 24,
+                imePointY: 0,
+                imeCellHeight: 24
+            ),
+            0
+        )
+        XCTAssertEqual(
+            terminalKeyboardCopyModeInitialViewportRow(
+                rows: 24,
+                imePointY: 9999,
+                imeCellHeight: 24
+            ),
+            23
+        )
+        XCTAssertEqual(
+            terminalKeyboardCopyModeInitialViewportRow(
+                rows: 24,
+                imePointY: 123,
+                imeCellHeight: 0
+            ),
+            23
+        )
     }
 }
 
@@ -1301,6 +1995,92 @@ final class BrowserDeveloperToolsConfigurationTests: XCTestCase {
 
         panel.setBrowserThemeMode(.system)
         XCTAssertNil(panel.webView.appearance)
+    }
+
+    func testBrowserPanelRefreshesUnderPageBackgroundColorWithGhosttyOpacity() {
+        let panel = BrowserPanel(workspaceId: UUID())
+        let updatedColor = NSColor(srgbRed: 0.18, green: 0.29, blue: 0.44, alpha: 1.0)
+
+        NotificationCenter.default.post(
+            name: .ghosttyDefaultBackgroundDidChange,
+            object: nil,
+            userInfo: [
+                GhosttyNotificationKey.backgroundColor: updatedColor,
+                GhosttyNotificationKey.backgroundOpacity: NSNumber(value: 0.57),
+            ]
+        )
+
+        guard let actual = panel.webView.underPageBackgroundColor?.usingColorSpace(.sRGB),
+              let expected = updatedColor.withAlphaComponent(0.57).usingColorSpace(.sRGB) else {
+            XCTFail("Expected sRGB-convertible under-page background colors")
+            return
+        }
+
+        XCTAssertEqual(actual.redComponent, expected.redComponent, accuracy: 0.005)
+        XCTAssertEqual(actual.greenComponent, expected.greenComponent, accuracy: 0.005)
+        XCTAssertEqual(actual.blueComponent, expected.blueComponent, accuracy: 0.005)
+        XCTAssertEqual(actual.alphaComponent, expected.alphaComponent, accuracy: 0.005)
+    }
+}
+
+final class GhosttyBackgroundThemeTests: XCTestCase {
+    func testColorClampsOpacity() {
+        let base = NSColor(srgbRed: 0.10, green: 0.20, blue: 0.30, alpha: 1.0)
+
+        let lowerClamped = GhosttyBackgroundTheme.color(backgroundColor: base, opacity: -2.0)
+        XCTAssertEqual(lowerClamped.alphaComponent, 0.0, accuracy: 0.0001)
+
+        let upperClamped = GhosttyBackgroundTheme.color(backgroundColor: base, opacity: 5.0)
+        XCTAssertEqual(upperClamped.alphaComponent, 1.0, accuracy: 0.0001)
+    }
+
+    func testColorFromNotificationUsesBackgroundAndOpacity() {
+        let fallbackColor = NSColor.black
+        let fallbackOpacity = 1.0
+        let notification = Notification(
+            name: .ghosttyDefaultBackgroundDidChange,
+            object: nil,
+            userInfo: [
+                GhosttyNotificationKey.backgroundColor: NSColor(srgbRed: 0.18, green: 0.29, blue: 0.44, alpha: 1.0),
+                GhosttyNotificationKey.backgroundOpacity: NSNumber(value: 0.57),
+            ]
+        )
+
+        let actual = GhosttyBackgroundTheme.color(
+            from: notification,
+            fallbackColor: fallbackColor,
+            fallbackOpacity: fallbackOpacity
+        )
+        guard let srgb = actual.usingColorSpace(.sRGB) else {
+            XCTFail("Expected sRGB-convertible color")
+            return
+        }
+
+        XCTAssertEqual(srgb.redComponent, 0.18, accuracy: 0.005)
+        XCTAssertEqual(srgb.greenComponent, 0.29, accuracy: 0.005)
+        XCTAssertEqual(srgb.blueComponent, 0.44, accuracy: 0.005)
+        XCTAssertEqual(srgb.alphaComponent, 0.57, accuracy: 0.005)
+    }
+
+    func testColorFromNotificationFallsBackWhenPayloadMissing() {
+        let fallbackColor = NSColor(srgbRed: 0.12, green: 0.34, blue: 0.56, alpha: 1.0)
+        let fallbackOpacity = 0.42
+        let notification = Notification(name: .ghosttyDefaultBackgroundDidChange)
+
+        let actual = GhosttyBackgroundTheme.color(
+            from: notification,
+            fallbackColor: fallbackColor,
+            fallbackOpacity: fallbackOpacity
+        )
+        guard let srgb = actual.usingColorSpace(.sRGB) else {
+            XCTFail("Expected sRGB-convertible color")
+            return
+        }
+
+        XCTAssertEqual(srgb.redComponent, 0.12, accuracy: 0.005)
+        XCTAssertEqual(srgb.greenComponent, 0.34, accuracy: 0.005)
+        XCTAssertEqual(srgb.blueComponent, 0.56, accuracy: 0.005)
+        XCTAssertEqual(srgb.alphaComponent, 0.42, accuracy: 0.005)
     }
 }
 
@@ -1577,10 +2357,37 @@ final class BrowserSessionHistoryRestoreTests: XCTestCase {
         XCTAssertTrue(panel.canGoBack)
         XCTAssertTrue(panel.canGoForward)
     }
+
+    func testWebViewReplacementAfterProcessTerminationUpdatesInstanceIdentity() {
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: URL(string: "https://example.com")
+        )
+        let oldWebView = panel.webView
+        let oldInstanceID = panel.webViewInstanceID
+
+        panel.debugSimulateWebContentProcessTermination()
+
+        XCTAssertFalse(panel.webView === oldWebView)
+        XCTAssertNotEqual(panel.webViewInstanceID, oldInstanceID)
+        XCTAssertNotNil(panel.webView.navigationDelegate)
+        XCTAssertNotNil(panel.webView.uiDelegate)
+    }
+
+    func testWebViewReplacementPreservesEmptyNewTabRenderState() {
+        let panel = BrowserPanel(workspaceId: UUID())
+        XCTAssertFalse(panel.shouldRenderWebView)
+
+        panel.debugSimulateWebContentProcessTermination()
+
+        XCTAssertFalse(panel.shouldRenderWebView)
+    }
 }
 
 @MainActor
 final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
+    private final class WKInspectorProbeView: NSView {}
+
     private final class FakeInspector: NSObject {
         private(set) var showCount = 0
         private(set) var closeCount = 0
@@ -1704,46 +2511,122 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         XCTAssertFalse(panel.shouldPreserveWebViewAttachmentDuringTransientHide())
     }
 
-    func testWebViewDismantleSkipsDetachWhenDeveloperToolsIntentIsVisible() {
+    func testWebViewDismantleKeepsPortalHostedWebViewAttachedWhenDeveloperToolsIntentIsVisible() {
+        let (panel, _) = makePanelWithInspector()
+        let paneId = PaneID(id: UUID())
+        XCTAssertTrue(panel.showDeveloperTools())
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let anchor = NSView(frame: NSRect(x: 30, y: 30, width: 180, height: 140))
+        window.contentView?.addSubview(anchor)
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        window.contentView?.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        BrowserWindowPortalRegistry.bind(webView: panel.webView, to: anchor, visibleInUI: true, zPriority: 1)
+        BrowserWindowPortalRegistry.synchronizeForAnchor(anchor)
+        XCTAssertNotNil(panel.webView.superview)
+
+        let representable = WebViewRepresentable(
+            panel: panel,
+            paneId: paneId,
+            shouldAttachWebView: true,
+            shouldFocusWebView: false,
+            isPanelFocused: true,
+            portalZPriority: 0,
+            paneDropZone: nil,
+            searchOverlay: nil,
+            paneTopChromeHeight: 0
+        )
+        let coordinator = representable.makeCoordinator()
+        coordinator.webView = panel.webView
+        WebViewRepresentable.dismantleNSView(anchor, coordinator: coordinator)
+
+        XCTAssertNotNil(panel.webView.superview)
+        window.orderOut(nil)
+    }
+
+    func testWebViewDismantleKeepsPortalHostedWebViewAttachedWhenDeveloperToolsIntentIsHidden() {
+        let (panel, _) = makePanelWithInspector()
+        let paneId = PaneID(id: UUID())
+        XCTAssertFalse(panel.shouldPreserveWebViewAttachmentDuringTransientHide())
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let anchor = NSView(frame: NSRect(x: 20, y: 20, width: 200, height: 150))
+        window.contentView?.addSubview(anchor)
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        window.contentView?.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        BrowserWindowPortalRegistry.bind(webView: panel.webView, to: anchor, visibleInUI: true, zPriority: 1)
+        BrowserWindowPortalRegistry.synchronizeForAnchor(anchor)
+        XCTAssertNotNil(panel.webView.superview)
+
+        let representable = WebViewRepresentable(
+            panel: panel,
+            paneId: paneId,
+            shouldAttachWebView: true,
+            shouldFocusWebView: false,
+            isPanelFocused: true,
+            portalZPriority: 0,
+            paneDropZone: nil,
+            searchOverlay: nil,
+            paneTopChromeHeight: 0
+        )
+        let coordinator = representable.makeCoordinator()
+        coordinator.webView = panel.webView
+        WebViewRepresentable.dismantleNSView(anchor, coordinator: coordinator)
+
+        XCTAssertNotNil(panel.webView.superview)
+        window.orderOut(nil)
+    }
+
+    func testTransientHideAttachmentPreserveDisablesForSideDockedInspectorLayout() {
         let (panel, _) = makePanelWithInspector()
         XCTAssertTrue(panel.showDeveloperTools())
 
-        let representable = WebViewRepresentable(
-            panel: panel,
-            shouldAttachWebView: true,
-            shouldFocusWebView: false,
-            isPanelFocused: true,
-            portalZPriority: 0
-        )
-        let coordinator = representable.makeCoordinator()
-        coordinator.webView = panel.webView
-        let host = NSView(frame: NSRect(x: 0, y: 0, width: 100, height: 100))
+        let host = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 240))
+        panel.webView.frame = NSRect(x: 0, y: 0, width: 120, height: host.bounds.height)
         host.addSubview(panel.webView)
 
-        WebViewRepresentable.dismantleNSView(host, coordinator: coordinator)
+        let inspectorContainer = NSView(
+            frame: NSRect(x: 120, y: 0, width: host.bounds.width - 120, height: host.bounds.height)
+        )
+        let inspectorView = WKInspectorProbeView(frame: inspectorContainer.bounds)
+        inspectorView.autoresizingMask = [.width, .height]
+        inspectorContainer.addSubview(inspectorView)
+        host.addSubview(inspectorContainer)
 
-        XCTAssertTrue(panel.webView.superview === host)
+        XCTAssertFalse(panel.shouldPreserveWebViewAttachmentDuringTransientHide())
     }
 
-    func testWebViewDismantleDetachesWhenDeveloperToolsIntentIsHidden() {
+    func testTransientHideAttachmentPreserveStaysEnabledForBottomDockedInspectorLayout() {
         let (panel, _) = makePanelWithInspector()
-        XCTAssertFalse(panel.shouldPreserveWebViewAttachmentDuringTransientHide())
+        XCTAssertTrue(panel.showDeveloperTools())
 
-        let representable = WebViewRepresentable(
-            panel: panel,
-            shouldAttachWebView: true,
-            shouldFocusWebView: false,
-            isPanelFocused: true,
-            portalZPriority: 0
-        )
-        let coordinator = representable.makeCoordinator()
-        coordinator.webView = panel.webView
-        let host = NSView(frame: NSRect(x: 0, y: 0, width: 100, height: 100))
+        let host = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 240))
+        panel.webView.frame = NSRect(x: 0, y: 80, width: host.bounds.width, height: host.bounds.height - 80)
         host.addSubview(panel.webView)
 
-        WebViewRepresentable.dismantleNSView(host, coordinator: coordinator)
+        let inspectorContainer = NSView(frame: NSRect(x: 0, y: 0, width: host.bounds.width, height: 80))
+        let inspectorView = WKInspectorProbeView(frame: inspectorContainer.bounds)
+        inspectorView.autoresizingMask = [.width, .height]
+        inspectorContainer.addSubview(inspectorView)
+        host.addSubview(inspectorContainer)
 
-        XCTAssertNil(panel.webView.superview)
+        XCTAssertTrue(panel.shouldPreserveWebViewAttachmentDuringTransientHide())
     }
 }
 
@@ -1902,7 +2785,8 @@ final class BrowserReturnKeyDownRoutingTests: XCTestCase {
         XCTAssertTrue(
             shouldDispatchBrowserReturnViaFirstResponderKeyDown(
                 keyCode: 36,
-                firstResponderIsBrowser: true
+                firstResponderIsBrowser: true,
+                flags: []
             )
         )
     }
@@ -1911,7 +2795,8 @@ final class BrowserReturnKeyDownRoutingTests: XCTestCase {
         XCTAssertTrue(
             shouldDispatchBrowserReturnViaFirstResponderKeyDown(
                 keyCode: 76,
-                firstResponderIsBrowser: true
+                firstResponderIsBrowser: true,
+                flags: []
             )
         )
     }
@@ -1920,7 +2805,8 @@ final class BrowserReturnKeyDownRoutingTests: XCTestCase {
         XCTAssertFalse(
             shouldDispatchBrowserReturnViaFirstResponderKeyDown(
                 keyCode: 13,
-                firstResponderIsBrowser: true
+                firstResponderIsBrowser: true,
+                flags: []
             )
         )
     }
@@ -1929,7 +2815,58 @@ final class BrowserReturnKeyDownRoutingTests: XCTestCase {
         XCTAssertFalse(
             shouldDispatchBrowserReturnViaFirstResponderKeyDown(
                 keyCode: 36,
-                firstResponderIsBrowser: false
+                firstResponderIsBrowser: false,
+                flags: []
+            )
+        )
+    }
+
+    func testRoutesForShiftReturnWhenBrowserFirstResponder() {
+        XCTAssertTrue(
+            shouldDispatchBrowserReturnViaFirstResponderKeyDown(
+                keyCode: 36,
+                firstResponderIsBrowser: true,
+                flags: [.shift]
+            )
+        )
+    }
+
+    func testDoesNotRouteForCommandShiftReturnWhenBrowserFirstResponder() {
+        XCTAssertFalse(
+            shouldDispatchBrowserReturnViaFirstResponderKeyDown(
+                keyCode: 36,
+                firstResponderIsBrowser: true,
+                flags: [.command, .shift]
+            )
+        )
+    }
+
+    func testDoesNotRouteForCommandReturnWhenBrowserFirstResponder() {
+        XCTAssertFalse(
+            shouldDispatchBrowserReturnViaFirstResponderKeyDown(
+                keyCode: 36,
+                firstResponderIsBrowser: true,
+                flags: [.command]
+            )
+        )
+    }
+
+    func testDoesNotRouteForOptionReturnWhenBrowserFirstResponder() {
+        XCTAssertFalse(
+            shouldDispatchBrowserReturnViaFirstResponderKeyDown(
+                keyCode: 36,
+                firstResponderIsBrowser: true,
+                flags: [.option]
+            )
+        )
+    }
+
+    func testDoesNotRouteForControlReturnWhenBrowserFirstResponder() {
+        XCTAssertFalse(
+            shouldDispatchBrowserReturnViaFirstResponderKeyDown(
+                keyCode: 36,
+                firstResponderIsBrowser: true,
+                flags: [.control]
             )
         )
     }
@@ -1951,6 +2888,52 @@ final class FullScreenShortcutTests: XCTestCase {
             shouldToggleMainWindowFullScreenForCommandControlFShortcut(
                 flags: [.command, .control],
                 chars: "",
+                keyCode: 3,
+                layoutCharacterProvider: { _, _ in nil }
+            )
+        )
+    }
+
+    func testDoesNotFallbackToANSIWhenLayoutTranslationReturnsNonFCharacter() {
+        XCTAssertFalse(
+            shouldToggleMainWindowFullScreenForCommandControlFShortcut(
+                flags: [.command, .control],
+                chars: "",
+                keyCode: 3,
+                layoutCharacterProvider: { _, _ in "u" }
+            )
+        )
+    }
+
+    func testMatchesCommandControlFWhenCommandAwareLayoutTranslationProvidesF() {
+        XCTAssertTrue(
+            shouldToggleMainWindowFullScreenForCommandControlFShortcut(
+                flags: [.command, .control],
+                chars: "",
+                keyCode: 3,
+                layoutCharacterProvider: { _, modifierFlags in
+                    modifierFlags.contains(.command) ? "f" : "u"
+                }
+            )
+        )
+    }
+
+    func testMatchesCommandControlFWhenCharsAreControlSequence() {
+        XCTAssertTrue(
+            shouldToggleMainWindowFullScreenForCommandControlFShortcut(
+                flags: [.command, .control],
+                chars: "\u{06}",
+                keyCode: 3,
+                layoutCharacterProvider: { _, _ in nil }
+            )
+        )
+    }
+
+    func testRejectsPhysicalFWhenCharacterRepresentsDifferentLayoutKey() {
+        XCTAssertFalse(
+            shouldToggleMainWindowFullScreenForCommandControlFShortcut(
+                flags: [.command, .control],
+                chars: "u",
                 keyCode: 3
             )
         )
@@ -2369,6 +3352,17 @@ final class CommandPaletteOpenShortcutConsumptionTests: XCTestCase {
             )
         )
     }
+
+    func testConsumesEscapeWhenPaletteIsVisible() {
+        XCTAssertTrue(
+            shouldConsumeShortcutWhileCommandPaletteVisible(
+                isCommandPaletteVisible: true,
+                normalizedFlags: [],
+                chars: "",
+                keyCode: 53
+            )
+        )
+    }
 }
 
 final class CommandPaletteRestoreFocusStateMachineTests: XCTestCase {
@@ -2466,22 +3460,47 @@ final class CommandPaletteSelectionScrollBehaviorTests: XCTestCase {
     }
 }
 
-final class SidebarCommandHintPolicyTests: XCTestCase {
-    func testCommandHintRequiresCommandOnlyModifier() {
-        XCTAssertTrue(SidebarCommandHintPolicy.shouldShowHints(for: [.command]))
-        XCTAssertFalse(SidebarCommandHintPolicy.shouldShowHints(for: []))
-        XCTAssertFalse(SidebarCommandHintPolicy.shouldShowHints(for: [.command, .shift]))
-        XCTAssertFalse(SidebarCommandHintPolicy.shouldShowHints(for: [.command, .option]))
-        XCTAssertFalse(SidebarCommandHintPolicy.shouldShowHints(for: [.command, .control]))
+final class ShortcutHintModifierPolicyTests: XCTestCase {
+    func testShortcutHintRequiresEnabledCommandOnlyModifier() {
+        withDefaultsSuite { defaults in
+            defaults.set(true, forKey: ShortcutHintDebugSettings.showHintsOnCommandHoldKey)
+
+            XCTAssertTrue(ShortcutHintModifierPolicy.shouldShowHints(for: [.command], defaults: defaults))
+            XCTAssertFalse(ShortcutHintModifierPolicy.shouldShowHints(for: [.control], defaults: defaults))
+            XCTAssertFalse(ShortcutHintModifierPolicy.shouldShowHints(for: [], defaults: defaults))
+            XCTAssertFalse(ShortcutHintModifierPolicy.shouldShowHints(for: [.command, .shift], defaults: defaults))
+            XCTAssertFalse(ShortcutHintModifierPolicy.shouldShowHints(for: [.control, .shift], defaults: defaults))
+            XCTAssertFalse(ShortcutHintModifierPolicy.shouldShowHints(for: [.command, .option], defaults: defaults))
+            XCTAssertFalse(ShortcutHintModifierPolicy.shouldShowHints(for: [.control, .option], defaults: defaults))
+            XCTAssertFalse(ShortcutHintModifierPolicy.shouldShowHints(for: [.command, .control], defaults: defaults))
+        }
     }
 
-    func testCommandHintUsesIntentionalHoldDelay() {
-        XCTAssertGreaterThanOrEqual(SidebarCommandHintPolicy.intentionalHoldDelay, 0.25)
+    func testCommandHintCanBeDisabledInSettings() {
+        withDefaultsSuite { defaults in
+            defaults.set(false, forKey: ShortcutHintDebugSettings.showHintsOnCommandHoldKey)
+
+            XCTAssertFalse(ShortcutHintModifierPolicy.shouldShowHints(for: [.command], defaults: defaults))
+            XCTAssertFalse(ShortcutHintModifierPolicy.shouldShowHints(for: [.control], defaults: defaults))
+        }
+    }
+
+    func testCommandHintDefaultsToEnabledWhenSettingMissing() {
+        withDefaultsSuite { defaults in
+            defaults.removeObject(forKey: ShortcutHintDebugSettings.showHintsOnCommandHoldKey)
+
+            XCTAssertTrue(ShortcutHintModifierPolicy.shouldShowHints(for: [.command], defaults: defaults))
+            XCTAssertFalse(ShortcutHintModifierPolicy.shouldShowHints(for: [.control], defaults: defaults))
+        }
+    }
+
+    func testShortcutHintUsesIntentionalHoldDelay() {
+        XCTAssertEqual(ShortcutHintModifierPolicy.intentionalHoldDelay, 0.30, accuracy: 0.001)
     }
 
     func testCurrentWindowRequiresHostWindowToBeKeyAndMatchEventWindow() {
         XCTAssertTrue(
-            SidebarCommandHintPolicy.isCurrentWindow(
+            ShortcutHintModifierPolicy.isCurrentWindow(
                 hostWindowNumber: 42,
                 hostWindowIsKey: true,
                 eventWindowNumber: 42,
@@ -2490,7 +3509,7 @@ final class SidebarCommandHintPolicyTests: XCTestCase {
         )
 
         XCTAssertFalse(
-            SidebarCommandHintPolicy.isCurrentWindow(
+            ShortcutHintModifierPolicy.isCurrentWindow(
                 hostWindowNumber: 42,
                 hostWindowIsKey: true,
                 eventWindowNumber: 7,
@@ -2499,7 +3518,7 @@ final class SidebarCommandHintPolicyTests: XCTestCase {
         )
 
         XCTAssertFalse(
-            SidebarCommandHintPolicy.isCurrentWindow(
+            ShortcutHintModifierPolicy.isCurrentWindow(
                 hostWindowNumber: 42,
                 hostWindowIsKey: false,
                 eventWindowNumber: 42,
@@ -2508,26 +3527,66 @@ final class SidebarCommandHintPolicyTests: XCTestCase {
         )
     }
 
-    func testWindowScopedCommandHintsUseKeyWindowWhenNoEventWindowIsAvailable() {
-        XCTAssertTrue(
-            SidebarCommandHintPolicy.shouldShowHints(
-                for: [.command],
-                hostWindowNumber: 42,
-                hostWindowIsKey: true,
-                eventWindowNumber: nil,
-                keyWindowNumber: 42
-            )
-        )
+    func testWindowScopedShortcutHintsUseKeyWindowWhenNoEventWindowIsAvailable() {
+        withDefaultsSuite { defaults in
+            defaults.set(true, forKey: ShortcutHintDebugSettings.showHintsOnCommandHoldKey)
 
-        XCTAssertFalse(
-            SidebarCommandHintPolicy.shouldShowHints(
-                for: [.command],
-                hostWindowNumber: 42,
-                hostWindowIsKey: true,
-                eventWindowNumber: nil,
-                keyWindowNumber: 7
+            XCTAssertTrue(
+                ShortcutHintModifierPolicy.shouldShowHints(
+                    for: [.command],
+                    hostWindowNumber: 42,
+                    hostWindowIsKey: true,
+                    eventWindowNumber: nil,
+                    keyWindowNumber: 42,
+                    defaults: defaults
+                )
             )
-        )
+
+            XCTAssertFalse(
+                ShortcutHintModifierPolicy.shouldShowHints(
+                    for: [.command],
+                    hostWindowNumber: 42,
+                    hostWindowIsKey: true,
+                    eventWindowNumber: nil,
+                    keyWindowNumber: 7,
+                    defaults: defaults
+                )
+            )
+
+            XCTAssertTrue(
+                ShortcutHintModifierPolicy.shouldShowHints(
+                    for: [.command],
+                    hostWindowNumber: 42,
+                    hostWindowIsKey: true,
+                    eventWindowNumber: nil,
+                    keyWindowNumber: 42,
+                    defaults: defaults
+                )
+            )
+
+            XCTAssertFalse(
+                ShortcutHintModifierPolicy.shouldShowHints(
+                    for: [.control],
+                    hostWindowNumber: 42,
+                    hostWindowIsKey: true,
+                    eventWindowNumber: nil,
+                    keyWindowNumber: 42,
+                    defaults: defaults
+                )
+            )
+        }
+    }
+
+    private func withDefaultsSuite(_ body: (UserDefaults) -> Void) {
+        let suiteName = "ShortcutHintModifierPolicyTests-\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create defaults suite")
+            return
+        }
+
+        defaults.removePersistentDomain(forName: suiteName)
+        body(defaults)
+        defaults.removePersistentDomain(forName: suiteName)
     }
 }
 
@@ -2547,6 +3606,81 @@ final class ShortcutHintDebugSettingsTests: XCTestCase {
         XCTAssertEqual(ShortcutHintDebugSettings.defaultPaneHintX, 0.0)
         XCTAssertEqual(ShortcutHintDebugSettings.defaultPaneHintY, 0.0)
         XCTAssertFalse(ShortcutHintDebugSettings.defaultAlwaysShowHints)
+        XCTAssertTrue(ShortcutHintDebugSettings.defaultShowHintsOnCommandHold)
+    }
+
+    func testShowHintsOnCommandHoldSettingRespectsStoredValue() {
+        let suiteName = "ShortcutHintDebugSettingsTests-\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create defaults suite")
+            return
+        }
+
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.removeObject(forKey: ShortcutHintDebugSettings.showHintsOnCommandHoldKey)
+        XCTAssertTrue(ShortcutHintDebugSettings.showHintsOnCommandHoldEnabled(defaults: defaults))
+
+        defaults.set(false, forKey: ShortcutHintDebugSettings.showHintsOnCommandHoldKey)
+        XCTAssertFalse(ShortcutHintDebugSettings.showHintsOnCommandHoldEnabled(defaults: defaults))
+
+        defaults.set(true, forKey: ShortcutHintDebugSettings.showHintsOnCommandHoldKey)
+        XCTAssertTrue(ShortcutHintDebugSettings.showHintsOnCommandHoldEnabled(defaults: defaults))
+    }
+
+    func testResetVisibilityDefaultsRestoresAlwaysShowAndCommandHoldFlags() {
+        let suiteName = "ShortcutHintDebugSettingsTests-\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create defaults suite")
+            return
+        }
+
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set(true, forKey: ShortcutHintDebugSettings.alwaysShowHintsKey)
+        defaults.set(false, forKey: ShortcutHintDebugSettings.showHintsOnCommandHoldKey)
+
+        ShortcutHintDebugSettings.resetVisibilityDefaults(defaults: defaults)
+
+        XCTAssertEqual(
+            defaults.object(forKey: ShortcutHintDebugSettings.alwaysShowHintsKey) as? Bool,
+            ShortcutHintDebugSettings.defaultAlwaysShowHints
+        )
+        XCTAssertEqual(
+            defaults.object(forKey: ShortcutHintDebugSettings.showHintsOnCommandHoldKey) as? Bool,
+            ShortcutHintDebugSettings.defaultShowHintsOnCommandHold
+        )
+    }
+}
+
+final class DevBuildBannerDebugSettingsTests: XCTestCase {
+    func testShowSidebarBannerDefaultsToVisible() {
+        let suiteName = "DevBuildBannerDebugSettingsTests.Default.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.removeObject(forKey: DevBuildBannerDebugSettings.sidebarBannerVisibleKey)
+        XCTAssertTrue(DevBuildBannerDebugSettings.showSidebarBanner(defaults: defaults))
+    }
+
+    func testShowSidebarBannerRespectsStoredValue() {
+        let suiteName = "DevBuildBannerDebugSettingsTests.Stored.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set(false, forKey: DevBuildBannerDebugSettings.sidebarBannerVisibleKey)
+        XCTAssertFalse(DevBuildBannerDebugSettings.showSidebarBanner(defaults: defaults))
+
+        defaults.set(true, forKey: DevBuildBannerDebugSettings.sidebarBannerVisibleKey)
+        XCTAssertTrue(DevBuildBannerDebugSettings.showSidebarBanner(defaults: defaults))
     }
 }
 
@@ -3168,6 +4302,58 @@ final class WorkspaceReorderTests: XCTestCase {
 }
 
 @MainActor
+final class WorkspaceNotificationReorderTests: XCTestCase {
+    func testNotificationAutoReorderDoesNotMovePinnedWorkspace() {
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let manager = TabManager()
+        let notificationStore = TerminalNotificationStore.shared
+
+        let originalTabManager = appDelegate.tabManager
+        let originalNotificationStore = appDelegate.notificationStore
+        let defaults = UserDefaults.standard
+        let originalAutoReorderSetting = defaults.object(forKey: WorkspaceAutoReorderSettings.key)
+        let originalAppFocusOverride = AppFocusState.overrideIsFocused
+
+        notificationStore.replaceNotificationsForTesting([])
+        notificationStore.configureNotificationDeliveryHandlerForTesting { _, _ in }
+        appDelegate.tabManager = manager
+        appDelegate.notificationStore = notificationStore
+        defaults.set(true, forKey: WorkspaceAutoReorderSettings.key)
+        AppFocusState.overrideIsFocused = false
+
+        defer {
+            notificationStore.replaceNotificationsForTesting([])
+            notificationStore.resetNotificationDeliveryHandlerForTesting()
+            appDelegate.tabManager = originalTabManager
+            appDelegate.notificationStore = originalNotificationStore
+            AppFocusState.overrideIsFocused = originalAppFocusOverride
+            if let originalAutoReorderSetting {
+                defaults.set(originalAutoReorderSetting, forKey: WorkspaceAutoReorderSettings.key)
+            } else {
+                defaults.removeObject(forKey: WorkspaceAutoReorderSettings.key)
+            }
+        }
+
+        let firstPinned = manager.tabs[0]
+        manager.setPinned(firstPinned, pinned: true)
+        let secondPinned = manager.addWorkspace()
+        manager.setPinned(secondPinned, pinned: true)
+        let unpinned = manager.addWorkspace()
+        let expectedOrder = [firstPinned.id, secondPinned.id, unpinned.id]
+
+        notificationStore.addNotification(
+            tabId: secondPinned.id,
+            surfaceId: nil,
+            title: "Build finished",
+            subtitle: "",
+            body: "Pinned workspaces should stay put"
+        )
+
+        XCTAssertEqual(manager.tabs.map(\.id), expectedOrder)
+    }
+}
+
+@MainActor
 final class TabManagerChildExitCloseTests: XCTestCase {
     func testChildExitOnLastPanelClosesSelectedWorkspaceAndKeepsIndexStable() {
         let manager = TabManager()
@@ -3236,6 +4422,64 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         XCTAssertEqual(manager.tabs.first?.id, workspace.id)
         XCTAssertEqual(workspace.panels.count, panelCountBefore - 1)
         XCTAssertNotNil(workspace.panels[initialPanelId], "Expected sibling panel to remain")
+    }
+}
+
+@MainActor
+final class WorkspaceTeardownTests: XCTestCase {
+    func testTeardownAllPanelsClearsPanelMetadataCaches() {
+        let workspace = Workspace()
+        guard let initialPanelId = workspace.focusedPanelId else {
+            XCTFail("Expected focused panel in new workspace")
+            return
+        }
+
+        workspace.setPanelCustomTitle(panelId: initialPanelId, title: "Initial custom title")
+        workspace.setPanelPinned(panelId: initialPanelId, pinned: true)
+
+        guard let splitPanel = workspace.newTerminalSplit(from: initialPanelId, orientation: .horizontal) else {
+            XCTFail("Expected split panel to be created")
+            return
+        }
+
+        workspace.setPanelCustomTitle(panelId: splitPanel.id, title: "Split custom title")
+        workspace.setPanelPinned(panelId: splitPanel.id, pinned: true)
+        workspace.markPanelUnread(initialPanelId)
+
+        XCTAssertFalse(workspace.panels.isEmpty)
+        XCTAssertFalse(workspace.panelTitles.isEmpty)
+        XCTAssertFalse(workspace.panelCustomTitles.isEmpty)
+        XCTAssertFalse(workspace.pinnedPanelIds.isEmpty)
+        XCTAssertFalse(workspace.manualUnreadPanelIds.isEmpty)
+
+        workspace.teardownAllPanels()
+
+        XCTAssertTrue(workspace.panels.isEmpty)
+        XCTAssertTrue(workspace.panelTitles.isEmpty)
+        XCTAssertTrue(workspace.panelCustomTitles.isEmpty)
+        XCTAssertTrue(workspace.pinnedPanelIds.isEmpty)
+        XCTAssertTrue(workspace.manualUnreadPanelIds.isEmpty)
+    }
+}
+
+@MainActor
+final class TabManagerWorkspaceOwnershipTests: XCTestCase {
+    func testCloseWorkspaceIgnoresWorkspaceNotOwnedByManager() {
+        let manager = TabManager()
+        _ = manager.addWorkspace()
+        let initialTabIds = manager.tabs.map(\.id)
+        let initialSelectedTabId = manager.selectedTabId
+
+        let externalWorkspace = Workspace(title: "External workspace")
+        let externalPanelCountBefore = externalWorkspace.panels.count
+        let externalPanelTitlesBefore = externalWorkspace.panelTitles
+
+        manager.closeWorkspace(externalWorkspace)
+
+        XCTAssertEqual(manager.tabs.map(\.id), initialTabIds)
+        XCTAssertEqual(manager.selectedTabId, initialSelectedTabId)
+        XCTAssertEqual(externalWorkspace.panels.count, externalPanelCountBefore)
+        XCTAssertEqual(externalWorkspace.panelTitles, externalPanelTitlesBefore)
     }
 }
 
@@ -4737,7 +5981,8 @@ final class TerminalDirectoryOpenTargetAvailabilityTests: XCTestCase {
     ) -> TerminalDirectoryOpenTarget.DetectionEnvironment {
         TerminalDirectoryOpenTarget.DetectionEnvironment(
             homeDirectoryPath: homeDirectoryPath,
-            fileExistsAtPath: { existingPaths.contains($0) }
+            fileExistsAtPath: { existingPaths.contains($0) },
+            isExecutableFileAtPath: { existingPaths.contains($0) }
         )
     }
 
@@ -4745,6 +5990,7 @@ final class TerminalDirectoryOpenTargetAvailabilityTests: XCTestCase {
         let env = environment(
             existingPaths: [
                 "/Applications/Visual Studio Code.app",
+                "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code-tunnel",
                 "/System/Library/CoreServices/Finder.app",
                 "/System/Applications/Utilities/Terminal.app",
                 "/Applications/Zed Preview.app",
@@ -4775,6 +6021,11 @@ final class TerminalDirectoryOpenTargetAvailabilityTests: XCTestCase {
         XCTAssertFalse(availableTargets.contains(.vscode))
     }
 
+    func testVSCodeRequiresCodeTunnelExecutable() {
+        let env = environment(existingPaths: ["/Applications/Visual Studio Code.app"])
+        XCTAssertFalse(TerminalDirectoryOpenTarget.vscode.isAvailable(in: env))
+    }
+
     func testITerm2DetectsLegacyBundleName() {
         let env = environment(existingPaths: ["/Applications/iTerm.app"])
         XCTAssertTrue(TerminalDirectoryOpenTarget.iterm2.isAvailable(in: env))
@@ -4789,6 +6040,212 @@ final class TerminalDirectoryOpenTargetAvailabilityTests: XCTestCase {
         let targets = TerminalDirectoryOpenTarget.commandPaletteShortcutTargets
         XCTAssertFalse(targets.contains(where: { $0.commandPaletteTitle == "Open Current Directory in IDE" }))
         XCTAssertFalse(targets.contains(where: { $0.commandPaletteCommandId == "palette.terminalOpenDirectory" }))
+    }
+}
+
+final class VSCodeServeWebURLBuilderTests: XCTestCase {
+    func testExtractWebUIURLParsesServeWebOutput() {
+        let output = """
+        *
+        * Visual Studio Code Server
+        *
+        Web UI available at http://127.0.0.1:5555?tkn=test-token
+        """
+
+        let url = VSCodeServeWebURLBuilder.extractWebUIURL(from: output)
+        XCTAssertEqual(url?.absoluteString, "http://127.0.0.1:5555?tkn=test-token")
+    }
+
+    func testOpenFolderURLAppendsFolderQueryWhilePreservingToken() {
+        let baseURL = URL(string: "http://127.0.0.1:5555?tkn=test-token")!
+
+        let url = VSCodeServeWebURLBuilder.openFolderURL(
+            baseWebUIURL: baseURL,
+            directoryPath: "/Users/tester/Projects/cmux"
+        )
+
+        let components = URLComponents(url: url!, resolvingAgainstBaseURL: false)
+        XCTAssertEqual(components?.queryItems?.first(where: { $0.name == "tkn" })?.value, "test-token")
+        XCTAssertEqual(components?.queryItems?.first(where: { $0.name == "folder" })?.value, "/Users/tester/Projects/cmux")
+    }
+
+    func testOpenFolderURLReplacesExistingFolderQuery() {
+        let baseURL = URL(string: "http://127.0.0.1:5555?tkn=test-token&folder=/tmp/old")!
+
+        let url = VSCodeServeWebURLBuilder.openFolderURL(
+            baseWebUIURL: baseURL,
+            directoryPath: "/Users/tester/New Folder"
+        )
+
+        let components = URLComponents(url: url!, resolvingAgainstBaseURL: false)
+        XCTAssertEqual(
+            components?.queryItems?.filter { $0.name == "folder" }.count,
+            1
+        )
+        XCTAssertEqual(
+            components?.queryItems?.first(where: { $0.name == "folder" })?.value,
+            "/Users/tester/New Folder"
+        )
+    }
+}
+
+final class VSCodeCLILaunchConfigurationBuilderTests: XCTestCase {
+    func testLaunchConfigurationUsesCodeTunnelBinary() {
+        let appURL = URL(fileURLWithPath: "/Applications/Visual Studio Code.app", isDirectory: true)
+        let expectedExecutablePath = "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code-tunnel"
+
+        let configuration = VSCodeCLILaunchConfigurationBuilder.launchConfiguration(
+            vscodeApplicationURL: appURL,
+            baseEnvironment: [:],
+            isExecutableAtPath: { $0 == expectedExecutablePath }
+        )
+
+        XCTAssertEqual(configuration?.executableURL.path, expectedExecutablePath)
+        XCTAssertEqual(configuration?.argumentsPrefix, [])
+        XCTAssertEqual(configuration?.environment["ELECTRON_RUN_AS_NODE"], "1")
+    }
+
+    func testLaunchConfigurationMapsNodeEnvironmentVariables() {
+        let configuration = VSCodeCLILaunchConfigurationBuilder.launchConfiguration(
+            vscodeApplicationURL: URL(fileURLWithPath: "/Applications/Visual Studio Code.app", isDirectory: true),
+            baseEnvironment: [
+                "PATH": "/usr/bin:/bin",
+                "NODE_OPTIONS": "--max-old-space-size=4096",
+                "NODE_REPL_EXTERNAL_MODULE": "module-name"
+            ],
+            isExecutableAtPath: { _ in true }
+        )
+
+        XCTAssertEqual(configuration?.environment["PATH"], "/usr/bin:/bin")
+        XCTAssertEqual(configuration?.environment["VSCODE_NODE_OPTIONS"], "--max-old-space-size=4096")
+        XCTAssertEqual(configuration?.environment["VSCODE_NODE_REPL_EXTERNAL_MODULE"], "module-name")
+        XCTAssertNil(configuration?.environment["NODE_OPTIONS"])
+        XCTAssertNil(configuration?.environment["NODE_REPL_EXTERNAL_MODULE"])
+    }
+
+    func testLaunchConfigurationClearsStaleVSCodeNodeVariablesWhenNodeVariablesAreAbsent() {
+        let configuration = VSCodeCLILaunchConfigurationBuilder.launchConfiguration(
+            vscodeApplicationURL: URL(fileURLWithPath: "/Applications/Visual Studio Code.app", isDirectory: true),
+            baseEnvironment: [
+                "PATH": "/usr/bin:/bin",
+                "VSCODE_NODE_OPTIONS": "--stale",
+                "VSCODE_NODE_REPL_EXTERNAL_MODULE": "stale-module"
+            ],
+            isExecutableAtPath: { _ in true }
+        )
+
+        XCTAssertEqual(configuration?.environment["PATH"], "/usr/bin:/bin")
+        XCTAssertNil(configuration?.environment["VSCODE_NODE_OPTIONS"])
+        XCTAssertNil(configuration?.environment["VSCODE_NODE_REPL_EXTERNAL_MODULE"])
+    }
+}
+
+final class ServeWebOutputCollectorTests: XCTestCase {
+    func testWaitForURLReturnsFalseAfterProcessExitSignal() {
+        let collector = ServeWebOutputCollector()
+
+        DispatchQueue.global().asyncAfter(deadline: .now() + 0.05) {
+            collector.markProcessExited()
+        }
+
+        let start = Date()
+        let resolved = collector.waitForURL(timeoutSeconds: 1)
+        let elapsed = Date().timeIntervalSince(start)
+
+        XCTAssertFalse(resolved)
+        XCTAssertLessThan(elapsed, 0.5)
+    }
+
+    func testWaitForURLReturnsTrueWhenURLIsCollected() {
+        let collector = ServeWebOutputCollector()
+        let urlLine = "Web UI available at http://127.0.0.1:7777?tkn=test-token\n"
+
+        DispatchQueue.global().asyncAfter(deadline: .now() + 0.05) {
+            collector.append(Data(urlLine.utf8))
+        }
+
+        XCTAssertTrue(collector.waitForURL(timeoutSeconds: 1))
+        XCTAssertEqual(collector.webUIURL?.absoluteString, "http://127.0.0.1:7777?tkn=test-token")
+    }
+
+    func testMarkProcessExitedParsesFinalURLWithoutTrailingNewline() {
+        let collector = ServeWebOutputCollector()
+        let finalChunk = "Web UI available at http://127.0.0.1:9001?tkn=final-token"
+
+        collector.append(Data(finalChunk.utf8))
+        collector.markProcessExited()
+
+        XCTAssertTrue(collector.waitForURL(timeoutSeconds: 0.1))
+        XCTAssertEqual(collector.webUIURL?.absoluteString, "http://127.0.0.1:9001?tkn=final-token")
+    }
+}
+
+final class VSCodeServeWebControllerTests: XCTestCase {
+    func testStopDuringInFlightLaunchDoesNotDropNextGenerationCompletion() {
+        let firstLaunchStarted = expectation(description: "first launch started")
+        let firstCompletionCalled = expectation(description: "first generation completion called")
+        let secondCompletionCalled = expectation(description: "second generation completion called")
+
+        let launchGate = DispatchSemaphore(value: 0)
+        let launchCallLock = NSLock()
+        var launchCallCount = 0
+
+        let controller = VSCodeServeWebController.makeForTesting { _, _ in
+            launchCallLock.lock()
+            launchCallCount += 1
+            let callNumber = launchCallCount
+            launchCallLock.unlock()
+
+            if callNumber == 1 {
+                firstLaunchStarted.fulfill()
+                _ = launchGate.wait(timeout: .now() + 1)
+            }
+            return nil
+        }
+
+        let callbackLock = NSLock()
+        var firstGenerationCallbacks: [URL?] = []
+        var secondGenerationCallbacks: [URL?] = []
+        let vscodeAppURL = URL(fileURLWithPath: "/Applications/Visual Studio Code.app", isDirectory: true)
+
+        controller.ensureServeWebURL(vscodeApplicationURL: vscodeAppURL) { url in
+            callbackLock.lock()
+            firstGenerationCallbacks.append(url)
+            callbackLock.unlock()
+            firstCompletionCalled.fulfill()
+        }
+
+        wait(for: [firstLaunchStarted], timeout: 1)
+        controller.stop()
+
+        controller.ensureServeWebURL(vscodeApplicationURL: vscodeAppURL) { url in
+            callbackLock.lock()
+            secondGenerationCallbacks.append(url)
+            callbackLock.unlock()
+            secondCompletionCalled.fulfill()
+        }
+
+        launchGate.signal()
+        wait(for: [firstCompletionCalled, secondCompletionCalled], timeout: 2)
+
+        callbackLock.lock()
+        let firstSnapshot = firstGenerationCallbacks
+        let secondSnapshot = secondGenerationCallbacks
+        callbackLock.unlock()
+
+        launchCallLock.lock()
+        let launchCalls = launchCallCount
+        launchCallLock.unlock()
+
+        XCTAssertEqual(firstSnapshot.count, 1)
+        if firstSnapshot.count == 1 {
+            XCTAssertNil(firstSnapshot[0])
+        }
+        XCTAssertEqual(secondSnapshot.count, 1)
+        if secondSnapshot.count == 1 {
+            XCTAssertNil(secondSnapshot[0])
+        }
+        XCTAssertEqual(launchCalls, 2)
     }
 }
 
@@ -5566,6 +7023,337 @@ final class NotificationDockBadgeTests: XCTestCase {
         XCTAssertTrue(NotificationBadgeSettings.isDockBadgeEnabled(defaults: defaults))
     }
 
+    func testNotificationSoundUsesSystemSoundForDefaultAndNamedSounds() {
+        let suiteName = "NotificationDockBadgeTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        XCTAssertTrue(NotificationSoundSettings.usesSystemSound(defaults: defaults))
+
+        defaults.set("Ping", forKey: NotificationSoundSettings.key)
+        XCTAssertTrue(NotificationSoundSettings.usesSystemSound(defaults: defaults))
+        XCTAssertNotNil(NotificationSoundSettings.sound(defaults: defaults))
+    }
+
+    func testNotificationSoundDisablesSystemSoundForNoneAndCustomFile() {
+        let suiteName = "NotificationDockBadgeTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        defaults.set("none", forKey: NotificationSoundSettings.key)
+        XCTAssertFalse(NotificationSoundSettings.usesSystemSound(defaults: defaults))
+        XCTAssertNil(NotificationSoundSettings.sound(defaults: defaults))
+
+        defaults.set(NotificationSoundSettings.customFileValue, forKey: NotificationSoundSettings.key)
+        XCTAssertFalse(NotificationSoundSettings.usesSystemSound(defaults: defaults))
+        XCTAssertNil(NotificationSoundSettings.sound(defaults: defaults))
+    }
+
+    func testNotificationCustomFileURLExpandsTildePath() {
+        let suiteName = "NotificationDockBadgeTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let rawPath = "~/Library/Sounds/my-custom.wav"
+        defaults.set(rawPath, forKey: NotificationSoundSettings.customFilePathKey)
+        let expectedPath = (rawPath as NSString).expandingTildeInPath
+        XCTAssertEqual(NotificationSoundSettings.customFileURL(defaults: defaults)?.path, expectedPath)
+    }
+
+    func testNotificationCustomFileSelectionMustBeExplicit() {
+        let suiteName = "NotificationDockBadgeTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        defaults.set("~/Library/Sounds/my-custom.wav", forKey: NotificationSoundSettings.customFilePathKey)
+
+        defaults.set("none", forKey: NotificationSoundSettings.key)
+        XCTAssertFalse(NotificationSoundSettings.isCustomFileSelected(defaults: defaults))
+
+        defaults.set("Ping", forKey: NotificationSoundSettings.key)
+        XCTAssertFalse(NotificationSoundSettings.isCustomFileSelected(defaults: defaults))
+
+        defaults.set(NotificationSoundSettings.customFileValue, forKey: NotificationSoundSettings.key)
+        XCTAssertTrue(NotificationSoundSettings.isCustomFileSelected(defaults: defaults))
+    }
+
+    func testNotificationCustomStagingPreservesSourceFileWithCmuxPrefix() {
+        let suiteName = "NotificationDockBadgeTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let fileManager = FileManager.default
+        let soundsDirectory = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+            .appendingPathComponent("Library", isDirectory: true)
+            .appendingPathComponent("Sounds", isDirectory: true)
+        do {
+            try fileManager.createDirectory(at: soundsDirectory, withIntermediateDirectories: true)
+        } catch {
+            XCTFail("Failed to create sounds directory: \(error)")
+            return
+        }
+
+        let sourceURL = soundsDirectory.appendingPathComponent(
+            "cmux-custom-notification-sound.source-\(UUID().uuidString).wav",
+            isDirectory: false
+        )
+        defer {
+            try? fileManager.removeItem(at: sourceURL)
+        }
+
+        do {
+            try Data("test".utf8).write(to: sourceURL, options: .atomic)
+        } catch {
+            XCTFail("Failed to write source custom sound file: \(error)")
+            return
+        }
+
+        defaults.set(NotificationSoundSettings.customFileValue, forKey: NotificationSoundSettings.key)
+        defaults.set(sourceURL.path, forKey: NotificationSoundSettings.customFilePathKey)
+
+        _ = NotificationSoundSettings.sound(defaults: defaults)
+
+        guard let stagedName = NotificationSoundSettings.stagedCustomSoundName(defaults: defaults) else {
+            XCTFail("Expected staged custom sound name")
+            return
+        }
+        let stagedURL = soundsDirectory.appendingPathComponent(stagedName, isDirectory: false)
+        defer {
+            try? fileManager.removeItem(at: stagedURL)
+        }
+
+        XCTAssertTrue(fileManager.fileExists(atPath: sourceURL.path))
+        XCTAssertTrue(fileManager.fileExists(atPath: stagedURL.path))
+        XCTAssertTrue(stagedName.hasPrefix("cmux-custom-notification-sound-"))
+        XCTAssertTrue(stagedName.hasSuffix(".wav"))
+    }
+
+    func testNotificationCustomUnsupportedExtensionsStageAsCaf() {
+        XCTAssertEqual(
+            NotificationSoundSettings.stagedCustomSoundFileExtension(forSourceExtension: "mp3"),
+            "caf"
+        )
+        XCTAssertEqual(
+            NotificationSoundSettings.stagedCustomSoundFileExtension(forSourceExtension: "M4A"),
+            "caf"
+        )
+        XCTAssertEqual(
+            NotificationSoundSettings.stagedCustomSoundFileExtension(forSourceExtension: "wav"),
+            "wav"
+        )
+        XCTAssertEqual(
+            NotificationSoundSettings.stagedCustomSoundFileExtension(forSourceExtension: "AIFF"),
+            "aiff"
+        )
+
+        let sourceA = URL(fileURLWithPath: "/tmp/custom-a.mp3")
+        let sourceB = URL(fileURLWithPath: "/tmp/custom-b.mp3")
+        let stagedA = NotificationSoundSettings.stagedCustomSoundFileName(
+            forSourceURL: sourceA,
+            destinationExtension: "caf"
+        )
+        let stagedB = NotificationSoundSettings.stagedCustomSoundFileName(
+            forSourceURL: sourceB,
+            destinationExtension: "caf"
+        )
+        XCTAssertNotEqual(stagedA, stagedB)
+        XCTAssertTrue(stagedA.hasPrefix("cmux-custom-notification-sound-"))
+        XCTAssertTrue(stagedA.hasSuffix(".caf"))
+    }
+
+    func testNotificationCustomPreparationKeepsActiveSourceMetadataSidecar() {
+        let suiteName = "NotificationDockBadgeTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let fileManager = FileManager.default
+        let soundsDirectory = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+            .appendingPathComponent("Library", isDirectory: true)
+            .appendingPathComponent("Sounds", isDirectory: true)
+        do {
+            try fileManager.createDirectory(at: soundsDirectory, withIntermediateDirectories: true)
+        } catch {
+            XCTFail("Failed to create sounds directory: \(error)")
+            return
+        }
+
+        let sourceURL = soundsDirectory.appendingPathComponent(
+            "cmux-custom-notification-sound.metadata-\(UUID().uuidString).wav",
+            isDirectory: false
+        )
+        do {
+            try Data("test".utf8).write(to: sourceURL, options: .atomic)
+        } catch {
+            XCTFail("Failed to write source custom sound file: \(error)")
+            return
+        }
+        defer {
+            try? fileManager.removeItem(at: sourceURL)
+        }
+
+        defaults.set(NotificationSoundSettings.customFileValue, forKey: NotificationSoundSettings.key)
+        defaults.set(sourceURL.path, forKey: NotificationSoundSettings.customFilePathKey)
+
+        let prepareResult = NotificationSoundSettings.prepareCustomFileForNotifications(path: sourceURL.path)
+        let stagedName: String
+        switch prepareResult {
+        case .success(let name):
+            stagedName = name
+        case .failure(let issue):
+            XCTFail("Expected custom sound preparation success, got \(issue)")
+            return
+        }
+
+        let stagedURL = soundsDirectory.appendingPathComponent(stagedName, isDirectory: false)
+        let metadataURL = stagedURL.appendingPathExtension("source-metadata")
+        defer {
+            try? fileManager.removeItem(at: stagedURL)
+            try? fileManager.removeItem(at: metadataURL)
+        }
+
+        XCTAssertTrue(fileManager.fileExists(atPath: stagedURL.path))
+        XCTAssertTrue(fileManager.fileExists(atPath: metadataURL.path))
+    }
+
+    func testNotificationCustomSoundReturnsNilWhenPreparationFails() {
+        let suiteName = "NotificationDockBadgeTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let invalidSourceURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-invalid-sound-\(UUID().uuidString).mp3", isDirectory: false)
+        defer {
+            try? FileManager.default.removeItem(at: invalidSourceURL)
+            let stagedURL = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+                .appendingPathComponent("Library", isDirectory: true)
+                .appendingPathComponent("Sounds", isDirectory: true)
+                .appendingPathComponent("cmux-custom-notification-sound.caf", isDirectory: false)
+            try? FileManager.default.removeItem(at: stagedURL)
+        }
+
+        do {
+            try Data("not-audio".utf8).write(to: invalidSourceURL, options: .atomic)
+        } catch {
+            XCTFail("Failed to write invalid custom sound source: \(error)")
+            return
+        }
+
+        defaults.set(NotificationSoundSettings.customFileValue, forKey: NotificationSoundSettings.key)
+        defaults.set(invalidSourceURL.path, forKey: NotificationSoundSettings.customFilePathKey)
+
+        XCTAssertNil(NotificationSoundSettings.sound(defaults: defaults))
+    }
+
+    func testNotificationCustomPreparationReportsMissingFile() {
+        let missingPath = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-missing-\(UUID().uuidString).wav", isDirectory: false)
+            .path
+
+        let result = NotificationSoundSettings.prepareCustomFileForNotifications(path: missingPath)
+        switch result {
+        case .success:
+            XCTFail("Expected missing file failure")
+        case .failure(let issue):
+            guard case .missingFile = issue else {
+                XCTFail("Expected missingFile issue, got \(issue)")
+                return
+            }
+        }
+    }
+
+    func testNotificationAuthorizationStateMappingCoversKnownUNAuthorizationStatuses() {
+        XCTAssertEqual(TerminalNotificationStore.authorizationState(from: .notDetermined), .notDetermined)
+        XCTAssertEqual(TerminalNotificationStore.authorizationState(from: .denied), .denied)
+        XCTAssertEqual(TerminalNotificationStore.authorizationState(from: .authorized), .authorized)
+        XCTAssertEqual(TerminalNotificationStore.authorizationState(from: .provisional), .provisional)
+    }
+
+    func testNotificationAuthorizationStateDeliveryCapability() {
+        XCTAssertFalse(NotificationAuthorizationState.unknown.allowsDelivery)
+        XCTAssertFalse(NotificationAuthorizationState.notDetermined.allowsDelivery)
+        XCTAssertFalse(NotificationAuthorizationState.denied.allowsDelivery)
+        XCTAssertTrue(NotificationAuthorizationState.authorized.allowsDelivery)
+        XCTAssertTrue(NotificationAuthorizationState.provisional.allowsDelivery)
+        XCTAssertTrue(NotificationAuthorizationState.ephemeral.allowsDelivery)
+    }
+
+    func testNotificationAuthorizationDefersFirstPromptWhileAppIsInactive() {
+        XCTAssertTrue(
+            TerminalNotificationStore.shouldDeferAutomaticAuthorizationRequest(
+                status: .notDetermined,
+                isAppActive: false
+            )
+        )
+        XCTAssertFalse(
+            TerminalNotificationStore.shouldDeferAutomaticAuthorizationRequest(
+                status: .notDetermined,
+                isAppActive: true
+            )
+        )
+        XCTAssertFalse(
+            TerminalNotificationStore.shouldDeferAutomaticAuthorizationRequest(
+                status: .authorized,
+                isAppActive: false
+            )
+        )
+    }
+
+    func testNotificationAuthorizationRequestGatingAllowsSettingsRetry() {
+        XCTAssertTrue(
+            TerminalNotificationStore.shouldRequestAuthorization(
+                isAutomaticRequest: false,
+                hasRequestedAutomaticAuthorization: true
+            )
+        )
+        XCTAssertTrue(
+            TerminalNotificationStore.shouldRequestAuthorization(
+                isAutomaticRequest: true,
+                hasRequestedAutomaticAuthorization: false
+            )
+        )
+        XCTAssertFalse(
+            TerminalNotificationStore.shouldRequestAuthorization(
+                isAutomaticRequest: true,
+                hasRequestedAutomaticAuthorization: true
+            )
+        )
+    }
+
     func testNotificationSettingsPromptUsesSheetAndNeverRunsModal() {
         let store = TerminalNotificationStore.shared
         let alertSpy = NotificationSettingsAlertSpy()
@@ -5723,6 +7511,118 @@ final class NotificationDockBadgeTests: XCTestCase {
         store.clearNotifications(forTabId: tab)
         XCTAssertEqual(store.unreadCount(forTabId: tab), 0)
         XCTAssertNil(store.latestNotification(forTabId: tab))
+    }
+}
+
+@MainActor
+final class TerminalNotificationDirectInteractionTests: XCTestCase {
+    private func makeWindow() -> NSWindow {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 480, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = NSView(frame: window.contentRect(forFrameRect: window.frame))
+        return window
+    }
+
+    private func makeMouseEvent(type: NSEvent.EventType, location: NSPoint, window: NSWindow) -> NSEvent {
+        guard let event = NSEvent.mouseEvent(
+            with: type,
+            location: location,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: 0,
+            clickCount: 1,
+            pressure: 1.0
+        ) else {
+            fatalError("Failed to create \(type) mouse event")
+        }
+        return event
+    }
+
+    private func surfaceView(in hostedView: GhosttySurfaceScrollView) -> NSView? {
+        hostedView.subviews
+            .compactMap { $0 as? NSScrollView }
+            .first?
+            .documentView?
+            .subviews
+            .first
+    }
+
+    func testTerminalMouseDownDismissesUnreadWhenSurfaceIsAlreadyFirstResponder() {
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let manager = TabManager()
+        let store = TerminalNotificationStore.shared
+        let window = makeWindow()
+
+        let originalTabManager = appDelegate.tabManager
+        let originalNotificationStore = appDelegate.notificationStore
+        let originalAppFocusOverride = AppFocusState.overrideIsFocused
+
+        store.replaceNotificationsForTesting([])
+        store.configureNotificationDeliveryHandlerForTesting { _, _ in }
+        appDelegate.tabManager = manager
+        appDelegate.notificationStore = store
+
+        defer {
+            store.replaceNotificationsForTesting([])
+            store.resetNotificationDeliveryHandlerForTesting()
+            appDelegate.tabManager = originalTabManager
+            appDelegate.notificationStore = originalNotificationStore
+            AppFocusState.overrideIsFocused = originalAppFocusOverride
+            window.orderOut(nil)
+        }
+
+        guard let workspace = manager.selectedWorkspace,
+              let terminalPanel = workspace.focusedTerminalPanel else {
+            XCTFail("Expected an initial focused terminal panel")
+            return
+        }
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let hostedView = terminalPanel.hostedView
+        hostedView.frame = contentView.bounds
+        hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostedView)
+        contentView.layoutSubtreeIfNeeded()
+        hostedView.layoutSubtreeIfNeeded()
+
+        guard let surfaceView = surfaceView(in: hostedView) else {
+            XCTFail("Expected terminal surface view")
+            return
+        }
+
+        GhosttySurfaceScrollView.resetFlashCounts()
+        AppFocusState.overrideIsFocused = true
+        XCTAssertTrue(window.makeFirstResponder(surfaceView))
+
+        store.addNotification(
+            tabId: workspace.id,
+            surfaceId: terminalPanel.id,
+            title: "Unread",
+            subtitle: "",
+            body: ""
+        )
+        XCTAssertTrue(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: terminalPanel.id))
+
+        AppFocusState.overrideIsFocused = true
+        let pointInWindow = surfaceView.convert(NSPoint(x: 20, y: 20), to: nil)
+        let event = makeMouseEvent(type: .leftMouseDown, location: pointInWindow, window: window)
+        surfaceView.mouseDown(with: event)
+        let drained = expectation(description: "flash drained")
+        DispatchQueue.main.async { drained.fulfill() }
+        wait(for: [drained], timeout: 1.0)
+
+        XCTAssertFalse(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: terminalPanel.id))
+        XCTAssertEqual(GhosttySurfaceScrollView.flashCount(for: terminalPanel.id), 1)
     }
 }
 
@@ -6182,7 +8082,55 @@ final class WindowBrowserHostViewTests: XCTestCase {
         }
     }
 
+    private final class PrimaryPageProbeView: NSView {
+        override func hitTest(_ point: NSPoint) -> NSView? {
+            bounds.contains(point) ? self : nil
+        }
+    }
+
+    private final class WKInspectorProbeView: NSView {
+        override func hitTest(_ point: NSPoint) -> NSView? {
+            bounds.contains(point) ? self : nil
+        }
+    }
+
+    private final class EdgeTransparentWKInspectorProbeView: NSView {
+        override func hitTest(_ point: NSPoint) -> NSView? {
+            let localPoint = convert(point, from: superview)
+            guard bounds.contains(localPoint) else { return nil }
+            return localPoint.x <= 12 ? nil : self
+        }
+    }
+
     private final class BonsplitMockSplitDelegate: NSObject, NSSplitViewDelegate {}
+
+    private func makeMouseEvent(type: NSEvent.EventType, location: NSPoint, window: NSWindow) -> NSEvent {
+        guard let event = NSEvent.mouseEvent(
+            with: type,
+            location: location,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: 0,
+            clickCount: 1,
+            pressure: 1.0
+        ) else {
+            fatalError("Failed to create \(type) mouse event")
+        }
+        return event
+    }
+
+    private func isInspectorOwnedHit(_ hit: NSView?, inspectorView: NSView, pageView: NSView) -> Bool {
+        guard let hit else { return false }
+        if hit === pageView || hit.isDescendant(of: pageView) {
+            return false
+        }
+        if hit === inspectorView || hit.isDescendant(of: inspectorView) {
+            return true
+        }
+        return inspectorView.isDescendant(of: hit) && !(pageView === hit || pageView.isDescendant(of: hit))
+    }
 
     func testHostViewPassesThroughDividerWhenAdjacentPaneIsCollapsed() {
         let window = NSWindow(
@@ -6212,12 +8160,18 @@ final class WindowBrowserHostViewTests: XCTestCase {
         splitView.adjustSubviews()
         contentView.layoutSubtreeIfNeeded()
 
-        let host = WindowBrowserHostView(frame: contentView.bounds)
+        guard let container = contentView.superview else {
+            XCTFail("Expected content container")
+            return
+        }
+
+        let hostFrame = container.convert(contentView.bounds, from: contentView)
+        let host = WindowBrowserHostView(frame: hostFrame)
         host.autoresizingMask = [.width, .height]
         let child = CapturingView(frame: host.bounds)
         child.autoresizingMask = [.width, .height]
         host.addSubview(child)
-        contentView.addSubview(host)
+        container.addSubview(host, positioned: .above, relativeTo: contentView)
 
         let dividerPointInSplit = NSPoint(
             x: splitView.arrangedSubviews[0].frame.maxX + (splitView.dividerThickness * 0.5),
@@ -6235,6 +8189,948 @@ final class WindowBrowserHostViewTests: XCTestCase {
         let contentPointInWindow = splitView.convert(contentPointInSplit, to: nil)
         let contentPointInHost = host.convert(contentPointInWindow, from: nil)
         XCTAssertTrue(host.hitTest(contentPointInHost) === child)
+    }
+
+    func testDragHoverEventsPassThroughForTabTransferOnBrowserHoverEvents() {
+        XCTAssertTrue(
+            WindowBrowserHostView.shouldPassThroughToDragTargets(
+                pasteboardTypes: [DragOverlayRoutingPolicy.bonsplitTabTransferType],
+                eventType: .cursorUpdate
+            )
+        )
+        XCTAssertTrue(
+            WindowBrowserHostView.shouldPassThroughToDragTargets(
+                pasteboardTypes: [DragOverlayRoutingPolicy.bonsplitTabTransferType],
+                eventType: .mouseEntered
+            )
+        )
+    }
+
+    func testDragHoverEventsPassThroughForSidebarReorderWithoutMouseButtonState() {
+        XCTAssertTrue(
+            WindowBrowserHostView.shouldPassThroughToDragTargets(
+                pasteboardTypes: [DragOverlayRoutingPolicy.sidebarTabReorderType],
+                eventType: .cursorUpdate
+            )
+        )
+    }
+
+    func testDragHoverEventsDoNotPassThroughForUnrelatedPasteboardTypes() {
+        XCTAssertFalse(
+            WindowBrowserHostView.shouldPassThroughToDragTargets(
+                pasteboardTypes: [.fileURL],
+                eventType: .cursorUpdate
+            )
+        )
+    }
+
+    func testHostViewKeepsHostedInspectorDividerInteractive() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+        guard let container = contentView.superview else {
+            XCTFail("Expected content container")
+            return
+        }
+
+        // Underlying app layout split that should still be pass-through.
+        let appSplit = NSSplitView(frame: contentView.bounds)
+        appSplit.autoresizingMask = [.width, .height]
+        appSplit.isVertical = true
+        appSplit.dividerStyle = .thin
+        let appSplitDelegate = BonsplitMockSplitDelegate()
+        appSplit.delegate = appSplitDelegate
+        let leading = NSView(frame: NSRect(x: 0, y: 0, width: 210, height: contentView.bounds.height))
+        let trailing = NSView(frame: NSRect(x: 211, y: 0, width: 209, height: contentView.bounds.height))
+        appSplit.addSubview(leading)
+        appSplit.addSubview(trailing)
+        contentView.addSubview(appSplit)
+        appSplit.adjustSubviews()
+
+        let hostFrame = container.convert(contentView.bounds, from: contentView)
+        let host = WindowBrowserHostView(frame: hostFrame)
+        host.autoresizingMask = [.width, .height]
+        container.addSubview(host, positioned: .above, relativeTo: contentView)
+
+        // WebKit inspector uses an internal split (page + console). Divider drags
+        // here must stay in hosted content, not pass through to appSplit behind it.
+        let inspectorSplit = NSSplitView(frame: host.bounds)
+        inspectorSplit.autoresizingMask = [.width, .height]
+        inspectorSplit.isVertical = false
+        inspectorSplit.dividerStyle = .thin
+        let inspectorDelegate = BonsplitMockSplitDelegate()
+        inspectorSplit.delegate = inspectorDelegate
+        let pageView = CapturingView(frame: NSRect(x: 0, y: 0, width: host.bounds.width, height: 160))
+        let consoleView = CapturingView(frame: NSRect(x: 0, y: 161, width: host.bounds.width, height: 99))
+        inspectorSplit.addSubview(pageView)
+        inspectorSplit.addSubview(consoleView)
+        host.addSubview(inspectorSplit)
+        inspectorSplit.setPosition(160, ofDividerAt: 0)
+        inspectorSplit.adjustSubviews()
+        contentView.layoutSubtreeIfNeeded()
+
+        let appDividerPointInSplit = NSPoint(
+            x: appSplit.arrangedSubviews[0].frame.maxX + (appSplit.dividerThickness * 0.5),
+            y: appSplit.bounds.midY
+        )
+        let appDividerPointInWindow = appSplit.convert(appDividerPointInSplit, to: nil)
+        let appDividerPointInHost = host.convert(appDividerPointInWindow, from: nil)
+        XCTAssertNil(
+            host.hitTest(appDividerPointInHost),
+            "Underlying app split divider should still pass through with a hosted inspector split present"
+        )
+
+        let dividerPointInInspector = NSPoint(
+            x: inspectorSplit.bounds.midX,
+            y: inspectorSplit.arrangedSubviews[0].frame.maxY + (inspectorSplit.dividerThickness * 0.5)
+        )
+        let dividerPointInWindow = inspectorSplit.convert(dividerPointInInspector, to: nil)
+        let dividerPointInHost = host.convert(dividerPointInWindow, from: nil)
+        let hit = host.hitTest(dividerPointInHost)
+
+        XCTAssertNotNil(
+            hit,
+            "Inspector divider should receive hit-testing in hosted content, not pass through"
+        )
+        XCTAssertFalse(hit === host)
+        if let hit {
+            XCTAssertTrue(
+                hit === inspectorSplit || hit.isDescendant(of: inspectorSplit),
+                "Expected hit to remain inside inspector split subtree"
+            )
+        }
+    }
+
+    func testHostViewKeepsHostedVerticalInspectorDividerInteractiveAtSlotLeadingEdge() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+        guard let container = contentView.superview else {
+            XCTFail("Expected content container")
+            return
+        }
+
+        let hostFrame = container.convert(contentView.bounds, from: contentView)
+        let host = WindowBrowserHostView(frame: hostFrame)
+        host.autoresizingMask = [.width, .height]
+        container.addSubview(host, positioned: .above, relativeTo: contentView)
+
+        let slot = WindowBrowserSlotView(frame: NSRect(x: 180, y: 0, width: 240, height: host.bounds.height))
+        slot.autoresizingMask = [.minXMargin, .height]
+        host.addSubview(slot)
+
+        let inspectorSplit = NSSplitView(frame: slot.bounds)
+        inspectorSplit.autoresizingMask = [.width, .height]
+        inspectorSplit.isVertical = true
+        inspectorSplit.dividerStyle = .thin
+        let inspectorDelegate = BonsplitMockSplitDelegate()
+        inspectorSplit.delegate = inspectorDelegate
+        let pageView = CapturingView(frame: NSRect(x: 0, y: 0, width: 1, height: slot.bounds.height))
+        let inspectorView = CapturingView(
+            frame: NSRect(x: 2, y: 0, width: slot.bounds.width - 2, height: slot.bounds.height)
+        )
+        inspectorSplit.addSubview(pageView)
+        inspectorSplit.addSubview(inspectorView)
+        slot.addSubview(inspectorSplit)
+        inspectorSplit.setPosition(1, ofDividerAt: 0)
+        inspectorSplit.adjustSubviews()
+        contentView.layoutSubtreeIfNeeded()
+
+        let dividerPointInSplit = NSPoint(
+            x: inspectorSplit.arrangedSubviews[0].frame.maxX + (inspectorSplit.dividerThickness * 0.5),
+            y: inspectorSplit.bounds.midY
+        )
+        let dividerPointInWindow = inspectorSplit.convert(dividerPointInSplit, to: nil)
+        let dividerPointInHost = host.convert(dividerPointInWindow, from: nil)
+
+        XCTAssertLessThanOrEqual(inspectorSplit.arrangedSubviews[0].frame.width, 1.5)
+        XCTAssertTrue(
+            abs(dividerPointInHost.x - slot.frame.minX) <= SidebarResizeInteraction.hitWidthPerSide,
+            "Expected collapsed hosted divider to overlap the browser slot leading-edge resizer zone"
+        )
+
+        let hit = host.hitTest(dividerPointInHost)
+        XCTAssertNotNil(
+            hit,
+            "Hosted vertical inspector divider should stay interactive even when collapsed onto the slot edge"
+        )
+        XCTAssertFalse(hit === host)
+        if let hit {
+            XCTAssertTrue(
+                hit === inspectorSplit || hit.isDescendant(of: inspectorSplit),
+                "Expected hit to remain inside hosted inspector split subtree at the slot edge"
+            )
+        }
+    }
+
+    func testHostViewPrefersNativeHostedInspectorSiblingDividerHit() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+        guard let container = contentView.superview else {
+            XCTFail("Expected content container")
+            return
+        }
+
+        let hostFrame = container.convert(contentView.bounds, from: contentView)
+        let host = WindowBrowserHostView(frame: hostFrame)
+        host.autoresizingMask = [.width, .height]
+        container.addSubview(host, positioned: .above, relativeTo: contentView)
+
+        let slot = WindowBrowserSlotView(frame: NSRect(x: 180, y: 0, width: 240, height: host.bounds.height))
+        slot.autoresizingMask = [.minXMargin, .height]
+        host.addSubview(slot)
+
+        let pageView = PrimaryPageProbeView(frame: NSRect(x: 0, y: 0, width: 92, height: slot.bounds.height))
+        let inspectorView = WKInspectorProbeView(
+            frame: NSRect(x: 92, y: 0, width: slot.bounds.width - 92, height: slot.bounds.height)
+        )
+        slot.addSubview(pageView)
+        slot.addSubview(inspectorView)
+        contentView.layoutSubtreeIfNeeded()
+
+        let dividerPointInSlot = NSPoint(x: inspectorView.frame.minX + 2, y: slot.bounds.midY)
+        let dividerPointInWindow = slot.convert(dividerPointInSlot, to: nil)
+        let dividerPointInHost = host.convert(dividerPointInWindow, from: nil)
+        let bodyPointInSlot = NSPoint(x: inspectorView.frame.minX + 18, y: slot.bounds.midY)
+        let bodyPointInWindow = slot.convert(bodyPointInSlot, to: nil)
+        let bodyPointInHost = host.convert(bodyPointInWindow, from: nil)
+
+        let dividerHit = host.hitTest(dividerPointInHost)
+        XCTAssertTrue(
+            isInspectorOwnedHit(dividerHit, inspectorView: inspectorView, pageView: pageView),
+            "Hosted right-docked inspector divider should stay on the native WebKit hit path when WebKit exposes a hittable inspector-side view. actual=\(String(describing: dividerHit))"
+        )
+        let interiorHit = host.hitTest(bodyPointInHost)
+        XCTAssertTrue(
+            isInspectorOwnedHit(interiorHit, inspectorView: inspectorView, pageView: pageView),
+            "Only the divider edge should be claimed; interior inspector hits should still reach WebKit content. actual=\(String(describing: interiorHit))"
+        )
+    }
+
+    func testHostViewPrefersNativeNestedHostedInspectorSiblingDividerHit() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+        guard let container = contentView.superview else {
+            XCTFail("Expected content container")
+            return
+        }
+
+        let hostFrame = container.convert(contentView.bounds, from: contentView)
+        let host = WindowBrowserHostView(frame: hostFrame)
+        host.autoresizingMask = [.width, .height]
+        container.addSubview(host, positioned: .above, relativeTo: contentView)
+
+        let slot = WindowBrowserSlotView(frame: NSRect(x: 180, y: 0, width: 240, height: host.bounds.height))
+        slot.autoresizingMask = [.minXMargin, .height]
+        host.addSubview(slot)
+
+        let wrapper = NSView(frame: slot.bounds)
+        wrapper.autoresizingMask = [.width, .height]
+        slot.addSubview(wrapper)
+
+        let pageView = PrimaryPageProbeView(frame: NSRect(x: 0, y: 0, width: 92, height: wrapper.bounds.height))
+        let inspectorContainer = NSView(
+            frame: NSRect(x: 92, y: 0, width: wrapper.bounds.width - 92, height: wrapper.bounds.height)
+        )
+        let inspectorView = WKInspectorProbeView(frame: inspectorContainer.bounds)
+        inspectorView.autoresizingMask = [.width, .height]
+        inspectorContainer.addSubview(inspectorView)
+        wrapper.addSubview(pageView)
+        wrapper.addSubview(inspectorContainer)
+        contentView.layoutSubtreeIfNeeded()
+
+        let dividerPointInSlot = NSPoint(x: inspectorContainer.frame.minX + 2, y: slot.bounds.midY)
+        let dividerPointInWindow = slot.convert(dividerPointInSlot, to: nil)
+        let dividerPointInHost = host.convert(dividerPointInWindow, from: nil)
+        let bodyPointInSlot = NSPoint(x: inspectorContainer.frame.minX + 18, y: slot.bounds.midY)
+        let bodyPointInWindow = slot.convert(bodyPointInSlot, to: nil)
+        let bodyPointInHost = host.convert(bodyPointInWindow, from: nil)
+
+        let dividerHit = host.hitTest(dividerPointInHost)
+        XCTAssertTrue(
+            isInspectorOwnedHit(dividerHit, inspectorView: inspectorView, pageView: pageView),
+            "Portal host should prefer the native nested WebKit hit target on the right-docked divider when available. actual=\(String(describing: dividerHit))"
+        )
+        let interiorHit = host.hitTest(bodyPointInHost)
+        XCTAssertTrue(
+            isInspectorOwnedHit(interiorHit, inspectorView: inspectorView, pageView: pageView),
+            "Only the divider edge should be claimed; interior nested inspector hits should still reach WebKit content. actual=\(String(describing: interiorHit))"
+        )
+    }
+
+    func testHostViewReappliesStoredHostedInspectorWidthAfterSlotLayoutReset() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+        guard let container = contentView.superview else {
+            XCTFail("Expected content container")
+            return
+        }
+
+        let hostFrame = container.convert(contentView.bounds, from: contentView)
+        let host = WindowBrowserHostView(frame: hostFrame)
+        host.autoresizingMask = [.width, .height]
+        container.addSubview(host, positioned: .above, relativeTo: contentView)
+
+        let slot = WindowBrowserSlotView(frame: NSRect(x: 180, y: 0, width: 240, height: host.bounds.height))
+        slot.autoresizingMask = [.minXMargin, .height]
+        host.addSubview(slot)
+
+        let wrapper = NSView(frame: slot.bounds)
+        wrapper.autoresizingMask = [.width, .height]
+        slot.addSubview(wrapper)
+
+        let originalPageFrame = NSRect(x: 0, y: 0, width: 92, height: wrapper.bounds.height)
+        let originalInspectorFrame = NSRect(
+            x: 92,
+            y: 0,
+            width: wrapper.bounds.width - 92,
+            height: wrapper.bounds.height
+        )
+        let pageView = PrimaryPageProbeView(frame: originalPageFrame)
+        let inspectorContainer = NSView(frame: originalInspectorFrame)
+        let inspectorView = WKInspectorProbeView(frame: inspectorContainer.bounds)
+        inspectorView.autoresizingMask = [.width, .height]
+        inspectorContainer.addSubview(inspectorView)
+        wrapper.addSubview(pageView)
+        wrapper.addSubview(inspectorContainer)
+        contentView.layoutSubtreeIfNeeded()
+
+        let dividerPointInSlot = NSPoint(x: inspectorContainer.frame.minX, y: slot.bounds.midY)
+        let dividerPointInWindow = slot.convert(dividerPointInSlot, to: nil)
+
+        let down = makeMouseEvent(type: .leftMouseDown, location: dividerPointInWindow, window: window)
+        host.mouseDown(with: down)
+        let drag = makeMouseEvent(
+            type: .leftMouseDragged,
+            location: NSPoint(x: dividerPointInWindow.x + 48, y: dividerPointInWindow.y),
+            window: window
+        )
+        host.mouseDragged(with: drag)
+        host.mouseUp(with: makeMouseEvent(type: .leftMouseUp, location: drag.locationInWindow, window: window))
+
+        let draggedPageWidth = pageView.frame.width
+        let draggedInspectorMinX = inspectorContainer.frame.minX
+        XCTAssertGreaterThan(draggedPageWidth, originalPageFrame.width)
+        XCTAssertGreaterThan(draggedInspectorMinX, originalInspectorFrame.minX)
+
+        pageView.frame = originalPageFrame
+        inspectorContainer.frame = originalInspectorFrame
+        slot.needsLayout = true
+        slot.layoutSubtreeIfNeeded()
+        host.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(pageView.frame.width, draggedPageWidth, accuracy: 0.5)
+        XCTAssertEqual(inspectorContainer.frame.minX, draggedInspectorMinX, accuracy: 0.5)
+    }
+
+    func testHostViewFallsBackToManualHostedInspectorDragWhenNativeDividerHitIsUnavailable() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+        guard let container = contentView.superview else {
+            XCTFail("Expected content container")
+            return
+        }
+
+        let hostFrame = container.convert(contentView.bounds, from: contentView)
+        let host = WindowBrowserHostView(frame: hostFrame)
+        host.autoresizingMask = [.width, .height]
+        container.addSubview(host, positioned: .above, relativeTo: contentView)
+
+        let slot = WindowBrowserSlotView(frame: NSRect(x: 180, y: 0, width: 240, height: host.bounds.height))
+        slot.autoresizingMask = [.minXMargin, .height]
+        host.addSubview(slot)
+
+        let pageView = PrimaryPageProbeView(frame: NSRect(x: 0, y: 0, width: 92, height: slot.bounds.height))
+        let inspectorView = EdgeTransparentWKInspectorProbeView(
+            frame: NSRect(x: 92, y: 0, width: slot.bounds.width - 92, height: slot.bounds.height)
+        )
+        slot.addSubview(pageView)
+        slot.addSubview(inspectorView)
+        contentView.layoutSubtreeIfNeeded()
+
+        let dividerPointInSlot = NSPoint(x: inspectorView.frame.minX + 2, y: slot.bounds.midY)
+        let dividerPointInWindow = slot.convert(dividerPointInSlot, to: nil)
+        let dividerPointInHost = host.convert(dividerPointInWindow, from: nil)
+
+        let dividerHit = host.hitTest(dividerPointInHost)
+        XCTAssertTrue(
+            dividerHit === host,
+            "Host should only take the manual fallback path when the right-docked divider edge is not natively hittable. actual=\(String(describing: dividerHit))"
+        )
+
+        let down = makeMouseEvent(type: .leftMouseDown, location: dividerPointInWindow, window: window)
+        host.mouseDown(with: down)
+        let drag = makeMouseEvent(
+            type: .leftMouseDragged,
+            location: NSPoint(x: dividerPointInWindow.x + 40, y: dividerPointInWindow.y),
+            window: window
+        )
+        host.mouseDragged(with: drag)
+        host.mouseUp(with: makeMouseEvent(type: .leftMouseUp, location: drag.locationInWindow, window: window))
+
+        XCTAssertGreaterThan(pageView.frame.width, 92)
+        XCTAssertGreaterThan(inspectorView.frame.minX, 92)
+    }
+
+    func testHostViewClaimsCollapsedHostedInspectorSiblingDividerAtSlotLeadingEdge() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+        guard let container = contentView.superview else {
+            XCTFail("Expected content container")
+            return
+        }
+
+        let hostFrame = container.convert(contentView.bounds, from: contentView)
+        let host = WindowBrowserHostView(frame: hostFrame)
+        host.autoresizingMask = [.width, .height]
+        container.addSubview(host, positioned: .above, relativeTo: contentView)
+
+        let slot = WindowBrowserSlotView(frame: NSRect(x: 180, y: 0, width: 240, height: host.bounds.height))
+        slot.autoresizingMask = [.minXMargin, .height]
+        host.addSubview(slot)
+
+        let pageView = PrimaryPageProbeView(frame: NSRect(x: 0, y: 0, width: 0, height: slot.bounds.height))
+        let inspectorView = WKInspectorProbeView(frame: slot.bounds)
+        slot.addSubview(pageView)
+        slot.addSubview(inspectorView)
+        contentView.layoutSubtreeIfNeeded()
+
+        let dividerPointInSlot = NSPoint(x: inspectorView.frame.minX + 2, y: slot.bounds.midY)
+        let dividerPointInWindow = slot.convert(dividerPointInSlot, to: nil)
+        let dividerPointInHost = host.convert(dividerPointInWindow, from: nil)
+
+        XCTAssertLessThanOrEqual(dividerPointInHost.x - slot.frame.minX, SidebarResizeInteraction.hitWidthPerSide)
+        let dividerHit = host.hitTest(dividerPointInHost)
+        XCTAssertTrue(
+            isInspectorOwnedHit(dividerHit, inspectorView: inspectorView, pageView: pageView),
+            "Collapsed right-docked hosted inspector divider should stay on the native WebKit hit path while still beating the sidebar-resizer overlap zone. actual=\(String(describing: dividerHit))"
+        )
+    }
+}
+
+@MainActor
+final class BrowserPanelHostContainerViewTests: XCTestCase {
+    private final class PrimaryPageProbeView: NSView {
+        override func hitTest(_ point: NSPoint) -> NSView? {
+            bounds.contains(point) ? self : nil
+        }
+    }
+
+    private final class WKInspectorProbeView: NSView {
+        override func hitTest(_ point: NSPoint) -> NSView? {
+            bounds.contains(point) ? self : nil
+        }
+    }
+
+    private final class EdgeTransparentWKInspectorProbeView: NSView {
+        override func hitTest(_ point: NSPoint) -> NSView? {
+            let localPoint = convert(point, from: superview)
+            guard bounds.contains(localPoint) else { return nil }
+            return localPoint.x <= 12 ? nil : self
+        }
+    }
+
+    private func makeMouseEvent(type: NSEvent.EventType, location: NSPoint, window: NSWindow) -> NSEvent {
+        guard let event = NSEvent.mouseEvent(
+            with: type,
+            location: location,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: 0,
+            clickCount: 1,
+            pressure: 1.0
+        ) else {
+            fatalError("Failed to create \(type) mouse event")
+        }
+        return event
+    }
+
+    func testBrowserPanelHostPrefersNativeHostedInspectorSiblingDividerHit() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let host = WebViewRepresentable.HostContainerView(frame: NSRect(x: 180, y: 0, width: 240, height: contentView.bounds.height))
+        host.autoresizingMask = [.minXMargin, .height]
+        contentView.addSubview(host)
+
+        let webViewRoot = NSView(frame: host.bounds)
+        webViewRoot.autoresizingMask = [.width, .height]
+        host.addSubview(webViewRoot)
+
+        let pageView = PrimaryPageProbeView(frame: NSRect(x: 0, y: 0, width: 92, height: webViewRoot.bounds.height))
+        let inspectorContainer = NSView(
+            frame: NSRect(x: 92, y: 0, width: webViewRoot.bounds.width - 92, height: webViewRoot.bounds.height)
+        )
+        let inspectorView = WKInspectorProbeView(frame: inspectorContainer.bounds)
+        inspectorView.autoresizingMask = [.width, .height]
+        inspectorContainer.addSubview(inspectorView)
+        webViewRoot.addSubview(pageView)
+        webViewRoot.addSubview(inspectorContainer)
+        contentView.layoutSubtreeIfNeeded()
+
+        let dividerPointInHost = NSPoint(x: inspectorContainer.frame.minX + 2, y: host.bounds.midY)
+        let bodyPointInHost = NSPoint(x: inspectorContainer.frame.minX + 18, y: host.bounds.midY)
+        let interiorHit = host.hitTest(bodyPointInHost)
+
+        XCTAssertTrue(
+            host.hitTest(dividerPointInHost) === host,
+            "Browser panel host should claim the right-docked divider edge for the manual resize path"
+        )
+        XCTAssertTrue(
+            interiorHit == nil || interiorHit !== host,
+            "Only the divider edge should be claimed; interior inspector hits should not be stolen by the host. actual=\(String(describing: interiorHit))"
+        )
+    }
+
+    func testBrowserPanelHostClaimsCollapsedHostedInspectorSiblingDividerAtLeadingEdge() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let host = WebViewRepresentable.HostContainerView(frame: NSRect(x: 180, y: 0, width: 240, height: contentView.bounds.height))
+        host.autoresizingMask = [.minXMargin, .height]
+        contentView.addSubview(host)
+
+        let webViewRoot = NSView(frame: host.bounds)
+        webViewRoot.autoresizingMask = [.width, .height]
+        host.addSubview(webViewRoot)
+
+        let pageView = PrimaryPageProbeView(frame: NSRect(x: 0, y: 0, width: 0, height: webViewRoot.bounds.height))
+        let inspectorContainer = NSView(frame: webViewRoot.bounds)
+        let inspectorView = WKInspectorProbeView(frame: inspectorContainer.bounds)
+        inspectorView.autoresizingMask = [.width, .height]
+        inspectorContainer.addSubview(inspectorView)
+        webViewRoot.addSubview(pageView)
+        webViewRoot.addSubview(inspectorContainer)
+        contentView.layoutSubtreeIfNeeded()
+
+        let dividerPointInHost = NSPoint(x: inspectorContainer.frame.minX + 2, y: host.bounds.midY)
+        let dividerPointInWindow = host.convert(dividerPointInHost, to: nil)
+
+        XCTAssertTrue(
+            host.hitTest(dividerPointInHost) === host,
+            "Collapsed right-docked divider should stay on the manual browser-panel resize path while beating the sidebar-resizer overlap"
+        )
+
+        let down = makeMouseEvent(type: .leftMouseDown, location: dividerPointInWindow, window: window)
+        host.mouseDown(with: down)
+        let drag = makeMouseEvent(
+            type: .leftMouseDragged,
+            location: NSPoint(x: dividerPointInWindow.x + 36, y: dividerPointInWindow.y),
+            window: window
+        )
+        host.mouseDragged(with: drag)
+        host.mouseUp(with: makeMouseEvent(type: .leftMouseUp, location: drag.locationInWindow, window: window))
+
+        XCTAssertGreaterThan(pageView.frame.width, 0)
+        XCTAssertGreaterThan(inspectorContainer.frame.minX, 0)
+    }
+
+    func testBrowserPanelHostFallsBackToManualHostedInspectorDragWhenNativeDividerHitIsUnavailable() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let host = WebViewRepresentable.HostContainerView(frame: NSRect(x: 180, y: 0, width: 240, height: contentView.bounds.height))
+        host.autoresizingMask = [.minXMargin, .height]
+        contentView.addSubview(host)
+
+        let webViewRoot = NSView(frame: host.bounds)
+        webViewRoot.autoresizingMask = [.width, .height]
+        host.addSubview(webViewRoot)
+
+        let pageView = PrimaryPageProbeView(frame: NSRect(x: 0, y: 0, width: 92, height: webViewRoot.bounds.height))
+        let inspectorContainer = EdgeTransparentWKInspectorProbeView(
+            frame: NSRect(x: 92, y: 0, width: webViewRoot.bounds.width - 92, height: webViewRoot.bounds.height)
+        )
+        webViewRoot.addSubview(pageView)
+        webViewRoot.addSubview(inspectorContainer)
+        contentView.layoutSubtreeIfNeeded()
+
+        let dividerPointInHost = NSPoint(x: inspectorContainer.frame.minX + 2, y: host.bounds.midY)
+        let dividerPointInWindow = host.convert(dividerPointInHost, to: nil)
+
+        XCTAssertTrue(
+            host.hitTest(dividerPointInHost) === host,
+            "Browser panel host should only take the manual fallback path when the divider edge is not natively hittable"
+        )
+
+        let down = makeMouseEvent(type: .leftMouseDown, location: dividerPointInWindow, window: window)
+        host.mouseDown(with: down)
+        let drag = makeMouseEvent(
+            type: .leftMouseDragged,
+            location: NSPoint(x: dividerPointInWindow.x + 40, y: dividerPointInWindow.y),
+            window: window
+        )
+        host.mouseDragged(with: drag)
+        host.mouseUp(with: makeMouseEvent(type: .leftMouseUp, location: drag.locationInWindow, window: window))
+
+        XCTAssertGreaterThan(pageView.frame.width, 92)
+        XCTAssertGreaterThan(inspectorContainer.frame.minX, 92)
+    }
+
+    func testBrowserPanelHostReappliesStoredHostedInspectorWidthAfterLayoutReset() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let host = WebViewRepresentable.HostContainerView(
+            frame: NSRect(x: 180, y: 0, width: 240, height: contentView.bounds.height)
+        )
+        host.autoresizingMask = [.minXMargin, .height]
+        contentView.addSubview(host)
+
+        let webViewRoot = NSView(frame: host.bounds)
+        webViewRoot.autoresizingMask = [.width, .height]
+        host.addSubview(webViewRoot)
+
+        let originalPageFrame = NSRect(x: 0, y: 0, width: 92, height: webViewRoot.bounds.height)
+        let originalInspectorFrame = NSRect(
+            x: 92,
+            y: 0,
+            width: webViewRoot.bounds.width - 92,
+            height: webViewRoot.bounds.height
+        )
+        let pageView = PrimaryPageProbeView(frame: originalPageFrame)
+        let inspectorContainer = NSView(frame: originalInspectorFrame)
+        let inspectorView = WKInspectorProbeView(frame: inspectorContainer.bounds)
+        inspectorView.autoresizingMask = [.width, .height]
+        inspectorContainer.addSubview(inspectorView)
+        webViewRoot.addSubview(pageView)
+        webViewRoot.addSubview(inspectorContainer)
+        contentView.layoutSubtreeIfNeeded()
+
+        let dividerPointInHost = NSPoint(x: inspectorContainer.frame.minX + 2, y: host.bounds.midY)
+        let dividerPointInWindow = host.convert(dividerPointInHost, to: nil)
+
+        let down = makeMouseEvent(type: .leftMouseDown, location: dividerPointInWindow, window: window)
+        host.mouseDown(with: down)
+        let drag = makeMouseEvent(
+            type: .leftMouseDragged,
+            location: NSPoint(x: dividerPointInWindow.x + 48, y: dividerPointInWindow.y),
+            window: window
+        )
+        host.mouseDragged(with: drag)
+        host.mouseUp(with: makeMouseEvent(type: .leftMouseUp, location: drag.locationInWindow, window: window))
+
+        let draggedPageWidth = pageView.frame.width
+        let draggedInspectorMinX = inspectorContainer.frame.minX
+        XCTAssertGreaterThan(draggedPageWidth, originalPageFrame.width)
+        XCTAssertGreaterThan(draggedInspectorMinX, originalInspectorFrame.minX)
+
+        pageView.frame = originalPageFrame
+        inspectorContainer.frame = originalInspectorFrame
+        host.needsLayout = true
+        host.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(pageView.frame.width, draggedPageWidth, accuracy: 0.5)
+        XCTAssertEqual(inspectorContainer.frame.minX, draggedInspectorMinX, accuracy: 0.5)
+    }
+}
+
+@MainActor
+final class CmuxWebViewDragRoutingTests: XCTestCase {
+    func testRejectsInternalPaneDragEvenWhenFilePromiseTypesArePresent() {
+        XCTAssertTrue(
+            CmuxWebView.shouldRejectInternalPaneDrag([
+                DragOverlayRoutingPolicy.bonsplitTabTransferType,
+                NSPasteboard.PasteboardType("com.apple.pasteboard.promised-file-url"),
+            ])
+        )
+    }
+
+    func testAllowsRegularExternalFileDrops() {
+        XCTAssertFalse(CmuxWebView.shouldRejectInternalPaneDrag([.fileURL]))
+    }
+}
+
+@MainActor
+final class BrowserPaneDropRoutingTests: XCTestCase {
+    func testVerticalZonesFollowAppKitCoordinates() {
+        let size = CGSize(width: 240, height: 180)
+
+        XCTAssertEqual(
+            BrowserPaneDropRouting.zone(for: CGPoint(x: size.width * 0.5, y: size.height - 8), in: size),
+            .top
+        )
+        XCTAssertEqual(
+            BrowserPaneDropRouting.zone(for: CGPoint(x: size.width * 0.5, y: 8), in: size),
+            .bottom
+        )
+    }
+
+    func testTopChromeHeightPushesTopSplitThresholdIntoWebView() {
+        let size = CGSize(width: 240, height: 180)
+
+        XCTAssertEqual(
+            BrowserPaneDropRouting.zone(
+                for: CGPoint(x: size.width * 0.5, y: 110),
+                in: size,
+                topChromeHeight: 36
+            ),
+            .center
+        )
+        XCTAssertEqual(
+            BrowserPaneDropRouting.zone(
+                for: CGPoint(x: size.width * 0.5, y: 150),
+                in: size,
+                topChromeHeight: 36
+            ),
+            .top
+        )
+    }
+
+    func testHitTestingCapturesOnlyForRelevantDragEvents() {
+        XCTAssertTrue(
+            BrowserPaneDropTargetView.shouldCaptureHitTesting(
+                pasteboardTypes: [DragOverlayRoutingPolicy.bonsplitTabTransferType],
+                eventType: .cursorUpdate
+            )
+        )
+        XCTAssertFalse(
+            BrowserPaneDropTargetView.shouldCaptureHitTesting(
+                pasteboardTypes: [DragOverlayRoutingPolicy.bonsplitTabTransferType],
+                eventType: .leftMouseDown
+            )
+        )
+        XCTAssertFalse(
+            BrowserPaneDropTargetView.shouldCaptureHitTesting(
+                pasteboardTypes: [.fileURL],
+                eventType: .cursorUpdate
+            )
+        )
+    }
+
+    func testCenterDropOnSamePaneIsNoOp() {
+        let paneId = PaneID(id: UUID())
+        let target = BrowserPaneDropContext(
+            workspaceId: UUID(),
+            panelId: UUID(),
+            paneId: paneId
+        )
+        let transfer = BrowserPaneDragTransfer(
+            tabId: UUID(),
+            sourcePaneId: paneId.id,
+            sourceProcessId: Int32(ProcessInfo.processInfo.processIdentifier)
+        )
+
+        XCTAssertEqual(
+            BrowserPaneDropRouting.action(for: transfer, target: target, zone: .center),
+            .noOp
+        )
+    }
+
+    func testRightEdgeDropBuildsSplitMoveAction() {
+        let paneId = PaneID(id: UUID())
+        let target = BrowserPaneDropContext(
+            workspaceId: UUID(),
+            panelId: UUID(),
+            paneId: paneId
+        )
+        let tabId = UUID()
+        let transfer = BrowserPaneDragTransfer(
+            tabId: tabId,
+            sourcePaneId: UUID(),
+            sourceProcessId: Int32(ProcessInfo.processInfo.processIdentifier)
+        )
+
+        XCTAssertEqual(
+            BrowserPaneDropRouting.action(for: transfer, target: target, zone: .right),
+            .move(
+                tabId: tabId,
+                targetWorkspaceId: target.workspaceId,
+                targetPane: paneId,
+                splitTarget: BrowserPaneSplitTarget(orientation: .horizontal, insertFirst: false)
+            )
+        )
+    }
+
+    func testDecodeTransferPayloadReadsTabAndSourcePane() {
+        let tabId = UUID()
+        let sourcePaneId = UUID()
+        let payload = try! JSONSerialization.data(
+            withJSONObject: [
+                "tab": ["id": tabId.uuidString],
+                "sourcePaneId": sourcePaneId.uuidString,
+                "sourceProcessId": ProcessInfo.processInfo.processIdentifier,
+            ]
+        )
+
+        let transfer = BrowserPaneDragTransfer.decode(from: payload)
+
+        XCTAssertEqual(transfer?.tabId, tabId)
+        XCTAssertEqual(transfer?.sourcePaneId, sourcePaneId)
+        XCTAssertTrue(transfer?.isFromCurrentProcess == true)
+    }
+}
+
+@MainActor
+final class WindowBrowserSlotViewTests: XCTestCase {
+    private final class CapturingView: NSView {
+        override func hitTest(_ point: NSPoint) -> NSView? {
+            bounds.contains(point) ? self : nil
+        }
+    }
+
+    private func advanceAnimations() {
+        RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+    }
+
+    func testDropZoneOverlayStaysAboveContentWithoutBlockingHits() {
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
+        let slot = WindowBrowserSlotView(frame: container.bounds)
+        container.addSubview(slot)
+        let child = CapturingView(frame: slot.bounds)
+        child.autoresizingMask = [.width, .height]
+        slot.addSubview(child)
+
+        slot.setDropZoneOverlay(zone: .right)
+        container.layoutSubtreeIfNeeded()
+
+        guard let overlay = container.subviews.first(where: {
+            $0 !== slot && String(describing: type(of: $0)).contains("BrowserDropZoneOverlayView")
+        }) else {
+            XCTFail("Expected browser slot drop-zone overlay")
+            return
+        }
+
+        XCTAssertTrue(container.subviews.last === overlay, "Overlay should stay above the hosted web view")
+        XCTAssertFalse(overlay.isHidden)
+        XCTAssertEqual(overlay.frame.origin.x, 100, accuracy: 0.5)
+        XCTAssertEqual(overlay.frame.origin.y, 4, accuracy: 0.5)
+        XCTAssertEqual(overlay.frame.size.width, 96, accuracy: 0.5)
+        XCTAssertEqual(overlay.frame.size.height, 92, accuracy: 0.5)
+        XCTAssertNil(overlay.hitTest(NSPoint(x: 120, y: 50)), "Overlay should never intercept pointer hits")
+        XCTAssertTrue(slot.hitTest(NSPoint(x: 120, y: 50)) === child)
+
+        slot.setDropZoneOverlay(zone: nil)
+        advanceAnimations()
+        XCTAssertTrue(overlay.isHidden, "Clearing the drop zone should hide the overlay")
+    }
+
+    func testTopDropZoneOverlayUsesFullBrowserContentHeight() {
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
+        let slot = WindowBrowserSlotView(frame: container.bounds)
+        container.addSubview(slot)
+
+        slot.setPaneTopChromeHeight(20)
+        slot.setDropZoneOverlay(zone: .top)
+        container.layoutSubtreeIfNeeded()
+
+        guard let overlay = container.subviews.first(where: {
+            String(describing: type(of: $0)).contains("BrowserDropZoneOverlayView")
+        }) else {
+            XCTFail("Expected browser slot drop-zone overlay")
+            return
+        }
+
+        XCTAssertFalse(overlay.isHidden)
+        XCTAssertEqual(overlay.frame.origin.x, 4, accuracy: 0.5)
+        XCTAssertEqual(overlay.frame.origin.y, 60, accuracy: 0.5)
+        XCTAssertEqual(overlay.frame.size.width, 192, accuracy: 0.5)
+        XCTAssertEqual(overlay.frame.size.height, 56, accuracy: 0.5)
+        XCTAssertGreaterThan(overlay.frame.maxY, slot.frame.maxY)
+        XCTAssertEqual(slot.layer?.masksToBounds, true)
+
+        slot.setDropZoneOverlay(zone: nil)
+        advanceAnimations()
+        XCTAssertEqual(slot.layer?.masksToBounds, true)
     }
 }
 
@@ -6287,6 +9183,24 @@ final class WindowDragHandleHitTests: XCTestCase {
         override func hitTest(_ point: NSPoint) -> NSView? {
             let shouldCapture = windowDragHandleShouldCaptureHit(point, in: self, eventType: .leftMouseDown, eventWindow: self.window)
             return shouldCapture ? self : nil
+        }
+    }
+
+    /// A sibling view whose hitTest re-enters windowDragHandleShouldCaptureHit,
+    /// simulating the crash path where sibling.hitTest triggers a SwiftUI layout
+    /// pass that calls back into the drag handle's hit resolution.
+    private final class ReentrantSiblingView: NSView {
+        weak var dragHandle: NSView?
+        var reenteredResult: Bool?
+
+        override func hitTest(_ point: NSPoint) -> NSView? {
+            guard bounds.contains(point), let dragHandle else { return nil }
+            // Simulate the re-entry: during sibling hit test, SwiftUI layout
+            // calls windowDragHandleShouldCaptureHit on the drag handle again.
+            reenteredResult = windowDragHandleShouldCaptureHit(
+                point, in: dragHandle, eventType: .leftMouseDown, eventWindow: dragHandle.window
+            )
+            return nil
         }
     }
 
@@ -6517,6 +9431,29 @@ final class WindowDragHandleHitTests: XCTestCase {
         XCTAssertTrue(
             windowDragHandleShouldCaptureHit(NSPoint(x: 180, y: 18), in: dragHandle, eventType: .leftMouseDown),
             "Subview mutations during hit testing should not crash or break drag-handle capture"
+        )
+    }
+
+    func testDragHandleSiblingHitTestReentrancyDoesNotCrash() {
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 220, height: 36))
+        let dragHandle = NSView(frame: container.bounds)
+        container.addSubview(dragHandle)
+
+        let reentrantSibling = ReentrantSiblingView(frame: container.bounds)
+        reentrantSibling.dragHandle = dragHandle
+        container.addSubview(reentrantSibling)
+
+        // The outer call enters the sibling walk, which calls
+        // reentrantSibling.hitTest(), which re-enters
+        // windowDragHandleShouldCaptureHit. Without the re-entrancy guard
+        // this would trigger a Swift exclusive-access violation (SIGABRT).
+        let outerResult = windowDragHandleShouldCaptureHit(
+            NSPoint(x: 110, y: 18), in: dragHandle, eventType: .leftMouseDown
+        )
+        XCTAssertTrue(outerResult, "Outer call should still capture when sibling returns nil")
+        XCTAssertEqual(
+            reentrantSibling.reenteredResult, false,
+            "Re-entrant call should bail out (return false) instead of crashing"
         )
     }
 
@@ -6844,6 +9781,18 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         }
     }
 
+    private func findEditableTextField(in view: NSView) -> NSTextField? {
+        if let field = view as? NSTextField, field.isEditable {
+            return field
+        }
+        for subview in view.subviews {
+            if let field = findEditableTextField(in: subview) {
+                return field
+            }
+        }
+        return nil
+    }
+
     func testTrackpadScrollRoutesToTerminalSurfaceAndPreservesKeyboardFocusPath() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
@@ -6980,6 +9929,117 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
 
         hostedView.setSearchOverlay(searchState: nil)
         XCTAssertFalse(hostedView.debugHasSearchOverlay())
+    }
+
+    func testEscapeDismissingFindOverlayDoesNotLeakEscapeKeyUpToTerminal() {
+        _ = NSApplication.shared
+
+        let surface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        let hostedView = surface.hostedView
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer {
+            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = nil
+            window.orderOut(nil)
+        }
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+        hostedView.frame = contentView.bounds
+        hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostedView)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        hostedView.setVisibleInUI(true)
+        hostedView.setActive(true)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        let searchState = TerminalSurface.SearchState(needle: "")
+        surface.searchState = searchState
+        hostedView.setSearchOverlay(searchState: searchState)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        guard let searchField = findEditableTextField(in: hostedView) else {
+            XCTFail("Expected mounted find text field")
+            return
+        }
+        window.makeFirstResponder(searchField)
+
+        var escapeKeyUpCount = 0
+        GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
+            guard keyEvent.action == GHOSTTY_ACTION_RELEASE, keyEvent.keycode == 53 else { return }
+            escapeKeyUpCount += 1
+        }
+
+        let timestamp = ProcessInfo.processInfo.systemUptime
+        guard let escapeKeyDown = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: timestamp,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: "\u{1b}",
+            charactersIgnoringModifiers: "\u{1b}",
+            isARepeat: false,
+            keyCode: 53
+        ), let escapeKeyUp = NSEvent.keyEvent(
+            with: .keyUp,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: timestamp + 0.001,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: "\u{1b}",
+            charactersIgnoringModifiers: "\u{1b}",
+            isARepeat: false,
+            keyCode: 53
+        ) else {
+            XCTFail("Failed to construct Escape key events")
+            return
+        }
+
+        NSApp.sendEvent(escapeKeyDown)
+        NSApp.sendEvent(escapeKeyUp)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        XCTAssertNil(surface.searchState, "Escape should dismiss find overlay when search text is empty")
+        XCTAssertEqual(
+            escapeKeyUpCount,
+            0,
+            "Escape used to dismiss find overlay must not pass through to the terminal key-up path"
+        )
+    }
+
+    func testKeyboardCopyModeIndicatorMountsAndUnmounts() {
+        let surface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        let hostedView = surface.hostedView
+        XCTAssertFalse(hostedView.debugHasKeyboardCopyModeIndicator())
+
+        hostedView.setKeyboardCopyModeIndicator(visible: true)
+        XCTAssertTrue(hostedView.debugHasKeyboardCopyModeIndicator())
+
+        hostedView.setKeyboardCopyModeIndicator(visible: false)
+        XCTAssertFalse(hostedView.debugHasKeyboardCopyModeIndicator())
     }
 
     func testForceRefreshNoopsAfterSurfaceReleaseDuringGeometryReconcile() throws {
@@ -7179,6 +10239,54 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
             contentIndex,
             "Portal host must remain above content view so portal-hosted terminals stay visible"
         )
+    }
+
+    func testTerminalPortalHostStaysBelowBrowserPortalHostWhenBothAreInstalled() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        realizeWindowLayout(window)
+
+        let browserPortal = WindowBrowserPortal(window: window)
+        let terminalPortal = WindowTerminalPortal(window: window)
+        _ = browserPortal.webViewAtWindowPoint(NSPoint(x: 1, y: 1))
+        _ = terminalPortal.viewAtWindowPoint(NSPoint(x: 1, y: 1))
+
+        guard let contentView = window.contentView,
+              let container = contentView.superview else {
+            XCTFail("Expected content container")
+            return
+        }
+
+        func assertHostOrder(_ message: String) {
+            guard let terminalHostIndex = container.subviews.firstIndex(where: { $0 is WindowTerminalHostView }),
+                  let browserHostIndex = container.subviews.firstIndex(where: { $0 is WindowBrowserHostView }) else {
+                XCTFail("Expected both portal hosts in same container")
+                return
+            }
+
+            XCTAssertLessThan(
+                terminalHostIndex,
+                browserHostIndex,
+                message
+            )
+        }
+
+        assertHostOrder("Terminal portal host should start below browser portal host")
+
+        let anchor = NSView(frame: NSRect(x: 24, y: 24, width: 220, height: 150))
+        contentView.addSubview(anchor)
+        let hosted = GhosttySurfaceScrollView(
+            surfaceView: GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 120, height: 80))
+        )
+        terminalPortal.bind(hostedView: hosted, to: anchor, visibleInUI: true)
+        terminalPortal.synchronizeHostedViewForAnchor(anchor)
+
+        assertHostOrder("Terminal portal bind/sync should not rise above the browser portal host")
     }
 
     func testRegistryPrunesPortalWhenWindowCloses() {
@@ -7421,12 +10529,34 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
 
 @MainActor
 final class BrowserWindowPortalLifecycleTests: XCTestCase {
+    private final class TrackingPortalWebView: WKWebView {
+        private(set) var displayIfNeededCount = 0
+
+        override func displayIfNeeded() {
+            displayIfNeededCount += 1
+            super.displayIfNeeded()
+        }
+    }
+
     private func realizeWindowLayout(_ window: NSWindow) {
         window.makeKeyAndOrderFront(nil)
         window.displayIfNeeded()
         window.contentView?.layoutSubtreeIfNeeded()
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         window.contentView?.layoutSubtreeIfNeeded()
+    }
+
+    private func advanceAnimations() {
+        RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+    }
+
+    private func dropZoneOverlay(in slot: WindowBrowserSlotView, excluding webView: WKWebView) -> NSView? {
+        let candidates = slot.subviews + (slot.superview?.subviews ?? [])
+        return candidates.first(where: {
+            $0 !== slot &&
+            $0 !== webView &&
+            String(describing: type(of: $0)).contains("BrowserDropZoneOverlayView")
+        })
     }
 
     func testPortalHostInstallsAboveContentViewForVisibility() {
@@ -7457,6 +10587,60 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             contentIndex,
             "Browser portal host must remain above content view so portal-hosted web views stay visible"
         )
+    }
+
+    func testBrowserPortalHostStaysAboveTerminalPortalHostDuringPortalChurn() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        realizeWindowLayout(window)
+
+        let browserPortal = WindowBrowserPortal(window: window)
+        let terminalPortal = WindowTerminalPortal(window: window)
+        _ = browserPortal.webViewAtWindowPoint(NSPoint(x: 1, y: 1))
+        _ = terminalPortal.viewAtWindowPoint(NSPoint(x: 1, y: 1))
+
+        guard let contentView = window.contentView,
+              let container = contentView.superview else {
+            XCTFail("Expected content container")
+            return
+        }
+
+        func assertHostOrder(_ message: String) {
+            guard let browserHostIndex = container.subviews.firstIndex(where: { $0 is WindowBrowserHostView }),
+                  let terminalHostIndex = container.subviews.firstIndex(where: { $0 is WindowTerminalHostView }) else {
+                XCTFail("Expected both portal hosts in same container")
+                return
+            }
+
+            XCTAssertGreaterThan(
+                browserHostIndex,
+                terminalHostIndex,
+                message
+            )
+        }
+
+        assertHostOrder("Browser portal host should start above terminal portal host")
+
+        let terminalAnchor = NSView(frame: NSRect(x: 20, y: 20, width: 200, height: 140))
+        contentView.addSubview(terminalAnchor)
+        let terminalHostedView = GhosttySurfaceScrollView(
+            surfaceView: GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 120, height: 80))
+        )
+        terminalPortal.bind(hostedView: terminalHostedView, to: terminalAnchor, visibleInUI: true)
+        terminalPortal.synchronizeHostedViewForAnchor(terminalAnchor)
+        assertHostOrder("Terminal portal sync should not rise above the browser portal host")
+
+        let browserAnchor = NSView(frame: NSRect(x: 240, y: 20, width: 220, height: 140))
+        contentView.addSubview(browserAnchor)
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        browserPortal.bind(webView: webView, to: browserAnchor, visibleInUI: true)
+        browserPortal.synchronizeWebViewForAnchor(browserAnchor)
+        assertHostOrder("Browser portal sync should keep browser panes above portal-hosted terminals")
     }
 
     func testAnchorRebindKeepsWebViewInStablePortalSuperview() {
@@ -7539,6 +10723,46 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         XCTAssertEqual(slot.frame.size.height, 150, accuracy: 0.5)
     }
 
+    func testPortalClipsAnchorFrameThroughAncestorBounds() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 480, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        realizeWindowLayout(window)
+        let portal = WindowBrowserPortal(window: window)
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let clipView = NSView(frame: NSRect(x: 60, y: 40, width: 150, height: 120))
+        contentView.addSubview(clipView)
+
+        // Simulate SwiftUI/AppKit reporting an anchor wider than the actual visible pane.
+        let anchor = NSView(frame: NSRect(x: -30, y: 0, width: 220, height: 120))
+        clipView.addSubview(anchor)
+
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        portal.bind(webView: webView, to: anchor, visibleInUI: true)
+        contentView.layoutSubtreeIfNeeded()
+        clipView.layoutSubtreeIfNeeded()
+        portal.synchronizeWebViewForAnchor(anchor)
+
+        guard let slot = webView.superview as? WindowBrowserSlotView else {
+            XCTFail("Expected browser slot")
+            return
+        }
+
+        XCTAssertFalse(slot.isHidden, "Ancestor clipping should keep the browser visible in the real pane")
+        XCTAssertEqual(slot.frame.origin.x, 60, accuracy: 0.5)
+        XCTAssertEqual(slot.frame.origin.y, 40, accuracy: 0.5)
+        XCTAssertEqual(slot.frame.size.width, 150, accuracy: 0.5)
+        XCTAssertEqual(slot.frame.size.height, 120, accuracy: 0.5)
+    }
+
     func testPortalSyncNormalizesOutOfBoundsWebFrame() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 500, height: 300),
@@ -7609,6 +10833,209 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         XCTAssertGreaterThan(host.bounds.height, 1, "Portal host height should be ready for clipping/sync")
     }
 
+    func testPortalDropZoneOverlayPersistsAcrossVisibilityChanges() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        realizeWindowLayout(window)
+        let portal = WindowBrowserPortal(window: window)
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+        let anchor = NSView(frame: NSRect(x: 40, y: 24, width: 220, height: 160))
+        contentView.addSubview(anchor)
+
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        portal.bind(webView: webView, to: anchor, visibleInUI: true)
+        portal.synchronizeWebViewForAnchor(anchor)
+
+        guard let slot = webView.superview as? WindowBrowserSlotView,
+              let overlay = dropZoneOverlay(in: slot, excluding: webView) else {
+            XCTFail("Expected browser slot overlay")
+            return
+        }
+
+        XCTAssertTrue(overlay.isHidden, "Overlay should start hidden without an active drop zone")
+
+        portal.updateDropZoneOverlay(forWebViewId: ObjectIdentifier(webView), zone: .right)
+        slot.layoutSubtreeIfNeeded()
+        XCTAssertFalse(overlay.isHidden)
+        XCTAssertTrue(slot.superview?.subviews.last === overlay, "Overlay should remain above the hosted web view")
+        XCTAssertEqual(overlay.frame.origin.x, slot.frame.origin.x + 110, accuracy: 0.5)
+        XCTAssertEqual(overlay.frame.origin.y, slot.frame.origin.y + 4, accuracy: 0.5)
+        XCTAssertEqual(overlay.frame.size.width, 106, accuracy: 0.5)
+        XCTAssertEqual(overlay.frame.size.height, 152, accuracy: 0.5)
+
+        portal.updateEntryVisibility(forWebViewId: ObjectIdentifier(webView), visibleInUI: false, zPriority: 0)
+        portal.synchronizeWebViewForAnchor(anchor)
+        advanceAnimations()
+        XCTAssertTrue(overlay.isHidden, "Invisible browser entries should hide the overlay")
+
+        portal.updateEntryVisibility(forWebViewId: ObjectIdentifier(webView), visibleInUI: true, zPriority: 0)
+        portal.synchronizeWebViewForAnchor(anchor)
+        XCTAssertFalse(overlay.isHidden, "Restoring visibility should restore the active drop-zone overlay")
+    }
+
+    func testPortalRevealRefreshesHostedWebViewWithoutFrameDelta() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        realizeWindowLayout(window)
+        let portal = WindowBrowserPortal(window: window)
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+        let anchor = NSView(frame: NSRect(x: 40, y: 24, width: 220, height: 160))
+        contentView.addSubview(anchor)
+
+        let webView = TrackingPortalWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        portal.bind(webView: webView, to: anchor, visibleInUI: true)
+        portal.synchronizeWebViewForAnchor(anchor)
+        advanceAnimations()
+        let initialDisplayCount = webView.displayIfNeededCount
+
+        portal.updateEntryVisibility(forWebViewId: ObjectIdentifier(webView), visibleInUI: false, zPriority: 0)
+        portal.synchronizeWebViewForAnchor(anchor)
+        advanceAnimations()
+        let hiddenDisplayCount = webView.displayIfNeededCount
+
+        portal.updateEntryVisibility(forWebViewId: ObjectIdentifier(webView), visibleInUI: true, zPriority: 0)
+        portal.synchronizeWebViewForAnchor(anchor)
+        advanceAnimations()
+
+        XCTAssertGreaterThanOrEqual(hiddenDisplayCount, initialDisplayCount)
+        XCTAssertGreaterThan(
+            webView.displayIfNeededCount,
+            hiddenDisplayCount,
+            "Revealing an existing portal-hosted browser should refresh WebKit presentation immediately"
+        )
+    }
+
+    func testVisiblePortalEntryHidesWithoutDetachingDuringTransientAnchorRemovalUntilRebind() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        realizeWindowLayout(window)
+        let portal = WindowBrowserPortal(window: window)
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let anchorFrame = NSRect(x: 40, y: 24, width: 220, height: 160)
+        let anchor1 = NSView(frame: anchorFrame)
+        contentView.addSubview(anchor1)
+
+        let webView = TrackingPortalWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        portal.bind(webView: webView, to: anchor1, visibleInUI: true)
+        portal.synchronizeWebViewForAnchor(anchor1)
+        advanceAnimations()
+
+        guard let slot = webView.superview as? WindowBrowserSlotView else {
+            XCTFail("Expected browser slot")
+            return
+        }
+
+        anchor1.removeFromSuperview()
+        portal.synchronizeWebViewForAnchor(anchor1)
+        advanceAnimations()
+
+        XCTAssertTrue(webView.superview === slot, "Visible browser entries should not detach during transient anchor removal")
+        XCTAssertTrue(
+            slot.isHidden,
+            "Transient anchor churn should hide the stale browser slot instead of rendering in the wrong pane"
+        )
+        XCTAssertEqual(portal.debugEntryCount(), 1)
+
+        let displayCountBeforeRebind = webView.displayIfNeededCount
+        let anchor2 = NSView(frame: anchorFrame)
+        contentView.addSubview(anchor2)
+        portal.bind(webView: webView, to: anchor2, visibleInUI: true)
+        portal.synchronizeWebViewForAnchor(anchor2)
+        advanceAnimations()
+
+        XCTAssertTrue(webView.superview === slot, "Rebinding after transient anchor removal should reuse the existing portal slot")
+        XCTAssertFalse(slot.isHidden)
+        XCTAssertEqual(portal.debugEntryCount(), 1)
+        XCTAssertGreaterThan(
+            webView.displayIfNeededCount,
+            displayCountBeforeRebind,
+            "Anchor rebinds should refresh hosted browser presentation even when geometry is unchanged"
+        )
+    }
+
+    func testVisiblePortalEntryStaysVisibleDuringOffWindowAnchorReparentUntilRebind() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        realizeWindowLayout(window)
+        let portal = WindowBrowserPortal(window: window)
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let anchorFrame = NSRect(x: 40, y: 24, width: 220, height: 160)
+        let anchor = NSView(frame: anchorFrame)
+        contentView.addSubview(anchor)
+
+        let webView = TrackingPortalWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        portal.bind(webView: webView, to: anchor, visibleInUI: true)
+        portal.synchronizeWebViewForAnchor(anchor)
+        advanceAnimations()
+
+        guard let slot = webView.superview as? WindowBrowserSlotView else {
+            XCTFail("Expected browser slot")
+            return
+        }
+
+        let offWindowContainer = NSView(frame: anchorFrame)
+        anchor.removeFromSuperview()
+        offWindowContainer.addSubview(anchor)
+        portal.synchronizeWebViewForAnchor(anchor)
+        advanceAnimations()
+
+        XCTAssertTrue(
+            webView.superview === slot,
+            "Off-window anchor reparent should preserve the hosted browser slot during drag churn"
+        )
+        XCTAssertFalse(
+            slot.isHidden,
+            "Off-window anchor reparent should keep the visible browser portal alive until the anchor returns"
+        )
+        XCTAssertEqual(portal.debugEntryCount(), 1)
+
+        contentView.addSubview(anchor)
+        portal.synchronizeWebViewForAnchor(anchor)
+        advanceAnimations()
+
+        XCTAssertTrue(webView.superview === slot, "Rebinding after off-window reparent should reuse the existing portal slot")
+        XCTAssertFalse(slot.isHidden)
+        XCTAssertEqual(portal.debugEntryCount(), 1)
+    }
+
     func testRegistryDetachRemovesPortalHostedWebView() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
@@ -7632,6 +11059,262 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
 
         BrowserWindowPortalRegistry.detach(webView: webView)
         XCTAssertNil(webView.superview)
+    }
+
+    func testRegistryHideKeepsPortalHostedWebViewAttachedButHidden() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        realizeWindowLayout(window)
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let anchor = NSView(frame: NSRect(x: 20, y: 20, width: 180, height: 120))
+        contentView.addSubview(anchor)
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+
+        BrowserWindowPortalRegistry.bind(webView: webView, to: anchor, visibleInUI: true)
+        BrowserWindowPortalRegistry.synchronizeForAnchor(anchor)
+        advanceAnimations()
+
+        guard let slot = webView.superview as? WindowBrowserSlotView else {
+            XCTFail("Expected browser slot")
+            return
+        }
+        XCTAssertFalse(slot.isHidden)
+
+        BrowserWindowPortalRegistry.hide(webView: webView, source: "unitTest")
+        advanceAnimations()
+
+        XCTAssertTrue(webView.superview === slot, "Hiding should preserve the hosted WKWebView attachment")
+        XCTAssertTrue(slot.isHidden, "Hiding should immediately hide the existing portal slot")
+    }
+
+    func testHiddenPortalEntrySurvivesAnchorRemovalUntilWorkspaceRebind() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        realizeWindowLayout(window)
+        let portal = WindowBrowserPortal(window: window)
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let anchorFrame = NSRect(x: 40, y: 24, width: 220, height: 160)
+        let oldAnchor = NSView(frame: anchorFrame)
+        contentView.addSubview(oldAnchor)
+
+        let webView = TrackingPortalWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        portal.bind(webView: webView, to: oldAnchor, visibleInUI: true)
+        portal.synchronizeWebViewForAnchor(oldAnchor)
+        advanceAnimations()
+
+        guard let slot = webView.superview as? WindowBrowserSlotView else {
+            XCTFail("Expected browser slot")
+            return
+        }
+
+        portal.updateEntryVisibility(forWebViewId: ObjectIdentifier(webView), visibleInUI: false, zPriority: 0)
+        portal.synchronizeWebViewForAnchor(oldAnchor)
+        advanceAnimations()
+        XCTAssertTrue(slot.isHidden, "Workspace handoff should hide the retiring browser before unmount")
+
+        oldAnchor.removeFromSuperview()
+        portal.synchronizeWebViewForAnchor(oldAnchor)
+        advanceAnimations()
+
+        XCTAssertTrue(
+            webView.superview === slot,
+            "Hidden workspace browsers should stay attached while their SwiftUI anchor is temporarily unmounted"
+        )
+        XCTAssertTrue(slot.isHidden, "Unmounted hidden workspace browser should remain hidden until rebound")
+        XCTAssertEqual(portal.debugEntryCount(), 1, "Workspace handoff should keep the hidden browser portal entry alive")
+
+        let displayCountBeforeRebind = webView.displayIfNeededCount
+        let newAnchor = NSView(frame: anchorFrame)
+        contentView.addSubview(newAnchor)
+        portal.bind(webView: webView, to: newAnchor, visibleInUI: true)
+        portal.synchronizeWebViewForAnchor(newAnchor)
+        advanceAnimations()
+
+        XCTAssertTrue(
+            webView.superview === slot,
+            "Selecting the workspace again should reuse the existing hidden browser portal slot"
+        )
+        XCTAssertFalse(slot.isHidden, "Rebinding the workspace browser should reveal the existing portal slot")
+        XCTAssertEqual(portal.debugEntryCount(), 1)
+        XCTAssertGreaterThan(
+            webView.displayIfNeededCount,
+            displayCountBeforeRebind,
+            "Workspace rebind should refresh the preserved browser without recreating its portal slot"
+        )
+    }
+}
+
+@MainActor
+final class FileDropOverlayViewTests: XCTestCase {
+    private func realizeWindowLayout(_ window: NSWindow) {
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        window.contentView?.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        window.contentView?.layoutSubtreeIfNeeded()
+    }
+
+    func testOverlayResolvesPortalHostedBrowserWebViewForFileDrops() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 280),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer {
+            NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
+            window.orderOut(nil)
+        }
+        realizeWindowLayout(window)
+
+        guard let contentView = window.contentView,
+              let container = contentView.superview else {
+            XCTFail("Expected content container")
+            return
+        }
+
+        let anchor = NSView(frame: NSRect(x: 40, y: 36, width: 220, height: 150))
+        contentView.addSubview(anchor)
+
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        BrowserWindowPortalRegistry.bind(webView: webView, to: anchor, visibleInUI: true)
+        BrowserWindowPortalRegistry.synchronizeForAnchor(anchor)
+
+        let overlay = FileDropOverlayView(frame: container.bounds)
+        overlay.autoresizingMask = [.width, .height]
+        container.addSubview(overlay, positioned: .above, relativeTo: nil)
+
+        let point = anchor.convert(
+            NSPoint(x: anchor.bounds.midX, y: anchor.bounds.midY),
+            to: nil
+        )
+        XCTAssertTrue(
+            overlay.webViewUnderPoint(point) === webView,
+            "File-drop overlay should resolve portal-hosted browser panes so Finder uploads still reach WKWebView"
+        )
+    }
+}
+
+@MainActor
+final class MarkdownPanelPointerObserverViewTests: XCTestCase {
+    private func makeWindow() -> NSWindow {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 180),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        window.contentView?.layoutSubtreeIfNeeded()
+        return window
+    }
+
+    private func makeMouseEvent(
+        type: NSEvent.EventType,
+        location: NSPoint,
+        window: NSWindow,
+        eventNumber: Int = 1
+    ) -> NSEvent {
+        guard let event = NSEvent.mouseEvent(
+            with: type,
+            location: location,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: eventNumber,
+            clickCount: 1,
+            pressure: 1.0
+        ) else {
+            fatalError("Expected to create mouse event")
+        }
+        return event
+    }
+
+    func testObserverTriggersFocusForVisibleLeftClickInsideBounds() {
+        let window = makeWindow()
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let overlay = MarkdownPanelPointerObserverView(frame: contentView.bounds)
+        overlay.autoresizingMask = [.width, .height]
+        let focusExpectation = expectation(description: "observer forwards focus callback")
+        var pointerDownCount = 0
+        overlay.onPointerDown = {
+            pointerDownCount += 1
+            focusExpectation.fulfill()
+        }
+        contentView.addSubview(overlay)
+
+        _ = overlay.handleEventIfNeeded(
+            makeMouseEvent(type: .leftMouseDown, location: NSPoint(x: 60, y: 60), window: window)
+        )
+        wait(for: [focusExpectation], timeout: 1.0)
+
+        XCTAssertEqual(pointerDownCount, 1)
+    }
+
+    func testObserverIgnoresOutsideOrForeignWindowClicks() {
+        let window = makeWindow()
+        defer { window.orderOut(nil) }
+        let otherWindow = makeWindow()
+        defer { otherWindow.orderOut(nil) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let overlay = MarkdownPanelPointerObserverView(frame: contentView.bounds)
+        overlay.autoresizingMask = [.width, .height]
+        let noFocusExpectation = expectation(description: "observer ignores invalid clicks")
+        noFocusExpectation.isInverted = true
+        var pointerDownCount = 0
+        overlay.onPointerDown = {
+            pointerDownCount += 1
+            noFocusExpectation.fulfill()
+        }
+        contentView.addSubview(overlay)
+
+        _ = overlay.handleEventIfNeeded(
+            makeMouseEvent(type: .leftMouseDown, location: NSPoint(x: 400, y: 400), window: window)
+        )
+        _ = overlay.handleEventIfNeeded(
+            makeMouseEvent(type: .leftMouseDown, location: NSPoint(x: 60, y: 60), window: otherWindow, eventNumber: 2)
+        )
+        _ = overlay.handleEventIfNeeded(
+            makeMouseEvent(type: .leftMouseDragged, location: NSPoint(x: 60, y: 60), window: window, eventNumber: 3)
+        )
+        wait(for: [noFocusExpectation], timeout: 0.1)
+
+        XCTAssertEqual(pointerDownCount, 0)
+    }
+
+    func testObserverDoesNotParticipateInHitTesting() {
+        let overlay = MarkdownPanelPointerObserverView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
+        XCTAssertNil(overlay.hitTest(NSPoint(x: 40, y: 30)))
     }
 }
 
@@ -7703,6 +11386,56 @@ final class BrowserLinkOpenSettingsTests: XCTestCase {
 
         defaults.set(true, forKey: BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowserKey)
         XCTAssertTrue(BrowserLinkOpenSettings.initialInterceptTerminalOpenCommandInCmuxBrowserValue(defaults: defaults))
+    }
+
+    func testExternalOpenPatternsDefaultToEmpty() {
+        XCTAssertTrue(BrowserLinkOpenSettings.externalOpenPatterns(defaults: defaults).isEmpty)
+    }
+
+    func testExternalOpenLiteralPatternMatchesCaseInsensitively() {
+        defaults.set("openai.com/account/usage", forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey)
+        XCTAssertTrue(
+            BrowserLinkOpenSettings.shouldOpenExternally(
+                "https://platform.OPENAI.com/account/usage",
+                defaults: defaults
+            )
+        )
+    }
+
+    func testExternalOpenRegexPatternMatchesCaseInsensitively() {
+        defaults.set(
+            "re:^https?://[^/]*\\.example\\.com/(billing|usage)",
+            forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey
+        )
+        XCTAssertTrue(
+            BrowserLinkOpenSettings.shouldOpenExternally(
+                "https://FOO.example.com/BILLING",
+                defaults: defaults
+            )
+        )
+    }
+
+    func testExternalOpenRegexPatternSupportsDigitCharacterClass() {
+        defaults.set(
+            "re:^https://example\\.com/usage/\\d+$",
+            forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey
+        )
+        XCTAssertTrue(
+            BrowserLinkOpenSettings.shouldOpenExternally(
+                "https://example.com/usage/42",
+                defaults: defaults
+            )
+        )
+    }
+
+    func testExternalOpenPatternsIgnoreInvalidRegexEntries() {
+        defaults.set("re:(\nexample.com", forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey)
+        XCTAssertTrue(
+            BrowserLinkOpenSettings.shouldOpenExternally(
+                "https://example.com/path",
+                defaults: defaults
+            )
+        )
     }
 }
 
@@ -7776,6 +11509,58 @@ final class TerminalOpenURLTargetResolutionTests: XCTestCase {
     }
 }
 
+final class BrowserNavigableURLResolutionTests: XCTestCase {
+    func testResolvesFileSchemeAsNavigableURL() throws {
+        let resolved = try XCTUnwrap(resolveBrowserNavigableURL("file:///tmp/cmux-local-test.html"))
+        XCTAssertTrue(resolved.isFileURL)
+        XCTAssertEqual(resolved.path, "/tmp/cmux-local-test.html")
+    }
+
+    func testRejectsNonWebNonFileScheme() {
+        XCTAssertNil(resolveBrowserNavigableURL("mailto:test@example.com"))
+        XCTAssertNil(resolveBrowserNavigableURL("ftp://example.com/file.html"))
+    }
+
+    func testRejectsHostOnlyFileURL() {
+        XCTAssertNil(resolveBrowserNavigableURL("file://example.html"))
+    }
+}
+
+final class BrowserReadAccessURLTests: XCTestCase {
+    func testUsesParentDirectoryForFileURL() throws {
+        let tempRoot = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+        let dir = tempRoot.appendingPathComponent("BrowserReadAccessURLTests-\(UUID().uuidString)", isDirectory: true)
+        let file = dir.appendingPathComponent("sample.html")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try "<html></html>".write(to: file, atomically: true, encoding: .utf8)
+
+        let readAccessURL = try XCTUnwrap(browserReadAccessURL(forLocalFileURL: file))
+        XCTAssertEqual(readAccessURL.standardizedFileURL, dir.standardizedFileURL)
+    }
+
+    func testUsesDirectoryURLWhenTargetIsDirectory() throws {
+        let tempRoot = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+        let dir = tempRoot.appendingPathComponent("BrowserReadAccessURLTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let readAccessURL = try XCTUnwrap(browserReadAccessURL(forLocalFileURL: dir))
+        XCTAssertEqual(readAccessURL.standardizedFileURL, dir.standardizedFileURL)
+    }
+
+    func testUsesParentDirectoryWhenFileDoesNotExist() throws {
+        let missing = URL(fileURLWithPath: "/tmp/\(UUID().uuidString).html")
+        let readAccessURL = try XCTUnwrap(browserReadAccessURL(forLocalFileURL: missing))
+        XCTAssertEqual(readAccessURL.standardizedFileURL, missing.deletingLastPathComponent().standardizedFileURL)
+    }
+
+    func testReturnsNilForHostOnlyFileURL() throws {
+        let hostOnly = try XCTUnwrap(URL(string: "file://example.html"))
+        XCTAssertNil(browserReadAccessURL(forLocalFileURL: hostOnly))
+    }
+}
+
 final class BrowserExternalNavigationSchemeTests: XCTestCase {
     func testCustomAppSchemesOpenExternally() throws {
         let discord = try XCTUnwrap(URL(string: "discord://login/one-time?token=abc"))
@@ -7794,6 +11579,7 @@ final class BrowserExternalNavigationSchemeTests: XCTestCase {
         let http = try XCTUnwrap(URL(string: "http://example.com"))
         let about = try XCTUnwrap(URL(string: "about:blank"))
         let data = try XCTUnwrap(URL(string: "data:text/plain,hello"))
+        let file = try XCTUnwrap(URL(string: "file:///tmp/cmux-local-test.html"))
         let blob = try XCTUnwrap(URL(string: "blob:https://example.com/550e8400-e29b-41d4-a716-446655440000"))
         let javascript = try XCTUnwrap(URL(string: "javascript:void(0)"))
         let webkitInternal = try XCTUnwrap(URL(string: "applewebdata://local/page"))
@@ -7802,6 +11588,7 @@ final class BrowserExternalNavigationSchemeTests: XCTestCase {
         XCTAssertFalse(browserShouldOpenURLExternally(http))
         XCTAssertFalse(browserShouldOpenURLExternally(about))
         XCTAssertFalse(browserShouldOpenURLExternally(data))
+        XCTAssertFalse(browserShouldOpenURLExternally(file))
         XCTAssertFalse(browserShouldOpenURLExternally(blob))
         XCTAssertFalse(browserShouldOpenURLExternally(javascript))
         XCTAssertFalse(browserShouldOpenURLExternally(webkitInternal))
@@ -8068,10 +11855,10 @@ final class TerminalControllerSocketTextChunkTests: XCTestCase {
 }
 
 final class BrowserOmnibarFocusPolicyTests: XCTestCase {
-    func testReacquiresFocusWhenWebViewSuppressionIsActiveAndNextResponderIsNotAnotherTextField() {
+    func testReacquiresFocusWhenOmnibarStillWantsFocusAndNextResponderIsNotAnotherTextField() {
         XCTAssertTrue(
             browserOmnibarShouldReacquireFocusAfterEndEditing(
-                suppressWebViewFocus: true,
+                desiredOmnibarFocus: true,
                 nextResponderIsOtherTextField: false
             )
         )
@@ -8080,16 +11867,16 @@ final class BrowserOmnibarFocusPolicyTests: XCTestCase {
     func testDoesNotReacquireFocusWhenAnotherTextFieldAlreadyTookFocus() {
         XCTAssertFalse(
             browserOmnibarShouldReacquireFocusAfterEndEditing(
-                suppressWebViewFocus: true,
+                desiredOmnibarFocus: true,
                 nextResponderIsOtherTextField: true
             )
         )
     }
 
-    func testDoesNotReacquireFocusWhenWebViewSuppressionIsInactive() {
+    func testDoesNotReacquireFocusWhenOmnibarNoLongerWantsFocus() {
         XCTAssertFalse(
             browserOmnibarShouldReacquireFocusAfterEndEditing(
-                suppressWebViewFocus: false,
+                desiredOmnibarFocus: false,
                 nextResponderIsOtherTextField: false
             )
         )
@@ -8188,6 +11975,7 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
         return fd
     }
 
+    @MainActor
     func testSocketListenerHealthRecognizesSocketPath() throws {
         let path = makeTempSocketPath()
         let fd = try bindUnixSocket(at: path)
@@ -8201,6 +11989,7 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
         XCTAssertFalse(health.isHealthy)
     }
 
+    @MainActor
     func testSocketListenerHealthRejectsRegularFile() throws {
         let path = makeTempSocketPath()
         let url = URL(fileURLWithPath: path)
@@ -8217,10 +12006,16 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
             isRunning: true,
             acceptLoopAlive: true,
             socketPathMatches: true,
-            socketPathExists: true
+            socketPathExists: true,
+            socketProbePerformed: true,
+            socketConnectable: true,
+            socketConnectErrno: nil
         )
         XCTAssertTrue(health.isHealthy)
-        XCTAssertEqual(health.failureSignals, [])
+        XCTAssertTrue(health.failureSignals.isEmpty)
+        XCTAssertTrue(health.socketProbePerformed)
+        XCTAssertEqual(health.socketConnectable, true)
+        XCTAssertNil(health.socketConnectErrno)
     }
 
     func testSocketListenerHealthFailureSignalsIncludeAllDetectedProblems() {
@@ -8228,9 +12023,15 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
             isRunning: false,
             acceptLoopAlive: false,
             socketPathMatches: false,
-            socketPathExists: false
+            socketPathExists: false,
+            socketProbePerformed: false,
+            socketConnectable: nil,
+            socketConnectErrno: nil
         )
         XCTAssertFalse(health.isHealthy)
+        XCTAssertFalse(health.socketProbePerformed)
+        XCTAssertNil(health.socketConnectable)
+        XCTAssertNil(health.socketConnectErrno)
         XCTAssertEqual(
             health.failureSignals,
             ["not_running", "accept_loop_dead", "socket_path_mismatch", "socket_missing"]

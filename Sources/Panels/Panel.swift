@@ -5,6 +5,7 @@ import Combine
 public enum PanelType: String, Codable, Sendable {
     case terminal
     case browser
+    case markdown
 }
 
 enum FocusFlashCurve: Equatable {

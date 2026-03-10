@@ -16,16 +16,40 @@ After making code changes, always run the reload script with a tag to launch the
 ./scripts/reload.sh --tag fix-zsh-autosuggestions
 ```
 
-After making code changes, always run the build:
+When reporting a tagged reload result in chat, use the format for your agent type:
+
+**Claude Code** (markdown link with correct derived-data path, cmd+clickable):
+```markdown
+=======================================================
+[cmux DEV <tag-name>.app](file:///Users/lawrencechen/Library/Developer/Xcode/DerivedData/cmux-<tag-name>/Build/Products/Debug/cmux%20DEV%20<tag-name>.app)
+=======================================================
+```
+
+**Codex** (plain text format):
+```
+=======================================================
+[<tag-name>: file:///Users/lawrencechen/Library/Developer/Xcode/DerivedData/cmux-<tag-name>/Build/Products/Debug/cmux%20DEV%20<tag-name>.app](file:///Users/lawrencechen/Library/Developer/Xcode/DerivedData/cmux-<tag-name>/Build/Products/Debug/cmux%20DEV%20<tag-name>.app)
+=======================================================
+```
+
+Never use `/tmp/cmux-<tag>/...` app links in chat output. If the expected DerivedData path is missing, resolve the real `.app` path and report that `file://` URL.
+
+After making code changes, always use `reload.sh --tag` to build and launch. **Never run bare `xcodebuild` or `open` an untagged `cmux DEV.app`.** Untagged builds share the default debug socket and bundle ID with other agents, causing conflicts and stealing focus.
 
 ```bash
-xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug -destination 'platform=macOS' build
+./scripts/reload.sh --tag <your-branch-slug>
+```
+
+If you only need to verify the build compiles (no launch), use a tagged derivedDataPath:
+
+```bash
+xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug -destination 'platform=macOS' -derivedDataPath /tmp/cmux-<your-tag> build
 ```
 
 When rebuilding GhosttyKit.xcframework, always use Release optimizations:
 
 ```bash
-cd ghostty && zig build -Demit-xcframework=true -Doptimize=ReleaseFast
+cd ghostty && zig build -Demit-xcframework=true -Dxcframework-target=universal -Doptimize=ReleaseFast
 ```
 
 When rebuilding cmuxd for release/bundling, always use ReleaseFast:
@@ -91,12 +115,31 @@ tail -f "$(cat /tmp/cmux-last-debug-log-path 2>/dev/null || echo /tmp/cmux-debug
 - Focus events: `focus.panel`, `focus.bonsplit`, `focus.firstResponder`, `focus.moveFocus`
 - Bonsplit events: `tab.select`, `tab.close`, `tab.dragStart`, `tab.drop`, `pane.focus`, `pane.drop`, `divider.dragStart`
 
+## Regression test commit policy
+
+When adding a regression test for a bug fix, use a two-commit structure so CI proves the test catches the bug:
+
+1. **Commit 1:** Add the failing test only (no fix). CI should go red.
+2. **Commit 2:** Add the fix. CI should go green.
+
+This makes it visible in the GitHub PR UI (Commits tab, check statuses) that the test genuinely fails without the fix.
+
 ## Pitfalls
 
 - **Custom UTTypes** for drag-and-drop must be declared in `Resources/Info.plist` under `UTExportedTypeDeclarations` (e.g. `com.splittabbar.tabtransfer`, `com.cmux.sidebar-tab-reorder`).
 - Do not add an app-level display link or manual `ghostty_surface_draw` loop; rely on Ghostty wakeups/renderer to avoid typing lag.
 - **Terminal find layering contract:** `SurfaceSearchOverlay` must be mounted from `GhosttySurfaceScrollView` in `Sources/GhosttyTerminalView.swift` (AppKit portal layer), not from SwiftUI panel containers such as `Sources/Panels/TerminalPanelView.swift`. Portal-hosted terminal views can sit above SwiftUI during split/workspace churn.
 - **Submodule safety:** When modifying a submodule (ghostty, vendor/bonsplit, etc.), always push the submodule commit to its remote `main` branch BEFORE committing the updated pointer in the parent repo. Never commit on a detached HEAD or temporary branch — the commit will be orphaned and lost. Verify with: `cd <submodule> && git merge-base --is-ancestor HEAD origin/main`.
+- **All user-facing strings must be localized.** Use `String(localized: "key.name", defaultValue: "English text")` for every string shown in the UI (labels, buttons, menus, dialogs, tooltips, error messages). Keys go in `Resources/Localizable.xcstrings` with translations for all supported languages (currently English and Japanese). Never use bare string literals in SwiftUI `Text()`, `Button()`, alert titles, etc.
+
+## Test quality policy
+
+- Do not add tests that only verify source code text, method signatures, AST fragments, or grep-style patterns.
+- Do not add tests that read checked-in metadata or project files such as `Resources/Info.plist`, `project.pbxproj`, `.xcconfig`, or source files only to assert that a key, string, plist entry, or snippet exists.
+- Tests must verify observable runtime behavior through executable paths (unit/integration/e2e/CLI), not implementation shape.
+- For metadata changes, prefer verifying the built app bundle or the runtime behavior that depends on that metadata, not the checked-in source file.
+- If a behavior cannot be exercised end-to-end yet, add a small runtime seam or harness first, then test through that seam.
+- If no meaningful behavioral or artifact-level test is practical, skip the fake regression test and state that explicitly.
 
 ## Socket command threading policy
 
@@ -114,21 +157,14 @@ tail -f "$(cat /tmp/cmux-last-debug-log-path 2>/dev/null || echo /tmp/cmux-debug
 - Only explicit focus-intent commands may mutate in-app focus/selection (`window.focus`, `workspace.select/next/previous/last`, `surface.focus`, `pane.focus/last`, browser focus commands, and v1 focus equivalents).
 - All non-focus commands should preserve current user focus context while still applying data/model changes.
 
-## E2E mac UI tests
+## Testing policy
 
-Run UI tests on the UTM macOS VM (never on the host machine). Always run e2e UI tests via `ssh cmux-vm`:
+**Never run tests locally.** All tests (E2E, UI, python socket tests) run via GitHub Actions or on the VM.
 
-```bash
-ssh cmux-vm 'cd /Users/cmux/GhosttyTabs && xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug -destination "platform=macOS" -only-testing:cmuxUITests/UpdatePillUITests test'
-```
-
-## Basic tests
-
-Run basic automated tests on the UTM macOS VM (never on the host machine):
-
-```bash
-ssh cmux-vm 'cd /Users/cmux/GhosttyTabs && xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug -destination "platform=macOS" build && pkill -x "cmux DEV" || true && APP=$(find /Users/cmux/Library/Developer/Xcode/DerivedData -path "*/Build/Products/Debug/cmux DEV.app" -print -quit) && open "$APP" --env CMUX_SOCKET_MODE=allowAll && for i in {1..20}; do [ -S /tmp/cmux-debug.sock ] && break; sleep 0.5; done && python3 tests/test_update_timing.py && python3 tests/test_signals_auto.py && python3 tests/test_ctrl_socket.py && python3 tests/test_notifications.py'
-```
+- **E2E / UI tests:** trigger via `gh workflow run test-e2e.yml` (see cmuxterm-hq CLAUDE.md for details)
+- **Unit tests:** `xcodebuild -scheme cmux-unit` is safe (no app launch), but prefer CI
+- **Python socket tests (tests_v2/):** these connect to a running cmux instance's socket. Never launch an untagged `cmux DEV.app` to run them. If you must test locally, use a tagged build's socket (`/tmp/cmux-debug-<tag>.sock`) with `CMUX_SOCKET=/tmp/cmux-debug-<tag>.sock`
+- **Never `open` an untagged `cmux DEV.app`** from DerivedData. It conflicts with the user's running debug instance.
 
 ## Ghostty submodule workflow
 

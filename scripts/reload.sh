@@ -414,15 +414,14 @@ OPEN_CLEAN_ENV=(
 
 if [[ -n "${TAG_SLUG:-}" && -n "${CMUX_SOCKET:-}" ]]; then
   # Ensure tag-specific socket paths win even if the caller has CMUX_* overrides.
-  "${OPEN_CLEAN_ENV[@]}" CMUX_TAG="$TAG_SLUG" CMUX_SOCKET_PATH="$CMUX_SOCKET" CMUXD_UNIX_PATH="$CMUXD_SOCKET" CMUX_DEBUG_LOG="$CMUX_DEBUG_LOG" open "$APP_PATH"
+  "${OPEN_CLEAN_ENV[@]}" CMUX_TAG="$TAG_SLUG" CMUX_SOCKET_PATH="$CMUX_SOCKET" CMUXD_UNIX_PATH="$CMUXD_SOCKET" CMUX_DEBUG_LOG="$CMUX_DEBUG_LOG" open -g "$APP_PATH"
 elif [[ -n "${TAG_SLUG:-}" ]]; then
-  "${OPEN_CLEAN_ENV[@]}" CMUX_TAG="$TAG_SLUG" CMUX_DEBUG_LOG="$CMUX_DEBUG_LOG" open "$APP_PATH"
+  "${OPEN_CLEAN_ENV[@]}" CMUX_TAG="$TAG_SLUG" CMUX_DEBUG_LOG="$CMUX_DEBUG_LOG" open -g "$APP_PATH"
 else
   echo "/tmp/cmux-debug.sock" > /tmp/cmux-last-socket-path || true
   echo "/tmp/cmux-debug.log" > /tmp/cmux-last-debug-log-path || true
-  "${OPEN_CLEAN_ENV[@]}" open "$APP_PATH"
+  "${OPEN_CLEAN_ENV[@]}" open -g "$APP_PATH"
 fi
-osascript -e "tell application id \"${BUNDLE_ID}\" to activate" || true
 
 # Safety: ensure only one instance is running.
 sleep 0.2

@@ -7,6 +7,7 @@ import Sentry
 import WebKit
 import Combine
 import ObjectiveC.runtime
+import Darwin
 
 enum FinderServicePathResolver {
     private static func canonicalDirectoryPath(_ path: String) -> String {
@@ -54,10 +55,12 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
     struct DetectionEnvironment {
         let homeDirectoryPath: String
         let fileExistsAtPath: (String) -> Bool
+        let isExecutableFileAtPath: (String) -> Bool
 
         static let live = DetectionEnvironment(
             homeDirectoryPath: FileManager.default.homeDirectoryForCurrentUser.path,
-            fileExistsAtPath: { FileManager.default.fileExists(atPath: $0) }
+            fileExistsAtPath: { FileManager.default.fileExists(atPath: $0) },
+            isExecutableFileAtPath: { FileManager.default.isExecutableFile(atPath: $0) }
         )
     }
 
@@ -78,31 +81,31 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
     var commandPaletteTitle: String {
         switch self {
         case .androidStudio:
-            return "Open Current Directory in Android Studio"
+            return String(localized: "menu.openInAndroidStudio", defaultValue: "Open Current Directory in Android Studio")
         case .antigravity:
-            return "Open Current Directory in Antigravity"
+            return String(localized: "menu.openInAntigravity", defaultValue: "Open Current Directory in Antigravity")
         case .cursor:
-            return "Open Current Directory in Cursor"
+            return String(localized: "menu.openInCursor", defaultValue: "Open Current Directory in Cursor")
         case .finder:
-            return "Open Current Directory in Finder"
+            return String(localized: "menu.openInFinder", defaultValue: "Open Current Directory in Finder")
         case .ghostty:
-            return "Open Current Directory in Ghostty"
+            return String(localized: "menu.openInGhostty", defaultValue: "Open Current Directory in Ghostty")
         case .iterm2:
-            return "Open Current Directory in iTerm2"
+            return String(localized: "menu.openInITerm2", defaultValue: "Open Current Directory in iTerm2")
         case .terminal:
-            return "Open Current Directory in Terminal"
+            return String(localized: "menu.openInTerminal", defaultValue: "Open Current Directory in Terminal")
         case .tower:
-            return "Open Current Directory in Tower"
+            return String(localized: "menu.openInTower", defaultValue: "Open Current Directory in Tower")
         case .vscode:
-            return "Open Current Directory in VS Code"
+            return String(localized: "menu.openInVSCode", defaultValue: "Open Current Directory in VS Code (Inline)")
         case .warp:
-            return "Open Current Directory in Warp"
+            return String(localized: "menu.openInWarp", defaultValue: "Open Current Directory in Warp")
         case .windsurf:
-            return "Open Current Directory in Windsurf"
+            return String(localized: "menu.openInWindsurf", defaultValue: "Open Current Directory in Windsurf")
         case .xcode:
-            return "Open Current Directory in Xcode"
+            return String(localized: "menu.openInXcode", defaultValue: "Open Current Directory in Xcode")
         case .zed:
-            return "Open Current Directory in Zed"
+            return String(localized: "menu.openInZed", defaultValue: "Open Current Directory in Zed")
         }
     }
 
@@ -126,7 +129,7 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
         case .tower:
             return common + ["tower", "git", "client"]
         case .vscode:
-            return common + ["vs", "code", "visual", "studio"]
+            return common + ["vs", "code", "visual", "studio", "inline", "browser", "serve-web"]
         case .warp:
             return common + ["warp", "terminal", "shell"]
         case .windsurf:
@@ -139,7 +142,12 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
     }
 
     func isAvailable(in environment: DetectionEnvironment = .live) -> Bool {
-        applicationPath(in: environment) != nil
+        guard let applicationPath = applicationPath(in: environment) else { return false }
+        guard self == .vscode else { return true }
+        return VSCodeCLILaunchConfigurationBuilder.launchConfiguration(
+            vscodeApplicationURL: URL(fileURLWithPath: applicationPath, isDirectory: true),
+            isExecutableAtPath: environment.isExecutableFileAtPath
+        ) != nil
     }
 
     func applicationURL(in environment: DetectionEnvironment = .live) -> URL? {
@@ -222,6 +230,440 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
             deduped.append(path)
         }
         return deduped
+    }
+}
+
+enum VSCodeServeWebURLBuilder {
+    static func extractWebUIURL(from output: String) -> URL? {
+        let prefix = "Web UI available at "
+        for line in output.split(whereSeparator: \.isNewline).reversed() {
+            guard let range = line.range(of: prefix) else { continue }
+            let rawURL = line[range.upperBound...].trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !rawURL.isEmpty, let url = URL(string: rawURL) else { continue }
+            return url
+        }
+        return nil
+    }
+
+    static func openFolderURL(baseWebUIURL: URL, directoryPath: String) -> URL? {
+        var components = URLComponents(url: baseWebUIURL, resolvingAgainstBaseURL: false)
+        var queryItems = components?.queryItems ?? []
+        queryItems.removeAll { $0.name == "folder" }
+        queryItems.append(URLQueryItem(name: "folder", value: directoryPath))
+        components?.queryItems = queryItems
+        return components?.url
+    }
+}
+
+struct VSCodeCLILaunchConfiguration {
+    let executableURL: URL
+    let argumentsPrefix: [String]
+    let environment: [String: String]
+}
+
+enum VSCodeCLILaunchConfigurationBuilder {
+    static func launchConfiguration(
+        vscodeApplicationURL: URL,
+        baseEnvironment: [String: String] = ProcessInfo.processInfo.environment,
+        isExecutableAtPath: (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) }
+    ) -> VSCodeCLILaunchConfiguration? {
+        let contentsURL = vscodeApplicationURL.appendingPathComponent("Contents", isDirectory: true)
+        let codeTunnelURL = contentsURL.appendingPathComponent("Resources/app/bin/code-tunnel", isDirectory: false)
+        guard isExecutableAtPath(codeTunnelURL.path) else { return nil }
+
+        var environment = baseEnvironment
+        environment["ELECTRON_RUN_AS_NODE"] = "1"
+        environment.removeValue(forKey: "VSCODE_NODE_OPTIONS")
+        environment.removeValue(forKey: "VSCODE_NODE_REPL_EXTERNAL_MODULE")
+        if let nodeOptions = environment["NODE_OPTIONS"] {
+            environment["VSCODE_NODE_OPTIONS"] = nodeOptions
+        }
+        if let nodeReplExternalModule = environment["NODE_REPL_EXTERNAL_MODULE"] {
+            environment["VSCODE_NODE_REPL_EXTERNAL_MODULE"] = nodeReplExternalModule
+        }
+        environment.removeValue(forKey: "NODE_OPTIONS")
+        environment.removeValue(forKey: "NODE_REPL_EXTERNAL_MODULE")
+
+        return VSCodeCLILaunchConfiguration(
+            executableURL: codeTunnelURL,
+            argumentsPrefix: [],
+            environment: environment
+        )
+    }
+}
+
+final class VSCodeServeWebController {
+    static let shared = VSCodeServeWebController()
+    private static let serveWebStartupTimeoutSeconds: TimeInterval = 60
+
+    private let queue = DispatchQueue(label: "cmux.vscode.serveWeb")
+    private let launchQueue = DispatchQueue(label: "cmux.vscode.serveWeb.launch")
+    private let launchProcessOverride: ((URL, UInt64) -> (process: Process, url: URL)?)?
+    private var serveWebProcess: Process?
+    private var launchingProcess: Process?
+    private var connectionTokenFilesByProcessID: [ObjectIdentifier: URL] = [:]
+    private var serveWebURL: URL?
+    private var pendingCompletions: [(generation: UInt64, completion: (URL?) -> Void)] = []
+    private var isLaunching = false
+    private var activeLaunchGeneration: UInt64?
+    private var lifecycleGeneration: UInt64 = 0
+
+    private init(launchProcessOverride: ((URL, UInt64) -> (process: Process, url: URL)?)? = nil) {
+        self.launchProcessOverride = launchProcessOverride
+    }
+
+#if DEBUG
+    static func makeForTesting(
+        launchProcessOverride: @escaping (URL, UInt64) -> (process: Process, url: URL)?
+    ) -> VSCodeServeWebController {
+        VSCodeServeWebController(launchProcessOverride: launchProcessOverride)
+    }
+#endif
+
+    func ensureServeWebURL(vscodeApplicationURL: URL, completion: @escaping (URL?) -> Void) {
+        queue.async {
+            if let process = self.serveWebProcess,
+               process.isRunning,
+               let url = self.serveWebURL {
+                DispatchQueue.main.async {
+                    completion(url)
+                }
+                return
+            }
+
+            let completionGeneration = self.lifecycleGeneration
+            self.pendingCompletions.append((generation: completionGeneration, completion: completion))
+            guard !self.isLaunching else { return }
+
+            self.isLaunching = true
+            let launchGeneration = completionGeneration
+            self.activeLaunchGeneration = launchGeneration
+
+            self.launchQueue.async {
+                let shouldLaunch = self.queue.sync {
+                    self.lifecycleGeneration == launchGeneration
+                }
+                guard shouldLaunch else {
+                    self.queue.async {
+                        guard self.activeLaunchGeneration == launchGeneration else { return }
+                        self.isLaunching = false
+                        self.activeLaunchGeneration = nil
+                    }
+                    return
+                }
+                let launchResult = self.launchServeWebProcess(
+                    vscodeApplicationURL: vscodeApplicationURL,
+                    expectedGeneration: launchGeneration
+                )
+                self.queue.async {
+                    guard self.activeLaunchGeneration == launchGeneration else {
+                        if let process = launchResult?.process, process.isRunning {
+                            process.terminate()
+                        }
+                        return
+                    }
+                    self.isLaunching = false
+                    self.activeLaunchGeneration = nil
+
+                    guard self.lifecycleGeneration == launchGeneration else {
+                        if let launchedProcess = launchResult?.process,
+                           self.launchingProcess === launchedProcess {
+                            self.launchingProcess = nil
+                        }
+                        if let process = launchResult?.process, process.isRunning {
+                            process.terminate()
+                        }
+                        return
+                    }
+
+                    if let launchResult {
+                        self.launchingProcess = nil
+                        self.serveWebProcess = launchResult.process
+                        self.serveWebURL = launchResult.url
+                    } else {
+                        self.launchingProcess = nil
+                        self.serveWebProcess = nil
+                        self.serveWebURL = nil
+                    }
+
+                    var completions: [(URL?) -> Void] = []
+                    var remaining: [(generation: UInt64, completion: (URL?) -> Void)] = []
+                    for pending in self.pendingCompletions {
+                        if pending.generation == launchGeneration {
+                            completions.append(pending.completion)
+                        } else {
+                            remaining.append(pending)
+                        }
+                    }
+                    self.pendingCompletions = remaining
+                    let resolvedURL = self.serveWebURL
+                    DispatchQueue.main.async {
+                        completions.forEach { $0(resolvedURL) }
+                    }
+                }
+            }
+        }
+    }
+
+    func stop() {
+        let (processes, tokenFileURLs, completions): ([Process], [URL], [(URL?) -> Void]) = queue.sync {
+            self.lifecycleGeneration &+= 1
+            self.isLaunching = false
+            self.activeLaunchGeneration = nil
+            var processes: [Process] = []
+            if let process = self.serveWebProcess {
+                processes.append(process)
+            }
+            if let process = self.launchingProcess,
+               !processes.contains(where: { $0 === process }) {
+                processes.append(process)
+            }
+            self.serveWebProcess = nil
+            self.launchingProcess = nil
+            var tokenFileURLs = processes.compactMap {
+                self.connectionTokenFilesByProcessID.removeValue(forKey: ObjectIdentifier($0))
+            }
+            tokenFileURLs.append(contentsOf: self.connectionTokenFilesByProcessID.values)
+            self.connectionTokenFilesByProcessID.removeAll()
+            self.serveWebURL = nil
+            let completions = self.pendingCompletions.map(\.completion)
+            self.pendingCompletions.removeAll()
+            return (processes, tokenFileURLs, completions)
+        }
+
+        for tokenFileURL in tokenFileURLs {
+            Self.removeConnectionTokenFile(at: tokenFileURL)
+        }
+
+        for process in processes where process.isRunning {
+            process.terminate()
+        }
+
+        if !completions.isEmpty {
+            DispatchQueue.main.async {
+                completions.forEach { $0(nil) }
+            }
+        }
+    }
+
+    func restart(vscodeApplicationURL: URL, completion: @escaping (URL?) -> Void) {
+        stop()
+        ensureServeWebURL(vscodeApplicationURL: vscodeApplicationURL, completion: completion)
+    }
+
+    private func launchServeWebProcess(
+        vscodeApplicationURL: URL,
+        expectedGeneration: UInt64
+    ) -> (process: Process, url: URL)? {
+        if let launchProcessOverride {
+            return launchProcessOverride(vscodeApplicationURL, expectedGeneration)
+        }
+
+        guard let launchConfiguration = VSCodeCLILaunchConfigurationBuilder.launchConfiguration(
+            vscodeApplicationURL: vscodeApplicationURL
+        ) else { return nil }
+
+        guard let connectionTokenFileURL = Self.makeConnectionTokenFile() else {
+            return nil
+        }
+
+        let process = Process()
+        process.executableURL = launchConfiguration.executableURL
+        process.arguments = launchConfiguration.argumentsPrefix + [
+            "serve-web",
+            "--accept-server-license-terms",
+            "--host", "127.0.0.1",
+            "--port", "0",
+            "--connection-token-file", connectionTokenFileURL.path,
+        ]
+        process.environment = launchConfiguration.environment
+
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+
+        let collector = ServeWebOutputCollector()
+        let outputReader: (FileHandle) -> Void = { fileHandle in
+            let data = fileHandle.availableData
+            guard !data.isEmpty else { return }
+            collector.append(data)
+        }
+        stdoutPipe.fileHandleForReading.readabilityHandler = outputReader
+        stderrPipe.fileHandleForReading.readabilityHandler = outputReader
+
+        process.terminationHandler = { [weak self] terminatedProcess in
+            stdoutPipe.fileHandleForReading.readabilityHandler = nil
+            stderrPipe.fileHandleForReading.readabilityHandler = nil
+            Self.drainAvailableOutput(from: stdoutPipe.fileHandleForReading, collector: collector)
+            Self.drainAvailableOutput(from: stderrPipe.fileHandleForReading, collector: collector)
+            collector.markProcessExited()
+            self?.queue.async {
+                guard let self else { return }
+                if self.launchingProcess === terminatedProcess {
+                    self.launchingProcess = nil
+                }
+                if self.serveWebProcess === terminatedProcess {
+                    self.serveWebProcess = nil
+                    self.serveWebURL = nil
+                }
+                if let tokenFileURL = self.connectionTokenFilesByProcessID.removeValue(
+                    forKey: ObjectIdentifier(terminatedProcess)
+                ) {
+                    Self.removeConnectionTokenFile(at: tokenFileURL)
+                }
+            }
+        }
+
+        let didStart: Bool = queue.sync {
+            guard self.lifecycleGeneration == expectedGeneration,
+                  self.activeLaunchGeneration == expectedGeneration else {
+                return false
+            }
+            self.launchingProcess = process
+            self.connectionTokenFilesByProcessID[ObjectIdentifier(process)] = connectionTokenFileURL
+            do {
+                try process.run()
+                return true
+            } catch {
+                if self.launchingProcess === process {
+                    self.launchingProcess = nil
+                }
+                if let tokenFileURL = self.connectionTokenFilesByProcessID.removeValue(
+                    forKey: ObjectIdentifier(process)
+                ) {
+                    Self.removeConnectionTokenFile(at: tokenFileURL)
+                }
+                return false
+            }
+        }
+        guard didStart else {
+            stdoutPipe.fileHandleForReading.readabilityHandler = nil
+            stderrPipe.fileHandleForReading.readabilityHandler = nil
+            Self.removeConnectionTokenFile(at: connectionTokenFileURL)
+            return nil
+        }
+
+        guard collector.waitForURL(timeoutSeconds: Self.serveWebStartupTimeoutSeconds),
+              let serveWebURL = collector.webUIURL else {
+            stdoutPipe.fileHandleForReading.readabilityHandler = nil
+            stderrPipe.fileHandleForReading.readabilityHandler = nil
+            if process.isRunning {
+                process.terminate()
+            } else {
+                queue.sync {
+                    if self.launchingProcess === process {
+                        self.launchingProcess = nil
+                    }
+                    if self.serveWebProcess === process {
+                        self.serveWebProcess = nil
+                        self.serveWebURL = nil
+                    }
+                    if let tokenFileURL = self.connectionTokenFilesByProcessID.removeValue(
+                        forKey: ObjectIdentifier(process)
+                    ) {
+                        Self.removeConnectionTokenFile(at: tokenFileURL)
+                    }
+                }
+            }
+            return nil
+        }
+
+        return (process, serveWebURL)
+    }
+
+    private static func drainAvailableOutput(from fileHandle: FileHandle, collector: ServeWebOutputCollector) {
+        while true {
+            let data = fileHandle.availableData
+            guard !data.isEmpty else { return }
+            collector.append(data)
+        }
+    }
+
+    private static func randomConnectionToken() -> String {
+        UUID().uuidString.replacingOccurrences(of: "-", with: "")
+    }
+
+    private static func makeConnectionTokenFile() -> URL? {
+        let token = randomConnectionToken()
+        let tokenFileName = "cmux-vscode-token-\(UUID().uuidString)"
+        let tokenFileURL = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+            .appendingPathComponent(tokenFileName, isDirectory: false)
+        guard let tokenData = token.data(using: .utf8) else { return nil }
+
+        let fileDescriptor = open(tokenFileURL.path, O_WRONLY | O_CREAT | O_EXCL, S_IRUSR | S_IWUSR)
+        guard fileDescriptor >= 0 else { return nil }
+        defer { _ = close(fileDescriptor) }
+
+        let wroteAllBytes = tokenData.withUnsafeBytes { rawBuffer in
+            guard let baseAddress = rawBuffer.baseAddress else { return false }
+            return write(fileDescriptor, baseAddress, rawBuffer.count) == rawBuffer.count
+        }
+        guard wroteAllBytes else {
+            removeConnectionTokenFile(at: tokenFileURL)
+            return nil
+        }
+
+        return tokenFileURL
+    }
+
+    private static func removeConnectionTokenFile(at url: URL) {
+        try? FileManager.default.removeItem(at: url)
+    }
+}
+
+final class ServeWebOutputCollector {
+    private let lock = NSLock()
+    private let semaphore = DispatchSemaphore(value: 0)
+    private var outputBuffer = ""
+    private var resolvedURL: URL?
+    private var didSignal = false
+
+    var webUIURL: URL? {
+        lock.lock()
+        defer { lock.unlock() }
+        return resolvedURL
+    }
+
+    func append(_ data: Data) {
+        guard let text = String(data: data, encoding: .utf8), !text.isEmpty else { return }
+        lock.lock()
+        defer { lock.unlock() }
+        guard resolvedURL == nil else { return }
+        outputBuffer.append(text)
+        while let newlineIndex = outputBuffer.firstIndex(where: \.isNewline) {
+            let line = String(outputBuffer[..<newlineIndex])
+            outputBuffer.removeSubrange(...newlineIndex)
+            guard let parsedURL = VSCodeServeWebURLBuilder.extractWebUIURL(from: line) else {
+                continue
+            }
+            resolvedURL = parsedURL
+            outputBuffer.removeAll(keepingCapacity: false)
+            if !didSignal {
+                didSignal = true
+                semaphore.signal()
+            }
+            return
+        }
+    }
+
+    func markProcessExited() {
+        lock.lock()
+        defer { lock.unlock() }
+        if resolvedURL == nil, !outputBuffer.isEmpty,
+           let parsedURL = VSCodeServeWebURLBuilder.extractWebUIURL(from: outputBuffer) {
+            resolvedURL = parsedURL
+            outputBuffer.removeAll(keepingCapacity: false)
+        }
+        guard !didSignal else { return }
+        didSignal = true
+        semaphore.signal()
+    }
+
+    func waitForURL(timeoutSeconds: TimeInterval) -> Bool {
+        if webUIURL != nil { return true }
+        _ = semaphore.wait(timeout: .now() + timeoutSeconds)
+        return webUIURL != nil
     }
 }
 
@@ -618,23 +1060,45 @@ func browserOmnibarShouldSubmitOnReturn(flags: NSEvent.ModifierFlags) -> Bool {
 
 func shouldDispatchBrowserReturnViaFirstResponderKeyDown(
     keyCode: UInt16,
-    firstResponderIsBrowser: Bool
+    firstResponderIsBrowser: Bool,
+    flags: NSEvent.ModifierFlags
 ) -> Bool {
     guard firstResponderIsBrowser else { return false }
-    return keyCode == 36 || keyCode == 76
+    guard keyCode == 36 || keyCode == 76 else { return false }
+    // Keep browser Return forwarding narrow: only plain/Shift Return should be
+    // treated as submit-intent. Command-modified Return is reserved for app shortcuts
+    // like Toggle Pane Zoom (Cmd+Shift+Enter).
+    return browserOmnibarShouldSubmitOnReturn(flags: flags)
 }
 
 func shouldToggleMainWindowFullScreenForCommandControlFShortcut(
     flags: NSEvent.ModifierFlags,
     chars: String,
-    keyCode: UInt16
+    keyCode: UInt16,
+    layoutCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:)
 ) -> Bool {
     let normalizedFlags = flags
         .intersection(.deviceIndependentFlagsMask)
         .subtracting([.numericPad, .function, .capsLock])
     guard normalizedFlags == [.command, .control] else { return false }
     let normalizedChars = chars.lowercased()
-    return normalizedChars == "f" || keyCode == 3
+    if normalizedChars == "f" {
+        return true
+    }
+    let charsAreControlSequence = !normalizedChars.isEmpty
+        && normalizedChars.unicodeScalars.allSatisfy { CharacterSet.controlCharacters.contains($0) }
+    if !normalizedChars.isEmpty && !charsAreControlSequence {
+        return false
+    }
+
+    // Fallback to layout translation only when characters are unavailable (for
+    // synthetic/key-equivalent paths that can report an empty string).
+    if let translatedCharacter = layoutCharacterProvider(keyCode, flags), !translatedCharacter.isEmpty {
+        return translatedCharacter == "f"
+    }
+
+    // Keep ANSI fallback as a final safety net when layout translation is unavailable.
+    return keyCode == 3
 }
 
 func commandPaletteSelectionDeltaForKeyboardNavigation(
@@ -673,6 +1137,13 @@ func shouldConsumeShortcutWhileCommandPaletteVisible(
     keyCode: UInt16
 ) -> Bool {
     guard isCommandPaletteVisible else { return false }
+
+    // Escape dismisses the palette, and must not leak through to the
+    // underlying terminal or browser content.
+    if normalizedFlags.isEmpty, keyCode == 53 {
+        return true
+    }
+
     guard normalizedFlags.contains(.command) else { return false }
 
     let normalizedChars = chars.lowercased()
@@ -700,6 +1171,43 @@ func shouldConsumeShortcutWhileCommandPaletteVisible(
     }
 
     return true
+}
+
+func shouldSubmitCommandPaletteWithReturn(
+    keyCode: UInt16,
+    flags: NSEvent.ModifierFlags
+) -> Bool {
+    guard keyCode == 36 || keyCode == 76 else { return false }
+    let normalizedFlags = flags
+        .intersection(.deviceIndependentFlagsMask)
+        .subtracting([.numericPad, .function, .capsLock])
+    return normalizedFlags == [] || normalizedFlags == [.shift]
+}
+
+func commandPaletteFieldEditorHasMarkedText(in window: NSWindow) -> Bool {
+    guard let editor = window.firstResponder as? NSTextView,
+          editor.isFieldEditor else {
+        return false
+    }
+    return editor.hasMarkedText()
+}
+
+func shouldHandleCommandPaletteShortcutEvent(
+    _ event: NSEvent,
+    paletteWindow: NSWindow?
+) -> Bool {
+    guard let paletteWindow else { return false }
+    if let eventWindow = event.window {
+        return eventWindow === paletteWindow
+    }
+    let eventWindowNumber = event.windowNumber
+    if eventWindowNumber > 0 {
+        return eventWindowNumber == paletteWindow.windowNumber
+    }
+    if let keyWindow = NSApp.keyWindow {
+        return keyWindow === paletteWindow
+    }
+    return false
 }
 
 enum BrowserZoomShortcutAction: Equatable {
@@ -928,10 +1436,13 @@ func shouldSuppressWindowMoveForFolderDrag(window: NSWindow, event: NSEvent) -> 
 final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate, NSMenuItemValidation {
     static var shared: AppDelegate?
 
-    private func isRunningUnderXCTest(_ env: [String: String]) -> Bool {
-        // On some macOS/Xcode setups, the app-under-test process doesn't get
-        // `XCTestConfigurationFilePath`. Use a broader set of signals so UI tests
-        // can reliably skip heavyweight startup work and bring up a window.
+    private static let cachedIsRunningUnderXCTest = detectRunningUnderXCTest(ProcessInfo.processInfo.environment)
+
+    private var isRunningUnderXCTestCached: Bool {
+        Self.cachedIsRunningUnderXCTest
+    }
+
+    private static func detectRunningUnderXCTest(_ env: [String: String]) -> Bool {
         if env["XCTestConfigurationFilePath"] != nil { return true }
         if env["XCTestBundlePath"] != nil { return true }
         if env["XCTestSessionIdentifier"] != nil { return true }
@@ -940,6 +1451,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if env["DYLD_INSERT_LIBRARIES"]?.contains("libXCTest") == true { return true }
         if env.keys.contains(where: { $0.hasPrefix("CMUX_UI_TEST_") }) { return true }
         return false
+    }
+
+    private func isRunningUnderXCTest(_ env: [String: String]) -> Bool {
+        // On some macOS/Xcode setups, the app-under-test process doesn't get
+        // `XCTestConfigurationFilePath`. Use a broader set of signals so UI tests
+        // can reliably skip heavyweight startup work and bring up a window.
+        Self.detectRunningUnderXCTest(env)
     }
 
     private final class MainWindowContext {
@@ -990,6 +1508,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     weak var sidebarState: SidebarState?
     weak var fullscreenControlsViewModel: TitlebarControlsViewModel?
     weak var sidebarSelectionState: SidebarSelectionState?
+    var shortcutLayoutCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:)
     private var workspaceObserver: NSObjectProtocol?
     private var lifecycleSnapshotObservers: [NSObjectProtocol] = []
     private var windowKeyObserver: NSObjectProtocol?
@@ -1012,7 +1531,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private lazy var titlebarAccessoryController = UpdateTitlebarAccessoryController(viewModel: updateViewModel)
     private let windowDecorationsController = WindowDecorationsController()
     private var menuBarExtraController: MenuBarExtraController?
-    private static let serviceErrorNoPath = NSString(string: "Could not load any folder path from the clipboard.")
+    private static let serviceErrorNoPath = NSString(string: String(localized: "error.clipboardFolderPath", defaultValue: "Could not load any folder path from the clipboard."))
     private static let didInstallWindowKeyEquivalentSwizzle: Void = {
         let targetClass: AnyClass = NSWindow.self
         let originalSelector = #selector(NSWindow.performKeyEquivalent(with:))
@@ -1100,7 +1619,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var isApplyingStartupSessionRestore = false
     private var sessionAutosaveTimer: DispatchSourceTimer?
     private var socketListenerHealthTimer: DispatchSourceTimer?
-    private static let socketListenerHealthCheckInterval: DispatchTimeInterval = .seconds(5)
+    private var socketListenerHealthCheckInFlight = false
+    private static let socketListenerHealthCheckInterval: DispatchTimeInterval = .seconds(2)
     private var lastSocketListenerUnhealthyCaptureAt: Date = .distantPast
     private static let socketListenerUnhealthyCaptureCooldown: TimeInterval = 60
     private let sessionPersistenceQueue = DispatchQueue(
@@ -1121,8 +1641,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var didInstallLifecycleSnapshotObservers = false
     private var didDisableSuddenTermination = false
     private var commandPaletteVisibilityByWindowId: [UUID: Bool] = [:]
+    private var commandPalettePendingOpenByWindowId: [UUID: Bool] = [:]
+    private var commandPaletteRecentRequestAtByWindowId: [UUID: TimeInterval] = [:]
+    private var commandPaletteEscapeSuppressionByWindowId: Set<UUID> = []
+    private var commandPaletteEscapeSuppressionStartedAtByWindowId: [UUID: TimeInterval] = [:]
     private var commandPaletteSelectionByWindowId: [UUID: Int] = [:]
     private var commandPaletteSnapshotByWindowId: [UUID: CommandPaletteDebugSnapshot] = [:]
+    private static let commandPaletteRequestGraceInterval: TimeInterval = 1.25
+    private static let commandPalettePendingOpenMaxAge: TimeInterval = 8.0
 
     var updateViewModel: UpdateViewModel {
         updateController.viewModel
@@ -1201,6 +1727,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
 
         if telemetryEnabled {
+            // Pre-warm locale before Sentry to avoid a startup data race.
+            // Locale initialization (os.locale.ensureLocale / NSLocale._preferredLanguages)
+            // on the main thread can race with Sentry's background init thread
+            // calling posix.getenv, causing a SIGSEGV ~134ms after launch.
+            // Forcing locale access here before SentrySDK.start eliminates the race.
+            // Related to: #836
+            _ = Locale.current
+            _ = NSLocale.preferredLanguages
+
             SentrySDK.start { options in
                 options.dsn = "https://ecba1ec90ecaee02a102fba931b6d2b3@o4507547940749312.ingest.us.sentry.io/4510796264636416"
                 #if DEBUG
@@ -1228,6 +1763,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             PostHogAnalytics.shared.startIfNeeded()
         }
 
+        let forceDuplicateLaunchObserver = env["CMUX_UI_TEST_ENABLE_DUPLICATE_LAUNCH_OBSERVER"] == "1"
+
         // UI tests frequently time out waiting for the main window if we do heavyweight
         // LaunchServices registration / single-instance enforcement synchronously at startup.
         // Skip these during XCTest (the app-under-test) so the window can appear quickly.
@@ -1237,6 +1774,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 self.scheduleLaunchServicesBundleRegistration()
                 self.enforceSingleInstance()
                 self.observeDuplicateLaunches()
+            }
+        } else if forceDuplicateLaunchObserver {
+            // Some UI regressions specifically exercise launch-observer behavior while still
+            // running under XCTest. Allow an explicit opt-in for those cases only.
+            DispatchQueue.main.async { [weak self] in
+                self?.observeDuplicateLaunches()
             }
         }
         NSWindow.allowsAutomaticWindowTabbing = false
@@ -1330,13 +1873,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         sentryBreadcrumb("app.didBecomeActive", category: "lifecycle", data: [
             "tabCount": tabManager?.tabs.count ?? 0
         ])
-        let env = ProcessInfo.processInfo.environment
-        if TelemetrySettings.enabledForCurrentLaunch && !isRunningUnderXCTest(env) {
-            PostHogAnalytics.shared.trackDailyActive(reason: "didBecomeActive")
-            PostHogAnalytics.shared.trackHourlyActive(reason: "didBecomeActive")
+        if TelemetrySettings.enabledForCurrentLaunch && !isRunningUnderXCTestCached {
+            PostHogAnalytics.shared.trackActive(reason: "didBecomeActive")
         }
 
-        guard let tabManager, let notificationStore else { return }
+        guard let notificationStore else { return }
+        notificationStore.handleApplicationDidBecomeActive()
+        guard let tabManager else { return }
         guard let tabId = tabManager.selectedTabId else { return }
         let surfaceId = tabManager.focusedSurfaceId(for: tabId)
         guard notificationStore.hasUnreadNotification(forTabId: tabId, surfaceId: surfaceId) else { return }
@@ -1360,6 +1903,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         stopSessionAutosaveTimer()
         stopSocketListenerHealthMonitor()
         TerminalController.shared.stop()
+        VSCodeServeWebController.shared.stop()
         BrowserHistoryStore.shared.flushPendingSaves()
         if TelemetrySettings.enabledForCurrentLaunch {
             PostHogAnalytics.shared.flush()
@@ -2016,25 +2560,57 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func stopSocketListenerHealthMonitor() {
         socketListenerHealthTimer?.cancel()
         socketListenerHealthTimer = nil
+        socketListenerHealthCheckInFlight = false
     }
 
     private func restartSocketListenerIfNeededForHealthCheck(source: String) {
-        guard let config = socketListenerConfigurationIfEnabled() else { return }
-        let health = TerminalController.shared.socketListenerHealth(expectedSocketPath: config.path)
+        guard !socketListenerHealthCheckInFlight,
+              let config = socketListenerConfigurationIfEnabled() else { return }
+        let expectedSocketPath = config.path
+        let terminalController = TerminalController.shared
+        socketListenerHealthCheckInFlight = true
+        Thread.detachNewThread { [weak self, expectedSocketPath, source, terminalController] in
+            let health = terminalController.socketListenerHealth(expectedSocketPath: expectedSocketPath)
+            Task { @MainActor [weak self, health] in
+                guard let self else { return }
+                self.socketListenerHealthCheckInFlight = false
+                self.handleSocketListenerHealthCheckResult(
+                    health,
+                    source: source,
+                    expectedSocketPath: expectedSocketPath
+                )
+            }
+        }
+    }
+
+    private func handleSocketListenerHealthCheckResult(
+        _ health: TerminalController.SocketListenerHealth,
+        source: String,
+        expectedSocketPath: String
+    ) {
+        guard let config = socketListenerConfigurationIfEnabled(),
+              config.path == expectedSocketPath else { return }
         guard !health.isHealthy else {
             lastSocketListenerUnhealthyCaptureAt = .distantPast
             return
         }
         let failureSignals = health.failureSignals
-        let data: [String: Any] = [
+        var data: [String: Any] = [
             "source": source,
             "path": config.path,
             "isRunning": health.isRunning ? 1 : 0,
             "acceptLoopAlive": health.acceptLoopAlive ? 1 : 0,
             "socketPathMatches": health.socketPathMatches ? 1 : 0,
             "socketPathExists": health.socketPathExists ? 1 : 0,
+            "socketProbePerformed": health.socketProbePerformed ? 1 : 0,
             "failureSignals": failureSignals
         ]
+        if let socketConnectable = health.socketConnectable {
+            data["socketConnectable"] = socketConnectable ? 1 : 0
+        }
+        if let socketConnectErrno = health.socketConnectErrno {
+            data["socketConnectErrno"] = Int(socketConnectErrno)
+        }
         sentryBreadcrumb("socket.listener.unhealthy", category: "socket", data: data)
         let now = Date()
         if now.timeIntervalSince(lastSocketListenerUnhealthyCaptureAt) >= Self.socketListenerUnhealthyCaptureCooldown {
@@ -2838,9 +3414,212 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         windowForMainWindowId(windowId)
     }
 
+    private func markCommandPaletteOpenRequested(for window: NSWindow?) {
+        guard let window,
+              let windowId = mainWindowId(for: window) else { return }
+        commandPalettePendingOpenByWindowId[windowId] = true
+        commandPaletteRecentRequestAtByWindowId[windowId] = ProcessInfo.processInfo.systemUptime
+    }
+
+    private func postCommandPaletteRequest(
+        name: Notification.Name,
+        preferredWindow: NSWindow?,
+        source: String,
+        markPending: Bool
+    ) {
+        let targetWindow = preferredWindow ?? NSApp.keyWindow ?? NSApp.mainWindow
+        if markPending {
+            markCommandPaletteOpenRequested(for: targetWindow)
+        }
+        NotificationCenter.default.post(name: name, object: targetWindow)
+#if DEBUG
+        dlog(
+            "shortcut.palette.request source=\(source) " +
+            "target={\(debugWindowToken(targetWindow))} " +
+            "pendingMarked=\(markPending ? 1 : 0)"
+        )
+#endif
+    }
+
+    func requestCommandPaletteCommands(preferredWindow: NSWindow? = nil, source: String = "api.commandPalette") {
+        postCommandPaletteRequest(
+            name: .commandPaletteRequested,
+            preferredWindow: preferredWindow,
+            source: source,
+            markPending: true
+        )
+    }
+
+    func requestCommandPaletteSwitcher(preferredWindow: NSWindow? = nil, source: String = "api.commandPaletteSwitcher") {
+        postCommandPaletteRequest(
+            name: .commandPaletteSwitcherRequested,
+            preferredWindow: preferredWindow,
+            source: source,
+            markPending: true
+        )
+    }
+
+    func requestCommandPaletteRenameTab(preferredWindow: NSWindow? = nil, source: String = "api.commandPaletteRenameTab") {
+        postCommandPaletteRequest(
+            name: .commandPaletteRenameTabRequested,
+            preferredWindow: preferredWindow,
+            source: source,
+            markPending: true
+        )
+    }
+
+    func requestCommandPaletteRenameWorkspace(
+        preferredWindow: NSWindow? = nil,
+        source: String = "api.commandPaletteRenameWorkspace"
+    ) {
+        postCommandPaletteRequest(
+            name: .commandPaletteRenameWorkspaceRequested,
+            preferredWindow: preferredWindow,
+            source: source,
+            markPending: true
+        )
+    }
+
+    private func clearCommandPalettePendingOpen(for window: NSWindow?) {
+        guard let window,
+              let windowId = mainWindowId(for: window) else { return }
+        commandPalettePendingOpenByWindowId.removeValue(forKey: windowId)
+        commandPaletteRecentRequestAtByWindowId.removeValue(forKey: windowId)
+    }
+
+    private func pruneExpiredCommandPalettePendingOpenStates(
+        now: TimeInterval = ProcessInfo.processInfo.systemUptime
+    ) {
+        for windowId in Array(commandPalettePendingOpenByWindowId.keys) {
+            guard commandPalettePendingOpenByWindowId[windowId] == true else { continue }
+            guard let requestedAt = commandPaletteRecentRequestAtByWindowId[windowId] else {
+                commandPalettePendingOpenByWindowId.removeValue(forKey: windowId)
+#if DEBUG
+                dlog("shortcut.palette.pendingPrune windowId=\(windowId.uuidString.prefix(8)) reason=missingTimestamp")
+#endif
+                continue
+            }
+            let age = now - requestedAt
+            guard age > Self.commandPalettePendingOpenMaxAge else { continue }
+            commandPalettePendingOpenByWindowId.removeValue(forKey: windowId)
+            commandPaletteRecentRequestAtByWindowId.removeValue(forKey: windowId)
+#if DEBUG
+            dlog(
+                "shortcut.palette.pendingPrune windowId=\(windowId.uuidString.prefix(8)) " +
+                "reason=stale ageMs=\(Int(age * 1000))"
+            )
+#endif
+        }
+    }
+
+    private func isCommandPalettePendingOpen(for window: NSWindow) -> Bool {
+        guard let windowId = mainWindowId(for: window) else { return false }
+        pruneExpiredCommandPalettePendingOpenStates()
+        return commandPalettePendingOpenByWindowId[windowId] == true
+    }
+
+    private func beginCommandPaletteEscapeSuppression(for window: NSWindow?) {
+        guard let window,
+              let windowId = mainWindowId(for: window) else { return }
+        commandPaletteEscapeSuppressionByWindowId.insert(windowId)
+        commandPaletteEscapeSuppressionStartedAtByWindowId[windowId] = ProcessInfo.processInfo.systemUptime
+    }
+
+    private func endCommandPaletteEscapeSuppression(for window: NSWindow?) {
+        guard let window,
+              let windowId = mainWindowId(for: window) else { return }
+        commandPaletteEscapeSuppressionByWindowId.remove(windowId)
+        commandPaletteEscapeSuppressionStartedAtByWindowId.removeValue(forKey: windowId)
+    }
+
+    private func shouldConsumeSuppressedEscape(event: NSEvent, window: NSWindow?) -> Bool {
+        guard let window,
+              let windowId = mainWindowId(for: window),
+              commandPaletteEscapeSuppressionByWindowId.contains(windowId) else {
+            return false
+        }
+        if event.isARepeat {
+            return true
+        }
+        let startedAt = commandPaletteEscapeSuppressionStartedAtByWindowId[windowId] ?? 0
+        if ProcessInfo.processInfo.systemUptime - startedAt <= 0.35 {
+            return true
+        }
+        // Fallback cleanup when keyUp is lost for any reason.
+        endCommandPaletteEscapeSuppression(for: window)
+        return false
+    }
+
+    private func recentCommandPaletteRequestAge(for window: NSWindow?) -> TimeInterval? {
+        guard let window,
+              let windowId = mainWindowId(for: window) else {
+            return nil
+        }
+        let now = ProcessInfo.processInfo.systemUptime
+        pruneExpiredCommandPalettePendingOpenStates(now: now)
+        guard commandPalettePendingOpenByWindowId[windowId] == true else {
+            commandPaletteRecentRequestAtByWindowId.removeValue(forKey: windowId)
+            return nil
+        }
+        guard let startedAt = commandPaletteRecentRequestAtByWindowId[windowId] else {
+            commandPalettePendingOpenByWindowId.removeValue(forKey: windowId)
+            return nil
+        }
+        let age = now - startedAt
+        if age <= Self.commandPaletteRequestGraceInterval {
+            return age
+        }
+        return nil
+    }
+
+    private func escapeSuppressionWindow(for event: NSEvent) -> NSWindow? {
+        commandPaletteWindowForShortcutEvent(event) ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
+    }
+
+    @discardableResult
+    private func clearEscapeSuppressionForKeyUp(event: NSEvent, consumeIfSuppressed: Bool = false) -> Bool {
+        guard event.type == .keyUp, event.keyCode == 53 else { return false }
+        let suppressionWindow = escapeSuppressionWindow(for: event)
+        let didConsume = consumeIfSuppressed && shouldConsumeSuppressedEscape(event: event, window: suppressionWindow)
+        if let window = suppressionWindow {
+            endCommandPaletteEscapeSuppression(for: window)
+#if DEBUG
+            dlog(
+                "shortcut.escape suppressionClear target={\(debugWindowToken(window))} " +
+                "keyUpConsumed=\(didConsume ? 1 : 0)"
+            )
+#endif
+            return didConsume
+        }
+        commandPaletteEscapeSuppressionByWindowId.removeAll()
+        commandPaletteEscapeSuppressionStartedAtByWindowId.removeAll()
+#if DEBUG
+        dlog("shortcut.escape suppressionClear target={nil} clearedAll=1 keyUpConsumed=\(didConsume ? 1 : 0)")
+#endif
+        return didConsume
+    }
+
     func setCommandPaletteVisible(_ visible: Bool, for window: NSWindow) {
         guard let windowId = mainWindowId(for: window) else { return }
+        let wasVisible = commandPaletteVisibilityByWindowId[windowId] ?? false
         commandPaletteVisibilityByWindowId[windowId] = visible
+        // Opening (false -> true) always resolves pending-open.
+        // Closing (true -> false) also clears stale pending state.
+        // Ignore repeated false updates so a stale sync cannot erase an in-flight open request.
+        if visible || wasVisible {
+            commandPalettePendingOpenByWindowId.removeValue(forKey: windowId)
+            commandPaletteRecentRequestAtByWindowId.removeValue(forKey: windowId)
+        }
+#if DEBUG
+        if !visible,
+           !wasVisible,
+           commandPalettePendingOpenByWindowId[windowId] == true {
+            dlog(
+                "palette.visibility.retainPending " +
+                "window={\(debugWindowToken(window))} visible=0 wasVisible=0 pending=1"
+            )
+        }
+#endif
     }
 
     func isCommandPaletteVisible(windowId: UUID) -> Bool {
@@ -2950,6 +3729,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return nil
     }
 
+    /// Resolve the workspace that currently owns a panel/surface ID.
+    /// Prefer the provided workspace when available, then fall back to global lookup.
+    func workspaceContainingPanel(
+        panelId: UUID,
+        preferredWorkspaceId: UUID? = nil
+    ) -> (workspace: Workspace, tabManager: TabManager)? {
+        if let preferredWorkspaceId,
+           let manager = tabManagerFor(tabId: preferredWorkspaceId),
+           let workspace = manager.tabs.first(where: { $0.id == preferredWorkspaceId }),
+           workspace.panels[panelId] != nil {
+            return (workspace, manager)
+        }
+
+        if let located = locateSurface(surfaceId: panelId),
+           let workspace = located.tabManager.tabs.first(where: { $0.id == located.workspaceId }),
+           workspace.panels[panelId] != nil {
+            return (workspace, located.tabManager)
+        }
+
+        if let preferredWorkspaceId,
+           let manager = tabManagerFor(tabId: preferredWorkspaceId) ?? tabManager,
+           let workspace = manager.tabs.first(where: { $0.id == preferredWorkspaceId }),
+           workspace.panels[panelId] != nil {
+            return (workspace, manager)
+        }
+
+        if let manager = tabManager,
+           let workspace = manager.tabs.first(where: { $0.panels[panelId] != nil }) {
+            return (workspace, manager)
+        }
+
+        return nil
+    }
+
     func locateGhosttySurface(_ surface: ghostty_surface_t?) -> (windowId: UUID, workspaceId: UUID, panelId: UUID, tabManager: TabManager)? {
         guard let surface else { return nil }
         for ctx in mainWindowContexts.values {
@@ -2963,6 +3776,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
         return nil
+    }
+
+    func refreshTerminalSurfacesAfterGhosttyConfigReload(source: String) {
+        var refreshedCount = 0
+        forEachTerminalPanel { terminalPanel in
+            terminalPanel.hostedView.reconcileGeometryNow()
+            terminalPanel.surface.forceRefresh(reason: "appDelegate.refreshAfterGhosttyConfigReload")
+            refreshedCount += 1
+        }
+#if DEBUG
+        dlog("reload.config.surfaceRefresh source=\(source) count=\(refreshedCount)")
+#endif
+    }
+
+    private func forEachTerminalPanel(_ body: (TerminalPanel) -> Void) {
+        var seenManagers: Set<ObjectIdentifier> = []
+
+        func visitManager(_ manager: TabManager?) {
+            guard let manager else { return }
+            let managerId = ObjectIdentifier(manager)
+            guard seenManagers.insert(managerId).inserted else { return }
+            for workspace in manager.tabs {
+                for panel in workspace.panels.values {
+                    guard let terminalPanel = panel as? TerminalPanel else { continue }
+                    body(terminalPanel)
+                }
+            }
+        }
+
+        visitManager(tabManager)
+        for context in mainWindowContexts.values {
+            visitManager(context.tabManager)
+        }
     }
 
     func focusMainWindow(windowId: UUID) -> Bool {
@@ -3003,9 +3849,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         var labels: [UUID: String] = [:]
         for (index, summary) in orderedSummaries.enumerated() {
             if summary.windowId == referenceWindowId {
-                labels[summary.windowId] = "Current Window"
+                labels[summary.windowId] = String(localized: "menu.currentWindow", defaultValue: "Current Window")
             } else {
-                labels[summary.windowId] = "Window \(index + 1)"
+                let number = index + 1
+                labels[summary.windowId] = String(localized: "menu.windowNumber", defaultValue: "Window \(number)")
             }
         }
         return labels
@@ -3013,7 +3860,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func workspaceDisplayName(_ workspace: Workspace) -> String {
         let trimmed = workspace.title.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? "Workspace" : trimmed
+        return trimmed.isEmpty ? String(localized: "workspace.displayName.fallback", defaultValue: "Workspace") : trimmed
     }
 
     private func rollbackDetachedSurface(
@@ -3180,19 +4027,81 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return UUID(uuidString: idPart)
     }
 
+    private func commandPaletteOverlayContainer(in window: NSWindow) -> NSView? {
+        guard let searchRoot = window.contentView?.superview ?? window.contentView else { return nil }
+        var stack: [NSView] = [searchRoot]
+        while let candidate = stack.popLast() {
+            if candidate.identifier == commandPaletteOverlayContainerIdentifier {
+                return candidate
+            }
+            stack.append(contentsOf: candidate.subviews)
+        }
+        return nil
+    }
+
+    private func isCommandPaletteOverlayPresented(in window: NSWindow) -> Bool {
+        guard let container = commandPaletteOverlayContainer(in: window) else { return false }
+        return !container.isHidden && container.alphaValue > 0.001
+    }
+
+    private func isCommandPaletteResponderActive(in window: NSWindow) -> Bool {
+        guard let responder = window.firstResponder else { return false }
+        if let textView = responder as? NSTextView,
+           textView.isFieldEditor,
+           !(textView.delegate is NSView) {
+            // Field-editor delegates can be non-view responders. Confirm the overlay is
+            // mounted and visible to avoid treating unrelated editors as palette input.
+            return isCommandPaletteOverlayPresented(in: window)
+        }
+        return isCommandPaletteResponder(responder)
+    }
+
+    private func commandPaletteMarkedTextInput(in window: NSWindow) -> NSTextView? {
+        if let textView = window.firstResponder as? NSTextView,
+           isCommandPaletteResponder(textView),
+           textView.hasMarkedText() {
+            return textView
+        }
+
+        if let textField = window.firstResponder as? NSTextField,
+           let editor = textField.currentEditor() as? NSTextView,
+           isCommandPaletteResponder(editor),
+           editor.hasMarkedText() {
+            return editor
+        }
+
+        return nil
+    }
+
+    private func isCommandPaletteEffectivelyVisible(in window: NSWindow) -> Bool {
+        isCommandPaletteVisible(for: window)
+            || isCommandPalettePendingOpen(for: window)
+            || isCommandPaletteOverlayPresented(in: window)
+            || isCommandPaletteResponderActive(in: window)
+    }
+
     private func activeCommandPaletteWindow() -> NSWindow? {
+        pruneExpiredCommandPalettePendingOpenStates()
         if let keyWindow = NSApp.keyWindow,
-           let windowId = mainWindowId(for: keyWindow),
-           commandPaletteVisibilityByWindowId[windowId] == true {
+           isMainTerminalWindow(keyWindow),
+           isCommandPaletteEffectivelyVisible(in: keyWindow) {
             return keyWindow
         }
         if let mainWindow = NSApp.mainWindow,
-           let windowId = mainWindowId(for: mainWindow),
-           commandPaletteVisibilityByWindowId[windowId] == true {
+           isMainTerminalWindow(mainWindow),
+           isCommandPaletteEffectivelyVisible(in: mainWindow) {
             return mainWindow
+        }
+        if let orderedWindow = NSApp.orderedWindows.first(where: { window in
+            isMainTerminalWindow(window) && isCommandPaletteEffectivelyVisible(in: window)
+        }) {
+            return orderedWindow
         }
         if let visibleWindowId = commandPaletteVisibilityByWindowId.first(where: { $0.value })?.key {
             return windowForMainWindowId(visibleWindowId)
+        }
+        if let pendingWindowId = commandPalettePendingOpenByWindowId.first(where: { $0.value })?.key {
+            return windowForMainWindowId(pendingWindowId)
         }
         return nil
     }
@@ -3304,6 +4213,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
 #endif
         guard let context else { return tabManager }
+        let alreadyActive =
+            tabManager === context.tabManager
+            && sidebarState === context.sidebarState
+            && sidebarSelectionState === context.sidebarSelectionState
+        if alreadyActive {
+#if DEBUG
+            dlog(
+                "shortcut.sync.post source=\(source) beforeMgr=\(beforeManagerToken) afterMgr=\(debugManagerToken(tabManager)) chosen={\(debugContextToken(context))} nochange=1 \(debugShortcutRouteSnapshot())"
+            )
+#endif
+            return context.tabManager
+        }
         if let window = context.window ?? windowForMainWindowId(context.windowId) {
             setActiveMainWindow(window)
         } else {
@@ -3882,22 +4803,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let installer = CmuxCLIPathInstaller()
         do {
             let outcome = try installer.install()
-            var informativeText = """
-            Created symlink:
-
-            \(outcome.destinationURL.path) -> \(outcome.sourceURL.path)
-            """
+            var informativeText = String(localized: "cli.install.symlinkCreated", defaultValue: "Created symlink:\n\n\(outcome.destinationURL.path) -> \(outcome.sourceURL.path)")
             if outcome.usedAdministratorPrivileges {
-                informativeText += "\n\nAdministrator privileges were required to write to /usr/local/bin."
+                informativeText += "\n\n" + String(localized: "cli.install.adminRequired", defaultValue: "Administrator privileges were required to write to /usr/local/bin.")
             }
             presentCLIPathAlert(
-                title: "cmux CLI Installed",
+                title: String(localized: "cli.installed", defaultValue: "cmux CLI Installed"),
                 informativeText: informativeText,
                 style: .informational
             )
         } catch {
             presentCLIPathAlert(
-                title: "Couldn't Install cmux CLI",
+                title: String(localized: "cli.installFailed", defaultValue: "Couldn't Install cmux CLI"),
                 informativeText: error.localizedDescription,
                 style: .warning
             )
@@ -3909,20 +4826,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         do {
             let outcome = try installer.uninstall()
             let prefix = outcome.removedExistingEntry
-                ? "Removed \(outcome.destinationURL.path)."
-                : "No cmux CLI symlink was found at \(outcome.destinationURL.path)."
+                ? String(localized: "cli.uninstall.removed", defaultValue: "Removed \(outcome.destinationURL.path).")
+                : String(localized: "cli.uninstall.notFound", defaultValue: "No cmux CLI symlink was found at \(outcome.destinationURL.path).")
             var informativeText = prefix
             if outcome.usedAdministratorPrivileges {
-                informativeText += "\n\nAdministrator privileges were required to modify /usr/local/bin."
+                informativeText += "\n\n" + String(localized: "cli.uninstall.adminRequired", defaultValue: "Administrator privileges were required to modify /usr/local/bin.")
             }
             presentCLIPathAlert(
-                title: "cmux CLI Uninstalled",
+                title: String(localized: "cli.uninstalled", defaultValue: "cmux CLI Uninstalled"),
                 informativeText: informativeText,
                 style: .informational
             )
         } catch {
             presentCLIPathAlert(
-                title: "Couldn't Uninstall cmux CLI",
+                title: String(localized: "cli.uninstallFailed", defaultValue: "Couldn't Uninstall cmux CLI"),
                 informativeText: error.localizedDescription,
                 style: .warning
             )
@@ -3938,7 +4855,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         alert.alertStyle = style
         alert.messageText = title
         alert.informativeText = informativeText
-        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
 
         if let window = NSApp.keyWindow ?? NSApp.mainWindow {
             alert.beginSheetModal(for: window, completionHandler: nil)
@@ -3992,8 +4909,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @MainActor
     static func presentPreferencesWindow(
-        showFallbackSettingsWindow: @MainActor () -> Void = {
-            SettingsWindowController.shared.show()
+        navigationTarget: SettingsNavigationTarget? = nil,
+        showFallbackSettingsWindow: @MainActor (SettingsNavigationTarget?) -> Void = { target in
+            SettingsWindowController.shared.show(navigationTarget: target)
         },
         activateApplication: @MainActor () -> Void = {
             NSApp.activate(ignoringOtherApps: true)
@@ -4002,7 +4920,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
         dlog("settings.open.present path=customWindowDirect")
 #endif
-        showFallbackSettingsWindow()
+        showFallbackSettingsWindow(navigationTarget)
         activateApplication()
 #if DEBUG
         dlog("settings.open.present activate=1")
@@ -4010,11 +4928,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @MainActor
-    func openPreferencesWindow(debugSource: String) {
+    func openPreferencesWindow(debugSource: String, navigationTarget: SettingsNavigationTarget? = nil) {
 #if DEBUG
         dlog("settings.open.request source=\(debugSource)")
 #endif
-        Self.presentPreferencesWindow()
+        Self.presentPreferencesWindow(navigationTarget: navigationTarget)
     }
 
     @objc func openPreferencesWindow() {
@@ -4103,6 +5021,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
 #if DEBUG
     private let debugColorWorkspaceTitlePrefix = "Debug Color - "
+    private let debugPerfWorkspaceTitlePrefix = "Debug Perf - "
+    private var debugStressWorkspaceCreationInProgress = false
+    private var debugStressLagProbeEnabled = false
+    private let debugStressWorkspaceCount = 20
+    private let debugStressPaneCount = 4
+    private let debugStressTabsPerPane = 4
+    private let debugStressYieldInterval = 4
 
     @objc func openDebugScrollbackTab(_ sender: Any?) {
         guard let tabManager else { return }
@@ -4151,6 +5076,280 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             tabManager.setCustomTitle(tabId: targetTab.id, title: title)
             tabManager.setTabColor(tabId: targetTab.id, color: entry.hex)
         }
+    }
+
+    @objc func openDebugStressWorkspacesWithLoadedSurfaces(_ sender: Any?) {
+        guard !debugStressWorkspaceCreationInProgress else { return }
+        guard let tabManager else { return }
+
+        debugStressLagProbeEnabled = true
+        debugStressWorkspaceCreationInProgress = true
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { self.debugStressWorkspaceCreationInProgress = false }
+
+            let totalStart = ProcessInfo.processInfo.systemUptime
+            let originalSelectedWorkspaceId = tabManager.selectedTabId
+            var created: [Workspace] = []
+            created.reserveCapacity(self.debugStressWorkspaceCount)
+            var layoutFailures = 0
+            var cumulativeWorkspaceMs: Double = 0
+            var slowWorkspaceCount = 0
+            var worstWorkspaceMs: Double = 0
+
+            dlog(
+                "stress.setup.start workspaces=\(self.debugStressWorkspaceCount) panes=\(self.debugStressPaneCount) " +
+                "tabsPerPane=\(self.debugStressTabsPerPane) lagProbe=1"
+            )
+
+            for index in 0..<self.debugStressWorkspaceCount {
+                let workspaceStart = ProcessInfo.processInfo.systemUptime
+                let workspace = tabManager.addWorkspace(select: false, placementOverride: .end)
+                created.append(workspace)
+                tabManager.setCustomTitle(
+                    tabId: workspace.id,
+                    title: "\(self.debugPerfWorkspaceTitlePrefix)\(index + 1)"
+                )
+
+                if !(await self.configureDebugStressWorkspaceLayout(
+                    workspace,
+                    paneCount: self.debugStressPaneCount,
+                    tabsPerPane: self.debugStressTabsPerPane
+                )) {
+                    layoutFailures += 1
+                }
+
+                let workspaceMs = (ProcessInfo.processInfo.systemUptime - workspaceStart) * 1000.0
+                cumulativeWorkspaceMs += workspaceMs
+                worstWorkspaceMs = max(worstWorkspaceMs, workspaceMs)
+                if workspaceMs >= 35 {
+                    slowWorkspaceCount += 1
+                }
+
+                if workspaceMs >= 35 || ((index + 1) % 5 == 0) {
+                    let pending = self.pendingDebugTerminalSurfaceCount(in: created)
+                    dlog(
+                        "stress.setup.workspace idx=\(index + 1)/\(self.debugStressWorkspaceCount) " +
+                        "ms=\(String(format: "%.2f", workspaceMs)) failures=\(layoutFailures) pending=\(pending)"
+                    )
+                }
+
+                if ((index + 1) % self.debugStressYieldInterval) == 0 {
+                    await Task.yield()
+                }
+            }
+
+            let creationElapsedMs = (ProcessInfo.processInfo.systemUptime - totalStart) * 1000.0
+            let primeStats = await self.primeDebugStressWorkspacesForSurfaceLoad(created)
+            // Avoid synchronous "load all surfaces" waiting in this command path.
+            // Waiting for every background surface to be ready creates sustained
+            // main-actor churn and can starve typing responsiveness.
+            let loadStats = DebugStressSurfaceLoadStats(
+                pendingSurfaces: self.pendingDebugTerminalSurfaceCount(in: created),
+                attempts: 0,
+                elapsedMs: 0
+            )
+            let totalElapsedMs = (ProcessInfo.processInfo.systemUptime - totalStart) * 1000.0
+            let avgWorkspaceMs = created.isEmpty ? 0 : (cumulativeWorkspaceMs / Double(created.count))
+            let expectedSurfaceCount = self.debugStressWorkspaceCount
+                * self.debugStressPaneCount
+                * self.debugStressTabsPerPane
+            if let originalSelectedWorkspaceId,
+               tabManager.tabs.contains(where: { $0.id == originalSelectedWorkspaceId }) {
+                tabManager.selectedTabId = originalSelectedWorkspaceId
+            }
+
+            dlog(
+                "stress.setup.done createMs=\(String(format: "%.2f", creationElapsedMs)) " +
+                "primeMs=\(String(format: "%.2f", primeStats.elapsedMs)) primedTabs=\(primeStats.activatedTabs) " +
+                "waitMs=\(String(format: "%.2f", loadStats.elapsedMs)) totalMs=\(String(format: "%.2f", totalElapsedMs)) " +
+                "workspaceAvgMs=\(String(format: "%.2f", avgWorkspaceMs)) workspaceWorstMs=\(String(format: "%.2f", worstWorkspaceMs)) " +
+                "workspaceSlowCount=\(slowWorkspaceCount) waitAttempts=\(loadStats.attempts) " +
+                "pendingSurfaces=\(loadStats.pendingSurfaces) expectedSurfaces=\(expectedSurfaceCount)"
+            )
+
+            NSLog(
+                "Debug stress workspaces: created=%d panesPerWorkspace=%d tabsPerPane=%d expectedSurfaces=%d layoutFailures=%d pendingSurfaces=%d createMs=%.2f primeMs=%.2f primedTabs=%d waitMs=%.2f totalMs=%.2f workspaceAvgMs=%.2f workspaceWorstMs=%.2f waitAttempts=%d",
+                self.debugStressWorkspaceCount,
+                self.debugStressPaneCount,
+                self.debugStressTabsPerPane,
+                expectedSurfaceCount,
+                layoutFailures,
+                loadStats.pendingSurfaces,
+                creationElapsedMs,
+                primeStats.elapsedMs,
+                primeStats.activatedTabs,
+                loadStats.elapsedMs,
+                totalElapsedMs,
+                avgWorkspaceMs,
+                worstWorkspaceMs,
+                loadStats.attempts
+            )
+        }
+    }
+
+    private struct DebugStressSurfacePrimeStats {
+        let activatedTabs: Int
+        let elapsedMs: Double
+    }
+
+    private func primeDebugStressWorkspacesForSurfaceLoad(
+        _ workspaces: [Workspace]
+    ) async -> DebugStressSurfacePrimeStats {
+        guard !workspaces.isEmpty else {
+            return DebugStressSurfacePrimeStats(activatedTabs: 0, elapsedMs: 0)
+        }
+
+        let primeStart = ProcessInfo.processInfo.systemUptime
+        var activatedTabs = 0
+
+        for (index, workspace) in workspaces.enumerated() {
+            activatedTabs += workspace.panels.values.reduce(into: 0) { count, panel in
+                if panel is TerminalPanel {
+                    count += 1
+                }
+            }
+
+            if (index + 1) % debugStressYieldInterval == 0 || index == workspaces.count - 1 {
+                dlog(
+                    "stress.setup.mount idx=\(index + 1)/\(workspaces.count) activatedTabs=\(activatedTabs)"
+                )
+                await Task.yield()
+            }
+        }
+
+        let elapsedMs = (ProcessInfo.processInfo.systemUptime - primeStart) * 1000.0
+        return DebugStressSurfacePrimeStats(activatedTabs: activatedTabs, elapsedMs: elapsedMs)
+    }
+
+    private func configureDebugStressWorkspaceLayout(
+        _ workspace: Workspace,
+        paneCount: Int,
+        tabsPerPane: Int
+    ) async -> Bool {
+        guard let topLeftPanelId = workspace.focusedTerminalPanel?.id ?? workspace.focusedPanelId else {
+            return false
+        }
+        guard let topRight = workspace.newTerminalSplit(
+            from: topLeftPanelId,
+            orientation: .horizontal,
+            focus: false
+        ) else {
+            return false
+        }
+        await Task.yield()
+        guard workspace.newTerminalSplit(
+            from: topLeftPanelId,
+            orientation: .vertical,
+            focus: false
+        ) != nil else {
+            return false
+        }
+        await Task.yield()
+        guard workspace.newTerminalSplit(
+            from: topRight.id,
+            orientation: .vertical,
+            focus: false
+        ) != nil else {
+            return false
+        }
+        await Task.yield()
+
+        let paneIds = workspace.bonsplitController.allPaneIds
+        guard paneIds.count == paneCount else { return false }
+
+        let additionalTabsPerPane = max(0, tabsPerPane - 1)
+        if additionalTabsPerPane > 0 {
+            for (paneIndex, paneId) in paneIds.enumerated() {
+                for tabOffset in 0..<additionalTabsPerPane {
+                    guard workspace.newTerminalSurface(inPane: paneId, focus: false) != nil else {
+                        return false
+                    }
+                    if ((tabOffset + 1) % debugStressYieldInterval) == 0 {
+                        await Task.yield()
+                    }
+                }
+                if ((paneIndex + 1) % debugStressYieldInterval) == 0 {
+                    await Task.yield()
+                }
+            }
+        }
+
+        return true
+    }
+
+    private struct DebugStressSurfaceLoadStats {
+        let pendingSurfaces: Int
+        let attempts: Int
+        let elapsedMs: Double
+    }
+
+    private func pendingDebugTerminalSurfaceCount(in workspaces: [Workspace]) -> Int {
+        var pending = 0
+        for workspace in workspaces {
+            for panel in workspace.panels.values {
+                guard let terminalPanel = panel as? TerminalPanel else { continue }
+                if terminalPanel.surface.surface == nil {
+                    pending += 1
+                }
+            }
+        }
+        return pending
+    }
+
+    private func debugStressLagSnapshot() -> (
+        workspaceCount: Int,
+        terminalPanelCount: Int,
+        loadedSurfaceCount: Int,
+        selectedWorkspace: String
+    ) {
+        guard let tabManager else {
+            return (0, 0, 0, "nil")
+        }
+        var terminalPanelCount = 0
+        var loadedSurfaceCount = 0
+        for workspace in tabManager.tabs {
+            for panel in workspace.panels.values {
+                guard let terminalPanel = panel as? TerminalPanel else { continue }
+                terminalPanelCount += 1
+                if terminalPanel.surface.surface != nil {
+                    loadedSurfaceCount += 1
+                }
+            }
+        }
+        let selectedWorkspace = tabManager.selectedTabId.map { String($0.uuidString.prefix(5)) } ?? "nil"
+        return (
+            tabManager.tabs.count,
+            terminalPanelCount,
+            loadedSurfaceCount,
+            selectedWorkspace
+        )
+    }
+
+    private func logSlowShortcutMonitorLatencyIfNeeded(
+        event: NSEvent,
+        handledByShortcut: Bool,
+        elapsedMs: Double
+    ) {
+        guard debugStressLagProbeEnabled else { return }
+        guard event.type == .keyDown else { return }
+
+        let normalizedFlags = event.modifierFlags
+            .intersection(.deviceIndependentFlagsMask)
+            .subtracting([.numericPad, .function, .capsLock])
+        let isPlainTyping = normalizedFlags.isDisjoint(with: [.command, .control, .option])
+        let thresholdMs: Double = event.isARepeat ? 1.5 : (isPlainTyping ? 2.5 : 6.0)
+        guard elapsedMs >= thresholdMs else { return }
+
+        let snapshot = debugStressLagSnapshot()
+        dlog(
+            "stress.inputLag path=appMonitor ms=\(String(format: "%.2f", elapsedMs)) " +
+            "threshold=\(String(format: "%.2f", thresholdMs)) handled=\(handledByShortcut ? 1 : 0) " +
+            "plain=\(isPlainTyping ? 1 : 0) repeat=\(event.isARepeat ? 1 : 0) keyCode=\(event.keyCode) " +
+            "mods=\(event.modifierFlags.rawValue) workspaces=\(snapshot.workspaceCount) " +
+            "terminals=\(snapshot.terminalPanelCount) surfacesReady=\(snapshot.loadedSurfaceCount) " +
+            "selected=\(snapshot.selectedWorkspace)"
+        )
     }
 
     private func sendTextWhenReady(_ text: String, to tab: Tab, attempt: Int = 0) {
@@ -4380,9 +5579,63 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
-            guard let self else { return }
+            guard self != nil else { return }
             runSetupWhenWindowReady()
         }
+    }
+
+    private func isGotoSplitUITestRecordingEnabled() -> Bool {
+        let env = ProcessInfo.processInfo.environment
+        return env["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] == "1" || env["CMUX_UI_TEST_GOTO_SPLIT_RECORD_ONLY"] == "1"
+    }
+
+    private func gotoSplitUITestDataPath() -> String? {
+        guard isGotoSplitUITestRecordingEnabled() else { return nil }
+        let env = ProcessInfo.processInfo.environment
+        guard let path = env["CMUX_UI_TEST_GOTO_SPLIT_PATH"], !path.isEmpty else { return nil }
+        return path
+    }
+
+    private func gotoSplitFindStateSnapshot(for workspace: Workspace) -> [String: String] {
+        var updates: [String: String] = [
+            "focusedPaneId": workspace.bonsplitController.focusedPaneId?.description ?? ""
+        ]
+
+        if let focusedPanelId = workspace.focusedPanelId {
+            updates["focusedPanelId"] = focusedPanelId.uuidString
+            if let terminal = workspace.terminalPanel(for: focusedPanelId) {
+                updates["focusedPanelKind"] = "terminal"
+                updates["focusedTerminalFindNeedle"] = terminal.searchState?.needle ?? ""
+                updates["focusedBrowserFindNeedle"] = ""
+            } else if let browser = workspace.browserPanel(for: focusedPanelId) {
+                updates["focusedPanelKind"] = "browser"
+                updates["focusedBrowserFindNeedle"] = browser.searchState?.needle ?? ""
+                updates["focusedTerminalFindNeedle"] = ""
+            } else {
+                updates["focusedPanelKind"] = "other"
+                updates["focusedTerminalFindNeedle"] = ""
+                updates["focusedBrowserFindNeedle"] = ""
+            }
+        } else {
+            updates["focusedPanelId"] = ""
+            updates["focusedPanelKind"] = "none"
+            updates["focusedTerminalFindNeedle"] = ""
+            updates["focusedBrowserFindNeedle"] = ""
+        }
+
+        let terminalWithFind = workspace.panels.values
+            .compactMap { $0 as? TerminalPanel }
+            .first(where: { $0.searchState != nil })
+        updates["terminalFindPanelId"] = terminalWithFind?.id.uuidString ?? ""
+        updates["terminalFindNeedle"] = terminalWithFind?.searchState?.needle ?? ""
+
+        let browserWithFind = workspace.panels.values
+            .compactMap { $0 as? BrowserPanel }
+            .first(where: { $0.searchState != nil })
+        updates["browserFindPanelId"] = browserWithFind?.id.uuidString ?? ""
+        updates["browserFindNeedle"] = browserWithFind?.searchState?.needle ?? ""
+
+        return updates
     }
 
     private func focusWebViewForGotoSplitUITest(tab: Workspace, browserPanelId: UUID, attempt: Int = 0) {
@@ -4423,6 +5676,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 "ghosttyGotoSplitDownShortcut": ghosttyGotoSplitDownShortcut?.displayString ?? "",
                 "webViewFocused": "true"
             ])
+            if ProcessInfo.processInfo.environment["CMUX_UI_TEST_GOTO_SPLIT_INPUT_SETUP"] == "1" {
+                setupFocusedInputForGotoSplitUITest(panel: browserPanel)
+            }
             return
         }
 
@@ -4468,6 +5724,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             guard let self else { return }
             guard let panelId = notification.object as? UUID else { return }
             self.recordGotoSplitUITestWebViewFocus(panelId: panelId, key: "webViewFocusedAfterAddressBarFocus")
+            self.recordGotoSplitUITestActiveElement(panelId: panelId, keyPrefix: "addressBarFocus")
         })
 
         gotoSplitUITestObservers.append(NotificationCenter.default.addObserver(
@@ -4478,6 +5735,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             guard let self else { return }
             guard let panelId = notification.object as? UUID else { return }
             self.recordGotoSplitUITestWebViewFocus(panelId: panelId, key: "webViewFocusedAfterAddressBarExit")
+            self.recordGotoSplitUITestActiveElement(panelId: panelId, keyPrefix: "addressBarExit")
         })
     }
 
@@ -4505,11 +5763,332 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
-    private func recordGotoSplitMoveIfNeeded(direction: NavigationDirection) {
+    private func setupFocusedInputForGotoSplitUITest(panel: BrowserPanel, attempt: Int = 0) {
+        let maxAttempts = 80
+        guard attempt < maxAttempts else {
+            writeGotoSplitTestData([
+                "webInputFocusSeeded": "false",
+                "setupError": "Timed out focusing page input for omnibar restore test"
+            ])
+            return
+        }
+
+        let script = """
+        (() => {
+          try {
+            const trackerInstalled = window.__cmuxAddressBarFocusTrackerInstalled === true;
+            const readyState = String(document.readyState || "");
+            if (!trackerInstalled || readyState !== "complete") {
+              const active = document.activeElement;
+              return {
+                focused: false,
+                id: "",
+                activeId: active && typeof active.id === "string" ? active.id : "",
+                activeTag: active && active.tagName ? active.tagName.toLowerCase() : "",
+                trackerInstalled,
+                trackedStateId:
+                  window.__cmuxAddressBarFocusState &&
+                  typeof window.__cmuxAddressBarFocusState.id === "string"
+                    ? window.__cmuxAddressBarFocusState.id
+                    : "",
+                readyState
+              };
+            }
+
+            const ensureInput = (id, value) => {
+              const existing = document.getElementById(id);
+              const input = (existing && existing.tagName && existing.tagName.toLowerCase() === "input")
+                ? existing
+                : (() => {
+                    const created = document.createElement("input");
+                    created.id = id;
+                    created.type = "text";
+                    created.value = value;
+                    return created;
+                  })();
+              input.autocapitalize = "off";
+              input.autocomplete = "off";
+              input.spellcheck = false;
+              input.style.display = "block";
+              input.style.width = "100%";
+              input.style.margin = "0";
+              input.style.padding = "8px 10px";
+              input.style.border = "1px solid #5f6368";
+              input.style.borderRadius = "6px";
+              input.style.boxSizing = "border-box";
+              input.style.fontSize = "14px";
+              input.style.fontFamily = "system-ui, -apple-system, sans-serif";
+              input.style.background = "white";
+              input.style.color = "black";
+              return input;
+            };
+
+            let container = document.getElementById("cmux-ui-test-focus-container");
+            if (!container || !container.tagName || container.tagName.toLowerCase() !== "div") {
+              container = document.createElement("div");
+              container.id = "cmux-ui-test-focus-container";
+              document.body.appendChild(container);
+            }
+            container.style.position = "fixed";
+            container.style.left = "24px";
+            container.style.top = "24px";
+            container.style.width = "min(520px, calc(100vw - 48px))";
+            container.style.display = "grid";
+            container.style.rowGap = "12px";
+            container.style.padding = "12px";
+            container.style.background = "rgba(255,255,255,0.92)";
+            container.style.border = "1px solid rgba(95,99,104,0.55)";
+            container.style.borderRadius = "8px";
+            container.style.boxShadow = "0 2px 10px rgba(0,0,0,0.2)";
+            container.style.zIndex = "2147483647";
+
+            const input = ensureInput("cmux-ui-test-focus-input", "cmux-ui-focus-primary");
+            const secondaryInput = ensureInput("cmux-ui-test-focus-input-secondary", "cmux-ui-focus-secondary");
+            if (input.parentElement !== container) {
+              container.appendChild(input);
+            }
+            if (secondaryInput.parentElement !== container) {
+              container.appendChild(secondaryInput);
+            }
+
+            input.focus({ preventScroll: true });
+            if (typeof input.setSelectionRange === "function") {
+              const end = input.value.length;
+              input.setSelectionRange(end, end);
+            }
+
+            let trackedFocusId = input.getAttribute("data-cmux-addressbar-focus-id");
+            if (!trackedFocusId) {
+              trackedFocusId = "cmux-ui-test-focus-input-tracked";
+              input.setAttribute("data-cmux-addressbar-focus-id", trackedFocusId);
+            }
+            const selectionStart = typeof input.selectionStart === "number" ? input.selectionStart : null;
+            const selectionEnd = typeof input.selectionEnd === "number" ? input.selectionEnd : null;
+            if (
+              !window.__cmuxAddressBarFocusState ||
+              typeof window.__cmuxAddressBarFocusState.id !== "string" ||
+              window.__cmuxAddressBarFocusState.id !== trackedFocusId
+            ) {
+              window.__cmuxAddressBarFocusState = { id: trackedFocusId, selectionStart, selectionEnd };
+            }
+
+            const secondaryRect = secondaryInput.getBoundingClientRect();
+            const viewportWidth = Math.max(Number(window.innerWidth) || 0, 1);
+            const viewportHeight = Math.max(Number(window.innerHeight) || 0, 1);
+            const secondaryCenterX = Math.min(
+              0.98,
+              Math.max(0.02, (secondaryRect.left + (secondaryRect.width / 2)) / viewportWidth)
+            );
+            const secondaryCenterY = Math.min(
+              0.98,
+              Math.max(0.02, (secondaryRect.top + (secondaryRect.height / 2)) / viewportHeight)
+            );
+            const active = document.activeElement;
+            return {
+              focused: active === input,
+              id: input.id || "",
+              secondaryId: secondaryInput.id || "",
+              secondaryCenterX,
+              secondaryCenterY,
+              activeId: active && typeof active.id === "string" ? active.id : "",
+              activeTag: active && active.tagName ? active.tagName.toLowerCase() : "",
+              trackerInstalled,
+              trackedStateId:
+                window.__cmuxAddressBarFocusState &&
+                typeof window.__cmuxAddressBarFocusState.id === "string"
+                  ? window.__cmuxAddressBarFocusState.id
+                  : "",
+              readyState
+            };
+          } catch (_) {
+            return {
+              focused: false,
+              id: "",
+              secondaryId: "",
+              secondaryCenterX: -1,
+              secondaryCenterY: -1,
+              activeId: "",
+              activeTag: "",
+              trackerInstalled: false,
+              trackedStateId: "",
+              readyState: ""
+            };
+          }
+        })();
+        """
+
+        panel.webView.evaluateJavaScript(script) { [weak self] result, _ in
+            guard let self else { return }
+            let payload = result as? [String: Any]
+            let focused = (payload?["focused"] as? Bool) ?? false
+            let inputId = (payload?["id"] as? String) ?? ""
+            let secondaryInputId = (payload?["secondaryId"] as? String) ?? ""
+            let secondaryCenterX = (payload?["secondaryCenterX"] as? NSNumber)?.doubleValue ?? -1
+            let secondaryCenterY = (payload?["secondaryCenterY"] as? NSNumber)?.doubleValue ?? -1
+            let activeId = (payload?["activeId"] as? String) ?? ""
+            let trackerInstalled = (payload?["trackerInstalled"] as? Bool) ?? false
+            let trackedStateId = (payload?["trackedStateId"] as? String) ?? ""
+            let readyState = (payload?["readyState"] as? String) ?? ""
+            var secondaryClickOffsetX = -1.0
+            var secondaryClickOffsetY = -1.0
+            if let window = panel.webView.window {
+                let webFrame = panel.webView.convert(panel.webView.bounds, to: nil)
+                let contentHeight = Double(window.contentView?.bounds.height ?? 0)
+                if webFrame.width > 1,
+                   webFrame.height > 1,
+                   contentHeight > 1,
+                   secondaryCenterX > 0,
+                   secondaryCenterX < 1,
+                   secondaryCenterY > 0,
+                   secondaryCenterY < 1 {
+                    let xInContent = Double(webFrame.minX) + (secondaryCenterX * Double(webFrame.width))
+                    let yFromTopInWeb = secondaryCenterY * Double(webFrame.height)
+                    let yInContent = Double(webFrame.maxY) - yFromTopInWeb
+                    let yFromTopInContent = contentHeight - yInContent
+                    let titlebarHeight = max(0, Double(window.frame.height) - contentHeight)
+                    secondaryClickOffsetX = xInContent
+                    secondaryClickOffsetY = titlebarHeight + yFromTopInContent
+                }
+            }
+            if focused,
+               !inputId.isEmpty,
+               !secondaryInputId.isEmpty,
+               inputId == activeId,
+               trackerInstalled,
+               !trackedStateId.isEmpty,
+               secondaryCenterX > 0,
+               secondaryCenterX < 1,
+               secondaryCenterY > 0,
+               secondaryCenterY < 1,
+               secondaryClickOffsetX > 0,
+               secondaryClickOffsetY > 0 {
+                self.writeGotoSplitTestData([
+                    "webInputFocusSeeded": "true",
+                    "webInputFocusElementId": inputId,
+                    "webInputFocusSecondaryElementId": secondaryInputId,
+                    "webInputFocusSecondaryCenterX": "\(secondaryCenterX)",
+                    "webInputFocusSecondaryCenterY": "\(secondaryCenterY)",
+                    "webInputFocusSecondaryClickOffsetX": "\(secondaryClickOffsetX)",
+                    "webInputFocusSecondaryClickOffsetY": "\(secondaryClickOffsetY)",
+                    "webInputFocusActiveElementId": activeId,
+                    "webInputFocusTrackerInstalled": trackerInstalled ? "true" : "false",
+                    "webInputFocusTrackedStateId": trackedStateId,
+                    "webInputFocusReadyState": readyState
+                ])
+                return
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+                self?.setupFocusedInputForGotoSplitUITest(panel: panel, attempt: attempt + 1)
+            }
+        }
+    }
+
+    private func recordGotoSplitUITestActiveElement(panelId: UUID, keyPrefix: String) {
+        recordGotoSplitUITestActiveElementRetry(panelId: panelId, keyPrefix: keyPrefix, attempt: 0)
+    }
+
+    private func recordGotoSplitUITestActiveElementRetry(panelId: UUID, keyPrefix: String, attempt: Int) {
+        let delays: [Double] = [0.05, 0.1, 0.25, 0.5]
+        let delay = attempt < delays.count ? delays[attempt] : delays.last!
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            guard let self,
+                  let tabManager,
+                  let tab = tabManager.selectedWorkspace,
+                  let panel = tab.browserPanel(for: panelId) else { return }
+
+            self.evaluateGotoSplitUITestActiveElement(panel: panel) { snapshot in
+                let activeId = snapshot["id"] ?? ""
+                let expectedInputId = self.gotoSplitUITestExpectedInputId() ?? ""
+                if keyPrefix == "addressBarExit",
+                   !expectedInputId.isEmpty,
+                   activeId != expectedInputId,
+                   attempt < delays.count - 1 {
+                    self.recordGotoSplitUITestActiveElementRetry(
+                        panelId: panelId,
+                        keyPrefix: keyPrefix,
+                        attempt: attempt + 1
+                    )
+                    return
+                }
+
+                self.writeGotoSplitTestData([
+                    "\(keyPrefix)PanelId": panelId.uuidString,
+                    "\(keyPrefix)ActiveElementId": activeId,
+                    "\(keyPrefix)ActiveElementTag": snapshot["tag"] ?? "",
+                    "\(keyPrefix)ActiveElementType": snapshot["type"] ?? "",
+                    "\(keyPrefix)ActiveElementEditable": snapshot["editable"] ?? "false",
+                    "\(keyPrefix)TrackedFocusStateId": snapshot["trackedFocusStateId"] ?? "",
+                    "\(keyPrefix)FocusTrackerInstalled": snapshot["focusTrackerInstalled"] ?? "false"
+                ])
+            }
+        }
+    }
+
+    private func evaluateGotoSplitUITestActiveElement(
+        panel: BrowserPanel,
+        completion: @escaping ([String: String]) -> Void
+    ) {
+        let script = """
+        (() => {
+          try {
+            const active = document.activeElement;
+            if (!active) {
+              return { id: "", tag: "", type: "", editable: "false" };
+            }
+            const tag = (active.tagName || "").toLowerCase();
+            const type = (active.type || "").toLowerCase();
+            const editable =
+              !!active.isContentEditable ||
+              tag === "textarea" ||
+              (tag === "input" && type !== "hidden");
+            return {
+              id: typeof active.id === "string" ? active.id : "",
+              tag,
+              type,
+              editable: editable ? "true" : "false",
+              trackedFocusStateId:
+                window.__cmuxAddressBarFocusState &&
+                typeof window.__cmuxAddressBarFocusState.id === "string"
+                  ? window.__cmuxAddressBarFocusState.id
+                  : "",
+              focusTrackerInstalled:
+                window.__cmuxAddressBarFocusTrackerInstalled === true ? "true" : "false"
+            };
+          } catch (_) {
+            return {
+              id: "",
+              tag: "",
+              type: "",
+              editable: "false",
+              trackedFocusStateId: "",
+              focusTrackerInstalled: "false"
+            };
+          }
+        })();
+        """
+
+        panel.webView.evaluateJavaScript(script) { result, _ in
+            let payload = result as? [String: Any]
+            completion([
+                "id": (payload?["id"] as? String) ?? "",
+                "tag": (payload?["tag"] as? String) ?? "",
+                "type": (payload?["type"] as? String) ?? "",
+                "editable": (payload?["editable"] as? String) ?? "false",
+                "trackedFocusStateId": (payload?["trackedFocusStateId"] as? String) ?? "",
+                "focusTrackerInstalled": (payload?["focusTrackerInstalled"] as? String) ?? "false"
+            ])
+        }
+    }
+
+    private func gotoSplitUITestExpectedInputId() -> String? {
         let env = ProcessInfo.processInfo.environment
-        guard env["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] == "1" else { return }
-        guard let tabManager,
-              let focusedPaneId = tabManager.selectedWorkspace?.bonsplitController.focusedPaneId else { return }
+        guard let path = env["CMUX_UI_TEST_GOTO_SPLIT_PATH"], !path.isEmpty else { return nil }
+        return loadGotoSplitTestData(at: path)["webInputFocusElementId"]
+    }
+
+    private func recordGotoSplitMoveIfNeeded(direction: NavigationDirection) {
+        guard isGotoSplitUITestRecordingEnabled() else { return }
+        guard let tabManager, let workspace = tabManager.selectedWorkspace else { return }
 
         let directionValue: String
         switch direction {
@@ -4523,15 +6102,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             directionValue = "down"
         }
 
-        writeGotoSplitTestData([
-            "lastMoveDirection": directionValue,
-            "focusedPaneId": focusedPaneId.description
-        ])
+        var updates = gotoSplitFindStateSnapshot(for: workspace)
+        updates["lastMoveDirection"] = directionValue
+        writeGotoSplitTestData(updates)
     }
 
     private func recordGotoSplitSplitIfNeeded(direction: SplitDirection) {
-        let env = ProcessInfo.processInfo.environment
-        guard env["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] == "1" else { return }
+        guard isGotoSplitUITestRecordingEnabled() else { return }
         guard let workspace = tabManager?.selectedWorkspace else { return }
 
         let directionValue: String
@@ -4546,16 +6123,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             directionValue = "down"
         }
 
-        writeGotoSplitTestData([
-            "lastSplitDirection": directionValue,
-            "paneCountAfterSplit": String(workspace.bonsplitController.allPaneIds.count),
-            "focusedPaneId": workspace.bonsplitController.focusedPaneId?.description ?? ""
-        ])
+        var updates = gotoSplitFindStateSnapshot(for: workspace)
+        updates["lastSplitDirection"] = directionValue
+        updates["paneCountAfterSplit"] = String(workspace.bonsplitController.allPaneIds.count)
+        writeGotoSplitTestData(updates)
     }
 
     private func writeGotoSplitTestData(_ updates: [String: String]) {
-        let env = ProcessInfo.processInfo.environment
-        guard let path = env["CMUX_UI_TEST_GOTO_SPLIT_PATH"], !path.isEmpty else { return }
+        guard let path = gotoSplitUITestDataPath() else { return }
         var payload = loadGotoSplitTestData(at: path)
         for (key, value) in updates {
             payload[key] = value
@@ -4582,17 +6157,62 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         try? FileManager.default.removeItem(atPath: path)
 
-        let deadline = Date().addingTimeInterval(8.0)
+        let contextDeadline = Date().addingTimeInterval(8.0)
         func waitForContexts(minCount: Int, _ completion: @escaping () -> Void) {
             if mainWindowContexts.count >= minCount,
                mainWindowContexts.values.allSatisfy({ $0.window != nil }) {
                 completion()
                 return
             }
-            guard Date() < deadline else { return }
+            guard Date() < contextDeadline else { return }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
                 waitForContexts(minCount: minCount, completion)
             }
+        }
+
+        func waitForSurfaceId(
+            on tabManager: TabManager,
+            tabId: UUID,
+            timeout: TimeInterval = 8.0,
+            _ completion: @escaping (UUID) -> Void
+        ) {
+            let deadline = Date().addingTimeInterval(timeout)
+
+            func resolvedSurfaceId() -> UUID? {
+                if let surfaceId = tabManager.focusedPanelId(for: tabId) {
+                    return surfaceId
+                }
+
+                guard let workspace = tabManager.tabs.first(where: { $0.id == tabId }) else {
+                    return nil
+                }
+
+                if let terminalPanelId = workspace.focusedTerminalPanel?.id {
+                    return terminalPanelId
+                }
+
+                if let terminalPanelId = workspace.terminalPanelForConfigInheritance()?.id {
+                    return terminalPanelId
+                }
+
+                return workspace.panels.values
+                    .compactMap { ($0 as? TerminalPanel)?.id }
+                    .sorted(by: { $0.uuidString < $1.uuidString })
+                    .first
+            }
+
+            func poll() {
+                if let surfaceId = resolvedSurfaceId() {
+                    completion(surfaceId)
+                    return
+                }
+                guard Date() < deadline else { return }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                    poll()
+                }
+            }
+
+            poll()
         }
 
         waitForContexts(minCount: 1) { [weak self] in
@@ -4608,37 +6228,191 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 let contexts = Array(self.mainWindowContexts.values)
                 guard let window2 = contexts.first(where: { $0.windowId != window1.windowId }) else { return }
                 guard let tabId2 = window2.tabManager.selectedTabId ?? window2.tabManager.tabs.first?.id else { return }
-                guard let store = self.notificationStore else { return }
+                waitForSurfaceId(on: window1.tabManager, tabId: tabId1) { [weak self] surfaceId1 in
+                    guard let self else { return }
+                    waitForSurfaceId(on: window2.tabManager, tabId: tabId2) { [weak self] surfaceId2 in
+                    guard let self else { return }
+                    guard let store = self.notificationStore else { return }
 
-                // Ensure the target window is currently showing the Notifications overlay,
-                // so opening a notification must switch it back to the terminal UI.
-                window2.sidebarSelectionState.selection = .notifications
+                    // Ensure the target window is currently showing the Notifications overlay,
+                    // so opening a notification must switch it back to the terminal UI.
+                    window2.sidebarSelectionState.selection = .notifications
 
-                // Create notifications for both windows. Ensure W2 isn't suppressed just because it's focused.
-                let prevOverride = AppFocusState.overrideIsFocused
-                AppFocusState.overrideIsFocused = false
-                store.addNotification(tabId: tabId2, surfaceId: nil, title: "W2", subtitle: "multiwindow", body: "")
-                AppFocusState.overrideIsFocused = prevOverride
+                    // Create notifications for both windows. Ensure W2 isn't suppressed just because it's focused.
+                    let prevOverride = AppFocusState.overrideIsFocused
+                    AppFocusState.overrideIsFocused = false
+                    store.addNotification(tabId: tabId2, surfaceId: nil, title: "W2", subtitle: "multiwindow", body: "")
+                    AppFocusState.overrideIsFocused = prevOverride
 
-                // Insert after W2 so it becomes "latest unread" (first in list).
-                store.addNotification(tabId: tabId1, surfaceId: nil, title: "W1", subtitle: "multiwindow", body: "")
+                    // Insert after W2 so it becomes "latest unread" (first in list).
+                    store.addNotification(tabId: tabId1, surfaceId: nil, title: "W1", subtitle: "multiwindow", body: "")
 
-                let notif1 = store.notifications.first(where: { $0.tabId == tabId1 && $0.title == "W1" })
-                let notif2 = store.notifications.first(where: { $0.tabId == tabId2 && $0.title == "W2" })
+                    let notif1 = store.notifications.first(where: { $0.tabId == tabId1 && $0.title == "W1" })
+                    let notif2 = store.notifications.first(where: { $0.tabId == tabId2 && $0.title == "W2" })
 
-                self.writeMultiWindowNotificationTestData([
-                    "window1Id": window1.windowId.uuidString,
-                    "window2Id": window2.windowId.uuidString,
-                    "window2InitialSidebarSelection": "notifications",
-                    "tabId1": tabId1.uuidString,
-                    "tabId2": tabId2.uuidString,
-                    "notifId1": notif1?.id.uuidString ?? "",
-                    "notifId2": notif2?.id.uuidString ?? "",
-                    "expectedLatestWindowId": window1.windowId.uuidString,
-                    "expectedLatestTabId": tabId1.uuidString,
-                ], at: path)
+                    self.writeMultiWindowNotificationTestData([
+                        "window1Id": window1.windowId.uuidString,
+                        "window2Id": window2.windowId.uuidString,
+                        "window2InitialSidebarSelection": "notifications",
+                        "tabId1": tabId1.uuidString,
+                        "tabId2": tabId2.uuidString,
+                        "surfaceId1": surfaceId1.uuidString,
+                        "surfaceId2": surfaceId2.uuidString,
+                        "notifId1": notif1?.id.uuidString ?? "",
+                        "notifId2": notif2?.id.uuidString ?? "",
+                        "expectedLatestWindowId": window1.windowId.uuidString,
+                        "expectedLatestTabId": tabId1.uuidString,
+                    ], at: path)
+                    self.prepareMultiWindowNotificationSourceTerminalIfNeeded(
+                        at: path,
+                        windowId: window1.windowId,
+                        tabManager: window1.tabManager,
+                        tabId: tabId1,
+                        surfaceId: surfaceId1
+                    )
+                    self.publishMultiWindowNotificationSocketStateIfNeeded(at: path)
+                }
+                }
             }
         }
+    }
+
+    private func prepareMultiWindowNotificationSourceTerminalIfNeeded(
+        at path: String,
+        windowId: UUID,
+        tabManager: TabManager,
+        tabId: UUID,
+        surfaceId: UUID
+    ) {
+        let env = ProcessInfo.processInfo.environment
+        guard env["CMUX_UI_TEST_NOTIFY_SOURCE_TERMINAL_READY"] == "1" else { return }
+
+        writeMultiWindowNotificationTestData([
+            "sourceTerminalReady": "pending",
+            "sourceTerminalFocusFailure": "",
+        ], at: path)
+
+        let deadline = Date().addingTimeInterval(8.0)
+
+        func publish(ready: Bool, failure: String = "") {
+            writeMultiWindowNotificationTestData([
+                "sourceTerminalReady": ready ? "1" : "0",
+                "sourceTerminalFocusFailure": failure,
+            ], at: path)
+        }
+
+        func poll() {
+            guard let workspace = tabManager.tabs.first(where: { $0.id == tabId }) else {
+                publish(ready: false, failure: "workspace_missing")
+                return
+            }
+            guard let terminalPanel = workspace.terminalPanel(for: surfaceId) else {
+                publish(ready: false, failure: "terminal_missing")
+                return
+            }
+
+            let isWindowFrontmost = {
+                guard let window = self.mainWindow(for: windowId) else { return false }
+                return NSApp.keyWindow === window || NSApp.mainWindow === window
+            }()
+            if isWindowFrontmost && terminalPanel.hostedView.isSurfaceViewFirstResponder() {
+                publish(ready: true)
+                return
+            }
+
+            guard Date() < deadline else {
+                publish(
+                    ready: false,
+                    failure: isWindowFrontmost ? "terminal_not_first_responder" : "window_not_frontmost"
+                )
+                return
+            }
+
+            _ = self.focusMainWindow(windowId: windowId)
+            if let tab = tabManager.tabs.first(where: { $0.id == tabId }) {
+                tabManager.selectTab(tab)
+                tabManager.focusSurface(tabId: tabId, surfaceId: surfaceId)
+            }
+
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                poll()
+            }
+        }
+
+        poll()
+    }
+
+    private func publishMultiWindowNotificationSocketStateIfNeeded(at path: String) {
+        let env = ProcessInfo.processInfo.environment
+        guard env["CMUX_UI_TEST_SOCKET_SANITY"] == "1" else { return }
+
+        guard let config = socketListenerConfigurationIfEnabled() else {
+            writeMultiWindowNotificationTestData([
+                "socketExpectedPath": env["CMUX_SOCKET_PATH"] ?? "",
+                "socketMode": "off",
+                "socketReady": "0",
+                "socketPingResponse": "",
+                "socketIsRunning": "0",
+                "socketAcceptLoopAlive": "0",
+                "socketPathMatches": "0",
+                "socketPathExists": "0",
+                "socketFailureSignals": "socket_disabled",
+            ], at: path)
+            return
+        }
+
+        writeMultiWindowNotificationTestData([
+            "socketExpectedPath": config.path,
+            "socketMode": config.mode.rawValue,
+            "socketReady": "pending",
+            "socketPingResponse": "",
+        ], at: path)
+
+        restartSocketListenerIfEnabled(source: "uiTest.multiWindowNotifications.setup")
+
+        let deadline = Date().addingTimeInterval(20.0)
+        func publish() {
+            let health = TerminalController.shared.socketListenerHealth(expectedSocketPath: config.path)
+            let isTimedOut = Date() >= deadline
+            let socketPath = config.path
+            let socketMode = config.mode.rawValue
+            let dataPath = path
+
+            DispatchQueue.global(qos: .utility).async { [weak self] in
+                let pingResponse = health.isHealthy
+                    ? TerminalController.probeSocketCommand("ping", at: socketPath, timeout: 1.0)
+                    : nil
+                let isReady = health.isHealthy && pingResponse == "PONG"
+                let failureSignals = {
+                    var signals = health.failureSignals
+                    if health.isHealthy && pingResponse != "PONG" {
+                        signals.append("ping_timeout")
+                    }
+                    return signals.joined(separator: ",")
+                }()
+
+                DispatchQueue.main.async { [weak self] in
+                    guard let self else { return }
+                    self.writeMultiWindowNotificationTestData([
+                        "socketExpectedPath": socketPath,
+                        "socketMode": socketMode,
+                        "socketReady": isReady ? "1" : (isTimedOut ? "0" : "pending"),
+                        "socketPingResponse": pingResponse ?? "",
+                        "socketIsRunning": health.isRunning ? "1" : "0",
+                        "socketAcceptLoopAlive": health.acceptLoopAlive ? "1" : "0",
+                        "socketPathMatches": health.socketPathMatches ? "1" : "0",
+                        "socketPathExists": health.socketPathExists ? "1" : "0",
+                        "socketFailureSignals": failureSignals,
+                    ], at: dataPath)
+                    guard !isTimedOut, !isReady else { return }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                        publish()
+                    }
+                }
+            }
+        }
+
+        publish()
     }
 
     private func writeMultiWindowNotificationTestData(_ updates: [String: String], at path: String) {
@@ -4693,6 +6467,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func toggleNotificationsPopover(animated: Bool = true, anchorView: NSView? = nil) {
         titlebarAccessoryController.toggleNotificationsPopover(animated: animated, anchorView: anchorView)
+    }
+
+    @discardableResult
+    func dismissNotificationsPopoverIfShown() -> Bool {
+        titlebarAccessoryController.dismissNotificationsPopoverIfShown()
     }
 
     func jumpToLatestUnread() {
@@ -4752,27 +6531,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     let delayText = String(format: "%.2f", delayMs)
                     dlog("key.latency path=appMonitor ms=\(delayText) keyCode=\(event.keyCode) mods=\(event.modifierFlags.rawValue) repeat=\(event.isARepeat ? 1 : 0)")
                 }
-                let frType = NSApp.keyWindow?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
-                dlog(
-                    "monitor.keyDown: \(NSWindow.keyDescription(event)) fr=\(frType) addrBarId=\(self.browserAddressBarFocusedPanelId?.uuidString.prefix(8) ?? "nil") \(self.debugShortcutRouteSnapshot(event: event))"
-                )
+                let shortcutMonitorTraceEnabled =
+                    ProcessInfo.processInfo.environment["CMUX_SHORTCUT_MONITOR_TRACE"] == "1"
+                    || UserDefaults.standard.bool(forKey: "cmuxShortcutMonitorTrace")
+                if shortcutMonitorTraceEnabled {
+                    let frType = NSApp.keyWindow?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
+                    dlog(
+                        "monitor.keyDown: \(NSWindow.keyDescription(event)) fr=\(frType) addrBarId=\(self.browserAddressBarFocusedPanelId?.uuidString.prefix(8) ?? "nil") \(self.debugShortcutRouteSnapshot(event: event))"
+                    )
+                }
                 if let probeKind = self.developerToolsShortcutProbeKind(event: event) {
                     self.logDeveloperToolsShortcutSnapshot(phase: "monitor.pre.\(probeKind)", event: event)
                 }
 #endif
-                if self.handleCustomShortcut(event: event) {
+                let shortcutStart = ProcessInfo.processInfo.systemUptime
+                let handledByShortcut = self.handleCustomShortcut(event: event)
+#if DEBUG
+                let shortcutElapsedMs = (ProcessInfo.processInfo.systemUptime - shortcutStart) * 1000.0
+                self.logSlowShortcutMonitorLatencyIfNeeded(
+                    event: event,
+                    handledByShortcut: handledByShortcut,
+                    elapsedMs: shortcutElapsedMs
+                )
+#endif
+                if handledByShortcut {
 #if DEBUG
                     dlog("  → consumed by handleCustomShortcut")
-                    DebugEventLog.shared.dump()
 #endif
                     return nil // Consume the event
                 }
-#if DEBUG
-                DebugEventLog.shared.dump()
-#endif
                 return event // Pass through
             }
             self.handleBrowserOmnibarSelectionRepeatLifecycleEvent(event)
+            if self.clearEscapeSuppressionForKeyUp(event: event, consumeIfSuppressed: true) {
+                return nil
+            }
             return event
         }
     }
@@ -4942,12 +6735,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         let alert = NSAlert()
         alert.alertStyle = .warning
-        alert.messageText = "Quit cmux?"
-        alert.informativeText = "This will close all windows and workspaces."
-        alert.addButton(withTitle: "Quit")
-        alert.addButton(withTitle: "Cancel")
+        alert.messageText = String(localized: "dialog.quitCmux.title", defaultValue: "Quit cmux?")
+        alert.informativeText = String(localized: "dialog.quitCmux.message", defaultValue: "This will close all windows and workspaces.")
+        alert.addButton(withTitle: String(localized: "dialog.quitCmux.quit", defaultValue: "Quit"))
+        alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
         alert.showsSuppressionButton = true
-        alert.suppressionButton?.title = "Don't warn again for Cmd+Q"
+        alert.suppressionButton?.title = String(localized: "dialog.dontWarnCmdQ", defaultValue: "Don't warn again for Cmd+Q")
 
         let response = alert.runModal()
         if alert.suppressionButton?.state == .on {
@@ -4969,14 +6762,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         let alert = NSAlert()
-        alert.messageText = "Rename Workspace"
-        alert.informativeText = "Enter a custom name for this workspace."
+        alert.messageText = String(localized: "dialog.renameWorkspace.title", defaultValue: "Rename Workspace")
+        alert.informativeText = String(localized: "dialog.renameWorkspace.message", defaultValue: "Enter a custom name for this workspace.")
         let input = NSTextField(string: tab.customTitle ?? tab.title)
-        input.placeholderString = "Workspace name"
+        input.placeholderString = String(localized: "dialog.renameWorkspace.placeholder", defaultValue: "Workspace name")
         input.frame = NSRect(x: 0, y: 0, width: 240, height: 22)
         alert.accessoryView = input
-        alert.addButton(withTitle: "Rename")
-        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: String(localized: "common.rename", defaultValue: "Rename"))
+        alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
         let alertWindow = alert.window
         alertWindow.initialFirstResponder = input
         DispatchQueue.main.async {
@@ -4992,7 +6785,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func handleCustomShortcut(event: NSEvent) -> Bool {
         // `charactersIgnoringModifiers` can be nil for some synthetic NSEvents and certain special keys.
-        // Most shortcuts below use keyCode fallbacks, so treat nil as "" rather than bailing out.
+        // Treat nil as "" and rely on keyCode/layout-aware fallback logic where needed.
         let chars = (event.charactersIgnoringModifiers ?? "").lowercased()
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         let hasControl = flags.contains(.control)
@@ -5029,7 +6822,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             // Special-case: Cmd+D should confirm destructive close on alerts.
             // XCUITest key events often hit the app-level local monitor first, so forward the key
             // equivalent to the alert panel explicitly.
-            if flags == [.command], chars == "d",
+            if matchShortcut(
+                event: event,
+                shortcut: StoredShortcut(key: "d", command: true, shift: false, option: false, control: false)
+            ),
                let root = closeConfirmationPanel.contentView,
                let closeButton = findButton(in: root, titled: "Close") {
                 closeButton.performClick(nil)
@@ -5044,9 +6840,109 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         let normalizedFlags = flags.subtracting([.numericPad, .function, .capsLock])
         let commandPaletteTargetWindow = commandPaletteWindowForShortcutEvent(event)
-        let commandPaletteVisibleInTargetWindow = commandPaletteTargetWindow.map {
+        let commandPaletteShortcutWindow = shouldHandleCommandPaletteShortcutEvent(
+            event,
+            paletteWindow: commandPaletteTargetWindow
+        ) ? commandPaletteTargetWindow : nil
+        let commandPaletteVisibleInTargetWindow = commandPaletteShortcutWindow.map {
             isCommandPaletteVisible(for: $0)
         } ?? false
+        let commandPalettePendingOpenInTargetWindow = commandPaletteTargetWindow.map {
+            isCommandPalettePendingOpen(for: $0)
+        } ?? false
+        let commandPaletteOverlayVisibleInTargetWindow = commandPaletteTargetWindow.map {
+            isCommandPaletteOverlayPresented(in: $0)
+        } ?? false
+        let commandPaletteResponderActiveInTargetWindow = commandPaletteTargetWindow.map {
+            isCommandPaletteResponderActive(in: $0)
+        } ?? false
+        let commandPaletteEffectiveInTargetWindow =
+            commandPaletteVisibleInTargetWindow
+            || commandPalettePendingOpenInTargetWindow
+            || commandPaletteOverlayVisibleInTargetWindow
+            || commandPaletteResponderActiveInTargetWindow
+
+        if normalizedFlags.isEmpty, event.keyCode == 53 {
+            let activePaletteWindow = activeCommandPaletteWindow()
+            let escapePaletteWindow: NSWindow? = {
+                if let targetWindow = commandPaletteTargetWindow {
+                    guard commandPaletteEffectiveInTargetWindow else {
+                        return nil
+                    }
+                    return targetWindow
+                }
+                return activePaletteWindow
+            }()
+#if DEBUG
+            dlog(
+                "shortcut.escape route target={\(debugWindowToken(commandPaletteTargetWindow))} " +
+                "active={\(debugWindowToken(activePaletteWindow))} " +
+                "visibleTarget=\(commandPaletteVisibleInTargetWindow ? 1 : 0) " +
+                "pendingTarget=\(commandPalettePendingOpenInTargetWindow ? 1 : 0) " +
+                "overlayTarget=\(commandPaletteOverlayVisibleInTargetWindow ? 1 : 0) " +
+                "responderTarget=\(commandPaletteResponderActiveInTargetWindow ? 1 : 0) " +
+                "effectiveTarget=\(commandPaletteEffectiveInTargetWindow ? 1 : 0) " +
+                "\(debugShortcutRouteSnapshot(event: event))"
+            )
+            if commandPaletteTargetWindow != nil,
+               !commandPaletteVisibleInTargetWindow,
+               !commandPalettePendingOpenInTargetWindow,
+               (commandPaletteOverlayVisibleInTargetWindow || commandPaletteResponderActiveInTargetWindow) {
+                dlog(
+                    "shortcut.escape stateMismatch target={\(debugWindowToken(commandPaletteTargetWindow))} " +
+                    "overlayTarget=\(commandPaletteOverlayVisibleInTargetWindow ? 1 : 0) " +
+                    "responderTarget=\(commandPaletteResponderActiveInTargetWindow ? 1 : 0)"
+                )
+            }
+#endif
+            if let paletteWindow = escapePaletteWindow,
+               isCommandPaletteEffectivelyVisible(in: paletteWindow) {
+                if commandPaletteMarkedTextInput(in: paletteWindow) != nil {
+#if DEBUG
+                    dlog(
+                        "shortcut.escape imeMarkedTextBypass consumed=0 target={\(debugWindowToken(paletteWindow))}"
+                    )
+#endif
+                    return false
+                }
+                clearCommandPalettePendingOpen(for: paletteWindow)
+                beginCommandPaletteEscapeSuppression(for: paletteWindow)
+                NotificationCenter.default.post(name: .commandPaletteToggleRequested, object: paletteWindow)
+#if DEBUG
+                dlog("shortcut.escape paletteDismiss consumed=1 target={\(debugWindowToken(paletteWindow))}")
+#endif
+                return true
+            }
+            let suppressionWindow = commandPaletteTargetWindow
+                ?? event.window
+                ?? NSApp.keyWindow
+                ?? NSApp.mainWindow
+            if shouldConsumeSuppressedEscape(event: event, window: suppressionWindow) {
+#if DEBUG
+                dlog(
+                    "shortcut.escape suppressionConsume consumed=1 target={\(debugWindowToken(suppressionWindow))} " +
+                    "repeat=\(event.isARepeat ? 1 : 0)"
+                )
+#endif
+                return true
+            }
+            if let requestAge = recentCommandPaletteRequestAge(for: suppressionWindow) {
+                beginCommandPaletteEscapeSuppression(for: suppressionWindow)
+#if DEBUG
+                dlog(
+                    "shortcut.escape requestGraceConsume consumed=1 target={\(debugWindowToken(suppressionWindow))} " +
+                    "ageMs=\(Int(requestAge * 1000)) repeat=\(event.isARepeat ? 1 : 0)"
+                )
+#endif
+                return true
+            }
+#if DEBUG
+            dlog(
+                "shortcut.escape paletteDismiss consumed=0 target={\(debugWindowToken(commandPaletteTargetWindow))} " +
+                "active={\(debugWindowToken(activePaletteWindow))}"
+            )
+#endif
+        }
 
         if let delta = commandPaletteSelectionDeltaForKeyboardNavigation(
             flags: event.modifierFlags,
@@ -5054,7 +6950,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             keyCode: event.keyCode
         ),
            commandPaletteVisibleInTargetWindow,
-           let paletteWindow = commandPaletteTargetWindow {
+           let paletteWindow = commandPaletteShortcutWindow {
             NotificationCenter.default.post(
                 name: .commandPaletteMoveSelection,
                 object: paletteWindow,
@@ -5063,13 +6959,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        if commandPaletteVisibleInTargetWindow,
+           let paletteWindow = commandPaletteShortcutWindow {
+            let paletteFieldEditorHasMarkedText = commandPaletteFieldEditorHasMarkedText(in: paletteWindow)
+            if normalizedFlags.isEmpty, event.keyCode == 53 {
+                if paletteFieldEditorHasMarkedText {
+                    return false
+                }
+                NotificationCenter.default.post(name: .commandPaletteDismissRequested, object: paletteWindow)
+                return true
+            }
+
+            if shouldSubmitCommandPaletteWithReturn(
+                keyCode: event.keyCode,
+                flags: event.modifierFlags
+            ) {
+                if paletteFieldEditorHasMarkedText {
+                    return false
+                }
+                NotificationCenter.default.post(name: .commandPaletteSubmitRequested, object: paletteWindow)
+                return true
+            }
+        }
+
         // Guard against stale browserAddressBarFocusedPanelId after focus transitions
         // (e.g., split that doesn't properly blur the address bar). If the first responder
         // is a terminal surface, the address bar can't be focused.
         if browserAddressBarFocusedPanelId != nil,
            cmuxOwningGhosttyView(for: NSApp.keyWindow?.firstResponder) != nil {
 #if DEBUG
-            dlog("handleCustomShortcut: clearing stale browserAddressBarFocusedPanelId")
+            let stalePanelToken = browserAddressBarFocusedPanelId.map { String($0.uuidString.prefix(5)) } ?? "nil"
+            let firstResponderType = NSApp.keyWindow?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
+            dlog(
+                "browser.focus.addressBar.staleClear panel=\(stalePanelToken) " +
+                "reason=terminal_first_responder fr=\(firstResponderType)"
+            )
 #endif
             browserAddressBarFocusedPanelId = nil
             stopBrowserOmnibarSelectionRepeat()
@@ -5081,23 +7005,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // focused omnibar in another window does not suppress Cmd+P here.
         let hasFocusedAddressBarInShortcutContext = focusedBrowserAddressBarPanelIdForShortcutEvent(event) != nil
         let isCommandP = !hasFocusedAddressBarInShortcutContext
-            && normalizedFlags == [.command]
-            && (chars == "p" || event.keyCode == 35)
+            && matchShortcut(
+                event: event,
+                shortcut: StoredShortcut(key: "p", command: true, shift: false, option: false, control: false)
+            )
         if isCommandP {
             let targetWindow = commandPaletteTargetWindow ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
-            NotificationCenter.default.post(name: .commandPaletteSwitcherRequested, object: targetWindow)
+            requestCommandPaletteSwitcher(preferredWindow: targetWindow, source: "shortcut.cmdP")
             return true
         }
 
-        let isCommandShiftP = normalizedFlags == [.command, .shift] && (chars == "p" || event.keyCode == 35)
+        let isCommandShiftP = matchShortcut(
+            event: event,
+            shortcut: StoredShortcut(key: "p", command: true, shift: true, option: false, control: false)
+        )
         if isCommandShiftP {
             let targetWindow = commandPaletteTargetWindow ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
-            NotificationCenter.default.post(name: .commandPaletteRequested, object: targetWindow)
+            requestCommandPaletteCommands(preferredWindow: targetWindow, source: "shortcut.cmdShiftP")
             return true
         }
 
         if shouldConsumeShortcutWhileCommandPaletteVisible(
-            isCommandPaletteVisible: commandPaletteVisibleInTargetWindow,
+            isCommandPaletteVisible: commandPaletteEffectiveInTargetWindow,
             normalizedFlags: normalizedFlags,
             chars: chars,
             keyCode: event.keyCode
@@ -5105,11 +7034,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if normalizedFlags == [.command], chars == "q" {
+        if matchShortcut(
+            event: event,
+            shortcut: StoredShortcut(key: "q", command: true, shift: false, option: false, control: false)
+        ) {
             return handleQuitShortcutWarning()
         }
-        if normalizedFlags == [.command, .shift],
-           (chars == "," || chars == "<" || event.keyCode == 43) {
+        if matchShortcut(
+            event: event,
+            shortcut: StoredShortcut(key: ",", command: true, shift: true, option: false, control: false)
+        ) {
             GhosttyApp.shared.reloadConfiguration(source: "shortcut.cmd_shift_comma")
             return true
         }
@@ -5193,6 +7127,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        // Fast path for normal typing and terminal navigation keys (for example Up-arrow
+        // history): after command-palette/notification handling and browser omnibar
+        // arrow navigation above, plain key events have no app-level shortcut behavior.
+        if normalizedFlags.isEmpty {
+            return false
+        }
+
         // Let omnibar-local Emacs navigation (Cmd/Ctrl+N/P) win while the browser
         // address bar is focused. Without this, app-level Cmd+N can steal focus.
         if shouldBypassAppShortcutForFocusedBrowserAddressBar(flags: flags, chars: chars) {
@@ -5253,6 +7194,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .sendFeedback)) {
+            guard let targetContext = preferredMainWindowContextForShortcuts(event: event),
+                  let targetWindow = targetContext.window ?? windowForMainWindowId(targetContext.windowId) else {
+                return false
+            }
+            setActiveMainWindow(targetWindow)
+            bringToFront(targetWindow)
+            NotificationCenter.default.post(name: .feedbackComposerRequested, object: targetWindow)
+            return true
+        }
+
         // Check Jump to Unread shortcut
         if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .jumpToUnread)) {
 #if DEBUG
@@ -5278,6 +7230,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .prevSurface)) {
             tabManager?.selectPreviousSurface()
             return true
+        }
+
+        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .toggleTerminalCopyMode)) {
+            let handled = tabManager?.toggleFocusedTerminalCopyMode() ?? false
+#if DEBUG
+            dlog(
+                "shortcut.action name=toggleTerminalCopyMode handled=\(handled ? 1 : 0) " +
+                "\(debugShortcutRouteSnapshot(event: event))"
+            )
+#endif
+            // Only consume when a focused terminal actually handled the toggle.
+            // Otherwise allow the event to continue through the responder chain.
+            return handled
         }
 
         // Workspace navigation: Cmd+Ctrl+] / Cmd+Ctrl+[
@@ -5309,7 +7274,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             )
         }
 
-        if normalizedFlags == [.command, .option], (chars == "t" || event.keyCode == 17) {
+        if matchShortcut(
+            event: event,
+            shortcut: StoredShortcut(key: "t", command: true, shift: false, option: true, control: false)
+        ) {
             if let targetWindow = event.window ?? NSApp.keyWindow ?? NSApp.mainWindow,
                targetWindow.identifier?.rawValue == "cmux.settings" {
                 targetWindow.performClose(nil)
@@ -5330,7 +7298,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         // Cmd+W must close the focused panel even if first-responder momentarily lags on a
         // browser NSTextView during split focus transitions.
-        if normalizedFlags == [.command], (chars == "w" || event.keyCode == 13) {
+        if matchShortcut(
+            event: event,
+            shortcut: StoredShortcut(key: "w", command: true, shift: false, option: false, control: false)
+        ) {
             if let targetWindow = event.window ?? NSApp.keyWindow ?? NSApp.mainWindow,
                targetWindow.identifier?.rawValue == "cmux.settings" {
                 targetWindow.performClose(nil)
@@ -5379,7 +7350,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return false
             }
             let targetWindow = commandPaletteTargetWindow ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
-            NotificationCenter.default.post(name: .commandPaletteRenameTabRequested, object: targetWindow)
+            requestCommandPaletteRenameTab(preferredWindow: targetWindow, source: "shortcut.renameTab")
             return true
         }
 
@@ -5488,11 +7459,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .splitBrowserRight)) {
+#if DEBUG
+            dlog("shortcut.action name=splitBrowserRight \(debugShortcutRouteSnapshot(event: event))")
+#endif
             _ = performBrowserSplitShortcut(direction: .right)
             return true
         }
 
         if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .splitBrowserDown)) {
+#if DEBUG
+            dlog("shortcut.action name=splitBrowserDown \(debugShortcutRouteSnapshot(event: event))")
+#endif
             _ = performBrowserSplitShortcut(direction: .down)
             return true
         }
@@ -5553,7 +7530,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         // Focus browser address bar: Cmd+L
-        if flags == [.command] && chars == "l" {
+        if matchShortcut(
+            event: event,
+            shortcut: StoredShortcut(key: "l", command: true, shift: false, option: false, control: false)
+        ) {
             if let focusedPanel = tabManager?.focusedBrowserPanel {
                 focusBrowserAddressBar(in: focusedPanel)
                 return true
@@ -5696,6 +7676,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         dlog(line)
     }
+
+    private func browserFocusStateSnapshot() -> String {
+        let selected = tabManager?.selectedTabId.map { String($0.uuidString.prefix(5)) } ?? "nil"
+        let focused = tabManager?.selectedWorkspace?.focusedPanelId.map { String($0.uuidString.prefix(5)) } ?? "nil"
+        let addressBar = browserAddressBarFocusedPanelId.map { String($0.uuidString.prefix(5)) } ?? "nil"
+        let keyWindow = NSApp.keyWindow?.windowNumber ?? -1
+        let firstResponderType = NSApp.keyWindow?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
+        return "selected=\(selected) focused=\(focused) addr=\(addressBar) keyWin=\(keyWindow) fr=\(firstResponderType)"
+    }
+
+    private func redactedDebugURL(_ url: URL?) -> String {
+        guard let url else { return "nil" }
+        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            return "<invalid>"
+        }
+        components.user = nil
+        components.password = nil
+        components.query = nil
+        components.fragment = nil
+        return components.string ?? "<redacted>"
+    }
 #endif
 
     @discardableResult
@@ -5703,9 +7704,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard let tabManager,
               let workspace = tabManager.selectedWorkspace,
               let panel = workspace.browserPanel(for: panelId) else {
+#if DEBUG
+            dlog(
+                "browser.focus.addressBar.route panel=\(panelId.uuidString.prefix(5)) " +
+                "result=miss \(browserFocusStateSnapshot())"
+            )
+#endif
             return false
         }
+#if DEBUG
+        dlog(
+            "browser.focus.addressBar.route panel=\(panel.id.uuidString.prefix(5)) " +
+            "workspace=\(workspace.id.uuidString.prefix(5)) result=hit \(browserFocusStateSnapshot())"
+        )
+#endif
         workspace.focusPanel(panel.id)
+#if DEBUG
+        let focusedAfter = workspace.focusedPanelId.map { String($0.uuidString.prefix(5)) } ?? "nil"
+        dlog(
+            "browser.focus.addressBar.route panel=\(panel.id.uuidString.prefix(5)) " +
+            "workspace=\(workspace.id.uuidString.prefix(5)) focusedAfter=\(focusedAfter)"
+        )
+#endif
         focusBrowserAddressBar(in: panel)
         return true
     }
@@ -5713,16 +7733,56 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     @discardableResult
     func openBrowserAndFocusAddressBar(url: URL? = nil, insertAtEnd: Bool = false) -> UUID? {
         guard let panelId = tabManager?.openBrowser(url: url, insertAtEnd: insertAtEnd) else {
+#if DEBUG
+            dlog(
+                "browser.focus.openAndFocus result=open_failed insertAtEnd=\(insertAtEnd ? 1 : 0) " +
+                "url=\(redactedDebugURL(url)) \(browserFocusStateSnapshot())"
+            )
+#endif
             return nil
         }
+#if DEBUG
+        dlog(
+            "browser.focus.openAndFocus result=open_ok panel=\(panelId.uuidString.prefix(5)) " +
+            "insertAtEnd=\(insertAtEnd ? 1 : 0) url=\(redactedDebugURL(url))"
+        )
+#endif
+#if DEBUG
+        let didFocus = focusBrowserAddressBar(panelId: panelId)
+        dlog(
+            "browser.focus.openAndFocus result=focus_request panel=\(panelId.uuidString.prefix(5)) " +
+            "focused=\(didFocus ? 1 : 0) \(browserFocusStateSnapshot())"
+        )
+#else
         _ = focusBrowserAddressBar(panelId: panelId)
+#endif
         return panelId
     }
 
     private func focusBrowserAddressBar(in panel: BrowserPanel) {
+#if DEBUG
+        let requestId = panel.requestAddressBarFocus()
+        dlog(
+            "browser.focus.addressBar.request panel=\(panel.id.uuidString.prefix(5)) " +
+            "request=\(requestId.uuidString.prefix(8)) \(browserFocusStateSnapshot())"
+        )
+#else
         _ = panel.requestAddressBarFocus()
+#endif
         browserAddressBarFocusedPanelId = panel.id
+#if DEBUG
+        dlog(
+            "browser.focus.addressBar.sticky panel=\(panel.id.uuidString.prefix(5)) " +
+            "request=\(requestId.uuidString.prefix(8)) \(browserFocusStateSnapshot())"
+        )
+#endif
         NotificationCenter.default.post(name: .browserFocusAddressBar, object: panel.id)
+#if DEBUG
+        dlog(
+            "browser.focus.addressBar.notify panel=\(panel.id.uuidString.prefix(5)) " +
+            "request=\(requestId.uuidString.prefix(8))"
+        )
+#endif
     }
 
     func focusedBrowserAddressBarPanelId() -> UUID? {
@@ -5731,11 +7791,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func focusedBrowserAddressBarPanelIdForShortcutEvent(_ event: NSEvent) -> UUID? {
         guard let panelId = browserAddressBarFocusedPanelId else { return nil }
-        guard let context = preferredMainWindowContextForShortcutRouting(event: event),
-              let workspace = context.tabManager.selectedWorkspace,
-              workspace.browserPanel(for: panelId) != nil else {
+
+        guard let context = preferredMainWindowContextForShortcutRouting(event: event) else {
+#if DEBUG
+            dlog(
+                "browser.focus.addressBar.shortcutContext panel=\(panelId.uuidString.prefix(5)) " +
+                "accepted=0 reason=no_context event=\(NSWindow.keyDescription(event))"
+            )
+#endif
             return nil
         }
+
+        guard let workspace = context.tabManager.selectedWorkspace else {
+#if DEBUG
+            dlog(
+                "browser.focus.addressBar.shortcutContext panel=\(panelId.uuidString.prefix(5)) " +
+                "accepted=0 reason=no_workspace event=\(NSWindow.keyDescription(event))"
+            )
+#endif
+            return nil
+        }
+
+        guard workspace.browserPanel(for: panelId) != nil else {
+#if DEBUG
+            dlog(
+                "browser.focus.addressBar.shortcutContext panel=\(panelId.uuidString.prefix(5)) " +
+                "accepted=0 reason=panel_not_in_workspace workspace=\(workspace.id.uuidString.prefix(5)) " +
+                "event=\(NSWindow.keyDescription(event))"
+            )
+#endif
+            return nil
+        }
+
+#if DEBUG
+        dlog(
+            "browser.focus.addressBar.shortcutContext panel=\(panelId.uuidString.prefix(5)) " +
+            "accepted=1 workspace=\(workspace.id.uuidString.prefix(5)) event=\(NSWindow.keyDescription(event))"
+        )
+#endif
         return panelId
     }
 
@@ -5752,7 +7845,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let normalizedFlags = browserOmnibarNormalizedModifierFlags(flags)
         let isCommandOrControlOnly = normalizedFlags == [.command] || normalizedFlags == [.control]
         guard isCommandOrControlOnly else { return false }
-        return chars == "n" || chars == "p"
+        let shouldBypass = chars == "n" || chars == "p"
+#if DEBUG
+        if shouldBypass {
+            let panelToken = browserAddressBarFocusedPanelId.map { String($0.uuidString.prefix(5)) } ?? "nil"
+            dlog(
+                "browser.focus.addressBar.shortcutBypass panel=\(panelToken) " +
+                "chars=\(chars) flags=\(normalizedFlags.rawValue)"
+            )
+        }
+#endif
+        return shouldBypass
     }
 
     private func commandOmnibarSelectionDelta(
@@ -5769,6 +7872,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func dispatchBrowserOmnibarSelectionMove(delta: Int) {
         guard delta != 0 else { return }
         guard let panelId = browserAddressBarFocusedPanelId else { return }
+#if DEBUG
+        dlog(
+            "browser.focus.omnibar.selectionMove panel=\(panelId.uuidString.prefix(5)) " +
+            "delta=\(delta) repeatKey=\(browserOmnibarRepeatKeyCode.map(String.init) ?? "nil")"
+        )
+#endif
         NotificationCenter.default.post(
             name: .browserMoveOmnibarSelection,
             object: panelId,
@@ -5778,15 +7887,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func startBrowserOmnibarSelectionRepeatIfNeeded(keyCode: UInt16, delta: Int) {
         guard delta != 0 else { return }
-        guard browserAddressBarFocusedPanelId != nil else { return }
+        guard browserAddressBarFocusedPanelId != nil else {
+#if DEBUG
+            dlog(
+                "browser.focus.omnibar.repeat.start key=\(keyCode) delta=\(delta) " +
+                "result=skip_no_focused_address_bar"
+            )
+#endif
+            return
+        }
 
         if browserOmnibarRepeatKeyCode == keyCode, browserOmnibarRepeatDelta == delta {
+#if DEBUG
+            let panelToken = browserAddressBarFocusedPanelId.map { String($0.uuidString.prefix(5)) } ?? "nil"
+            dlog(
+                "browser.focus.omnibar.repeat.start panel=\(panelToken) " +
+                "key=\(keyCode) delta=\(delta) result=reuse"
+            )
+#endif
             return
         }
 
         stopBrowserOmnibarSelectionRepeat()
         browserOmnibarRepeatKeyCode = keyCode
         browserOmnibarRepeatDelta = delta
+#if DEBUG
+        let panelToken = browserAddressBarFocusedPanelId.map { String($0.uuidString.prefix(5)) } ?? "nil"
+        dlog(
+            "browser.focus.omnibar.repeat.start panel=\(panelToken) " +
+            "key=\(keyCode) delta=\(delta) result=armed"
+        )
+#endif
 
         let start = DispatchWorkItem { [weak self] in
             self?.scheduleBrowserOmnibarSelectionRepeatTick()
@@ -5798,11 +7929,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func scheduleBrowserOmnibarSelectionRepeatTick() {
         browserOmnibarRepeatStartWorkItem = nil
         guard browserAddressBarFocusedPanelId != nil else {
+#if DEBUG
+            dlog("browser.focus.omnibar.repeat.tick result=stop_no_focused_address_bar")
+#endif
             stopBrowserOmnibarSelectionRepeat()
             return
         }
         guard browserOmnibarRepeatKeyCode != nil else { return }
 
+#if DEBUG
+        let panelToken = browserAddressBarFocusedPanelId.map { String($0.uuidString.prefix(5)) } ?? "nil"
+        dlog(
+            "browser.focus.omnibar.repeat.tick panel=\(panelToken) " +
+            "delta=\(browserOmnibarRepeatDelta)"
+        )
+#endif
         dispatchBrowserOmnibarSelectionMove(delta: browserOmnibarRepeatDelta)
 
         let tick = DispatchWorkItem { [weak self] in
@@ -5813,12 +7954,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func stopBrowserOmnibarSelectionRepeat() {
+#if DEBUG
+        let previousKeyCode = browserOmnibarRepeatKeyCode
+        let previousDelta = browserOmnibarRepeatDelta
+#endif
         browserOmnibarRepeatStartWorkItem?.cancel()
         browserOmnibarRepeatTickWorkItem?.cancel()
         browserOmnibarRepeatStartWorkItem = nil
         browserOmnibarRepeatTickWorkItem = nil
         browserOmnibarRepeatKeyCode = nil
         browserOmnibarRepeatDelta = 0
+#if DEBUG
+        if previousKeyCode != nil || previousDelta != 0 {
+            dlog(
+                "browser.focus.omnibar.repeat.stop key=\(previousKeyCode.map(String.init) ?? "nil") " +
+                "delta=\(previousDelta)"
+            )
+        }
+#endif
     }
 
     private func handleBrowserOmnibarSelectionRepeatLifecycleEvent(_ event: NSEvent) {
@@ -5827,11 +7980,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         switch event.type {
         case .keyUp:
             if event.keyCode == browserOmnibarRepeatKeyCode {
+#if DEBUG
+                dlog(
+                    "browser.focus.omnibar.repeat.lifecycle event=keyUp key=\(event.keyCode) " +
+                    "action=stop"
+                )
+#endif
                 stopBrowserOmnibarSelectionRepeat()
             }
         case .flagsChanged:
             let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
             if !flags.contains(.command) {
+#if DEBUG
+                dlog(
+                    "browser.focus.omnibar.repeat.lifecycle event=flagsChanged " +
+                    "flags=\(flags.rawValue) action=stop"
+                )
+#endif
                 stopBrowserOmnibarSelectionRepeat()
             }
         default:
@@ -6006,7 +8171,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func performBrowserSplitShortcut(direction: SplitDirection) -> Bool {
         _ = synchronizeActiveMainWindowContext(preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow)
 
-        guard let panelId = tabManager?.createBrowserSplit(direction: direction) else { return false }
+        #if DEBUG
+        let directionLabel: String
+        switch direction {
+        case .left: directionLabel = "left"
+        case .right: directionLabel = "right"
+        case .up: directionLabel = "up"
+        case .down: directionLabel = "down"
+        }
+        let selectedTabBefore = tabManager?.selectedTabId?.uuidString.prefix(5) ?? "nil"
+        let focusedPanelBefore = tabManager?.selectedWorkspace?.focusedPanelId?.uuidString.prefix(5) ?? "nil"
+        dlog(
+            "split.browser.shortcut pre dir=\(directionLabel) " +
+            "tab=\(selectedTabBefore) focusedPanel=\(focusedPanelBefore)"
+        )
+        #endif
+
+        guard let panelId = tabManager?.createBrowserSplit(direction: direction) else {
+            #if DEBUG
+            dlog("split.browser.shortcut failed dir=\(directionLabel)")
+            #endif
+            return false
+        }
+
+        #if DEBUG
+        let selectedTabAfter = tabManager?.selectedTabId?.uuidString.prefix(5) ?? "nil"
+        let focusedPanelAfter = tabManager?.selectedWorkspace?.focusedPanelId?.uuidString.prefix(5) ?? "nil"
+        dlog(
+            "split.browser.shortcut post dir=\(directionLabel) " +
+            "created=\(panelId.uuidString.prefix(5)) tab=\(selectedTabAfter) focusedPanel=\(focusedPanelAfter)"
+        )
+        #endif
+
         _ = focusBrowserAddressBar(panelId: panelId)
         return true
     }
@@ -6021,7 +8217,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     @discardableResult
     func requestRenameWorkspaceViaCommandPalette(preferredWindow: NSWindow? = nil) -> Bool {
         let targetWindow = preferredWindow ?? NSApp.keyWindow ?? NSApp.mainWindow
-        NotificationCenter.default.post(name: .commandPaletteRenameWorkspaceRequested, object: targetWindow)
+        requestCommandPaletteRenameWorkspace(
+            preferredWindow: targetWindow,
+            source: "shortcut.renameWorkspace"
+        )
         return true
     }
 
@@ -6031,6 +8230,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     // synthetic NSEvents.
     func debugHandleCustomShortcut(event: NSEvent) -> Bool {
         handleCustomShortcut(event: event)
+    }
+
+    // Debug/test hook: mirrors local monitor routing (keyDown + keyUp lifecycle).
+    func debugHandleShortcutMonitorEvent(event: NSEvent) -> Bool {
+        if event.type == .keyDown {
+            return handleCustomShortcut(event: event)
+        }
+        handleBrowserOmnibarSelectionRepeatLifecycleEvent(event)
+        return clearEscapeSuppressionForKeyUp(event: event, consumeIfSuppressed: true)
+    }
+
+    func debugMarkCommandPaletteOpenPending(window: NSWindow) {
+        markCommandPaletteOpenRequested(for: window)
+    }
+
+    @discardableResult
+    func debugSetCommandPalettePendingOpenAge(window: NSWindow, age: TimeInterval) -> Bool {
+        guard let windowId = mainWindowId(for: window) else { return false }
+        commandPalettePendingOpenByWindowId[windowId] = true
+        commandPaletteRecentRequestAtByWindowId[windowId] = ProcessInfo.processInfo.systemUptime - max(age, 0)
+        return true
     }
 
     // Test hook: remap a window context under a detached window key so direct
@@ -6086,40 +8306,125 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return false
     }
 
-    /// Match a shortcut against an event, handling normal keys
+    /// Match a shortcut against an event, handling normal keys.
     private func matchShortcut(event: NSEvent, shortcut: StoredShortcut) -> Bool {
         // Some keys can include extra flags (e.g. .function) depending on the responder chain.
         // Strip those for consistent matching across first responders (terminal, WebKit, etc).
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-            .subtracting([.numericPad, .function])
+            .subtracting([.numericPad, .function, .capsLock])
         guard flags == shortcut.modifierFlags else { return false }
 
-        // NSEvent.charactersIgnoringModifiers preserves Shift for some symbol keys
-        // (e.g. Shift+] can yield "}" instead of "]"), so match brackets by keyCode.
         let shortcutKey = shortcut.key.lowercased()
         if shortcutKey == "\r" {
             return event.keyCode == 36 || event.keyCode == 76
         }
-        if shortcutKey == "[" || shortcutKey == "]" {
-            switch event.keyCode {
-            case 33: // kVK_ANSI_LeftBracket
-                return shortcutKey == "["
-            case 30: // kVK_ANSI_RightBracket
-                return shortcutKey == "]"
-            default:
-                return false
-            }
-        }
 
-        // Control-key combos can produce control characters (e.g. Ctrl+H => backspace),
-        // so fall back to keyCode matching for common printable keys.
-        if let chars = event.charactersIgnoringModifiers?.lowercased(), chars == shortcutKey {
+        let eventCharsIgnoringModifiers = event.charactersIgnoringModifiers
+        if shortcutCharacterMatches(
+            eventCharacter: eventCharsIgnoringModifiers,
+            shortcutKey: shortcutKey,
+            applyShiftSymbolNormalization: flags.contains(.shift),
+            eventKeyCode: event.keyCode
+        ) {
             return true
         }
-        if let expectedKeyCode = keyCodeForShortcutKey(shortcutKey) {
+
+        // For command-based shortcuts, trust AppKit's layout-aware characters when present.
+        // Keep this strict for letter shortcuts to avoid physical-key collisions across layouts,
+        // while still allowing keyCode fallback for digit/punctuation shortcuts on non-US layouts.
+        let hasEventChars = !(eventCharsIgnoringModifiers?.isEmpty ?? true)
+        if hasEventChars,
+           flags.contains(.command),
+           !flags.contains(.control),
+           shouldRequireCharacterMatchForCommandShortcut(shortcutKey: shortcutKey) {
+            return false
+        }
+
+        // Match using the current keyboard layout so Command shortcuts stay character-based
+        // across layouts (QWERTY, Dvorak, etc.) instead of being tied to ANSI physical keys.
+        let layoutCharacter = shortcutLayoutCharacterProvider(event.keyCode, event.modifierFlags)
+        if shortcutCharacterMatches(
+            eventCharacter: layoutCharacter,
+            shortcutKey: shortcutKey,
+            applyShiftSymbolNormalization: false,
+            eventKeyCode: event.keyCode
+        ) {
+            return true
+        }
+
+        // Control-key combos can surface as ASCII control characters (e.g. Ctrl+H => backspace),
+        // so keep ANSI keyCode fallback for control-modified shortcuts. Also allow fallback for
+        // command punctuation shortcuts, since some non-US layouts report different characters
+        // for the same physical key even when menu-equivalent semantics should still apply.
+        let allowANSIKeyCodeFallback = flags.contains(.control)
+            || (flags.contains(.command)
+                && !flags.contains(.control)
+                && (
+                    !shouldRequireCharacterMatchForCommandShortcut(shortcutKey: shortcutKey)
+                        || (!hasEventChars && (layoutCharacter?.isEmpty ?? true))
+                ))
+        if allowANSIKeyCodeFallback, let expectedKeyCode = keyCodeForShortcutKey(shortcutKey) {
             return event.keyCode == expectedKeyCode
         }
         return false
+    }
+
+    private func shouldRequireCharacterMatchForCommandShortcut(shortcutKey: String) -> Bool {
+        guard shortcutKey.count == 1, let scalar = shortcutKey.unicodeScalars.first else {
+            return false
+        }
+        return CharacterSet.letters.contains(scalar)
+    }
+
+    private func shortcutCharacterMatches(
+        eventCharacter: String?,
+        shortcutKey: String,
+        applyShiftSymbolNormalization: Bool,
+        eventKeyCode: UInt16
+    ) -> Bool {
+        guard let eventCharacter, !eventCharacter.isEmpty else { return false }
+        if normalizedShortcutEventCharacter(
+            eventCharacter,
+            applyShiftSymbolNormalization: applyShiftSymbolNormalization,
+            eventKeyCode: eventKeyCode
+        ) == shortcutKey {
+            return true
+        }
+        return false
+    }
+
+    private func normalizedShortcutEventCharacter(
+        _ eventCharacter: String,
+        applyShiftSymbolNormalization: Bool,
+        eventKeyCode: UInt16
+    ) -> String {
+        let lowered = eventCharacter.lowercased()
+        guard applyShiftSymbolNormalization else { return lowered }
+
+        switch lowered {
+        case "{": return "["
+        case "}": return "]"
+        case "<": return eventKeyCode == 43 ? "," : lowered // kVK_ANSI_Comma
+        case ">": return eventKeyCode == 47 ? "." : lowered // kVK_ANSI_Period
+        case "?": return "/"
+        case ":": return ";"
+        case "\"": return "'"
+        case "|": return "\\"
+        case "~": return "`"
+        case "+": return "="
+        case "_": return "-"
+        case "!": return eventKeyCode == 18 ? "1" : lowered // kVK_ANSI_1
+        case "@": return eventKeyCode == 19 ? "2" : lowered // kVK_ANSI_2
+        case "#": return eventKeyCode == 20 ? "3" : lowered // kVK_ANSI_3
+        case "$": return eventKeyCode == 21 ? "4" : lowered // kVK_ANSI_4
+        case "%": return eventKeyCode == 23 ? "5" : lowered // kVK_ANSI_5
+        case "^": return eventKeyCode == 22 ? "6" : lowered // kVK_ANSI_6
+        case "&": return eventKeyCode == 26 ? "7" : lowered // kVK_ANSI_7
+        case "*": return eventKeyCode == 28 ? "8" : lowered // kVK_ANSI_8
+        case "(": return eventKeyCode == 25 ? "9" : lowered // kVK_ANSI_9
+        case ")": return eventKeyCode == 29 ? "0" : lowered // kVK_ANSI_0
+        default: return lowered
+        }
     }
 
     private func keyCodeForShortcutKey(_ key: String) -> UInt16? {
@@ -6155,8 +8460,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         case "-": return 27  // kVK_ANSI_Minus
         case "8": return 28  // kVK_ANSI_8
         case "0": return 29  // kVK_ANSI_0
+        case "]": return 30  // kVK_ANSI_RightBracket
         case "o": return 31  // kVK_ANSI_O
         case "u": return 32  // kVK_ANSI_U
+        case "[": return 33  // kVK_ANSI_LeftBracket
         case "i": return 34  // kVK_ANSI_I
         case "p": return 35  // kVK_ANSI_P
         case "l": return 37  // kVK_ANSI_L
@@ -6249,8 +8556,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func ensureApplicationIcon() {
-        if let icon = NSImage(named: NSImage.applicationIconName) {
-            NSApplication.shared.applicationIconImage = icon
+        let mode = AppIconSettings.resolvedMode()
+        if mode == .automatic {
+            // Let the asset catalog handle appearance-based icon selection.
+            if let icon = NSImage(named: NSImage.applicationIconName) {
+                NSApplication.shared.applicationIconImage = icon
+            }
+        } else {
+            AppIconSettings.applyIcon(mode)
         }
     }
 
@@ -6317,6 +8630,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func observeDuplicateLaunches() {
         guard let bundleId = Bundle.main.bundleIdentifier else { return }
+        let embeddedCLIURL = Bundle.main.bundleURL
+            .appendingPathComponent("Contents/Resources/bin/cmux", isDirectory: false)
+            .standardizedFileURL
+            .resolvingSymlinksInPath()
         let currentPid = ProcessInfo.processInfo.processIdentifier
 
         workspaceObserver = NSWorkspace.shared.notificationCenter.addObserver(
@@ -6327,6 +8644,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             guard self != nil else { return }
             guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
             guard app.bundleIdentifier == bundleId, app.processIdentifier != currentPid else { return }
+            if let executableURL = app.executableURL?
+                   .standardizedFileURL
+                   .resolvingSymlinksInPath(),
+               executableURL == embeddedCLIURL {
+                return
+            }
 
             app.terminate()
             if !app.isTerminated {
@@ -6350,7 +8673,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         willPresent notification: UNNotification,
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
-        completionHandler([.banner, .sound, .list])
+        var options: UNNotificationPresentationOptions = [.banner, .list]
+        if notification.request.content.sound != nil {
+            options.insert(.sound)
+        }
+        completionHandler(options)
     }
 
     private func handleNotificationResponse(_ response: UNNotificationResponse) {
@@ -6468,6 +8795,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         persistWindowGeometry(from: window)
         guard let removed = unregisterMainWindowContext(for: window) else { return }
         commandPaletteVisibilityByWindowId.removeValue(forKey: removed.windowId)
+        commandPalettePendingOpenByWindowId.removeValue(forKey: removed.windowId)
+        commandPaletteRecentRequestAtByWindowId.removeValue(forKey: removed.windowId)
+        commandPaletteEscapeSuppressionByWindowId.remove(removed.windowId)
+        commandPaletteEscapeSuppressionStartedAtByWindowId.removeValue(forKey: removed.windowId)
         commandPaletteSelectionByWindowId.removeValue(forKey: removed.windowId)
         commandPaletteSnapshotByWindowId.removeValue(forKey: removed.windowId)
 
@@ -6804,17 +9135,17 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
     private var notificationsCancellable: AnyCancellable?
     private let buildHintTitle: String?
 
-    private let stateHintItem = NSMenuItem(title: "No unread notifications", action: nil, keyEquivalent: "")
+    private let stateHintItem = NSMenuItem(title: String(localized: "statusMenu.noUnread", defaultValue: "No unread notifications"), action: nil, keyEquivalent: "")
     private let buildHintItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     private let notificationListSeparator = NSMenuItem.separator()
     private let notificationSectionSeparator = NSMenuItem.separator()
-    private let showNotificationsItem = NSMenuItem(title: "Show Notifications", action: nil, keyEquivalent: "")
-    private let jumpToUnreadItem = NSMenuItem(title: "Jump to Latest Unread", action: nil, keyEquivalent: "")
-    private let markAllReadItem = NSMenuItem(title: "Mark All Read", action: nil, keyEquivalent: "")
-    private let clearAllItem = NSMenuItem(title: "Clear All", action: nil, keyEquivalent: "")
-    private let checkForUpdatesItem = NSMenuItem(title: "Check for Updates…", action: nil, keyEquivalent: "")
-    private let preferencesItem = NSMenuItem(title: "Preferences…", action: nil, keyEquivalent: "")
-    private let quitItem = NSMenuItem(title: "Quit cmux", action: nil, keyEquivalent: "")
+    private let showNotificationsItem = NSMenuItem(title: String(localized: "statusMenu.showNotifications", defaultValue: "Show Notifications"), action: nil, keyEquivalent: "")
+    private let jumpToUnreadItem = NSMenuItem(title: String(localized: "statusMenu.jumpToLatestUnread", defaultValue: "Jump to Latest Unread"), action: nil, keyEquivalent: "")
+    private let markAllReadItem = NSMenuItem(title: String(localized: "statusMenu.markAllRead", defaultValue: "Mark All Read"), action: nil, keyEquivalent: "")
+    private let clearAllItem = NSMenuItem(title: String(localized: "statusMenu.clearAll", defaultValue: "Clear All"), action: nil, keyEquivalent: "")
+    private let checkForUpdatesItem = NSMenuItem(title: String(localized: "menu.checkForUpdates", defaultValue: "Check for Updates…"), action: nil, keyEquivalent: "")
+    private let preferencesItem = NSMenuItem(title: String(localized: "menu.preferences", defaultValue: "Preferences…"), action: nil, keyEquivalent: "")
+    private let quitItem = NSMenuItem(title: String(localized: "menu.quitCmux", defaultValue: "Quit cmux"), action: nil, keyEquivalent: "")
 
     private var notificationItems: [NSMenuItem] = []
     private let maxInlineNotificationItems = 6
@@ -6943,7 +9274,9 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
             button.image = MenuBarIconRenderer.makeImage(unreadCount: displayedUnreadCount)
             button.toolTip = displayedUnreadCount == 0
                 ? "cmux"
-                : "cmux: \(displayedUnreadCount) unread notification\(displayedUnreadCount == 1 ? "" : "s")"
+                : displayedUnreadCount == 1
+                    ? "cmux: " + String(localized: "statusMenu.tooltip.unread.one", defaultValue: "1 unread notification")
+                    : "cmux: " + String(localized: "statusMenu.tooltip.unread.other", defaultValue: "\(displayedUnreadCount) unread notifications")
         }
     }
 
@@ -7066,9 +9399,14 @@ enum NotificationMenuSnapshotBuilder {
     }
 
     static func stateHintTitle(unreadCount: Int) -> String {
-        unreadCount == 0
-            ? "No unread notifications"
-            : "\(unreadCount) unread notification\(unreadCount == 1 ? "" : "s")"
+        switch unreadCount {
+        case 0:
+            return String(localized: "statusMenu.noUnread", defaultValue: "No unread notifications")
+        case 1:
+            return String(localized: "statusMenu.unreadCount.one", defaultValue: "1 unread notification")
+        default:
+            return String(localized: "statusMenu.unreadCount.other", defaultValue: "\(unreadCount) unread notifications")
+        }
     }
 }
 
@@ -7370,6 +9708,7 @@ enum MenuBarIconRenderer {
             drawBadge(text: text, in: config.badgeRect, config: config)
         }
 
+        image.isTemplate = true
         return image
     }
 
@@ -7398,7 +9737,7 @@ enum MenuBarIconRenderer {
         path.line(to: map(384.0, 369.0))
         path.close()
 
-        NSColor.white.setFill()
+        NSColor.black.setFill()
         path.fill()
     }
 
@@ -7428,6 +9767,9 @@ enum MenuBarIconRenderer {
 private var cmuxFirstResponderGuardCurrentEventOverride: NSEvent?
 private var cmuxFirstResponderGuardHitViewOverride: NSView?
 #endif
+private var cmuxFirstResponderGuardCurrentEventContext: NSEvent?
+private var cmuxFirstResponderGuardHitViewContext: NSView?
+private var cmuxFirstResponderGuardContextWindowNumber: Int?
 private var cmuxBrowserReturnForwardingDepth = 0
 private var cmuxWindowFirstResponderBypassDepth = 0
 private var cmuxFieldEditorOwningWebViewAssociationKey: UInt8 = 0
@@ -7469,6 +9811,7 @@ private extension NSWindow {
         let responderWebView = responder.flatMap {
             Self.cmuxOwningWebView(for: $0, in: self, event: currentEvent)
         }
+        var pointerInitiatedWebFocus = false
 
         if AppDelegate.shared?.shouldBlockFirstResponderChangeWhileCommandPaletteVisible(
             window: self,
@@ -7492,6 +9835,7 @@ private extension NSWindow {
                 event: currentEvent
             )
             if pointerInitiatedFocus {
+                pointerInitiatedWebFocus = true
 #if DEBUG
                 dlog(
                     "focus.guard allowPointerFirstResponder responder=\(String(describing: type(of: responder))) " +
@@ -7528,7 +9872,16 @@ private extension NSWindow {
             )
         }
 #endif
-        let result = cmux_makeFirstResponder(responder)
+        let result: Bool
+        if pointerInitiatedWebFocus, let webView = responderWebView {
+            // `NSWindow.makeFirstResponder` may run before `CmuxWebView.mouseDown(with:)`.
+            // Preserve pointer intent during this synchronous responder change.
+            result = webView.withPointerFocusAllowance {
+                cmux_makeFirstResponder(responder)
+            }
+        } else {
+            result = cmux_makeFirstResponder(responder)
+        }
         if result {
             if let fieldEditor = responder as? NSTextView, fieldEditor.isFieldEditor {
                 Self.cmuxTrackFieldEditor(fieldEditor, owningWebView: responderWebView)
@@ -7540,6 +9893,18 @@ private extension NSWindow {
     }
 
     @objc func cmux_sendEvent(_ event: NSEvent) {
+        let previousContextEvent = cmuxFirstResponderGuardCurrentEventContext
+        let previousContextHitView = cmuxFirstResponderGuardHitViewContext
+        let previousContextWindowNumber = cmuxFirstResponderGuardContextWindowNumber
+        cmuxFirstResponderGuardCurrentEventContext = event
+        cmuxFirstResponderGuardHitViewContext = Self.cmuxHitViewForEventDispatch(in: self, event: event)
+        cmuxFirstResponderGuardContextWindowNumber = self.windowNumber
+        defer {
+            cmuxFirstResponderGuardCurrentEventContext = previousContextEvent
+            cmuxFirstResponderGuardHitViewContext = previousContextHitView
+            cmuxFirstResponderGuardContextWindowNumber = previousContextWindowNumber
+        }
+
         guard shouldSuppressWindowMoveForFolderDrag(window: self, event: event),
               let contentView = self.contentView else {
             cmux_sendEvent(event)
@@ -7636,7 +10001,8 @@ private extension NSWindow {
         // mark handled to avoid the AppKit alert sound path.
         if shouldDispatchBrowserReturnViaFirstResponderKeyDown(
             keyCode: event.keyCode,
-            firstResponderIsBrowser: firstResponderWebView != nil
+            firstResponderIsBrowser: firstResponderWebView != nil,
+            flags: event.modifierFlags
         ) {
             // Forwarding keyDown can re-enter performKeyEquivalent in WebKit/AppKit internals.
             // On re-entry, fall back to normal dispatch to avoid an infinite loop.
@@ -7770,19 +10136,76 @@ private extension NSWindow {
             if let webView = candidate as? CmuxWebView {
                 return webView
             }
+            if String(describing: type(of: candidate)).contains("WindowBrowserSlotView"),
+               let portalWebView = cmuxUniqueBrowserWebView(in: candidate) {
+                return portalWebView
+            }
             current = candidate.superview
         }
 
         return nil
     }
 
-    private static func cmuxCurrentEvent(for _: NSWindow) -> NSEvent? {
+    private static func cmuxUniqueBrowserWebView(in root: NSView) -> CmuxWebView? {
+        var stack: [NSView] = [root]
+        var found: CmuxWebView?
+        while let current = stack.popLast() {
+            if let webView = current as? CmuxWebView {
+                if found == nil {
+                    found = webView
+                } else if found !== webView {
+                    return nil
+                }
+            }
+            stack.append(contentsOf: current.subviews)
+        }
+        return found
+    }
+
+    private static func cmuxCurrentEvent(for window: NSWindow) -> NSEvent? {
 #if DEBUG
         if let override = cmuxFirstResponderGuardCurrentEventOverride {
             return override
         }
 #endif
+        if cmuxFirstResponderGuardContextWindowNumber == window.windowNumber {
+            return cmuxFirstResponderGuardCurrentEventContext
+        }
         return NSApp.currentEvent
+    }
+
+    private static func cmuxHitViewInThemeFrame(in window: NSWindow, event: NSEvent) -> NSView? {
+        guard let contentView = window.contentView,
+              let themeFrame = contentView.superview else {
+            return nil
+        }
+        let pointInTheme = themeFrame.convert(event.locationInWindow, from: nil)
+        return themeFrame.hitTest(pointInTheme)
+    }
+
+    private static func cmuxHitViewInContentView(in window: NSWindow, event: NSEvent) -> NSView? {
+        guard let contentView = window.contentView else {
+            return nil
+        }
+        let pointInContent = contentView.convert(event.locationInWindow, from: nil)
+        return contentView.hitTest(pointInContent)
+    }
+
+    private static func cmuxTopHitViewForEvent(in window: NSWindow, event: NSEvent) -> NSView? {
+        if let hitInThemeFrame = cmuxHitViewInThemeFrame(in: window, event: event) {
+            return hitInThemeFrame
+        }
+        return cmuxHitViewInContentView(in: window, event: event)
+    }
+
+    private static func cmuxHitViewForEventDispatch(in window: NSWindow, event: NSEvent) -> NSView? {
+        if event.windowNumber != 0, event.windowNumber != window.windowNumber {
+            return nil
+        }
+        if let eventWindow = event.window, eventWindow !== window {
+            return nil
+        }
+        return cmuxTopHitViewForEvent(in: window, event: event)
     }
 
     private static func cmuxHitViewForCurrentEvent(in window: NSWindow, event: NSEvent) -> NSView? {
@@ -7791,7 +10214,11 @@ private extension NSWindow {
             return override
         }
 #endif
-        return window.contentView?.hitTest(event.locationInWindow)
+        if cmuxFirstResponderGuardContextWindowNumber == window.windowNumber,
+           let contextHitView = cmuxFirstResponderGuardHitViewContext {
+            return contextHitView
+        }
+        return cmuxTopHitViewForEvent(in: window, event: event)
     }
 
     private static func cmuxTrackFieldEditor(_ fieldEditor: NSTextView, owningWebView webView: CmuxWebView?) {
@@ -7842,6 +10269,12 @@ private extension NSWindow {
         }
         if let eventWindow = event.window, eventWindow !== window {
             return nil
+        }
+        if let portalWebView = BrowserWindowPortalRegistry.webViewAtWindowPoint(
+            event.locationInWindow,
+            in: window
+        ) as? CmuxWebView {
+            return portalWebView
         }
         guard let hitView = cmuxHitViewForCurrentEvent(in: window, event: event) else {
             return nil

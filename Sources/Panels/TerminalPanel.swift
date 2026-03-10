@@ -1,6 +1,7 @@
 import Foundation
 import Combine
 import AppKit
+import Bonsplit
 
 /// TerminalPanel wraps an existing TerminalSurface and conforms to the Panel protocol.
 /// This allows TerminalSurface to be used within the bonsplit-based layout system.
@@ -164,9 +165,28 @@ final class TerminalPanel: Panel, ObservableObject {
         // The surface will be cleaned up by its deinit
         // Detach from the window portal on real close so stale hosted views
         // cannot remain above browser panes after split close.
+        surface.beginPortalCloseLifecycle(reason: "panel.close")
+#if DEBUG
+        let frame = String(format: "%.1fx%.1f", hostedView.frame.width, hostedView.frame.height)
+        let bounds = String(format: "%.1fx%.1f", hostedView.bounds.width, hostedView.bounds.height)
+        dlog(
+            "surface.panel.close.begin panel=\(id.uuidString.prefix(5)) " +
+            "workspace=\(workspaceId.uuidString.prefix(5)) runtimeSurface=\(surface.surface != nil ? 1 : 0) " +
+            "inWindow=\(hostedView.window != nil ? 1 : 0) hasSuperview=\(hostedView.superview != nil ? 1 : 0) " +
+            "hidden=\(hostedView.isHidden ? 1 : 0) frame=\(frame) bounds=\(bounds)"
+        )
+#endif
         unfocus()
         hostedView.setVisibleInUI(false)
         TerminalWindowPortalRegistry.detach(hostedView: hostedView)
+#if DEBUG
+        dlog(
+            "surface.panel.close.end panel=\(id.uuidString.prefix(5)) " +
+            "inWindow=\(hostedView.window != nil ? 1 : 0) hasSuperview=\(hostedView.superview != nil ? 1 : 0) " +
+            "hidden=\(hostedView.isHidden ? 1 : 0)"
+        )
+#endif
+        surface.teardownSurface()
     }
 
     func requestViewReattach() {
@@ -193,6 +213,10 @@ final class TerminalPanel: Panel, ObservableObject {
 
     func triggerFlash() {
         hostedView.triggerFlash()
+    }
+
+    func triggerNotificationDismissFlash() {
+        hostedView.triggerFlash(style: .notificationDismiss)
     }
 
     func applyWindowBackgroundIfActive() {

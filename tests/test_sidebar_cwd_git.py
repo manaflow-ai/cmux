@@ -72,6 +72,7 @@ def _wait_for_git_branch(
     expected: str,
     timeout: float = 12.0,
     interval: float = 0.15,
+    allow_force_fallback: bool = True,
 ) -> dict[str, str]:
     def pred():
         state = _parse_sidebar_state(client.sidebar_state())
@@ -82,6 +83,8 @@ def _wait_for_git_branch(
     try:
         return _wait_for(pred, timeout=timeout, interval=interval, label=f"git_branch={expected!r}")
     except AssertionError as original_error:
+        if not allow_force_fallback:
+            raise original_error
         # VM shells can occasionally skip a prompt hook; force a one-shot report so
         # the remainder of the flow can still validate transition behavior.
         try:
@@ -179,6 +182,18 @@ def main() -> int:
 
             _send_cd_and_wait(client, repo)
             _wait_for_git_branch(client, "main")
+
+            # Branch changes during a long-running foreground command should still
+            # propagate before the prompt returns (agent-style workflows).
+            client.send("bash -lc 'git checkout -b feature/agent-live >/dev/null 2>&1; sleep 6'\n")
+            _wait_for_git_branch(
+                client,
+                "feature/agent-live",
+                timeout=3.5,
+                interval=0.1,
+                allow_force_fallback=False,
+            )
+            time.sleep(6.3)
 
             # Branch change should update.
             # Cover alias/non-`git ...` command paths too (regression: branch could

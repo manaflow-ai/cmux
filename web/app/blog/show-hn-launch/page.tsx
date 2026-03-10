@@ -2,8 +2,6 @@ import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
 import { Tweet } from "react-tweet";
-import { DownloadButton } from "../../components/download-button";
-import { GitHubButton } from "../../components/github-button";
 import starHistory from "./star-history.png";
 
 export const metadata: Metadata = {
@@ -209,10 +207,6 @@ export default function ShowHNLaunchPage() {
         />
       </div>
 
-      <div className="flex flex-wrap items-center justify-center gap-3 mt-12">
-        <DownloadButton location="blog-bottom" />
-        <GitHubButton />
-      </div>
     </>
   );
 }

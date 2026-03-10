@@ -134,6 +134,12 @@ final class GhosttyConfigTests: XCTestCase {
         XCTAssertEqual(rgb255(darkConfig.backgroundColor), RGB(red: 0, green: 43, blue: 54))
     }
 
+    func testParseBackgroundOpacityReadsConfigValue() {
+        var config = GhosttyConfig()
+        config.parse("background-opacity = 0.42")
+        XCTAssertEqual(config.backgroundOpacity, 0.42, accuracy: 0.0001)
+    }
+
     func testLoadThemeResolvesBuiltinAliasFromGhosttyResourcesDir() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-ghostty-themes-\(UUID().uuidString)")
@@ -248,6 +254,52 @@ final class GhosttyConfigTests: XCTestCase {
             GhosttyApp.shouldLoadLegacyGhosttyConfig(
                 newConfigFileSize: 0,
                 legacyConfigFileSize: nil
+            )
+        )
+    }
+
+    func testReleaseAppSupportFallbackLoadsForDebugWhenOnlyReleaseConfigExists() {
+        XCTAssertTrue(
+            GhosttyApp.shouldLoadReleaseAppSupportGhosttyConfig(
+                currentBundleIdentifier: "com.cmuxterm.app.debug",
+                currentConfigFileSize: nil,
+                currentLegacyConfigFileSize: nil,
+                releaseConfigFileSize: 128,
+                releaseLegacyConfigFileSize: nil
+            )
+        )
+    }
+
+    func testReleaseAppSupportFallbackSkipsWhenDebugConfigAlreadyExists() {
+        XCTAssertFalse(
+            GhosttyApp.shouldLoadReleaseAppSupportGhosttyConfig(
+                currentBundleIdentifier: "com.cmuxterm.app.debug.issue-829",
+                currentConfigFileSize: nil,
+                currentLegacyConfigFileSize: 64,
+                releaseConfigFileSize: 128,
+                releaseLegacyConfigFileSize: nil
+            )
+        )
+    }
+
+    func testReleaseAppSupportFallbackSkipsForNonDebugBundleOrMissingReleaseConfig() {
+        XCTAssertFalse(
+            GhosttyApp.shouldLoadReleaseAppSupportGhosttyConfig(
+                currentBundleIdentifier: "com.cmuxterm.app",
+                currentConfigFileSize: nil,
+                currentLegacyConfigFileSize: nil,
+                releaseConfigFileSize: 128,
+                releaseLegacyConfigFileSize: nil
+            )
+        )
+
+        XCTAssertFalse(
+            GhosttyApp.shouldLoadReleaseAppSupportGhosttyConfig(
+                currentBundleIdentifier: "com.cmuxterm.app.debug",
+                currentConfigFileSize: nil,
+                currentLegacyConfigFileSize: nil,
+                releaseConfigFileSize: nil,
+                releaseLegacyConfigFileSize: 0
             )
         )
     }
@@ -529,6 +581,174 @@ final class WorkspaceAppearanceConfigResolutionTests: XCTestCase {
     }
 }
 
+@MainActor
+final class WorkspaceChromeColorTests: XCTestCase {
+    func testBonsplitChromeHexIncludesAlphaWhenTranslucent() {
+        let color = NSColor(
+            srgbRed: 17.0 / 255.0,
+            green: 34.0 / 255.0,
+            blue: 51.0 / 255.0,
+            alpha: 1.0
+        )
+
+        let hex = Workspace.bonsplitChromeHex(backgroundColor: color, backgroundOpacity: 0.5)
+        XCTAssertEqual(hex, "#1122337F")
+    }
+
+    func testBonsplitChromeHexOmitsAlphaWhenOpaque() {
+        let color = NSColor(
+            srgbRed: 17.0 / 255.0,
+            green: 34.0 / 255.0,
+            blue: 51.0 / 255.0,
+            alpha: 1.0
+        )
+
+        let hex = Workspace.bonsplitChromeHex(backgroundColor: color, backgroundOpacity: 1.0)
+        XCTAssertEqual(hex, "#112233")
+    }
+}
+
+final class WindowTransparencyDecisionTests: XCTestCase {
+    private let sidebarBlendModeKey = "sidebarBlendMode"
+    private let bgGlassEnabledKey = "bgGlassEnabled"
+
+    func testTranslucentOpacityForcesClearWindowBackgroundOutsideSidebarBlendModePath() {
+        withTemporaryWindowBackgroundDefaults {
+            let defaults = UserDefaults.standard
+            defaults.set("withinWindow", forKey: sidebarBlendModeKey)
+            defaults.set(false, forKey: bgGlassEnabledKey)
+
+            XCTAssertFalse(cmuxShouldUseTransparentBackgroundWindow())
+            XCTAssertTrue(cmuxShouldUseClearWindowBackground(for: 0.80))
+            XCTAssertFalse(cmuxShouldUseClearWindowBackground(for: 1.0))
+        }
+    }
+
+    func testBehindWindowGlassPathStillControlsTransparentWindowFallback() {
+        withTemporaryWindowBackgroundDefaults {
+            let defaults = UserDefaults.standard
+            defaults.set("behindWindow", forKey: sidebarBlendModeKey)
+            defaults.set(true, forKey: bgGlassEnabledKey)
+
+            let expectedTransparentFallback = !WindowGlassEffect.isAvailable
+            XCTAssertEqual(cmuxShouldUseTransparentBackgroundWindow(), expectedTransparentFallback)
+            XCTAssertEqual(
+                cmuxShouldUseClearWindowBackground(for: 1.0),
+                expectedTransparentFallback
+            )
+        }
+    }
+
+    private func withTemporaryWindowBackgroundDefaults(_ body: () -> Void) {
+        let defaults = UserDefaults.standard
+        let originalBlendMode = defaults.object(forKey: sidebarBlendModeKey)
+        let originalGlassEnabled = defaults.object(forKey: bgGlassEnabledKey)
+        defer {
+            restoreDefaultsValue(originalBlendMode, key: sidebarBlendModeKey, defaults: defaults)
+            restoreDefaultsValue(originalGlassEnabled, key: bgGlassEnabledKey, defaults: defaults)
+        }
+        body()
+    }
+
+    private func restoreDefaultsValue(_ value: Any?, key: String, defaults: UserDefaults) {
+        if let value {
+            defaults.set(value, forKey: key)
+        } else {
+            defaults.removeObject(forKey: key)
+        }
+    }
+}
+
+final class WindowBackgroundSelectionGateTests: XCTestCase {
+    func testShouldApplyWindowBackgroundUsesOwningWindowSelectionWhenAvailable() {
+        let tabId = UUID()
+        let activeSelectedTabId = UUID()
+
+        XCTAssertTrue(
+            GhosttyNSView.shouldApplyWindowBackground(
+                surfaceTabId: tabId,
+                owningManagerExists: true,
+                owningSelectedTabId: tabId,
+                activeSelectedTabId: activeSelectedTabId
+            )
+        )
+    }
+
+    func testShouldApplyWindowBackgroundRejectsWhenOwningSelectionDiffers() {
+        let tabId = UUID()
+
+        XCTAssertFalse(
+            GhosttyNSView.shouldApplyWindowBackground(
+                surfaceTabId: tabId,
+                owningManagerExists: true,
+                owningSelectedTabId: UUID(),
+                activeSelectedTabId: tabId
+            )
+        )
+    }
+
+    func testShouldApplyWindowBackgroundAllowsWhenOwningManagerSelectionIsTemporarilyNil() {
+        let tabId = UUID()
+
+        XCTAssertTrue(
+            GhosttyNSView.shouldApplyWindowBackground(
+                surfaceTabId: tabId,
+                owningManagerExists: true,
+                owningSelectedTabId: nil,
+                activeSelectedTabId: UUID()
+            )
+        )
+    }
+
+    func testShouldApplyWindowBackgroundFallsBackToActiveSelection() {
+        let tabId = UUID()
+
+        XCTAssertTrue(
+            GhosttyNSView.shouldApplyWindowBackground(
+                surfaceTabId: tabId,
+                owningManagerExists: false,
+                owningSelectedTabId: nil,
+                activeSelectedTabId: tabId
+            )
+        )
+        XCTAssertFalse(
+            GhosttyNSView.shouldApplyWindowBackground(
+                surfaceTabId: tabId,
+                owningManagerExists: false,
+                owningSelectedTabId: nil,
+                activeSelectedTabId: UUID()
+            )
+        )
+    }
+
+    func testShouldApplyWindowBackgroundAllowsWhenNoSelectionContext() {
+        XCTAssertTrue(
+            GhosttyNSView.shouldApplyWindowBackground(
+                surfaceTabId: UUID(),
+                owningManagerExists: false,
+                owningSelectedTabId: nil,
+                activeSelectedTabId: nil
+            )
+        )
+        XCTAssertTrue(
+            GhosttyNSView.shouldApplyWindowBackground(
+                surfaceTabId: nil,
+                owningManagerExists: false,
+                owningSelectedTabId: nil,
+                activeSelectedTabId: nil
+            )
+        )
+        XCTAssertTrue(
+            GhosttyNSView.shouldApplyWindowBackground(
+                surfaceTabId: nil,
+                owningManagerExists: true,
+                owningSelectedTabId: UUID(),
+                activeSelectedTabId: UUID()
+            )
+        )
+    }
+}
+
 final class NotificationBurstCoalescerTests: XCTestCase {
     func testSignalsInSameBurstFlushOnce() {
         let coalescer = NotificationBurstCoalescer(delay: 0.01)
@@ -716,52 +936,6 @@ final class RecentlyClosedBrowserStackTests: XCTestCase {
             fallbackSplitInsertFirst: false,
             fallbackAnchorPaneId: UUID()
         )
-    }
-}
-
-final class TabManagerNotificationOrderingSourceTests: XCTestCase {
-    func testGhosttyDidSetTitleObserverDoesNotHopThroughTask() throws {
-        let projectRoot = findProjectRoot()
-        let tabManagerURL = projectRoot.appendingPathComponent("Sources/TabManager.swift")
-        let source = try String(contentsOf: tabManagerURL, encoding: .utf8)
-
-        guard let titleObserverStart = source.range(of: "forName: .ghosttyDidSetTitle"),
-              let focusObserverStart = source.range(
-                of: "forName: .ghosttyDidFocusSurface",
-                range: titleObserverStart.upperBound..<source.endIndex
-              ) else {
-            XCTFail("Failed to locate TabManager notification observer block in Sources/TabManager.swift")
-            return
-        }
-
-        let block = String(source[titleObserverStart.lowerBound..<focusObserverStart.lowerBound])
-        XCTAssertFalse(
-            block.contains("Task {"),
-            """
-            The .ghosttyDidSetTitle observer must update model state in the notification callback.
-            Using Task can reorder updates and leave titlebar/toolbar one event behind.
-            """
-        )
-        XCTAssertTrue(
-            block.contains("MainActor.assumeIsolated"),
-            "Expected .ghosttyDidSetTitle observer to run synchronously on MainActor."
-        )
-        XCTAssertTrue(
-            block.contains("enqueuePanelTitleUpdate"),
-            "Expected .ghosttyDidSetTitle observer to enqueue panel title updates."
-        )
-    }
-
-    private func findProjectRoot() -> URL {
-        var dir = URL(fileURLWithPath: #file).deletingLastPathComponent().deletingLastPathComponent()
-        for _ in 0..<10 {
-            let marker = dir.appendingPathComponent("GhosttyTabs.xcodeproj")
-            if FileManager.default.fileExists(atPath: marker.path) {
-                return dir
-            }
-            dir = dir.deletingLastPathComponent()
-        }
-        return URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
     }
 }
 
@@ -1039,6 +1213,12 @@ final class PostHogAnalyticsPropertiesTests: XCTestCase {
         XCTAssertNil(dailyProperties["app_version"])
         XCTAssertNil(dailyProperties["app_build"])
     }
+
+    func testFlushPolicyIncludesDailyAndHourlyActiveEvents() {
+        XCTAssertTrue(PostHogAnalytics.shouldFlushAfterCapture(event: "cmux_daily_active"))
+        XCTAssertTrue(PostHogAnalytics.shouldFlushAfterCapture(event: "cmux_hourly_active"))
+        XCTAssertFalse(PostHogAnalytics.shouldFlushAfterCapture(event: "cmux_other_event"))
+    }
 }
 
 final class GhosttyMouseFocusTests: XCTestCase {
@@ -1112,5 +1292,170 @@ final class GhosttyMouseFocusTests: XCTestCase {
                 hiddenInHierarchy: true
             )
         )
+    }
+
+    // MARK: - CJK Font Fallback
+
+    private func withTempConfig(
+        _ contents: String,
+        body: (String) -> Void
+    ) throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-test-cjk-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let file = dir.appendingPathComponent("config")
+        try contents.write(to: file, atomically: true, encoding: .utf8)
+        body(file.path)
+    }
+
+    // MARK: cjkFontMappings
+
+    func testCJKFontMappingsReturnsHiraginoWithKanaForJapanese() {
+        let mappings = GhosttyApp.cjkFontMappings(preferredLanguages: ["ja-JP", "en-US"])!
+        let fonts = Set(mappings.map(\.1))
+        let ranges = mappings.map(\.0)
+
+        XCTAssertTrue(fonts.contains("Hiragino Sans"))
+        XCTAssertTrue(ranges.contains("U+3040-U+309F"), "Should include Hiragana")
+        XCTAssertTrue(ranges.contains("U+30A0-U+30FF"), "Should include Katakana")
+        XCTAssertTrue(ranges.contains("U+4E00-U+9FFF"), "Should include CJK Ideographs")
+        XCTAssertFalse(ranges.contains("U+AC00-U+D7AF"), "Should NOT include Hangul")
+    }
+
+    func testCJKFontMappingsReturnsAppleSDGothicNeoWithHangulForKorean() {
+        let mappings = GhosttyApp.cjkFontMappings(preferredLanguages: ["ko-KR"])!
+        let fonts = Set(mappings.map(\.1))
+        let ranges = mappings.map(\.0)
+
+        XCTAssertTrue(fonts.contains("Apple SD Gothic Neo"))
+        XCTAssertTrue(ranges.contains("U+AC00-U+D7AF"), "Should include Hangul Syllables")
+        XCTAssertTrue(ranges.contains("U+1100-U+11FF"), "Should include Hangul Jamo")
+        XCTAssertTrue(ranges.contains("U+4E00-U+9FFF"), "Should include CJK Ideographs")
+        XCTAssertFalse(ranges.contains("U+3040-U+309F"), "Should NOT include Hiragana")
+    }
+
+    func testCJKFontMappingsReturnsPingFangForChinese() {
+        let mappingsTW = GhosttyApp.cjkFontMappings(preferredLanguages: ["zh-Hant-TW"])!
+        XCTAssertTrue(mappingsTW.contains { $0.1 == "PingFang TC" })
+
+        let mappingsCN = GhosttyApp.cjkFontMappings(preferredLanguages: ["zh-Hans-CN"])!
+        XCTAssertTrue(mappingsCN.contains { $0.1 == "PingFang SC" })
+
+        let mappingsHK = GhosttyApp.cjkFontMappings(preferredLanguages: ["zh-HK"])!
+        XCTAssertTrue(mappingsHK.contains { $0.1 == "PingFang TC" })
+    }
+
+    func testCJKFontMappingsReturnsNilForNonCJKLanguages() {
+        XCTAssertNil(GhosttyApp.cjkFontMappings(preferredLanguages: ["en-US", "fr-FR"]))
+        XCTAssertNil(GhosttyApp.cjkFontMappings(preferredLanguages: []))
+    }
+
+    func testCJKFontMappingsMultiLanguageMapsScriptSpecificRanges() {
+        let mappings = GhosttyApp.cjkFontMappings(preferredLanguages: ["ja-JP", "ko-KR"])!
+
+        let hiraginoRanges = mappings.filter { $0.1 == "Hiragino Sans" }.map(\.0)
+        let sdGothicRanges = mappings.filter { $0.1 == "Apple SD Gothic Neo" }.map(\.0)
+
+        XCTAssertTrue(hiraginoRanges.contains("U+3040-U+309F"), "Hiragana → Hiragino")
+        XCTAssertTrue(hiraginoRanges.contains("U+4E00-U+9FFF"), "Shared CJK → first lang font")
+        XCTAssertTrue(sdGothicRanges.contains("U+AC00-U+D7AF"), "Hangul → Apple SD Gothic Neo")
+        XCTAssertFalse(hiraginoRanges.contains("U+AC00-U+D7AF"), "Hangul NOT in Hiragino")
+    }
+
+    // MARK: userConfigContainsCJKCodepointMap
+
+    func testUserConfigContainsCJKCodepointMapDetectsPresence() throws {
+        try withTempConfig("font-family = Menlo\nfont-codepoint-map = U+3000-U+9FFF=Hiragino Sans\n") { path in
+            XCTAssertTrue(GhosttyApp.userConfigContainsCJKCodepointMap(configPaths: [path]))
+        }
+    }
+
+    func testUserConfigContainsCJKCodepointMapReturnsFalseWhenAbsent() throws {
+        try withTempConfig("font-family = Menlo\nfont-size = 14\n") { path in
+            XCTAssertFalse(GhosttyApp.userConfigContainsCJKCodepointMap(configPaths: [path]))
+        }
+    }
+
+    func testUserConfigContainsCJKCodepointMapIgnoresComments() throws {
+        try withTempConfig("# font-codepoint-map = U+3000-U+9FFF=Hiragino Sans\n") { path in
+            XCTAssertFalse(GhosttyApp.userConfigContainsCJKCodepointMap(configPaths: [path]))
+        }
+    }
+
+    func testUserConfigContainsCJKCodepointMapReturnsFalseForMissingFiles() {
+        let path = NSTemporaryDirectory() + "cmux-nonexistent-\(UUID().uuidString)/config"
+        XCTAssertFalse(
+            GhosttyApp.userConfigContainsCJKCodepointMap(configPaths: [path])
+        )
+    }
+
+    func testUserConfigContainsCJKCodepointMapFollowsConfigFileIncludes() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-test-cjk-include-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let included = dir.appendingPathComponent("fonts.conf")
+        try "font-codepoint-map = U+3000-U+9FFF=Hiragino Sans\n"
+            .write(to: included, atomically: true, encoding: .utf8)
+
+        let main = dir.appendingPathComponent("config")
+        try "font-family = Menlo\nconfig-file = \(included.path)\n"
+            .write(to: main, atomically: true, encoding: .utf8)
+
+        XCTAssertTrue(GhosttyApp.userConfigContainsCJKCodepointMap(configPaths: [main.path]))
+    }
+
+    func testUserConfigContainsCJKCodepointMapFollowsRelativeIncludes() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-test-cjk-rel-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let included = dir.appendingPathComponent("fonts.conf")
+        try "font-codepoint-map = U+4E00-U+9FFF=Hiragino Sans\n"
+            .write(to: included, atomically: true, encoding: .utf8)
+
+        let main = dir.appendingPathComponent("config")
+        try "config-file = fonts.conf\n"
+            .write(to: main, atomically: true, encoding: .utf8)
+
+        XCTAssertTrue(GhosttyApp.userConfigContainsCJKCodepointMap(configPaths: [main.path]))
+    }
+
+    func testUserConfigContainsCJKCodepointMapHandlesOptionalInclude() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-test-cjk-opt-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let included = dir.appendingPathComponent("fonts.conf")
+        try "font-codepoint-map = U+4E00-U+9FFF=Hiragino Sans\n"
+            .write(to: included, atomically: true, encoding: .utf8)
+
+        let main = dir.appendingPathComponent("config")
+        try "config-file = \(included.path)?\n"
+            .write(to: main, atomically: true, encoding: .utf8)
+
+        XCTAssertTrue(GhosttyApp.userConfigContainsCJKCodepointMap(configPaths: [main.path]))
+    }
+
+    func testUserConfigContainsCJKCodepointMapHandlesCyclicIncludes() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-test-cjk-cycle-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let fileA = dir.appendingPathComponent("a.conf")
+        let fileB = dir.appendingPathComponent("b.conf")
+        try "config-file = \(fileB.path)\n"
+            .write(to: fileA, atomically: true, encoding: .utf8)
+        try "config-file = \(fileA.path)\n"
+            .write(to: fileB, atomically: true, encoding: .utf8)
+
+        // Should not hang; should return false since neither file has font-codepoint-map
+        XCTAssertFalse(GhosttyApp.userConfigContainsCJKCodepointMap(configPaths: [fileA.path]))
     }
 }

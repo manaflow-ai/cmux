@@ -49,6 +49,48 @@ export default function NotificationsPage() {
         directly to the workspace with the most recent unread notification.
       </p>
 
+      <h2>Custom command</h2>
+      <p>
+        Run a shell command every time a notification is scheduled. Set it in{" "}
+        <strong>Settings → App → Notification Command</strong>. The command
+        runs via <code>/bin/sh -c</code> with these environment variables:
+      </p>
+      <table>
+        <thead>
+          <tr>
+            <th>Variable</th>
+            <th>Description</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>CMUX_NOTIFICATION_TITLE</code></td>
+            <td>Notification title (workspace name or app name)</td>
+          </tr>
+          <tr>
+            <td><code>CMUX_NOTIFICATION_SUBTITLE</code></td>
+            <td>Notification subtitle</td>
+          </tr>
+          <tr>
+            <td><code>CMUX_NOTIFICATION_BODY</code></td>
+            <td>Notification body text</td>
+          </tr>
+        </tbody>
+      </table>
+      <CodeBlock title="Examples" lang="bash">{`# Text-to-speech
+say "$CMUX_NOTIFICATION_TITLE"
+
+# Custom sound file
+afplay /path/to/sound.aiff
+
+# Log to file
+echo "$CMUX_NOTIFICATION_TITLE: $CMUX_NOTIFICATION_BODY" >> ~/notifications.log`}</CodeBlock>
+      <p>
+        The command runs independently of the system sound picker. Set the
+        picker to "None" to use only the custom command, or keep both for a
+        system sound plus a custom action.
+      </p>
+
       <h2>Sending notifications</h2>
 
       <h3>CLI</h3>

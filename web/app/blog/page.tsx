@@ -1,41 +1,18 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { blogPosts } from "../components/blog-posts";
 
 export const metadata: Metadata = {
   title: "Blog",
   description: "News and updates from the cmux team",
 };
 
-const posts = [
-  {
-    slug: "zen-of-cmux",
-    title: "The Zen of cmux",
-    date: "2026-02-27",
-    summary:
-      "cmux is a primitive, not a solution. It gives you composable pieces and your workflow is up to you.",
-  },
-  {
-    slug: "show-hn-launch",
-    title: "Launching cmux on Show HN",
-    date: "2026-02-21",
-    summary:
-      "cmux hit #2 on Hacker News, got shared by Mitchell Hashimoto, and went viral in Japan.",
-  },
-  {
-    slug: "introducing-cmux",
-    title: "Introducing cmux",
-    date: "2026-02-12",
-    summary:
-      "A native macOS terminal built on Ghostty, designed for running multiple AI coding agents side by side.",
-  },
-];
-
 export default function BlogPage() {
   return (
     <>
       <h1>Blog</h1>
-      <div className="space-y-8 mt-6">
-        {posts.map((post) => (
+      <div className="space-y-4 mt-6">
+        {blogPosts.map((post) => (
           <article key={post.slug}>
             <Link
               href={`/blog/${post.slug}`}
