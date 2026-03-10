@@ -10915,6 +10915,72 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         XCTAssertTrue(webView.superview === slot, "Hiding should preserve the hosted WKWebView attachment")
         XCTAssertTrue(slot.isHidden, "Hiding should immediately hide the existing portal slot")
     }
+
+    func testHiddenPortalEntrySurvivesAnchorRemovalUntilWorkspaceRebind() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        realizeWindowLayout(window)
+        let portal = WindowBrowserPortal(window: window)
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let anchorFrame = NSRect(x: 40, y: 24, width: 220, height: 160)
+        let oldAnchor = NSView(frame: anchorFrame)
+        contentView.addSubview(oldAnchor)
+
+        let webView = TrackingPortalWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        portal.bind(webView: webView, to: oldAnchor, visibleInUI: true)
+        portal.synchronizeWebViewForAnchor(oldAnchor)
+        advanceAnimations()
+
+        guard let slot = webView.superview as? WindowBrowserSlotView else {
+            XCTFail("Expected browser slot")
+            return
+        }
+
+        portal.updateEntryVisibility(forWebViewId: ObjectIdentifier(webView), visibleInUI: false, zPriority: 0)
+        portal.synchronizeWebViewForAnchor(oldAnchor)
+        advanceAnimations()
+        XCTAssertTrue(slot.isHidden, "Workspace handoff should hide the retiring browser before unmount")
+
+        oldAnchor.removeFromSuperview()
+        portal.synchronizeWebViewForAnchor(oldAnchor)
+        advanceAnimations()
+
+        XCTAssertTrue(
+            webView.superview === slot,
+            "Hidden workspace browsers should stay attached while their SwiftUI anchor is temporarily unmounted"
+        )
+        XCTAssertTrue(slot.isHidden, "Unmounted hidden workspace browser should remain hidden until rebound")
+        XCTAssertEqual(portal.debugEntryCount(), 1, "Workspace handoff should keep the hidden browser portal entry alive")
+
+        let displayCountBeforeRebind = webView.displayIfNeededCount
+        let newAnchor = NSView(frame: anchorFrame)
+        contentView.addSubview(newAnchor)
+        portal.bind(webView: webView, to: newAnchor, visibleInUI: true)
+        portal.synchronizeWebViewForAnchor(newAnchor)
+        advanceAnimations()
+
+        XCTAssertTrue(
+            webView.superview === slot,
+            "Selecting the workspace again should reuse the existing hidden browser portal slot"
+        )
+        XCTAssertFalse(slot.isHidden, "Rebinding the workspace browser should reveal the existing portal slot")
+        XCTAssertEqual(portal.debugEntryCount(), 1)
+        XCTAssertGreaterThan(
+            webView.displayIfNeededCount,
+            displayCountBeforeRebind,
+            "Workspace rebind should refresh the preserved browser without recreating its portal slot"
+        )
+    }
 }
 
 @MainActor

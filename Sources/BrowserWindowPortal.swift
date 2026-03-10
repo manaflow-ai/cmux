@@ -2801,7 +2801,10 @@ final class WindowBrowserPortal: NSObject {
             guard entry.webView != nil else { return webViewId }
             guard let container = entry.containerView else { return webViewId }
             guard let anchor = entry.anchorView else {
-                return entry.visibleInUI ? nil : webViewId
+                // Workspace switching hides retiring browser portals before SwiftUI unmounts
+                // their anchor views. Keep the hidden WKWebView/slot alive so switching back
+                // can rebind the existing view instead of forcing a full WebKit reload.
+                return nil
             }
             if container.superview == nil || !container.isDescendant(of: hostView) {
                 return webViewId
@@ -2811,7 +2814,10 @@ final class WindowBrowserPortal: NSObject {
                 anchor.superview == nil ||
                 (installedReferenceView.map { !anchor.isDescendant(of: $0) } ?? false)
             if anchorInvalidForCurrentHost {
-                return entry.visibleInUI ? nil : webViewId
+                // Hidden browser portals can legitimately be off-tree between workspace
+                // deactivation and the next rebind. Preserve them until an explicit detach
+                // (panel close, window teardown, or web view replacement) says otherwise.
+                return nil
             }
             return nil
         }
