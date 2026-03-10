@@ -527,6 +527,7 @@ func browserShouldOpenURLExternally(_ url: URL) -> Bool {
     return !browserEmbeddedNavigationSchemes.contains(scheme)
 }
 
+@MainActor
 enum BrowserCertBypassSettings {
     static let defaultsKey = "browserIgnoreCertificateErrors"
     // Set by --ignore-certificate-errors at launch or by browser.cert_bypass set (session-only).
