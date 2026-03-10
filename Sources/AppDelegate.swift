@@ -3489,13 +3489,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     @discardableResult
     func addWorkspace(windowId: UUID, workingDirectory: String? = nil, bringToFront shouldBringToFront: Bool = false) -> UUID? {
         guard let state = scriptableMainWindow(windowId: windowId) else { return nil }
-        if let window = state.window {
+        if shouldBringToFront, let window = state.window {
             setActiveMainWindow(window)
-            if shouldBringToFront {
-                bringToFront(window)
-            }
+            bringToFront(window)
         }
-        let workspace = state.tabManager.addWorkspace(workingDirectory: workingDirectory, select: true)
+        let workspace = state.tabManager.addWorkspace(
+            workingDirectory: workingDirectory,
+            select: shouldBringToFront
+        )
         return workspace.id
     }
 

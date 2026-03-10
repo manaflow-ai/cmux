@@ -13,9 +13,7 @@
 # - CMUX_ZSH_ZDOTDIR (set by cmux when it overwrote a user-provided ZDOTDIR)
 # - unset (zsh treats unset ZDOTDIR as $HOME)
 
-builtin typeset _cmux_had_ghostty_zdotdir=0
 if [[ -n "${GHOSTTY_ZSH_ZDOTDIR+X}" ]]; then
-    _cmux_had_ghostty_zdotdir=1
     builtin export ZDOTDIR="$GHOSTTY_ZSH_ZDOTDIR"
     builtin unset GHOSTTY_ZSH_ZDOTDIR
 elif [[ -n "${CMUX_ZSH_ZDOTDIR+X}" ]]; then
@@ -48,5 +46,5 @@ fi
         fi
     fi
 
-    builtin unset _cmux_file _cmux_ghostty _cmux_integ _cmux_had_ghostty_zdotdir
+    builtin unset _cmux_file _cmux_ghostty _cmux_integ
 }

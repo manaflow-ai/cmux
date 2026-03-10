@@ -1522,7 +1522,15 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
         process.standardError = stderr
 
         try process.run()
-        process.waitUntilExit()
+        let deadline = Date().addingTimeInterval(5)
+        while process.isRunning && Date() < deadline {
+            _ = RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
+        }
+        if process.isRunning {
+            process.terminate()
+            process.waitUntilExit()
+            XCTFail("Timed out waiting for zsh to exit")
+        }
 
         let output = String(data: stdout.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
         let error = String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""

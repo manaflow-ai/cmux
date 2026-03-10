@@ -1526,7 +1526,7 @@ class GhosttyApp {
     }
 
     func appleScriptAutomationEnabled() -> Bool {
-        guard let config else { return true }
+        guard let config else { return false }
         var enabled = false
         let key = "macos-applescript"
         _ = ghostty_config_get(config, &enabled, key, UInt(key.lengthOfBytes(using: .utf8)))

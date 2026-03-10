@@ -831,6 +831,54 @@ final class AppDelegateWindowContextRoutingTests: XCTestCase {
         XCTAssertTrue(resolved === manager, "Expected registered window object identity to win even if identifier string changed")
         XCTAssertTrue(app.tabManager === manager)
     }
+
+    func testAddWorkspaceWithoutBringToFrontPreservesActiveWindowAndSelection() {
+        _ = NSApplication.shared
+        let app = AppDelegate()
+
+        let windowAId = UUID()
+        let windowBId = UUID()
+        let windowA = makeMainWindow(id: windowAId)
+        let windowB = makeMainWindow(id: windowBId)
+        defer {
+            windowA.orderOut(nil)
+            windowB.orderOut(nil)
+        }
+
+        let managerA = TabManager()
+        let managerB = TabManager()
+        app.registerMainWindow(
+            windowA,
+            windowId: windowAId,
+            tabManager: managerA,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState()
+        )
+        app.registerMainWindow(
+            windowB,
+            windowId: windowBId,
+            tabManager: managerB,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState()
+        )
+
+        windowA.makeKeyAndOrderFront(nil)
+        _ = app.synchronizeActiveMainWindowContext(preferredWindow: windowA)
+        XCTAssertTrue(app.tabManager === managerA)
+
+        let originalSelectedA = managerA.selectedTabId
+        let originalSelectedB = managerB.selectedTabId
+        let originalTabCountB = managerB.tabs.count
+
+        let createdWorkspaceId = app.addWorkspace(windowId: windowBId, bringToFront: false)
+
+        XCTAssertNotNil(createdWorkspaceId)
+        XCTAssertTrue(app.tabManager === managerA, "Expected non-focus workspace creation to preserve active window routing")
+        XCTAssertEqual(managerA.selectedTabId, originalSelectedA)
+        XCTAssertEqual(managerB.selectedTabId, originalSelectedB, "Expected background workspace creation to preserve selected tab")
+        XCTAssertEqual(managerB.tabs.count, originalTabCountB + 1)
+        XCTAssertTrue(managerB.tabs.contains(where: { $0.id == createdWorkspaceId }))
+    }
 }
 
 @MainActor

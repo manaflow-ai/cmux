@@ -198,7 +198,7 @@ extension NSApplication {
         }
 
         if let targetWindow = command.evaluatedArguments?["window"] as? ScriptWindow {
-            guard let workspaceId = appDelegate.addWorkspace(windowId: targetWindow.windowId, bringToFront: true) else {
+            guard let workspaceId = appDelegate.addWorkspace(windowId: targetWindow.windowId, bringToFront: false) else {
                 command.scriptErrorNumber = errAEEventFailed
                 command.scriptErrorString = AppleScriptStrings.failedToCreateWorkspace
                 return nil
@@ -207,7 +207,7 @@ extension NSApplication {
         }
 
         if let frontWindow = scriptWindows.first,
-           let workspaceId = appDelegate.addWorkspace(windowId: frontWindow.windowId, bringToFront: true) {
+           let workspaceId = appDelegate.addWorkspace(windowId: frontWindow.windowId, bringToFront: false) {
             return ScriptTab(windowId: frontWindow.windowId, tabId: workspaceId)
         }
 
@@ -448,9 +448,6 @@ final class ScriptTab: NSObject {
             return nil
         }
 
-        if let app = AppDelegate.shared {
-            _ = app.focusScriptableMainWindow(windowId: windowId, bringToFront: true)
-        }
         state.tabManager.selectWorkspace(workspace)
         return nil
     }

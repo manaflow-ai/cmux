@@ -45,6 +45,9 @@ Fork rebased onto upstream `v1.3.0` plus newer `main` commits as of March 9, 202
 
 ### 4) macOS resize stale-frame mitigation
 
+Sections 3 and 4 are grouped by feature, not by commit order. The fork branch HEAD is the
+section 3 copy-mode commit, even though the section 4 resize commits were applied earlier.
+
 - Commits:
   - `769bbf7a9` (macos: reduce transient blank/scaled frames during resize)
   - `9efcdfdf8` (macos: keep top-left gravity for stale-frame replay)
