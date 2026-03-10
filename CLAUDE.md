@@ -133,8 +133,11 @@ This makes it visible in the GitHub PR UI (Commits tab, check statuses) that the
 ## Test quality policy
 
 - Do not add tests that only verify source code text, method signatures, AST fragments, or grep-style patterns.
+- Do not add tests that read checked-in metadata or project files such as `Resources/Info.plist`, `project.pbxproj`, `.xcconfig`, or source files only to assert that a key, string, plist entry, or snippet exists.
 - Tests must verify observable runtime behavior through executable paths (unit/integration/e2e/CLI), not implementation shape.
+- For metadata changes, prefer verifying the built app bundle or the runtime behavior that depends on that metadata, not the checked-in source file.
 - If a behavior cannot be exercised end-to-end yet, add a small runtime seam or harness first, then test through that seam.
+- If no meaningful behavioral or artifact-level test is practical, skip the fake regression test and state that explicitly.
 
 ## Socket command threading policy
 
