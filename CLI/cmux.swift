@@ -3903,6 +3903,21 @@ struct CMUXCLI {
             return
         }
 
+        if subcommand == "cert-bypass" {
+            let action = subArgs.first ?? "get"
+            var params: [String: Any] = ["action": action]
+            if let value = subArgs.dropFirst().first {
+                params["value"] = value
+            }
+            let payload = try client.sendV2(method: "browser.cert_bypass", params: params)
+            if let enabled = payload["enabled"] as? Bool {
+                output(payload, fallback: enabled ? "true" : "false")
+            } else {
+                output(payload, fallback: "OK")
+            }
+            return
+        }
+
         throw CLIError(message: "Unsupported browser subcommand: \(subcommand)")
     }
 
