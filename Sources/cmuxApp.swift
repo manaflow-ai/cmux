@@ -46,6 +46,10 @@ struct cmuxApp: App {
 
         Self.configureGhosttyEnvironment()
 
+        if CommandLine.arguments.contains("--ignore-certificate-errors") {
+            BrowserCertBypassSettings.runtimeOverride = true
+        }
+
         // Apply saved language preference before any UI loads
         LanguageSettings.apply(LanguageSettings.languageAtLaunch)
 
