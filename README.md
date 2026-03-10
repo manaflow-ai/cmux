@@ -223,6 +223,32 @@ On relaunch, cmux currently restores app layout and metadata only:
 
 cmux does **not** restore live process state inside terminal apps. For example, active Claude Code/tmux/vim sessions are not resumed after restart yet.
 
+## MCP Server
+
+cmux includes a built-in [MCP](https://modelcontextprotocol.io/) server that lets AI tools (Claude Desktop, Claude Code, etc.) control workspaces, terminals, browser, and notifications.
+
+```bash
+# Start the MCP server (stdio transport)
+cmux --mcp
+```
+
+Claude Code auto-discovers cmux when running inside a cmux terminal. For Claude Desktop, add to your config:
+
+```json
+{
+  "mcpServers": {
+    "cmux": {
+      "command": "/Applications/cmux.app/Contents/Resources/bin/cmux",
+      "args": ["--mcp"]
+    }
+  }
+}
+```
+
+The server exposes 8 grouped tools: `cmux_system`, `cmux_workspace`, `cmux_window`, `cmux_pane`, `cmux_surface`, `cmux_notification`, `cmux_tab`, and `cmux_browser`. Each tool accepts an `action` parameter for the specific operation. See [docs/MCP-SERVER.md](docs/MCP-SERVER.md) for details.
+
+Toggle the MCP server on/off in **Settings > Automation > MCP Server**.
+
 ## Star History
 
 <a href="https://star-history.com/#manaflow-ai/cmux&Date">
@@ -234,6 +260,94 @@ cmux does **not** restore live process state inside terminal apps. For example, 
 </a>
 
 ## Contributing
+
+### Development Guide
+
+#### Prerequisites
+
+- **Xcode** - Full Xcode installation (not just Command Line Tools)
+  ```bash
+  sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer
+  ```
+- **zig 0.14.x** - Required for building GhosttyKit
+  ```bash
+  brew install zig@0.14
+  ```
+- **xcodeproj gem** - For adding files to Xcode project
+  ```bash
+  sudo gem install xcodeproj
+  ```
+
+#### Initial Setup
+
+```bash
+# Initialize submodules
+git submodule update --init --recursive
+
+# Build GhosttyKit (required for full app)
+cd ghostty
+zig build -Demit-xcframework=true -Doptimize=ReleaseFast
+cd ..
+```
+
+#### Building
+
+```bash
+# Build CLI only (fastest, for testing CLI changes)
+xcodebuild -project GhosttyTabs.xcodeproj \
+  -scheme cmux-cli \
+  -configuration Debug \
+  -destination 'platform=macOS' \
+  build
+
+# Build full app
+xcodebuild -project GhosttyTabs.xcodeproj \
+  -scheme cmux \
+  -configuration Debug \
+  -destination 'platform=macOS' \
+  build
+
+# Build with tag (for parallel development)
+./scripts/reload.sh --tag your-feature
+```
+
+#### Adding New Code
+
+When adding new Swift files to the project, you need to add them to the Xcode target:
+
+```bash
+# Using Ruby xcodeproj
+ruby -e '
+require "xcodeproj"
+
+project = Xcodeproj::Project.open("GhosttyTabs.xcodeproj")
+target = project.targets.find { |t| t.name == "cmux-cli" }
+cli_group = project.main_group.find_subpath("CLI", true)
+
+files = ["YourNewFile.swift"]
+files.each do |file|
+  file_ref = cli_group.new_file(file)
+  target.add_file_references([file_ref])
+end
+
+project.save
+'
+```
+
+#### Running and Testing
+
+```bash
+# Binary location after build
+~/Library/Developer/Xcode/DerivedData/GhosttyTabs-*/Build/Products/Debug/cmux
+
+# Run in MCP mode (for testing MCP tools)
+./cmux --mcp
+
+# Run reload script to launch Debug app
+./scripts/reload.sh --tag your-feature
+```
+
+---
 
 Ways to get involved:
 

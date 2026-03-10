@@ -2815,6 +2815,18 @@ enum ClaudeCodeIntegrationSettings {
     }
 }
 
+enum MCPServerSettings {
+    static let enabledKey = "mcpServerEnabled"
+    static let defaultEnabled = true
+
+    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: enabledKey) == nil {
+            return defaultEnabled
+        }
+        return defaults.bool(forKey: enabledKey)
+    }
+}
+
 enum TelemetrySettings {
     static let sendAnonymousTelemetryKey = "sendAnonymousTelemetry"
     static let defaultSendAnonymousTelemetry = true
@@ -2840,6 +2852,8 @@ struct SettingsView: View {
     @AppStorage(SocketControlSettings.appStorageKey) private var socketControlMode = SocketControlSettings.defaultMode.rawValue
     @AppStorage(ClaudeCodeIntegrationSettings.hooksEnabledKey)
     private var claudeCodeHooksEnabled = ClaudeCodeIntegrationSettings.defaultHooksEnabled
+    @AppStorage(MCPServerSettings.enabledKey)
+    private var mcpServerEnabled = MCPServerSettings.defaultEnabled
     @AppStorage(TelemetrySettings.sendAnonymousTelemetryKey)
     private var sendAnonymousTelemetry = TelemetrySettings.defaultSendAnonymousTelemetry
     @AppStorage("cmuxPortBase") private var cmuxPortBase = 9100
@@ -3697,6 +3711,36 @@ struct SettingsView: View {
                     }
 
                     SettingsCard {
+                        SettingsCardRow(
+                            "MCP Server",
+                            subtitle: mcpServerEnabled
+                                ? "External AI tools can connect via stdio."
+                                : "The MCP server is disabled. `cmux --mcp` will exit with an error."
+                        ) {
+                            Toggle("", isOn: $mcpServerEnabled)
+                                .labelsHidden()
+                                .controlSize(.small)
+                        }
+
+                        SettingsCardDivider()
+
+                        HStack(spacing: 6) {
+                            Circle()
+                                .fill(mcpServerEnabled ? Color.green : Color.red)
+                                .frame(width: 8, height: 8)
+                            Text(mcpServerEnabled ? "Enabled" : "Disabled")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+
+                        SettingsCardDivider()
+
+                        SettingsCardNote("When enabled, `cmux --mcp` serves the Model Context Protocol over stdio for AI tool integration (e.g. Claude Desktop, Claude Code).")
+                    }
+
+                    SettingsCard {
                         SettingsCardRow(String(localized: "settings.automation.portBase", defaultValue: "Port Base"), subtitle: String(localized: "settings.automation.portBase.subtitle", defaultValue: "Starting port for CMUX_PORT env var."), controlWidth: pickerColumnWidth) {
                             TextField("", value: $cmuxPortBase, format: .number)
                                 .textFieldStyle(.roundedBorder)
@@ -4139,6 +4183,7 @@ struct SettingsView: View {
         AppIconSettings.applyIcon(.automatic)
         socketControlMode = SocketControlSettings.defaultMode.rawValue
         claudeCodeHooksEnabled = ClaudeCodeIntegrationSettings.defaultHooksEnabled
+        mcpServerEnabled = MCPServerSettings.defaultEnabled
         sendAnonymousTelemetry = TelemetrySettings.defaultSendAnonymousTelemetry
         browserSearchEngine = BrowserSearchSettings.defaultSearchEngine.rawValue
         browserSearchSuggestionsEnabled = BrowserSearchSettings.defaultSearchSuggestionsEnabled
