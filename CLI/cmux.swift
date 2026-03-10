@@ -5051,8 +5051,7 @@ struct CMUXCLI {
               viewport <width> <height>
               geolocation|geo <latitude> <longitude>
               offline <true|false>
-              cert-bypass get
-              cert-bypass set <true|false>
+              cert-bypass [get | set <true|false>]
               trace <start|stop> [path]
               network <route|unroute|requests> ...
                 route <pattern> [--abort] [--body <text>]
