@@ -3251,6 +3251,14 @@ final class Workspace: Identifiable, ObservableObject {
         guard let paneId = paneId(forPanelId: panelId) else { return false }
         guard bonsplitController.togglePaneZoom(inPane: paneId) else { return false }
         focusPanel(panelId)
+        reconcileTerminalPortalVisibilityForCurrentRenderedLayout()
+        reconcileBrowserPortalVisibilityForCurrentRenderedLayout(reason: "workspace.toggleSplitZoom")
+        scheduleTerminalPortalVisibilityReconcileAfterSplitZoom(remainingPasses: 4)
+        scheduleBrowserPortalVisibilityReconcileAfterSplitZoom(
+            remainingPasses: 4,
+            reason: "workspace.toggleSplitZoom"
+        )
+        scheduleTerminalGeometryReconcile()
         if let browserPanel = browserPanel(for: panelId) {
             browserPanel.preparePortalHostReplacementForNextDistinctClaim(
                 inPane: paneId,
@@ -3520,6 +3528,171 @@ final class Workspace: Identifiable, ObservableObject {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.runScheduledTerminalGeometryReconcile(remainingPasses: 4)
+        }
+    }
+
+    private func renderedVisiblePanelIdsForCurrentLayout() -> Set<UUID> {
+        let renderedPaneIds = bonsplitController.zoomedPaneId.map { [$0] } ?? bonsplitController.allPaneIds
+        var visiblePanelIds: Set<UUID> = []
+
+        for paneId in renderedPaneIds {
+            let selectedTab = bonsplitController.selectedTab(inPane: paneId) ?? bonsplitController.tabs(inPane: paneId).first
+            guard let selectedTab,
+                  let panelId = panelIdFromSurfaceId(selectedTab.id),
+                  panels[panelId] != nil else {
+                continue
+            }
+            visiblePanelIds.insert(panelId)
+        }
+
+        if let focusedPanelId,
+           panels[focusedPanelId] != nil,
+           let focusedPaneId = paneId(forPanelId: focusedPanelId),
+           renderedPaneIds.contains(where: { $0.id == focusedPaneId.id }) {
+            visiblePanelIds.insert(focusedPanelId)
+        }
+
+        return visiblePanelIds
+    }
+
+    private func reconcileTerminalPortalVisibilityForCurrentRenderedLayout() {
+        let visiblePanelIds = renderedVisiblePanelIdsForCurrentLayout()
+
+        for panel in panels.values {
+            guard let terminalPanel = panel as? TerminalPanel else { continue }
+            let shouldBeVisible = visiblePanelIds.contains(terminalPanel.id)
+            terminalPanel.hostedView.setVisibleInUI(shouldBeVisible)
+            terminalPanel.hostedView.setActive(shouldBeVisible && focusedPanelId == terminalPanel.id)
+            TerminalWindowPortalRegistry.updateEntryVisibility(
+                for: terminalPanel.hostedView,
+                visibleInUI: shouldBeVisible
+            )
+        }
+    }
+
+    private func terminalPortalVisibilityNeedsFollowUp() -> Bool {
+        let visiblePanelIds = renderedVisiblePanelIdsForCurrentLayout()
+
+        for panel in panels.values {
+            guard let terminalPanel = panel as? TerminalPanel else { continue }
+            let shouldBeVisible = visiblePanelIds.contains(terminalPanel.id)
+            let hostedView = terminalPanel.hostedView
+
+            if shouldBeVisible {
+                if hostedView.isHidden || hostedView.window == nil || hostedView.superview == nil {
+                    return true
+                }
+            } else if !hostedView.isHidden {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    private func scheduleTerminalPortalVisibilityReconcileAfterSplitZoom(remainingPasses: Int) {
+        guard remainingPasses > 0 else { return }
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+
+            for window in NSApp.windows {
+                window.contentView?.layoutSubtreeIfNeeded()
+                window.contentView?.displayIfNeeded()
+            }
+
+            self.reconcileTerminalPortalVisibilityForCurrentRenderedLayout()
+
+            if self.terminalPortalVisibilityNeedsFollowUp(), remainingPasses > 1 {
+                self.scheduleTerminalPortalVisibilityReconcileAfterSplitZoom(
+                    remainingPasses: remainingPasses - 1
+                )
+            }
+        }
+    }
+
+    private func reconcileBrowserPortalVisibilityForCurrentRenderedLayout(reason: String) {
+        let visiblePanelIds = renderedVisiblePanelIdsForCurrentLayout()
+
+        for panel in panels.values {
+            guard let browserPanel = panel as? BrowserPanel else { continue }
+            let shouldBeVisible = visiblePanelIds.contains(browserPanel.id)
+            if shouldBeVisible {
+                BrowserWindowPortalRegistry.updateEntryVisibility(
+                    for: browserPanel.webView,
+                    visibleInUI: true,
+                    zPriority: 2
+                )
+                let anchorView = browserPanel.portalAnchorView
+                let anchorReady =
+                    anchorView.window != nil &&
+                    anchorView.superview != nil &&
+                    anchorView.bounds.width > 1 &&
+                    anchorView.bounds.height > 1
+                if anchorReady {
+                    BrowserWindowPortalRegistry.synchronizeForAnchor(anchorView)
+                    BrowserWindowPortalRegistry.refresh(
+                        webView: browserPanel.webView,
+                        reason: reason
+                    )
+                }
+            } else {
+                BrowserWindowPortalRegistry.updateEntryVisibility(
+                    for: browserPanel.webView,
+                    visibleInUI: false,
+                    zPriority: 0
+                )
+                BrowserWindowPortalRegistry.hide(
+                    webView: browserPanel.webView,
+                    source: reason
+                )
+            }
+        }
+    }
+
+    private func browserPortalVisibilityNeedsFollowUp() -> Bool {
+        let visiblePanelIds = renderedVisiblePanelIdsForCurrentLayout()
+
+        for panel in panels.values {
+            guard let browserPanel = panel as? BrowserPanel else { continue }
+            guard visiblePanelIds.contains(browserPanel.id) else { continue }
+            let anchorView = browserPanel.portalAnchorView
+            let anchorReady =
+                anchorView.window != nil &&
+                anchorView.superview != nil &&
+                anchorView.bounds.width > 1 &&
+                anchorView.bounds.height > 1
+            if !anchorReady ||
+                browserPanel.webView.window == nil ||
+                browserPanel.webView.superview == nil ||
+                !BrowserWindowPortalRegistry.isWebView(browserPanel.webView, boundTo: anchorView) {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    private func scheduleBrowserPortalVisibilityReconcileAfterSplitZoom(
+        remainingPasses: Int,
+        reason: String
+    ) {
+        guard remainingPasses > 0 else { return }
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+
+            for window in NSApp.windows {
+                window.contentView?.layoutSubtreeIfNeeded()
+                window.contentView?.displayIfNeeded()
+            }
+
+            self.reconcileBrowserPortalVisibilityForCurrentRenderedLayout(reason: reason)
+
+            if self.browserPortalVisibilityNeedsFollowUp(), remainingPasses > 1 {
+                self.scheduleBrowserPortalVisibilityReconcileAfterSplitZoom(
+                    remainingPasses: remainingPasses - 1,
+                    reason: reason
+                )
+            }
         }
     }
 
