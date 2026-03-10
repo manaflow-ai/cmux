@@ -6828,6 +6828,17 @@ final class GhosttySurfaceScrollView: NSView {
         let surfaceShort = surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil"
         switch searchFocusTarget {
         case .searchField:
+            if let firstResponder = window.firstResponder,
+               isSearchOverlayOrDescendant(firstResponder),
+               !isCurrentSurfaceSearchResponder(firstResponder) {
+#if DEBUG
+                dlog(
+                    "find.restoreSearchFocus.skip surface=\(surfaceShort) target=searchField " +
+                    "reason=foreignSearchResponder firstResponder=\(String(describing: firstResponder))"
+                )
+#endif
+                return
+            }
             // Explicitly unfocus the terminal so cursor stops blinking immediately.
             // The notification observer also does this, but it runs async when posted from main.
             surfaceView.terminalSurface?.setFocus(false)
@@ -6868,9 +6879,25 @@ final class GhosttySurfaceScrollView: NSView {
         var current: NSView? = view
         while let v = current {
             if v is NSHostingView<SurfaceSearchOverlay> { return true }
+            let typeName = String(describing: type(of: v))
+            if typeName.contains("BrowserSearchOverlay") { return true }
             current = v.superview
         }
         return false
+    }
+
+    private func isCurrentSurfaceSearchResponder(_ responder: NSResponder) -> Bool {
+        let resolvedResponder: NSResponder
+        if let editor = responder as? NSTextView,
+           editor.isFieldEditor,
+           let editedView = editor.delegate as? NSView {
+            resolvedResponder = editedView
+        } else {
+            resolvedResponder = responder
+        }
+
+        guard let view = resolvedResponder as? NSView else { return false }
+        return view.isDescendant(of: self)
     }
 
 #if DEBUG
