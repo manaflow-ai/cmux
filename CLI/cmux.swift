@@ -2881,26 +2881,15 @@ struct CMUXCLI {
         var parts = baseSSHArguments(options)
 
         if options.extraArguments.isEmpty {
-            // No explicit remote command provided: keep destination-only argv so Ghostty's
-            // ssh-terminfo bootstrap can safely append its own remote install command.
-            // Use RemoteCommand for session-local PATH bootstrap to make `cmux` available.
+            // No explicit remote command provided. Use RemoteCommand to bootstrap
+            // the relay wrapper and then hand off to an interactive shell.
             if !hasSSHOptionKey(options.sshOptions, key: "RequestTTY") {
                 parts.append("-tt")
             }
             if !hasSSHOptionKey(options.sshOptions, key: "RemoteCommand") {
-                var startupExports = [
-                    "export PATH=\"$HOME/.cmux/bin:$PATH\"",
-                ]
-                if options.remoteRelayPort > 0 {
-                    // Pin this shell to the relay allocated for this workspace so parallel
-                    // SSH sessions (including from different cmux versions) don't race on
-                    // shared ~/.cmux/socket_addr.
-                    startupExports.append("export CMUX_SOCKET_PATH=127.0.0.1:\(options.remoteRelayPort)")
-                }
-                startupExports.append("exec \"${SHELL:-/bin/zsh}\" -l")
                 parts += [
                     "-o",
-                    "RemoteCommand=\(startupExports.joined(separator: "; "))",
+                    "RemoteCommand=\(buildInteractiveRemoteShellCommand(remoteRelayPort: options.remoteRelayPort))",
                 ]
             }
             parts.append(options.destination)
@@ -2909,6 +2898,37 @@ struct CMUXCLI {
             parts.append(contentsOf: options.extraArguments)
         }
         return parts.map(shellQuote).joined(separator: " ")
+    }
+
+    private func buildInteractiveRemoteShellCommand(remoteRelayPort: Int) -> String {
+        let relayExport = remoteRelayPort > 0
+            ? "export CMUX_SOCKET_PATH=127.0.0.1:\(remoteRelayPort)"
+            : nil
+        let innerCommand = [
+            "export PATH=\"$HOME/.cmux/bin:$PATH\"",
+            relayExport,
+            "exec \"${SHELL:-/bin/zsh}\" -i",
+        ]
+        .compactMap { $0 }
+        .joined(separator: "; ")
+
+        let outerCommand = [
+            "CMUX_LOGIN_SHELL=\"${SHELL:-/bin/zsh}\"",
+            "case \"${CMUX_LOGIN_SHELL##*/}\" in",
+            "  zsh|bash)",
+            "    exec \"$CMUX_LOGIN_SHELL\" -lc \(shellQuote(innerCommand))",
+            "    ;;",
+            "  *)",
+            "    export PATH=\"$HOME/.cmux/bin:$PATH\"",
+            relayExport,
+            "    exec \"$CMUX_LOGIN_SHELL\" -i",
+            "    ;;",
+            "esac",
+        ]
+        .compactMap { $0 }
+        .joined(separator: "; ")
+
+        return outerCommand
     }
 
     private func baseSSHArguments(_ options: SSHCommandOptions) -> [String] {
