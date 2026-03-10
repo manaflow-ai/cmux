@@ -10327,7 +10327,14 @@ private extension NSWindow {
             }
             if String(describing: type(of: candidate)).contains("WindowBrowserSlotView"),
                let portalWebView = cmuxUniqueBrowserWebView(in: candidate) {
-                return portalWebView
+                // Portal-hosted browser chrome (for example the Cmd+F overlay) is a
+                // sibling of the hosted WKWebView inside WindowBrowserSlotView, not a
+                // descendant of it. Treating every view in that slot as "web-owned"
+                // blocks legitimate first-responder changes to overlay text fields.
+                if view === portalWebView || view.isDescendant(of: portalWebView) {
+                    return portalWebView
+                }
+                return nil
             }
             current = candidate.superview
         }
