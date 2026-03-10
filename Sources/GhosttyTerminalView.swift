@@ -708,6 +708,7 @@ class GhosttyApp {
     private let backgroundLogLock = NSLock()
     private var backgroundLogSequence: UInt64 = 0
     private var appObservers: [NSObjectProtocol] = []
+    private var bellAudioSound: NSSound?
     private var backgroundEventCounter: UInt64 = 0
     private var defaultBackgroundUpdateScope: GhosttyDefaultBackgroundUpdateScope = .unscoped
     private var defaultBackgroundScopeSource: String = "initialize"
@@ -1524,6 +1525,64 @@ class GhosttyApp {
         return found && enabled
     }
 
+    func appleScriptAutomationEnabled() -> Bool {
+        guard let config else { return true }
+        var enabled = false
+        let key = "macos-applescript"
+        _ = ghostty_config_get(config, &enabled, key, UInt(key.lengthOfBytes(using: .utf8)))
+        return enabled
+    }
+
+    private func bellFeatures() -> CUnsignedInt {
+        guard let config else { return 0 }
+        var features: CUnsignedInt = 0
+        let key = "bell-features"
+        _ = ghostty_config_get(config, &features, key, UInt(key.lengthOfBytes(using: .utf8)))
+        return features
+    }
+
+    private func bellAudioPath() -> String? {
+        guard let config else { return nil }
+        var value = ghostty_config_path_s()
+        let key = "bell-audio-path"
+        guard ghostty_config_get(config, &value, key, UInt(key.lengthOfBytes(using: .utf8))),
+              let rawPath = value.path else {
+            return nil
+        }
+        let path = String(cString: rawPath)
+        return path.isEmpty ? nil : path
+    }
+
+    private func bellAudioVolume() -> Float {
+        guard let config else { return 0.5 }
+        var value: Double = 0.5
+        let key = "bell-audio-volume"
+        _ = ghostty_config_get(config, &value, key, UInt(key.lengthOfBytes(using: .utf8)))
+        return Float(min(1.0, max(0.0, value)))
+    }
+
+    private func ringBell() {
+        let features = bellFeatures()
+
+        if (features & (1 << 0)) != 0 {
+            NSSound.beep()
+        }
+
+        if (features & (1 << 1)) != 0,
+           let path = bellAudioPath(),
+           let sound = NSSound(contentsOfFile: path, byReference: false) {
+            sound.volume = bellAudioVolume()
+            bellAudioSound = sound
+            if !sound.play() {
+                bellAudioSound = nil
+            }
+        }
+
+        if (features & (1 << 2)) != 0 {
+            NSApp.requestUserAttention(.informationalRequest)
+        }
+    }
+
     private func applyDefaultBackground(
         color: NSColor,
         opacity: Double,
@@ -1690,6 +1749,13 @@ class GhosttyApp {
                 }
             }
 
+            if action.tag == GHOSTTY_ACTION_RING_BELL {
+                performOnMain {
+                    self.ringBell()
+                }
+                return true
+            }
+
             if action.tag == GHOSTTY_ACTION_RELOAD_CONFIG {
                 let soft = action.action.reload_config.soft
                 logThemeAction("reload request target=app soft=\(soft)")
@@ -1797,6 +1863,11 @@ class GhosttyApp {
                 guard let tabManager = AppDelegate.shared?.tabManager else { return false }
                 return tabManager.newSplit(tabId: tabId, surfaceId: surfaceId, direction: direction) != nil
             }
+        case GHOSTTY_ACTION_RING_BELL:
+            performOnMain {
+                self.ringBell()
+            }
+            return true
         case GHOSTTY_ACTION_GOTO_SPLIT:
             guard let tabId = surfaceView.tabId,
                   let surfaceId = surfaceView.terminalSurface?.id,
