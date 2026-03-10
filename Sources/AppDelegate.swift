@@ -7388,7 +7388,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             event: event,
             shortcut: StoredShortcut(key: "w", command: true, shift: false, option: false, control: false)
         ) {
+            // Browser popup windows: close the popup, not a workspace panel
             if let targetWindow = event.window ?? NSApp.keyWindow ?? NSApp.mainWindow,
+               targetWindow.identifier?.rawValue == "cmux.browser-popup" {
+#if DEBUG
+                dlog("shortcut.cmdW route=browserPopup")
+#endif
+                targetWindow.performClose(nil)
+            } else if let targetWindow = event.window ?? NSApp.keyWindow ?? NSApp.mainWindow,
                targetWindow.identifier?.rawValue == "cmux.settings" {
                 targetWindow.performClose(nil)
             } else {
