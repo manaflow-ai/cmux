@@ -21,11 +21,6 @@ enum BrowserCertBypassSettings {
         if let override = runtimeOverride { return override }
         return defaults.bool(forKey: defaultsKey)
     }
-
-    // Session-only — does not persist to UserDefaults
-    static func setRuntimeOverride(_ enabled: Bool) {
-        runtimeOverride = enabled
-    }
 }
 ```
 
@@ -62,9 +57,9 @@ When bypass is active, cert challenges are accepted before WebKit fails the load
 ### Socket command — `TerminalController.swift`
 
 ```
-browser.cert_bypass get        → "true" or "false" (reflects effective state)
-browser.cert_bypass set true   → sets runtimeOverride = true (session only)
-browser.cert_bypass set false  → sets runtimeOverride = false (session only)
+browser.cert_bypass get        → {"enabled": true|false}  (reflects effective state)
+browser.cert_bypass set true   → {"enabled": true}   (sets runtimeOverride, session only)
+browser.cert_bypass set false  → {"enabled": false}  (sets runtimeOverride, session only)
 ```
 
 `set` does not write to UserDefaults. It overwrites the `--ignore-certificate-errors` CLI flag for the remainder of the session.
