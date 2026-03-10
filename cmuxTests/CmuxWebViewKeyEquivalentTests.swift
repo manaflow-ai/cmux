@@ -4690,6 +4690,47 @@ final class TabManagerEqualizeSplitsTests: XCTestCase {
 
 @MainActor
 final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
+    private func makeWindow() -> NSWindow {
+        NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 220),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+    }
+
+    private func makeMouseEvent(
+        type: NSEvent.EventType,
+        location: NSPoint,
+        window: NSWindow
+    ) -> NSEvent {
+        guard let event = NSEvent.mouseEvent(
+            with: type,
+            location: location,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: 0,
+            clickCount: 1,
+            pressure: 1.0
+        ) else {
+            fatalError("Failed to create \(type) mouse event")
+        }
+        return event
+    }
+
+    private func surfaceView(in hostedView: GhosttySurfaceScrollView) -> GhosttyNSView? {
+        var stack: [NSView] = [hostedView]
+        while let current = stack.popLast() {
+            if let surfaceView = current as? GhosttyNSView {
+                return surfaceView
+            }
+            stack.append(contentsOf: current.subviews)
+        }
+        return nil
+    }
+
     func testTerminalFirstResponderConvergesSplitActiveStateWhenSelectionAlreadyMatches() {
         let workspace = Workspace()
         guard let leftPanelId = workspace.focusedPanelId,
@@ -4721,6 +4762,80 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
         XCTAssertTrue(
             rightPanel.hostedView.debugRenderStats().isActive,
             "Expected terminal-first-responder recovery to reactivate the selected split pane"
+        )
+    }
+
+    func testTerminalClickRecoversSplitActiveStateWhenFocusCallbackIsSuppressed() {
+        let workspace = Workspace()
+        guard let leftPanelId = workspace.focusedPanelId,
+              let leftPanel = workspace.terminalPanel(for: leftPanelId),
+              let rightPanel = workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal) else {
+            XCTFail("Expected split terminal panels")
+            return
+        }
+
+        let window = makeWindow()
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        leftPanel.hostedView.frame = NSRect(x: 0, y: 0, width: 180, height: 220)
+        rightPanel.hostedView.frame = NSRect(x: 180, y: 0, width: 180, height: 220)
+        contentView.addSubview(leftPanel.hostedView)
+        contentView.addSubview(rightPanel.hostedView)
+
+        leftPanel.hostedView.setVisibleInUI(true)
+        rightPanel.hostedView.setVisibleInUI(true)
+        leftPanel.hostedView.setFocusHandler {
+            workspace.focusPanel(leftPanel.id, trigger: .terminalFirstResponder)
+        }
+        rightPanel.hostedView.setFocusHandler {
+            workspace.focusPanel(rightPanel.id, trigger: .terminalFirstResponder)
+        }
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        XCTAssertEqual(
+            workspace.focusedPanelId,
+            rightPanel.id,
+            "Expected the clicked split pane to already be selected before simulating stale focus state"
+        )
+
+        // Simulate the ghost-terminal race: the right pane is selected in Bonsplit, but stale
+        // active state remains on the left and the right pane's AppKit focus callback never fires
+        // after split reparent/layout churn.
+        leftPanel.surface.setFocus(true)
+        leftPanel.hostedView.setActive(true)
+        rightPanel.surface.setFocus(false)
+        rightPanel.hostedView.setActive(false)
+        rightPanel.hostedView.suppressReparentFocus()
+
+        guard let rightSurfaceView = surfaceView(in: rightPanel.hostedView) else {
+            XCTFail("Expected right terminal surface view")
+            return
+        }
+
+        let pointInWindow = rightSurfaceView.convert(NSPoint(x: 24, y: 24), to: nil)
+        let event = makeMouseEvent(type: .leftMouseDown, location: pointInWindow, window: window)
+        rightSurfaceView.mouseDown(with: event)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        XCTAssertFalse(
+            leftPanel.hostedView.debugRenderStats().isActive,
+            "Expected clicking the selected split pane to clear stale sibling active state even when AppKit focus callbacks are suppressed"
+        )
+        XCTAssertTrue(
+            rightPanel.hostedView.debugRenderStats().isActive,
+            "Expected clicking the selected split pane to reactivate terminal input when focus callbacks are suppressed"
+        )
+        XCTAssertTrue(
+            rightPanel.hostedView.isSurfaceViewFirstResponder(),
+            "Expected the clicked split pane to become first responder"
         )
     }
 }
