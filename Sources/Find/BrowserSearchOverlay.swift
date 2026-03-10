@@ -1,3 +1,4 @@
+import AppKit
 import Bonsplit
 import SwiftUI
 
@@ -14,12 +15,38 @@ struct BrowserSearchOverlay: View {
 
     private let padding: CGFloat = 8
 
-    private func requestSearchFieldFocus(maxAttempts: Int = 3) {
+    private func debugFirstResponderSummary() -> String {
+        guard let window = NSApp.keyWindow else { return "nil" }
+        guard let firstResponder = window.firstResponder else { return "nil" }
+        if let editor = firstResponder as? NSTextView, editor.isFieldEditor {
+            let delegateSummary = editor.delegate.map { String(describing: type(of: $0)) } ?? "nil"
+            return "fieldEditor(delegate=\(delegateSummary))"
+        }
+        return String(describing: type(of: firstResponder))
+    }
+
+    private func logFocusState(_ event: String) {
+#if DEBUG
+        let keyWindow = NSApp.keyWindow
+        dlog(
+            "browser.findbar.focus panel=\(panelId.uuidString.prefix(5)) " +
+            "event=\(event) keyWindow=\(keyWindow?.windowNumber ?? -1) " +
+            "firstResponder=\(debugFirstResponderSummary()) " +
+            "focused=\(isSearchFieldFocused ? 1 : 0)"
+        )
+#endif
+    }
+
+    private func requestSearchFieldFocus(maxAttempts: Int = 3, origin: String) {
         guard maxAttempts > 0 else { return }
+        logFocusState("request.begin origin=\(origin) remaining=\(maxAttempts)")
         isSearchFieldFocused = true
+        DispatchQueue.main.async {
+            logFocusState("request.afterAsync origin=\(origin) remaining=\(maxAttempts)")
+        }
         guard maxAttempts > 1 else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-            requestSearchFieldFocus(maxAttempts: maxAttempts - 1)
+            requestSearchFieldFocus(maxAttempts: maxAttempts - 1, origin: origin)
         }
     }
 
@@ -102,16 +129,21 @@ struct BrowserSearchOverlay: View {
             .clipShape(clipShape)
             .shadow(radius: 4)
             .onAppear {
-                #if DEBUG
+#if DEBUG
                 dlog("browser.findbar.appear panel=\(panelId.uuidString.prefix(5))")
-                #endif
-                requestSearchFieldFocus()
+#endif
+                logFocusState("appear")
+                requestSearchFieldFocus(origin: "appear")
+            }
+            .onChange(of: isSearchFieldFocused) { focused in
+                logFocusState("focusState.change next=\(focused ? 1 : 0)")
             }
             .onReceive(NotificationCenter.default.publisher(for: .browserSearchFocus)) { notification in
                 guard let notifiedPanelId = notification.object as? UUID,
                       notifiedPanelId == panelId else { return }
+                logFocusState("notification.received")
                 DispatchQueue.main.async {
-                    requestSearchFieldFocus()
+                    requestSearchFieldFocus(origin: "notification")
                 }
             }
             .background(

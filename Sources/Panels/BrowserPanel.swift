@@ -3043,21 +3043,39 @@ extension BrowserPanel {
     // MARK: - Find in Page
 
     func startFind() {
-        if searchState == nil {
+        let created = searchState == nil
+        if created {
             searchState = BrowserSearchState()
         }
-        postBrowserSearchFocusNotification()
+#if DEBUG
+        let window = webView.window
+        dlog(
+            "browser.find.start panel=\(id.uuidString.prefix(5)) " +
+            "created=\(created ? 1 : 0) render=\(shouldRenderWebView ? 1 : 0) " +
+            "window=\(window?.windowNumber ?? -1) key=\(NSApp.keyWindow === window ? 1 : 0) " +
+            "firstResponder=\(String(describing: window?.firstResponder))"
+        )
+#endif
+        postBrowserSearchFocusNotification(reason: "immediate")
         // Focus notification can race with portal overlay mount. Re-post on the
         // next runloop and shortly after so the find field can claim first responder.
         DispatchQueue.main.async { [weak self] in
-            self?.postBrowserSearchFocusNotification()
+            self?.postBrowserSearchFocusNotification(reason: "async0")
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
-            self?.postBrowserSearchFocusNotification()
+            self?.postBrowserSearchFocusNotification(reason: "async50ms")
         }
     }
 
-    private func postBrowserSearchFocusNotification() {
+    private func postBrowserSearchFocusNotification(reason: String) {
+#if DEBUG
+        let window = webView.window
+        dlog(
+            "browser.find.focusNotification panel=\(id.uuidString.prefix(5)) " +
+            "reason=\(reason) window=\(window?.windowNumber ?? -1) " +
+            "firstResponder=\(String(describing: window?.firstResponder))"
+        )
+#endif
         NotificationCenter.default.post(name: .browserSearchFocus, object: id)
     }
 
@@ -3088,7 +3106,7 @@ extension BrowserPanel {
         if replaySearch, !state.needle.isEmpty {
             executeFindSearch(state.needle)
         }
-        postBrowserSearchFocusNotification()
+        postBrowserSearchFocusNotification(reason: "restoreAfterNavigation")
     }
 
     private func executeFindSearch(_ needle: String) {

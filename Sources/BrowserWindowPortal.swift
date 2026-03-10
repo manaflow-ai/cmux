@@ -1420,13 +1420,35 @@ final class WindowBrowserSlotView: NSView {
         applyResolvedDropZoneOverlay()
     }
 
+    private func logSearchOverlayEvent(_ action: String, panelId: UUID?) {
+#if DEBUG
+        let firstResponderSummary: String = {
+            guard let firstResponder = window?.firstResponder else { return "nil" }
+            if let editor = firstResponder as? NSTextView, editor.isFieldEditor {
+                let delegateSummary = editor.delegate.map { String(describing: type(of: $0)) } ?? "nil"
+                return "fieldEditor(delegate=\(delegateSummary))"
+            }
+            return String(describing: type(of: firstResponder))
+        }()
+        dlog(
+            "browser.findbar.portal action=\(action) " +
+            "panel=\(panelId?.uuidString.prefix(5) ?? "nil") " +
+            "window=\(window?.windowNumber ?? -1) " +
+            "firstResponder=\(firstResponderSummary) " +
+            "hasOverlay=\(searchOverlayHostingView != nil ? 1 : 0)"
+        )
+#endif
+    }
+
     func setSearchOverlay(_ configuration: BrowserPortalSearchOverlayConfiguration?) {
         guard let configuration else {
+            logSearchOverlayEvent("remove", panelId: nil)
             searchOverlayHostingView?.removeFromSuperview()
             searchOverlayHostingView = nil
             return
         }
 
+        logSearchOverlayEvent("set", panelId: configuration.panelId)
         let rootView = BrowserSearchOverlay(
             panelId: configuration.panelId,
             searchState: configuration.searchState,
@@ -1436,6 +1458,7 @@ final class WindowBrowserSlotView: NSView {
         )
 
         if let overlay = searchOverlayHostingView {
+            logSearchOverlayEvent("updateExisting", panelId: configuration.panelId)
             overlay.rootView = rootView
             if overlay.superview !== self {
                 overlay.removeFromSuperview()
@@ -1460,6 +1483,7 @@ final class WindowBrowserSlotView: NSView {
             overlay.trailingAnchor.constraint(equalTo: trailingAnchor),
         ])
         searchOverlayHostingView = overlay
+        logSearchOverlayEvent("create", panelId: configuration.panelId)
     }
 
     func pinHostedWebView(_ webView: WKWebView) {
