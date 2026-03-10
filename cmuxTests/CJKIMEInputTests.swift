@@ -232,15 +232,114 @@ final class CJKIMEMarkedTextTests: XCTestCase {
 
     // MARK: - selectedRange / validAttributesForMarkedText
 
-    func testSelectedRangeReturnsNotFound() {
+    func testSelectedRangeTracksMarkedTextSelection() {
         let view = GhosttyNSView(frame: .zero)
-        let range = view.selectedRange()
-        XCTAssertEqual(range.location, NSNotFound)
+
+        view.setMarkedText(
+            "にほんご",
+            selectedRange: NSRange(location: 2, length: 1),
+            replacementRange: NSRange(location: NSNotFound, length: 0)
+        )
+
+        XCTAssertEqual(
+            view.selectedRange(),
+            NSRange(location: 2, length: 1),
+            "selectedRange should mirror the IME caret/selection inside marked text"
+        )
+    }
+
+    func testSelectedRangeReturnsNotFoundAfterCompositionEnds() {
+        let view = GhosttyNSView(frame: .zero)
+
+        view.setMarkedText(
+            "東京",
+            selectedRange: NSRange(location: 1, length: 0),
+            replacementRange: NSRange(location: NSNotFound, length: 0)
+        )
+        view.unmarkText()
+
+        XCTAssertEqual(view.selectedRange().location, NSNotFound)
+    }
+
+    func testAttributedSubstringReturnsMarkedTextSegment() {
+        let view = GhosttyNSView(frame: .zero)
+        view.setMarkedText(
+            "とうきょう",
+            selectedRange: NSRange(location: 3, length: 0),
+            replacementRange: NSRange(location: NSNotFound, length: 0)
+        )
+
+        var actualRange = NSRange(location: NSNotFound, length: 0)
+        let substring = view.attributedSubstring(
+            forProposedRange: NSRange(location: 2, length: 2),
+            actualRange: &actualRange
+        )
+
+        XCTAssertEqual(actualRange, NSRange(location: 2, length: 2))
+        XCTAssertEqual(substring?.string, "きょ")
     }
 
     func testValidAttributesForMarkedTextReturnsEmpty() {
         let view = GhosttyNSView(frame: .zero)
         XCTAssertTrue(view.validAttributesForMarkedText().isEmpty)
+    }
+}
+
+final class CJKIMEKeyForwardingSuppressionTests: XCTestCase {
+    func testSuppressesTerminalForwardingWhenJapanesePreeditTextChanges() {
+        let view = GhosttyNSView(frame: .zero)
+
+        XCTAssertTrue(
+            view.shouldSuppressGhosttyKeyForwardingAfterIMEHandlingForTesting(
+                markedTextBefore: "にほん",
+                markedSelectionBefore: NSRange(location: 3, length: 0),
+                markedTextAfter: "にほ",
+                markedSelectionAfter: NSRange(location: 2, length: 0),
+                accumulatedText: []
+            )
+        )
+    }
+
+    func testSuppressesTerminalForwardingWhenJapaneseClauseSelectionMoves() {
+        let view = GhosttyNSView(frame: .zero)
+
+        XCTAssertTrue(
+            view.shouldSuppressGhosttyKeyForwardingAfterIMEHandlingForTesting(
+                markedTextBefore: "東京",
+                markedSelectionBefore: NSRange(location: 0, length: 1),
+                markedTextAfter: "東京",
+                markedSelectionAfter: NSRange(location: 1, length: 1),
+                accumulatedText: []
+            )
+        )
+    }
+
+    func testDoesNotSuppressCommittedIMEInsertText() {
+        let view = GhosttyNSView(frame: .zero)
+
+        XCTAssertFalse(
+            view.shouldSuppressGhosttyKeyForwardingAfterIMEHandlingForTesting(
+                markedTextBefore: "東京",
+                markedSelectionBefore: NSRange(location: 0, length: 1),
+                markedTextAfter: "",
+                markedSelectionAfter: NSRange(location: NSNotFound, length: 0),
+                accumulatedText: ["東京"]
+            )
+        )
+    }
+
+    func testDoesNotSuppressNormalTerminalKeyWhenIMEDidNothing() {
+        let view = GhosttyNSView(frame: .zero)
+
+        XCTAssertFalse(
+            view.shouldSuppressGhosttyKeyForwardingAfterIMEHandlingForTesting(
+                markedTextBefore: "",
+                markedSelectionBefore: NSRange(location: NSNotFound, length: 0),
+                markedTextAfter: "",
+                markedSelectionAfter: NSRange(location: NSNotFound, length: 0),
+                accumulatedText: []
+            )
+        )
     }
 }
 
