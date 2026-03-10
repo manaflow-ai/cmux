@@ -749,24 +749,11 @@ final class WindowBackgroundSelectionGateTests: XCTestCase {
     }
 }
 
-// MARK: - Issue #914 regression tests
-
-/// Validates that `shouldApplyWindowBackground` returning false does NOT
-/// prevent surface background from being maintained. The fix moves
-/// `applySurfaceBackground()` before the guard so it always runs.
-///
-/// These tests verify the decision logic that was previously the sole
-/// gate for surface background application. When the guard rejects,
-/// the surface background must still be applied (tested via the code
-/// change, not a mock — these tests document the rejection scenarios).
 final class WindowBackgroundSurfaceBackgroundGuaranteeTests: XCTestCase {
     func testShouldApplyRejectsWhenOwningSelectionDiffersButSurfaceMustStayVisible() {
         let surfaceTabId = UUID()
         let differentSelectedTab = UUID()
 
-        // This is the scenario that triggers #914: the owning manager's
-        // selectedTabId temporarily differs from the surface's tabId
-        // (e.g., during notification-triggered tab reorder).
         let rejected = !GhosttyNSView.shouldApplyWindowBackground(
             surfaceTabId: surfaceTabId,
             owningManagerExists: true,
@@ -790,63 +777,37 @@ final class WindowBackgroundSurfaceBackgroundGuaranteeTests: XCTestCase {
     }
 }
 
-/// Validates that notification-driven tab reorder is deferred to avoid
-/// cascading @Published changes in the same run loop frame (#914).
-///
-/// Uses source-code inspection (same pattern as
-/// `TabManagerNotificationOrderingSourceTests`) to assert that
-/// `moveTabToTop` is wrapped in `DispatchQueue.main.async` inside
-/// `addNotification`. This avoids singleton state pollution from
-/// `TerminalNotificationStore.shared` and provides a meaningful
-/// regression guard — unlike a runtime test, this will fail if the
-/// async wrapper is removed.
 final class NotificationTabReorderDeferralTests: XCTestCase {
     func testMoveTabToTopIsDeferredInsideAddNotification() throws {
         let projectRoot = findProjectRoot()
         let storeURL = projectRoot.appendingPathComponent("Sources/TerminalNotificationStore.swift")
         let source = try String(contentsOf: storeURL, encoding: .utf8)
 
-        // Locate the addNotification method body.
         guard let methodStart = source.range(of: "func addNotification(tabId:") else {
             XCTFail("Failed to locate addNotification(tabId:) in TerminalNotificationStore.swift")
             return
         }
 
-        // Find the next top-level `func` after addNotification to bound the search.
         let searchRange = methodStart.upperBound..<source.endIndex
         let methodEnd = source.range(of: "\n    func ", range: searchRange)?.lowerBound ?? source.endIndex
         let methodBody = String(source[methodStart.lowerBound..<methodEnd])
 
-        // The critical invariant: moveTabToTop must be called inside
-        // DispatchQueue.main.async, NOT directly. A synchronous call
-        // causes two @Published mutations in the same run loop frame
-        // (tabs reorder + notifications update), triggering a cascading
-        // SwiftUI re-render that blanks the active pane (#914).
         XCTAssertTrue(
             methodBody.contains("DispatchQueue.main.async"),
-            """
-            addNotification must defer moveTabToTop via DispatchQueue.main.async \
-            to prevent cascading @Published changes that blank the active pane (#914).
-            """
+            "addNotification must defer moveTabToTop via DispatchQueue.main.async (#914)."
         )
         XCTAssertTrue(
             methodBody.contains("moveTabToTop"),
             "addNotification must call moveTabToTop for auto-reorder behavior."
         )
 
-        // Verify moveTabToTop appears ONLY inside the async block, not outside it.
-        // Split on DispatchQueue.main.async and check that moveTabToTop doesn't
-        // appear in the portion before the async block within the reorder section.
         if let reorderStart = methodBody.range(of: "WorkspaceAutoReorderSettings.isEnabled()") {
             let reorderSection = String(methodBody[reorderStart.lowerBound..<methodBody.endIndex])
             if let asyncStart = reorderSection.range(of: "DispatchQueue.main.async") {
                 let beforeAsync = String(reorderSection[reorderSection.startIndex..<asyncStart.lowerBound])
                 XCTAssertFalse(
                     beforeAsync.contains("moveTabToTop"),
-                    """
-                    moveTabToTop must NOT be called synchronously before the \
-                    DispatchQueue.main.async block — it must be inside it (#914).
-                    """
+                    "moveTabToTop must be inside the DispatchQueue.main.async block, not before it (#914)."
                 )
             }
         }
