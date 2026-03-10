@@ -307,6 +307,9 @@ final class VSCodeServeWebController {
     private var isLaunching = false
     private var activeLaunchGeneration: UInt64?
     private var lifecycleGeneration: UInt64 = 0
+#if DEBUG
+    private var testingTrackedProcesses: [Process] = []
+#endif
 
     private init(launchProcessOverride: ((URL, UInt64) -> (process: Process, url: URL)?)? = nil) {
         self.launchProcessOverride = launchProcessOverride
@@ -317,6 +320,26 @@ final class VSCodeServeWebController {
         launchProcessOverride: @escaping (URL, UInt64) -> (process: Process, url: URL)?
     ) -> VSCodeServeWebController {
         VSCodeServeWebController(launchProcessOverride: launchProcessOverride)
+    }
+
+    func trackConnectionTokenFileForTesting(
+        _ connectionTokenFileURL: URL,
+        setAsLaunchingProcess: Bool = false,
+        setAsServeWebProcess: Bool = false
+    ) {
+        let process = Process()
+        queue.sync {
+            if setAsLaunchingProcess {
+                self.launchingProcess = process
+            }
+            if setAsServeWebProcess {
+                self.serveWebProcess = process
+            }
+            if !setAsLaunchingProcess && !setAsServeWebProcess {
+                self.testingTrackedProcesses.append(process)
+            }
+            self.connectionTokenFilesByProcessID[ObjectIdentifier(process)] = connectionTokenFileURL
+        }
     }
 #endif
 
@@ -420,6 +443,9 @@ final class VSCodeServeWebController {
             }
             self.serveWebProcess = nil
             self.launchingProcess = nil
+#if DEBUG
+            self.testingTrackedProcesses.removeAll()
+#endif
             var tokenFileURLs = processes.compactMap {
                 self.connectionTokenFilesByProcessID.removeValue(forKey: ObjectIdentifier($0))
             }
