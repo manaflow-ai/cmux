@@ -554,6 +554,50 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         )
     }
 
+    func testCmdShiftEnterKeepsBrowserOmnibarHittableWhenWebViewFocused() {
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
+        launchAndEnsureForeground(app)
+
+        XCTAssertTrue(
+            waitForData(keys: ["browserPanelId", "webViewFocused"], timeout: 10.0),
+            "Expected goto_split setup data to be written"
+        )
+
+        guard let setup = loadData() else {
+            XCTFail("Missing goto_split setup data")
+            return
+        }
+
+        XCTAssertEqual(setup["webViewFocused"], "true", "Expected WKWebView to be first responder for this test")
+
+        let omnibar = app.textFields["BrowserOmnibarTextField"].firstMatch
+        let pill = app.descendants(matching: .any).matching(identifier: "BrowserOmnibarPill").firstMatch
+        XCTAssertTrue(omnibar.waitForExistence(timeout: 6.0), "Expected browser omnibar text field before zoom")
+        XCTAssertTrue(pill.waitForExistence(timeout: 6.0), "Expected browser omnibar pill before zoom")
+
+        app.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [.command, .shift])
+
+        XCTAssertTrue(omnibar.waitForExistence(timeout: 6.0), "Expected browser omnibar text field after Cmd+Shift+Enter")
+        XCTAssertTrue(pill.waitForExistence(timeout: 6.0), "Expected browser omnibar pill after Cmd+Shift+Enter")
+        XCTAssertTrue(
+            waitForElementToBecomeHittable(pill, timeout: 6.0),
+            "Expected browser omnibar to stay hittable after Cmd+Shift+Enter"
+        )
+
+        pill.click()
+        app.typeKey("a", modifierFlags: [.command])
+        app.typeKey(XCUIKeyboardKey.delete.rawValue, modifierFlags: [])
+        app.typeText("issue1144")
+
+        XCTAssertTrue(
+            waitForOmnibarToContain(omnibar, value: "issue1144", timeout: 4.0),
+            "Expected browser omnibar to stay editable after Cmd+Shift+Enter. value=\(String(describing: omnibar.value))"
+        )
+    }
+
     func testCmdDSplitsRightWhenOmnibarFocused() {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
@@ -804,6 +848,17 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         }
         let value = (omnibar.value as? String) ?? ""
         return value.contains(expectedSubstring)
+    }
+
+    private func waitForElementToBecomeHittable(_ element: XCUIElement, timeout: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if element.exists && element.isHittable {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        return element.exists && element.isHittable
     }
 
     private var autofocusRacePageURL: String {
