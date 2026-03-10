@@ -72906,6 +72906,138 @@
           }
         }
       }
+    },
+    "command.ghosttyTheme.back.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Back"
+          }
+        }
+      }
+    },
+    "command.ghosttyTheme.back.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ghostty Themes"
+          }
+        }
+      }
+    },
+    "command.ghosttyTheme.loading.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Loading Ghostty themes…"
+          }
+        }
+      }
+    },
+    "command.ghosttyTheme.loading.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ghostty Theme"
+          }
+        }
+      }
+    },
+    "command.ghosttyTheme.current.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ✓"
+          }
+        }
+      }
+    },
+    "command.ghosttyTheme.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ghostty Theme"
+          }
+        }
+      }
+    },
+    "command.ghosttyTheme.empty.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No Ghostty themes found"
+          }
+        }
+      }
+    },
+    "command.ghosttyTheme.empty.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ghostty Theme"
+          }
+        }
+      }
+    },
+    "command.ghosttyThemeMenu.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ghostty Theme…"
+          }
+        }
+      }
+    },
+    "command.ghosttyThemeMenu.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Appearance"
+          }
+        }
+      }
+    },
+    "commandPalette.search.ghosttyThemesPlaceholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search Ghostty themes"
+          }
+        }
+      }
+    },
+    "commandPalette.search.ghosttyThemesEmpty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No Ghostty themes match your search."
+          }
+        }
+      }
     }
   }
 }

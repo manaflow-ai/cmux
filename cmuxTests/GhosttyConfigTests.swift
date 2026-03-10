@@ -314,6 +314,31 @@ final class GhosttyConfigTests: XCTestCase {
         XCTAssertEqual(contents, "theme = Solarized Dark\n")
     }
 
+    func testWritableConfigPathPicksHighestPrecedenceFile() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ghostty-writable-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let lowPrecedence = root.appendingPathComponent("config")
+        let highPrecedence = root.appendingPathComponent("config.ghostty")
+        try "".write(to: lowPrecedence, atomically: true, encoding: .utf8)
+        try "".write(to: highPrecedence, atomically: true, encoding: .utf8)
+
+        let chosen = GhosttyConfig.writableConfigPath(
+            searchPaths: [lowPrecedence.path, highPrecedence.path]
+        )
+        XCTAssertEqual(chosen, highPrecedence.path)
+    }
+
+    func testApplyThemeRejectsThemeNameWithNewline() {
+        XCTAssertThrowsError(try GhosttyConfig.applyTheme("Bad\nTheme"))
+    }
+
+    func testApplyThemeRejectsThemeNameWithComma() {
+        XCTAssertThrowsError(try GhosttyConfig.applyTheme("Bad,Theme"))
+    }
+
     func testLoadCachesPerColorScheme() {
         GhosttyConfig.invalidateLoadCache()
         defer { GhosttyConfig.invalidateLoadCache() }

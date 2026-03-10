@@ -459,7 +459,7 @@ struct GhosttyConfig {
                 let name = child.lastPathComponent.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !name.isEmpty else { continue }
                 let normalized = name
-                    .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
+                    .folding(options: [.caseInsensitive], locale: .current)
                     .lowercased()
                 guard seen.insert(normalized).inserted else { continue }
                 discovered.append(name)
@@ -485,10 +485,10 @@ struct GhosttyConfig {
         searchPaths: [String]? = nil
     ) -> String {
         let resolvedSearchPaths = searchPaths ?? configSearchPaths()
-        for path in resolvedSearchPaths where fileManager.fileExists(atPath: path) {
+        for path in resolvedSearchPaths.reversed() where fileManager.fileExists(atPath: path) {
             return path
         }
-        return resolvedSearchPaths.first ?? NSString(string: "~/.config/ghostty/config.ghostty").expandingTildeInPath
+        return resolvedSearchPaths.last ?? NSString(string: "~/.config/ghostty/config.ghostty").expandingTildeInPath
     }
 
     @discardableResult
@@ -502,7 +502,12 @@ struct GhosttyConfig {
         let url = URL(fileURLWithPath: path)
         try fileManager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
 
-        let existing = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+        let existing: String
+        if fileManager.fileExists(atPath: path) {
+            existing = try String(contentsOf: url, encoding: .utf8)
+        } else {
+            existing = ""
+        }
         var lines = configLines(from: existing)
 
         var replaced = false
@@ -544,11 +549,20 @@ struct GhosttyConfig {
         preferredColorScheme: ColorSchemePreference = currentColorSchemePreference(),
         searchPaths: [String]? = nil
     ) throws -> String {
+        guard !themeName.contains(where: { $0.isNewline || $0 == "," }) else {
+            throw CocoaError(.fileWriteInvalidFileName)
+        }
+
         let path = writableConfigPath(fileManager: fileManager, searchPaths: searchPaths)
         let url = URL(fileURLWithPath: path)
         try fileManager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
 
-        let existing = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+        let existing: String
+        if fileManager.fileExists(atPath: path) {
+            existing = try String(contentsOf: url, encoding: .utf8)
+        } else {
+            existing = ""
+        }
         var lines = configLines(from: existing)
         let lastThemeAssignment = lastActiveConfigAssignment(forKey: "theme", in: lines)
         let nextThemeValue = updatedThemeValueForSelection(

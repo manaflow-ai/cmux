@@ -3932,6 +3932,22 @@ struct ContentView: View {
             return commands
         }
 
+        if themes.isEmpty {
+            commands.append(
+                CommandPaletteCommand(
+                    id: "palette.ghosttyTheme.empty",
+                    rank: 1,
+                    title: String(localized: "command.ghosttyTheme.empty.title", defaultValue: "No Ghostty themes found"),
+                    subtitle: String(localized: "command.ghosttyTheme.empty.subtitle", defaultValue: "Ghostty Theme"),
+                    shortcutHint: nil,
+                    keywords: [],
+                    dismissOnRun: false,
+                    action: {}
+                )
+            )
+            return commands
+        }
+
         for (index, themeName) in themes.enumerated() {
             let isCurrentTheme = currentTheme?.localizedCaseInsensitiveCompare(themeName) == .orderedSame
             commands.append(
@@ -4006,10 +4022,13 @@ struct ContentView: View {
 
         commandPaletteGhosttyThemeLoadTask?.cancel()
         commandPaletteGhosttyThemesAreLoading = true
+        let preferredColorScheme = GhosttyConfig.currentColorSchemePreference()
         commandPaletteGhosttyThemeLoadTask = Task.detached(priority: .userInitiated) {
-            let preferredColorScheme = GhosttyConfig.currentColorSchemePreference()
             let resolvedCurrentTheme = (
-                GhosttyConfig.load(useCache: false).theme.map {
+                GhosttyConfig.load(
+                    preferredColorScheme: preferredColorScheme,
+                    useCache: false
+                ).theme.map {
                     GhosttyConfig.resolveThemeName(
                         from: $0,
                         preferredColorScheme: preferredColorScheme
