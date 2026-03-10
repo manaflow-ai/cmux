@@ -4689,6 +4689,43 @@ final class TabManagerEqualizeSplitsTests: XCTestCase {
 }
 
 @MainActor
+final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
+    func testTerminalFirstResponderConvergesSplitActiveStateWhenSelectionAlreadyMatches() {
+        let workspace = Workspace()
+        guard let leftPanelId = workspace.focusedPanelId,
+              let leftPanel = workspace.terminalPanel(for: leftPanelId),
+              let rightPanel = workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal) else {
+            XCTFail("Expected split terminal panels")
+            return
+        }
+
+        XCTAssertEqual(
+            workspace.focusedPanelId,
+            rightPanel.id,
+            "Expected the new split panel to be selected before simulating stale focus state"
+        )
+
+        // Simulate the split-pane failure mode: Bonsplit already points at the right panel,
+        // but the active terminal state is still stale on the left panel.
+        leftPanel.surface.setFocus(true)
+        leftPanel.hostedView.setActive(true)
+        rightPanel.surface.setFocus(false)
+        rightPanel.hostedView.setActive(false)
+
+        workspace.focusPanel(rightPanel.id, trigger: .terminalFirstResponder)
+
+        XCTAssertFalse(
+            leftPanel.hostedView.debugRenderStats().isActive,
+            "Expected stale left-pane active state to be cleared"
+        )
+        XCTAssertTrue(
+            rightPanel.hostedView.debugRenderStats().isActive,
+            "Expected terminal-first-responder recovery to reactivate the selected split pane"
+        )
+    }
+}
+
+@MainActor
 final class WorkspaceTerminalConfigInheritanceSelectionTests: XCTestCase {
     func testPrefersSelectedTerminalInTargetPaneOverFocusedTerminalElsewhere() {
         let manager = TabManager()
