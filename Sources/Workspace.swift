@@ -3207,15 +3207,14 @@ final class Workspace: Identifiable, ObservableObject {
 
     /// Select the previously visited surface in the currently focused pane (MRU toggle).
     /// If `inPane` is provided, operates on that pane instead of the focused pane.
-    func selectLastVisitedSurface(inPane targetPane: PaneID? = nil) {
-        guard let paneId = targetPane ?? bonsplitController.focusedPaneId else { return }
-        if let targetPane, bonsplitController.focusedPaneId?.id != targetPane.id {
-            bonsplitController.focusPane(targetPane)
-        }
+    /// Returns `true` if the surface was actually switched.
+    @discardableResult
+    func selectLastVisitedSurface(inPane targetPane: PaneID? = nil) -> Bool {
+        guard let paneId = targetPane ?? bonsplitController.focusedPaneId else { return false }
         pruneSurfaceSelectionHistory(for: paneId)
 
         guard let currentTabId = bonsplitController.selectedTab(inPane: paneId)?.id,
-              let currentPanelId = panelIdFromSurfaceId(currentTabId) else { return }
+              let currentPanelId = panelIdFromSurfaceId(currentTabId) else { return false }
         recordSurfaceSelection(panelId: currentPanelId, in: paneId)
 
         guard let targetPanelId = lastVisitedPanelByPaneId[paneId.id],
@@ -3223,13 +3222,19 @@ final class Workspace: Identifiable, ObservableObject {
               panels[targetPanelId] != nil,
               let targetTabId = surfaceIdFromPanelId(targetPanelId),
               bonsplitController.tabs(inPane: paneId).contains(where: { $0.id == targetTabId }) else {
-            return
+            return false
+        }
+
+        // Only focus the pane after confirming an alternate surface exists
+        if let targetPane, bonsplitController.focusedPaneId?.id != targetPane.id {
+            bonsplitController.focusPane(targetPane)
         }
 
         bonsplitController.selectTab(targetTabId)
         if let selectedTabId = bonsplitController.selectedTab(inPane: paneId)?.id {
             applyTabSelection(tabId: selectedTabId, inPane: paneId)
         }
+        return true
     }
 
     /// Create a new terminal surface in the currently focused pane

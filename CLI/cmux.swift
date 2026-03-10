@@ -5983,7 +5983,14 @@ struct CMUXCLI {
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: "OK")
 
         case "last-tab":
-            let workspaceArg = workspaceFromArgsOrEnv(commandArgs, windowOverride: windowOverride)
+            let (workspaceOpt, remaining) = parseOption(commandArgs, name: "--workspace")
+            if let unknown = remaining.first(where: { $0.hasPrefix("--") }) {
+                throw CLIError(message: "last-tab: unknown flag '\(unknown)'. Known flags: --workspace <id|ref|index>")
+            }
+            if let extra = remaining.first {
+                throw CLIError(message: "last-tab: unexpected argument '\(extra)'")
+            }
+            let workspaceArg = workspaceOpt ?? (windowOverride == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
             var params: [String: Any] = [:]
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client)
             if let wsId { params["workspace_id"] = wsId }

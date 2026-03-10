@@ -3768,11 +3768,15 @@ class TerminalController {
                 targetPaneId = pane
             }
 
-            let before = ws.focusedPanelId
-            ws.selectLastVisitedSurface(inPane: targetPaneId)
-            guard let after = ws.focusedPanelId, after != before else { return }
+            guard ws.selectLastVisitedSurface(inPane: targetPaneId) else { return }
 
-            let paneId = ws.paneId(forPanelId: after)?.id
+            let resolvedPaneId = targetPaneId ?? ws.bonsplitController.focusedPaneId
+            let afterSurfaceId = resolvedPaneId
+                .flatMap { ws.bonsplitController.selectedTab(inPane: $0) }
+                .flatMap { ws.panelIdFromSurfaceId($0.id) }
+            guard let afterSurfaceId else { return }
+
+            let paneId = resolvedPaneId?.id
             let windowId = v2ResolveWindowId(tabManager: tabManager)
             result = .ok([
                 "window_id": v2OrNull(windowId?.uuidString),
@@ -3781,8 +3785,8 @@ class TerminalController {
                 "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
                 "pane_id": v2OrNull(paneId?.uuidString),
                 "pane_ref": v2Ref(kind: .pane, uuid: paneId),
-                "surface_id": after.uuidString,
-                "surface_ref": v2Ref(kind: .surface, uuid: after)
+                "surface_id": afterSurfaceId.uuidString,
+                "surface_ref": v2Ref(kind: .surface, uuid: afterSurfaceId)
             ])
         }
         return result
