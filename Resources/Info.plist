@@ -48,6 +48,10 @@
 	</array>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
+	<key>NSAppleScriptEnabled</key>
+	<true/>
+	<key>OSAScriptingDefinition</key>
+	<string>cmux.sdef</string>
 	<key>NSServices</key>
 	<array>
 		<dict>
