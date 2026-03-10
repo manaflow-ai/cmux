@@ -3058,6 +3058,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     func applyWindowBackgroundIfActive() {
         guard let window else { return }
+        // Always maintain the surface-level background to prevent blank panes.
+        // This is safe even when window-level background is skipped (idempotent).
+        applySurfaceBackground()
         let appDelegate = AppDelegate.shared
         let owningManager = tabId.flatMap { appDelegate?.tabManagerFor(tabId: $0) }
         let owningSelectedTabId = owningManager?.selectedTabId
@@ -3070,7 +3073,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         ) else {
             return
         }
-        applySurfaceBackground()
         let color = effectiveBackgroundColor()
         if cmuxShouldUseClearWindowBackground(for: color.alphaComponent) {
             window.backgroundColor = cmuxTransparentWindowBaseColor()

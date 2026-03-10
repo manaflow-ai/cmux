@@ -843,7 +843,12 @@ final class TerminalNotificationStore: ObservableObject {
         }
 
         if WorkspaceAutoReorderSettings.isEnabled() {
-            AppDelegate.shared?.tabManager?.moveTabToTop(tabId)
+            // Defer tab reordering to the next run loop iteration to avoid
+            // cascading SwiftUI re-renders (tabs + notifications @Published
+            // changes in the same frame) that can blank the active pane (#914).
+            DispatchQueue.main.async {
+                AppDelegate.shared?.tabManager?.moveTabToTop(tabId)
+            }
         }
 
         let notification = TerminalNotification(
