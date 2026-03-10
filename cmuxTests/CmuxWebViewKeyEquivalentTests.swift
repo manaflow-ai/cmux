@@ -2349,17 +2349,17 @@ final class BrowserPopupContentRectTests: XCTestCase {
 
     func testExplicitCoordinatesClampToVisibleFrame() {
         let rect = browserPopupContentRect(
-            requestedWidth: 900,
-            requestedHeight: 700,
+            requestedWidth: 1400,
+            requestedHeight: 1200,
             requestedX: 900,
             requestedTopY: -25,
             visibleFrame: NSRect(x: 100, y: 50, width: 1000, height: 800)
         )
 
-        XCTAssertEqual(rect.origin.x, 200, accuracy: 0.01)
-        XCTAssertEqual(rect.origin.y, 150, accuracy: 0.01)
-        XCTAssertEqual(rect.width, 900, accuracy: 0.01)
-        XCTAssertEqual(rect.height, 700, accuracy: 0.01)
+        XCTAssertEqual(rect.origin.x, 100, accuracy: 0.01)
+        XCTAssertEqual(rect.origin.y, 50, accuracy: 0.01)
+        XCTAssertEqual(rect.width, 1000, accuracy: 0.01)
+        XCTAssertEqual(rect.height, 800, accuracy: 0.01)
     }
 
     func testMissingCoordinatesCentersPopup() {
