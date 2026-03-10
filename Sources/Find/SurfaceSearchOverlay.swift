@@ -328,10 +328,19 @@ private struct SearchTextFieldRepresentable: NSViewRepresentable {
                 field.currentEditor() != nil ||
                 ((fr as? NSTextView)?.delegate as? NSTextField) === field
             #if DEBUG
-            dlog("find.nativeField.searchFocusNotification surface=\(coordinator.parent.surfaceId.uuidString.prefix(5)) alreadyFocused=\(alreadyFocused)")
+            dlog(
+                "find.nativeField.searchFocusNotification surface=\(coordinator.parent.surfaceId.uuidString.prefix(5)) " +
+                "alreadyFocused=\(alreadyFocused) firstResponder=\(String(describing: fr))"
+            )
             #endif
             guard !alreadyFocused else { return }
-            window.makeFirstResponder(field)
+            let result = window.makeFirstResponder(field)
+#if DEBUG
+            dlog(
+                "find.nativeField.searchFocusApply surface=\(coordinator.parent.surfaceId.uuidString.prefix(5)) " +
+                "result=\(result ? 1 : 0) firstResponder=\(String(describing: window.firstResponder))"
+            )
+#endif
         }
 
         return field

@@ -6459,15 +6459,29 @@ final class GhosttySurfaceScrollView: NSView {
 #if DEBUG
         let surfaceShort = self.surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil"
         let searchActive = self.surfaceView.terminalSurface?.searchState != nil
-        dlog("find.moveFocus to=\(surfaceShort) searchState=\(searchActive ? "active" : "nil")")
+        dlog(
+            "find.moveFocus to=\(surfaceShort) " +
+            "from=\(previous?.surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") " +
+            "searchState=\(searchActive ? "active" : "nil") " +
+            "delayMs=\(Int((delay ?? 0) * 1000))"
+        )
 #endif
         let work = { [weak self] in
             guard let self else { return }
             guard let window = self.window else { return }
+#if DEBUG
+            let before = String(describing: window.firstResponder)
+#endif
             if let previous, previous !== self {
                 _ = previous.surfaceView.resignFirstResponder()
             }
-            window.makeFirstResponder(self.surfaceView)
+            let result = window.makeFirstResponder(self.surfaceView)
+#if DEBUG
+            dlog(
+                "find.moveFocus.apply to=\(self.surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") " +
+                "result=\(result ? 1 : 0) before=\(before) after=\(String(describing: window.firstResponder))"
+            )
+#endif
         }
 
         if let delay, delay > 0 {
@@ -6611,6 +6625,12 @@ final class GhosttySurfaceScrollView: NSView {
         guard isActive else { return }
         guard let window else { return }
         guard surfaceView.isVisibleInUI else {
+#if DEBUG
+            dlog(
+                "focus.ensure.defer surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") " +
+                "reason=not_visible attempts=\(attemptsRemaining)"
+            )
+#endif
             retry()
             return
         }
@@ -6650,6 +6670,13 @@ final class GhosttySurfaceScrollView: NSView {
 
         // Search focus restoration — only after confirming this is the active tab/pane.
         if surfaceView.terminalSurface?.searchState != nil {
+#if DEBUG
+            dlog(
+                "focus.ensure.search surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") " +
+                "tab=\(tabId.uuidString.prefix(5)) panel=\(surfaceId.uuidString.prefix(5)) " +
+                "attempts=\(attemptsRemaining) firstResponder=\(String(describing: window.firstResponder))"
+            )
+#endif
             restoreSearchFocus(window: window)
             return
         }
@@ -6663,7 +6690,15 @@ final class GhosttySurfaceScrollView: NSView {
         if !window.isKeyWindow {
             window.makeKeyAndOrderFront(nil)
         }
-        _ = window.makeFirstResponder(surfaceView)
+        let result = window.makeFirstResponder(surfaceView)
+#if DEBUG
+        dlog(
+            "focus.ensure.apply surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") " +
+            "tab=\(tabId.uuidString.prefix(5)) panel=\(surfaceId.uuidString.prefix(5)) " +
+            "result=\(result ? 1 : 0) firstResponder=\(String(describing: window.firstResponder)) " +
+            "attempts=\(attemptsRemaining)"
+        )
+#endif
 
         if !isSurfaceViewFirstResponder() {
             retry()
@@ -6802,12 +6837,18 @@ final class GhosttySurfaceScrollView: NSView {
                 NotificationCenter.default.post(name: .ghosttySearchFocus, object: terminalSurface)
             }
 #if DEBUG
-            dlog("find.restoreSearchFocus surface=\(surfaceShort) target=searchField via=notification")
+            dlog(
+                "find.restoreSearchFocus surface=\(surfaceShort) target=searchField " +
+                "via=notification firstResponder=\(String(describing: window.firstResponder))"
+            )
 #endif
         case .terminal:
-            window.makeFirstResponder(surfaceView)
+            let result = window.makeFirstResponder(surfaceView)
 #if DEBUG
-            dlog("find.restoreSearchFocus surface=\(surfaceShort) target=terminal")
+            dlog(
+                "find.restoreSearchFocus surface=\(surfaceShort) target=terminal " +
+                "result=\(result ? 1 : 0) firstResponder=\(String(describing: window.firstResponder))"
+            )
 #endif
         }
     }

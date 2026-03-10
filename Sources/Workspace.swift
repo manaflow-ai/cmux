@@ -3061,6 +3061,19 @@ final class Workspace: Identifiable, ObservableObject {
         }()
         let shouldSuppressReentrantRefocus = trigger == .terminalFirstResponder && selectionAlreadyConverged
 #if DEBUG
+        let targetPaneShort = targetPaneId.map { String($0.id.uuidString.prefix(5)) } ?? "nil"
+        let focusedPaneShort = bonsplitController.focusedPaneId.map { String($0.id.uuidString.prefix(5)) } ?? "nil"
+        let selectedTabShort = bonsplitController.focusedPaneId
+            .flatMap { bonsplitController.selectedTab(inPane: $0)?.id }
+            .map { String($0.uuid.uuidString.prefix(5)) } ?? "nil"
+        let currentPanelShort = currentlyFocusedPanelId.map { String($0.uuidString.prefix(5)) } ?? "nil"
+        dlog(
+            "focus.panel.begin workspace=\(id.uuidString.prefix(5)) " +
+            "panel=\(panelId.uuidString.prefix(5)) trigger=\(String(describing: trigger)) " +
+            "targetPane=\(targetPaneShort) focusedPane=\(focusedPaneShort) selectedTab=\(selectedTabShort) " +
+            "converged=\(selectionAlreadyConverged ? 1 : 0) " +
+            "currentPanel=\(currentPanelShort)"
+        )
         if shouldSuppressReentrantRefocus {
             dlog(
                 "focus.panel.skipReentrant panel=\(panelId.uuidString.prefix(5)) " +
@@ -3070,16 +3083,34 @@ final class Workspace: Identifiable, ObservableObject {
 #endif
 
         if let targetPaneId, !selectionAlreadyConverged {
+#if DEBUG
+            dlog(
+                "focus.panel.focusPane workspace=\(id.uuidString.prefix(5)) " +
+                "panel=\(panelId.uuidString.prefix(5)) pane=\(targetPaneId.id.uuidString.prefix(5))"
+            )
+#endif
             bonsplitController.focusPane(targetPaneId)
         }
 
         if !selectionAlreadyConverged {
+#if DEBUG
+            dlog(
+                "focus.panel.selectTab workspace=\(id.uuidString.prefix(5)) " +
+                "panel=\(panelId.uuidString.prefix(5)) tab=\(tabId.uuid.uuidString.prefix(5))"
+            )
+#endif
             bonsplitController.selectTab(tabId)
         }
 
         // Also focus the underlying panel
         if let panel = panels[panelId] {
             if (currentlyFocusedPanelId != panelId || !selectionAlreadyConverged) && !shouldSuppressReentrantRefocus {
+#if DEBUG
+                dlog(
+                    "focus.panel.panelFocus workspace=\(id.uuidString.prefix(5)) " +
+                    "panel=\(panelId.uuidString.prefix(5)) type=\(String(describing: type(of: panel)))"
+                )
+#endif
                 panel.focus()
             }
 
@@ -3087,6 +3118,14 @@ final class Workspace: Identifiable, ObservableObject {
                 // Avoid re-entrant focus loops when focus was initiated by AppKit first-responder
                 // (becomeFirstResponder -> onFocus -> focusPanel).
                 if !terminalPanel.hostedView.isSurfaceViewFirstResponder() {
+#if DEBUG
+                    let previousExists = previousTerminalHostedView != nil ? 1 : 0
+                    dlog(
+                        "focus.panel.moveFocus workspace=\(id.uuidString.prefix(5)) " +
+                        "panel=\(panelId.uuidString.prefix(5)) previousExists=\(previousExists) " +
+                        "to=\(panelId.uuidString.prefix(5))"
+                    )
+#endif
                     terminalPanel.hostedView.moveFocus(from: previousTerminalHostedView)
                 }
             }
@@ -4073,6 +4112,18 @@ extension Workspace: BonsplitDelegate {
         reassertAppKitFocus: Bool
     ) {
         let previousFocusedPanelId = focusedPanelId
+#if DEBUG
+        let focusedPaneBefore = bonsplitController.focusedPaneId.map { String($0.id.uuidString.prefix(5)) } ?? "nil"
+        let selectedTabBefore = bonsplitController.focusedPaneId
+            .flatMap { bonsplitController.selectedTab(inPane: $0)?.id }
+            .map { String($0.uuid.uuidString.prefix(5)) } ?? "nil"
+        dlog(
+            "focus.split.apply.begin workspace=\(id.uuidString.prefix(5)) " +
+            "pane=\(pane.id.uuidString.prefix(5)) tab=\(tabId.uuid.uuidString.prefix(5)) " +
+            "focusedPane=\(focusedPaneBefore) selectedTab=\(selectedTabBefore) " +
+            "reassert=\(reassertAppKitFocus ? 1 : 0)"
+        )
+#endif
         if bonsplitController.allPaneIds.contains(pane) {
             if bonsplitController.focusedPaneId != pane {
                 bonsplitController.focusPane(pane)
@@ -4149,6 +4200,13 @@ extension Workspace: BonsplitDelegate {
         // Converge AppKit first responder with bonsplit's selected tab in the focused pane.
         // Without this, keyboard input can remain on a different terminal than the blue tab indicator.
         if reassertAppKitFocus, let terminalPanel = panel as? TerminalPanel {
+#if DEBUG
+            dlog(
+                "focus.split.ensureFocus workspace=\(id.uuidString.prefix(5)) " +
+                "panel=\(panelId.uuidString.prefix(5)) pane=\(focusedPane.id.uuidString.prefix(5)) " +
+                "tab=\(selectedTabId.uuid.uuidString.prefix(5))"
+            )
+#endif
             terminalPanel.hostedView.ensureFocus(for: id, surfaceId: panelId)
         }
 
@@ -4168,6 +4226,15 @@ extension Workspace: BonsplitDelegate {
                 GhosttyNotificationKey.surfaceId: panelId
             ]
         )
+#if DEBUG
+        let prevPanelShort = previousFocusedPanelId.map { String($0.uuidString.prefix(5)) } ?? "nil"
+        dlog(
+            "focus.split.apply.end workspace=\(id.uuidString.prefix(5)) " +
+            "panel=\(panelId.uuidString.prefix(5)) type=\(String(describing: type(of: panel))) " +
+            "focusedPane=\(focusedPane.id.uuidString.prefix(5)) selectedTab=\(selectedTabId.uuid.uuidString.prefix(5)) " +
+            "prevPanel=\(prevPanelShort)"
+        )
+#endif
     }
 
     private func activatePanel(
