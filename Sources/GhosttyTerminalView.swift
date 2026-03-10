@@ -4417,6 +4417,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             super.keyDown(with: event)
             return
         }
+        if let terminalSurface {
+            AppDelegate.shared?.tabManager?.dismissNotificationOnDirectInteraction(
+                tabId: terminalSurface.tabId,
+                surfaceId: terminalSurface.id
+            )
+        }
         if event.keyCode != 53 {
             endFindEscapeSuppression()
         }
