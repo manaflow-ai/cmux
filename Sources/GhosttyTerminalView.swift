@@ -4864,11 +4864,22 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
     #endif
 
+    private func requestPointerFocusRecovery() {
+#if DEBUG
+        dlog("focus.pointerDown surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil")")
+#endif
+        onFocus?()
+    }
+
     override func mouseDown(with event: NSEvent) {
         #if DEBUG
         let debugPoint = convert(event.locationInWindow, from: nil)
         dlog("terminal.mouseDown surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") mods=[\(debugModifierString(event.modifierFlags))] clickCount=\(event.clickCount) point=(\(String(format: "%.0f", debugPoint.x)),\(String(format: "%.0f", debugPoint.y)))")
         #endif
+        // Split reparent/layout churn can suppress the later `becomeFirstResponder -> onFocus`
+        // callback. Treat pointer-down as explicit focus intent so clicking a ghost pane still
+        // repairs workspace/pane active state before key routing runs.
+        requestPointerFocusRecovery()
         window?.makeFirstResponder(self)
         if let terminalSurface {
             AppDelegate.shared?.tabManager?.dismissNotificationOnDirectInteraction(
@@ -4893,10 +4904,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     override func rightMouseDown(with event: NSEvent) {
         guard let surface = surface else { return }
         if !ghostty_surface_mouse_captured(surface) {
+            requestPointerFocusRecovery()
             super.rightMouseDown(with: event)
             return
         }
 
+        requestPointerFocusRecovery()
         window?.makeFirstResponder(self)
         let point = convert(event.locationInWindow, from: nil)
         ghostty_surface_mouse_pos(surface, point.x, bounds.height - point.y, modsFromEvent(event))
@@ -4918,6 +4931,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             super.otherMouseDown(with: event)
             return
         }
+        requestPointerFocusRecovery()
         window?.makeFirstResponder(self)
         guard let surface = surface else { return }
         let point = convert(event.locationInWindow, from: nil)
