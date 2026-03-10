@@ -1838,8 +1838,9 @@ final class BrowserPanel: Panel, ObservableObject {
         return true
     }
 
-    func releasePortalHostIfOwned(hostId: ObjectIdentifier, reason: String) {
-        guard let current = activePortalHostLease, current.hostId == hostId else { return }
+    @discardableResult
+    func releasePortalHostIfOwned(hostId: ObjectIdentifier, reason: String) -> Bool {
+        guard let current = activePortalHostLease, current.hostId == hostId else { return false }
         activePortalHostLease = nil
 #if DEBUG
         dlog(
@@ -1848,6 +1849,7 @@ final class BrowserPanel: Panel, ObservableObject {
             "inWin=\(current.inWindow ? 1 : 0) area=\(String(format: "%.1f", current.area))"
         )
 #endif
+        return true
     }
 
     var displayIcon: String? {

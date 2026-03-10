@@ -4323,11 +4323,23 @@ struct WebViewRepresentable: NSViewRepresentable {
         let activePaneDropContext = coordinator.desiredPortalVisibleInUI ? paneDropContext : nil
         let activeSearchOverlay = coordinator.desiredPortalVisibleInUI ? searchOverlay : nil
         let portalAnchorView = panel.portalAnchorView
+        let portalHideReason = !isCurrentPaneOwner ? "lostPaneOwnership" : "hidden"
+        let didReleasePortalHost: Bool
         if !shouldAttachWebView || !isCurrentPaneOwner {
-            panel.releasePortalHostIfOwned(
+            didReleasePortalHost = panel.releasePortalHostIfOwned(
                 hostId: hostId,
-                reason: !isCurrentPaneOwner ? "lostPaneOwnership" : "hidden"
+                reason: portalHideReason
             )
+            // Only the host that currently owns the portal is allowed to hide it.
+            // Older keep-alive hosts can still receive updates after a new owner binds.
+            if didReleasePortalHost {
+                BrowserWindowPortalRegistry.hide(
+                    webView: webView,
+                    source: "viewStateChanged.\(portalHideReason)"
+                )
+            }
+        } else {
+            didReleasePortalHost = false
         }
         let portalHostAccepted =
             shouldAttachWebView &&
@@ -4345,7 +4357,8 @@ struct WebViewRepresentable: NSViewRepresentable {
                 "browser.portal.owner.skip panel=\(panel.id.uuidString.prefix(5)) " +
                 "viewPane=\(paneId.id.uuidString.prefix(5)) " +
                 "currentPane=\(paneDropContext?.paneId.id.uuidString.prefix(5) ?? "nil") " +
-                "host=\(Self.objectID(host)) hostInWin=\(host.window != nil ? 1 : 0)"
+                "host=\(Self.objectID(host)) hostInWin=\(host.window != nil ? 1 : 0) " +
+                "released=\(didReleasePortalHost ? 1 : 0)"
             )
         }
 #endif
