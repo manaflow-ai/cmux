@@ -3351,9 +3351,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var eventMonitor: Any?
     private var trackingArea: NSTrackingArea?
     private var windowObserver: NSObjectProtocol?
-	    private var lastScrollEventTime: CFTimeInterval = 0
+    private var lastScrollEventTime: CFTimeInterval = 0
     private var visibleInUI: Bool = true
     private var pendingSurfaceSize: CGSize?
+    private var deferredSurfaceSizeRetryQueued = false
     private var lastDrawableSize: CGSize = .zero
     private var isFindEscapeSuppressionArmed = false
 #if DEBUG
@@ -3651,9 +3652,37 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return currentBounds
     }
 
-    private static func hasActiveTabDragPasteboard() -> Bool {
+    private static func hasTabDragPasteboardTypes() -> Bool {
         let types = NSPasteboard(name: .drag).types ?? []
         return types.contains(tabTransferPasteboardType) || types.contains(sidebarTabReorderPasteboardType)
+    }
+
+    private static func isDragResizeEvent(_ eventType: NSEvent.EventType?) -> Bool {
+        switch eventType {
+        case .leftMouseDragged, .rightMouseDragged, .otherMouseDragged:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private static func shouldDeferSurfaceResizeForActiveDrag() -> Bool {
+        // The drag pasteboard can retain tab-transfer UTIs briefly after a split command
+        // or other layout churn. Only defer terminal resizes while an actual drag event
+        // is in flight; otherwise pre-existing panes can stay stuck at their old size.
+        guard hasTabDragPasteboardTypes() else { return false }
+        return isDragResizeEvent(NSApp.currentEvent?.type)
+    }
+
+    private func scheduleDeferredSurfaceSizeRetryIfNeeded() {
+        guard window != nil else { return }
+        guard !deferredSurfaceSizeRetryQueued else { return }
+        deferredSurfaceSizeRetryQueued = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.deferredSurfaceSizeRetryQueued = false
+            _ = self.updateSurfaceSize()
+        }
     }
 
     @discardableResult
@@ -3675,7 +3704,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return false
         }
         pendingSurfaceSize = size
-        guard !Self.hasActiveTabDragPasteboard() else {
+        guard !Self.shouldDeferSurfaceResizeForActiveDrag() else {
+            scheduleDeferredSurfaceSizeRetryIfNeeded()
 #if DEBUG
             let signature = "tabDrag-\(Int(size.width.rounded()))x\(Int(size.height.rounded()))"
             if lastSizeSkipSignature != signature {
@@ -4584,6 +4614,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
         // Use accumulated text from insertText (for IME), or compute text for key
         let accumulatedText = keyTextAccumulator ?? []
+        var shouldRefreshAfterTextInput = false
         if !accumulatedText.isEmpty {
             // Accumulated text comes from insertText (IME composition result).
             // These never have "composing" set to true because these are the
@@ -4591,6 +4622,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             keyEvent.composing = false
             for text in accumulatedText {
                 if shouldSendText(text) {
+                    shouldRefreshAfterTextInput = true
                     text.withCString { ptr in
                         keyEvent.text = ptr
                         _ = ghostty_surface_key(surface, keyEvent)
@@ -4611,6 +4643,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 )
             if let text = textForKeyEvent(translationEvent) {
                 if shouldSendText(text), !suppressShiftSpaceFallbackText {
+                    shouldRefreshAfterTextInput = true
                     text.withCString { ptr in
                         keyEvent.text = ptr
                         _ = ghostty_surface_key(surface, keyEvent)
@@ -4623,6 +4656,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 keyEvent.text = nil
                 _ = ghostty_surface_key(surface, keyEvent)
             }
+        }
+
+        if shouldRefreshAfterTextInput {
+            terminalSurface?.forceRefresh(reason: "keyDown.textInput")
         }
 
         // Rendering is driven by Ghostty's wakeups/renderer.
@@ -5391,6 +5428,7 @@ final class GhosttySurfaceScrollView: NSView {
 	    private var isLiveScrolling = false
     private var lastSentRow: Int?
     private var isActive = true
+    private var lastFocusRefreshAt: CFTimeInterval = 0
     private var activeDropZone: DropZone?
     private var pendingDropZone: DropZone?
     private var dropZoneOverlayAnimationGeneration: UInt64 = 0
@@ -6609,6 +6647,7 @@ final class GhosttySurfaceScrollView: NSView {
 
         if let fr = window.firstResponder as? NSView,
            fr === surfaceView || fr.isDescendant(of: surfaceView) {
+            reassertTerminalSurfaceFocus(reason: "ensureFocus.alreadyFirstResponder")
             return
         }
 
@@ -6619,7 +6658,25 @@ final class GhosttySurfaceScrollView: NSView {
 
         if !isSurfaceViewFirstResponder() {
             retry()
+        } else {
+            reassertTerminalSurfaceFocus(reason: "ensureFocus.afterMakeFirstResponder")
         }
+    }
+
+    private func matchesCurrentTerminalFocusTarget(tabId: UUID, surfaceId: UUID) -> Bool {
+        guard let delegate = AppDelegate.shared,
+              let tabManager = delegate.tabManagerFor(tabId: tabId) ?? delegate.tabManager,
+              tabManager.selectedTabId == tabId,
+              let tab = tabManager.tabs.first(where: { $0.id == tabId }),
+              let tabIdForSurface = tab.surfaceIdFromPanelId(surfaceId),
+              let paneId = tab.bonsplitController.allPaneIds.first(where: { paneId in
+                  tab.bonsplitController.tabs(inPane: paneId).contains(where: { $0.id == tabIdForSurface })
+              }) else {
+            return false
+        }
+
+        return tab.bonsplitController.selectedTab(inPane: paneId)?.id == tabIdForSurface &&
+            tab.bonsplitController.focusedPaneId == paneId
     }
 
     /// Suppress the surface view's onFocus callback and ghostty_surface_set_focus during
@@ -6638,6 +6695,33 @@ final class GhosttySurfaceScrollView: NSView {
     func isSurfaceViewFirstResponder() -> Bool {
         guard let window, let fr = window.firstResponder as? NSView else { return false }
         return fr === surfaceView || fr.isDescendant(of: surfaceView)
+    }
+
+    private func reassertTerminalSurfaceFocus(reason: String) {
+        guard let terminalSurface = surfaceView.terminalSurface else { return }
+#if DEBUG
+        dlog("focus.surface.reassert surface=\(terminalSurface.id.uuidString.prefix(5)) reason=\(reason)")
+#endif
+        terminalSurface.setFocus(true)
+        refreshSurfaceAfterFocusIfNeeded(reason: reason)
+    }
+
+    private func refreshSurfaceAfterFocusIfNeeded(reason: String) {
+        guard let terminalSurface = surfaceView.terminalSurface,
+              isActive,
+              let window,
+              window.isKeyWindow,
+              surfaceView.isVisibleInUI else { return }
+
+        let now = CACurrentMediaTime()
+        if now - lastFocusRefreshAt < 0.05 {
+            return
+        }
+        lastFocusRefreshAt = now
+#if DEBUG
+        dlog("focus.surface.refresh surface=\(terminalSurface.id.uuidString.prefix(5)) reason=\(reason)")
+#endif
+        terminalSurface.forceRefresh(reason: "focus.surface.\(reason)")
     }
 
     private func applyFirstResponderIfNeeded() {
@@ -6660,6 +6744,14 @@ final class GhosttySurfaceScrollView: NSView {
             return
         }
         guard let window, window.isKeyWindow else { return }
+        guard let tabId = surfaceView.tabId,
+              let panelId = surfaceView.terminalSurface?.id,
+              matchesCurrentTerminalFocusTarget(tabId: tabId, surfaceId: panelId) else {
+#if DEBUG
+            dlog("focus.apply.skip surface=\(surfaceShort) reason=stale_target")
+#endif
+            return
+        }
         if surfaceView.terminalSurface?.searchState != nil {
             // Find bar is open. Restore focus based on what the user last intended.
             restoreSearchFocus(window: window)
@@ -6667,6 +6759,7 @@ final class GhosttySurfaceScrollView: NSView {
         }
         if let fr = window.firstResponder as? NSView,
            fr === surfaceView || fr.isDescendant(of: surfaceView) {
+            reassertTerminalSurfaceFocus(reason: "applyFirstResponder.alreadyFirstResponder")
             return
         }
         // Don't steal focus from a search overlay on another surface in this window.
@@ -6680,6 +6773,9 @@ final class GhosttySurfaceScrollView: NSView {
         dlog("find.applyFirstResponder APPLY surface=\(surfaceShort) prevFirstResponder=\(String(describing: window.firstResponder))")
 #endif
         window.makeFirstResponder(surfaceView)
+        if isSurfaceViewFirstResponder() {
+            reassertTerminalSurfaceFocus(reason: "applyFirstResponder.afterMakeFirstResponder")
+        }
     }
 
     /// Restore focus when window becomes key and the find bar is open.

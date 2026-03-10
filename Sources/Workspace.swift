@@ -3109,6 +3109,32 @@ final class Workspace: Identifiable, ObservableObject {
                 maybeAutoFocusBrowserAddressBarOnPanelFocus(browserPanel, trigger: trigger)
             }
         }
+
+        if trigger == .terminalFirstResponder,
+           panels[panelId] is TerminalPanel {
+            scheduleTerminalFirstResponderReassert(panelId: panelId)
+        }
+    }
+
+    /// A terminal click can arrive while AppKit and bonsplit already look converged, which takes
+    /// the re-entrant focus path and skips the normal explicit `ensureFocus` call. Re-assert focus
+    /// on the next couple of turns so stale callbacks from split churn can't leave keyboard input
+    /// attached to the wrong surface (#1147).
+    private func scheduleTerminalFirstResponderReassert(panelId: UUID, remainingPasses: Int = 2) {
+        guard remainingPasses > 0 else { return }
+        DispatchQueue.main.async { [weak self] in
+            guard let self,
+                  self.focusedPanelId == panelId,
+                  let terminalPanel = self.terminalPanel(for: panelId) else {
+                return
+            }
+
+            terminalPanel.hostedView.ensureFocus(for: self.id, surfaceId: panelId)
+            self.scheduleTerminalFirstResponderReassert(
+                panelId: panelId,
+                remainingPasses: remainingPasses - 1
+            )
+        }
     }
 
     private func maybeAutoFocusBrowserAddressBarOnPanelFocus(
