@@ -1459,3 +1459,83 @@ final class GhosttyMouseFocusTests: XCTestCase {
         XCTAssertFalse(GhosttyApp.userConfigContainsCJKCodepointMap(configPaths: [fileA.path]))
     }
 }
+
+final class ZshShellIntegrationHandoffTests: XCTestCase {
+    func testGhosttyPromptHooksLoadWhenCmuxRequestsZshIntegration() throws {
+        let output = try runInteractiveZsh(cmuxLoadGhosttyIntegration: true)
+
+        XCTAssertTrue(output.contains("PRECMD=1"), output)
+        XCTAssertTrue(output.contains("PREEXEC=1"), output)
+        XCTAssertTrue(output.contains("PRECMDS=_ghostty_precmd"), output)
+    }
+
+    func testGhosttyPromptHooksDoNotLoadWithoutCmuxHandoffFlag() throws {
+        let output = try runInteractiveZsh(cmuxLoadGhosttyIntegration: false)
+
+        XCTAssertTrue(output.contains("PRECMD=0"), output)
+        XCTAssertTrue(output.contains("PREEXEC=0"), output)
+    }
+
+    private func runInteractiveZsh(cmuxLoadGhosttyIntegration: Bool) throws -> String {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-zsh-shell-integration-\(UUID().uuidString)")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let userZdotdir = root.appendingPathComponent("zdotdir")
+        try fileManager.createDirectory(at: userZdotdir, withIntermediateDirectories: true)
+        try "\n".write(to: userZdotdir.appendingPathComponent(".zshenv"), atomically: true, encoding: .utf8)
+
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let cmuxZdotdir = repoRoot.appendingPathComponent("Resources/shell-integration")
+        let ghosttyResources = repoRoot.appendingPathComponent("ghostty/src")
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        process.arguments = [
+            "-i",
+            "-c",
+            "(( $+functions[_ghostty_deferred_init] )) && _ghostty_deferred_init >/dev/null 2>&1; " +
+            "print -r -- \"PRECMD=${+functions[_ghostty_precmd]} " +
+            "PREEXEC=${+functions[_ghostty_preexec]} PRECMDS=${(j:,:)precmd_functions}\""
+        ]
+        process.environment = [
+            "HOME": root.path,
+            "TERM": "xterm-256color",
+            "SHELL": "/bin/zsh",
+            "USER": NSUserName(),
+            "ZDOTDIR": cmuxZdotdir.path,
+            "CMUX_ZSH_ZDOTDIR": userZdotdir.path,
+            "CMUX_SHELL_INTEGRATION": "0",
+            "GHOSTTY_RESOURCES_DIR": ghosttyResources.path,
+        ]
+        if cmuxLoadGhosttyIntegration {
+            process.environment?["CMUX_LOAD_GHOSTTY_ZSH_INTEGRATION"] = "1"
+        }
+
+        let stdout = Pipe()
+        let stderr = Pipe()
+        process.standardOutput = stdout
+        process.standardError = stderr
+
+        try process.run()
+        let deadline = Date().addingTimeInterval(5)
+        while process.isRunning && Date() < deadline {
+            _ = RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
+        }
+        if process.isRunning {
+            process.terminate()
+            process.waitUntilExit()
+            XCTFail("Timed out waiting for zsh to exit")
+        }
+
+        let output = String(data: stdout.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        let error = String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+
+        XCTAssertEqual(process.terminationStatus, 0, error)
+        return output.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
