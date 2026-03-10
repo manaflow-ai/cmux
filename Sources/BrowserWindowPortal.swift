@@ -1651,6 +1651,11 @@ final class WindowBrowserSlotView: NSView {
 final class WindowBrowserPortal: NSObject {
     private static let transientRecoveryRetryBudget: Int = 12
 
+    private enum PresentationRefreshMode: String {
+        case displayOnly
+        case reattach
+    }
+
     private weak var window: NSWindow?
     private let hostView = WindowBrowserHostView(frame: .zero)
     private weak var installedContainerView: NSView?
@@ -1756,7 +1761,9 @@ final class WindowBrowserPortal: NSObject {
             refreshHostedWebViewPresentation(
                 webView,
                 in: containerView,
-                reason: "externalGeometry"
+                reason: "externalGeometry",
+                mode: .displayOnly,
+                includeDeferredPasses: false
             )
         }
     }
@@ -1963,7 +1970,8 @@ final class WindowBrowserPortal: NSObject {
         _ webView: WKWebView,
         in containerView: WindowBrowserSlotView,
         reason: String,
-        phase: String
+        phase: String,
+        mode: PresentationRefreshMode
     ) {
         guard !containerView.isHidden else { return }
 
@@ -1990,7 +1998,9 @@ final class WindowBrowserPortal: NSObject {
             scrollView.displayIfNeeded()
         }
         webView.layoutSubtreeIfNeeded()
-        webView.browserPortalReattachRenderingState(reason: "\(reason):\(phase)")
+        if mode == .reattach {
+            webView.browserPortalReattachRenderingState(reason: "\(reason):\(phase)")
+        }
         containerView.displayIfNeeded()
         webView.displayIfNeeded()
         (webView.window ?? hostView.window)?.displayIfNeeded()
@@ -1998,7 +2008,7 @@ final class WindowBrowserPortal: NSObject {
         dlog(
             "browser.portal.refresh web=\(browserPortalDebugToken(webView)) " +
             "container=\(browserPortalDebugToken(containerView)) reason=\(reason) " +
-            "phase=\(phase) frame=\(browserPortalDebugFrame(containerView.frame))"
+            "phase=\(phase) mode=\(mode.rawValue) frame=\(browserPortalDebugFrame(containerView.frame))"
         )
 #endif
     }
@@ -2006,18 +2016,28 @@ final class WindowBrowserPortal: NSObject {
     private func refreshHostedWebViewPresentation(
         _ webView: WKWebView,
         in containerView: WindowBrowserSlotView,
-        reason: String
+        reason: String,
+        mode: PresentationRefreshMode,
+        includeDeferredPasses: Bool
     ) {
         guard !containerView.isHidden else { return }
 
-        runHostedWebViewRefreshPass(webView, in: containerView, reason: reason, phase: "immediate")
+        runHostedWebViewRefreshPass(
+            webView,
+            in: containerView,
+            reason: reason,
+            phase: "immediate",
+            mode: mode
+        )
+        guard includeDeferredPasses else { return }
         DispatchQueue.main.async { [weak self, weak webView, weak containerView] in
             guard let self, let webView, let containerView else { return }
             self.runHostedWebViewRefreshPass(
                 webView,
                 in: containerView,
                 reason: reason,
-                phase: "async"
+                phase: "async",
+                mode: mode
             )
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) { [weak self, weak webView, weak containerView] in
@@ -2026,7 +2046,8 @@ final class WindowBrowserPortal: NSObject {
                 webView,
                 in: containerView,
                 reason: reason,
-                phase: "delayed"
+                phase: "delayed",
+                mode: mode
             )
         }
     }
@@ -2169,7 +2190,9 @@ final class WindowBrowserPortal: NSObject {
         refreshHostedWebViewPresentation(
             webView,
             in: containerView,
-            reason: reason
+            reason: reason,
+            mode: .reattach,
+            includeDeferredPasses: true
         )
     }
 
@@ -2508,6 +2531,7 @@ final class WindowBrowserPortal: NSObject {
             hostView.addSubview(containerView, positioned: .above, relativeTo: nil)
             refreshReasons.append("syncAttachContainer")
         }
+        let didReparentExistingWebView = webView.superview != nil && webView.superview !== containerView
         if webView.superview !== containerView {
 #if DEBUG
             dlog(
@@ -2767,10 +2791,19 @@ final class WindowBrowserPortal: NSObject {
             resetTransientRecoveryRetryIfNeeded(forWebViewId: webViewId, entry: &entry)
         }
         if !shouldHide, !refreshReasons.isEmpty {
+            let hadVisibleFrameBeforeSync = oldFrame.width > 1 && oldFrame.height > 1
+            // Fresh browser mounts already have a clean WebKit attach. Reserve the
+            // heavier reattach path for real reparent/reveal recovery to avoid load flicker.
+            let refreshMode: PresentationRefreshMode =
+                (didReparentExistingWebView || revealedForDisplay || (forcePresentationRefresh && hadVisibleFrameBeforeSync))
+                ? .reattach
+                : .displayOnly
             refreshHostedWebViewPresentation(
                 webView,
                 in: containerView,
-                reason: "\(source):" + refreshReasons.joined(separator: ",")
+                reason: "\(source):" + refreshReasons.joined(separator: ","),
+                mode: refreshMode,
+                includeDeferredPasses: refreshMode == .reattach
             )
         }
         hostView.reapplyHostedInspectorDividerIfNeeded(in: containerView, reason: "portal.sync")
