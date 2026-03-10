@@ -3816,6 +3816,17 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
         didReceive challenge: URLAuthenticationChallenge,
         completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
     ) {
+        // When certificate bypass is active (--ignore-certificate-errors or browser.cert_bypass set true),
+        // unconditionally trust server certificates. This covers self-signed and unknown-root certs
+        // common in local development (e.g. https://localhost:8443). Only server trust challenges
+        // are bypassed; client cert and other challenge types still use default handling.
+        if challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
+           BrowserCertBypassSettings.isEnabled(),
+           let serverTrust = challenge.protectionSpace.serverTrust {
+            completionHandler(.useCredential, URLCredential(trust: serverTrust))
+            return
+        }
+
         // WKWebView rejects all authentication challenges by default when this
         // delegate method is not implemented (.rejectProtectionSpace). This
         // breaks TLS client-certificate flows such as Microsoft Entra ID
