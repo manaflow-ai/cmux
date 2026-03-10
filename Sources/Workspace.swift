@@ -3217,11 +3217,19 @@ final class Workspace: Identifiable, ObservableObject {
 
     @discardableResult
     func toggleSplitZoom(panelId: UUID) -> Bool {
+        let wasSplitZoomed = bonsplitController.isSplitZoomed
         guard let paneId = paneId(forPanelId: panelId) else { return false }
         guard bonsplitController.togglePaneZoom(inPane: paneId) else { return false }
         focusPanel(panelId)
-        if browserPanel(for: panelId) != nil {
+        if let browserPanel = browserPanel(for: panelId) {
+            browserPanel.preparePortalHostReplacementForNextDistinctClaim(
+                inPane: paneId,
+                reason: "workspace.toggleSplitZoom"
+            )
             scheduleBrowserPortalReconcileAfterSplitZoom(panelId: panelId, remainingPasses: 4)
+            if wasSplitZoomed && !bonsplitController.isSplitZoomed {
+                scheduleBrowserSplitZoomExitFocusReassert(panelId: panelId, remainingPasses: 4)
+            }
         }
         return true
     }
@@ -3518,6 +3526,43 @@ final class Workspace: Identifiable, ObservableObject {
                 browserPanel.webView.superview == nil
             if portalNeedsFollowUpPass {
                 self.scheduleBrowserPortalReconcileAfterSplitZoom(
+                    panelId: panelId,
+                    remainingPasses: remainingPasses - 1
+                )
+            }
+        }
+    }
+
+    // Browser panes can briefly keep the portal-hosted WKWebView visible while Bonsplit is
+    // still rebuilding the unzoomed pane host. Reassert pane/tab selection after layout settles
+    // so the SwiftUI chrome does not remain hidden until another browser focus command runs.
+    private func scheduleBrowserSplitZoomExitFocusReassert(panelId: UUID, remainingPasses: Int) {
+        guard remainingPasses > 0 else { return }
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.browserPanel(for: panelId) != nil else { return }
+            guard let paneId = self.paneId(forPanelId: panelId),
+                  let tabId = self.surfaceIdFromPanelId(panelId) else { return }
+
+            let selectionConverged =
+                self.bonsplitController.focusedPaneId == paneId &&
+                self.bonsplitController.selectedTab(inPane: paneId)?.id == tabId
+            let anchorReady: Bool = {
+                guard let browserPanel = self.browserPanel(for: panelId) else { return false }
+                let anchorView = browserPanel.portalAnchorView
+                return
+                    anchorView.window != nil &&
+                    anchorView.superview != nil &&
+                    anchorView.bounds.width > 1 &&
+                    anchorView.bounds.height > 1
+            }()
+
+            if !selectionConverged {
+                self.focusPanel(panelId)
+                self.scheduleFocusReconcile()
+            }
+
+            if !selectionConverged || !anchorReady {
+                self.scheduleBrowserSplitZoomExitFocusReassert(
                     panelId: panelId,
                     remainingPasses: remainingPasses - 1
                 )
