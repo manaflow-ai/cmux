@@ -2300,6 +2300,16 @@ final class BrowserNavigationNewTabDecisionTests: XCTestCase {
 }
 
 final class BrowserPopupDecisionTests: XCTestCase {
+    func testLinkActivatedPlainLeftClickDoesNotCreatePopup() {
+        XCTAssertFalse(
+            browserNavigationShouldCreatePopup(
+                navigationType: .linkActivated,
+                modifierFlags: [],
+                buttonNumber: 0
+            )
+        )
+    }
+
     func testOtherNavigationPlainLeftClickCreatesPopup() {
         XCTAssertTrue(
             browserNavigationShouldCreatePopup(
