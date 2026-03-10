@@ -1995,14 +1995,14 @@ struct CMUXCLI {
         let workspaceArg = workspaceOpt ?? (windowOverride == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
         let workspaceId = try normalizeWorkspaceHandle(workspaceArg, client: client, allowCurrent: true)
 
-        let inferredTitle = positional.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
-        let title = (titleOpt ?? (inferredTitle.isEmpty ? nil : inferredTitle))?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let inferredPositional = positional.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+        let title = (titleOpt ?? (action != "set_color" && !inferredPositional.isEmpty ? inferredPositional : nil))?.trimmingCharacters(in: .whitespacesAndNewlines)
 
         if action == "rename", (title?.isEmpty ?? true) {
             throw CLIError(message: "workspace-action rename requires --title <text> (or a trailing title)")
         }
 
-        let color = colorOpt ?? (action == "set_color" ? (inferredTitle.isEmpty ? nil : inferredTitle) : nil)
+        let color = colorOpt ?? (action == "set_color" ? (inferredPositional.isEmpty ? nil : inferredPositional) : nil)
         if action == "set_color", (color?.isEmpty ?? true) {
             throw CLIError(message: "workspace-action set-color requires --color <name|#hex> (or a trailing color)")
         }
