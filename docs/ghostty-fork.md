@@ -31,6 +31,17 @@ When we change the fork, update this document and the parent submodule SHA.
   - Restarts the CVDisplayLink when `setMacOSDisplayID` updates the current CGDisplay.
   - Prevents a rare state where vsync is "running" but no callbacks arrive, which can look like a frozen surface until focus/occlusion changes.
 
+### 3) OSC 777 survives malformed UTF-8 boundaries
+
+- Commits:
+  - `1f8f10f06` (test(terminal): cover OSC 777 chunked stream parsing)
+  - `8c1f9112f` (fix(terminal): preserve OSC parsing after malformed UTF-8)
+- Files:
+  - `src/terminal/stream.zig`
+- Summary:
+  - Adds regression coverage for OSC 777 desktop notifications across chunk splits and malformed UTF-8 boundaries.
+  - Fixes the SIMD-to-scalar fallback so an `ESC` byte surfaced during UTF-8 error recovery switches back to control-sequence parsing instead of printing the rest of the OSC payload as raw text.
+
 ## Merge conflict notes
 
 These files change frequently upstream; be careful when rebasing the fork:
@@ -41,5 +52,8 @@ These files change frequently upstream; be careful when rebasing the fork:
 
 - `src/terminal/osc.zig`
   - OSC dispatch logic moves often. Re-check the integration points for the OSC 99 parser.
+
+- `src/terminal/stream.zig`
+  - The SIMD/scalar handoff is performance-sensitive. Re-check chunk-boundary handling when rebasing stream parser changes.
 
 If you resolve a conflict, update this doc with what changed.

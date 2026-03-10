@@ -2,3 +2,4 @@
 # Update this file in a reviewed PR whenever the ghostty submodule SHA changes.
 # Format: <ghostty_sha> <sha256>
 7dd589824d4c9bda8265355718800cccaf7189a0 3915af4256850a0a7bee671c3ba0a47cbfee5dbfc6d71caf952acefdf2ee4207
+8c1f9112ffdb2d70e69827a2c8ca2e0228043139 ab2738b6bdbaecac3f28d5b382a3ba5837ba8d0cb061414d65e6c5b8783906a8
