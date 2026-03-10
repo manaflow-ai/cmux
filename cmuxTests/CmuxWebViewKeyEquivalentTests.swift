@@ -831,6 +831,54 @@ final class AppDelegateWindowContextRoutingTests: XCTestCase {
         XCTAssertTrue(resolved === manager, "Expected registered window object identity to win even if identifier string changed")
         XCTAssertTrue(app.tabManager === manager)
     }
+
+    func testAddWorkspaceWithoutBringToFrontPreservesActiveWindowAndSelection() {
+        _ = NSApplication.shared
+        let app = AppDelegate()
+
+        let windowAId = UUID()
+        let windowBId = UUID()
+        let windowA = makeMainWindow(id: windowAId)
+        let windowB = makeMainWindow(id: windowBId)
+        defer {
+            windowA.orderOut(nil)
+            windowB.orderOut(nil)
+        }
+
+        let managerA = TabManager()
+        let managerB = TabManager()
+        app.registerMainWindow(
+            windowA,
+            windowId: windowAId,
+            tabManager: managerA,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState()
+        )
+        app.registerMainWindow(
+            windowB,
+            windowId: windowBId,
+            tabManager: managerB,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState()
+        )
+
+        windowA.makeKeyAndOrderFront(nil)
+        _ = app.synchronizeActiveMainWindowContext(preferredWindow: windowA)
+        XCTAssertTrue(app.tabManager === managerA)
+
+        let originalSelectedA = managerA.selectedTabId
+        let originalSelectedB = managerB.selectedTabId
+        let originalTabCountB = managerB.tabs.count
+
+        let createdWorkspaceId = app.addWorkspace(windowId: windowBId, bringToFront: false)
+
+        XCTAssertNotNil(createdWorkspaceId)
+        XCTAssertTrue(app.tabManager === managerA, "Expected non-focus workspace creation to preserve active window routing")
+        XCTAssertEqual(managerA.selectedTabId, originalSelectedA)
+        XCTAssertEqual(managerB.selectedTabId, originalSelectedB, "Expected background workspace creation to preserve selected tab")
+        XCTAssertEqual(managerB.tabs.count, originalTabCountB + 1)
+        XCTAssertTrue(managerB.tabs.contains(where: { $0.id == createdWorkspaceId }))
+    }
 }
 
 @MainActor
@@ -4641,6 +4689,158 @@ final class TabManagerEqualizeSplitsTests: XCTestCase {
 }
 
 @MainActor
+final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
+    private func makeWindow() -> NSWindow {
+        NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 220),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+    }
+
+    private func makeMouseEvent(
+        type: NSEvent.EventType,
+        location: NSPoint,
+        window: NSWindow
+    ) -> NSEvent {
+        guard let event = NSEvent.mouseEvent(
+            with: type,
+            location: location,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: 0,
+            clickCount: 1,
+            pressure: 1.0
+        ) else {
+            fatalError("Failed to create \(type) mouse event")
+        }
+        return event
+    }
+
+    private func surfaceView(in hostedView: GhosttySurfaceScrollView) -> GhosttyNSView? {
+        var stack: [NSView] = [hostedView]
+        while let current = stack.popLast() {
+            if let surfaceView = current as? GhosttyNSView {
+                return surfaceView
+            }
+            stack.append(contentsOf: current.subviews)
+        }
+        return nil
+    }
+
+    func testTerminalFirstResponderConvergesSplitActiveStateWhenSelectionAlreadyMatches() {
+        let workspace = Workspace()
+        guard let leftPanelId = workspace.focusedPanelId,
+              let leftPanel = workspace.terminalPanel(for: leftPanelId),
+              let rightPanel = workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal) else {
+            XCTFail("Expected split terminal panels")
+            return
+        }
+
+        XCTAssertEqual(
+            workspace.focusedPanelId,
+            rightPanel.id,
+            "Expected the new split panel to be selected before simulating stale focus state"
+        )
+
+        // Simulate the split-pane failure mode: Bonsplit already points at the right panel,
+        // but the active terminal state is still stale on the left panel.
+        leftPanel.surface.setFocus(true)
+        leftPanel.hostedView.setActive(true)
+        rightPanel.surface.setFocus(false)
+        rightPanel.hostedView.setActive(false)
+
+        workspace.focusPanel(rightPanel.id, trigger: .terminalFirstResponder)
+
+        XCTAssertFalse(
+            leftPanel.hostedView.debugRenderStats().isActive,
+            "Expected stale left-pane active state to be cleared"
+        )
+        XCTAssertTrue(
+            rightPanel.hostedView.debugRenderStats().isActive,
+            "Expected terminal-first-responder recovery to reactivate the selected split pane"
+        )
+    }
+
+    func testTerminalClickRecoversSplitActiveStateWhenFocusCallbackIsSuppressed() {
+        let workspace = Workspace()
+        guard let leftPanelId = workspace.focusedPanelId,
+              let leftPanel = workspace.terminalPanel(for: leftPanelId),
+              let rightPanel = workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal) else {
+            XCTFail("Expected split terminal panels")
+            return
+        }
+
+        let window = makeWindow()
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        leftPanel.hostedView.frame = NSRect(x: 0, y: 0, width: 180, height: 220)
+        rightPanel.hostedView.frame = NSRect(x: 180, y: 0, width: 180, height: 220)
+        contentView.addSubview(leftPanel.hostedView)
+        contentView.addSubview(rightPanel.hostedView)
+
+        leftPanel.hostedView.setVisibleInUI(true)
+        rightPanel.hostedView.setVisibleInUI(true)
+        leftPanel.hostedView.setFocusHandler {
+            workspace.focusPanel(leftPanel.id, trigger: .terminalFirstResponder)
+        }
+        rightPanel.hostedView.setFocusHandler {
+            workspace.focusPanel(rightPanel.id, trigger: .terminalFirstResponder)
+        }
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        XCTAssertEqual(
+            workspace.focusedPanelId,
+            rightPanel.id,
+            "Expected the clicked split pane to already be selected before simulating stale focus state"
+        )
+
+        // Simulate the ghost-terminal race: the right pane is selected in Bonsplit, but stale
+        // active state remains on the left and the right pane's AppKit focus callback never fires
+        // after split reparent/layout churn.
+        leftPanel.surface.setFocus(true)
+        leftPanel.hostedView.setActive(true)
+        rightPanel.surface.setFocus(false)
+        rightPanel.hostedView.setActive(false)
+        rightPanel.hostedView.suppressReparentFocus()
+
+        guard let rightSurfaceView = surfaceView(in: rightPanel.hostedView) else {
+            XCTFail("Expected right terminal surface view")
+            return
+        }
+
+        let pointInWindow = rightSurfaceView.convert(NSPoint(x: 24, y: 24), to: nil)
+        let event = makeMouseEvent(type: .leftMouseDown, location: pointInWindow, window: window)
+        rightSurfaceView.mouseDown(with: event)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        XCTAssertFalse(
+            leftPanel.hostedView.debugRenderStats().isActive,
+            "Expected clicking the selected split pane to clear stale sibling active state even when AppKit focus callbacks are suppressed"
+        )
+        XCTAssertTrue(
+            rightPanel.hostedView.debugRenderStats().isActive,
+            "Expected clicking the selected split pane to reactivate terminal input when focus callbacks are suppressed"
+        )
+        XCTAssertTrue(
+            rightPanel.hostedView.isSurfaceViewFirstResponder(),
+            "Expected the clicked split pane to become first responder"
+        )
+    }
+}
+
+@MainActor
 final class WorkspaceTerminalConfigInheritanceSelectionTests: XCTestCase {
     func testPrefersSelectedTerminalInTargetPaneOverFocusedTerminalElsewhere() {
         let manager = TabManager()
@@ -6179,6 +6379,23 @@ final class VSCodeServeWebControllerTests: XCTestCase {
         }
         XCTAssertEqual(launchCalls, 2)
     }
+
+    func testStopRemovesOrphanedConnectionTokenFiles() throws {
+        let tokenFileURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: tokenFileURL) }
+        try Data("token".utf8).write(to: tokenFileURL)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: tokenFileURL.path))
+
+        let controller = VSCodeServeWebController.makeForTesting { _, _ in
+            XCTFail("Expected no launch")
+            return nil
+        }
+        controller.trackConnectionTokenFileForTesting(tokenFileURL)
+
+        controller.stop()
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: tokenFileURL.path))
+    }
 }
 
 final class BrowserSearchEngineTests: XCTestCase {
@@ -7476,6 +7693,24 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
         return event
     }
 
+    private func makeKeyEvent(characters: String, keyCode: UInt16, window: NSWindow) -> NSEvent {
+        guard let event = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: characters,
+            charactersIgnoringModifiers: characters,
+            isARepeat: false,
+            keyCode: keyCode
+        ) else {
+            fatalError("Failed to create key event")
+        }
+        return event
+    }
+
     private func surfaceView(in hostedView: GhosttySurfaceScrollView) -> NSView? {
         hostedView.subviews
             .compactMap { $0 as? NSScrollView }
@@ -7549,6 +7784,76 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
         let pointInWindow = surfaceView.convert(NSPoint(x: 20, y: 20), to: nil)
         let event = makeMouseEvent(type: .leftMouseDown, location: pointInWindow, window: window)
         surfaceView.mouseDown(with: event)
+        let drained = expectation(description: "flash drained")
+        DispatchQueue.main.async { drained.fulfill() }
+        wait(for: [drained], timeout: 1.0)
+
+        XCTAssertFalse(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: terminalPanel.id))
+        XCTAssertEqual(GhosttySurfaceScrollView.flashCount(for: terminalPanel.id), 1)
+    }
+
+    func testTerminalKeyDownDismissesUnreadWhenSurfaceIsAlreadyFirstResponder() {
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let manager = TabManager()
+        let store = TerminalNotificationStore.shared
+        let window = makeWindow()
+
+        let originalTabManager = appDelegate.tabManager
+        let originalNotificationStore = appDelegate.notificationStore
+        let originalAppFocusOverride = AppFocusState.overrideIsFocused
+
+        store.replaceNotificationsForTesting([])
+        store.configureNotificationDeliveryHandlerForTesting { _, _ in }
+        appDelegate.tabManager = manager
+        appDelegate.notificationStore = store
+
+        defer {
+            store.replaceNotificationsForTesting([])
+            store.resetNotificationDeliveryHandlerForTesting()
+            appDelegate.tabManager = originalTabManager
+            appDelegate.notificationStore = originalNotificationStore
+            AppFocusState.overrideIsFocused = originalAppFocusOverride
+            window.orderOut(nil)
+        }
+
+        guard let workspace = manager.selectedWorkspace,
+              let terminalPanel = workspace.focusedTerminalPanel else {
+            XCTFail("Expected an initial focused terminal panel")
+            return
+        }
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let hostedView = terminalPanel.hostedView
+        hostedView.frame = contentView.bounds
+        hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostedView)
+        contentView.layoutSubtreeIfNeeded()
+        hostedView.layoutSubtreeIfNeeded()
+
+        guard let surfaceView = surfaceView(in: hostedView) as? GhosttyNSView else {
+            XCTFail("Expected terminal surface view")
+            return
+        }
+
+        GhosttySurfaceScrollView.resetFlashCounts()
+        AppFocusState.overrideIsFocused = true
+        XCTAssertTrue(window.makeFirstResponder(surfaceView))
+
+        store.addNotification(
+            tabId: workspace.id,
+            surfaceId: terminalPanel.id,
+            title: "Unread",
+            subtitle: "",
+            body: ""
+        )
+        XCTAssertTrue(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: terminalPanel.id))
+
+        let event = makeKeyEvent(characters: "", keyCode: 122, window: window)
+        surfaceView.keyDown(with: event)
         let drained = expectation(description: "flash drained")
         DispatchQueue.main.async { drained.fulfill() }
         wait(for: [drained], timeout: 1.0)

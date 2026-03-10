@@ -3091,8 +3091,12 @@ final class Workspace: Identifiable, ObservableObject {
                 }
             }
         }
-        if let targetPaneId, !shouldSuppressReentrantRefocus {
-            applyTabSelection(tabId: tabId, inPane: targetPaneId)
+        if let targetPaneId {
+            applyTabSelection(
+                tabId: tabId,
+                inPane: targetPaneId,
+                reassertAppKitFocus: !shouldSuppressReentrantRefocus
+            )
         }
 
         if let browserPanel = panels[panelId] as? BrowserPanel {
@@ -3104,6 +3108,32 @@ final class Workspace: Identifiable, ObservableObject {
             } else {
                 maybeAutoFocusBrowserAddressBarOnPanelFocus(browserPanel, trigger: trigger)
             }
+        }
+
+        if trigger == .terminalFirstResponder,
+           panels[panelId] is TerminalPanel {
+            scheduleTerminalFirstResponderReassert(panelId: panelId)
+        }
+    }
+
+    /// A terminal click can arrive while AppKit and bonsplit already look converged, which takes
+    /// the re-entrant focus path and skips the normal explicit `ensureFocus` call. Re-assert focus
+    /// on the next couple of turns so stale callbacks from split churn can't leave keyboard input
+    /// attached to the wrong surface (#1147).
+    private func scheduleTerminalFirstResponderReassert(panelId: UUID, remainingPasses: Int = 2) {
+        guard remainingPasses > 0 else { return }
+        DispatchQueue.main.async { [weak self] in
+            guard let self,
+                  self.focusedPanelId == panelId,
+                  let terminalPanel = self.terminalPanel(for: panelId) else {
+                return
+            }
+
+            terminalPanel.hostedView.ensureFocus(for: self.id, surfaceId: panelId)
+            self.scheduleTerminalFirstResponderReassert(
+                panelId: panelId,
+                remainingPasses: remainingPasses - 1
+            )
         }
     }
 
@@ -3838,7 +3868,11 @@ extension Workspace: BonsplitDelegate {
 
     /// Apply the side-effects of selecting a tab (unfocus others, focus this panel, update state).
     /// bonsplit doesn't always emit didSelectTab for programmatic selection paths (e.g. createTab).
-    private func applyTabSelection(tabId: TabID, inPane pane: PaneID) {
+    private func applyTabSelection(
+        tabId: TabID,
+        inPane pane: PaneID,
+        reassertAppKitFocus: Bool = true
+    ) {
         pendingTabSelection = (tabId: tabId, pane: pane)
         guard !isApplyingTabSelection else { return }
         isApplyingTabSelection = true
@@ -3852,11 +3886,19 @@ extension Workspace: BonsplitDelegate {
             pendingTabSelection = nil
             iterations += 1
             if iterations > 8 { break }
-            applyTabSelectionNow(tabId: request.tabId, inPane: request.pane)
+            applyTabSelectionNow(
+                tabId: request.tabId,
+                inPane: request.pane,
+                reassertAppKitFocus: reassertAppKitFocus
+            )
         }
     }
 
-    private func applyTabSelectionNow(tabId: TabID, inPane pane: PaneID) {
+    private func applyTabSelectionNow(
+        tabId: TabID,
+        inPane pane: PaneID,
+        reassertAppKitFocus: Bool
+    ) {
         let previousFocusedPanelId = focusedPanelId
         if bonsplitController.allPaneIds.contains(pane) {
             if bonsplitController.focusedPaneId != pane {
@@ -3901,7 +3943,7 @@ extension Workspace: BonsplitDelegate {
             p.unfocus()
         }
 
-        panel.focus()
+        activatePanel(panel, reassertAppKitFocus: reassertAppKitFocus)
         let focusIntentAllowsBrowserOmnibarAutofocus =
             shouldTreatCurrentEventAsExplicitFocusIntent() ||
             TerminalController.socketCommandAllowsInAppFocusMutations()
@@ -3933,7 +3975,7 @@ extension Workspace: BonsplitDelegate {
 
         // Converge AppKit first responder with bonsplit's selected tab in the focused pane.
         // Without this, keyboard input can remain on a different terminal than the blue tab indicator.
-        if let terminalPanel = panel as? TerminalPanel {
+        if reassertAppKitFocus, let terminalPanel = panel as? TerminalPanel {
             terminalPanel.hostedView.ensureFocus(for: id, surfaceId: panelId)
         }
 
@@ -3953,6 +3995,28 @@ extension Workspace: BonsplitDelegate {
                 GhosttyNotificationKey.surfaceId: panelId
             ]
         )
+    }
+
+    private func activatePanel(
+        _ panel: any Panel,
+        reassertAppKitFocus: Bool
+    ) {
+        guard !reassertAppKitFocus else {
+            panel.focus()
+            return
+        }
+
+        // `GhosttyNSView.becomeFirstResponder -> onFocus -> focusPanel` is already inside
+        // AppKit's responder transition. Re-running `makeFirstResponder` here can recurse,
+        // but we still need to converge the selected panel's active/focus state and clear any
+        // stale sibling terminal activation so split-pane clicks recover cleanly.
+        if let terminalPanel = panel as? TerminalPanel {
+            terminalPanel.surface.setFocus(true)
+            terminalPanel.hostedView.setActive(true)
+            return
+        }
+
+        panel.focus()
     }
 
     private func beginNonFocusSplitFocusReassert(
