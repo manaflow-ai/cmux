@@ -33,9 +33,10 @@ fi
     if [[ -o interactive ]]; then
         # We overwrote GhosttyKit's injected ZDOTDIR, so manually load Ghostty's
         # zsh integration if available.
-        # Guard on GHOSTTY_ZSH_ZDOTDIR being set by Ghostty. When users configure
-        # shell-integration=none, Ghostty does not set this and we must skip.
-        if [[ "$_cmux_had_ghostty_zdotdir" == "1" && -n "${GHOSTTY_RESOURCES_DIR:-}" ]]; then
+        #
+        # We can't rely on GHOSTTY_ZSH_ZDOTDIR here because Ghostty's own zsh
+        # bootstrap unsets it before chaining into this cmux wrapper.
+        if [[ "${CMUX_LOAD_GHOSTTY_ZSH_INTEGRATION:-0}" == "1" && -n "${GHOSTTY_RESOURCES_DIR:-}" ]]; then
             builtin typeset _cmux_ghostty="$GHOSTTY_RESOURCES_DIR/shell-integration/zsh/ghostty-integration"
             [[ -r "$_cmux_ghostty" ]] && builtin source -- "$_cmux_ghostty"
         fi
