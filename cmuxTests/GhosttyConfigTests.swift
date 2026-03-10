@@ -164,6 +164,81 @@ final class GhosttyConfigTests: XCTestCase {
         XCTAssertEqual(rgb255(config.backgroundColor), RGB(red: 253, green: 246, blue: 227))
     }
 
+    func testDiscoverThemeNamesMergesDirectoriesAndDeduplicatesCaseInsensitively() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ghostty-discover-\(UUID().uuidString)")
+        let resourcesDir = root.appendingPathComponent("resources")
+        let bundleDir = root.appendingPathComponent("bundle")
+        let resourcesThemesDir = resourcesDir.appendingPathComponent("themes")
+        let bundleThemesDir = bundleDir.appendingPathComponent("ghostty/themes")
+        try FileManager.default.createDirectory(at: resourcesThemesDir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: bundleThemesDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        try "background = #111111\n".write(
+            to: resourcesThemesDir.appendingPathComponent("Nord"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "background = #222222\n".write(
+            to: bundleThemesDir.appendingPathComponent("nord"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "background = #333333\n".write(
+            to: bundleThemesDir.appendingPathComponent("Tokyo Night"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let themes = GhosttyConfig.discoverThemeNames(
+            environment: ["GHOSTTY_RESOURCES_DIR": resourcesDir.path],
+            bundleResourceURL: bundleDir
+        )
+
+        XCTAssertEqual(themes, ["Nord", "Tokyo Night"])
+    }
+
+    func testApplyThemeUpdatesExistingThemeLine() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ghostty-config-update-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let configPath = root.appendingPathComponent("config.ghostty")
+        try """
+        font-family = JetBrains Mono
+        theme = Old Theme
+        background = #000000
+        """.write(to: configPath, atomically: true, encoding: .utf8)
+
+        try GhosttyConfig.applyTheme(
+            "New Theme",
+            searchPaths: [configPath.path]
+        )
+
+        let contents = try String(contentsOf: configPath, encoding: .utf8)
+        XCTAssertTrue(contents.contains("theme = New Theme"))
+        XCTAssertFalse(contents.contains("theme = Old Theme"))
+    }
+
+    func testApplyThemeCreatesConfigWhenMissing() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ghostty-config-create-\(UUID().uuidString)")
+        let fileManager = FileManager.default
+        defer { try? fileManager.removeItem(at: root) }
+
+        let configPath = root.appendingPathComponent("nested/config.ghostty")
+        let writtenPath = try GhosttyConfig.applyTheme(
+            "Solarized Dark",
+            searchPaths: [configPath.path]
+        )
+
+        XCTAssertEqual(writtenPath, configPath.path)
+        let contents = try String(contentsOf: configPath, encoding: .utf8)
+        XCTAssertEqual(contents, "theme = Solarized Dark\n")
+    }
+
     func testLoadCachesPerColorScheme() {
         GhosttyConfig.invalidateLoadCache()
         defer { GhosttyConfig.invalidateLoadCache() }

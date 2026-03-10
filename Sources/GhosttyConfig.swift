@@ -409,6 +409,175 @@ struct GhosttyConfig {
         return paths
     }
 
+    static func themeSearchDirectories(
+        environment: [String: String],
+        bundleResourceURL: URL?
+    ) -> [String] {
+        var paths: [String] = []
+
+        func appendUniquePath(_ path: String?) {
+            guard let path else { return }
+            let expanded = NSString(string: path).expandingTildeInPath
+            guard !expanded.isEmpty else { return }
+            if !paths.contains(expanded) {
+                paths.append(expanded)
+            }
+        }
+
+        func appendThemeDirectory(in resourcesRoot: String?) {
+            guard let resourcesRoot else { return }
+            let expanded = NSString(string: resourcesRoot).expandingTildeInPath
+            guard !expanded.isEmpty else { return }
+            appendUniquePath(
+                URL(fileURLWithPath: expanded)
+                    .appendingPathComponent("themes", isDirectory: true)
+                    .path
+            )
+        }
+
+        appendThemeDirectory(in: environment["GHOSTTY_RESOURCES_DIR"])
+        appendUniquePath(
+            bundleResourceURL?
+                .appendingPathComponent("ghostty/themes", isDirectory: true)
+                .path
+        )
+
+        if let xdgDataDirs = environment["XDG_DATA_DIRS"] {
+            for dataDir in xdgDataDirs.split(separator: ":").map(String.init) {
+                guard !dataDir.isEmpty else { continue }
+                appendUniquePath(
+                    URL(fileURLWithPath: dataDir)
+                        .appendingPathComponent("ghostty/themes", isDirectory: true)
+                        .path
+                )
+            }
+        }
+
+        appendUniquePath("/Applications/Ghostty.app/Contents/Resources/ghostty/themes")
+        appendUniquePath("~/.config/ghostty/themes")
+        appendUniquePath("~/Library/Application Support/com.mitchellh.ghostty/themes")
+
+        return paths
+    }
+
+    static func discoverThemeNames(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        bundleResourceURL: URL? = Bundle.main.resourceURL,
+        fileManager: FileManager = .default
+    ) -> [String] {
+        var discovered: [String] = []
+        var seen: Set<String> = []
+
+        for directory in themeSearchDirectories(
+            environment: environment,
+            bundleResourceURL: bundleResourceURL
+        ) {
+            guard let children = try? fileManager.contentsOfDirectory(
+                at: URL(fileURLWithPath: directory, isDirectory: true),
+                includingPropertiesForKeys: [.isRegularFileKey, .isDirectoryKey],
+                options: [.skipsHiddenFiles]
+            ) else {
+                continue
+            }
+
+            for child in children {
+                let values = try? child.resourceValues(forKeys: [.isRegularFileKey, .isDirectoryKey])
+                guard values?.isRegularFile == true || values?.isDirectory == false else { continue }
+                let name = child.lastPathComponent.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !name.isEmpty else { continue }
+                let normalized = name
+                    .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
+                    .lowercased()
+                guard seen.insert(normalized).inserted else { continue }
+                discovered.append(name)
+            }
+        }
+
+        return discovered.sorted {
+            $0.localizedCaseInsensitiveCompare($1) == .orderedAscending
+        }
+    }
+
+    static func configSearchPaths() -> [String] {
+        [
+            "~/.config/ghostty/config.ghostty",
+            "~/.config/ghostty/config",
+            "~/Library/Application Support/com.mitchellh.ghostty/config.ghostty",
+            "~/Library/Application Support/com.mitchellh.ghostty/config",
+        ].map { NSString(string: $0).expandingTildeInPath }
+    }
+
+    static func writableConfigPath(
+        fileManager: FileManager = .default,
+        searchPaths: [String]? = nil
+    ) -> String {
+        let resolvedSearchPaths = searchPaths ?? configSearchPaths()
+        for path in resolvedSearchPaths where fileManager.fileExists(atPath: path) {
+            return path
+        }
+        return resolvedSearchPaths.first ?? NSString(string: "~/.config/ghostty/config.ghostty").expandingTildeInPath
+    }
+
+    @discardableResult
+    static func upsertConfigValue(
+        key: String,
+        value: String,
+        fileManager: FileManager = .default,
+        searchPaths: [String]? = nil
+    ) throws -> String {
+        let path = writableConfigPath(fileManager: fileManager, searchPaths: searchPaths)
+        let url = URL(fileURLWithPath: path)
+        try fileManager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+
+        let existing = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+        var lines = existing.isEmpty ? [] : existing.components(separatedBy: .newlines)
+        if lines.last == "" {
+            lines.removeLast()
+        }
+
+        var replaced = false
+        for index in lines.indices {
+            let line = lines[index]
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard !trimmed.isEmpty, !trimmed.hasPrefix("#") else { continue }
+
+            let parts = trimmed.split(separator: "=", maxSplits: 1)
+            guard let rawKey = parts.first?.trimmingCharacters(in: .whitespaces),
+                  rawKey == key else {
+                continue
+            }
+
+            let indentation = String(line.prefix { $0 == " " || $0 == "\t" })
+            lines[index] = "\(indentation)\(key) = \(value)"
+            replaced = true
+            break
+        }
+
+        if !replaced {
+            if !lines.isEmpty, !(lines.last?.isEmpty ?? true) {
+                lines.append("")
+            }
+            lines.append("\(key) = \(value)")
+        }
+
+        try (lines.joined(separator: "\n") + "\n").write(to: url, atomically: true, encoding: .utf8)
+        return path
+    }
+
+    @discardableResult
+    static func applyTheme(
+        _ themeName: String,
+        fileManager: FileManager = .default,
+        searchPaths: [String]? = nil
+    ) throws -> String {
+        try upsertConfigValue(
+            key: "theme",
+            value: themeName,
+            fileManager: fileManager,
+            searchPaths: searchPaths
+        )
+    }
+
     private static func readConfigFile(at path: String) -> String? {
         let fileManager = FileManager.default
         guard fileManager.fileExists(atPath: path) else { return nil }

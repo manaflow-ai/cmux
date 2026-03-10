@@ -1332,6 +1332,7 @@ struct ContentView: View {
     @State private var commandPalettePendingActivation: CommandPalettePendingActivation?
     @State private var commandPaletteResultsRevision: UInt64 = 0
     @State private var commandPaletteUsageHistoryByCommandId: [String: CommandPaletteUsageEntry] = [:]
+    @State private var commandPaletteCommandSubmenu: CommandPaletteCommandSubmenu?
     @State private var isFeedbackComposerPresented = false
     @AppStorage(CommandPaletteRenameSelectionSettings.selectAllOnFocusKey)
     private var commandPaletteRenameSelectAllOnFocus = CommandPaletteRenameSelectionSettings.defaultSelectAllOnFocus
@@ -1339,6 +1340,10 @@ struct ContentView: View {
     private var openSidebarPullRequestLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenSidebarPullRequestLinksInCmuxBrowser
     @FocusState private var isCommandPaletteSearchFocused: Bool
     @FocusState private var isCommandPaletteRenameFocused: Bool
+
+    private enum CommandPaletteCommandSubmenu {
+        case ghosttyThemes
+    }
 
     private enum CommandPaletteMode {
         case commands
@@ -3247,6 +3252,9 @@ struct ContentView: View {
     private var commandPaletteSearchPlaceholder: String {
         switch commandPaletteListScope {
         case .commands:
+            if commandPaletteCommandSubmenu == .ghosttyThemes {
+                return String(localized: "commandPalette.search.ghosttyThemesPlaceholder", defaultValue: "Search Ghostty themes")
+            }
             return String(localized: "commandPalette.search.commandsPlaceholder", defaultValue: "Type a command")
         case .switcher:
             return String(localized: "commandPalette.search.switcherPlaceholder", defaultValue: "Search workspaces")
@@ -3256,6 +3264,9 @@ struct ContentView: View {
     private var commandPaletteEmptyStateText: String {
         switch commandPaletteListScope {
         case .commands:
+            if commandPaletteCommandSubmenu == .ghosttyThemes {
+                return String(localized: "commandPalette.search.ghosttyThemesEmpty", defaultValue: "No Ghostty themes match your search.")
+            }
             return String(localized: "commandPalette.search.commandsEmpty", defaultValue: "No commands match your search.")
         case .switcher:
             return String(localized: "commandPalette.search.switcherEmpty", defaultValue: "No workspaces match your search.")
@@ -3837,6 +3848,10 @@ struct ContentView: View {
     }
 
     private func commandPaletteCommands() -> [CommandPaletteCommand] {
+        if commandPaletteCommandSubmenu == .ghosttyThemes {
+            return commandPaletteGhosttyThemeCommands()
+        }
+
         let context = commandPaletteContextSnapshot()
         let contributions = commandPaletteCommandContributions()
         var handlerRegistry = CommandPaletteHandlerRegistry()
@@ -3868,6 +3883,81 @@ struct ContentView: View {
         }
 
         return commands
+    }
+
+    private func commandPaletteGhosttyThemeCommands() -> [CommandPaletteCommand] {
+        let currentTheme = GhosttyConfig.load(useCache: false).theme?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let themes = GhosttyConfig.discoverThemeNames()
+        var commands: [CommandPaletteCommand] = []
+        commands.reserveCapacity(themes.count + 1)
+
+        commands.append(
+            CommandPaletteCommand(
+                id: "palette.ghosttyTheme.back",
+                rank: 0,
+                title: String(localized: "command.ghosttyTheme.back.title", defaultValue: "Back"),
+                subtitle: String(localized: "command.ghosttyTheme.back.subtitle", defaultValue: "Ghostty Themes"),
+                shortcutHint: nil,
+                keywords: ["back", "theme", "ghostty"],
+                dismissOnRun: false,
+                action: { exitCommandPaletteGhosttyThemeMenu() }
+            )
+        )
+
+        for (index, themeName) in themes.enumerated() {
+            let isCurrentTheme = currentTheme?.localizedCaseInsensitiveCompare(themeName) == .orderedSame
+            commands.append(
+                CommandPaletteCommand(
+                    id: "palette.ghosttyTheme.\(themeName.lowercased())",
+                    rank: index + 1,
+                    title: isCurrentTheme
+                        ? String(localized: "command.ghosttyTheme.current.title", defaultValue: "\(themeName) ✓")
+                        : themeName,
+                    subtitle: String(localized: "command.ghosttyTheme.subtitle", defaultValue: "Ghostty Theme"),
+                    shortcutHint: nil,
+                    keywords: ["theme", "ghostty", "appearance", themeName],
+                    dismissOnRun: true,
+                    action: { applyGhosttyThemeFromPalette(themeName) }
+                )
+            )
+        }
+
+        return commands
+    }
+
+    private func enterCommandPaletteGhosttyThemeMenu() {
+        commandPaletteCommandSubmenu = .ghosttyThemes
+        commandPaletteQuery = Self.commandPaletteCommandsPrefix
+        commandPaletteSelectedResultIndex = 0
+        commandPaletteSelectionAnchorCommandID = nil
+        scheduleCommandPaletteResultsRefresh(forceSearchCorpusRefresh: true)
+        resetCommandPaletteSearchFocus()
+        syncCommandPaletteDebugStateForObservedWindow()
+    }
+
+    private func exitCommandPaletteGhosttyThemeMenu() {
+        commandPaletteCommandSubmenu = nil
+        commandPaletteQuery = Self.commandPaletteCommandsPrefix
+        commandPaletteSelectedResultIndex = 0
+        commandPaletteSelectionAnchorCommandID = nil
+        scheduleCommandPaletteResultsRefresh(forceSearchCorpusRefresh: true)
+        resetCommandPaletteSearchFocus()
+        syncCommandPaletteDebugStateForObservedWindow()
+    }
+
+    private func applyGhosttyThemeFromPalette(_ themeName: String) {
+        do {
+            try GhosttyConfig.applyTheme(themeName)
+            GhosttyConfig.invalidateLoadCache()
+            GhosttyApp.shared.reloadConfiguration(source: "commandPalette.ghosttyTheme")
+        } catch {
+            NSSound.beep()
+            NSLog(
+                "commandPalette.ghosttyTheme.apply failed theme=%@ error=%@",
+                themeName,
+                error.localizedDescription
+            )
+        }
     }
 
     private func commandPaletteShortcutHint(
@@ -4357,6 +4447,15 @@ struct ContentView: View {
 
         contributions.append(
             CommandPaletteCommandContribution(
+                commandId: "palette.ghosttyThemeMenu",
+                title: constant(String(localized: "command.ghosttyThemeMenu.title", defaultValue: "Ghostty Theme…")),
+                subtitle: constant(String(localized: "command.ghosttyThemeMenu.subtitle", defaultValue: "Appearance")),
+                keywords: ["theme", "ghostty", "appearance", "color", "terminal"],
+                dismissOnRun: false
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
                 commandId: "palette.openWorkspacePullRequests",
                 title: constant(String(localized: "command.openWorkspacePRLinks.title", defaultValue: "Open All Workspace PR Links")),
                 subtitle: workspaceSubtitle,
@@ -4647,6 +4746,9 @@ struct ContentView: View {
     }
 
     private func registerCommandPaletteHandlers(_ registry: inout CommandPaletteHandlerRegistry) {
+        registry.register(commandId: "palette.ghosttyThemeMenu") {
+            enterCommandPaletteGhosttyThemeMenu()
+        }
         registry.register(commandId: "palette.newWorkspace") {
             tabManager.addWorkspace()
         }
@@ -5403,6 +5505,7 @@ struct ContentView: View {
 
     private func resetCommandPaletteListState(initialQuery: String) {
         commandPaletteMode = .commands
+        commandPaletteCommandSubmenu = nil
         commandPaletteQuery = initialQuery
         commandPaletteRenameDraft = ""
         commandPaletteSelectedResultIndex = 0
@@ -5428,6 +5531,7 @@ struct ContentView: View {
         commandPaletteSearchRequestID &+= 1
         isCommandPalettePresented = false
         commandPaletteMode = .commands
+        commandPaletteCommandSubmenu = nil
         commandPaletteQuery = ""
         commandPaletteRenameDraft = ""
         commandPaletteSelectedResultIndex = 0
