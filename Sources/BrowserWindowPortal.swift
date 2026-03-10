@@ -2856,6 +2856,19 @@ final class WindowBrowserPortal: NSObject {
     }
 #endif
 
+    func debugSnapshot(forWebViewId webViewId: ObjectIdentifier) -> BrowserWindowPortalRegistry.DebugSnapshot? {
+        guard let entry = entriesByWebViewId[webViewId] else { return nil }
+        let frameInWindow: CGRect = {
+            guard let container = entry.containerView, container.window != nil else { return .zero }
+            return container.convert(container.bounds, to: nil)
+        }()
+        return BrowserWindowPortalRegistry.DebugSnapshot(
+            visibleInUI: entry.visibleInUI,
+            containerHidden: entry.containerView?.isHidden ?? true,
+            frameInWindow: frameInWindow
+        )
+    }
+
     func webViewAtWindowPoint(_ windowPoint: NSPoint) -> WKWebView? {
         guard ensureInstalled() else { return nil }
         let point = hostView.convert(windowPoint, from: nil)
@@ -2875,6 +2888,12 @@ final class WindowBrowserPortal: NSObject {
 
 @MainActor
 enum BrowserWindowPortalRegistry {
+    struct DebugSnapshot {
+        let visibleInUI: Bool
+        let containerHidden: Bool
+        let frameInWindow: CGRect
+    }
+
     private static var portalsByWindowId: [ObjectIdentifier: WindowBrowserPortal] = [:]
     private static var webViewToWindowId: [ObjectIdentifier: ObjectIdentifier] = [:]
 
@@ -3036,6 +3055,13 @@ enum BrowserWindowPortalRegistry {
         guard let windowId = webViewToWindowId[webViewId],
               let portal = portalsByWindowId[windowId] else { return }
         portal.forceRefreshWebView(withId: webViewId, reason: reason)
+    }
+
+    static func debugSnapshot(for webView: WKWebView) -> DebugSnapshot? {
+        let webViewId = ObjectIdentifier(webView)
+        guard let windowId = webViewToWindowId[webViewId],
+              let portal = portalsByWindowId[windowId] else { return nil }
+        return portal.debugSnapshot(forWebViewId: webViewId)
     }
 
 #if DEBUG

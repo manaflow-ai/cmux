@@ -602,7 +602,23 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         browserPane.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).click()
 
         app.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [.command, .shift])
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 8.0) { data in
+                data["splitZoomedAfterToggle"] == "true" &&
+                    data["otherTerminalHostHiddenAfterToggle"] == "true" &&
+                    data["otherTerminalVisibleFlagAfterToggle"] == "false"
+            },
+            "Expected Cmd+Shift+Enter zoom-in to hide the non-browser terminal portal. data=\(loadData() ?? [:])"
+        )
         app.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [.command, .shift])
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 8.0) { data in
+                data["splitZoomedAfterToggle"] == "false" &&
+                    data["otherTerminalHostHiddenAfterToggle"] == "false" &&
+                    data["otherTerminalVisibleFlagAfterToggle"] == "true"
+            },
+            "Expected Cmd+Shift+Enter zoom-out to restore the non-browser terminal portal. data=\(loadData() ?? [:])"
+        )
 
         XCTAssertTrue(omnibar.waitForExistence(timeout: 6.0), "Expected browser omnibar text field after Cmd+Shift+Enter zoom round-trip")
         XCTAssertTrue(pill.waitForExistence(timeout: 6.0), "Expected browser omnibar pill after Cmd+Shift+Enter zoom round-trip")
@@ -626,6 +642,59 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         XCTAssertTrue(
             waitForOmnibarToContain(omnibar, value: "issue1144", timeout: 4.0),
             "Expected browser omnibar to stay editable after Cmd+Shift+Enter. value=\(String(describing: omnibar.value))"
+        )
+    }
+
+    func testCmdShiftEnterHidesBrowserPortalWhenTerminalPaneZooms() {
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
+        app.launchEnvironment["CMUX_UI_TEST_FOCUS_SHORTCUTS"] = "1"
+        launchAndEnsureForeground(app)
+
+        XCTAssertTrue(
+            waitForData(keys: ["terminalPaneId", "browserPanelId", "webViewFocused"], timeout: 10.0),
+            "Expected goto_split setup data to be written"
+        )
+
+        guard let setup = loadData() else {
+            XCTFail("Missing goto_split setup data")
+            return
+        }
+
+        guard let expectedTerminalPaneId = setup["terminalPaneId"] else {
+            XCTFail("Missing terminalPaneId in goto_split setup data")
+            return
+        }
+
+        app.typeKey("h", modifierFlags: [.command, .control])
+
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 5.0) { data in
+                data["focusedPaneId"] == expectedTerminalPaneId && data["focusedPanelKind"] == "terminal"
+            },
+            "Expected Cmd+Ctrl+H to focus the terminal pane before zoom. data=\(loadData() ?? [:])"
+        )
+
+        app.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [.command, .shift])
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 8.0) { data in
+                data["splitZoomedAfterToggle"] == "true" &&
+                    data["browserContainerHiddenAfterToggle"] == "true" &&
+                    data["browserVisibleFlagAfterToggle"] == "false"
+            },
+            "Expected Cmd+Shift+Enter zoom-in on the terminal pane to hide the browser portal. data=\(loadData() ?? [:])"
+        )
+
+        app.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [.command, .shift])
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 8.0) { data in
+                data["splitZoomedAfterToggle"] == "false" &&
+                    data["browserContainerHiddenAfterToggle"] == "false" &&
+                    data["browserVisibleFlagAfterToggle"] == "true"
+            },
+            "Expected Cmd+Shift+Enter zoom-out from the terminal pane to restore the browser portal. data=\(loadData() ?? [:])"
         )
     }
 

@@ -6241,6 +6241,80 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         writeGotoSplitTestData(updates)
     }
 
+    private func recordGotoSplitZoomIfNeeded() {
+        guard isGotoSplitUITestRecordingEnabled() else { return }
+        recordGotoSplitZoomRetry(attempt: 0)
+    }
+
+    private func recordGotoSplitZoomRetry(attempt: Int) {
+        let delays: [Double] = [0.05, 0.1, 0.2, 0.35, 0.5]
+        let delay = attempt < delays.count ? delays[attempt] : delays.last!
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            guard let self,
+                  let workspace = self.tabManager?.selectedWorkspace else { return }
+
+            let browserPanel = workspace.panels.values.compactMap { $0 as? BrowserPanel }.first
+            let otherTerminal = workspace.panels.values.compactMap { $0 as? TerminalPanel }.first
+            let browserSnapshot = browserPanel.flatMap {
+                BrowserWindowPortalRegistry.debugSnapshot(for: $0.webView)
+            }
+
+            var updates = self.gotoSplitFindStateSnapshot(for: workspace)
+            updates["splitZoomedAfterToggle"] = workspace.bonsplitController.isSplitZoomed ? "true" : "false"
+            updates["zoomedPaneIdAfterToggle"] = workspace.bonsplitController.zoomedPaneId?.description ?? ""
+            updates["browserPanelIdAfterToggle"] = browserPanel?.id.uuidString ?? ""
+            updates["browserContainerHiddenAfterToggle"] = browserSnapshot.map { $0.containerHidden ? "true" : "false" } ?? ""
+            updates["browserVisibleFlagAfterToggle"] = browserSnapshot.map { $0.visibleInUI ? "true" : "false" } ?? ""
+            updates["browserFrameAfterToggle"] = browserSnapshot.map {
+                String(
+                    format: "%.1f,%.1f %.1fx%.1f",
+                    $0.frameInWindow.origin.x,
+                    $0.frameInWindow.origin.y,
+                    $0.frameInWindow.size.width,
+                    $0.frameInWindow.size.height
+                )
+            } ?? ""
+            updates["otherTerminalPanelIdAfterToggle"] = otherTerminal?.id.uuidString ?? ""
+            updates["otherTerminalHostHiddenAfterToggle"] = otherTerminal.map { $0.hostedView.isHidden ? "true" : "false" } ?? ""
+            updates["otherTerminalVisibleFlagAfterToggle"] = otherTerminal.map { $0.hostedView.debugPortalVisibleInUI ? "true" : "false" } ?? ""
+            updates["otherTerminalFrameAfterToggle"] = otherTerminal.map {
+                let frame = $0.hostedView.debugPortalFrameInWindow
+                return String(
+                    format: "%.1f,%.1f %.1fx%.1f",
+                    frame.origin.x,
+                    frame.origin.y,
+                    frame.size.width,
+                    frame.size.height
+                )
+            } ?? ""
+
+            let settled: Bool = {
+                if workspace.bonsplitController.isSplitZoomed {
+                    if let focusedPanelId = workspace.focusedPanelId,
+                       workspace.terminalPanel(for: focusedPanelId) != nil {
+                        guard let browserSnapshot else { return false }
+                        return browserSnapshot.containerHidden && !browserSnapshot.visibleInUI
+                    }
+                    guard let otherTerminal else { return true }
+                    return otherTerminal.hostedView.isHidden && !otherTerminal.hostedView.debugPortalVisibleInUI
+                }
+                let browserRestored = browserSnapshot.map { !$0.containerHidden && $0.visibleInUI } ?? true
+                let terminalRestored = otherTerminal.map {
+                    !$0.hostedView.isHidden && $0.hostedView.debugPortalVisibleInUI
+                } ?? true
+                return browserRestored && terminalRestored
+            }()
+
+            if !settled && attempt < delays.count - 1 {
+                self.recordGotoSplitZoomRetry(attempt: attempt + 1)
+                return
+            }
+
+            self.writeGotoSplitTestData(updates)
+        }
+    }
+
     private func writeGotoSplitTestData(_ updates: [String: String]) {
         guard let path = gotoSplitUITestDataPath() else { return }
         var payload = loadGotoSplitTestData(at: path)
@@ -7544,6 +7618,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .toggleSplitZoom)) {
             _ = tabManager?.toggleFocusedSplitZoom()
+#if DEBUG
+            recordGotoSplitZoomIfNeeded()
+#endif
             return true
         }
 
