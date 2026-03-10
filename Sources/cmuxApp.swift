@@ -2851,6 +2851,7 @@ struct SettingsView: View {
     @AppStorage(BrowserLinkOpenSettings.interceptTerminalOpenCommandInCmuxBrowserKey)
     private var interceptTerminalOpenCommandInCmuxBrowser = BrowserLinkOpenSettings.initialInterceptTerminalOpenCommandInCmuxBrowserValue()
     @AppStorage(BrowserLinkOpenSettings.browserHostWhitelistKey) private var browserHostWhitelist = BrowserLinkOpenSettings.defaultBrowserHostWhitelist
+    @AppStorage(BrowserLinkOpenSettings.browserHostListModeKey) private var browserHostListMode = BrowserLinkOpenSettings.defaultBrowserHostListMode
     @AppStorage(BrowserLinkOpenSettings.browserExternalOpenPatternsKey)
     private var browserExternalOpenPatterns = BrowserLinkOpenSettings.defaultBrowserExternalOpenPatterns
     @AppStorage(BrowserInsecureHTTPSettings.allowlistKey) private var browserInsecureHTTPAllowlist = BrowserInsecureHTTPSettings.defaultAllowlistText
@@ -3777,10 +3778,31 @@ struct SettingsView: View {
                         if openTerminalLinksInCmuxBrowser || interceptTerminalOpenCommandInCmuxBrowser {
                             SettingsCardDivider()
 
+                            SettingsCardRow(
+                                String(localized: "settings.browser.hostListMode", defaultValue: "Host List Mode"),
+                                subtitle: String(localized: "settings.browser.hostListMode.subtitle", defaultValue: "Whitelist: only listed hosts open in cmux. Blacklist: listed hosts always open in your default browser.")
+                            ) {
+                                Picker("", selection: $browserHostListMode) {
+                                    Text(String(localized: "settings.browser.hostListMode.whitelist", defaultValue: "Whitelist"))
+                                        .tag(BrowserLinkOpenSettings.HostListMode.whitelist.rawValue)
+                                    Text(String(localized: "settings.browser.hostListMode.blacklist", defaultValue: "Blacklist"))
+                                        .tag(BrowserLinkOpenSettings.HostListMode.blacklist.rawValue)
+                                }
+                                .labelsHidden()
+                                .pickerStyle(.segmented)
+                                .frame(width: 180)
+                            }
+
+                            SettingsCardDivider()
+
                             VStack(alignment: .leading, spacing: 6) {
                                 SettingsCardRow(
-                                    String(localized: "settings.browser.hostWhitelist", defaultValue: "Hosts to Open in Embedded Browser"),
-                                    subtitle: String(localized: "settings.browser.hostWhitelist.subtitle", defaultValue: "Applies to terminal link clicks and intercepted `open https://...` calls. Only these hosts open in cmux. Others open in your default browser. One host or wildcard per line (for example: example.com, *.internal.example). Leave empty to open all hosts in cmux.")
+                                    browserHostListMode == BrowserLinkOpenSettings.HostListMode.blacklist.rawValue
+                                        ? String(localized: "settings.browser.hostBlacklist", defaultValue: "Hosts to Block from Embedded Browser")
+                                        : String(localized: "settings.browser.hostWhitelist", defaultValue: "Hosts to Open in Embedded Browser"),
+                                    subtitle: browserHostListMode == BrowserLinkOpenSettings.HostListMode.blacklist.rawValue
+                                        ? String(localized: "settings.browser.hostBlacklist.subtitle", defaultValue: "Applies to terminal link clicks and intercepted `open https://...` calls. These hosts always open in your default browser. All other hosts open in cmux. One host or wildcard per line (for example: example.com, *.internal.example). Leave empty to open all hosts in cmux.")
+                                        : String(localized: "settings.browser.hostWhitelist.subtitle", defaultValue: "Applies to terminal link clicks and intercepted `open https://...` calls. Only these hosts open in cmux. Others open in your default browser. One host or wildcard per line (for example: example.com, *.internal.example). Leave empty to open all hosts in cmux.")
                                 ) {
                                     EmptyView()
                                 }
@@ -4146,6 +4168,7 @@ struct SettingsView: View {
         openTerminalLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenTerminalLinksInCmuxBrowser
         interceptTerminalOpenCommandInCmuxBrowser = BrowserLinkOpenSettings.defaultInterceptTerminalOpenCommandInCmuxBrowser
         browserHostWhitelist = BrowserLinkOpenSettings.defaultBrowserHostWhitelist
+        browserHostListMode = BrowserLinkOpenSettings.defaultBrowserHostListMode
         browserExternalOpenPatterns = BrowserLinkOpenSettings.defaultBrowserExternalOpenPatterns
         browserInsecureHTTPAllowlist = BrowserInsecureHTTPSettings.defaultAllowlistText
         browserInsecureHTTPAllowlistDraft = BrowserInsecureHTTPSettings.defaultAllowlistText

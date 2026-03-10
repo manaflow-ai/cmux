@@ -11925,6 +11925,103 @@ final class BrowserHostWhitelistTests: XCTestCase {
     }
 }
 
+// MARK: - Blacklist mode tests
+
+final class BrowserHostListModeTests: XCTestCase {
+    private var suiteName: String!
+    private var defaults: UserDefaults!
+
+    override func setUp() {
+        super.setUp()
+        suiteName = "BrowserHostListModeTests.\(UUID().uuidString)"
+        defaults = UserDefaults(suiteName: suiteName)
+        defaults.removePersistentDomain(forName: suiteName)
+    }
+
+    override func tearDown() {
+        defaults.removePersistentDomain(forName: suiteName)
+        defaults = nil
+        suiteName = nil
+        super.tearDown()
+    }
+
+    func testDefaultModeIsWhitelist() {
+        XCTAssertEqual(BrowserLinkOpenSettings.hostListMode(defaults: defaults), .whitelist)
+    }
+
+    func testBlacklistModeIsReadFromDefaults() {
+        defaults.set("blacklist", forKey: BrowserLinkOpenSettings.browserHostListModeKey)
+        XCTAssertEqual(BrowserLinkOpenSettings.hostListMode(defaults: defaults), .blacklist)
+    }
+
+    func testInvalidModeStringFallsBackToWhitelist() {
+        defaults.set("invalid", forKey: BrowserLinkOpenSettings.browserHostListModeKey)
+        XCTAssertEqual(BrowserLinkOpenSettings.hostListMode(defaults: defaults), .whitelist)
+    }
+
+    // MARK: - shouldOpenInCmuxBrowser: whitelist mode
+
+    func testWhitelistModeEmptyListAllowsAll() {
+        XCTAssertTrue(BrowserLinkOpenSettings.shouldOpenInCmuxBrowser(host: "example.com", defaults: defaults))
+        XCTAssertTrue(BrowserLinkOpenSettings.shouldOpenInCmuxBrowser(host: "localhost", defaults: defaults))
+    }
+
+    func testWhitelistModeMatchOpensInCmux() {
+        defaults.set("localhost\n127.0.0.1", forKey: BrowserLinkOpenSettings.browserHostWhitelistKey)
+        XCTAssertTrue(BrowserLinkOpenSettings.shouldOpenInCmuxBrowser(host: "localhost", defaults: defaults))
+        XCTAssertTrue(BrowserLinkOpenSettings.shouldOpenInCmuxBrowser(host: "127.0.0.1", defaults: defaults))
+    }
+
+    func testWhitelistModeMissOpensExternally() {
+        defaults.set("localhost", forKey: BrowserLinkOpenSettings.browserHostWhitelistKey)
+        XCTAssertFalse(BrowserLinkOpenSettings.shouldOpenInCmuxBrowser(host: "example.com", defaults: defaults))
+    }
+
+    // MARK: - shouldOpenInCmuxBrowser: blacklist mode
+
+    func testBlacklistModeEmptyListAllowsAll() {
+        defaults.set("blacklist", forKey: BrowserLinkOpenSettings.browserHostListModeKey)
+        XCTAssertTrue(BrowserLinkOpenSettings.shouldOpenInCmuxBrowser(host: "example.com", defaults: defaults))
+        XCTAssertTrue(BrowserLinkOpenSettings.shouldOpenInCmuxBrowser(host: "localhost", defaults: defaults))
+    }
+
+    func testBlacklistModeMatchOpensExternally() {
+        defaults.set("blacklist", forKey: BrowserLinkOpenSettings.browserHostListModeKey)
+        defaults.set("ads.example.com\ntracker.net", forKey: BrowserLinkOpenSettings.browserHostWhitelistKey)
+        XCTAssertFalse(BrowserLinkOpenSettings.shouldOpenInCmuxBrowser(host: "ads.example.com", defaults: defaults))
+        XCTAssertFalse(BrowserLinkOpenSettings.shouldOpenInCmuxBrowser(host: "tracker.net", defaults: defaults))
+    }
+
+    func testBlacklistModeMissOpensInCmux() {
+        defaults.set("blacklist", forKey: BrowserLinkOpenSettings.browserHostListModeKey)
+        defaults.set("ads.example.com", forKey: BrowserLinkOpenSettings.browserHostWhitelistKey)
+        XCTAssertTrue(BrowserLinkOpenSettings.shouldOpenInCmuxBrowser(host: "example.com", defaults: defaults))
+        XCTAssertTrue(BrowserLinkOpenSettings.shouldOpenInCmuxBrowser(host: "github.com", defaults: defaults))
+    }
+
+    func testBlacklistModeWildcard() {
+        defaults.set("blacklist", forKey: BrowserLinkOpenSettings.browserHostListModeKey)
+        defaults.set("*.blocked.com", forKey: BrowserLinkOpenSettings.browserHostWhitelistKey)
+        XCTAssertFalse(BrowserLinkOpenSettings.shouldOpenInCmuxBrowser(host: "blocked.com", defaults: defaults))
+        XCTAssertFalse(BrowserLinkOpenSettings.shouldOpenInCmuxBrowser(host: "sub.blocked.com", defaults: defaults))
+        XCTAssertTrue(BrowserLinkOpenSettings.shouldOpenInCmuxBrowser(host: "allowed.com", defaults: defaults))
+    }
+
+    func testBlacklistModeCaseInsensitive() {
+        defaults.set("blacklist", forKey: BrowserLinkOpenSettings.browserHostListModeKey)
+        defaults.set("Blocked.COM", forKey: BrowserLinkOpenSettings.browserHostWhitelistKey)
+        XCTAssertFalse(BrowserLinkOpenSettings.shouldOpenInCmuxBrowser(host: "blocked.com", defaults: defaults))
+        XCTAssertFalse(BrowserLinkOpenSettings.shouldOpenInCmuxBrowser(host: "BLOCKED.COM", defaults: defaults))
+    }
+
+    func testBlacklistModeWildcardRequiresDotBoundary() {
+        defaults.set("blacklist", forKey: BrowserLinkOpenSettings.browserHostListModeKey)
+        defaults.set("*.example.com", forKey: BrowserLinkOpenSettings.browserHostWhitelistKey)
+        XCTAssertFalse(BrowserLinkOpenSettings.shouldOpenInCmuxBrowser(host: "sub.example.com", defaults: defaults))
+        XCTAssertTrue(BrowserLinkOpenSettings.shouldOpenInCmuxBrowser(host: "badexample.com", defaults: defaults))
+    }
+}
+
 final class TerminalControllerSidebarDedupeTests: XCTestCase {
     func testShouldReplaceStatusEntryReturnsFalseForUnchangedPayload() {
         let current = SidebarStatusEntry(

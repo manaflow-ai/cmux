@@ -24,7 +24,11 @@ def make_executable(path: Path, content: str) -> None:
 def read_log(path: Path) -> list[str]:
     if not path.exists():
         return []
-    return [line.strip() for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    return [
+        line.strip()
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
 
 
 def run_wrapper(
@@ -33,6 +37,7 @@ def run_wrapper(
     intercept_setting: str | None,
     legacy_open_setting: str | None = None,
     whitelist: str | None,
+    host_list_mode: str | None = None,
     external_patterns: str | None = None,
     fail_urls: list[str] | None = None,
     local_files: list[str] | None = None,
@@ -95,6 +100,13 @@ case "$key" in
     fi
     exit 1
     ;;
+  browserHostListMode)
+    if [[ "${FAKE_DEFAULTS_HOST_LIST_MODE+x}" == "x" ]]; then
+      printf '%s' "$FAKE_DEFAULTS_HOST_LIST_MODE"
+      exit 0
+    fi
+    exit 1
+    ;;
   *)
     exit 1
     ;;
@@ -127,7 +139,9 @@ exit 0
             for relative_path in local_files:
                 target = tmp / relative_path
                 target.parent.mkdir(parents=True, exist_ok=True)
-                target.write_text("<!doctype html><title>fixture</title>", encoding="utf-8")
+                target.write_text(
+                    "<!doctype html><title>fixture</title>", encoding="utf-8"
+                )
 
         env = os.environ.copy()
         env["CMUX_SOCKET_PATH"] = "/tmp/cmux-open-wrapper-test.sock"
@@ -161,6 +175,11 @@ exit 0
         else:
             env["FAKE_DEFAULTS_EXTERNAL_PATTERNS"] = external_patterns
 
+        if host_list_mode is None:
+            env.pop("FAKE_DEFAULTS_HOST_LIST_MODE", None)
+        else:
+            env["FAKE_DEFAULTS_HOST_LIST_MODE"] = host_list_mode
+
         if fail_urls:
             env["FAKE_CMUX_FAIL_URLS"] = ",".join(fail_urls)
         else:
@@ -175,7 +194,12 @@ exit 0
             check=False,
         )
 
-        return read_log(open_log), read_log(cmux_log), result.returncode, result.stderr.strip()
+        return (
+            read_log(open_log),
+            read_log(cmux_log),
+            result.returncode,
+            result.stderr.strip(),
+        )
 
 
 def expect(condition: bool, message: str, failures: list[str]) -> None:
@@ -191,8 +215,16 @@ def test_toggle_disabled_passthrough(failures: list[str]) -> None:
         whitelist="",
     )
     expect(code == 0, f"toggle off: wrapper exited {code}: {stderr}", failures)
-    expect(cmux_log == [], f"toggle off: cmux should not be called, got {cmux_log}", failures)
-    expect(open_log == [url], f"toggle off: expected system open [{url}], got {open_log}", failures)
+    expect(
+        cmux_log == [],
+        f"toggle off: cmux should not be called, got {cmux_log}",
+        failures,
+    )
+    expect(
+        open_log == [url],
+        f"toggle off: expected system open [{url}], got {open_log}",
+        failures,
+    )
 
 
 def test_toggle_disabled_case_insensitive_passthrough(failures: list[str]) -> None:
@@ -202,7 +234,11 @@ def test_toggle_disabled_case_insensitive_passthrough(failures: list[str]) -> No
         intercept_setting=" FaLsE ",
         whitelist="",
     )
-    expect(code == 0, f"toggle off (case-insensitive): wrapper exited {code}: {stderr}", failures)
+    expect(
+        code == 0,
+        f"toggle off (case-insensitive): wrapper exited {code}: {stderr}",
+        failures,
+    )
     expect(
         cmux_log == [],
         f"toggle off (case-insensitive): cmux should not be called, got {cmux_log}",
@@ -223,8 +259,16 @@ def test_whitelist_miss_passthrough(failures: list[str]) -> None:
         whitelist="localhost\n127.0.0.1",
     )
     expect(code == 0, f"whitelist miss: wrapper exited {code}: {stderr}", failures)
-    expect(cmux_log == [], f"whitelist miss: cmux should not be called, got {cmux_log}", failures)
-    expect(open_log == [url], f"whitelist miss: expected system open [{url}], got {open_log}", failures)
+    expect(
+        cmux_log == [],
+        f"whitelist miss: cmux should not be called, got {cmux_log}",
+        failures,
+    )
+    expect(
+        open_log == [url],
+        f"whitelist miss: expected system open [{url}], got {open_log}",
+        failures,
+    )
 
 
 def test_whitelist_match_routes_to_cmux(failures: list[str]) -> None:
@@ -235,8 +279,16 @@ def test_whitelist_match_routes_to_cmux(failures: list[str]) -> None:
         whitelist="*.example.com",
     )
     expect(code == 0, f"whitelist match: wrapper exited {code}: {stderr}", failures)
-    expect(open_log == [], f"whitelist match: system open should not be called, got {open_log}", failures)
-    expect(cmux_log == [f"browser open {url}"], f"whitelist match: unexpected cmux log {cmux_log}", failures)
+    expect(
+        open_log == [],
+        f"whitelist match: system open should not be called, got {open_log}",
+        failures,
+    )
+    expect(
+        cmux_log == [f"browser open {url}"],
+        f"whitelist match: unexpected cmux log {cmux_log}",
+        failures,
+    )
 
 
 def test_external_literal_pattern_is_deferred_to_app(failures: list[str]) -> None:
@@ -247,7 +299,11 @@ def test_external_literal_pattern_is_deferred_to_app(failures: list[str]) -> Non
         whitelist="",
         external_patterns="platform.openai.com/account/usage",
     )
-    expect(code == 0, f"external literal deferred: wrapper exited {code}: {stderr}", failures)
+    expect(
+        code == 0,
+        f"external literal deferred: wrapper exited {code}: {stderr}",
+        failures,
+    )
     expect(
         cmux_log == [f"browser open {url}"],
         f"external literal deferred: expected wrapper to pass URL to cmux, got {cmux_log}",
@@ -268,7 +324,9 @@ def test_external_regex_pattern_is_deferred_to_app(failures: list[str]) -> None:
         whitelist="*.example.com",
         external_patterns=r"re:^https?://[^/]*\.example\.com/(billing|usage)",
     )
-    expect(code == 0, f"external regex deferred: wrapper exited {code}: {stderr}", failures)
+    expect(
+        code == 0, f"external regex deferred: wrapper exited {code}: {stderr}", failures
+    )
     expect(
         cmux_log == [f"browser open {url}"],
         f"external regex deferred: expected wrapper to pass URL to cmux, got {cmux_log}",
@@ -281,7 +339,9 @@ def test_external_regex_pattern_is_deferred_to_app(failures: list[str]) -> None:
     )
 
 
-def test_external_regex_with_icu_features_is_deferred_to_app(failures: list[str]) -> None:
+def test_external_regex_with_icu_features_is_deferred_to_app(
+    failures: list[str],
+) -> None:
     url = "https://example.com/usage/42"
     open_log, cmux_log, code, stderr = run_wrapper(
         args=[url],
@@ -289,7 +349,11 @@ def test_external_regex_with_icu_features_is_deferred_to_app(failures: list[str]
         whitelist="example.com",
         external_patterns=r"re:^https://example\.com/usage/\d+$",
     )
-    expect(code == 0, f"external regex icu deferred: wrapper exited {code}: {stderr}", failures)
+    expect(
+        code == 0,
+        f"external regex icu deferred: wrapper exited {code}: {stderr}",
+        failures,
+    )
     expect(
         cmux_log == [f"browser open {url}"],
         f"external regex icu deferred: expected wrapper to pass URL to cmux, got {cmux_log}",
@@ -310,7 +374,9 @@ def test_external_invalid_regex_is_ignored_silently(failures: list[str]) -> None
         whitelist="",
         external_patterns=r"re:[unclosed",
     )
-    expect(code == 0, f"external invalid regex: wrapper exited {code}: {stderr}", failures)
+    expect(
+        code == 0, f"external invalid regex: wrapper exited {code}: {stderr}", failures
+    )
     expect(
         cmux_log == [f"browser open {url}"],
         f"external invalid regex: expected cmux open for {url}, got {cmux_log}",
@@ -360,11 +426,21 @@ def test_legacy_toggle_fallback_passthrough(failures: list[str]) -> None:
         whitelist="",
     )
     expect(code == 0, f"legacy fallback: wrapper exited {code}: {stderr}", failures)
-    expect(cmux_log == [], f"legacy fallback: cmux should not be called, got {cmux_log}", failures)
-    expect(open_log == [url], f"legacy fallback: expected system open [{url}], got {open_log}", failures)
+    expect(
+        cmux_log == [],
+        f"legacy fallback: cmux should not be called, got {cmux_log}",
+        failures,
+    )
+    expect(
+        open_log == [url],
+        f"legacy fallback: expected system open [{url}], got {open_log}",
+        failures,
+    )
 
 
-def test_legacy_toggle_fallback_case_insensitive_passthrough(failures: list[str]) -> None:
+def test_legacy_toggle_fallback_case_insensitive_passthrough(
+    failures: list[str],
+) -> None:
     url = "https://example.com"
     open_log, cmux_log, code, stderr = run_wrapper(
         args=[url],
@@ -372,7 +448,11 @@ def test_legacy_toggle_fallback_case_insensitive_passthrough(failures: list[str]
         legacy_open_setting=" Off ",
         whitelist="",
     )
-    expect(code == 0, f"legacy fallback (case-insensitive): wrapper exited {code}: {stderr}", failures)
+    expect(
+        code == 0,
+        f"legacy fallback (case-insensitive): wrapper exited {code}: {stderr}",
+        failures,
+    )
     expect(
         cmux_log == [],
         f"legacy fallback (case-insensitive): cmux should not be called, got {cmux_log}",
@@ -393,8 +473,16 @@ def test_uppercase_scheme_routes_to_cmux(failures: list[str]) -> None:
         whitelist="*.example.com",
     )
     expect(code == 0, f"uppercase scheme: wrapper exited {code}: {stderr}", failures)
-    expect(open_log == [], f"uppercase scheme: system open should not be called, got {open_log}", failures)
-    expect(cmux_log == [f"browser open {url}"], f"uppercase scheme: unexpected cmux log {cmux_log}", failures)
+    expect(
+        open_log == [],
+        f"uppercase scheme: system open should not be called, got {open_log}",
+        failures,
+    )
+    expect(
+        cmux_log == [f"browser open {url}"],
+        f"uppercase scheme: unexpected cmux log {cmux_log}",
+        failures,
+    )
 
 
 def test_local_html_file_routes_to_cmux(failures: list[str]) -> None:
@@ -406,8 +494,16 @@ def test_local_html_file_routes_to_cmux(failures: list[str]) -> None:
         local_files=[filename],
     )
     expect(code == 0, f"local html file: wrapper exited {code}: {stderr}", failures)
-    expect(open_log == [], f"local html file: system open should not be called, got {open_log}", failures)
-    expect(len(cmux_log) == 1, f"local html file: expected exactly one cmux call, got {cmux_log}", failures)
+    expect(
+        open_log == [],
+        f"local html file: system open should not be called, got {open_log}",
+        failures,
+    )
+    expect(
+        len(cmux_log) == 1,
+        f"local html file: expected exactly one cmux call, got {cmux_log}",
+        failures,
+    )
     if cmux_log:
         expect(
             cmux_log[0].startswith("browser open file://"),
@@ -429,11 +525,21 @@ def test_file_url_html_routes_to_cmux(failures: list[str]) -> None:
         whitelist="",
     )
     expect(code == 0, f"file url html: wrapper exited {code}: {stderr}", failures)
-    expect(open_log == [], f"file url html: system open should not be called, got {open_log}", failures)
-    expect(cmux_log == [f"browser open {url}"], f"file url html: unexpected cmux log {cmux_log}", failures)
+    expect(
+        open_log == [],
+        f"file url html: system open should not be called, got {open_log}",
+        failures,
+    )
+    expect(
+        cmux_log == [f"browser open {url}"],
+        f"file url html: unexpected cmux log {cmux_log}",
+        failures,
+    )
 
 
-def test_file_url_html_routes_to_cmux_without_python_binary(failures: list[str]) -> None:
+def test_file_url_html_routes_to_cmux_without_python_binary(
+    failures: list[str],
+) -> None:
     url = "file:///tmp/cmux-open-wrapper-fixture.html"
     open_log, cmux_log, code, stderr = run_wrapper(
         args=[url],
@@ -441,7 +547,11 @@ def test_file_url_html_routes_to_cmux_without_python_binary(failures: list[str])
         whitelist="",
         python_bin="/definitely/missing/python3",
     )
-    expect(code == 0, f"file url html no-python fallback: wrapper exited {code}: {stderr}", failures)
+    expect(
+        code == 0,
+        f"file url html no-python fallback: wrapper exited {code}: {stderr}",
+        failures,
+    )
     expect(
         open_log == [],
         f"file url html no-python fallback: system open should not be called, got {open_log}",
@@ -454,7 +564,9 @@ def test_file_url_html_routes_to_cmux_without_python_binary(failures: list[str])
     )
 
 
-def test_local_html_file_routes_to_cmux_without_python_binary(failures: list[str]) -> None:
+def test_local_html_file_routes_to_cmux_without_python_binary(
+    failures: list[str],
+) -> None:
     filename = "fixtures/no python fallback.html"
     open_log, cmux_log, code, stderr = run_wrapper(
         args=[filename],
@@ -463,8 +575,16 @@ def test_local_html_file_routes_to_cmux_without_python_binary(failures: list[str
         local_files=[filename],
         python_bin="/definitely/missing/python3",
     )
-    expect(code == 0, f"local html no-python fallback: wrapper exited {code}: {stderr}", failures)
-    expect(open_log == [], f"local html no-python fallback: system open should not be called, got {open_log}", failures)
+    expect(
+        code == 0,
+        f"local html no-python fallback: wrapper exited {code}: {stderr}",
+        failures,
+    )
+    expect(
+        open_log == [],
+        f"local html no-python fallback: system open should not be called, got {open_log}",
+        failures,
+    )
     expect(
         len(cmux_log) == 1,
         f"local html no-python fallback: expected exactly one cmux call, got {cmux_log}",
@@ -490,7 +610,11 @@ def test_domain_like_html_argument_passthrough(failures: list[str]) -> None:
         intercept_setting="1",
         whitelist="",
     )
-    expect(code == 0, f"domain-like html argument: wrapper exited {code}: {stderr}", failures)
+    expect(
+        code == 0,
+        f"domain-like html argument: wrapper exited {code}: {stderr}",
+        failures,
+    )
     expect(
         cmux_log == [],
         f"domain-like html argument: cmux should not be called, got {cmux_log}",
@@ -510,9 +634,19 @@ def test_non_file_scheme_html_passthrough(failures: list[str]) -> None:
         intercept_setting="1",
         whitelist="",
     )
-    expect(code == 0, f"non-file scheme html: wrapper exited {code}: {stderr}", failures)
-    expect(cmux_log == [], f"non-file scheme html: cmux should not be called, got {cmux_log}", failures)
-    expect(open_log == [url], f"non-file scheme html: expected system open [{url}], got {open_log}", failures)
+    expect(
+        code == 0, f"non-file scheme html: wrapper exited {code}: {stderr}", failures
+    )
+    expect(
+        cmux_log == [],
+        f"non-file scheme html: cmux should not be called, got {cmux_log}",
+        failures,
+    )
+    expect(
+        open_log == [url],
+        f"non-file scheme html: expected system open [{url}], got {open_log}",
+        failures,
+    )
 
 
 def test_mailto_html_passthrough(failures: list[str]) -> None:
@@ -523,8 +657,16 @@ def test_mailto_html_passthrough(failures: list[str]) -> None:
         whitelist="",
     )
     expect(code == 0, f"mailto html: wrapper exited {code}: {stderr}", failures)
-    expect(cmux_log == [], f"mailto html: cmux should not be called, got {cmux_log}", failures)
-    expect(open_log == [url], f"mailto html: expected system open [{url}], got {open_log}", failures)
+    expect(
+        cmux_log == [],
+        f"mailto html: cmux should not be called, got {cmux_log}",
+        failures,
+    )
+    expect(
+        open_log == [url],
+        f"mailto html: expected system open [{url}], got {open_log}",
+        failures,
+    )
 
 
 def test_local_non_html_file_passthrough(failures: list[str]) -> None:
@@ -536,8 +678,16 @@ def test_local_non_html_file_passthrough(failures: list[str]) -> None:
         local_files=[filename],
     )
     expect(code == 0, f"local non-html file: wrapper exited {code}: {stderr}", failures)
-    expect(cmux_log == [], f"local non-html file: cmux should not be called, got {cmux_log}", failures)
-    expect(open_log == [filename], f"local non-html file: expected system open [{filename}], got {open_log}", failures)
+    expect(
+        cmux_log == [],
+        f"local non-html file: cmux should not be called, got {cmux_log}",
+        failures,
+    )
+    expect(
+        open_log == [filename],
+        f"local non-html file: expected system open [{filename}], got {open_log}",
+        failures,
+    )
 
 
 def test_unicode_whitelist_matches_punycode_url(failures: list[str]) -> None:
@@ -548,8 +698,16 @@ def test_unicode_whitelist_matches_punycode_url(failures: list[str]) -> None:
         whitelist="bücher.example",
     )
     expect(code == 0, f"unicode whitelist: wrapper exited {code}: {stderr}", failures)
-    expect(open_log == [], f"unicode whitelist: system open should not be called, got {open_log}", failures)
-    expect(cmux_log == [f"browser open {url}"], f"unicode whitelist: unexpected cmux log {cmux_log}", failures)
+    expect(
+        open_log == [],
+        f"unicode whitelist: system open should not be called, got {open_log}",
+        failures,
+    )
+    expect(
+        cmux_log == [f"browser open {url}"],
+        f"unicode whitelist: unexpected cmux log {cmux_log}",
+        failures,
+    )
 
 
 def test_punycode_whitelist_matches_unicode_url(failures: list[str]) -> None:
@@ -560,8 +718,126 @@ def test_punycode_whitelist_matches_unicode_url(failures: list[str]) -> None:
         whitelist="xn--bcher-kva.example",
     )
     expect(code == 0, f"punycode whitelist: wrapper exited {code}: {stderr}", failures)
-    expect(open_log == [], f"punycode whitelist: system open should not be called, got {open_log}", failures)
-    expect(cmux_log == [f"browser open {url}"], f"punycode whitelist: unexpected cmux log {cmux_log}", failures)
+    expect(
+        open_log == [],
+        f"punycode whitelist: system open should not be called, got {open_log}",
+        failures,
+    )
+    expect(
+        cmux_log == [f"browser open {url}"],
+        f"punycode whitelist: unexpected cmux log {cmux_log}",
+        failures,
+    )
+
+
+def test_blacklist_mode_match_opens_externally(failures: list[str]) -> None:
+    """In blacklist mode, hosts in the list should open externally (system browser)."""
+    url = "https://ads.example.com/banner"
+    open_log, cmux_log, code, stderr = run_wrapper(
+        args=[url],
+        intercept_setting="1",
+        whitelist="ads.example.com\ntracker.net",
+        host_list_mode="blacklist",
+    )
+    expect(code == 0, f"blacklist match: wrapper exited {code}: {stderr}", failures)
+    expect(
+        cmux_log == [],
+        f"blacklist match: cmux should not be called, got {cmux_log}",
+        failures,
+    )
+    expect(
+        open_log == [url],
+        f"blacklist match: expected system open [{url}], got {open_log}",
+        failures,
+    )
+
+
+def test_blacklist_mode_miss_routes_to_cmux(failures: list[str]) -> None:
+    """In blacklist mode, hosts NOT in the list should open in cmux."""
+    url = "https://github.com/repo"
+    open_log, cmux_log, code, stderr = run_wrapper(
+        args=[url],
+        intercept_setting="1",
+        whitelist="ads.example.com",
+        host_list_mode="blacklist",
+    )
+    expect(code == 0, f"blacklist miss: wrapper exited {code}: {stderr}", failures)
+    expect(
+        open_log == [],
+        f"blacklist miss: system open should not be called, got {open_log}",
+        failures,
+    )
+    expect(
+        cmux_log == [f"browser open {url}"],
+        f"blacklist miss: unexpected cmux log {cmux_log}",
+        failures,
+    )
+
+
+def test_blacklist_mode_wildcard(failures: list[str]) -> None:
+    """In blacklist mode, wildcard patterns should block matching hosts."""
+    url = "https://sub.blocked.com/page"
+    open_log, cmux_log, code, stderr = run_wrapper(
+        args=[url],
+        intercept_setting="1",
+        whitelist="*.blocked.com",
+        host_list_mode="blacklist",
+    )
+    expect(code == 0, f"blacklist wildcard: wrapper exited {code}: {stderr}", failures)
+    expect(
+        cmux_log == [],
+        f"blacklist wildcard: cmux should not be called, got {cmux_log}",
+        failures,
+    )
+    expect(
+        open_log == [url],
+        f"blacklist wildcard: expected system open [{url}], got {open_log}",
+        failures,
+    )
+
+
+def test_blacklist_mode_empty_list_allows_all(failures: list[str]) -> None:
+    """In blacklist mode with an empty list, all hosts should open in cmux."""
+    url = "https://example.com/page"
+    open_log, cmux_log, code, stderr = run_wrapper(
+        args=[url],
+        intercept_setting="1",
+        whitelist="",
+        host_list_mode="blacklist",
+    )
+    expect(code == 0, f"blacklist empty: wrapper exited {code}: {stderr}", failures)
+    expect(
+        open_log == [],
+        f"blacklist empty: system open should not be called, got {open_log}",
+        failures,
+    )
+    expect(
+        cmux_log == [f"browser open {url}"],
+        f"blacklist empty: unexpected cmux log {cmux_log}",
+        failures,
+    )
+
+
+def test_whitelist_mode_explicit_setting(failures: list[str]) -> None:
+    """Explicit whitelist mode should behave the same as the default."""
+    url = "https://example.com/page"
+    open_log, cmux_log, code, stderr = run_wrapper(
+        args=[url],
+        intercept_setting="1",
+        whitelist="localhost",
+        host_list_mode="whitelist",
+    )
+    expect(code == 0, f"explicit whitelist: wrapper exited {code}: {stderr}", failures)
+    expect(
+        cmux_log == [],
+        f"explicit whitelist: cmux should not be called, got {cmux_log}",
+        failures,
+    )
+    expect(
+        open_log == [url],
+        f"explicit whitelist: expected system open [{url}], got {open_log}",
+        failures,
+    )
 
 
 def main() -> int:
@@ -588,6 +864,11 @@ def main() -> int:
     test_local_non_html_file_passthrough(failures)
     test_unicode_whitelist_matches_punycode_url(failures)
     test_punycode_whitelist_matches_unicode_url(failures)
+    test_blacklist_mode_match_opens_externally(failures)
+    test_blacklist_mode_miss_routes_to_cmux(failures)
+    test_blacklist_mode_wildcard(failures)
+    test_blacklist_mode_empty_list_allows_all(failures)
+    test_whitelist_mode_explicit_setting(failures)
 
     if failures:
         print("open wrapper regression tests failed:")
