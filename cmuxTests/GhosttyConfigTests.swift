@@ -792,42 +792,76 @@ final class WindowBackgroundSurfaceBackgroundGuaranteeTests: XCTestCase {
 
 /// Validates that notification-driven tab reorder is deferred to avoid
 /// cascading @Published changes in the same run loop frame (#914).
+///
+/// Uses source-code inspection (same pattern as
+/// `TabManagerNotificationOrderingSourceTests`) to assert that
+/// `moveTabToTop` is wrapped in `DispatchQueue.main.async` inside
+/// `addNotification`. This avoids singleton state pollution from
+/// `TerminalNotificationStore.shared` and provides a meaningful
+/// regression guard — unlike a runtime test, this will fail if the
+/// async wrapper is removed.
 final class NotificationTabReorderDeferralTests: XCTestCase {
-    func testMoveTabToTopIsNotCalledSynchronouslyDuringAddNotification() {
-        // This test documents the expectation: when addNotification() is
-        // called with auto-reorder enabled, moveTabToTop() must NOT run
-        // in the same synchronous call stack. It should be deferred via
-        // DispatchQueue.main.async to prevent two @Published changes
-        // (tabs reorder + notifications update) from triggering a
-        // compounded SwiftUI re-render that blanks the active pane.
-        //
-        // The fix wraps moveTabToTop() in DispatchQueue.main.async inside
-        // TerminalNotificationStore.addNotification(). This test validates
-        // the architectural invariant rather than mocking internals.
-        let store = TerminalNotificationStore.shared
-        let tabId = UUID()
+    func testMoveTabToTopIsDeferredInsideAddNotification() throws {
+        let projectRoot = findProjectRoot()
+        let storeURL = projectRoot.appendingPathComponent("Sources/TerminalNotificationStore.swift")
+        let source = try String(contentsOf: storeURL, encoding: .utf8)
 
-        // Capture the tab count before adding a notification.
-        // If moveTabToTop were synchronous, it would fire during
-        // addNotification and could trigger observable side effects
-        // in the same run loop. The deferred version delays this.
-        let expectation = XCTestExpectation(description: "Deferred reorder completes")
-        store.addNotification(
-            tabId: tabId,
-            surfaceId: nil,
-            title: "Test",
-            subtitle: "",
-            body: "Test notification"
-        )
-        // The moveTabToTop should be deferred — verify by checking
-        // that the notification was added (synchronous) while the
-        // reorder hasn't happened yet in this same run loop tick.
-        DispatchQueue.main.async {
-            // By the time this fires, the deferred moveTabToTop would
-            // also have been dispatched. This validates the async path.
-            expectation.fulfill()
+        // Locate the addNotification method body.
+        guard let methodStart = source.range(of: "func addNotification(tabId:") else {
+            XCTFail("Failed to locate addNotification(tabId:) in TerminalNotificationStore.swift")
+            return
         }
-        wait(for: [expectation], timeout: 1.0)
+
+        // Find the next top-level `func` after addNotification to bound the search.
+        let searchRange = methodStart.upperBound..<source.endIndex
+        let methodEnd = source.range(of: "\n    func ", range: searchRange)?.lowerBound ?? source.endIndex
+        let methodBody = String(source[methodStart.lowerBound..<methodEnd])
+
+        // The critical invariant: moveTabToTop must be called inside
+        // DispatchQueue.main.async, NOT directly. A synchronous call
+        // causes two @Published mutations in the same run loop frame
+        // (tabs reorder + notifications update), triggering a cascading
+        // SwiftUI re-render that blanks the active pane (#914).
+        XCTAssertTrue(
+            methodBody.contains("DispatchQueue.main.async"),
+            """
+            addNotification must defer moveTabToTop via DispatchQueue.main.async \
+            to prevent cascading @Published changes that blank the active pane (#914).
+            """
+        )
+        XCTAssertTrue(
+            methodBody.contains("moveTabToTop"),
+            "addNotification must call moveTabToTop for auto-reorder behavior."
+        )
+
+        // Verify moveTabToTop appears ONLY inside the async block, not outside it.
+        // Split on DispatchQueue.main.async and check that moveTabToTop doesn't
+        // appear in the portion before the async block within the reorder section.
+        if let reorderStart = methodBody.range(of: "WorkspaceAutoReorderSettings.isEnabled()") {
+            let reorderSection = String(methodBody[reorderStart.lowerBound..<methodBody.endIndex])
+            if let asyncStart = reorderSection.range(of: "DispatchQueue.main.async") {
+                let beforeAsync = String(reorderSection[reorderSection.startIndex..<asyncStart.lowerBound])
+                XCTAssertFalse(
+                    beforeAsync.contains("moveTabToTop"),
+                    """
+                    moveTabToTop must NOT be called synchronously before the \
+                    DispatchQueue.main.async block — it must be inside it (#914).
+                    """
+                )
+            }
+        }
+    }
+
+    private func findProjectRoot() -> URL {
+        var dir = URL(fileURLWithPath: #file).deletingLastPathComponent().deletingLastPathComponent()
+        for _ in 0..<10 {
+            let marker = dir.appendingPathComponent("GhosttyTabs.xcodeproj")
+            if FileManager.default.fileExists(atPath: marker.path) {
+                return dir
+            }
+            dir = dir.deletingLastPathComponent()
+        }
+        return URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
     }
 }
 
