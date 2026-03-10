@@ -1226,9 +1226,7 @@ class TabManager: ObservableObject {
         workspace.killZmxSessions()
 
         if tabs.count <= 1 {
-            if let appDelegate = AppDelegate.shared {
-                appDelegate.closeMainWindowContainingTabId(workspace.id)
-            } else {
+            if AppDelegate.shared?.closeMainWindowContainingTabId(workspace.id) != true {
                 workspace.teardownAllPanels()
                 tabs.remove(at: index)
             }

@@ -8807,11 +8807,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         contextContainingTabId(tabId)?.tabManager
     }
 
-    func closeMainWindowContainingTabId(_ tabId: UUID) {
-        guard let context = contextContainingTabId(tabId) else { return }
+    @discardableResult
+    func closeMainWindowContainingTabId(_ tabId: UUID) -> Bool {
+        guard let context = contextContainingTabId(tabId) else { return false }
         let expectedIdentifier = "cmux.main.\(context.windowId.uuidString)"
         let window: NSWindow? = context.window ?? NSApp.windows.first(where: { $0.identifier?.rawValue == expectedIdentifier })
-        window?.performClose(nil)
+        guard let window else { return false }
+        window.performClose(nil)
+        return true
     }
 
     @discardableResult

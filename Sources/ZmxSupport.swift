@@ -131,7 +131,7 @@ enum ZmxSessionProbe {
         // Check SO_ERROR
         var soError: Int32 = 0
         var soLen = socklen_t(MemoryLayout<Int32>.size)
-        getsockopt(fd, SOL_SOCKET, SO_ERROR, &soError, &soLen)
+        guard getsockopt(fd, SOL_SOCKET, SO_ERROR, &soError, &soLen) == 0 else { return false }
         return soError == 0
     }
 
@@ -162,6 +162,13 @@ enum ZmxSessionProbe {
 
     /// Kill a zmx session by sending a Kill IPC message (tag=5) via Unix socket.
     static func killSession(_ sessionName: String) {
+        let sessionName = sessionName
+        DispatchQueue.global(qos: .utility).async {
+            killSessionSync(sessionName)
+        }
+    }
+
+    private static func killSessionSync(_ sessionName: String) {
         let socketPath = socketPath(for: sessionName)
 
         guard socketPath.utf8.count < 104 else { return }

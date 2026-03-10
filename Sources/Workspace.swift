@@ -2945,6 +2945,7 @@ final class Workspace: Identifiable, ObservableObject {
             manualUnreadPanelIds.remove(detached.panelId)
             manualUnreadMarkedAt.removeValue(forKey: detached.panelId)
             panelSubscriptions.removeValue(forKey: detached.panelId)
+            zmxSessionNames.removeValue(forKey: detached.panelId)
 #if DEBUG
             dlog(
                 "split.attach.fail ws=\(id.uuidString.prefix(5)) panel=\(detached.panelId.uuidString.prefix(5)) " +
@@ -4621,13 +4622,6 @@ extension Workspace: BonsplitDelegate {
         if zmxStableId == nil { zmxStableId = stableId }
         let name = ZmxSessionNaming.sessionName(stableId: stableId, panelIndex: zmxNextPanelIndex)
         zmxNextPanelIndex += 1
-        return name
-    }
-
-    /// Assign a deterministic zmx session name for a panel.
-    func assignZmxSessionName(for panelId: UUID) -> String? {
-        guard let name = zmxAutoAssignSessionName() else { return nil }
-        zmxSessionNames[panelId] = name
         return name
     }
 
