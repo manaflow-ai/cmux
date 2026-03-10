@@ -103,6 +103,68 @@ final class AppTransportSecurityTests: XCTestCase {
     }
 }
 
+final class AppBrowserURLSchemeTests: XCTestCase {
+    func testInfoPlistRegistersHTTPAndHTTPSAsHandledSchemes() throws {
+        let projectRoot = findProjectRoot()
+        let infoPlistURL = projectRoot.appendingPathComponent("Resources/Info.plist")
+        let data = try Data(contentsOf: infoPlistURL)
+        var format = PropertyListSerialization.PropertyListFormat.xml
+        let plist = try XCTUnwrap(
+            PropertyListSerialization.propertyList(from: data, options: [], format: &format) as? [String: Any]
+        )
+        let urlTypes = try XCTUnwrap(plist["CFBundleURLTypes"] as? [[String: Any]])
+
+        let schemes = Set(
+            urlTypes
+                .flatMap { $0["CFBundleURLSchemes"] as? [String] ?? [] }
+                .map { $0.lowercased() }
+        )
+
+        XCTAssertTrue(
+            schemes.contains("http"),
+            "Resources/Info.plist must register the http URL scheme so macOS can treat cmux as a browser candidate."
+        )
+        XCTAssertTrue(
+            schemes.contains("https"),
+            "Resources/Info.plist must register the https URL scheme so macOS can treat cmux as a browser candidate."
+        )
+
+        let browserURLTypes = urlTypes.filter { urlType in
+            let urlSchemes = Set((urlType["CFBundleURLSchemes"] as? [String] ?? []).map { $0.lowercased() })
+            return !urlSchemes.isDisjoint(with: ["http", "https"])
+        }
+        XCTAssertFalse(
+            browserURLTypes.isEmpty,
+            "Resources/Info.plist must include a browser URL type entry for http and https."
+        )
+
+        for urlType in browserURLTypes {
+            XCTAssertEqual(
+                urlType["CFBundleTypeRole"] as? String,
+                "Viewer",
+                "Browser URL schemes should be declared with the Viewer role."
+            )
+            XCTAssertEqual(
+                urlType["LSHandlerRank"] as? String,
+                "Default",
+                "Browser URL schemes should advertise a default-handler rank."
+            )
+        }
+    }
+
+    private func findProjectRoot() -> URL {
+        var dir = URL(fileURLWithPath: #file).deletingLastPathComponent().deletingLastPathComponent()
+        for _ in 0..<10 {
+            let marker = dir.appendingPathComponent("GhosttyTabs.xcodeproj")
+            if FileManager.default.fileExists(atPath: marker.path) {
+                return dir
+            }
+            dir = dir.deletingLastPathComponent()
+        }
+        return URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+    }
+}
+
 final class BrowserInsecureHTTPSettingsTests: XCTestCase {
     func testDefaultAllowlistPatternsArePresent() {
         XCTAssertEqual(
