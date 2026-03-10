@@ -1739,6 +1739,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Don't leak parent zmx session into child terminals.
+        // Each cmux terminal gets its own zmx session via the ghostty zmx backend config.
+        unsetenv("ZMX_SESSION")
+
         let env = ProcessInfo.processInfo.environment
         let isRunningUnderXCTest = isRunningUnderXCTest(env)
         let telemetryEnabled = TelemetrySettings.enabledForCurrentLaunch
@@ -8983,6 +8987,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // is removed when the last window closes.
         persistWindowGeometry(from: window)
         guard let removed = unregisterMainWindowContext(for: window) else { return }
+        if !isTerminatingApp {
+            for workspace in removed.tabManager.tabs {
+                workspace.killZmxSessions()
+            }
+        }
         commandPaletteVisibilityByWindowId.removeValue(forKey: removed.windowId)
         commandPalettePendingOpenByWindowId.removeValue(forKey: removed.windowId)
         commandPaletteRecentRequestAtByWindowId.removeValue(forKey: removed.windowId)
@@ -9056,11 +9065,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         contextContainingTabId(tabId)?.tabManager
     }
 
-    func closeMainWindowContainingTabId(_ tabId: UUID) {
-        guard let context = contextContainingTabId(tabId) else { return }
+    @discardableResult
+    func closeMainWindowContainingTabId(_ tabId: UUID) -> Bool {
+        guard let context = contextContainingTabId(tabId) else { return false }
         let expectedIdentifier = "cmux.main.\(context.windowId.uuidString)"
         let window: NSWindow? = context.window ?? NSApp.windows.first(where: { $0.identifier?.rawValue == expectedIdentifier })
-        window?.performClose(nil)
+        guard let window else { return false }
+        window.performClose(nil)
+        return true
     }
 
     @discardableResult
