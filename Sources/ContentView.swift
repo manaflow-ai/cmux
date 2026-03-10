@@ -6,6 +6,9 @@ import SwiftUI
 import ObjectiveC
 import UniformTypeIdentifiers
 import WebKit
+import os.log
+
+private let imeResizeSidebarLog = OSLog(subsystem: "com.cmuxterm.app", category: "ime-resize-sidebar")
 
 private extension Color {
     init?(hex: String) {
@@ -1898,6 +1901,11 @@ struct ContentView: View {
             if shouldOverrideCursorEvent, (isResizerBandActive || isResizerDragging) {
                 // Consume hover motion in divider band so overlapped views cannot
                 // continuously reassert their own cursor while we are resizing.
+                if event.type == .appKitDefined || event.type == .systemDefined {
+                    let evType: String = String(describing: event.type)
+                    os_log(.info, log: imeResizeSidebarLog, "sidebar.eventConsumed type=%{public}s subtype=%d dragging=%d band=%d",
+                           evType, event.subtype.rawValue, isResizerDragging ? 1 : 0, isResizerBandActive ? 1 : 0)
+                }
                 activateSidebarResizerCursor()
                 Self.fixedSidebarResizeCursor.set()
                 return nil
@@ -1964,6 +1972,14 @@ struct ContentView: View {
                             TerminalWindowPortalRegistry.beginInteractiveGeometryResize()
                             isResizerDragging = true
                             sidebarDragStartWidth = sidebarWidth
+                            let fr = observedWindow?.firstResponder
+                            let frType: String = fr.map { String(describing: type(of: $0)) } ?? "nil"
+                            let hasMarked: Int = (fr as? GhosttyNSView)?.hasMarkedText() == true ? 1 : 0
+                            os_log(.info, log: imeResizeSidebarLog, "sidebar.resizeDragStart fr=%{public}s hasMarkedText=%d",
+                                   frType, hasMarked)
+                            #if DEBUG
+                            dlog("sidebar.resizeDragStart")
+                            #endif
                         }
 
                         activateSidebarResizerCursor()
@@ -1977,6 +1993,11 @@ struct ContentView: View {
                         }
                     }
                     .onEnded { _ in
+                        let fr = observedWindow?.firstResponder
+                        let frType: String = fr.map { String(describing: type(of: $0)) } ?? "nil"
+                        let hasMarked: Int = (fr as? GhosttyNSView)?.hasMarkedText() == true ? 1 : 0
+                        os_log(.info, log: imeResizeSidebarLog, "sidebar.resizeDragEnd fr=%{public}s hasMarkedText=%d",
+                               frType, hasMarked)
                         if isResizerDragging {
                             TerminalWindowPortalRegistry.endInteractiveGeometryResize()
                             isResizerDragging = false

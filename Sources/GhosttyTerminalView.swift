@@ -9,6 +9,9 @@ import Sentry
 import Bonsplit
 import IOSurface
 import UniformTypeIdentifiers
+import os.log
+
+private let imeResizeLog = OSLog(subsystem: "com.cmuxterm.app", category: "ime-resize")
 
 #if os(macOS)
 func cmuxShouldUseTransparentBackgroundWindow() -> Bool {
@@ -4044,6 +4047,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override func layout() {
         super.layout()
+        if markedText.length > 0 {
+            let surfaceId: String = String(terminalSurface?.id.uuidString.prefix(5) ?? "nil")
+            let frDesc: String = window?.firstResponder === self ? "self" : String(describing: type(of: window?.firstResponder as Any))
+            os_log(.info, log: imeResizeLog, "ime.layout markedLen=%d surface=%{public}s fr=%{public}s bounds=%.0fx%.0f",
+                   markedText.length, surfaceId, frDesc, bounds.width, bounds.height)
+        }
         updateSurfaceSize()
         invalidateTextInputCoordinates()
     }
@@ -4646,6 +4655,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     override var acceptsFirstResponder: Bool { true }
 
     override func becomeFirstResponder() -> Bool {
+        if markedText.length > 0 {
+            let surfaceId: String = String(terminalSurface?.id.uuidString.prefix(5) ?? "nil")
+            os_log(.info, log: imeResizeLog, "ime.becomeFirstResponder markedLen=%d surface=%{public}s", markedText.length, surfaceId)
+        }
         let result = super.becomeFirstResponder()
         var shouldApplySurfaceFocus = false
         if result {
@@ -4718,6 +4731,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func resignFirstResponder() -> Bool {
+        if markedText.length > 0 {
+            let surfaceId: String = String(terminalSurface?.id.uuidString.prefix(5) ?? "nil")
+            let caller: String = Thread.callStackSymbols.prefix(8).joined(separator: "\n")
+            os_log(.fault, log: imeResizeLog, "ime.resignFirstResponder markedLen=%d surface=%{public}s caller=%{public}s",
+                   markedText.length, surfaceId, caller)
+        }
         let result = super.resignFirstResponder()
         if result {
             desiredFocus = false
@@ -4797,7 +4816,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #endif
         guard event.type == .keyDown else { return false }
         guard let fr = window?.firstResponder as? NSView,
-              fr === self || fr.isDescendant(of: self) else { return false }
+              fr === self || fr.isDescendant(of: self) else {
+            if markedText.length > 0 {
+                let frType: String = window?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
+                os_log(.fault, log: imeResizeLog, "ime.performKeyEquiv.REJECTED frMismatch markedLen=%d keyCode=%d frType=%{public}s",
+                       markedText.length, event.keyCode, frType)
+            }
+            return false
+        }
         guard let surface = ensureSurfaceReadyForInput() else { return false }
 
         // If the IME is composing (marked text present) and the key has no Cmd
@@ -4948,10 +4974,20 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
         let ensureSurfaceStart = ProcessInfo.processInfo.systemUptime
 #endif
+        if markedText.length > 0 {
+            let surfaceId: String = String(terminalSurface?.id.uuidString.prefix(5) ?? "nil")
+            let frDesc: String = window?.firstResponder === self ? "self" : String(describing: type(of: window?.firstResponder as Any))
+            os_log(.info, log: imeResizeLog, "ime.keyDown markedLen=%d keyCode=%d surface=%{public}s fr=%{public}s",
+                   markedText.length, event.keyCode, surfaceId, frDesc)
+        }
         guard let surface = ensureSurfaceReadyForInput() else {
 #if DEBUG
             ensureSurfaceMs = (ProcessInfo.processInfo.systemUptime - ensureSurfaceStart) * 1000.0
 #endif
+            if markedText.length > 0 {
+                os_log(.fault, log: imeResizeLog, "ime.keyDown.REJECTED noSurface markedLen=%d keyCode=%d",
+                       markedText.length, event.keyCode)
+            }
             super.keyDown(with: event)
             return
         }
@@ -8547,6 +8583,7 @@ extension GhosttyNSView: NSTextInputClient {
             )
         }
 #endif
+        let previousLength = markedText.length
         switch string {
         case let v as NSAttributedString:
             markedText = NSMutableAttributedString(attributedString: v)
@@ -8554,6 +8591,13 @@ extension GhosttyNSView: NSTextInputClient {
             markedText = NSMutableAttributedString(string: v)
         default:
             break
+        }
+
+        do {
+            let surfaceId: String = String(terminalSurface?.id.uuidString.prefix(5) ?? "nil")
+            let accum: String = keyTextAccumulator != nil ? "yes" : "nil"
+            os_log(.info, log: imeResizeLog, "ime.setMarkedText prev=%d new=%d accum=%{public}s surface=%{public}s",
+                   previousLength, markedText.length, accum, surfaceId)
         }
 
         // If we're not in a keyDown event, sync preedit immediately.
