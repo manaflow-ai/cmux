@@ -81,6 +81,20 @@ private extension WKWebView {
     }
 }
 
+enum BrowserPortalPresentationRefreshPolicy {
+    case immediate
+    case throttledDuringInteractiveResize
+
+    func merged(with other: Self) -> Self {
+        switch (self, other) {
+        case (.immediate, _), (_, .immediate):
+            return .immediate
+        case (.throttledDuringInteractiveResize, .throttledDuringInteractiveResize):
+            return .throttledDuringInteractiveResize
+        }
+    }
+}
+
 final class WindowBrowserHostView: NSView {
     private struct DividerRegion {
         let rectInWindow: NSRect
@@ -1650,14 +1664,31 @@ final class WindowBrowserSlotView: NSView {
 @MainActor
 final class WindowBrowserPortal: NSObject {
     private static let transientRecoveryRetryBudget: Int = 12
+    private static let interactiveResizeRefreshInterval: TimeInterval = 1.0 / 60.0
+
+    private enum HostedWebViewRefreshMode {
+        case full
+        case interactiveResize
+    }
+
+    private final class PresentationRefreshState {
+        weak var webView: WKWebView?
+        weak var containerView: WindowBrowserSlotView?
+        var lastRefreshTime: TimeInterval = 0
+        var pendingReason: String?
+        var pendingWorkItem: DispatchWorkItem?
+    }
 
     private weak var window: NSWindow?
     private let hostView = WindowBrowserHostView(frame: .zero)
     private weak var installedContainerView: NSView?
     private weak var installedReferenceView: NSView?
     private var hasDeferredFullSyncScheduled = false
+    private var pendingDeferredFullSyncRefreshPolicy: BrowserPortalPresentationRefreshPolicy?
     private var hasExternalGeometrySyncScheduled = false
+    private var pendingExternalGeometryRefreshPolicy: BrowserPortalPresentationRefreshPolicy?
     private var geometryObservers: [NSObjectProtocol] = []
+    private var presentationRefreshStatesByWebViewId: [ObjectIdentifier: PresentationRefreshState] = [:]
 
     private struct Entry {
         weak var webView: WKWebView?
@@ -1687,6 +1718,12 @@ final class WindowBrowserPortal: NSObject {
         _ = ensureInstalled()
     }
 
+    deinit {
+        for state in presentationRefreshStatesByWebViewId.values {
+            state.pendingWorkItem?.cancel()
+        }
+    }
+
     private func installGeometryObservers(for window: NSWindow) {
         guard geometryObservers.isEmpty else { return }
 
@@ -1697,7 +1734,10 @@ final class WindowBrowserPortal: NSObject {
             queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated {
-                self?.scheduleExternalGeometrySynchronize()
+                guard let self else { return }
+                self.scheduleExternalGeometrySynchronize(
+                    refreshPolicy: BrowserWindowPortalRegistry.currentGeometryRefreshPolicy(for: window)
+                )
             }
         })
         geometryObservers.append(center.addObserver(
@@ -1706,7 +1746,7 @@ final class WindowBrowserPortal: NSObject {
             queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated {
-                self?.scheduleExternalGeometrySynchronize()
+                self?.scheduleExternalGeometrySynchronize(refreshPolicy: .immediate)
             }
         })
         geometryObservers.append(center.addObserver(
@@ -1719,7 +1759,9 @@ final class WindowBrowserPortal: NSObject {
                       let splitView = notification.object as? NSSplitView,
                       let window = self.window,
                       splitView.window === window else { return }
-                self.scheduleExternalGeometrySynchronize()
+                self.scheduleExternalGeometrySynchronize(
+                    refreshPolicy: BrowserWindowPortalRegistry.currentGeometryRefreshPolicy(for: window)
+                )
             }
         })
     }
@@ -1731,32 +1773,45 @@ final class WindowBrowserPortal: NSObject {
         geometryObservers.removeAll()
     }
 
-    private func scheduleExternalGeometrySynchronize() {
+    private func scheduleExternalGeometrySynchronize(
+        refreshPolicy: BrowserPortalPresentationRefreshPolicy = .immediate
+    ) {
+        pendingExternalGeometryRefreshPolicy =
+            pendingExternalGeometryRefreshPolicy?.merged(with: refreshPolicy) ?? refreshPolicy
         guard !hasExternalGeometrySyncScheduled else { return }
         hasExternalGeometrySyncScheduled = true
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.hasExternalGeometrySyncScheduled = false
-            self.synchronizeAllEntriesFromExternalGeometryChange()
+            let refreshPolicy = self.pendingExternalGeometryRefreshPolicy ?? .immediate
+            self.pendingExternalGeometryRefreshPolicy = nil
+            self.synchronizeAllEntriesFromExternalGeometryChange(refreshPolicy: refreshPolicy)
         }
     }
 
-    private func synchronizeAllEntriesFromExternalGeometryChange() {
+    private func synchronizeAllEntriesFromExternalGeometryChange(
+        refreshPolicy: BrowserPortalPresentationRefreshPolicy
+    ) {
         guard ensureInstalled() else { return }
         installedContainerView?.layoutSubtreeIfNeeded()
         installedReferenceView?.layoutSubtreeIfNeeded()
         hostView.superview?.layoutSubtreeIfNeeded()
         hostView.layoutSubtreeIfNeeded()
-        synchronizeAllWebViews(excluding: nil, source: "externalGeometry")
+        synchronizeAllWebViews(
+            excluding: nil,
+            source: "externalGeometry",
+            refreshPolicy: refreshPolicy
+        )
 
         for entry in entriesByWebViewId.values {
             guard let webView = entry.webView,
                   let containerView = entry.containerView,
                   !containerView.isHidden else { continue }
-            refreshHostedWebViewPresentation(
+            requestPresentationRefresh(
                 webView,
                 in: containerView,
-                reason: "externalGeometry"
+                reason: "externalGeometry",
+                policy: refreshPolicy
             )
         }
     }
@@ -1959,6 +2014,33 @@ final class WindowBrowserPortal: NSObject {
         return created
     }
 
+    private func cancelPendingPresentationRefresh(forWebViewId webViewId: ObjectIdentifier) {
+        guard let state = presentationRefreshStatesByWebViewId.removeValue(forKey: webViewId) else { return }
+        state.pendingWorkItem?.cancel()
+    }
+
+    private func presentationRefreshState(
+        for webView: WKWebView,
+        containerView: WindowBrowserSlotView
+    ) -> PresentationRefreshState {
+        let webViewId = ObjectIdentifier(webView)
+        if let existing = presentationRefreshStatesByWebViewId[webViewId] {
+            existing.webView = webView
+            existing.containerView = containerView
+            return existing
+        }
+
+        let created = PresentationRefreshState()
+        created.webView = webView
+        created.containerView = containerView
+        presentationRefreshStatesByWebViewId[webViewId] = created
+        return created
+    }
+
+    private func currentGeometryRefreshPolicy() -> BrowserPortalPresentationRefreshPolicy {
+        BrowserWindowPortalRegistry.currentGeometryRefreshPolicy(for: window)
+    }
+
     private func runHostedWebViewRefreshPass(
         _ webView: WKWebView,
         in containerView: WindowBrowserSlotView,
@@ -2006,11 +2088,19 @@ final class WindowBrowserPortal: NSObject {
     private func refreshHostedWebViewPresentation(
         _ webView: WKWebView,
         in containerView: WindowBrowserSlotView,
-        reason: String
+        reason: String,
+        mode: HostedWebViewRefreshMode = .full
     ) {
         guard !containerView.isHidden else { return }
 
-        runHostedWebViewRefreshPass(webView, in: containerView, reason: reason, phase: "immediate")
+        switch mode {
+        case .full:
+            runHostedWebViewRefreshPass(webView, in: containerView, reason: reason, phase: "immediate")
+        case .interactiveResize:
+            runHostedWebViewRefreshPass(webView, in: containerView, reason: reason, phase: "interactive")
+            return
+        }
+
         DispatchQueue.main.async { [weak self, weak webView, weak containerView] in
             guard let self, let webView, let containerView else { return }
             self.runHostedWebViewRefreshPass(
@@ -2028,6 +2118,97 @@ final class WindowBrowserPortal: NSObject {
                 reason: reason,
                 phase: "delayed"
             )
+        }
+    }
+
+    private func requestPresentationRefresh(
+        _ webView: WKWebView,
+        in containerView: WindowBrowserSlotView,
+        reason: String,
+        policy: BrowserPortalPresentationRefreshPolicy
+    ) {
+        guard !containerView.isHidden else { return }
+
+        let state = presentationRefreshState(for: webView, containerView: containerView)
+        let now = ProcessInfo.processInfo.systemUptime
+
+        switch policy {
+        case .immediate:
+            state.pendingWorkItem?.cancel()
+            state.pendingWorkItem = nil
+            state.pendingReason = nil
+            refreshHostedWebViewPresentation(
+                webView,
+                in: containerView,
+                reason: reason,
+                mode: .full
+            )
+            state.lastRefreshTime = now
+
+        case .throttledDuringInteractiveResize:
+            let effectivePolicy = BrowserWindowPortalRegistry.currentGeometryRefreshPolicy(
+                for: webView.window ?? hostView.window ?? window
+            )
+            if effectivePolicy == .immediate {
+                requestPresentationRefresh(
+                    webView,
+                    in: containerView,
+                    reason: reason,
+                    policy: .immediate
+                )
+                return
+            }
+
+            let elapsed = now - state.lastRefreshTime
+            if elapsed >= Self.interactiveResizeRefreshInterval {
+                state.pendingWorkItem?.cancel()
+                state.pendingWorkItem = nil
+                state.pendingReason = nil
+                refreshHostedWebViewPresentation(
+                    webView,
+                    in: containerView,
+                    reason: reason,
+                    mode: .interactiveResize
+                )
+                state.lastRefreshTime = now
+                return
+            }
+
+            state.pendingReason = reason
+            guard state.pendingWorkItem == nil else { return }
+
+            let delay = max(0, Self.interactiveResizeRefreshInterval - elapsed)
+            let webViewId = ObjectIdentifier(webView)
+            let workItem = DispatchWorkItem { [weak self, weak webView, weak containerView] in
+                guard let self,
+                      let state = self.presentationRefreshStatesByWebViewId[webViewId] else {
+                    return
+                }
+
+                state.pendingWorkItem = nil
+                let resolvedReason = state.pendingReason ?? reason
+                state.pendingReason = nil
+
+                guard let resolvedWebView = state.webView ?? webView,
+                      let resolvedContainerView = state.containerView ?? containerView,
+                      !resolvedContainerView.isHidden else {
+                    return
+                }
+
+                let nextPolicy = BrowserWindowPortalRegistry.currentGeometryRefreshPolicy(
+                    for: resolvedWebView.window ?? self.hostView.window ?? self.window
+                )
+                self.refreshHostedWebViewPresentation(
+                    resolvedWebView,
+                    in: resolvedContainerView,
+                    reason: resolvedReason,
+                    mode: nextPolicy == .immediate ? .full : .interactiveResize
+                )
+                state.lastRefreshTime = ProcessInfo.processInfo.systemUptime
+            }
+
+            state.pendingWorkItem = workItem
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
         }
     }
 
@@ -2074,6 +2255,7 @@ final class WindowBrowserPortal: NSObject {
 
     func detachWebView(withId webViewId: ObjectIdentifier) {
         guard let entry = entriesByWebViewId.removeValue(forKey: webViewId) else { return }
+        cancelPendingPresentationRefresh(forWebViewId: webViewId)
         if let anchor = entry.anchorView {
             webViewByAnchorId.removeValue(forKey: ObjectIdentifier(anchor))
         }
@@ -2158,7 +2340,8 @@ final class WindowBrowserPortal: NSObject {
         synchronizeWebView(
             withId: webViewId,
             source: "forceRefresh",
-            forcePresentationRefresh: true
+            forcePresentationRefresh: true,
+            refreshPolicy: .immediate
         )
         guard let entry = entriesByWebViewId[webViewId],
               let webView = entry.webView,
@@ -2166,10 +2349,11 @@ final class WindowBrowserPortal: NSObject {
               !containerView.isHidden else {
             return
         }
-        refreshHostedWebViewPresentation(
+        requestPresentationRefresh(
             webView,
             in: containerView,
-            reason: reason
+            reason: reason,
+            policy: .immediate
         )
     }
 
@@ -2300,24 +2484,38 @@ final class WindowBrowserPortal: NSObject {
         synchronizeWebView(
             withId: webViewId,
             source: "bind",
-            forcePresentationRefresh: didChangeAnchor
+            forcePresentationRefresh: didChangeAnchor,
+            refreshPolicy: .immediate
         )
         pruneDeadEntries()
     }
 
     func synchronizeWebViewForAnchor(_ anchorView: NSView) {
         pruneDeadEntries()
+        let refreshPolicy = BrowserWindowPortalRegistry.currentGeometryRefreshPolicy(for: anchorView.window)
         let anchorId = ObjectIdentifier(anchorView)
         let primaryWebViewId = webViewByAnchorId[anchorId]
         if let primaryWebViewId {
-            synchronizeWebView(withId: primaryWebViewId, source: "anchorPrimary")
+            synchronizeWebView(
+                withId: primaryWebViewId,
+                source: "anchorPrimary",
+                refreshPolicy: refreshPolicy
+            )
         }
 
-        synchronizeAllWebViews(excluding: primaryWebViewId, source: "anchorSecondary")
-        scheduleDeferredFullSynchronizeAll()
+        synchronizeAllWebViews(
+            excluding: primaryWebViewId,
+            source: "anchorSecondary",
+            refreshPolicy: refreshPolicy
+        )
+        scheduleDeferredFullSynchronizeAll(refreshPolicy: refreshPolicy)
     }
 
-    private func scheduleDeferredFullSynchronizeAll() {
+    private func scheduleDeferredFullSynchronizeAll(
+        refreshPolicy: BrowserPortalPresentationRefreshPolicy = .immediate
+    ) {
+        pendingDeferredFullSyncRefreshPolicy =
+            pendingDeferredFullSyncRefreshPolicy?.merged(with: refreshPolicy) ?? refreshPolicy
         guard !hasDeferredFullSyncScheduled else { return }
         hasDeferredFullSyncScheduled = true
 #if DEBUG
@@ -2326,20 +2524,34 @@ final class WindowBrowserPortal: NSObject {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.hasDeferredFullSyncScheduled = false
+            let refreshPolicy = self.pendingDeferredFullSyncRefreshPolicy ?? .immediate
+            self.pendingDeferredFullSyncRefreshPolicy = nil
 #if DEBUG
             dlog("browser.portal.sync.defer.tick entries=\(self.entriesByWebViewId.count)")
 #endif
-            self.synchronizeAllWebViews(excluding: nil, source: "deferredTick")
+            self.synchronizeAllWebViews(
+                excluding: nil,
+                source: "deferredTick",
+                refreshPolicy: refreshPolicy
+            )
         }
     }
 
-    private func synchronizeAllWebViews(excluding webViewIdToSkip: ObjectIdentifier?, source: String) {
+    private func synchronizeAllWebViews(
+        excluding webViewIdToSkip: ObjectIdentifier?,
+        source: String,
+        refreshPolicy: BrowserPortalPresentationRefreshPolicy = .immediate
+    ) {
         guard ensureInstalled() else { return }
         pruneDeadEntries()
         let webViewIds = Array(entriesByWebViewId.keys)
         for webViewId in webViewIds {
             if webViewId == webViewIdToSkip { continue }
-            synchronizeWebView(withId: webViewId, source: source)
+            synchronizeWebView(
+                withId: webViewId,
+                source: source,
+                refreshPolicy: refreshPolicy
+            )
         }
     }
 
@@ -2379,7 +2591,7 @@ final class WindowBrowserPortal: NSObject {
         )
 #endif
         if entry.transientRecoveryRetriesRemaining > 0 {
-            scheduleDeferredFullSynchronizeAll()
+            scheduleDeferredFullSynchronizeAll(refreshPolicy: currentGeometryRefreshPolicy())
         }
         return true
     }
@@ -2387,15 +2599,18 @@ final class WindowBrowserPortal: NSObject {
     private func synchronizeWebView(
         withId webViewId: ObjectIdentifier,
         source: String,
-        forcePresentationRefresh: Bool = false
+        forcePresentationRefresh: Bool = false,
+        refreshPolicy: BrowserPortalPresentationRefreshPolicy = .immediate
     ) {
         guard ensureInstalled() else { return }
         guard var entry = entriesByWebViewId[webViewId] else { return }
         guard let webView = entry.webView else {
+            cancelPendingPresentationRefresh(forWebViewId: webViewId)
             entriesByWebViewId.removeValue(forKey: webViewId)
             return
         }
         guard let containerView = entry.containerView else {
+            cancelPendingPresentationRefresh(forWebViewId: webViewId)
             entriesByWebViewId.removeValue(forKey: webViewId)
             if let anchor = entry.anchorView {
                 webViewByAnchorId.removeValue(forKey: ObjectIdentifier(anchor))
@@ -2581,7 +2796,7 @@ final class WindowBrowserPortal: NSObject {
                     reason: "hostBoundsNotReady"
                 )
             } else {
-                scheduleDeferredFullSynchronizeAll()
+                scheduleDeferredFullSynchronizeAll(refreshPolicy: refreshPolicy)
             }
             containerView.setPaneTopChromeHeight(0)
             return
@@ -2767,10 +2982,13 @@ final class WindowBrowserPortal: NSObject {
             resetTransientRecoveryRetryIfNeeded(forWebViewId: webViewId, entry: &entry)
         }
         if !shouldHide, !refreshReasons.isEmpty {
-            refreshHostedWebViewPresentation(
+            let effectiveRefreshPolicy =
+                (forcePresentationRefresh || revealedForDisplay) ? BrowserPortalPresentationRefreshPolicy.immediate : refreshPolicy
+            requestPresentationRefresh(
                 webView,
                 in: containerView,
-                reason: "\(source):" + refreshReasons.joined(separator: ",")
+                reason: "\(source):" + refreshReasons.joined(separator: ","),
+                policy: effectiveRefreshPolicy
             )
         }
         hostView.reapplyHostedInspectorDividerIfNeeded(in: containerView, reason: "portal.sync")
@@ -2877,6 +3095,31 @@ final class WindowBrowserPortal: NSObject {
 enum BrowserWindowPortalRegistry {
     private static var portalsByWindowId: [ObjectIdentifier: WindowBrowserPortal] = [:]
     private static var webViewToWindowId: [ObjectIdentifier: ObjectIdentifier] = [:]
+
+    static func currentGeometryRefreshPolicy(for window: NSWindow?) -> BrowserPortalPresentationRefreshPolicy {
+        guard let window else { return .immediate }
+        if window.inLiveResize {
+            return .throttledDuringInteractiveResize
+        }
+
+        guard (NSEvent.pressedMouseButtons & 1) != 0,
+              let event = NSApp.currentEvent else {
+            return .immediate
+        }
+
+        let now = ProcessInfo.processInfo.systemUptime
+        guard (now - event.timestamp) < 0.1,
+              event.window === window else {
+            return .immediate
+        }
+
+        switch event.type {
+        case .leftMouseDown, .leftMouseDragged:
+            return .throttledDuringInteractiveResize
+        default:
+            return .immediate
+        }
+    }
 
     private static func installWindowCloseObserverIfNeeded(for window: NSWindow) {
         guard objc_getAssociatedObject(window, &cmuxWindowBrowserPortalCloseObserverKey) == nil else { return }
