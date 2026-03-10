@@ -106,6 +106,10 @@ struct WorkspaceContentView: View {
                     workspace.bonsplitController.focusPane(paneId)
                 }
         }
+        // Split zoom swaps Bonsplit between the full split tree and a single pane view.
+        // Recreate the Bonsplit subtree on zoom enter/exit so stale pre-zoom pane chrome
+        // cannot remain stacked above portal-hosted browser content.
+        .id(splitZoomRenderIdentity)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
             syncBonsplitNotificationBadges()
@@ -172,6 +176,10 @@ struct WorkspaceContentView: View {
                 }
             }
         }
+    }
+
+    private var splitZoomRenderIdentity: String {
+        workspace.bonsplitController.zoomedPaneId.map { "zoom:\($0.id.uuidString)" } ?? "unzoomed"
     }
 
     static func resolveGhosttyAppearanceConfig(
