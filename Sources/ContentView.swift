@@ -6465,6 +6465,26 @@ private struct TabItemView: View {
         )
     }
 
+    private var copyableSidebarSSHError: String? {
+        let trimmedDetail = tab.remoteConnectionDetail?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if tab.remoteConnectionState == .error, let trimmedDetail, !trimmedDetail.isEmpty {
+            let target = tab.remoteDisplayTarget ?? "unknown"
+            return "SSH error (\(target)): \(trimmedDetail)"
+        }
+        if let statusValue = tab.statusEntries["remote.error"]?.value
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !statusValue.isEmpty {
+            return statusValue
+        }
+        return nil
+    }
+
+    private func copyTextToPasteboard(_ text: String) {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(text, forType: .string)
+    }
+
     var body: some View {
         let latestNotificationSubtitle = latestNotificationText
         let orderedPanelIds: [UUID]? = (sidebarShowBranchDirectory || sidebarShowPullRequest)
@@ -6523,13 +6543,6 @@ private struct TabItemView: View {
                     Image(systemName: "pin.fill")
                         .font(.system(size: 9, weight: .semibold))
                         .foregroundColor(activeSecondaryColor(0.8))
-                }
-
-                if tab.isRemoteWorkspace {
-                    Image(systemName: remoteStateIcon(tab.remoteConnectionState))
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundColor(remoteStateColor(tab.remoteConnectionState, isActive: isActive))
-                        .help(remoteStateHelpText)
                 }
 
                 Text(tab.title)
@@ -6924,6 +6937,12 @@ private struct TabItemView: View {
                 }
             }
 
+            if let copyableSidebarSSHError {
+                Button("Copy SSH Error") {
+                    copyTextToPasteboard(copyableSidebarSSHError)
+                }
+            }
+
             Divider()
 
             Button("Move Up") {
@@ -7208,7 +7227,6 @@ private struct TabItemView: View {
             return "SSH disconnected from \(target)"
         }
     }
-
     private func moveWorkspaces(_ workspaceIds: [UUID], toWindow windowId: UUID) {
         guard let app = AppDelegate.shared else { return }
         let orderedWorkspaceIds = tabManager.tabs.compactMap { workspaceIds.contains($0.id) ? $0.id : nil }
@@ -7411,45 +7429,6 @@ private struct TabItemView: View {
         case .success: return .green
         case .warning: return .orange
         case .error: return .red
-        }
-    }
-
-    private func remoteStateIcon(_ state: WorkspaceRemoteConnectionState) -> String {
-        switch state {
-        case .connected:
-            return "network"
-        case .connecting:
-            return "network.badge.shield.half.filled"
-        case .error:
-            return "network.slash"
-        case .disconnected:
-            return "network.slash"
-        }
-    }
-
-    private func remoteStateColor(_ state: WorkspaceRemoteConnectionState, isActive: Bool) -> Color {
-        if isActive {
-            switch state {
-            case .connected:
-                return .white.opacity(0.9)
-            case .connecting:
-                return .white.opacity(0.85)
-            case .error:
-                return .white.opacity(0.9)
-            case .disconnected:
-                return .white.opacity(0.65)
-            }
-        }
-
-        switch state {
-        case .connected:
-            return .green
-        case .connecting:
-            return .blue
-        case .error:
-            return .red
-        case .disconnected:
-            return .secondary
         }
     }
 

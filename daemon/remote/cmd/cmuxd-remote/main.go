@@ -11,6 +11,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"sync"
@@ -62,6 +63,11 @@ type sessionState struct {
 const maxRPCFrameBytes = 4 * 1024 * 1024
 
 func main() {
+	// Busybox-style: if invoked as "cmux" (via symlink), act as CLI relay.
+	base := filepath.Base(os.Args[0])
+	if base == "cmux" {
+		os.Exit(runCLI(os.Args[1:]))
+	}
 	os.Exit(run(os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
 }
 
@@ -91,6 +97,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			return 1
 		}
 		return 0
+	case "cli":
+		return runCLI(args[1:])
 	default:
 		usage(stderr)
 		return 2
@@ -101,6 +109,7 @@ func usage(w io.Writer) {
 	_, _ = fmt.Fprintln(w, "Usage:")
 	_, _ = fmt.Fprintln(w, "  cmuxd-remote version")
 	_, _ = fmt.Fprintln(w, "  cmuxd-remote serve --stdio")
+	_, _ = fmt.Fprintln(w, "  cmuxd-remote cli <command> [args...]")
 }
 
 func runStdioServer(stdin io.Reader, stdout io.Writer) error {

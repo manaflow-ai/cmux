@@ -405,6 +405,11 @@ def main() -> int:
             surfaces = client.list_surfaces(workspace_id)
             _must(bool(surfaces), f"workspace should have at least one surface: {workspace_id}")
             surface_id = surfaces[0][1]
+            terminal_text = client.read_terminal_text(surface_id)
+            _must(
+                "Reconstructed via infocmp" not in terminal_text,
+                "ssh-terminfo bootstrap should not leak raw infocmp output into the interactive shell",
+            )
 
             try:
                 term_value = _read_probe_payload(client, surface_id, "printf '%s' \"$TERM\"")
