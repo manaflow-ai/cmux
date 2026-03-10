@@ -11,6 +11,25 @@ import WebKit
 /// - Released in `windowWillClose(_:)` when the panel closes.
 /// - The opener `BrowserPanel` also keeps a strong reference for deterministic
 ///   cleanup when the opener tab or workspace is closed.
+/// NSPanel subclass that intercepts Cmd+W before the swizzled
+/// `cmux_performKeyEquivalent` can dispatch it to the main menu's
+/// "Close Tab" action (which would close the parent browser tab).
+private class BrowserPopupPanel: NSPanel {
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        // Cmd+W: close this popup panel only
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if flags == .command,
+           event.charactersIgnoringModifiers == "w" {
+            #if DEBUG
+            dlog("popup.panel.cmdW close")
+            #endif
+            performClose(nil)
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+}
+
 @MainActor
 final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
 
@@ -90,7 +109,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
             styleMask.insert(.resizable)
         }
 
-        let panel = NSPanel(
+        let panel = BrowserPopupPanel(
             contentRect: contentRect,
             styleMask: styleMask,
             backing: .buffered,
