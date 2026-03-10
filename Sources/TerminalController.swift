@@ -928,6 +928,16 @@ class TerminalController {
         }
     }
 
+    private func accessDeniedResponse(for command: String) -> String {
+        let message = "Access denied — only processes started inside cmux can connect"
+        guard command.hasPrefix("{"),
+              let data = command.data(using: .utf8),
+              let dict = (try? JSONSerialization.jsonObject(with: data, options: [])) as? [String: Any] else {
+            return "ERROR: \(message)"
+        }
+        return v2Error(id: dict["id"], code: "access_denied", message: message)
+    }
+
     private func passwordAuthRequiredResponse(for command: String) -> String {
         let message = "Authentication required. Send auth <password> first."
         guard command.hasPrefix("{"),
@@ -937,6 +947,73 @@ class TerminalController {
         }
         let id = dict["id"]
         return v2Error(id: id, code: "auth_required", message: message)
+    }
+
+    private func internalTokenLoginV2ResponseIfNeeded(
+        for command: String,
+        authenticated: inout Bool,
+        canAttemptTokenAuth: Bool
+    ) -> String? {
+        guard command.hasPrefix("{"),
+              let data = command.data(using: .utf8),
+              let dict = (try? JSONSerialization.jsonObject(with: data, options: [])) as? [String: Any] else {
+            return nil
+        }
+        let id = dict["id"]
+        let method = (dict["method"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard method == SocketControlInternalAuth.v2Method else {
+            return nil
+        }
+
+        guard accessMode == .cmuxOnly else {
+            return v2Ok(
+                id: id,
+                result: [
+                    "authenticated": authenticated,
+                    "required": accessMode.requiresPasswordAuth,
+                    "mode": accessMode.rawValue
+                ]
+            )
+        }
+
+        guard authenticated || canAttemptTokenAuth else {
+            return accessDeniedResponse(for: command)
+        }
+
+        if authenticated {
+            return v2Ok(
+                id: id,
+                result: [
+                    "authenticated": true,
+                    "required": false,
+                    "mode": accessMode.rawValue
+                ]
+            )
+        }
+
+        guard let params = dict["params"] as? [String: Any],
+              let provided = params["token"] as? String,
+              SocketControlInternalAuth.normalizedToken(provided) != nil else {
+            return v2Error(
+                id: id,
+                code: "invalid_params",
+                message: "auth.cmux requires params.token"
+            )
+        }
+
+        guard SocketControlInternalAuth.verify(token: provided, expected: SocketControlInternalAuth.sessionToken) else {
+            return v2Error(id: id, code: "auth_failed", message: "Invalid cmux token")
+        }
+
+        authenticated = true
+        return v2Ok(
+            id: id,
+            result: [
+                "authenticated": true,
+                "required": false,
+                "mode": accessMode.rawValue
+            ]
+        )
     }
 
     private func passwordLoginV1ResponseIfNeeded(for command: String, authenticated: inout Bool) -> String? {
@@ -996,19 +1073,36 @@ class TerminalController {
         return v2Ok(id: id, result: ["authenticated": true])
     }
 
-    private func authResponseIfNeeded(for command: String, authenticated: inout Bool) -> String? {
-        guard accessMode.requiresPasswordAuth else {
+    private func authResponseIfNeeded(
+        for command: String,
+        authenticated: inout Bool,
+        canAttemptTokenAuth: Bool
+    ) -> String? {
+        if let internalAuthResponse = internalTokenLoginV2ResponseIfNeeded(
+            for: command,
+            authenticated: &authenticated,
+            canAttemptTokenAuth: canAttemptTokenAuth
+        ) {
+            return internalAuthResponse
+        }
+
+        if accessMode.requiresPasswordAuth {
+            if let v2Response = passwordLoginV2ResponseIfNeeded(for: command, authenticated: &authenticated) {
+                return v2Response
+            }
+            if let v1Response = passwordLoginV1ResponseIfNeeded(for: command, authenticated: &authenticated) {
+                return v1Response
+            }
+            if !authenticated {
+                return passwordAuthRequiredResponse(for: command)
+            }
             return nil
         }
-        if let v2Response = passwordLoginV2ResponseIfNeeded(for: command, authenticated: &authenticated) {
-            return v2Response
+
+        if accessMode == .cmuxOnly, !authenticated {
+            return accessDeniedResponse(for: command)
         }
-        if let v1Response = passwordLoginV1ResponseIfNeeded(for: command, authenticated: &authenticated) {
-            return v1Response
-        }
-        if !authenticated {
-            return passwordAuthRequiredResponse(for: command)
-        }
+
         return nil
     }
 
@@ -1228,38 +1322,28 @@ class TerminalController {
     private func handleClient(_ socket: Int32, peerPid: pid_t? = nil) {
         defer { close(socket) }
 
-        // In cmuxOnly mode, verify the connecting process is a descendant of cmux.
-        // Other modes allow external clients and apply separate auth controls.
+        var authenticated = !accessMode.requiresPasswordAuth && accessMode != .cmuxOnly
+        var canAttemptTokenAuth = false
+
+        // In cmuxOnly mode, keep the current fast ancestry check, but allow a
+        // same-user client to recover with an internal token when the process
+        // tree no longer traces back to cmux after long uptime/reparenting.
         if accessMode == .cmuxOnly {
-            // Use pre-captured peer PID if available (captured in accept loop before
-            // the peer can disconnect), falling back to live lookup.
             let pid = peerPid ?? getPeerPid(socket)
-            if let pid {
-                guard isDescendant(pid) else {
-                    let msg = "ERROR: Access denied — only processes started inside cmux can connect\n"
-                    msg.withCString { ptr in _ = write(socket, ptr, strlen(ptr)) }
-                    return
-                }
-            }
-            // If pid is nil, LOCAL_PEERPID failed (peer disconnected before we
-            // could read it — common with ncat --send-only). We still verify the
-            // peer runs as the same user via LOCAL_PEERCRED. This is the same
-            // security boundary as the socket file permissions (0600), so it does
-            // not widen the attack surface. We also require that the peer actually
-            // sent data (checked in the read loop below) — a connect-only probe
-            // with no data is harmless.
-            if pid == nil {
+            if let pid, isDescendant(pid) {
+                authenticated = true
+            } else {
                 guard peerHasSameUID(socket) else {
                     let msg = "ERROR: Unable to verify client process\n"
                     msg.withCString { ptr in _ = write(socket, ptr, strlen(ptr)) }
                     return
                 }
+                canAttemptTokenAuth = true
             }
         }
 
         var buffer = [UInt8](repeating: 0, count: 4096)
         var pending = ""
-        var authenticated = false
 
         while withListenerState({ isRunning }) {
             let bytesRead = read(socket, &buffer, buffer.count - 1)
@@ -1274,7 +1358,11 @@ class TerminalController {
                 let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !trimmed.isEmpty else { continue }
 
-                if let authResponse = authResponseIfNeeded(for: trimmed, authenticated: &authenticated) {
+                if let authResponse = authResponseIfNeeded(
+                    for: trimmed,
+                    authenticated: &authenticated,
+                    canAttemptTokenAuth: canAttemptTokenAuth
+                ) {
                     writeSocketResponse(authResponse, to: socket)
                     continue
                 }

@@ -10,6 +10,19 @@ struct CLIError: Error, CustomStringConvertible {
     var description: String { message }
 }
 
+private enum SocketControlInternalAuth {
+    static let tokenEnvKey = "CMUX_SOCKET_TOKEN"
+    static let v2Method = "auth.cmux"
+
+    static func configuredToken(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> String? {
+        guard let raw = environment[tokenEnvKey] else { return nil }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+}
+
 private final class CLISocketSentryTelemetry {
     private let command: String
     private let subcommand: String
@@ -928,6 +941,21 @@ struct CMUXCLI {
             throw error
         }
         defer { client.close() }
+
+        if let internalToken = SocketControlInternalAuth.configuredToken(environment: processEnv) {
+            do {
+                _ = try client.sendV2(
+                    method: SocketControlInternalAuth.v2Method,
+                    params: ["token": internalToken]
+                )
+                cliTelemetry.breadcrumb("socket.auth.cmux.success")
+            } catch {
+                cliTelemetry.breadcrumb(
+                    "socket.auth.cmux.failure",
+                    data: ["error": String(describing: error)]
+                )
+            }
+        }
 
         if let socketPassword = SocketPasswordResolver.resolve(explicit: socketPasswordArg) {
             let authResponse = try client.send(command: "auth \(socketPassword)")

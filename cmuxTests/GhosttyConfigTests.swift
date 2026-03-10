@@ -987,6 +987,37 @@ final class SocketControlSettingsTests: XCTestCase {
         XCTAssertEqual(path, "/tmp/cmux.sock")
     }
 
+    func testInternalSocketTokenConfiguredTokenTrimsWhitespace() {
+        let token = SocketControlInternalAuth.configuredToken(
+            environment: [SocketControlInternalAuth.tokenEnvKey: "  token-value \n"]
+        )
+
+        XCTAssertEqual(token, "token-value")
+    }
+
+    func testInternalSocketTokenConfiguredTokenRejectsBlankValues() {
+        XCTAssertNil(
+            SocketControlInternalAuth.configuredToken(
+                environment: [SocketControlInternalAuth.tokenEnvKey: " \n\t "]
+            )
+        )
+    }
+
+    func testInternalSocketTokenVerifyRequiresExactNormalizedMatch() {
+        XCTAssertTrue(
+            SocketControlInternalAuth.verify(
+                token: " token-value \n",
+                expected: "token-value"
+            )
+        )
+        XCTAssertFalse(
+            SocketControlInternalAuth.verify(
+                token: "different-token",
+                expected: "token-value"
+            )
+        )
+    }
+
     func testNightlyReleaseUsesDedicatedDefaultAndIgnoresAmbientSocketOverride() {
         let path = SocketControlSettings.socketPath(
             environment: [

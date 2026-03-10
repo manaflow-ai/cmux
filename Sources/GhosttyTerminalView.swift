@@ -2779,6 +2779,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         // Backward-compatible shell integration keys used by existing scripts/tests.
         env["CMUX_PANEL_ID"] = id.uuidString
         env["CMUX_TAB_ID"] = tabId.uuidString
+        env[SocketControlInternalAuth.tokenEnvKey] = SocketControlInternalAuth.sessionToken
         env["CMUX_SOCKET_PATH"] = SocketControlSettings.socketPath()
         if let bundleId = Bundle.main.bundleIdentifier, !bundleId.isEmpty {
             env["CMUX_BUNDLE_ID"] = bundleId

@@ -285,6 +285,35 @@ enum SocketControlPasswordStore {
     }
 }
 
+enum SocketControlInternalAuth {
+    static let tokenEnvKey = "CMUX_SOCKET_TOKEN"
+    static let v2Method = "auth.cmux"
+    static let sessionToken = generateToken()
+
+    static func generateToken() -> String {
+        [UUID().uuidString, UUID().uuidString]
+            .joined()
+            .replacingOccurrences(of: "-", with: "")
+            .lowercased()
+    }
+
+    static func configuredToken(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> String? {
+        normalizedToken(environment[tokenEnvKey])
+    }
+
+    static func verify(token candidate: String, expected: String) -> Bool {
+        normalizedToken(candidate) == normalizedToken(expected)
+    }
+
+    static func normalizedToken(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+}
+
 struct SocketControlSettings {
     static let appStorageKey = "socketControlMode"
     static let legacyEnabledKey = "socketControlEnabled"
