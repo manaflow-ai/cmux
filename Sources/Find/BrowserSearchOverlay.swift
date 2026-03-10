@@ -8,6 +8,7 @@ struct BrowserSearchOverlay: View {
     let onNext: () -> Void
     let onPrevious: () -> Void
     let onClose: () -> Void
+    let onFieldDidFocus: () -> Void
     @State private var corner: Corner = .topRight
     @State private var dragOffset: CGSize = .zero
     @State private var barSize: CGSize = .zero
@@ -137,6 +138,9 @@ struct BrowserSearchOverlay: View {
             }
             .onChange(of: isSearchFieldFocused) { focused in
                 logFocusState("focusState.change next=\(focused ? 1 : 0)")
+                if focused {
+                    onFieldDidFocus()
+                }
             }
             .onReceive(NotificationCenter.default.publisher(for: .browserSearchFocus)) { notification in
                 guard let notifiedPanelId = notification.object as? UUID,

@@ -981,6 +981,7 @@ struct BrowserPortalSearchOverlayConfiguration {
     let onNext: () -> Void
     let onPrevious: () -> Void
     let onClose: () -> Void
+    let onFieldDidFocus: () -> Void
 }
 
 struct BrowserPaneDropContext: Equatable {
@@ -1454,7 +1455,8 @@ final class WindowBrowserSlotView: NSView {
             searchState: configuration.searchState,
             onNext: configuration.onNext,
             onPrevious: configuration.onPrevious,
-            onClose: configuration.onClose
+            onClose: configuration.onClose,
+            onFieldDidFocus: configuration.onFieldDidFocus
         )
 
         if let overlay = searchOverlayHostingView {

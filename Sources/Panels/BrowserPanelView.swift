@@ -340,7 +340,8 @@ struct BrowserPanelView: View {
                     searchState: searchState,
                     onNext: { panel.findNext() },
                     onPrevious: { panel.findPrevious() },
-                    onClose: { panel.hideFind() }
+                    onClose: { panel.hideFind() },
+                    onFieldDidFocus: { panel.noteFindFieldFocused() }
                 )
             }
         }
@@ -818,7 +819,8 @@ struct BrowserPanelView: View {
                             searchState: searchState,
                             onNext: { panel.findNext() },
                             onPrevious: { panel.findPrevious() },
-                            onClose: { panel.hideFind() }
+                            onClose: { panel.hideFind() },
+                            onFieldDidFocus: { panel.noteFindFieldFocused() }
                         )
                     },
                     paneTopChromeHeight: addressBarHeight
@@ -911,6 +913,9 @@ struct BrowserPanelView: View {
         }
 #endif
         addressBarFocused = focused
+        if focused {
+            panel.noteAddressBarFocused()
+        }
     }
 
     private func browserFocusResponderChainContains(
@@ -1514,6 +1519,9 @@ struct BrowserPanelView: View {
                 syncWebViewResponderPolicyWithViewState(reason: "effects.blurToWebView.handoff")
                 panel.clearWebViewFocusSuppression()
                 let focusedWebView = window.makeFirstResponder(panel.webView)
+                if focusedWebView {
+                    panel.noteWebViewFocused()
+                }
 #if DEBUG
                 dlog(
                     "browser.focus.addressBar.exit.handoff panel=\(panel.id.uuidString.prefix(5)) " +
@@ -4552,6 +4560,9 @@ struct WebViewRepresentable: NSViewRepresentable {
 #endif
             return
         }
+        if isPanelFocused && responderChainContains(window.firstResponder, target: webView) {
+            panel.noteWebViewFocused()
+        }
         if shouldFocusWebView {
             if panel.shouldSuppressWebViewFocus() {
 #if DEBUG
@@ -4572,6 +4583,9 @@ struct WebViewRepresentable: NSViewRepresentable {
                 return
             }
             let result = window.makeFirstResponder(webView)
+            if result {
+                panel.noteWebViewFocused()
+            }
 #if DEBUG
             dlog(
                 "browser.focus.content.apply panel=\(panel.id.uuidString.prefix(5)) " +

@@ -3138,13 +3138,10 @@ final class Workspace: Identifiable, ObservableObject {
             )
         }
 
-        if let browserPanel = panels[panelId] as? BrowserPanel {
-            // Keep browser find focus behavior aligned with terminal find behavior.
-            // When switching back to a pane with an already-open find bar, reassert
-            // focus to that field instead of leaving first responder stale.
-            if browserPanel.searchState != nil {
-                browserPanel.startFind()
-            } else {
+        if let panel = panels[panelId] {
+            _ = panel.restoreFocusIntent(panel.preferredFocusIntentForActivation())
+            if let browserPanel = panel as? BrowserPanel,
+               panel.preferredFocusIntentForActivation() == .browser(.webView) {
                 maybeAutoFocusBrowserAddressBarOnPanelFocus(browserPanel, trigger: trigger)
             }
         }

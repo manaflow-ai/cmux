@@ -1684,10 +1684,14 @@ final class BrowserPanel: Panel, ObservableObject {
     /// cleared only after BrowserPanelView acknowledges handling it.
     @Published private(set) var pendingAddressBarFocusRequestId: UUID?
 
+    /// Semantic in-panel focus target used by split switching and transient overlays.
+    private(set) var preferredFocusIntent: BrowserPanelFocusIntent = .webView
+
     /// Find-in-page state. Non-nil when the find bar is visible.
     @Published var searchState: BrowserSearchState? = nil {
         didSet {
             if let searchState {
+                preferredFocusIntent = .findField
                 NSLog("Find: browser search state created panel=%@", id.uuidString)
                 searchNeedleCancellable = searchState.$needle
                     .removeDuplicates()
@@ -1707,6 +1711,9 @@ final class BrowserPanel: Panel, ObservableObject {
                     }
             } else if oldValue != nil {
                 searchNeedleCancellable = nil
+                if preferredFocusIntent == .findField {
+                    preferredFocusIntent = .webView
+                }
                 NSLog("Find: browser search state cleared panel=%@", id.uuidString)
                 executeFindClear()
             }
@@ -2283,6 +2290,7 @@ final class BrowserPanel: Panel, ObservableObject {
     // MARK: - Panel Protocol
 
     func focus() {
+        preferredFocusIntent = .webView
         if shouldSuppressWebViewFocus() {
             return
         }
@@ -3043,6 +3051,7 @@ extension BrowserPanel {
     // MARK: - Find in Page
 
     func startFind() {
+        preferredFocusIntent = .findField
         let created = searchState == nil
         if created {
             searchState = BrowserSearchState()
@@ -3233,6 +3242,7 @@ extension BrowserPanel {
 
     @discardableResult
     func requestAddressBarFocus() -> UUID {
+        preferredFocusIntent = .addressBar
         beginSuppressWebViewFocusForAddressBar()
         if let pendingAddressBarFocusRequestId {
 #if DEBUG
@@ -3252,6 +3262,71 @@ extension BrowserPanel {
         )
 #endif
         return requestId
+    }
+
+    func noteWebViewFocused() {
+        preferredFocusIntent = .webView
+    }
+
+    func noteAddressBarFocused() {
+        preferredFocusIntent = .addressBar
+    }
+
+    func noteFindFieldFocused() {
+        preferredFocusIntent = .findField
+    }
+
+    func captureFocusIntent(in window: NSWindow?) -> PanelFocusIntent {
+        if pendingAddressBarFocusRequestId != nil || AppDelegate.shared?.focusedBrowserAddressBarPanelId() == id {
+            return .browser(.addressBar)
+        }
+
+        if searchState != nil {
+            return .browser(.findField)
+        }
+
+        if let window,
+           Self.responderChainContains(window.firstResponder, target: webView) {
+            return .browser(.webView)
+        }
+
+        return .browser(preferredFocusIntent)
+    }
+
+    func preferredFocusIntentForActivation() -> PanelFocusIntent {
+        if pendingAddressBarFocusRequestId != nil {
+            return .browser(.addressBar)
+        }
+        if searchState != nil {
+            return .browser(.findField)
+        }
+        return .browser(preferredFocusIntent)
+    }
+
+    @discardableResult
+    func restoreFocusIntent(_ intent: PanelFocusIntent) -> Bool {
+        guard case .browser(let target) = intent else { return false }
+
+        switch target {
+        case .webView:
+            noteWebViewFocused()
+            focus()
+            return true
+        case .addressBar:
+            let requestId = requestAddressBarFocus()
+            NotificationCenter.default.post(name: .browserFocusAddressBar, object: id)
+#if DEBUG
+            dlog(
+                "browser.focus.restore panel=\(id.uuidString.prefix(5)) " +
+                "target=addressBar request=\(requestId.uuidString.prefix(8))"
+            )
+#endif
+            return true
+        case .findField:
+            guard searchState != nil else { return false }
+            startFind()
+            return true
+        }
     }
 
     func acknowledgeAddressBarFocusRequest(_ requestId: UUID) {
