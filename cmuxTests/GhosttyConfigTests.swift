@@ -339,6 +339,18 @@ final class GhosttyConfigTests: XCTestCase {
         XCTAssertThrowsError(try GhosttyConfig.applyTheme("Bad,Theme"))
     }
 
+    func testApplyThemeRejectsPathTraversal() {
+        XCTAssertThrowsError(try GhosttyConfig.applyTheme("../../../etc/passwd"))
+    }
+
+    func testApplyThemeRejectsThemeNameWithSlash() {
+        XCTAssertThrowsError(try GhosttyConfig.applyTheme("sub/theme"))
+    }
+
+    func testApplyThemeRejectsEmptyName() {
+        XCTAssertThrowsError(try GhosttyConfig.applyTheme(""))
+    }
+
     func testLoadCachesPerColorScheme() {
         GhosttyConfig.invalidateLoadCache()
         defer { GhosttyConfig.invalidateLoadCache() }

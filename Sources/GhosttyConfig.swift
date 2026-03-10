@@ -75,8 +75,8 @@ struct GhosttyConfig {
 
     static func invalidateLoadCache() {
         loadCacheLock.lock()
+        defer { loadCacheLock.unlock() }
         cachedConfigsByColorScheme.removeAll()
-        loadCacheLock.unlock()
     }
 
     private static func cachedLoad(for colorScheme: ColorSchemePreference) -> GhosttyConfig? {
@@ -510,7 +510,6 @@ struct GhosttyConfig {
         }
         var lines = configLines(from: existing)
 
-        var replaced = false
         var lastMatchIndex: Int?
         for index in lines.indices {
             let line = lines[index]
@@ -528,10 +527,7 @@ struct GhosttyConfig {
         if let index = lastMatchIndex {
             let indentation = String(lines[index].prefix { $0 == " " || $0 == "\t" })
             lines[index] = "\(indentation)\(key) = \(value)"
-            replaced = true
-        }
-
-        if !replaced {
+        } else {
             if !lines.isEmpty, !(lines.last?.isEmpty ?? true) {
                 lines.append("")
             }
@@ -549,7 +545,10 @@ struct GhosttyConfig {
         preferredColorScheme: ColorSchemePreference = currentColorSchemePreference(),
         searchPaths: [String]? = nil
     ) throws -> String {
-        guard !themeName.contains(where: { $0.isNewline || $0 == "," }) else {
+        guard !themeName.isEmpty,
+              !themeName.contains(where: { $0.isNewline || $0 == "," }),
+              !themeName.contains(".."),
+              !themeName.contains("/") else {
             throw CocoaError(.fileWriteInvalidFileName)
         }
 

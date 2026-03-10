@@ -3108,11 +3108,7 @@ struct ContentView: View {
         .onChange(of: commandPaletteQuery) { _ in
             if !commandPaletteQuery.hasPrefix(Self.commandPaletteCommandsPrefix) {
                 commandPaletteCommandSubmenu = nil
-                commandPaletteGhosttyThemeLoadTask?.cancel()
-                commandPaletteGhosttyThemeLoadTask = nil
-                commandPaletteGhosttyThemeNames = []
-                commandPaletteGhosttyResolvedCurrentTheme = nil
-                commandPaletteGhosttyThemesAreLoading = false
+                resetCommandPaletteGhosttyThemeState()
             }
             commandPaletteSelectedResultIndex = 0
             commandPaletteSelectionAnchorCommandID = nil
@@ -3980,13 +3976,17 @@ struct ContentView: View {
         syncCommandPaletteDebugStateForObservedWindow()
     }
 
-    private func exitCommandPaletteGhosttyThemeMenu() {
-        commandPaletteCommandSubmenu = nil
+    private func resetCommandPaletteGhosttyThemeState() {
         commandPaletteGhosttyThemeLoadTask?.cancel()
         commandPaletteGhosttyThemeLoadTask = nil
         commandPaletteGhosttyThemeNames = []
         commandPaletteGhosttyResolvedCurrentTheme = nil
         commandPaletteGhosttyThemesAreLoading = false
+    }
+
+    private func exitCommandPaletteGhosttyThemeMenu() {
+        commandPaletteCommandSubmenu = nil
+        resetCommandPaletteGhosttyThemeState()
         commandPaletteQuery = Self.commandPaletteCommandsPrefix
         commandPaletteSelectedResultIndex = 0
         commandPaletteSelectionAnchorCommandID = nil
@@ -4024,6 +4024,8 @@ struct ContentView: View {
         commandPaletteGhosttyThemesAreLoading = true
         let preferredColorScheme = GhosttyConfig.currentColorSchemePreference()
         commandPaletteGhosttyThemeLoadTask = Task.detached(priority: .userInitiated) {
+            guard !Task.isCancelled else { return }
+
             let resolvedCurrentTheme = (
                 GhosttyConfig.load(
                     preferredColorScheme: preferredColorScheme,
@@ -4035,16 +4037,19 @@ struct ContentView: View {
                     )
                 }
             )?.trimmingCharacters(in: .whitespacesAndNewlines)
+
+            guard !Task.isCancelled else { return }
+
             let themes = GhosttyConfig.discoverThemeNames()
 
             guard !Task.isCancelled else { return }
 
             await MainActor.run {
+                commandPaletteGhosttyThemesAreLoading = false
+                commandPaletteGhosttyThemeLoadTask = nil
                 guard commandPaletteCommandSubmenu == .ghosttyThemes else { return }
                 commandPaletteGhosttyThemeNames = themes
                 commandPaletteGhosttyResolvedCurrentTheme = resolvedCurrentTheme
-                commandPaletteGhosttyThemesAreLoading = false
-                commandPaletteGhosttyThemeLoadTask = nil
                 scheduleCommandPaletteResultsRefresh(forceSearchCorpusRefresh: true)
                 syncCommandPaletteDebugStateForObservedWindow()
             }
@@ -5602,11 +5607,7 @@ struct ContentView: View {
     private func resetCommandPaletteListState(initialQuery: String) {
         commandPaletteMode = .commands
         commandPaletteCommandSubmenu = nil
-        commandPaletteGhosttyThemeLoadTask?.cancel()
-        commandPaletteGhosttyThemeLoadTask = nil
-        commandPaletteGhosttyThemeNames = []
-        commandPaletteGhosttyResolvedCurrentTheme = nil
-        commandPaletteGhosttyThemesAreLoading = false
+        resetCommandPaletteGhosttyThemeState()
         commandPaletteQuery = initialQuery
         commandPaletteRenameDraft = ""
         commandPaletteSelectedResultIndex = 0
@@ -5633,11 +5634,7 @@ struct ContentView: View {
         isCommandPalettePresented = false
         commandPaletteMode = .commands
         commandPaletteCommandSubmenu = nil
-        commandPaletteGhosttyThemeLoadTask?.cancel()
-        commandPaletteGhosttyThemeLoadTask = nil
-        commandPaletteGhosttyThemeNames = []
-        commandPaletteGhosttyResolvedCurrentTheme = nil
-        commandPaletteGhosttyThemesAreLoading = false
+        resetCommandPaletteGhosttyThemeState()
         commandPaletteQuery = ""
         commandPaletteRenameDraft = ""
         commandPaletteSelectedResultIndex = 0
