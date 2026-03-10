@@ -838,14 +838,7 @@ final class TerminalNotificationStore: ObservableObject {
         let isFocusedSurface = surfaceId == nil || focusedSurfaceId == surfaceId
         let isFocusedPanel = isActiveTab && isFocusedSurface
         let isAppFocused = AppFocusState.isAppFocused()
-        if isAppFocused && isFocusedPanel {
-            if !idsToClear.isEmpty {
-                notifications = updated
-                center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
-                center.removePendingNotificationRequestsOffMain(withIdentifiers: idsToClear)
-            }
-            return
-        }
+        let shouldSuppressExternalDelivery = isAppFocused && isFocusedPanel
 
         if WorkspaceAutoReorderSettings.isEnabled() {
             AppDelegate.shared?.tabManager?.moveTabToTopForNotification(tabId)
@@ -867,7 +860,9 @@ final class TerminalNotificationStore: ObservableObject {
             center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
             center.removePendingNotificationRequestsOffMain(withIdentifiers: idsToClear)
         }
-        notificationDeliveryHandler(self, notification)
+        if !shouldSuppressExternalDelivery {
+            notificationDeliveryHandler(self, notification)
+        }
     }
 
     func markRead(id: UUID) {

@@ -190,6 +190,10 @@ final class TerminalPanel: Panel, ObservableObject {
         hostedView.triggerFlash()
     }
 
+    func triggerNotificationDismissFlash() {
+        hostedView.triggerFlash(style: .notificationDismiss)
+    }
+
     func applyWindowBackgroundIfActive() {
         surface.applyWindowBackgroundIfActive()
     }

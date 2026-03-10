@@ -3260,7 +3260,7 @@ final class Workspace: Identifiable, ObservableObject {
         if requiresSplit && !isSplit {
             return
         }
-        terminalPanel.triggerFlash()
+        terminalPanel.triggerNotificationDismissFlash()
     }
 
     func triggerDebugFlash(panelId: UUID) {
