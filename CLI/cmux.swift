@@ -6720,15 +6720,12 @@ struct CMUXCLI {
     }
 
     private func versionInfoFromProjectFile() -> [String: String]? {
-        guard let executable = currentExecutablePath(), !executable.isEmpty else {
+        guard let executableURL = resolvedExecutableURL() else {
             return nil
         }
 
         let fileManager = FileManager.default
-        var current = URL(fileURLWithPath: executable)
-            .resolvingSymlinksInPath()
-            .standardizedFileURL
-            .deletingLastPathComponent()
+        var current = executableURL.deletingLastPathComponent()
 
         while true {
             let projectFile = current.appendingPathComponent("GhosttyTabs.xcodeproj/project.pbxproj")
@@ -6820,23 +6817,29 @@ struct CMUXCLI {
     }
 
     private func candidateInfoPlistURLs() -> [URL] {
-        guard let executable = currentExecutablePath(), !executable.isEmpty else {
+        guard let executableURL = resolvedExecutableURL() else {
             return []
         }
 
         let fileManager = FileManager.default
-        let executableURL = URL(fileURLWithPath: executable)
-            .resolvingSymlinksInPath()
-            .standardizedFileURL
 
         var candidates: [URL] = []
+        var seen: Set<String> = []
+        func appendIfExisting(_ url: URL) {
+            let path = url.path
+            guard !path.isEmpty else { return }
+            guard seen.insert(path).inserted else { return }
+            guard fileManager.fileExists(atPath: path) else { return }
+            candidates.append(url)
+        }
+
         var current = executableURL.deletingLastPathComponent()
         while true {
             if current.pathExtension == "app" {
-                candidates.append(current.appendingPathComponent("Contents/Info.plist"))
+                appendIfExisting(current.appendingPathComponent("Contents/Info.plist"))
             }
             if current.lastPathComponent == "Contents" {
-                candidates.append(current.appendingPathComponent("Info.plist"))
+                appendIfExisting(current.appendingPathComponent("Info.plist"))
             }
 
             // Local dev fallback: resolve version from the repo's app Info.plist
@@ -6845,7 +6848,7 @@ struct CMUXCLI {
             let repoInfo = current.appendingPathComponent("Resources/Info.plist")
             if fileManager.fileExists(atPath: projectMarker.path),
                fileManager.fileExists(atPath: repoInfo.path) {
-                candidates.append(repoInfo)
+                appendIfExisting(repoInfo)
                 break
             }
 
@@ -6856,30 +6859,31 @@ struct CMUXCLI {
             current = parent
         }
 
+        // If we already found an ancestor bundle or repo Info.plist, avoid scanning
+        // sibling app bundles. Large Resources directories can otherwise balloon RSS.
+        guard candidates.isEmpty else {
+            return candidates
+        }
+
         let searchRoots = [
             executableURL.deletingLastPathComponent(),
             executableURL.deletingLastPathComponent().deletingLastPathComponent()
         ]
         for root in searchRoots {
-            guard let entries = try? fileManager.contentsOfDirectory(
+            guard let entries = fileManager.enumerator(
                 at: root,
-                includingPropertiesForKeys: [.isDirectoryKey],
-                options: [.skipsHiddenFiles]
+                includingPropertiesForKeys: nil,
+                options: [.skipsHiddenFiles, .skipsSubdirectoryDescendants],
+                errorHandler: { _, _ in true }
             ) else {
                 continue
             }
-            for entry in entries where entry.pathExtension == "app" {
-                candidates.append(entry.appendingPathComponent("Contents/Info.plist"))
+            for case let entry as URL in entries where entry.pathExtension == "app" {
+                appendIfExisting(entry.appendingPathComponent("Contents/Info.plist"))
             }
         }
 
-        var seen: Set<String> = []
-        return candidates.filter { url in
-            let path = url.path
-            guard !path.isEmpty else { return false }
-            guard seen.insert(path).inserted else { return false }
-            return fileManager.fileExists(atPath: path)
-        }
+        return candidates
     }
 
     private func currentExecutablePath() -> String? {
@@ -6895,6 +6899,20 @@ struct CMUXCLI {
             }
         }
         return Bundle.main.executableURL?.path ?? args.first
+    }
+
+    private func resolvedExecutableURL() -> URL? {
+        guard let executable = currentExecutablePath(), !executable.isEmpty else {
+            return nil
+        }
+
+        let expanded = (executable as NSString).expandingTildeInPath
+        if let resolvedPath = realpath(expanded, nil) {
+            defer { free(resolvedPath) }
+            return URL(fileURLWithPath: String(cString: resolvedPath)).standardizedFileURL
+        }
+
+        return URL(fileURLWithPath: expanded).standardizedFileURL
     }
 
     private func usage() -> String {

@@ -1121,6 +1121,16 @@ class TabManager: ObservableObject {
         tabs.insert(tab, at: insertIndex)
     }
 
+    func moveTabToTopForNotification(_ tabId: UUID) {
+        guard let index = tabs.firstIndex(where: { $0.id == tabId }) else { return }
+        let pinnedCount = tabs.filter { $0.isPinned }.count
+        guard index != pinnedCount else { return }
+        let tab = tabs[index]
+        guard !tab.isPinned else { return }
+        tabs.remove(at: index)
+        tabs.insert(tab, at: pinnedCount)
+    }
+
     func moveTabsToTop(_ tabIds: Set<UUID>) {
         guard !tabIds.isEmpty else { return }
         let selectedTabs = tabs.filter { tabIds.contains($0.id) }
@@ -1809,19 +1819,37 @@ class TabManager: ObservableObject {
         guard !shouldSuppressFlash else { return }
         guard AppFocusState.isAppActive() else { return }
         guard let panelId = focusedPanelId(for: tabId) else { return }
-        markPanelReadOnFocusIfActive(tabId: tabId, panelId: panelId)
+        _ = dismissNotificationIfActive(tabId: tabId, surfaceId: panelId, triggerFlash: true)
     }
 
     private func markPanelReadOnFocusIfActive(tabId: UUID, panelId: UUID) {
         guard selectedTabId == tabId else { return }
         guard !suppressFocusFlash else { return }
-        guard AppFocusState.isAppActive() else { return }
-        guard let notificationStore = AppDelegate.shared?.notificationStore else { return }
-        guard notificationStore.hasUnreadNotification(forTabId: tabId, surfaceId: panelId) else { return }
-        if let tab = tabs.first(where: { $0.id == tabId }) {
+        _ = dismissNotificationIfActive(tabId: tabId, surfaceId: panelId, triggerFlash: true)
+    }
+
+    @discardableResult
+    func dismissNotificationOnDirectInteraction(tabId: UUID, surfaceId: UUID?) -> Bool {
+        dismissNotificationIfActive(tabId: tabId, surfaceId: surfaceId, triggerFlash: true)
+    }
+
+    @discardableResult
+    private func dismissNotificationIfActive(
+        tabId: UUID,
+        surfaceId: UUID?,
+        triggerFlash: Bool
+    ) -> Bool {
+        guard selectedTabId == tabId else { return false }
+        guard AppFocusState.isAppActive() else { return false }
+        guard let notificationStore = AppDelegate.shared?.notificationStore else { return false }
+        guard notificationStore.hasUnreadNotification(forTabId: tabId, surfaceId: surfaceId) else { return false }
+        if triggerFlash,
+           let panelId = surfaceId,
+           let tab = tabs.first(where: { $0.id == tabId }) {
             tab.triggerNotificationFocusFlash(panelId: panelId, requiresSplit: false, shouldFocus: false)
         }
-        notificationStore.markRead(forTabId: tabId, surfaceId: panelId)
+        notificationStore.markRead(forTabId: tabId, surfaceId: surfaceId)
+        return true
     }
 
     private func enqueuePanelTitleUpdate(tabId: UUID, panelId: UUID, title: String) {

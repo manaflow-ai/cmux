@@ -2513,6 +2513,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 
     func testWebViewDismantleKeepsPortalHostedWebViewAttachedWhenDeveloperToolsIntentIsVisible() {
         let (panel, _) = makePanelWithInspector()
+        let paneId = PaneID(id: UUID())
         XCTAssertTrue(panel.showDeveloperTools())
 
         let window = NSWindow(
@@ -2534,6 +2535,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 
         let representable = WebViewRepresentable(
             panel: panel,
+            paneId: paneId,
             shouldAttachWebView: true,
             shouldFocusWebView: false,
             isPanelFocused: true,
@@ -2552,6 +2554,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 
     func testWebViewDismantleKeepsPortalHostedWebViewAttachedWhenDeveloperToolsIntentIsHidden() {
         let (panel, _) = makePanelWithInspector()
+        let paneId = PaneID(id: UUID())
         XCTAssertFalse(panel.shouldPreserveWebViewAttachmentDuringTransientHide())
 
         let window = NSWindow(
@@ -2573,6 +2576,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 
         let representable = WebViewRepresentable(
             panel: panel,
+            paneId: paneId,
             shouldAttachWebView: true,
             shouldFocusWebView: false,
             isPanelFocused: true,
@@ -4226,6 +4230,58 @@ final class WorkspaceReorderTests: XCTestCase {
     func testReorderWorkspaceReturnsFalseForUnknownWorkspace() {
         let manager = TabManager()
         XCTAssertFalse(manager.reorderWorkspace(tabId: UUID(), toIndex: 0))
+    }
+}
+
+@MainActor
+final class WorkspaceNotificationReorderTests: XCTestCase {
+    func testNotificationAutoReorderDoesNotMovePinnedWorkspace() {
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let manager = TabManager()
+        let notificationStore = TerminalNotificationStore.shared
+
+        let originalTabManager = appDelegate.tabManager
+        let originalNotificationStore = appDelegate.notificationStore
+        let defaults = UserDefaults.standard
+        let originalAutoReorderSetting = defaults.object(forKey: WorkspaceAutoReorderSettings.key)
+        let originalAppFocusOverride = AppFocusState.overrideIsFocused
+
+        notificationStore.replaceNotificationsForTesting([])
+        notificationStore.configureNotificationDeliveryHandlerForTesting { _, _ in }
+        appDelegate.tabManager = manager
+        appDelegate.notificationStore = notificationStore
+        defaults.set(true, forKey: WorkspaceAutoReorderSettings.key)
+        AppFocusState.overrideIsFocused = false
+
+        defer {
+            notificationStore.replaceNotificationsForTesting([])
+            notificationStore.resetNotificationDeliveryHandlerForTesting()
+            appDelegate.tabManager = originalTabManager
+            appDelegate.notificationStore = originalNotificationStore
+            AppFocusState.overrideIsFocused = originalAppFocusOverride
+            if let originalAutoReorderSetting {
+                defaults.set(originalAutoReorderSetting, forKey: WorkspaceAutoReorderSettings.key)
+            } else {
+                defaults.removeObject(forKey: WorkspaceAutoReorderSettings.key)
+            }
+        }
+
+        let firstPinned = manager.tabs[0]
+        manager.setPinned(firstPinned, pinned: true)
+        let secondPinned = manager.addWorkspace()
+        manager.setPinned(secondPinned, pinned: true)
+        let unpinned = manager.addWorkspace()
+        let expectedOrder = [firstPinned.id, secondPinned.id, unpinned.id]
+
+        notificationStore.addNotification(
+            tabId: secondPinned.id,
+            surfaceId: nil,
+            title: "Build finished",
+            subtitle: "",
+            body: "Pinned workspaces should stay put"
+        )
+
+        XCTAssertEqual(manager.tabs.map(\.id), expectedOrder)
     }
 }
 
@@ -7387,6 +7443,118 @@ final class NotificationDockBadgeTests: XCTestCase {
         store.clearNotifications(forTabId: tab)
         XCTAssertEqual(store.unreadCount(forTabId: tab), 0)
         XCTAssertNil(store.latestNotification(forTabId: tab))
+    }
+}
+
+@MainActor
+final class TerminalNotificationDirectInteractionTests: XCTestCase {
+    private func makeWindow() -> NSWindow {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 480, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = NSView(frame: window.contentRect(forFrameRect: window.frame))
+        return window
+    }
+
+    private func makeMouseEvent(type: NSEvent.EventType, location: NSPoint, window: NSWindow) -> NSEvent {
+        guard let event = NSEvent.mouseEvent(
+            with: type,
+            location: location,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: 0,
+            clickCount: 1,
+            pressure: 1.0
+        ) else {
+            fatalError("Failed to create \(type) mouse event")
+        }
+        return event
+    }
+
+    private func surfaceView(in hostedView: GhosttySurfaceScrollView) -> NSView? {
+        hostedView.subviews
+            .compactMap { $0 as? NSScrollView }
+            .first?
+            .documentView?
+            .subviews
+            .first
+    }
+
+    func testTerminalMouseDownDismissesUnreadWhenSurfaceIsAlreadyFirstResponder() {
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let manager = TabManager()
+        let store = TerminalNotificationStore.shared
+        let window = makeWindow()
+
+        let originalTabManager = appDelegate.tabManager
+        let originalNotificationStore = appDelegate.notificationStore
+        let originalAppFocusOverride = AppFocusState.overrideIsFocused
+
+        store.replaceNotificationsForTesting([])
+        store.configureNotificationDeliveryHandlerForTesting { _, _ in }
+        appDelegate.tabManager = manager
+        appDelegate.notificationStore = store
+
+        defer {
+            store.replaceNotificationsForTesting([])
+            store.resetNotificationDeliveryHandlerForTesting()
+            appDelegate.tabManager = originalTabManager
+            appDelegate.notificationStore = originalNotificationStore
+            AppFocusState.overrideIsFocused = originalAppFocusOverride
+            window.orderOut(nil)
+        }
+
+        guard let workspace = manager.selectedWorkspace,
+              let terminalPanel = workspace.focusedTerminalPanel else {
+            XCTFail("Expected an initial focused terminal panel")
+            return
+        }
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let hostedView = terminalPanel.hostedView
+        hostedView.frame = contentView.bounds
+        hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostedView)
+        contentView.layoutSubtreeIfNeeded()
+        hostedView.layoutSubtreeIfNeeded()
+
+        guard let surfaceView = surfaceView(in: hostedView) else {
+            XCTFail("Expected terminal surface view")
+            return
+        }
+
+        GhosttySurfaceScrollView.resetFlashCounts()
+        AppFocusState.overrideIsFocused = true
+        XCTAssertTrue(window.makeFirstResponder(surfaceView))
+
+        store.addNotification(
+            tabId: workspace.id,
+            surfaceId: terminalPanel.id,
+            title: "Unread",
+            subtitle: "",
+            body: ""
+        )
+        XCTAssertTrue(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: terminalPanel.id))
+
+        AppFocusState.overrideIsFocused = true
+        let pointInWindow = surfaceView.convert(NSPoint(x: 20, y: 20), to: nil)
+        let event = makeMouseEvent(type: .leftMouseDown, location: pointInWindow, window: window)
+        surfaceView.mouseDown(with: event)
+        let drained = expectation(description: "flash drained")
+        DispatchQueue.main.async { drained.fulfill() }
+        wait(for: [drained], timeout: 1.0)
+
+        XCTAssertFalse(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: terminalPanel.id))
+        XCTAssertEqual(GhosttySurfaceScrollView.flashCount(for: terminalPanel.id), 1)
     }
 }
 
@@ -10858,6 +11026,72 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
 
         XCTAssertTrue(webView.superview === slot, "Hiding should preserve the hosted WKWebView attachment")
         XCTAssertTrue(slot.isHidden, "Hiding should immediately hide the existing portal slot")
+    }
+
+    func testHiddenPortalEntrySurvivesAnchorRemovalUntilWorkspaceRebind() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        realizeWindowLayout(window)
+        let portal = WindowBrowserPortal(window: window)
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let anchorFrame = NSRect(x: 40, y: 24, width: 220, height: 160)
+        let oldAnchor = NSView(frame: anchorFrame)
+        contentView.addSubview(oldAnchor)
+
+        let webView = TrackingPortalWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        portal.bind(webView: webView, to: oldAnchor, visibleInUI: true)
+        portal.synchronizeWebViewForAnchor(oldAnchor)
+        advanceAnimations()
+
+        guard let slot = webView.superview as? WindowBrowserSlotView else {
+            XCTFail("Expected browser slot")
+            return
+        }
+
+        portal.updateEntryVisibility(forWebViewId: ObjectIdentifier(webView), visibleInUI: false, zPriority: 0)
+        portal.synchronizeWebViewForAnchor(oldAnchor)
+        advanceAnimations()
+        XCTAssertTrue(slot.isHidden, "Workspace handoff should hide the retiring browser before unmount")
+
+        oldAnchor.removeFromSuperview()
+        portal.synchronizeWebViewForAnchor(oldAnchor)
+        advanceAnimations()
+
+        XCTAssertTrue(
+            webView.superview === slot,
+            "Hidden workspace browsers should stay attached while their SwiftUI anchor is temporarily unmounted"
+        )
+        XCTAssertTrue(slot.isHidden, "Unmounted hidden workspace browser should remain hidden until rebound")
+        XCTAssertEqual(portal.debugEntryCount(), 1, "Workspace handoff should keep the hidden browser portal entry alive")
+
+        let displayCountBeforeRebind = webView.displayIfNeededCount
+        let newAnchor = NSView(frame: anchorFrame)
+        contentView.addSubview(newAnchor)
+        portal.bind(webView: webView, to: newAnchor, visibleInUI: true)
+        portal.synchronizeWebViewForAnchor(newAnchor)
+        advanceAnimations()
+
+        XCTAssertTrue(
+            webView.superview === slot,
+            "Selecting the workspace again should reuse the existing hidden browser portal slot"
+        )
+        XCTAssertFalse(slot.isHidden, "Rebinding the workspace browser should reveal the existing portal slot")
+        XCTAssertEqual(portal.debugEntryCount(), 1)
+        XCTAssertGreaterThan(
+            webView.displayIfNeededCount,
+            displayCountBeforeRebind,
+            "Workspace rebind should refresh the preserved browser without recreating its portal slot"
+        )
     }
 }
 

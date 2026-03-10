@@ -13626,6 +13626,7 @@ class TerminalController {
 
             var lines: [String] = []
             lines.append("tab=\(tab.id.uuidString)")
+            lines.append("color=\(tab.customColor ?? "none")")
             lines.append("cwd=\(tab.currentDirectory)")
 
             if let focused = tab.focusedPanelId,

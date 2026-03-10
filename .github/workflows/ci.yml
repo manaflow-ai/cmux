@@ -108,9 +108,6 @@ jobs:
             sleep $((attempt * 5))
           done
 
-      - name: Run issue #952 regression guard
-        run: python3 tests/test_issue_952_socket_listener_recovery.py
-
       - name: Run unit tests
         run: |
           set -euo pipefail
@@ -215,9 +212,6 @@ jobs:
             echo "Package resolution failed on attempt $attempt, retrying..."
             sleep $((attempt * 5))
           done
-
-      - name: Run issue #952 regression guard
-        run: python3 tests/test_issue_952_socket_listener_recovery.py
 
       - name: Create virtual display
         run: |

@@ -1028,7 +1028,195 @@ class GhosttyApp {
         loadReleaseAppSupportGhosttyConfigIfNeeded(config)
         loadLegacyGhosttyConfigIfNeeded(config)
         ghostty_config_load_recursive_files(config)
+        loadCJKFontFallbackIfNeeded(config)
         ghostty_config_finalize(config)
+    }
+
+    /// When the user has not configured `font-codepoint-map` for CJK ranges,
+    /// Ghostty's `CTFontCollection` scoring may pick an inappropriate fallback
+    /// font for Hiragana, Katakana, and CJK symbols. The scoring prioritizes
+    /// monospace fonts, so decorative fonts with monospace attributes (e.g.
+    /// AB_appare from Adobe CC, or LingWai) can be selected depending on what
+    /// is installed. This injects a sensible default based on the system's
+    /// preferred languages.
+    ///
+    /// See: https://github.com/manaflow-ai/cmux/pull/1017
+    private func loadCJKFontFallbackIfNeeded(_ config: ghostty_config_t) {
+        if Self.userConfigContainsCJKCodepointMap() { return }
+
+        guard let mappings = Self.cjkFontMappings() else { return }
+
+        let lines = mappings.map { range, font in
+            "font-codepoint-map = \(range)=\(font)"
+        }.joined(separator: "\n")
+
+        let tmpURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-cjk-font-fallback-\(UUID().uuidString).conf")
+        do {
+            try lines.write(to: tmpURL, atomically: true, encoding: .utf8)
+            defer { try? FileManager.default.removeItem(at: tmpURL) }
+            tmpURL.path.withCString { path in
+                ghostty_config_load_file(config, path)
+            }
+        } catch {
+            #if DEBUG
+            Self.initLog("failed to write CJK font fallback config: \(error)")
+            #endif
+        }
+    }
+
+    /// Unicode ranges shared by all CJK languages (Han ideographs, symbols, fullwidth forms).
+    private static let sharedCJKRanges = [
+        "U+3000-U+303F",  // CJK Symbols and Punctuation
+        "U+4E00-U+9FFF",  // CJK Unified Ideographs
+        "U+F900-U+FAFF",  // CJK Compatibility Ideographs
+        "U+FF00-U+FFEF",  // Halfwidth and Fullwidth Forms
+        "U+3400-U+4DBF",  // CJK Unified Ideographs Extension A
+    ]
+
+    /// Unicode ranges specific to Japanese (kana).
+    private static let japaneseRanges = [
+        "U+3040-U+309F",  // Hiragana
+        "U+30A0-U+30FF",  // Katakana
+    ]
+
+    /// Unicode ranges specific to Korean (Hangul).
+    private static let koreanRanges = [
+        "U+AC00-U+D7AF",  // Hangul Syllables
+        "U+1100-U+11FF",  // Hangul Jamo
+    ]
+
+    /// Returns (range, font) pairs for CJK font fallback based on the system's
+    /// preferred languages, or nil if no CJK language is detected. Each language
+    /// only maps its own script ranges to avoid assigning glyphs to a font that
+    /// lacks coverage (e.g. Hangul to Hiragino Sans).
+    static func cjkFontMappings(
+        preferredLanguages: [String] = Locale.preferredLanguages
+    ) -> [(String, String)]? {
+        var mappings: [(String, String)] = []
+        var coveredShared = false
+
+        for lang in preferredLanguages {
+            let lower = lang.lowercased()
+            let font: String
+            var langRanges: [String] = []
+
+            if lower.hasPrefix("ja") {
+                font = "Hiragino Sans"
+                langRanges = japaneseRanges
+            } else if lower.hasPrefix("ko") {
+                font = "Apple SD Gothic Neo"
+                langRanges = koreanRanges
+            } else if lower.hasPrefix("zh-hant") || lower.hasPrefix("zh-tw") || lower.hasPrefix("zh-hk") {
+                font = "PingFang TC"
+            } else if lower.hasPrefix("zh") {
+                font = "PingFang SC"
+            } else {
+                continue
+            }
+
+            if !coveredShared {
+                for range in sharedCJKRanges {
+                    mappings.append((range, font))
+                }
+                coveredShared = true
+            }
+
+            for range in langRanges {
+                mappings.append((range, font))
+            }
+        }
+
+        return mappings.isEmpty ? nil : mappings
+    }
+
+    /// Checks whether the user's Ghostty config files already contain
+    /// a `font-codepoint-map` entry covering CJK ranges. Also checks
+    /// application-support config paths that cmux may load at runtime.
+    static func userConfigContainsCJKCodepointMap(
+        configPaths: [String] = defaultCJKScanPaths()
+    ) -> Bool {
+        var visited = Set<String>()
+        for rawPath in configPaths {
+            let path = NSString(string: rawPath).expandingTildeInPath
+            if Self.configFileContainsCodepointMap(atPath: path, visited: &visited) {
+                return true
+            }
+        }
+        return false
+    }
+
+    /// Returns the default set of config paths to scan for existing
+    /// `font-codepoint-map` entries. Includes both the standard Ghostty
+    /// config locations and any app-support paths that cmux may load.
+    private static func defaultCJKScanPaths() -> [String] {
+        var paths = [
+            "~/.config/ghostty/config",
+            "~/.config/ghostty/config.ghostty",
+            "~/Library/Application Support/com.mitchellh.ghostty/config",
+            "~/Library/Application Support/com.mitchellh.ghostty/config.ghostty",
+        ]
+        if let appSupport = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first {
+            let releaseDir = appSupport.appendingPathComponent(releaseBundleIdentifier)
+            paths.append(releaseDir.appendingPathComponent("config").path)
+            paths.append(releaseDir.appendingPathComponent("config.ghostty").path)
+
+            if let bundleId = Bundle.main.bundleIdentifier, bundleId != releaseBundleIdentifier {
+                let currentDir = appSupport.appendingPathComponent(bundleId)
+                paths.append(currentDir.appendingPathComponent("config").path)
+                paths.append(currentDir.appendingPathComponent("config.ghostty").path)
+            }
+        }
+        return paths
+    }
+
+    /// Scans a single config file (and any files it includes) for
+    /// `font-codepoint-map` entries. Tracks visited paths to prevent
+    /// infinite recursion on cyclic includes.
+    private static func configFileContainsCodepointMap(
+        atPath path: String,
+        visited: inout Set<String>
+    ) -> Bool {
+        let resolved = (path as NSString).standardizingPath
+        guard !visited.contains(resolved) else { return false }
+        visited.insert(resolved)
+
+        guard let contents = try? String(contentsOfFile: resolved, encoding: .utf8) else {
+            return false
+        }
+        let parentDir = (resolved as NSString).deletingLastPathComponent
+
+        for line in contents.components(separatedBy: .newlines) {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("#") { continue }
+            if trimmed.hasPrefix("font-codepoint-map") {
+                return true
+            }
+            if trimmed.hasPrefix("config-file") {
+                let parts = trimmed.split(separator: "=", maxSplits: 1)
+                if parts.count == 2 {
+                    var includePath = parts[1]
+                        .trimmingCharacters(in: .whitespaces)
+                    // Ghostty supports optional includes with a trailing '?'
+                    if includePath.hasSuffix("?") {
+                        includePath.removeLast()
+                    }
+                    includePath = includePath
+                        .trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+                    let expanded = NSString(string: includePath).expandingTildeInPath
+                    let absolute = (expanded as NSString).isAbsolutePath
+                        ? expanded
+                        : (parentDir as NSString).appendingPathComponent(expanded)
+                    if configFileContainsCodepointMap(atPath: absolute, visited: &visited) {
+                        return true
+                    }
+                }
+            }
+        }
+        return false
     }
 
     static func shouldLoadLegacyGhosttyConfig(
@@ -2080,8 +2268,14 @@ final class TerminalSurface: Identifiable, ObservableObject {
         case closing
         case closed
     }
+    private struct PortalHostLease {
+        let hostId: ObjectIdentifier
+        let inWindow: Bool
+        let area: CGFloat
+    }
     private var portalLifecycleState: PortalLifecycleState = .live
     private var portalLifecycleGeneration: UInt64 = 1
+    private var activePortalHostLease: PortalHostLease?
     @Published var searchState: SearchState? = nil {
 	        didSet {
 	            if let searchState {
@@ -2171,6 +2365,90 @@ final class TerminalSurface: Identifiable, ObservableObject {
             return false
         }
         return true
+    }
+
+    private static let portalHostAreaThreshold: CGFloat = 4
+    private static let portalHostReplacementAreaGainRatio: CGFloat = 1.2
+
+    private static func portalHostArea(for bounds: CGRect) -> CGFloat {
+        max(0, bounds.width) * max(0, bounds.height)
+    }
+
+    private static func portalHostIsUsable(_ lease: PortalHostLease) -> Bool {
+        lease.inWindow && lease.area > portalHostAreaThreshold
+    }
+
+    func claimPortalHost(
+        hostId: ObjectIdentifier,
+        inWindow: Bool,
+        bounds: CGRect,
+        reason: String
+    ) -> Bool {
+        let next = PortalHostLease(
+            hostId: hostId,
+            inWindow: inWindow,
+            area: Self.portalHostArea(for: bounds)
+        )
+
+        if let current = activePortalHostLease {
+            if current.hostId == hostId {
+                activePortalHostLease = next
+                return true
+            }
+
+            let currentUsable = Self.portalHostIsUsable(current)
+            let nextUsable = Self.portalHostIsUsable(next)
+            let shouldReplace =
+                !currentUsable ||
+                (nextUsable && next.area > (current.area * Self.portalHostReplacementAreaGainRatio))
+
+            if shouldReplace {
+#if DEBUG
+                dlog(
+                    "terminal.portal.host.claim surface=\(id.uuidString.prefix(5)) " +
+                    "reason=\(reason) host=\(hostId) inWin=\(inWindow ? 1 : 0) " +
+                    "size=\(String(format: "%.1fx%.1f", bounds.width, bounds.height)) " +
+                    "replacingHost=\(current.hostId) replacingInWin=\(current.inWindow ? 1 : 0) " +
+                    "replacingArea=\(String(format: "%.1f", current.area))"
+                )
+#endif
+                activePortalHostLease = next
+                return true
+            }
+
+#if DEBUG
+            dlog(
+                "terminal.portal.host.skip surface=\(id.uuidString.prefix(5)) " +
+                "reason=\(reason) host=\(hostId) inWin=\(inWindow ? 1 : 0) " +
+                "size=\(String(format: "%.1fx%.1f", bounds.width, bounds.height)) " +
+                "ownerHost=\(current.hostId) ownerInWin=\(current.inWindow ? 1 : 0) " +
+                "ownerArea=\(String(format: "%.1f", current.area))"
+            )
+#endif
+            return false
+        }
+
+        activePortalHostLease = next
+#if DEBUG
+        dlog(
+            "terminal.portal.host.claim surface=\(id.uuidString.prefix(5)) " +
+            "reason=\(reason) host=\(hostId) inWin=\(inWindow ? 1 : 0) " +
+            "size=\(String(format: "%.1fx%.1f", bounds.width, bounds.height)) replacingHost=nil"
+        )
+#endif
+        return true
+    }
+
+    func releasePortalHostIfOwned(hostId: ObjectIdentifier, reason: String) {
+        guard let current = activePortalHostLease, current.hostId == hostId else { return }
+        activePortalHostLease = nil
+#if DEBUG
+        dlog(
+            "terminal.portal.host.release surface=\(id.uuidString.prefix(5)) " +
+            "reason=\(reason) host=\(hostId) inWin=\(current.inWindow ? 1 : 0) " +
+            "area=\(String(format: "%.1f", current.area))"
+        )
+#endif
     }
 
     func beginPortalCloseLifecycle(reason: String) {
@@ -2931,6 +3209,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         .fileURL,
         .URL
     ]
+    private static let tabTransferPasteboardType = NSPasteboard.PasteboardType("com.splittabbar.tabtransfer")
+    private static let sidebarTabReorderPasteboardType = NSPasteboard.PasteboardType("com.cmux.sidebar-tab-reorder")
     private static let shellEscapeCharacters = "\\ ()[]{}<>\"'`!#$&;|*?\t"
 
     fileprivate static func focusLog(_ message: String) {
@@ -3286,6 +3566,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return currentBounds
     }
 
+    private static func hasActiveTabDragPasteboard() -> Bool {
+        let types = NSPasteboard(name: .drag).types ?? []
+        return types.contains(tabTransferPasteboardType) || types.contains(sidebarTabReorderPasteboardType)
+    }
+
     @discardableResult
     private func updateSurfaceSize(size: CGSize? = nil) -> Bool {
         guard let terminalSurface = terminalSurface else { return false }
@@ -3305,6 +3590,20 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return false
         }
         pendingSurfaceSize = size
+        guard !Self.hasActiveTabDragPasteboard() else {
+#if DEBUG
+            let signature = "tabDrag-\(Int(size.width.rounded()))x\(Int(size.height.rounded()))"
+            if lastSizeSkipSignature != signature {
+                dlog(
+                    "surface.size.defer surface=\(terminalSurface.id.uuidString.prefix(5)) reason=tabDrag " +
+                    "size=\(String(format: "%.1fx%.1f", size.width, size.height)) " +
+                    "inWindow=\(window != nil ? 1 : 0)"
+                )
+                lastSizeSkipSignature = signature
+            }
+#endif
+            return false
+        }
         guard let window else {
 #if DEBUG
             let signature = "noWindow-\(Int(size.width))x\(Int(size.height))"
@@ -4480,6 +4779,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         dlog("terminal.mouseDown surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") mods=[\(debugModifierString(event.modifierFlags))] clickCount=\(event.clickCount) point=(\(String(format: "%.0f", debugPoint.x)),\(String(format: "%.0f", debugPoint.y)))")
         #endif
         window?.makeFirstResponder(self)
+        if let terminalSurface {
+            AppDelegate.shared?.tabManager?.dismissNotificationOnDirectInteraction(
+                tabId: terminalSurface.tabId,
+                surfaceId: terminalSurface.id
+            )
+        }
         guard let surface = surface else { return }
         let point = convert(event.locationInWindow, from: nil)
         ghostty_surface_mouse_pos(surface, point.x, bounds.height - point.y, modsFromEvent(event))
@@ -4950,6 +5255,16 @@ private final class GhosttyPassthroughVisualEffectView: NSVisualEffectView {
 }
 
 final class GhosttySurfaceScrollView: NSView {
+    enum FlashStyle {
+        case standardFocus
+        case notificationDismiss
+    }
+
+    private enum NotificationRingMetrics {
+        static let inset: CGFloat = 2
+        static let cornerRadius: CGFloat = 6
+    }
+
     private let backgroundView: NSView
     private let scrollView: GhosttyScrollView
     private let documentView: NSView
@@ -5117,6 +5432,13 @@ final class GhosttySurfaceScrollView: NSView {
         return terminalSurface.canAcceptPortalBinding(
             expectedSurfaceId: expectedSurfaceId,
             expectedGeneration: expectedGeneration
+        )
+    }
+
+    func releaseOwnedPortalHost(hostId: ObjectIdentifier, reason: String) {
+        surfaceView.terminalSurface?.releasePortalHostIfOwned(
+            hostId: hostId,
+            reason: reason
         )
     }
 
@@ -5419,7 +5741,7 @@ final class GhosttySurfaceScrollView: NSView {
         _ = setFrameIfNeeded(notificationRingOverlayView, to: bounds)
         _ = setFrameIfNeeded(flashOverlayView, to: bounds)
         updateNotificationRingPath()
-        updateFlashPath()
+        updateFlashPath(style: .standardFocus)
         synchronizeScrollView()
         synchronizeSurfaceView()
         let didCoreSurfaceChange = synchronizeCoreSurface()
@@ -5865,7 +6187,7 @@ final class GhosttySurfaceScrollView: NSView {
     }
 #endif
 
-    func triggerFlash() {
+    func triggerFlash(style: FlashStyle = .standardFocus) {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
 #if DEBUG
@@ -5873,7 +6195,7 @@ final class GhosttySurfaceScrollView: NSView {
                 Self.recordFlash(for: surfaceId)
             }
 #endif
-            self.updateFlashPath()
+            self.updateFlashPath(style: style)
             self.flashLayer.removeAllAnimations()
             self.flashLayer.opacity = 0
             let animation = CAKeyframeAnimation(keyPath: "opacity")
@@ -6615,17 +6937,27 @@ final class GhosttySurfaceScrollView: NSView {
         updateOverlayRingPath(
             layer: notificationRingLayer,
             bounds: notificationRingOverlayView.bounds,
-            inset: 2,
-            radius: 6
+            inset: NotificationRingMetrics.inset,
+            radius: NotificationRingMetrics.cornerRadius
         )
     }
 
-    private func updateFlashPath() {
+    private func updateFlashPath(style: FlashStyle) {
+        let inset: CGFloat
+        let radius: CGFloat
+        switch style {
+        case .standardFocus:
+            inset = CGFloat(FocusFlashPattern.ringInset)
+            radius = CGFloat(FocusFlashPattern.ringCornerRadius)
+        case .notificationDismiss:
+            inset = NotificationRingMetrics.inset
+            radius = NotificationRingMetrics.cornerRadius
+        }
         updateOverlayRingPath(
             layer: flashLayer,
             bounds: flashOverlayView.bounds,
-            inset: CGFloat(FocusFlashPattern.ringInset),
-            radius: CGFloat(FocusFlashPattern.ringCornerRadius)
+            inset: inset,
+            radius: radius
         )
     }
 
@@ -7029,18 +7361,30 @@ struct GhosttyTerminalView: NSViewRepresentable {
         }
 #endif
 
+        let hostContainer = nsView as? HostContainerView
+        let hostOwnsPortalNow = hostContainer.map { host in
+            terminalSurface.claimPortalHost(
+                hostId: ObjectIdentifier(host),
+                inWindow: host.window != nil,
+                bounds: host.bounds,
+                reason: "update"
+            )
+        } ?? true
+
         // Keep the surface lifecycle and handlers updated even if we defer re-parenting.
         hostedView.attachSurface(terminalSurface)
-        hostedView.setInactiveOverlay(
-            color: inactiveOverlayColor,
-            opacity: CGFloat(inactiveOverlayOpacity),
-            visible: showsInactiveOverlay
-        )
-        hostedView.setNotificationRing(visible: showsUnreadNotificationRing)
-        hostedView.setSearchOverlay(searchState: searchState)
-        hostedView.syncKeyStateIndicator(text: terminalSurface.currentKeyStateIndicatorText)
         hostedView.setFocusHandler { onFocus?(terminalSurface.id) }
         hostedView.setTriggerFlashHandler(onTriggerFlash)
+        if hostOwnsPortalNow {
+            hostedView.setInactiveOverlay(
+                color: inactiveOverlayColor,
+                opacity: CGFloat(inactiveOverlayOpacity),
+                visible: showsInactiveOverlay
+            )
+            hostedView.setNotificationRing(visible: showsUnreadNotificationRing)
+            hostedView.setSearchOverlay(searchState: searchState)
+            hostedView.syncKeyStateIndicator(text: terminalSurface.currentKeyStateIndicatorText)
+        }
         let portalExpectedSurfaceId = terminalSurface.id
         let portalExpectedGeneration = terminalSurface.portalBindingGeneration()
         let forwardedDropZone = isVisibleInUI ? paneDropZone : nil
@@ -7063,16 +7407,23 @@ struct GhosttyTerminalView: NSViewRepresentable {
             )
         }
 #endif
-        hostedView.setDropZoneOverlay(zone: forwardedDropZone)
+        if hostOwnsPortalNow {
+            hostedView.setDropZoneOverlay(zone: forwardedDropZone)
+        }
 
         coordinator.attachGeneration += 1
         let generation = coordinator.attachGeneration
 
-        let hostContainer = nsView as? HostContainerView
         if let host = hostContainer {
             host.onDidMoveToWindow = { [weak host, weak hostedView, weak coordinator] in
                 guard let host, let hostedView, let coordinator else { return }
                 guard coordinator.attachGeneration == generation else { return }
+                guard terminalSurface.claimPortalHost(
+                    hostId: ObjectIdentifier(host),
+                    inWindow: host.window != nil,
+                    bounds: host.bounds,
+                    reason: "didMoveToWindow"
+                ) else { return }
                 guard host.window != nil else { return }
                 TerminalWindowPortalRegistry.bind(
                     hostedView: hostedView,
@@ -7091,9 +7442,16 @@ struct GhosttyTerminalView: NSViewRepresentable {
             host.onGeometryChanged = { [weak host, weak hostedView, weak coordinator] in
                 guard let host, let hostedView, let coordinator else { return }
                 guard coordinator.attachGeneration == generation else { return }
-                guard coordinator.lastBoundHostId == ObjectIdentifier(host) else { return }
+                guard terminalSurface.claimPortalHost(
+                    hostId: ObjectIdentifier(host),
+                    inWindow: host.window != nil,
+                    bounds: host.bounds,
+                    reason: "geometryChanged"
+                ) else { return }
+                let hostId = ObjectIdentifier(host)
                 if host.window != nil,
-                   !TerminalWindowPortalRegistry.isHostedView(hostedView, boundTo: host) {
+                   (coordinator.lastBoundHostId != hostId ||
+                    !TerminalWindowPortalRegistry.isHostedView(hostedView, boundTo: host)) {
 #if DEBUG
                     dlog(
                         "ws.hostState.rebindOnGeometry surface=\(terminalSurface.id.uuidString.prefix(5)) " +
@@ -7109,7 +7467,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
                         expectedSurfaceId: portalExpectedSurfaceId,
                         expectedGeneration: portalExpectedGeneration
                     )
-                    coordinator.lastBoundHostId = ObjectIdentifier(host)
+                    coordinator.lastBoundHostId = hostId
                     hostedView.setVisibleInUI(coordinator.desiredIsVisibleInUI)
                     hostedView.setActive(coordinator.desiredIsActive)
                     hostedView.setNotificationRing(visible: coordinator.desiredShowsUnreadNotificationRing)
@@ -7118,7 +7476,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
                 coordinator.lastSynchronizedHostGeometryRevision = host.geometryRevision
             }
 
-            if host.window != nil {
+            if host.window != nil, hostOwnsPortalNow {
                 let hostId = ObjectIdentifier(host)
                 let geometryRevision = host.geometryRevision
                 let portalEntryMissing = !TerminalWindowPortalRegistry.isHostedView(hostedView, boundTo: host)
@@ -7153,7 +7511,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
                     TerminalWindowPortalRegistry.synchronizeForAnchor(host)
                     coordinator.lastSynchronizedHostGeometryRevision = geometryRevision
                 }
-            } else {
+            } else if hostOwnsPortalNow {
                 // Bind is deferred until host moves into a window. Update the
                 // existing portal entry's visibleInUI now so that any portal sync
                 // that runs before the deferred bind completes won't hide the view.
@@ -7178,7 +7536,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
         let isBoundToCurrentHost = hostContainer.map { host in
             TerminalWindowPortalRegistry.isHostedView(hostedView, boundTo: host)
         } ?? true
-        let shouldApplyImmediateHostedState = Self.shouldApplyImmediateHostedStateUpdate(
+        let shouldApplyImmediateHostedState = hostOwnsPortalNow && Self.shouldApplyImmediateHostedStateUpdate(
             hostedViewHasSuperview: hostedView.superview != nil,
             isBoundToCurrentHost: isBoundToCurrentHost
         )
@@ -7193,7 +7551,8 @@ struct GhosttyTerminalView: NSViewRepresentable {
             if desiredStateChanged {
                 dlog(
                     "ws.hostState.deferApply surface=\(terminalSurface.id.uuidString.prefix(5)) " +
-                    "reason=staleHostBinding hostWindow=\(hostWindowAttached ? 1 : 0) " +
+                    "reason=\(hostOwnsPortalNow ? "staleHostBinding" : "hostOwnershipRejected") " +
+                    "hostWindow=\(hostWindowAttached ? 1 : 0) " +
                     "boundToCurrent=\(isBoundToCurrentHost ? 1 : 0) hostedSuperview=\(hostedView.superview != nil ? 1 : 0) " +
                     "visible=\(isVisibleInUI ? 1 : 0) active=\(isActive ? 1 : 0)"
                 )
@@ -7231,6 +7590,10 @@ struct GhosttyTerminalView: NSViewRepresentable {
         if let host = nsView as? HostContainerView {
             host.onDidMoveToWindow = nil
             host.onGeometryChanged = nil
+            hostedView?.releaseOwnedPortalHost(
+                hostId: ObjectIdentifier(host),
+                reason: "dismantle"
+            )
         }
 
         // SwiftUI can transiently dismantle/rebuild NSViewRepresentable instances during split
