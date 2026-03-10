@@ -1902,7 +1902,7 @@ struct ContentView: View {
                 // Consume hover motion in divider band so overlapped views cannot
                 // continuously reassert their own cursor while we are resizing.
                 if event.type == .appKitDefined || event.type == .systemDefined {
-                    let hasIME = (observedWindow?.firstResponder as? GhosttyNSView)?.hasMarkedText() == true
+                    let hasIME = (observedWindow?.firstResponder as? NSTextInputClient)?.hasMarkedText() == true
                     if hasIME {
                         let evType: String = String(describing: event.type)
                         os_log(.info, log: imeResizeSidebarLog, "sidebar.eventConsumed type=%{public}@ subtype=%d dragging=%d band=%d",
@@ -1982,7 +1982,7 @@ struct ContentView: View {
                             } else {
                                 frType = "nil"
                             }
-                            let hasMarked: Int = (fr as? GhosttyNSView)?.hasMarkedText() == true ? 1 : 0
+                            let hasMarked: Int = (fr as? NSTextInputClient)?.hasMarkedText() == true ? 1 : 0
                             os_log(.info, log: imeResizeSidebarLog, "sidebar.resizeDragStart fr=%{public}@ hasMarkedText=%d",
                                    frType as NSString, hasMarked)
                             #if DEBUG
@@ -2008,7 +2008,7 @@ struct ContentView: View {
                         } else {
                             frType = "nil"
                         }
-                        let hasMarked: Int = (fr as? GhosttyNSView)?.hasMarkedText() == true ? 1 : 0
+                        let hasMarked: Int = (fr as? NSTextInputClient)?.hasMarkedText() == true ? 1 : 0
                         os_log(.info, log: imeResizeSidebarLog, "sidebar.resizeDragEnd fr=%{public}@ hasMarkedText=%d",
                                frType as NSString, hasMarked)
                         if isResizerDragging {
