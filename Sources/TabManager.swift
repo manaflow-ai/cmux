@@ -813,7 +813,8 @@ class TabManager: ObservableObject {
         workingDirectory overrideWorkingDirectory: String? = nil,
         select: Bool = true,
         eagerLoadTerminal: Bool = false,
-        placementOverride: NewWorkspacePlacement? = nil
+        placementOverride: NewWorkspacePlacement? = nil,
+        autoWelcomeIfNeeded: Bool = true
     ) -> Workspace {
         sentryBreadcrumb("workspace.create", data: ["tabCount": tabs.count + 1])
         let explicitWorkingDirectory = normalizedWorkingDirectory(overrideWorkingDirectory)
@@ -861,7 +862,31 @@ class TabManager: ObservableObject {
             "selectedTabId": select ? newWorkspace.id.uuidString : (selectedTabId?.uuidString ?? "")
         ])
 #endif
+        if autoWelcomeIfNeeded && select && !UserDefaults.standard.bool(forKey: WelcomeSettings.shownKey) {
+            if let appDelegate = AppDelegate.shared {
+                appDelegate.sendWelcomeCommandWhenReady(to: newWorkspace, markShownOnSend: true)
+            } else {
+                sendWelcomeWhenReady(to: newWorkspace)
+            }
+        }
         return newWorkspace
+    }
+
+    private func sendWelcomeWhenReady(to workspace: Workspace, attempt: Int = 0) {
+        let maxAttempts = 60
+        if let terminalPanel = workspace.focusedTerminalPanel,
+           terminalPanel.surface.surface != nil {
+            // Wait a bit more for the shell prompt to be ready
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                UserDefaults.standard.set(true, forKey: WelcomeSettings.shownKey)
+                terminalPanel.sendText("cmux welcome\n")
+            }
+            return
+        }
+        guard attempt < maxAttempts else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+            self?.sendWelcomeWhenReady(to: workspace, attempt: attempt + 1)
+        }
     }
 
     private func scheduleInitialWorkspaceGitMetadataRefresh(

@@ -6,6 +6,7 @@ import WebKit
 
 private var cmuxWindowBrowserPortalKey: UInt8 = 0
 private var cmuxWindowBrowserPortalCloseObserverKey: UInt8 = 0
+private var cmuxBrowserSearchOverlayPanelIdAssociationKey: UInt8 = 0
 
 #if DEBUG
 private func browserPortalDebugToken(_ view: NSView?) -> String {
@@ -28,6 +29,17 @@ private extension NSObject {
         let fn = unsafeBitCast(method(for: selector), to: Fn.self)
         fn(self, selector)
         return true
+    }
+}
+
+private extension NSResponder {
+    var browserPortalOwningView: NSView? {
+        if let editor = self as? NSTextView,
+           editor.isFieldEditor,
+           let editedView = editor.delegate as? NSView {
+            return editedView
+        }
+        return self as? NSView
     }
 }
 
@@ -81,6 +93,113 @@ private extension WKWebView {
     }
 }
 
+enum HostedInspectorDockSide {
+    case leading
+    case trailing
+
+    static func resolve(
+        pageFrame: NSRect,
+        inspectorFrame: NSRect,
+        epsilon: CGFloat = 1
+    ) -> Self? {
+        if pageFrame.maxX <= inspectorFrame.minX + epsilon {
+            return .trailing
+        }
+        if inspectorFrame.maxX <= pageFrame.minX + epsilon {
+            return .leading
+        }
+        return nil
+    }
+
+    func dividerX(pageFrame: NSRect, inspectorFrame: NSRect) -> CGFloat {
+        switch self {
+        case .leading:
+            return inspectorFrame.maxX
+        case .trailing:
+            return inspectorFrame.minX
+        }
+    }
+
+    func dividerHitRect(
+        in bounds: NSRect,
+        pageFrame: NSRect,
+        inspectorFrame: NSRect,
+        expansion: CGFloat
+    ) -> NSRect {
+        let minY = max(bounds.minY, min(pageFrame.minY, inspectorFrame.minY))
+        let maxY = min(bounds.maxY, max(pageFrame.maxY, inspectorFrame.maxY))
+        return NSRect(
+            x: dividerX(pageFrame: pageFrame, inspectorFrame: inspectorFrame) - expansion,
+            y: minY,
+            width: expansion * 2,
+            height: max(0, maxY - minY)
+        )
+    }
+
+    func clampedDividerX(
+        _ proposedDividerX: CGFloat,
+        containerBounds: NSRect,
+        pageFrame: NSRect,
+        minimumInspectorWidth: CGFloat
+    ) -> CGFloat {
+        switch self {
+        case .leading:
+            let minDividerX = min(containerBounds.maxX, containerBounds.minX + minimumInspectorWidth)
+            let maxDividerX = max(minDividerX, min(containerBounds.maxX, pageFrame.maxX))
+            return max(minDividerX, min(maxDividerX, proposedDividerX))
+        case .trailing:
+            let minDividerX = max(containerBounds.minX, pageFrame.minX)
+            let maxDividerX = max(minDividerX, containerBounds.maxX - minimumInspectorWidth)
+            return max(minDividerX, min(maxDividerX, proposedDividerX))
+        }
+    }
+
+    func inspectorWidth(forDividerX dividerX: CGFloat, in containerBounds: NSRect) -> CGFloat {
+        switch self {
+        case .leading:
+            return max(0, dividerX - containerBounds.minX)
+        case .trailing:
+            return max(0, containerBounds.maxX - dividerX)
+        }
+    }
+
+    func resizedFrames(
+        preferredWidth: CGFloat,
+        in containerBounds: NSRect,
+        pageFrame: NSRect,
+        inspectorFrame: NSRect
+    ) -> (pageFrame: NSRect, inspectorFrame: NSRect) {
+        switch self {
+        case .leading:
+            let maximumInspectorWidth = max(0, pageFrame.maxX - containerBounds.minX)
+            let clampedInspectorWidth = max(0, min(maximumInspectorWidth, preferredWidth))
+            let dividerX = min(pageFrame.maxX, containerBounds.minX + clampedInspectorWidth)
+
+            var nextPageFrame = pageFrame
+            nextPageFrame.origin.x = dividerX
+            nextPageFrame.size.width = max(0, pageFrame.maxX - dividerX)
+
+            var nextInspectorFrame = inspectorFrame
+            nextInspectorFrame.origin.x = containerBounds.minX
+            nextInspectorFrame.size.width = max(0, dividerX - containerBounds.minX)
+            return (pageFrame: nextPageFrame, inspectorFrame: nextInspectorFrame)
+
+        case .trailing:
+            let maximumInspectorWidth = max(0, containerBounds.maxX - pageFrame.minX)
+            let clampedInspectorWidth = max(0, min(maximumInspectorWidth, preferredWidth))
+            let dividerX = max(pageFrame.minX, containerBounds.maxX - clampedInspectorWidth)
+
+            var nextPageFrame = pageFrame
+            nextPageFrame.size.width = max(0, dividerX - pageFrame.minX)
+
+            var nextInspectorFrame = inspectorFrame
+            nextInspectorFrame.origin.x = dividerX
+            nextInspectorFrame.size.width = max(0, containerBounds.maxX - dividerX)
+            return (pageFrame: nextPageFrame, inspectorFrame: nextInspectorFrame)
+        }
+    }
+}
+
 final class WindowBrowserHostView: NSView {
     private struct DividerRegion {
         let rectInWindow: NSRect
@@ -97,6 +216,7 @@ final class WindowBrowserHostView: NSView {
         let containerView: NSView
         let pageView: NSView
         let inspectorView: NSView
+        let dockSide: HostedInspectorDockSide
     }
 
     private struct HostedInspectorDividerDragState {
@@ -104,6 +224,7 @@ final class WindowBrowserHostView: NSView {
         let containerView: NSView
         let pageView: NSView
         let inspectorView: NSView
+        let dockSide: HostedInspectorDockSide
         let initialWindowX: CGFloat
         let initialPageFrame: NSRect
         let initialInspectorFrame: NSRect
@@ -383,6 +504,7 @@ final class WindowBrowserHostView: NSView {
             containerView: hostedInspectorHit.containerView,
             pageView: hostedInspectorHit.pageView,
             inspectorView: hostedInspectorHit.inspectorView,
+            dockSide: hostedInspectorHit.dockSide,
             initialWindowX: event.locationInWindow.x,
             initialPageFrame: hostedInspectorHit.pageView.frame,
             initialInspectorFrame: hostedInspectorHit.inspectorView.frame
@@ -414,11 +536,21 @@ final class WindowBrowserHostView: NSView {
             Self.minimumHostedInspectorWidth,
             max(60, dragState.initialInspectorFrame.width)
         )
-        let minDividerX = max(containerBounds.minX, dragState.initialPageFrame.minX)
-        let maxDividerX = max(minDividerX, containerBounds.maxX - minimumInspectorWidth)
-        let proposedDividerX = dragState.initialInspectorFrame.minX + (event.locationInWindow.x - dragState.initialWindowX)
-        let clampedDividerX = max(minDividerX, min(maxDividerX, proposedDividerX))
-        let inspectorWidth = max(0, containerBounds.maxX - clampedDividerX)
+        let initialDividerX = dragState.dockSide.dividerX(
+            pageFrame: dragState.initialPageFrame,
+            inspectorFrame: dragState.initialInspectorFrame
+        )
+        let proposedDividerX = initialDividerX + (event.locationInWindow.x - dragState.initialWindowX)
+        let clampedDividerX = dragState.dockSide.clampedDividerX(
+            proposedDividerX,
+            containerBounds: containerBounds,
+            pageFrame: dragState.initialPageFrame,
+            minimumInspectorWidth: minimumInspectorWidth
+        )
+        let inspectorWidth = dragState.dockSide.inspectorWidth(
+            forDividerX: clampedDividerX,
+            in: containerBounds
+        )
 
         dragState.slotView.preferredHostedInspectorWidth = inspectorWidth
         let appliedFrames = applyHostedInspectorDividerWidth(
@@ -427,7 +559,8 @@ final class WindowBrowserHostView: NSView {
                 slotView: dragState.slotView,
                 containerView: dragState.containerView,
                 pageView: dragState.pageView,
-                inspectorView: dragState.inspectorView
+                inspectorView: dragState.inspectorView,
+                dockSide: dragState.dockSide
             ),
             reason: "drag"
         )
@@ -438,7 +571,8 @@ final class WindowBrowserHostView: NSView {
                 slotView: dragState.slotView,
                 containerView: dragState.containerView,
                 pageView: dragState.pageView,
-                inspectorView: dragState.inspectorView
+                inspectorView: dragState.inspectorView,
+                dockSide: dragState.dockSide
             )
         )
 #if DEBUG
@@ -710,22 +844,31 @@ final class WindowBrowserHostView: NSView {
         while let inspectorView = current, inspectorView !== slot {
             guard let containerView = inspectorView.superview else { break }
 
-            let pageCandidates = containerView.subviews.filter { candidate in
-                guard Self.isVisibleHostedInspectorSiblingCandidate(candidate) else { return false }
-                guard candidate !== inspectorView else { return false }
-                guard candidate.frame.maxX <= inspectorView.frame.minX + 1 else { return false }
-                return Self.verticalOverlap(between: candidate.frame, and: inspectorView.frame) > 8
+            let pageCandidates = containerView.subviews.compactMap { candidate -> (view: NSView, dockSide: HostedInspectorDockSide)? in
+                guard Self.isVisibleHostedInspectorSiblingCandidate(candidate) else { return nil }
+                guard candidate !== inspectorView else { return nil }
+                guard Self.verticalOverlap(between: candidate.frame, and: inspectorView.frame) > 8 else {
+                    return nil
+                }
+                guard let dockSide = HostedInspectorDockSide.resolve(
+                    pageFrame: candidate.frame,
+                    inspectorFrame: inspectorView.frame
+                ) else {
+                    return nil
+                }
+                return (view: candidate, dockSide: dockSide)
             }
 
-            if let pageView = pageCandidates.max(by: {
-                hostedInspectorPageCandidateScore($0, inspectorView: inspectorView)
-                    < hostedInspectorPageCandidateScore($1, inspectorView: inspectorView)
+            if let pageCandidate = pageCandidates.max(by: {
+                hostedInspectorPageCandidateScore($0.view, inspectorView: inspectorView)
+                    < hostedInspectorPageCandidateScore($1.view, inspectorView: inspectorView)
             }) {
                 bestHit = HostedInspectorDividerHit(
                     slotView: slot,
                     containerView: containerView,
-                    pageView: pageView,
-                    inspectorView: inspectorView
+                    pageView: pageCandidate.view,
+                    inspectorView: inspectorView,
+                    dockSide: pageCandidate.dockSide
                 )
             }
 
@@ -739,13 +882,11 @@ final class WindowBrowserHostView: NSView {
         let slotBounds = hit.slotView.bounds
         let pageFrame = hit.slotView.convert(hit.pageView.bounds, from: hit.pageView)
         let inspectorFrame = hit.slotView.convert(hit.inspectorView.bounds, from: hit.inspectorView)
-        let minY = max(slotBounds.minY, min(pageFrame.minY, inspectorFrame.minY))
-        let maxY = min(slotBounds.maxY, max(pageFrame.maxY, inspectorFrame.maxY))
-        return NSRect(
-            x: inspectorFrame.minX - Self.hostedInspectorDividerHitExpansion,
-            y: minY,
-            width: Self.hostedInspectorDividerHitExpansion * 2,
-            height: max(0, maxY - minY)
+        return hit.dockSide.dividerHitRect(
+            in: slotBounds,
+            pageFrame: pageFrame,
+            inspectorFrame: inspectorFrame,
+            expansion: Self.hostedInspectorDividerHitExpansion
         )
     }
 
@@ -792,16 +933,14 @@ final class WindowBrowserHostView: NSView {
         reason: String
     ) -> (pageFrame: NSRect, inspectorFrame: NSRect) {
         let containerBounds = hit.containerView.bounds
-        let maximumInspectorWidth = max(0, containerBounds.maxX - hit.pageView.frame.minX)
-        let clampedInspectorWidth = max(0, min(maximumInspectorWidth, preferredWidth))
-        let dividerX = max(hit.pageView.frame.minX, containerBounds.maxX - clampedInspectorWidth)
-
-        var pageFrame = hit.pageView.frame
-        pageFrame.size.width = max(0, dividerX - pageFrame.minX)
-
-        var inspectorFrame = hit.inspectorView.frame
-        inspectorFrame.origin.x = dividerX
-        inspectorFrame.size.width = max(0, containerBounds.maxX - dividerX)
+        let nextFrames = hit.dockSide.resizedFrames(
+            preferredWidth: preferredWidth,
+            in: containerBounds,
+            pageFrame: hit.pageView.frame,
+            inspectorFrame: hit.inspectorView.frame
+        )
+        let pageFrame = nextFrames.pageFrame
+        let inspectorFrame = nextFrames.inspectorFrame
 
         let pageChanged = !Self.rectApproximatelyEqual(pageFrame, hit.pageView.frame, epsilon: 0.5)
         let inspectorChanged = !Self.rectApproximatelyEqual(inspectorFrame, hit.inspectorView.frame, epsilon: 0.5)
@@ -978,9 +1117,12 @@ private final class BrowserDropZoneOverlayView: NSView {
 struct BrowserPortalSearchOverlayConfiguration {
     let panelId: UUID
     let searchState: BrowserSearchState
+    let focusRequestGeneration: UInt64
+    let canApplyFocusRequest: (UInt64) -> Bool
     let onNext: () -> Void
     let onPrevious: () -> Void
     let onClose: () -> Void
+    let onFieldDidFocus: () -> Void
 }
 
 struct BrowserPaneDropContext: Equatable {
@@ -1420,23 +1562,63 @@ final class WindowBrowserSlotView: NSView {
         applyResolvedDropZoneOverlay()
     }
 
+    private func logSearchOverlayEvent(_ action: String, panelId: UUID?) {
+#if DEBUG
+        let firstResponderSummary: String = {
+            guard let firstResponder = window?.firstResponder else { return "nil" }
+            if let editor = firstResponder as? NSTextView, editor.isFieldEditor {
+                let delegateSummary = editor.delegate.map { String(describing: type(of: $0)) } ?? "nil"
+                return "fieldEditor(delegate=\(delegateSummary))"
+            }
+            return String(describing: type(of: firstResponder))
+        }()
+        dlog(
+            "browser.findbar.portal action=\(action) " +
+            "panel=\(panelId?.uuidString.prefix(5) ?? "nil") " +
+            "window=\(window?.windowNumber ?? -1) " +
+            "firstResponder=\(firstResponderSummary) " +
+            "hasOverlay=\(searchOverlayHostingView != nil ? 1 : 0)"
+        )
+#endif
+    }
+
     func setSearchOverlay(_ configuration: BrowserPortalSearchOverlayConfiguration?) {
         guard let configuration else {
+            logSearchOverlayEvent("remove", panelId: nil)
+            if let overlay = searchOverlayHostingView {
+                objc_setAssociatedObject(
+                    overlay,
+                    &cmuxBrowserSearchOverlayPanelIdAssociationKey,
+                    nil,
+                    .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+                )
+            }
             searchOverlayHostingView?.removeFromSuperview()
             searchOverlayHostingView = nil
             return
         }
 
+        logSearchOverlayEvent("set", panelId: configuration.panelId)
         let rootView = BrowserSearchOverlay(
             panelId: configuration.panelId,
             searchState: configuration.searchState,
+            focusRequestGeneration: configuration.focusRequestGeneration,
+            canApplyFocusRequest: configuration.canApplyFocusRequest,
             onNext: configuration.onNext,
             onPrevious: configuration.onPrevious,
-            onClose: configuration.onClose
+            onClose: configuration.onClose,
+            onFieldDidFocus: configuration.onFieldDidFocus
         )
 
         if let overlay = searchOverlayHostingView {
+            logSearchOverlayEvent("updateExisting", panelId: configuration.panelId)
             overlay.rootView = rootView
+            objc_setAssociatedObject(
+                overlay,
+                &cmuxBrowserSearchOverlayPanelIdAssociationKey,
+                configuration.panelId,
+                .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+            )
             if overlay.superview !== self {
                 overlay.removeFromSuperview()
                 addSubview(overlay)
@@ -1452,6 +1634,12 @@ final class WindowBrowserSlotView: NSView {
 
         let overlay = NSHostingView(rootView: rootView)
         overlay.translatesAutoresizingMaskIntoConstraints = false
+        objc_setAssociatedObject(
+            overlay,
+            &cmuxBrowserSearchOverlayPanelIdAssociationKey,
+            configuration.panelId,
+            .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+        )
         addSubview(overlay)
         NSLayoutConstraint.activate([
             overlay.topAnchor.constraint(equalTo: topAnchor),
@@ -1460,34 +1648,77 @@ final class WindowBrowserSlotView: NSView {
             overlay.trailingAnchor.constraint(equalTo: trailingAnchor),
         ])
         searchOverlayHostingView = overlay
+        logSearchOverlayEvent("create", panelId: configuration.panelId)
+    }
+
+    func searchOverlayPanelId(for responder: NSResponder) -> UUID? {
+        guard let overlay = searchOverlayHostingView,
+              let view = responder.browserPortalOwningView,
+              view.isDescendant(of: overlay) else {
+            return nil
+        }
+        return objc_getAssociatedObject(overlay, &cmuxBrowserSearchOverlayPanelIdAssociationKey) as? UUID
+    }
+
+    @discardableResult
+    func yieldSearchOverlayFocusIfOwned(by panelId: UUID, in window: NSWindow) -> Bool {
+        guard let firstResponder = window.firstResponder,
+              searchOverlayPanelId(for: firstResponder) == panelId else {
+            return false
+        }
+        return window.makeFirstResponder(nil)
     }
 
     func pinHostedWebView(_ webView: WKWebView) {
         guard webView.superview === self else { return }
 
-        let needsNewConstraints =
+        let needsPlainWebViewFrameReset =
+            !Self.hasWebKitCompanionSubview(in: self, primaryWebView: webView) &&
+            Self.frameDiffersFromBounds(webView.frame, bounds: bounds)
+        let needsFrameHosting =
             hostedWebView !== webView ||
-            hostedWebViewConstraints.isEmpty ||
-            webView.translatesAutoresizingMaskIntoConstraints
-        guard needsNewConstraints else {
+            !hostedWebViewConstraints.isEmpty ||
+            needsPlainWebViewFrameReset ||
+            !webView.translatesAutoresizingMaskIntoConstraints ||
+            webView.autoresizingMask != [.width, .height]
+        guard needsFrameHosting else {
             needsLayout = true
             layoutSubtreeIfNeeded()
             return
         }
 
         NSLayoutConstraint.deactivate(hostedWebViewConstraints)
+        hostedWebViewConstraints = []
         hostedWebView = webView
-        webView.translatesAutoresizingMaskIntoConstraints = false
-        webView.autoresizingMask = []
-        hostedWebViewConstraints = [
-            webView.topAnchor.constraint(equalTo: topAnchor),
-            webView.bottomAnchor.constraint(equalTo: bottomAnchor),
-            webView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            webView.trailingAnchor.constraint(equalTo: trailingAnchor),
-        ]
-        NSLayoutConstraint.activate(hostedWebViewConstraints)
+        // Attached Web Inspector mutates the moved WKWebView's frame directly.
+        // Re-pin plain web views after cross-host reattach, but preserve the
+        // WebKit-managed split frame when docked DevTools siblings are present.
+        webView.translatesAutoresizingMaskIntoConstraints = true
+        webView.autoresizingMask = [.width, .height]
+        webView.frame = bounds
         needsLayout = true
         layoutSubtreeIfNeeded()
+    }
+
+    private static func frameDiffersFromBounds(_ frame: NSRect, bounds: NSRect, epsilon: CGFloat = 0.5) -> Bool {
+        abs(frame.minX - bounds.minX) > epsilon ||
+            abs(frame.minY - bounds.minY) > epsilon ||
+            abs(frame.width - bounds.width) > epsilon ||
+            abs(frame.height - bounds.height) > epsilon
+    }
+
+    private static func hasWebKitCompanionSubview(in host: NSView, primaryWebView: WKWebView) -> Bool {
+        var stack = host.subviews.filter { $0 !== primaryWebView }
+        while let current = stack.popLast() {
+            if current.isDescendant(of: primaryWebView) {
+                continue
+            }
+            if String(describing: type(of: current)).contains("WK") {
+                return true
+            }
+            stack.append(contentsOf: current.subviews)
+        }
+        return false
     }
 
     func effectivePaneTopChromeHeight() -> CGFloat {
@@ -1687,6 +1918,18 @@ final class WindowBrowserPortal: NSObject {
         _ = ensureInstalled()
     }
 
+    static func shouldTreatSplitResizeAsExternalGeometry(
+        _ splitView: NSSplitView,
+        window: NSWindow,
+        hostView: WindowBrowserHostView
+    ) -> Bool {
+        guard splitView.window === window else { return false }
+        // WebKit's attached DevTools uses internal NSSplitView instances for the
+        // side/bottom inspector layout. Those resizes are local to hosted content
+        // and should not trigger a full portal re-sync/refresh pass.
+        return !splitView.isDescendant(of: hostView)
+    }
+
     private func installGeometryObservers(for window: NSWindow) {
         guard geometryObservers.isEmpty else { return }
 
@@ -1718,7 +1961,11 @@ final class WindowBrowserPortal: NSObject {
                 guard let self,
                       let splitView = notification.object as? NSSplitView,
                       let window = self.window,
-                      splitView.window === window else { return }
+                      Self.shouldTreatSplitResizeAsExternalGeometry(
+                          splitView,
+                          window: window,
+                          hostView: self.hostView
+                      ) else { return }
                 self.scheduleExternalGeometrySynchronize()
             }
         })
@@ -1753,6 +2000,7 @@ final class WindowBrowserPortal: NSObject {
             guard let webView = entry.webView,
                   let containerView = entry.containerView,
                   !containerView.isHidden else { continue }
+            guard webView.superview === containerView else { continue }
             refreshHostedWebViewPresentation(
                 webView,
                 in: containerView,
@@ -1872,7 +2120,9 @@ final class WindowBrowserPortal: NSObject {
         case (nil, nil):
             return true
         case let (lhs?, rhs?):
-            return lhs.panelId == rhs.panelId && lhs.searchState === rhs.searchState
+            return lhs.panelId == rhs.panelId &&
+                lhs.searchState === rhs.searchState &&
+                lhs.focusRequestGeneration == rhs.focusRequestGeneration
         default:
             return false
         }
@@ -2144,6 +2394,26 @@ final class WindowBrowserPortal: NSObject {
         entry.containerView?.setSearchOverlay(configuration)
     }
 
+    func searchOverlayPanelId(for responder: NSResponder) -> UUID? {
+        for entry in entriesByWebViewId.values {
+            if let panelId = entry.containerView?.searchOverlayPanelId(for: responder) {
+                return panelId
+            }
+        }
+        return nil
+    }
+
+    @discardableResult
+    func yieldSearchOverlayFocusIfOwned(by panelId: UUID) -> Bool {
+        guard let window else { return false }
+        for entry in entriesByWebViewId.values {
+            if entry.containerView?.yieldSearchOverlayFocusIfOwned(by: panelId, in: window) == true {
+                return true
+            }
+        }
+        return false
+    }
+
     func updatePaneTopChromeHeight(forWebViewId webViewId: ObjectIdentifier, height: CGFloat) {
         guard var entry = entriesByWebViewId[webViewId] else { return }
         let resolvedHeight = max(0, height)
@@ -2406,7 +2676,7 @@ final class WindowBrowserPortal: NSObject {
             containerView.setPaneTopChromeHeight(0)
             containerView.setSearchOverlay(nil)
             containerView.setDropZoneOverlay(zone: nil)
-            if !containerView.isHidden {
+            if !containerView.isHidden, webView.superview === containerView {
                 webView.browserPortalNotifyHidden(reason: reason)
             }
             containerView.isHidden = true
@@ -2508,7 +2778,18 @@ final class WindowBrowserPortal: NSObject {
             hostView.addSubview(containerView, positioned: .above, relativeTo: nil)
             refreshReasons.append("syncAttachContainer")
         }
-        if webView.superview !== containerView {
+        let shouldPreserveExternalHostForHiddenEntry =
+            !entry.visibleInUI &&
+            webView.superview !== containerView
+        if shouldPreserveExternalHostForHiddenEntry {
+#if DEBUG
+            dlog(
+                "browser.portal.reparent.skip web=\(browserPortalDebugToken(webView)) " +
+                "reason=hiddenEntryExternalHost super=\(browserPortalDebugToken(webView.superview)) " +
+                "container=\(browserPortalDebugToken(containerView))"
+            )
+#endif
+        } else if webView.superview !== containerView {
 #if DEBUG
             dlog(
                 "browser.portal.reparent web=\(browserPortalDebugToken(webView)) " +
@@ -2699,15 +2980,16 @@ final class WindowBrowserPortal: NSObject {
             refreshReasons.append("bounds")
         }
 
+        let containerOwnsWebView = webView.superview === containerView
         let containerBounds = containerView.bounds
-        let preNormalizeWebFrame = webView.frame
+        let preNormalizeWebFrame = containerOwnsWebView ? webView.frame : .zero
         let inspectorHeightFromInsets = max(0, containerBounds.height - preNormalizeWebFrame.height)
         let inspectorHeightFromOverflow = max(0, preNormalizeWebFrame.maxY - containerBounds.maxY)
         let inspectorHeightApprox = max(inspectorHeightFromInsets, inspectorHeightFromOverflow)
 #if DEBUG
         let inspectorSubviews = Self.inspectorSubviewCount(in: containerView)
 #endif
-        if Self.frameExtendsOutsideBounds(preNormalizeWebFrame, bounds: containerBounds) {
+        if containerOwnsWebView && Self.frameExtendsOutsideBounds(preNormalizeWebFrame, bounds: containerBounds) {
             let oldWebFrame = preNormalizeWebFrame
             CATransaction.begin()
             CATransaction.setDisableActions(true)
@@ -2766,14 +3048,16 @@ final class WindowBrowserPortal: NSObject {
         if transientRecoveryReason == nil {
             resetTransientRecoveryRetryIfNeeded(forWebViewId: webViewId, entry: &entry)
         }
-        if !shouldHide, !refreshReasons.isEmpty {
+        if !shouldHide, containerOwnsWebView, !refreshReasons.isEmpty {
             refreshHostedWebViewPresentation(
                 webView,
                 in: containerView,
                 reason: "\(source):" + refreshReasons.joined(separator: ",")
             )
         }
-        hostView.reapplyHostedInspectorDividerIfNeeded(in: containerView, reason: "portal.sync")
+        if containerOwnsWebView {
+            hostView.reapplyHostedInspectorDividerIfNeeded(in: containerView, reason: "portal.sync")
+        }
 #if DEBUG
         dlog(
             "browser.portal.sync.result web=\(browserPortalDebugToken(webView)) source=\(source) " +
@@ -2783,6 +3067,7 @@ final class WindowBrowserPortal: NSObject {
             "old=\(browserPortalDebugFrame(oldFrame)) raw=\(browserPortalDebugFrame(frameInHost)) " +
             "target=\(browserPortalDebugFrame(targetFrame)) hide=\(shouldHide ? 1 : 0) " +
             "entryVisible=\(entry.visibleInUI ? 1 : 0) " +
+            "containerOwnsWeb=\(containerOwnsWebView ? 1 : 0) " +
             "containerHidden=\(containerView.isHidden ? 1 : 0) webHidden=\(webView.isHidden ? 1 : 0) " +
             "containerBounds=\(browserPortalDebugFrame(containerView.bounds)) " +
             "preWebFrame=\(browserPortalDebugFrame(preNormalizeWebFrame)) " +
@@ -3029,6 +3314,19 @@ enum BrowserWindowPortalRegistry {
         guard let windowId = webViewToWindowId[webViewId],
               let portal = portalsByWindowId[windowId] else { return }
         portal.updateSearchOverlay(forWebViewId: webViewId, configuration: configuration)
+    }
+
+    static func searchOverlayPanelId(for responder: NSResponder, in window: NSWindow) -> UUID? {
+        let windowId = ObjectIdentifier(window)
+        guard let portal = portalsByWindowId[windowId] else { return nil }
+        return portal.searchOverlayPanelId(for: responder)
+    }
+
+    @discardableResult
+    static func yieldSearchOverlayFocusIfOwned(by panelId: UUID, in window: NSWindow) -> Bool {
+        let windowId = ObjectIdentifier(window)
+        guard let portal = portalsByWindowId[windowId] else { return false }
+        return portal.yieldSearchOverlayFocusIfOwned(by: panelId)
     }
 
     static func updatePaneTopChromeHeight(for webView: WKWebView, height: CGFloat) {

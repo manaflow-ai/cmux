@@ -13,7 +13,10 @@ on:
 
 concurrency:
   group: nightly-build-${{ github.ref_name }}
-  cancel-in-progress: true
+  # Queue main pushes instead of hard-canceling older runs. The decide job
+  # already coalesces to the current main HEAD, and we re-check HEAD before
+  # publishing so stale queued runs exit cleanly instead of showing up red.
+  cancel-in-progress: false
 
 permissions:
   contents: write
@@ -189,7 +192,29 @@ jobs:
           [[ "$APP_ARCHS" == *arm64* && "$APP_ARCHS" == *x86_64* ]]
           [[ "$CLI_ARCHS" == *arm64* && "$CLI_ARCHS" == *x86_64* ]]
 
+      - name: Check whether build commit is still current main HEAD
+        if: needs.decide.outputs.should_publish == 'true'
+        id: current_head
+        run: |
+          set -euo pipefail
+          CURRENT_MAIN_SHA="$(git ls-remote origin refs/heads/main | awk '{print $1}')"
+          BUILD_SHA="${{ needs.decide.outputs.head_sha }}"
+          if [ "$CURRENT_MAIN_SHA" = "$BUILD_SHA" ]; then
+            STILL_CURRENT=true
+          else
+            STILL_CURRENT=false
+          fi
+          echo "still_current=${STILL_CURRENT}" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Publish guard"
+            echo
+            echo "- build sha: \`$BUILD_SHA\`"
+            echo "- current main sha: \`$CURRENT_MAIN_SHA\`"
+            echo "- continue signing/publish: \`$STILL_CURRENT\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Inject nightly identities and metadata
+        if: needs.decide.outputs.should_publish != 'true' || steps.current_head.outputs.still_current == 'true'
         run: |
           set -euo pipefail
           SHORT_SHA="${{ needs.decide.outputs.short_sha }}"
@@ -253,6 +278,7 @@ jobs:
           echo "Commit SHA: ${SHORT_SHA}"
 
       - name: Import signing cert
+        if: needs.decide.outputs.should_publish != 'true' || steps.current_head.outputs.still_current == 'true'
         env:
           APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
@@ -276,6 +302,7 @@ jobs:
           security list-keychains -d user -s build.keychain
 
       - name: Codesign apps
+        if: needs.decide.outputs.should_publish != 'true' || steps.current_head.outputs.still_current == 'true'
         env:
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
         run: |
@@ -297,6 +324,7 @@ jobs:
           done
 
       - name: Notarize apps and dmgs
+        if: needs.decide.outputs.should_publish != 'true' || steps.current_head.outputs.still_current == 'true'
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
@@ -365,6 +393,7 @@ jobs:
             "$NIGHTLY_UNIVERSAL_DMG_IMMUTABLE"
 
       - name: Upload dSYMs to Sentry
+        if: needs.decide.outputs.should_publish != 'true' || steps.current_head.outputs.still_current == 'true'
         env:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
           SENTRY_ORG: manaflow
@@ -380,6 +409,7 @@ jobs:
             build-universal/Build/Products/Release/
 
       - name: Generate Sparkle appcasts (nightly)
+        if: needs.decide.outputs.should_publish != 'true' || steps.current_head.outputs.still_current == 'true'
         env:
           SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
         run: |
@@ -403,7 +433,7 @@ jobs:
           if-no-files-found: error
 
       - name: Move nightly tag to built commit
-        if: needs.decide.outputs.should_publish == 'true'
+        if: needs.decide.outputs.should_publish == 'true' && steps.current_head.outputs.still_current == 'true'
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
@@ -412,7 +442,7 @@ jobs:
           git push origin refs/tags/nightly --force
 
       - name: Publish nightly release assets
-        if: needs.decide.outputs.should_publish == 'true'
+        if: needs.decide.outputs.should_publish == 'true' && steps.current_head.outputs.still_current == 'true'
         uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2
         with:
           tag_name: nightly

@@ -155,10 +155,20 @@ struct NotificationsPage: View {
     }
 }
 
-private struct ShortcutAnnotation: View {
+struct ShortcutAnnotation: View {
     let text: String
+    var accessibilityIdentifier: String? = nil
 
+    @ViewBuilder
     var body: some View {
+        if let accessibilityIdentifier {
+            badge.accessibilityIdentifier(accessibilityIdentifier)
+        } else {
+            badge
+        }
+    }
+
+    private var badge: some View {
         Text(text)
             .font(.system(size: 10, weight: .semibold, design: .rounded))
             .foregroundStyle(.primary)
