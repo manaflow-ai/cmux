@@ -16,6 +16,7 @@ struct BrowserSearchOverlay: View {
 
     private let padding: CGFloat = 8
 
+#if DEBUG
     private func debugFirstResponderSummary() -> String {
         guard let window = NSApp.keyWindow else { return "nil" }
         guard let firstResponder = window.firstResponder else { return "nil" }
@@ -25,6 +26,7 @@ struct BrowserSearchOverlay: View {
         }
         return String(describing: type(of: firstResponder))
     }
+#endif
 
     private func logFocusState(_ event: String) {
 #if DEBUG
@@ -42,9 +44,11 @@ struct BrowserSearchOverlay: View {
         guard maxAttempts > 0 else { return }
         logFocusState("request.begin origin=\(origin) remaining=\(maxAttempts)")
         isSearchFieldFocused = true
+#if DEBUG
         DispatchQueue.main.async {
             logFocusState("request.afterAsync origin=\(origin) remaining=\(maxAttempts)")
         }
+#endif
         guard maxAttempts > 1 else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
             requestSearchFieldFocus(maxAttempts: maxAttempts - 1, origin: origin)
@@ -136,7 +140,7 @@ struct BrowserSearchOverlay: View {
                 logFocusState("appear")
                 requestSearchFieldFocus(origin: "appear")
             }
-            .onChange(of: isSearchFieldFocused) { focused in
+            .onChange(of: isSearchFieldFocused) { _, focused in
                 logFocusState("focusState.change next=\(focused ? 1 : 0)")
                 if focused {
                     onFieldDidFocus()

@@ -213,7 +213,14 @@ final class TerminalPanel: Panel, ObservableObject {
 
     @discardableResult
     func restoreFocusIntent(_ intent: PanelFocusIntent) -> Bool {
-        guard case .terminal(let target) = intent else { return false }
-        return hostedView.restorePanelFocusIntent(target)
+        switch intent {
+        case .panel:
+            focus()
+            return true
+        case .terminal(let target):
+            return hostedView.restorePanelFocusIntent(target)
+        default:
+            return false
+        }
     }
 }

@@ -1539,10 +1539,11 @@ struct BrowserPanelView: View {
                         NotificationCenter.default.post(name: .browserDidExitAddressBar, object: panel.id)
                         return
                     }
-                    let hasWebViewResponder =
+                    var hasWebViewResponder =
                         browserFocusResponderChainContains(window.firstResponder, target: panel.webView)
                     if !hasWebViewResponder {
                         let fallbackFocusedWebView = window.makeFirstResponder(panel.webView)
+                        hasWebViewResponder = fallbackFocusedWebView
 #if DEBUG
                         dlog(
                             "browser.focus.addressBar.exit.handoff panel=\(panel.id.uuidString.prefix(5)) " +
@@ -1550,6 +1551,9 @@ struct BrowserPanelView: View {
                             "restored=\(restored ? 1 : 0)"
                         )
 #endif
+                    }
+                    if hasWebViewResponder {
+                        panel.noteWebViewFocused()
                     }
                     NotificationCenter.default.post(name: .browserDidExitAddressBar, object: panel.id)
                 }

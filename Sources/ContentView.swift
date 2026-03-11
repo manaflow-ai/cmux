@@ -5329,6 +5329,14 @@ struct ContentView: View {
         return false
     }
 
+    static func shouldRestoreBrowserAddressBarAfterCommandPaletteDismiss(
+        focusedPanelIsBrowser: Bool,
+        focusedBrowserAddressBarPanelId: UUID?,
+        focusedPanelId: UUID?
+    ) -> Bool {
+        focusedPanelIsBrowser && focusedBrowserAddressBarPanelId == focusedPanelId
+    }
+
     private func syncCommandPaletteDebugStateForObservedWindow() {
         guard let window = observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow else { return }
         AppDelegate.shared?.setCommandPaletteVisible(isCommandPalettePresented, for: window)
@@ -5489,10 +5497,11 @@ struct ContentView: View {
            let workspaceId = terminalView.tabId,
            let panelId = terminalView.terminalSurface?.id,
            tabManager.tabs.contains(where: { $0.id == workspaceId }) {
-            return CommandPaletteRestoreFocusTarget(
+            return commandPaletteRestoreFocusTarget(
                 workspaceId: workspaceId,
                 panelId: panelId,
-                intent: .terminal(.surface)
+                fallbackIntent: .terminal(.surface),
+                in: window
             )
         }
 
@@ -5504,10 +5513,11 @@ struct ContentView: View {
            let workspaceId = terminalView.tabId,
            let panelId = terminalView.terminalSurface?.id,
            tabManager.tabs.contains(where: { $0.id == workspaceId }) {
-            return CommandPaletteRestoreFocusTarget(
+            return commandPaletteRestoreFocusTarget(
                 workspaceId: workspaceId,
                 panelId: panelId,
-                intent: .terminal(.surface)
+                fallbackIntent: .terminal(.surface),
+                in: observedWindow
             )
         }
 
@@ -5545,14 +5555,33 @@ struct ContentView: View {
                 continue
             }
 
-            return CommandPaletteRestoreFocusTarget(
+            return commandPaletteRestoreFocusTarget(
                 workspaceId: workspace.id,
                 panelId: panelId,
-                intent: .browser(.webView)
+                fallbackIntent: .browser(.webView),
+                in: observedWindow
             )
         }
 
         return nil
+    }
+
+    private func commandPaletteRestoreFocusTarget(
+        workspaceId: UUID,
+        panelId: UUID,
+        fallbackIntent: PanelFocusIntent,
+        in window: NSWindow?
+    ) -> CommandPaletteRestoreFocusTarget {
+        let intent = tabManager.tabs
+            .first(where: { $0.id == workspaceId })?
+            .panels[panelId]?
+            .captureFocusIntent(in: window) ?? fallbackIntent
+
+        return CommandPaletteRestoreFocusTarget(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            intent: intent
+        )
     }
 
     private func restoreCommandPaletteFocus(

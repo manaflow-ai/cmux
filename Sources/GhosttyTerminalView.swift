@@ -6829,6 +6829,7 @@ final class GhosttySurfaceScrollView: NSView {
             if let firstResponder = window.firstResponder,
                isSearchOverlayOrDescendant(firstResponder),
                !isCurrentSurfaceSearchResponder(firstResponder) {
+                surfaceView.terminalSurface?.setFocus(false)
 #if DEBUG
                 dlog(
                     "find.restoreSearchFocus.skip surface=\(surfaceShort) target=searchField " +
@@ -6864,6 +6865,10 @@ final class GhosttySurfaceScrollView: NSView {
 
     func capturePanelFocusIntent(in window: NSWindow?) -> TerminalPanelFocusIntent {
         if surfaceView.terminalSurface?.searchState != nil {
+            if let firstResponder = window?.firstResponder as? NSView,
+               (firstResponder === surfaceView || firstResponder.isDescendant(of: surfaceView)) {
+                return .surface
+            }
             if let firstResponder = window?.firstResponder,
                isCurrentSurfaceSearchResponder(firstResponder) {
                 return .findField
@@ -6902,7 +6907,7 @@ final class GhosttySurfaceScrollView: NSView {
     func restorePanelFocusIntent(_ intent: TerminalPanelFocusIntent) -> Bool {
         switch intent {
         case .surface:
-            surfaceView.terminalSurface?.setFocus(true)
+            searchFocusTarget = .terminal
             setActive(true)
             applyFirstResponderIfNeeded()
             return true
@@ -6913,8 +6918,12 @@ final class GhosttySurfaceScrollView: NSView {
             }
             searchFocusTarget = .searchField
             setActive(true)
-            terminalSurface.setFocus(false)
-            NotificationCenter.default.post(name: .ghosttySearchFocus, object: terminalSurface)
+            if let window {
+                restoreSearchFocus(window: window)
+            } else {
+                terminalSurface.setFocus(false)
+                NotificationCenter.default.post(name: .ghosttySearchFocus, object: terminalSurface)
+            }
 #if DEBUG
             dlog(
                 "find.restorePanelFocusIntent surface=\(terminalSurface.id.uuidString.prefix(5)) " +

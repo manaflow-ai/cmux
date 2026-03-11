@@ -2290,7 +2290,6 @@ final class BrowserPanel: Panel, ObservableObject {
     // MARK: - Panel Protocol
 
     func focus() {
-        preferredFocusIntent = .webView
         if shouldSuppressWebViewFocus() {
             return
         }
@@ -2306,9 +2305,12 @@ final class BrowserPanel: Panel, ObservableObject {
         }
 
         if Self.responderChainContains(window.firstResponder, target: webView) {
+            noteWebViewFocused()
             return
         }
-        window.makeFirstResponder(webView)
+        if window.makeFirstResponder(webView) {
+            noteWebViewFocused()
+        }
     }
 
     func unfocus() {
@@ -3281,7 +3283,7 @@ extension BrowserPanel {
             return .browser(.addressBar)
         }
 
-        if searchState != nil {
+        if searchState != nil && preferredFocusIntent == .findField {
             return .browser(.findField)
         }
 
@@ -3297,7 +3299,7 @@ extension BrowserPanel {
         if pendingAddressBarFocusRequestId != nil {
             return .browser(.addressBar)
         }
-        if searchState != nil {
+        if searchState != nil && preferredFocusIntent == .findField {
             return .browser(.findField)
         }
         return .browser(preferredFocusIntent)
@@ -3344,7 +3346,6 @@ extension BrowserPanel {
 #endif
             return true
         case .findField:
-            guard searchState != nil else { return false }
             startFind()
             return true
         }
