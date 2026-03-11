@@ -106,8 +106,12 @@ printf '%s\\n' "${CMUX_CLAUDE_TEAMS_CMUX_BIN-__UNSET__}" > "$FAKE_CMUX_BIN_LOG"
             print(f"FAIL: expected tmux shim path to end with 'tmux', got {tmux_path!r}")
             return 1
 
-        if "cmux-claude-teams-" not in tmux_path:
-            print(f"FAIL: expected private tmux shim path, got {tmux_path!r}")
+        if "claude-teams-bin" not in tmux_path:
+            print(f"FAIL: expected stable tmux shim path, got {tmux_path!r}")
+            return 1
+
+        if tmux_path.startswith(str(real_bin)):
+            print(f"FAIL: expected cmux tmux shim to shadow PATH, got {tmux_path!r}")
             return 1
 
         cmux_bin_value = read_text(cmux_bin_log)
