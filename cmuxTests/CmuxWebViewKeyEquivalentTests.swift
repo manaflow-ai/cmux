@@ -2437,12 +2437,24 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
     private final class WKInspectorProbeView: NSView {}
 
     private final class FakeInspector: NSObject {
+        private(set) var attachCount = 0
         private(set) var showCount = 0
         private(set) var closeCount = 0
         private var visible = false
+        private var attached = false
 
         @objc func isVisible() -> Bool {
             visible
+        }
+
+        @objc func isAttached() -> Bool {
+            attached
+        }
+
+        @objc func attach() {
+            attachCount += 1
+            attached = true
+            show()
         }
 
         @objc func show() {
@@ -2453,6 +2465,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         @objc func close() {
             closeCount += 1
             visible = false
+            attached = false
         }
     }
 
@@ -2585,6 +2598,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             panel: panel,
             paneId: paneId,
             shouldAttachWebView: true,
+            useLocalInlineHosting: false,
             shouldFocusWebView: false,
             isPanelFocused: true,
             portalZPriority: 0,
@@ -2626,6 +2640,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             panel: panel,
             paneId: paneId,
             shouldAttachWebView: true,
+            useLocalInlineHosting: false,
             shouldFocusWebView: false,
             isPanelFocused: true,
             portalZPriority: 0,
@@ -8339,6 +8354,14 @@ final class WindowBrowserHostViewTests: XCTestCase {
         }
     }
 
+    private final class TrailingEdgeTransparentWKInspectorProbeView: NSView {
+        override func hitTest(_ point: NSPoint) -> NSView? {
+            let localPoint = convert(point, from: superview)
+            guard bounds.contains(localPoint) else { return nil }
+            return localPoint.x >= bounds.maxX - 12 ? nil : self
+        }
+    }
+
     private final class BonsplitMockSplitDelegate: NSObject, NSSplitViewDelegate {}
 
     private func makeMouseEvent(type: NSEvent.EventType, location: NSPoint, window: NSWindow) -> NSEvent {
@@ -8426,6 +8449,60 @@ final class WindowBrowserHostViewTests: XCTestCase {
         let contentPointInWindow = splitView.convert(contentPointInSplit, to: nil)
         let contentPointInHost = host.convert(contentPointInWindow, from: nil)
         XCTAssertTrue(host.hitTest(contentPointInHost) === child)
+    }
+
+    func testWindowBrowserPortalIgnoresHostedInspectorSplitResizeNotifications() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+        guard let container = contentView.superview else {
+            XCTFail("Expected content container")
+            return
+        }
+
+        let hostFrame = container.convert(contentView.bounds, from: contentView)
+        let host = WindowBrowserHostView(frame: hostFrame)
+        host.autoresizingMask = [.width, .height]
+        container.addSubview(host, positioned: .above, relativeTo: contentView)
+
+        let appSplit = NSSplitView(frame: contentView.bounds)
+        appSplit.autoresizingMask = [.width, .height]
+        appSplit.isVertical = true
+        appSplit.addSubview(NSView(frame: NSRect(x: 0, y: 0, width: 120, height: contentView.bounds.height)))
+        appSplit.addSubview(NSView(frame: NSRect(x: 121, y: 0, width: 299, height: contentView.bounds.height)))
+        contentView.addSubview(appSplit)
+
+        let inspectorSplit = NSSplitView(frame: host.bounds)
+        inspectorSplit.autoresizingMask = [.width, .height]
+        inspectorSplit.isVertical = true
+        inspectorSplit.addSubview(NSView(frame: NSRect(x: 0, y: 0, width: 120, height: host.bounds.height)))
+        inspectorSplit.addSubview(NSView(frame: NSRect(x: 121, y: 0, width: 299, height: host.bounds.height)))
+        host.addSubview(inspectorSplit)
+
+        XCTAssertTrue(
+            WindowBrowserPortal.shouldTreatSplitResizeAsExternalGeometry(
+                appSplit,
+                window: window,
+                hostView: host
+            ),
+            "App layout splits should still trigger browser portal geometry sync"
+        )
+        XCTAssertFalse(
+            WindowBrowserPortal.shouldTreatSplitResizeAsExternalGeometry(
+                inspectorSplit,
+                window: window,
+                hostView: host
+            ),
+            "Hosted DevTools/internal splits should not trigger browser portal geometry sync"
+        )
     }
 
     func testDragHoverEventsPassThroughForTabTransferOnBrowserHoverEvents() {
@@ -8861,6 +8938,65 @@ final class WindowBrowserHostViewTests: XCTestCase {
         XCTAssertGreaterThan(inspectorView.frame.minX, 92)
     }
 
+    func testHostViewFallsBackToManualHostedInspectorDragForLeftDockedInspector() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+        guard let container = contentView.superview else {
+            XCTFail("Expected content container")
+            return
+        }
+
+        let hostFrame = container.convert(contentView.bounds, from: contentView)
+        let host = WindowBrowserHostView(frame: hostFrame)
+        host.autoresizingMask = [.width, .height]
+        container.addSubview(host, positioned: .above, relativeTo: contentView)
+
+        let slot = WindowBrowserSlotView(frame: NSRect(x: 180, y: 0, width: 240, height: host.bounds.height))
+        slot.autoresizingMask = [.minXMargin, .height]
+        host.addSubview(slot)
+
+        let inspectorView = TrailingEdgeTransparentWKInspectorProbeView(
+            frame: NSRect(x: 0, y: 0, width: 92, height: slot.bounds.height)
+        )
+        let pageView = PrimaryPageProbeView(
+            frame: NSRect(x: 92, y: 0, width: slot.bounds.width - 92, height: slot.bounds.height)
+        )
+        slot.addSubview(inspectorView)
+        slot.addSubview(pageView)
+        contentView.layoutSubtreeIfNeeded()
+
+        let dividerPointInSlot = NSPoint(x: inspectorView.frame.maxX - 2, y: slot.bounds.midY)
+        let dividerPointInWindow = slot.convert(dividerPointInSlot, to: nil)
+        let dividerPointInHost = host.convert(dividerPointInWindow, from: nil)
+
+        XCTAssertTrue(
+            host.hitTest(dividerPointInHost) === host,
+            "Host should take the manual fallback path for a left-docked divider when the native edge is not hittable"
+        )
+
+        let down = makeMouseEvent(type: .leftMouseDown, location: dividerPointInWindow, window: window)
+        host.mouseDown(with: down)
+        let drag = makeMouseEvent(
+            type: .leftMouseDragged,
+            location: NSPoint(x: dividerPointInWindow.x + 40, y: dividerPointInWindow.y),
+            window: window
+        )
+        host.mouseDragged(with: drag)
+        host.mouseUp(with: makeMouseEvent(type: .leftMouseUp, location: drag.locationInWindow, window: window))
+
+        XCTAssertGreaterThan(inspectorView.frame.width, 92)
+        XCTAssertGreaterThan(pageView.frame.minX, 92)
+    }
+
     func testHostViewClaimsCollapsedHostedInspectorSiblingDividerAtSlotLeadingEdge() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
@@ -8925,6 +9061,14 @@ final class BrowserPanelHostContainerViewTests: XCTestCase {
             let localPoint = convert(point, from: superview)
             guard bounds.contains(localPoint) else { return nil }
             return localPoint.x <= 12 ? nil : self
+        }
+    }
+
+    private final class TrailingEdgeTransparentWKInspectorProbeView: NSView {
+        override func hitTest(_ point: NSPoint) -> NSView? {
+            let localPoint = convert(point, from: superview)
+            guard bounds.contains(localPoint) else { return nil }
+            return localPoint.x >= bounds.maxX - 12 ? nil : self
         }
     }
 
@@ -9094,6 +9238,59 @@ final class BrowserPanelHostContainerViewTests: XCTestCase {
         XCTAssertGreaterThan(inspectorContainer.frame.minX, 92)
     }
 
+    func testBrowserPanelHostFallsBackToManualHostedInspectorDragForLeftDockedInspector() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let host = WebViewRepresentable.HostContainerView(frame: NSRect(x: 180, y: 0, width: 240, height: contentView.bounds.height))
+        host.autoresizingMask = [.minXMargin, .height]
+        contentView.addSubview(host)
+
+        let webViewRoot = NSView(frame: host.bounds)
+        webViewRoot.autoresizingMask = [.width, .height]
+        host.addSubview(webViewRoot)
+
+        let inspectorContainer = TrailingEdgeTransparentWKInspectorProbeView(
+            frame: NSRect(x: 0, y: 0, width: 92, height: webViewRoot.bounds.height)
+        )
+        let pageView = PrimaryPageProbeView(
+            frame: NSRect(x: 92, y: 0, width: webViewRoot.bounds.width - 92, height: webViewRoot.bounds.height)
+        )
+        webViewRoot.addSubview(inspectorContainer)
+        webViewRoot.addSubview(pageView)
+        contentView.layoutSubtreeIfNeeded()
+
+        let dividerPointInHost = NSPoint(x: inspectorContainer.frame.maxX - 2, y: host.bounds.midY)
+        let dividerPointInWindow = host.convert(dividerPointInHost, to: nil)
+
+        XCTAssertTrue(
+            host.hitTest(dividerPointInHost) === host,
+            "Browser panel host should take the manual fallback path for a left-docked divider when the native edge is not hittable"
+        )
+
+        let down = makeMouseEvent(type: .leftMouseDown, location: dividerPointInWindow, window: window)
+        host.mouseDown(with: down)
+        let drag = makeMouseEvent(
+            type: .leftMouseDragged,
+            location: NSPoint(x: dividerPointInWindow.x + 40, y: dividerPointInWindow.y),
+            window: window
+        )
+        host.mouseDragged(with: drag)
+        host.mouseUp(with: makeMouseEvent(type: .leftMouseUp, location: drag.locationInWindow, window: window))
+
+        XCTAssertGreaterThan(inspectorContainer.frame.width, 92)
+        XCTAssertGreaterThan(pageView.frame.minX, 92)
+    }
+
     func testBrowserPanelHostReappliesStoredHostedInspectorWidthAfterLayoutReset() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
@@ -9158,6 +9355,20 @@ final class BrowserPanelHostContainerViewTests: XCTestCase {
 
         XCTAssertEqual(pageView.frame.width, draggedPageWidth, accuracy: 0.5)
         XCTAssertEqual(inspectorContainer.frame.minX, draggedInspectorMinX, accuracy: 0.5)
+    }
+
+    func testWindowBrowserSlotPinsHostedWebViewWithAutoresizingForAttachedInspector() {
+        let slot = WindowBrowserSlotView(frame: NSRect(x: 0, y: 0, width: 240, height: 180))
+        let webView = WKWebView(frame: .zero)
+        slot.addSubview(webView)
+
+        slot.pinHostedWebView(webView)
+        slot.frame = NSRect(x: 0, y: 0, width: 300, height: 220)
+        slot.layoutSubtreeIfNeeded()
+
+        XCTAssertTrue(webView.translatesAutoresizingMaskIntoConstraints)
+        XCTAssertEqual(webView.autoresizingMask, [.width, .height])
+        XCTAssertEqual(webView.frame, slot.bounds)
     }
 }
 

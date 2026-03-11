@@ -313,9 +313,16 @@ struct BrowserPanelView: View {
         )
     }
 
+    private var owningWorkspace: Workspace? {
+        guard let app = AppDelegate.shared,
+              let manager = app.tabManagerFor(tabId: panel.workspaceId) else {
+            return nil
+        }
+        return manager.tabs.first(where: { $0.id == panel.workspaceId })
+    }
+
     private var isCurrentPaneOwner: Bool {
-        guard let workspace = AppDelegate.shared?.tabManager?.tabs.first(where: { $0.id == panel.workspaceId }),
-              let currentPaneId = workspace.paneId(forPanelId: panel.id) else {
+        guard let currentPaneId = owningWorkspace?.paneId(forPanelId: panel.id) else {
             return false
         }
         return currentPaneId.id == paneId.id
@@ -473,7 +480,10 @@ struct BrowserPanelView: View {
                 hideSuggestions()
                 setAddressBarFocused(false, reason: "panelFocus.onChange.unfocused")
             }
-            syncWebViewResponderPolicyWithViewState(reason: "panelFocusChanged")
+            syncWebViewResponderPolicyWithViewState(
+                reason: "panelFocusChanged",
+                isPanelFocusedOverride: focused
+            )
         }
         .onChange(of: addressBarFocused) { focused in
 #if DEBUG
@@ -807,12 +817,18 @@ struct BrowserPanelView: View {
     }
 
     private var webView: some View {
-        Group {
+        let useLocalInlineDeveloperToolsHosting =
+            panel.shouldUseLocalInlineDeveloperToolsHosting() &&
+            isVisibleInUI &&
+            isCurrentPaneOwner
+
+        return Group {
             if panel.shouldRenderWebView {
                 WebViewRepresentable(
                     panel: panel,
                     paneId: paneId,
-                    shouldAttachWebView: isVisibleInUI && isCurrentPaneOwner,
+                    shouldAttachWebView: isVisibleInUI && isCurrentPaneOwner && !useLocalInlineDeveloperToolsHosting,
+                    useLocalInlineHosting: useLocalInlineDeveloperToolsHosting,
                     shouldFocusWebView: isFocused && !addressBarFocused,
                     isPanelFocused: isFocused,
                     portalZPriority: portalPriority,
@@ -891,15 +907,20 @@ struct BrowserPanelView: View {
         }
     }
 
-    private func syncWebViewResponderPolicyWithViewState(reason: String) {
+    private func syncWebViewResponderPolicyWithViewState(
+        reason: String,
+        isPanelFocusedOverride: Bool? = nil
+    ) {
         guard let cmuxWebView = panel.webView as? CmuxWebView else { return }
-        let next = isFocused && !panel.shouldSuppressWebViewFocus()
+        let isPanelFocused = isPanelFocusedOverride ?? isFocused
+        let next = isPanelFocused && !panel.shouldSuppressWebViewFocus()
         if cmuxWebView.allowsFirstResponderAcquisition != next {
 #if DEBUG
             dlog(
                 "browser.focus.policy.resync panel=\(panel.id.uuidString.prefix(5)) " +
                 "web=\(ObjectIdentifier(cmuxWebView)) old=\(cmuxWebView.allowsFirstResponderAcquisition ? 1 : 0) " +
-                "new=\(next ? 1 : 0) reason=\(reason)"
+                "new=\(next ? 1 : 0) reason=\(reason) " +
+                "panelFocusedUsed=\(isPanelFocused ? 1 : 0)"
             )
 #endif
         }
@@ -3539,6 +3560,7 @@ struct WebViewRepresentable: NSViewRepresentable {
     let panel: BrowserPanel
     let paneId: PaneID
     let shouldAttachWebView: Bool
+    let useLocalInlineHosting: Bool
     let shouldFocusWebView: Bool
     let isPanelFocused: Bool
     let portalZPriority: Int
@@ -3561,10 +3583,15 @@ struct WebViewRepresentable: NSViewRepresentable {
         var onGeometryChanged: (() -> Void)?
         private(set) var geometryRevision: UInt64 = 0
         private var lastReportedGeometryState: GeometryState?
+        private weak var hostedWebView: WKWebView?
+        private var hostedWebViewConstraints: [NSLayoutConstraint] = []
+        private weak var localInlineSlotView: WindowBrowserSlotView?
+        private var localInlineSlotConstraints: [NSLayoutConstraint] = []
         private struct HostedInspectorDividerHit {
             let containerView: NSView
             let pageView: NSView
             let inspectorView: NSView
+            let dockSide: HostedInspectorDockSide
         }
 
         private struct GeometryState: Equatable {
@@ -3578,6 +3605,7 @@ struct WebViewRepresentable: NSViewRepresentable {
             let containerView: NSView
             let pageView: NSView
             let inspectorView: NSView
+            let dockSide: HostedInspectorDockSide
             let initialWindowX: CGFloat
             let initialPageFrame: NSRect
             let initialInspectorFrame: NSRect
@@ -3721,6 +3749,65 @@ struct WebViewRepresentable: NSViewRepresentable {
             onGeometryChanged?()
         }
 
+        func ensureLocalInlineSlotView() -> WindowBrowserSlotView {
+            if let localInlineSlotView, localInlineSlotView.superview === self {
+                localInlineSlotView.isHidden = false
+                return localInlineSlotView
+            }
+
+            let slotView = WindowBrowserSlotView(frame: bounds)
+            slotView.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(slotView, positioned: .above, relativeTo: nil)
+            localInlineSlotConstraints = [
+                slotView.topAnchor.constraint(equalTo: topAnchor),
+                slotView.bottomAnchor.constraint(equalTo: bottomAnchor),
+                slotView.leadingAnchor.constraint(equalTo: leadingAnchor),
+                slotView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            ]
+            NSLayoutConstraint.activate(localInlineSlotConstraints)
+            localInlineSlotView = slotView
+            return slotView
+        }
+
+        func setLocalInlineSlotHidden(_ hidden: Bool) {
+            localInlineSlotView?.isHidden = hidden
+        }
+
+        func releaseHostedWebViewConstraints() {
+            NSLayoutConstraint.deactivate(hostedWebViewConstraints)
+            hostedWebViewConstraints = []
+            hostedWebView = nil
+        }
+
+        func pinHostedWebView(_ webView: WKWebView, in container: NSView) {
+            guard webView.superview === container else { return }
+
+            let needsFrameHosting =
+                hostedWebView !== webView ||
+                !hostedWebViewConstraints.isEmpty ||
+                !webView.translatesAutoresizingMaskIntoConstraints ||
+                webView.autoresizingMask != [.width, .height] ||
+                webView.frame != container.bounds
+            guard needsFrameHosting else {
+                needsLayout = true
+                layoutSubtreeIfNeeded()
+                return
+            }
+
+            NSLayoutConstraint.deactivate(hostedWebViewConstraints)
+            hostedWebViewConstraints = []
+            hostedWebView = webView
+
+            // WebKit's attached inspector does not reliably dock into a constraint-managed
+            // WKWebView hierarchy on macOS. Host the moved webview with autoresizing so
+            // the inspector can resize the content view in place.
+            webView.translatesAutoresizingMaskIntoConstraints = true
+            webView.autoresizingMask = [.width, .height]
+            webView.frame = container.bounds
+            needsLayout = true
+            layoutSubtreeIfNeeded()
+        }
+
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
             if window == nil {
@@ -3852,6 +3939,7 @@ struct WebViewRepresentable: NSViewRepresentable {
                 containerView: hostedInspectorHit.containerView,
                 pageView: hostedInspectorHit.pageView,
                 inspectorView: hostedInspectorHit.inspectorView,
+                dockSide: hostedInspectorHit.dockSide,
                 initialWindowX: event.locationInWindow.x,
                 initialPageFrame: hostedInspectorHit.pageView.frame,
                 initialInspectorFrame: hostedInspectorHit.inspectorView.frame
@@ -3872,18 +3960,29 @@ struct WebViewRepresentable: NSViewRepresentable {
                 Self.minimumHostedInspectorWidth,
                 max(60, dragState.initialInspectorFrame.width)
             )
-            let minDividerX = max(containerBounds.minX, dragState.initialPageFrame.minX)
-            let maxDividerX = max(minDividerX, containerBounds.maxX - minimumInspectorWidth)
-            let proposedDividerX = dragState.initialInspectorFrame.minX + (event.locationInWindow.x - dragState.initialWindowX)
-            let clampedDividerX = max(minDividerX, min(maxDividerX, proposedDividerX))
-            let inspectorWidth = max(0, containerBounds.maxX - clampedDividerX)
+            let initialDividerX = dragState.dockSide.dividerX(
+                pageFrame: dragState.initialPageFrame,
+                inspectorFrame: dragState.initialInspectorFrame
+            )
+            let proposedDividerX = initialDividerX + (event.locationInWindow.x - dragState.initialWindowX)
+            let clampedDividerX = dragState.dockSide.clampedDividerX(
+                proposedDividerX,
+                containerBounds: containerBounds,
+                pageFrame: dragState.initialPageFrame,
+                minimumInspectorWidth: minimumInspectorWidth
+            )
+            let inspectorWidth = dragState.dockSide.inspectorWidth(
+                forDividerX: clampedDividerX,
+                in: containerBounds
+            )
             preferredHostedInspectorWidth = inspectorWidth
             _ = applyHostedInspectorDividerWidth(
                 inspectorWidth,
                 to: HostedInspectorDividerHit(
                     containerView: dragState.containerView,
                     pageView: dragState.pageView,
-                    inspectorView: dragState.inspectorView
+                    inspectorView: dragState.inspectorView,
+                    dockSide: dragState.dockSide
                 ),
                 reason: "drag"
             )
@@ -3894,7 +3993,8 @@ struct WebViewRepresentable: NSViewRepresentable {
                 hit: HostedInspectorDividerHit(
                     containerView: dragState.containerView,
                     pageView: dragState.pageView,
-                    inspectorView: dragState.inspectorView
+                    inspectorView: dragState.inspectorView,
+                    dockSide: dragState.dockSide
                 )
             )
 #endif
@@ -3903,7 +4003,8 @@ struct WebViewRepresentable: NSViewRepresentable {
                 hostedInspectorHit: HostedInspectorDividerHit(
                     containerView: dragState.containerView,
                     pageView: dragState.pageView,
-                    inspectorView: dragState.inspectorView
+                    inspectorView: dragState.inspectorView,
+                    dockSide: dragState.dockSide
                 )
             )
         }
@@ -3918,7 +4019,8 @@ struct WebViewRepresentable: NSViewRepresentable {
                 let finalHit = HostedInspectorDividerHit(
                     containerView: finalDragState.containerView,
                     pageView: finalDragState.pageView,
-                    inspectorView: finalDragState.inspectorView
+                    inspectorView: finalDragState.inspectorView,
+                    dockSide: finalDragState.dockSide
                 )
                 debugLogHostedInspectorFrames(
                     stage: "drag.end",
@@ -4039,13 +4141,11 @@ struct WebViewRepresentable: NSViewRepresentable {
         private func hostedInspectorDividerHitRect(for hit: HostedInspectorDividerHit) -> NSRect {
             let pageFrame = convert(hit.pageView.bounds, from: hit.pageView)
             let inspectorFrame = convert(hit.inspectorView.bounds, from: hit.inspectorView)
-            let minY = max(bounds.minY, min(pageFrame.minY, inspectorFrame.minY))
-            let maxY = min(bounds.maxY, max(pageFrame.maxY, inspectorFrame.maxY))
-            return NSRect(
-                x: inspectorFrame.minX - Self.hostedInspectorDividerHitExpansion,
-                y: minY,
-                width: Self.hostedInspectorDividerHitExpansion * 2,
-                height: max(0, maxY - minY)
+            return hit.dockSide.dividerHitRect(
+                in: bounds,
+                pageFrame: pageFrame,
+                inspectorFrame: inspectorFrame,
+                expansion: Self.hostedInspectorDividerHitExpansion
             )
         }
 
@@ -4056,21 +4156,30 @@ struct WebViewRepresentable: NSViewRepresentable {
             while let inspectorView = current, inspectorView !== self {
                 guard let containerView = inspectorView.superview else { break }
 
-                let pageCandidates = containerView.subviews.filter { candidate in
-                    guard Self.isVisibleHostedInspectorSiblingCandidate(candidate) else { return false }
-                    guard candidate !== inspectorView else { return false }
-                    guard candidate.frame.maxX <= inspectorView.frame.minX + 1 else { return false }
-                    return Self.verticalOverlap(between: candidate.frame, and: inspectorView.frame) > 8
+                let pageCandidates = containerView.subviews.compactMap { candidate -> (view: NSView, dockSide: HostedInspectorDockSide)? in
+                    guard Self.isVisibleHostedInspectorSiblingCandidate(candidate) else { return nil }
+                    guard candidate !== inspectorView else { return nil }
+                    guard Self.verticalOverlap(between: candidate.frame, and: inspectorView.frame) > 8 else {
+                        return nil
+                    }
+                    guard let dockSide = HostedInspectorDockSide.resolve(
+                        pageFrame: candidate.frame,
+                        inspectorFrame: inspectorView.frame
+                    ) else {
+                        return nil
+                    }
+                    return (view: candidate, dockSide: dockSide)
                 }
 
-                if let pageView = pageCandidates.max(by: {
-                    hostedInspectorPageCandidateScore($0, inspectorView: inspectorView)
-                        < hostedInspectorPageCandidateScore($1, inspectorView: inspectorView)
+                if let pageCandidate = pageCandidates.max(by: {
+                    hostedInspectorPageCandidateScore($0.view, inspectorView: inspectorView)
+                        < hostedInspectorPageCandidateScore($1.view, inspectorView: inspectorView)
                 }) {
                     bestHit = HostedInspectorDividerHit(
                         containerView: containerView,
-                        pageView: pageView,
-                        inspectorView: inspectorView
+                        pageView: pageCandidate.view,
+                        inspectorView: inspectorView,
+                        dockSide: pageCandidate.dockSide
                     )
                 }
 
@@ -4129,16 +4238,14 @@ struct WebViewRepresentable: NSViewRepresentable {
             reason: String
         ) -> (pageFrame: NSRect, inspectorFrame: NSRect) {
             let containerBounds = hit.containerView.bounds
-            let maximumInspectorWidth = max(0, containerBounds.maxX - hit.pageView.frame.minX)
-            let clampedInspectorWidth = max(0, min(maximumInspectorWidth, preferredWidth))
-            let dividerX = max(hit.pageView.frame.minX, containerBounds.maxX - clampedInspectorWidth)
-
-            var pageFrame = hit.pageView.frame
-            pageFrame.size.width = max(0, dividerX - pageFrame.minX)
-
-            var inspectorFrame = hit.inspectorView.frame
-            inspectorFrame.origin.x = dividerX
-            inspectorFrame.size.width = max(0, containerBounds.maxX - dividerX)
+            let nextFrames = hit.dockSide.resizedFrames(
+                preferredWidth: preferredWidth,
+                in: containerBounds,
+                pageFrame: hit.pageView.frame,
+                inspectorFrame: hit.inspectorView.frame
+            )
+            let pageFrame = nextFrames.pageFrame
+            let inspectorFrame = nextFrames.inspectorFrame
 
             let pageChanged = !Self.rectApproximatelyEqual(pageFrame, hit.pageView.frame, epsilon: 0.5)
             let inspectorChanged = !Self.rectApproximatelyEqual(inspectorFrame, hit.inspectorView.frame, epsilon: 0.5)
@@ -4299,6 +4406,40 @@ struct WebViewRepresentable: NSViewRepresentable {
         host.onGeometryChanged = nil
     }
 
+    private static func moveWebKitRelatedSubviewsIntoHostIfNeeded(
+        from sourceSuperview: NSView,
+        to container: WindowBrowserSlotView,
+        primaryWebView: WKWebView,
+        reason: String
+    ) {
+        guard sourceSuperview !== container else { return }
+        let relatedSubviews = sourceSuperview.subviews.filter { view in
+            if view === primaryWebView { return true }
+            return String(describing: type(of: view)).contains("WK")
+        }
+        guard !relatedSubviews.isEmpty else { return }
+#if DEBUG
+        dlog(
+            "browser.localHost.reparent.batch reason=\(reason) source=\(Self.objectID(sourceSuperview)) " +
+            "container=\(Self.objectID(container)) count=\(relatedSubviews.count) " +
+            "sourceType=\(String(describing: type(of: sourceSuperview))) targetType=\(String(describing: type(of: container)))"
+        )
+#endif
+        for view in relatedSubviews {
+            let frameInWindow = sourceSuperview.convert(view.frame, to: nil)
+            let className = String(describing: type(of: view))
+            view.removeFromSuperview()
+            container.addSubview(view, positioned: .above, relativeTo: nil)
+            view.frame = container.convert(frameInWindow, from: nil)
+#if DEBUG
+            dlog(
+                "browser.localHost.reparent.batch.item reason=\(reason) class=\(className) " +
+                "view=\(Self.objectID(view))"
+            )
+#endif
+        }
+    }
+
     private static func installPortalAnchorView(_ anchorView: NSView, in host: NSView) {
         // SwiftUI can keep transient replacement hosts alive off-window during split
         // reparenting. Never let those hosts steal the shared portal anchor, or the
@@ -4327,8 +4468,66 @@ struct WebViewRepresentable: NSViewRepresentable {
         host.layoutSubtreeIfNeeded()
     }
 
+    private func updateUsingLocalInlineHosting(_ nsView: NSView, context: Context, webView: WKWebView) -> Bool {
+        guard let host = nsView as? HostContainerView else { return false }
+        let slotView = host.ensureLocalInlineSlotView()
+
+        let coordinator = context.coordinator
+        coordinator.desiredPortalVisibleInUI = false
+        coordinator.desiredPortalZPriority = 0
+        coordinator.attachGeneration += 1
+
+        if panel.releasePortalHostIfOwned(
+            hostId: ObjectIdentifier(host),
+            reason: "localInlineHosting"
+        ) {
+            BrowserWindowPortalRegistry.hide(
+                webView: webView,
+                source: "viewStateChanged.localInlineHosting"
+            )
+        }
+
+        if webView.superview !== slotView {
+            if let sourceSuperview = webView.superview {
+                Self.moveWebKitRelatedSubviewsIntoHostIfNeeded(
+                    from: sourceSuperview,
+                    to: slotView,
+                    primaryWebView: webView,
+                    reason: "attachLocalHost"
+                )
+            } else {
+                slotView.addSubview(webView, positioned: .above, relativeTo: nil)
+            }
+        }
+
+        slotView.isHidden = false
+        host.pinHostedWebView(webView, in: slotView)
+        coordinator.lastPortalHostId = nil
+        coordinator.lastSynchronizedHostGeometryRevision = 0
+        panel.restoreDeveloperToolsAfterAttachIfNeeded()
+        webView.needsLayout = true
+        webView.layoutSubtreeIfNeeded()
+        slotView.layoutSubtreeIfNeeded()
+        host.displayIfNeeded()
+        slotView.displayIfNeeded()
+        webView.displayIfNeeded()
+
+#if DEBUG
+        Self.logDevToolsState(
+            panel,
+            event: "localHost.update",
+            generation: coordinator.attachGeneration,
+            retryCount: 0,
+            details: Self.attachContext(webView: webView, host: host)
+        )
+#endif
+        return true
+    }
+
     private func updateUsingWindowPortal(_ nsView: NSView, context: Context, webView: WKWebView) -> Bool {
         guard let host = nsView as? HostContainerView else { return false }
+        host.setLocalInlineSlotHidden(true)
+        host.releaseHostedWebViewConstraints()
 
         let coordinator = context.coordinator
         let paneDropContext = currentPaneDropContext()
@@ -4451,7 +4650,9 @@ struct WebViewRepresentable: NSViewRepresentable {
         if !shouldAttachWebView {
             // In portal mode we no longer detach/re-attach to preserve DevTools state.
             // Sync the inspector preference directly so manual closes are respected.
-            panel.syncDeveloperToolsPreferenceFromInspector()
+            panel.syncDeveloperToolsPreferenceFromInspector(
+                preserveVisibleIntent: panel.shouldPreserveDeveloperToolsIntentWhileDetached()
+            )
         }
 
         if host.window != nil, portalHostAccepted {
@@ -4538,7 +4739,9 @@ struct WebViewRepresentable: NSViewRepresentable {
         coordinator.webView = webView
 
         Self.clearPortalCallbacks(for: nsView)
-        let hostOwnsPortal = updateUsingWindowPortal(nsView, context: context, webView: webView)
+        let hostOwnsPortal = useLocalInlineHosting
+            ? updateUsingLocalInlineHosting(nsView, context: context, webView: webView)
+            : updateUsingWindowPortal(nsView, context: context, webView: webView)
         Self.applyWebViewFirstResponderPolicy(
             panel: panel,
             webView: webView,
@@ -4684,7 +4887,9 @@ struct WebViewRepresentable: NSViewRepresentable {
     }
 
     private func currentPaneDropContext() -> BrowserPaneDropContext? {
-        guard let workspace = AppDelegate.shared?.tabManager?.tabs.first(where: { $0.id == panel.workspaceId }),
+        guard let app = AppDelegate.shared,
+              let manager = app.tabManagerFor(tabId: panel.workspaceId),
+              let workspace = manager.tabs.first(where: { $0.id == panel.workspaceId }),
               let paneId = workspace.paneId(forPanelId: panel.id) else {
             return nil
         }

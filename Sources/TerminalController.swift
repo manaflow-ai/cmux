@@ -3656,6 +3656,9 @@ class TerminalController {
                     "index_in_pane": v2OrNull(indexInPaneByPanelId[panel.id]),
                     "selected_in_pane": v2OrNull(selectedInPaneByPanelId[panel.id])
                 ]
+                if let browserPanel = panel as? BrowserPanel {
+                    item["developer_tools_visible"] = browserPanel.isDeveloperToolsVisible()
+                }
                 return item
             }
 
