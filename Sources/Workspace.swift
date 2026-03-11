@@ -168,6 +168,7 @@ extension Workspace {
 
     func restoreSessionSnapshot(_ snapshot: SessionWorkspaceSnapshot) {
         restoredTerminalScrollbackByPanelId.removeAll(keepingCapacity: false)
+        cachedAgentResumeCommandByPanelId.removeAll(keepingCapacity: false)
 
         let normalizedCurrentDirectory = snapshot.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
         if !normalizedCurrentDirectory.isEmpty {
@@ -323,9 +324,21 @@ extension Workspace {
                 capturedScrollback: capturedScrollback,
                 includeScrollback: includeScrollback
             )
-            let agentResumeCommand = includeScrollback
-                ? AgentProcessDetector.detectAgentResumeCommand(ttyName: ttyName)
-                : nil
+            let agentResumeCommand: String? = {
+                if includeScrollback {
+                    // Full save: detect the live process and cache it.
+                    let detected = AgentProcessDetector.detectAgentResumeCommand(ttyName: ttyName)
+                    if let detected {
+                        cachedAgentResumeCommandByPanelId[panelId] = detected
+                    } else {
+                        cachedAgentResumeCommandByPanelId.removeValue(forKey: panelId)
+                    }
+                    return detected
+                }
+                // Lightweight autosave: reuse the cached value so we don't
+                // overwrite a previously detected agent with nil.
+                return cachedAgentResumeCommandByPanelId[panelId]
+            }()
             terminalSnapshot = SessionTerminalPanelSnapshot(
                 workingDirectory: panelDirectories[panelId],
                 scrollback: resolvedScrollback,
@@ -513,6 +526,11 @@ extension Workspace {
                 restoredTerminalScrollbackByPanelId[terminalPanel.id] = fallbackScrollback
             } else {
                 restoredTerminalScrollbackByPanelId.removeValue(forKey: terminalPanel.id)
+            }
+            if let agentCmd = snapshot.terminal?.agentResumeCommand {
+                cachedAgentResumeCommandByPanelId[terminalPanel.id] = agentCmd
+            } else {
+                cachedAgentResumeCommandByPanelId.removeValue(forKey: terminalPanel.id)
             }
             applySessionPanelMetadata(snapshot, toPanelId: terminalPanel.id)
             return terminalPanel.id
@@ -999,6 +1017,7 @@ final class Workspace: Identifiable, ObservableObject {
     @Published var listeningPorts: [Int] = []
     var surfaceTTYNames: [UUID: String] = [:]
     private var restoredTerminalScrollbackByPanelId: [UUID: String] = [:]
+    private var cachedAgentResumeCommandByPanelId: [UUID: String] = [:]
 
     var focusedSurfaceId: UUID? { focusedPanelId }
     var surfaceDirectories: [UUID: String] {
@@ -2366,6 +2385,7 @@ final class Workspace: Identifiable, ObservableObject {
         panelSubscriptions.removeAll(keepingCapacity: false)
         pruneSurfaceMetadata(validSurfaceIds: [])
         restoredTerminalScrollbackByPanelId.removeAll(keepingCapacity: false)
+        cachedAgentResumeCommandByPanelId.removeAll(keepingCapacity: false)
         terminalInheritanceFontPointsByPanelId.removeAll(keepingCapacity: false)
         lastTerminalConfigInheritancePanelId = nil
         lastTerminalConfigInheritanceFontPoints = nil
@@ -4547,6 +4567,7 @@ extension Workspace: BonsplitDelegate {
         panelSubscriptions.removeValue(forKey: panelId)
         surfaceTTYNames.removeValue(forKey: panelId)
         restoredTerminalScrollbackByPanelId.removeValue(forKey: panelId)
+        cachedAgentResumeCommandByPanelId.removeValue(forKey: panelId)
         PortScanner.shared.unregisterPanel(workspaceId: id, panelId: panelId)
         terminalInheritanceFontPointsByPanelId.removeValue(forKey: panelId)
         if lastTerminalConfigInheritancePanelId == panelId {
@@ -4726,6 +4747,7 @@ extension Workspace: BonsplitDelegate {
                 surfaceTTYNames.removeValue(forKey: panelId)
                 surfaceListeningPorts.removeValue(forKey: panelId)
                 restoredTerminalScrollbackByPanelId.removeValue(forKey: panelId)
+                cachedAgentResumeCommandByPanelId.removeValue(forKey: panelId)
                 PortScanner.shared.unregisterPanel(workspaceId: id, panelId: panelId)
             }
 

@@ -35,7 +35,13 @@ _cmux_restore_scrollback_once() {
 }
 _cmux_restore_scrollback_once
 
-_cmux_resume_agent_once() {
+_CMUX_AGENT_RESUME_PENDING="${_CMUX_AGENT_RESUME_PENDING:-1}"
+
+_cmux_resume_agent_on_first_prompt() {
+    # Fire once on the first PROMPT_COMMAND invocation, then disable.
+    [[ "$_CMUX_AGENT_RESUME_PENDING" == "1" ]] || return 0
+    _CMUX_AGENT_RESUME_PENDING=0
+
     local cmd="${CMUX_RESTORE_AGENT_COMMAND:-}"
     [[ -n "$cmd" ]] || return 0
     unset CMUX_RESTORE_AGENT_COMMAND
@@ -49,7 +55,7 @@ _cmux_resume_agent_once() {
             return 0 ;;
     esac
 
-    # Extract the binary name and verify it is installed.
+    # Verify the binary is installed.
     local bin="${cmd%% *}"
     if ! command -v "$bin" >/dev/null 2>&1; then
         return 0
@@ -61,7 +67,6 @@ _cmux_resume_agent_once() {
 
     eval "$cmd"
 }
-_cmux_resume_agent_once
 
 # Throttle heavy work to avoid prompt latency.
 _CMUX_PWD_LAST_PWD="${_CMUX_PWD_LAST_PWD:-}"
@@ -144,6 +149,8 @@ _cmux_ports_kick() {
 }
 
 _cmux_prompt_command() {
+    _cmux_resume_agent_on_first_prompt
+
     [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
     [[ -n "$CMUX_TAB_ID" ]] || return 0
     [[ -n "$CMUX_PANEL_ID" ]] || return 0
