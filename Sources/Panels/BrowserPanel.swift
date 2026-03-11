@@ -3351,6 +3351,50 @@ extension BrowserPanel {
         }
     }
 
+    func ownedFocusIntent(for responder: NSResponder, in window: NSWindow) -> PanelFocusIntent? {
+        if AppDelegate.shared?.focusedBrowserAddressBarPanelId() == id {
+            return .browser(.addressBar)
+        }
+
+        if BrowserWindowPortalRegistry.searchOverlayPanelId(for: responder, in: window) == id {
+            return .browser(.findField)
+        }
+
+        if Self.responderChainContains(responder, target: webView) {
+            return .browser(.webView)
+        }
+
+        return nil
+    }
+
+    @discardableResult
+    func yieldFocusIntent(_ intent: PanelFocusIntent, in window: NSWindow) -> Bool {
+        guard case .browser(let target) = intent else { return false }
+
+        switch target {
+        case .findField:
+            let yielded = BrowserWindowPortalRegistry.yieldSearchOverlayFocusIfOwned(by: id, in: window)
+#if DEBUG
+            if yielded {
+                dlog("focus.handoff.yield panel=\(id.uuidString.prefix(5)) target=browserFind")
+            }
+#endif
+            return yielded
+        case .addressBar:
+            guard AppDelegate.shared?.focusedBrowserAddressBarPanelId() == id else { return false }
+            let yielded = window.makeFirstResponder(nil)
+#if DEBUG
+            if yielded {
+                dlog("focus.handoff.yield panel=\(id.uuidString.prefix(5)) target=addressBar")
+            }
+#endif
+            return yielded
+        case .webView:
+            guard Self.responderChainContains(window.firstResponder, target: webView) else { return false }
+            return window.makeFirstResponder(nil)
+        }
+    }
+
     func acknowledgeAddressBarFocusRequest(_ requestId: UUID) {
         guard pendingAddressBarFocusRequestId == requestId else {
 #if DEBUG

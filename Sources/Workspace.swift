@@ -4152,6 +4152,14 @@ extension Workspace: BonsplitDelegate {
             p.unfocus()
         }
 
+        if let focusWindow = activationWindow(for: panel) {
+            yieldForeignOwnedFocusIfNeeded(
+                in: focusWindow,
+                targetPanelId: panelId,
+                targetIntent: activationIntent
+            )
+        }
+
         activatePanel(
             panel,
             focusIntent: activationIntent,
@@ -4266,6 +4274,37 @@ extension Workspace: BonsplitDelegate {
 
         if reassertAppKitFocus {
             panel.focus()
+        }
+    }
+
+    private func activationWindow(for panel: any Panel) -> NSWindow? {
+        if let terminalPanel = panel as? TerminalPanel {
+            return terminalPanel.hostedView.window ?? NSApp.keyWindow ?? NSApp.mainWindow
+        }
+        if let browserPanel = panel as? BrowserPanel {
+            return browserPanel.webView.window ?? browserPanel.portalAnchorView.window ?? NSApp.keyWindow ?? NSApp.mainWindow
+        }
+        return NSApp.keyWindow ?? NSApp.mainWindow
+    }
+
+    private func yieldForeignOwnedFocusIfNeeded(
+        in window: NSWindow,
+        targetPanelId: UUID,
+        targetIntent: PanelFocusIntent
+    ) {
+        guard let firstResponder = window.firstResponder else { return }
+
+        for (panelId, panel) in panels where panelId != targetPanelId {
+            guard let ownedIntent = panel.ownedFocusIntent(for: firstResponder, in: window) else { continue }
+#if DEBUG
+            dlog(
+                "focus.handoff.begin workspace=\(id.uuidString.prefix(5)) " +
+                "fromPanel=\(panelId.uuidString.prefix(5)) toPanel=\(targetPanelId.uuidString.prefix(5)) " +
+                "fromIntent=\(String(describing: ownedIntent)) toIntent=\(String(describing: targetIntent))"
+            )
+#endif
+            _ = panel.yieldFocusIntent(ownedIntent, in: window)
+            return
         }
     }
 

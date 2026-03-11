@@ -223,4 +223,16 @@ final class TerminalPanel: Panel, ObservableObject {
             return false
         }
     }
+
+    func ownedFocusIntent(for responder: NSResponder, in window: NSWindow) -> PanelFocusIntent? {
+        _ = window
+        guard let intent = hostedView.ownedPanelFocusIntent(for: responder) else { return nil }
+        return .terminal(intent)
+    }
+
+    @discardableResult
+    func yieldFocusIntent(_ intent: PanelFocusIntent, in window: NSWindow) -> Bool {
+        guard case .terminal(let target) = intent else { return false }
+        return hostedView.yieldPanelFocusIntent(target, in: window)
+    }
 }

@@ -103,6 +103,13 @@ public protocol Panel: AnyObject, Identifiable, ObservableObject where ID == UUI
     /// Restore a previously captured focus target.
     @discardableResult
     func restoreFocusIntent(_ intent: PanelFocusIntent) -> Bool
+
+    /// Return the semantic focus target currently owned by this panel, if any.
+    func ownedFocusIntent(for responder: NSResponder, in window: NSWindow) -> PanelFocusIntent?
+
+    /// Explicitly yield a previously owned focus target before another panel restores focus.
+    @discardableResult
+    func yieldFocusIntent(_ intent: PanelFocusIntent, in window: NSWindow) -> Bool
 }
 
 /// Extension providing default implementations
@@ -128,5 +135,18 @@ extension Panel {
         guard intent == .panel else { return false }
         focus()
         return true
+    }
+
+    func ownedFocusIntent(for responder: NSResponder, in window: NSWindow) -> PanelFocusIntent? {
+        _ = responder
+        _ = window
+        return nil
+    }
+
+    @discardableResult
+    func yieldFocusIntent(_ intent: PanelFocusIntent, in window: NSWindow) -> Bool {
+        _ = intent
+        _ = window
+        return false
     }
 }

@@ -6934,6 +6934,45 @@ final class GhosttySurfaceScrollView: NSView {
         }
     }
 
+    func ownedPanelFocusIntent(for responder: NSResponder) -> TerminalPanelFocusIntent? {
+        if isCurrentSurfaceSearchResponder(responder) {
+            return .findField
+        }
+
+        let resolvedResponder: NSResponder
+        if let editor = responder as? NSTextView,
+           editor.isFieldEditor,
+           let editedView = editor.delegate as? NSView {
+            resolvedResponder = editedView
+        } else {
+            resolvedResponder = responder
+        }
+
+        guard let view = resolvedResponder as? NSView else { return nil }
+        if view === surfaceView || view.isDescendant(of: surfaceView) {
+            return .surface
+        }
+        return nil
+    }
+
+    @discardableResult
+    func yieldPanelFocusIntent(_ intent: TerminalPanelFocusIntent, in window: NSWindow) -> Bool {
+        guard let firstResponder = window.firstResponder,
+              ownedPanelFocusIntent(for: firstResponder) == intent else {
+            return false
+        }
+
+        surfaceView.terminalSurface?.setFocus(false)
+        resignOwnedFirstResponderIfNeeded(reason: "yieldPanelFocusIntent")
+#if DEBUG
+        dlog(
+            "focus.handoff.yield surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") " +
+            "target=\(intent == .findField ? "searchField" : "terminal")"
+        )
+#endif
+        return true
+    }
+
     private func resignOwnedFirstResponderIfNeeded(reason: String) {
         guard let window,
               let firstResponder = window.firstResponder else { return }
