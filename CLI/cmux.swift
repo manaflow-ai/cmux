@@ -6379,6 +6379,31 @@ struct CMUXCLI {
         return ordered.joined(separator: ":")
     }
 
+    private func isCmuxClaudeWrapper(at path: String) -> Bool {
+        guard let data = FileManager.default.contents(atPath: path) else { return false }
+        let prefixData = data.prefix(512)
+        guard let prefix = String(data: prefixData, encoding: .utf8) else { return false }
+        return prefix.contains("cmux claude wrapper - injects hooks and session tracking")
+    }
+
+    private func resolveClaudeExecutable(searchPath: String?) -> String? {
+        let entries = searchPath?.split(separator: ":").map(String.init) ?? []
+        var fallback: String?
+        for entry in entries where !entry.isEmpty {
+            let candidate = URL(fileURLWithPath: entry, isDirectory: true)
+                .appendingPathComponent("claude", isDirectory: false)
+                .path
+            guard FileManager.default.isExecutableFile(atPath: candidate) else { continue }
+            if fallback == nil {
+                fallback = candidate
+            }
+            if !isCmuxClaudeWrapper(at: candidate) {
+                return candidate
+            }
+        }
+        return fallback
+    }
+
     private func createClaudeTeamsShimDirectory() throws -> URL {
         let homePath = ProcessInfo.processInfo.environment["HOME"] ?? NSHomeDirectory()
         let rootPath = URL(fileURLWithPath: homePath, isDirectory: true)
@@ -6403,24 +6428,30 @@ struct CMUXCLI {
     }
 
     private func runClaudeTeams(commandArgs: [String]) throws {
+        let processEnvironment = ProcessInfo.processInfo.environment
         let shimDirectory = try createClaudeTeamsShimDirectory()
         let executablePath = resolvedExecutableURL()?.path ?? (args.first ?? "cmux")
-        let bundledBinDirectory = resolvedExecutableURL()?.deletingLastPathComponent()
-        let bundledBinPath: String? = {
-            guard let bundledBinDirectory else { return nil }
-            let claudePath = bundledBinDirectory.appendingPathComponent("claude").path
-            return FileManager.default.isExecutableFile(atPath: claudePath) ? bundledBinDirectory.path : nil
-        }()
+        let bundledClaudePath = resolvedExecutableURL()?
+            .deletingLastPathComponent()
+            .appendingPathComponent("claude", isDirectory: false)
+            .path
+        let claudeExecutablePath = resolveClaudeExecutable(searchPath: processEnvironment["PATH"])
+            ?? {
+                guard let bundledClaudePath,
+                      FileManager.default.isExecutableFile(atPath: bundledClaudePath) else { return nil }
+                return bundledClaudePath
+            }()
         let updatedPath = prependPathEntries(
-            [shimDirectory.path, bundledBinPath].compactMap { $0 },
-            to: ProcessInfo.processInfo.environment["PATH"]
+            [shimDirectory.path],
+            to: processEnvironment["PATH"]
         )
 
         setenv("CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS", "1", 1)
         setenv("CMUX_CLAUDE_TEAMS_CMUX_BIN", executablePath, 1)
         setenv("PATH", updatedPath, 1)
 
-        var argv = (["claude"] + commandArgs).map { strdup($0) }
+        let launchPath = claudeExecutablePath ?? "claude"
+        var argv = ([launchPath] + commandArgs).map { strdup($0) }
         defer {
             for item in argv {
                 free(item)
@@ -6428,7 +6459,11 @@ struct CMUXCLI {
         }
         argv.append(nil)
 
-        execvp("claude", &argv)
+        if claudeExecutablePath != nil {
+            execv(launchPath, &argv)
+        } else {
+            execvp("claude", &argv)
+        }
         let code = errno
         throw CLIError(message: "Failed to launch claude: \(String(cString: strerror(code)))")
     }
