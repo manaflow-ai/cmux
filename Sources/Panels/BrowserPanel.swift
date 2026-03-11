@@ -277,22 +277,6 @@ enum BrowserLinkOpenSettings {
         return false
     }
 
-    /// Check whether a hostname matches the configured host list.
-    /// Empty list means "allow all" (no filtering) regardless of mode.
-    /// Supports exact match and wildcard prefix (`*.example.com`).
-    private static func hostMatchesWhitelist(_ host: String, defaults: UserDefaults = .standard) -> Bool {
-        let rawPatterns = hostWhitelist(defaults: defaults)
-        if rawPatterns.isEmpty { return true }
-        guard let normalizedHost = BrowserInsecureHTTPSettings.normalizeHost(host) else { return false }
-        for rawPattern in rawPatterns {
-            guard let pattern = normalizeWhitelistPattern(rawPattern) else { continue }
-            if hostMatchesPattern(normalizedHost, pattern: pattern) {
-                return true
-            }
-        }
-        return false
-    }
-
     /// Determine whether a host should open in the cmux embedded browser,
     /// respecting the configured host-list mode (whitelist or blacklist).
     ///
