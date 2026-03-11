@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Regression test: `cmux claude-teams` injects the agent-teams env and tmux shim.
+Regression test: `cmux claude-teams` injects the tmux-style auto-mode env.
 """
 
 from __future__ import annotations
@@ -59,6 +59,11 @@ def main() -> int:
         env_log = tmp / "agent-teams.log"
         tmux_log = tmp / "tmux-path.log"
         cmux_bin_log = tmp / "cmux-bin.log"
+        argv_log = tmp / "argv.log"
+        tmux_env_log = tmp / "tmux-env.log"
+        tmux_pane_log = tmp / "tmux-pane.log"
+        term_log = tmp / "term.log"
+        term_program_log = tmp / "term-program.log"
 
         make_executable(
             real_bin / "claude",
@@ -67,6 +72,11 @@ set -euo pipefail
 printf '%s\\n' "${CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS-__UNSET__}" > "$FAKE_AGENT_TEAMS_LOG"
 command -v tmux > "$FAKE_TMUX_PATH_LOG"
 printf '%s\\n' "${CMUX_CLAUDE_TEAMS_CMUX_BIN-__UNSET__}" > "$FAKE_CMUX_BIN_LOG"
+printf '%s\\n' "$@" > "$FAKE_ARGV_LOG"
+printf '%s\\n' "${TMUX-__UNSET__}" > "$FAKE_TMUX_ENV_LOG"
+printf '%s\\n' "${TMUX_PANE-__UNSET__}" > "$FAKE_TMUX_PANE_LOG"
+printf '%s\\n' "${TERM-__UNSET__}" > "$FAKE_TERM_LOG"
+printf '%s\\n' "${TERM_PROGRAM-__UNSET__}" > "$FAKE_TERM_PROGRAM_LOG"
 """,
         )
 
@@ -75,6 +85,11 @@ printf '%s\\n' "${CMUX_CLAUDE_TEAMS_CMUX_BIN-__UNSET__}" > "$FAKE_CMUX_BIN_LOG"
         env["FAKE_AGENT_TEAMS_LOG"] = str(env_log)
         env["FAKE_TMUX_PATH_LOG"] = str(tmux_log)
         env["FAKE_CMUX_BIN_LOG"] = str(cmux_bin_log)
+        env["FAKE_ARGV_LOG"] = str(argv_log)
+        env["FAKE_TMUX_ENV_LOG"] = str(tmux_env_log)
+        env["FAKE_TMUX_PANE_LOG"] = str(tmux_pane_log)
+        env["FAKE_TERM_LOG"] = str(term_log)
+        env["FAKE_TERM_PROGRAM_LOG"] = str(term_program_log)
 
         proc = subprocess.run(
             [cli_path, "claude-teams", "--version"],
@@ -123,7 +138,36 @@ printf '%s\\n' "${CMUX_CLAUDE_TEAMS_CMUX_BIN-__UNSET__}" > "$FAKE_CMUX_BIN_LOG"
             print(f"FAIL: CMUX_CLAUDE_TEAMS_CMUX_BIN does not exist: {cmux_bin_value!r}")
             return 1
 
-    print("PASS: cmux claude-teams injects the agent-teams env and tmux shim")
+        argv_lines = argv_log.read_text(encoding="utf-8").splitlines()
+        if argv_lines[:2] != ["--teammate-mode", "auto"]:
+            print(f"FAIL: expected launcher to prepend --teammate-mode auto, got {argv_lines!r}")
+            return 1
+
+        if "--version" not in argv_lines:
+            print(f"FAIL: expected launcher to preserve user args, got {argv_lines!r}")
+            return 1
+
+        tmux_env_value = read_text(tmux_env_log)
+        if tmux_env_value in {"", "__UNSET__"}:
+            print("FAIL: expected a fake TMUX env value")
+            return 1
+
+        tmux_pane_value = read_text(tmux_pane_log)
+        if tmux_pane_value in {"", "__UNSET__"} or not tmux_pane_value.startswith("%"):
+            print(f"FAIL: expected a fake TMUX_PANE value, got {tmux_pane_value!r}")
+            return 1
+
+        term_value = read_text(term_log)
+        if term_value != "screen-256color":
+            print(f"FAIL: expected TERM=screen-256color, got {term_value!r}")
+            return 1
+
+        term_program_value = read_text(term_program_log)
+        if term_program_value != "__UNSET__":
+            print(f"FAIL: expected TERM_PROGRAM to be unset, got {term_program_value!r}")
+            return 1
+
+    print("PASS: cmux claude-teams injects the auto-mode tmux env and shim")
     return 0
 
 
