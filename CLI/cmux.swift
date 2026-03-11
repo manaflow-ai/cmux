@@ -29,7 +29,7 @@ private final class CLISocketSentryTelemetry {
         self.command = command.lowercased()
         self.subcommand = commandArgs.first?.lowercased() ?? "help"
         self.socketPath = socketPath
-        self.envSocketPath = processEnv["CMUX_SOCKET_PATH"]
+        self.envSocketPath = processEnv["CMUX_SOCKET_PATH"] ?? processEnv["CMUX_SOCKET"]
         self.workspaceId = processEnv["CMUX_WORKSPACE_ID"]
         self.surfaceId = processEnv["CMUX_SURFACE_ID"]
         self.disabledByEnv =
@@ -124,7 +124,7 @@ private final class CLISocketSentryTelemetry {
         if socketPath == "/tmp/cmux.sock",
            (envSocketPath?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true),
            !taggedSockets.isEmpty {
-            context["possible_root_cause"] = "CMUX_SOCKET_PATH missing while tagged sockets exist"
+            context["possible_root_cause"] = "CMUX_SOCKET_PATH/CMUX_SOCKET missing while tagged sockets exist"
         }
 
         return context
@@ -794,9 +794,14 @@ struct CMUXCLI {
     func run() throws {
         let processEnv = ProcessInfo.processInfo.environment
         let envSocketPath: String? = {
-            guard let raw = processEnv["CMUX_SOCKET_PATH"] else { return nil }
-            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-            return trimmed.isEmpty ? nil : trimmed
+            for key in ["CMUX_SOCKET_PATH", "CMUX_SOCKET"] {
+                guard let raw = processEnv[key] else { continue }
+                let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty {
+                    return trimmed
+                }
+            }
+            return nil
         }()
         var socketPath = envSocketPath ?? CLISocketPathResolver.defaultSocketPath
         var socketPathSource: CLISocketPathSource
@@ -902,6 +907,31 @@ struct CMUXCLI {
             return
         }
 
+        if command == "welcome" {
+            printWelcome()
+            return
+        }
+
+        if command == "shortcuts" {
+            try runShortcuts(
+                commandArgs: commandArgs,
+                socketPath: resolvedSocketPath,
+                explicitPassword: socketPasswordArg,
+                jsonOutput: jsonOutput
+            )
+            return
+        }
+
+        if command == "feedback" {
+            try runFeedback(
+                commandArgs: commandArgs,
+                socketPath: resolvedSocketPath,
+                explicitPassword: socketPasswordArg,
+                jsonOutput: jsonOutput
+            )
+            return
+        }
+
         let client = SocketClient(path: resolvedSocketPath)
         if resolvedSocketPath != socketPath {
             cliTelemetry.breadcrumb(
@@ -929,13 +959,7 @@ struct CMUXCLI {
         }
         defer { client.close() }
 
-        if let socketPassword = SocketPasswordResolver.resolve(explicit: socketPasswordArg) {
-            let authResponse = try client.send(command: "auth \(socketPassword)")
-            if authResponse.hasPrefix("ERROR:"),
-               !authResponse.contains("Unknown command 'auth'") {
-                throw CLIError(message: authResponse)
-            }
-        }
+        try authenticateClientIfNeeded(client, explicitPassword: socketPasswordArg)
 
         let idFormat = try resolvedIDFormat(jsonOutput: jsonOutput, raw: idFormatArg)
 
@@ -1931,6 +1955,139 @@ struct CMUXCLI {
 
         // Bring the app to front
         try activateApp()
+    }
+
+    private func runFeedback(
+        commandArgs: [String],
+        socketPath: String,
+        explicitPassword: String?,
+        jsonOutput: Bool
+    ) throws {
+        let (emailOpt, rem0) = parseOption(commandArgs, name: "--email")
+        let (bodyOpt, rem1) = parseOption(rem0, name: "--body")
+        let (imagePaths, rem2) = parseRepeatedOption(rem1, name: "--image")
+        let remaining = rem2.filter { $0 != "--" }
+
+        if let unknown = remaining.first {
+            throw CLIError(message: "feedback: unknown flag '\(unknown)'. Known flags: --email <email>, --body <text>, --image <path>")
+        }
+
+        let client = try connectClient(
+            socketPath: socketPath,
+            explicitPassword: explicitPassword,
+            launchIfNeeded: true
+        )
+        defer { client.close() }
+
+        if emailOpt == nil && bodyOpt == nil && imagePaths.isEmpty {
+            var params: [String: Any] = [:]
+            let env = ProcessInfo.processInfo.environment
+            if let workspaceId = env["CMUX_WORKSPACE_ID"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !workspaceId.isEmpty {
+                params["workspace_id"] = workspaceId
+                params["activate"] = false
+            } else {
+                params["activate"] = true
+            }
+            let response = try client.sendV2(method: "feedback.open", params: params)
+            if jsonOutput {
+                print(jsonString(response))
+            } else {
+                print("OK")
+            }
+            return
+        }
+
+        guard let email = emailOpt?.trimmingCharacters(in: .whitespacesAndNewlines),
+              email.isEmpty == false else {
+            throw CLIError(message: "feedback requires --email <email> when sending feedback")
+        }
+        guard let body = bodyOpt, body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
+            throw CLIError(message: "feedback requires --body <text> when sending feedback")
+        }
+
+        let resolvedImages = imagePaths.map(resolvePath)
+        let response = try client.sendV2(method: "feedback.submit", params: [
+            "email": email,
+            "body": body,
+            "image_paths": resolvedImages,
+        ])
+        if jsonOutput {
+            print(jsonString(response))
+        } else {
+            print("OK")
+        }
+    }
+
+    private func runShortcuts(
+        commandArgs: [String],
+        socketPath: String,
+        explicitPassword: String?,
+        jsonOutput: Bool
+    ) throws {
+        let remaining = commandArgs.filter { $0 != "--" }
+        if let unknown = remaining.first {
+            throw CLIError(message: "shortcuts: unknown flag '\(unknown)'")
+        }
+
+        let client = try connectClient(
+            socketPath: socketPath,
+            explicitPassword: explicitPassword,
+            launchIfNeeded: true
+        )
+        defer { client.close() }
+
+        let response = try client.sendV2(method: "settings.open", params: [
+            "target": "keyboardShortcuts",
+            "activate": true,
+        ])
+        if jsonOutput {
+            print(jsonString(response))
+        } else {
+            print("OK")
+        }
+    }
+
+    private func connectClient(
+        socketPath: String,
+        explicitPassword: String?,
+        launchIfNeeded: Bool
+    ) throws -> SocketClient {
+        let client = SocketClient(path: socketPath)
+        if launchIfNeeded && (try? client.connect()) == nil {
+            client.close()
+            try launchApp()
+
+            let pollClient = SocketClient(path: socketPath)
+            var connected = false
+            for _ in 0..<100 {
+                if (try? pollClient.connect()) != nil {
+                    connected = true
+                    break
+                }
+                pollClient.close()
+                Thread.sleep(forTimeInterval: 0.1)
+            }
+            guard connected else {
+                throw CLIError(message: "cmux app did not start in time (socket not found at \(socketPath))")
+            }
+            try authenticateClientIfNeeded(pollClient, explicitPassword: explicitPassword)
+            return pollClient
+        }
+
+        try client.connect()
+        try authenticateClientIfNeeded(client, explicitPassword: explicitPassword)
+        return client
+    }
+
+    private func authenticateClientIfNeeded(_ client: SocketClient, explicitPassword: String?) throws {
+        if let socketPassword = SocketPasswordResolver.resolve(explicit: explicitPassword) {
+            let authResponse = try client.send(command: "auth \(socketPassword)")
+            if authResponse.hasPrefix("ERROR:"),
+               !authResponse.contains("Unknown command 'auth'") {
+                throw CLIError(message: authResponse)
+            }
+        }
     }
 
     private func launchApp() throws {
@@ -4056,6 +4213,37 @@ struct CMUXCLI {
 
             Show top-level CLI usage and command list.
             """
+        case "welcome":
+            return """
+            Usage: cmux welcome
+
+            Show a welcome screen with the cmux logo and useful shortcuts.
+            Auto-runs once on first launch.
+            """
+        case "shortcuts":
+            return """
+            Usage: cmux shortcuts
+
+            Open the Settings window to Keyboard Shortcuts.
+            """
+        case "feedback":
+            return """
+            Usage: cmux feedback
+                   cmux feedback --email <email> --body <text> [--image <path> ...]
+
+            Without args, open the Send Feedback modal in the running app.
+
+            With args, submit feedback through the app using the same feedback pipeline as the modal.
+
+            Flags:
+              --email <email>   Contact email for follow-up
+              --body <text>     Feedback body
+              --image <path>    Attach an image file, repeat for multiple images
+
+            Coding agents:
+              Double check with the end user before sending anything. Review the message and attachments for secrets,
+              private code, credentials, tokens, and other sensitive information first.
+            """
         case "identify":
             return """
             Usage: cmux identify [--workspace <id|ref|index>] [--surface <id|ref|index>] [--no-caller]
@@ -5138,6 +5326,31 @@ struct CMUXCLI {
             remaining.append(arg)
         }
         return (value, remaining)
+    }
+
+    private func parseRepeatedOption(_ args: [String], name: String) -> ([String], [String]) {
+        var remaining: [String] = []
+        var values: [String] = []
+        var skipNext = false
+        var pastTerminator = false
+        for (idx, arg) in args.enumerated() {
+            if skipNext {
+                skipNext = false
+                continue
+            }
+            if arg == "--" {
+                pastTerminator = true
+                remaining.append(arg)
+                continue
+            }
+            if !pastTerminator, arg == name, idx + 1 < args.count {
+                values.append(args[idx + 1])
+                skipNext = true
+                continue
+            }
+            remaining.append(arg)
+        }
+        return (values, remaining)
     }
 
     private func optionValue(_ args: [String], name: String) -> String? {
@@ -6652,6 +6865,61 @@ struct CMUXCLI {
         return "\(baseSummary) [\(commit)]"
     }
 
+    private func printWelcome() {
+        let reset = "\u{001B}[0m"
+        let bold = "\u{001B}[1m"
+        let dim = "\u{001B}[2m"
+        func trueColor(_ red: Int, _ green: Int, _ blue: Int) -> String {
+            "\u{001B}[38;2;\(red);\(green);\(blue)m"
+        }
+        let c1 = trueColor(0, 212, 255)
+        let c2 = trueColor(24, 181, 250)
+        let c3 = trueColor(48, 150, 245)
+        let c4 = trueColor(72, 119, 241)
+        let c5 = trueColor(96, 88, 239)
+        let c6 = trueColor(110, 73, 238)
+        let c7 = trueColor(124, 58, 237)
+        let tagline = trueColor(130, 130, 140)
+
+        let logo = """
+        \(c1)  ::\(reset)
+        \(c2)    ::::\(reset)              \(c1)c\(c2)m\(c3)u\(c7)x\(reset)
+        \(c3)      ::::::\(reset)
+        \(c4)        ::::::\(reset)        \(tagline)the open source terminal\(reset)
+        \(c5)      ::::::\(reset)          \(tagline)built for coding agents\(reset)
+        \(c6)    ::::\(reset)
+        \(c7)  ::\(reset)
+        """
+
+        let shortcuts = """
+          \(bold)Shortcuts\(reset)
+
+          \(bold)\u{2318}N\(reset)\(dim)                  New workspace\(reset)
+          \(bold)\u{2318}P\(reset)\(dim)                  Go to workspace\(reset)
+          \(bold)\u{2318}D\(reset)\(dim)                  Split right\(reset)
+          \(bold)\u{2318}\u{21E7}D\(reset)\(dim)                 Split down\(reset)
+          \(bold)\u{2318}\u{21E7}P\(reset)\(dim)                 Command palette\(reset)
+          \(bold)\u{2318}\u{21E7}R\(reset)\(dim)                 Rename workspace\(reset)
+          \(bold)\u{2318}\u{21E7}L\(reset)\(dim)                 New browser\(reset)
+          \(bold)\u{2318}\u{21E7}U\(reset)\(dim)                 Jump to latest unread\(reset)
+        """
+
+        print()
+        print(logo)
+        print()
+        print(shortcuts)
+        print()
+        print("  \(bold)Docs\(reset)\(dim)                https://cmux.dev/docs\(reset)")
+        print("  \(bold)Discord\(reset)\(dim)             https://discord.gg/xsgFEVrWCZ\(reset)")
+        print("  \(bold)GitHub\(reset)\(dim)              https://github.com/manaflow-ai/cmux (please leave a star ⭐)\(reset)")
+        print("  \(bold)Email\(reset)\(dim)               founders@manaflow.com\(reset)")
+        print()
+        print("  \(dim)Run \(reset)\(bold)cmux --help\(reset)\(dim) for all commands.\(reset)")
+        print("  \(dim)Run \(reset)\(bold)cmux shortcuts\(reset)\(dim) to edit shortcuts.\(reset)")
+        print("  \(dim)Run \(reset)\(bold)cmux feedback\(reset)\(dim) to report a bug.\(reset)")
+        print()
+    }
+
     private func resolvedVersionInfo() -> [String: String] {
         var info: [String: String] = [:]
         if let main = versionInfo(from: Bundle.main.infoDictionary) {
@@ -6924,7 +7192,7 @@ struct CMUXCLI {
           cmux [global-options] <command> [options]
 
         Handle Inputs:
-          For most v2-backed commands you can use UUIDs, short refs (window:1/workspace:2/pane:3/surface:4), or indexes.
+          Use UUIDs, short refs (window:1/workspace:2/pane:3/surface:4), or indexes where commands accept window, workspace, pane, or surface inputs.
           `tab-action` also accepts `tab:<n>` in addition to `surface:<n>`.
           Output defaults to refs; pass --id-format uuids or --id-format both to include UUIDs.
 
@@ -6933,6 +7201,9 @@ struct CMUXCLI {
 
         Commands:
           version
+          welcome
+          shortcuts
+          feedback [--email <email> --body <text> [--image <path> ...]]
           ping
           capabilities
           identify [--workspace <id|ref|index>] [--surface <id|ref|index>] [--no-caller]
@@ -7058,8 +7329,6 @@ struct CMUXCLI {
           CMUX_SURFACE_ID     Auto-set in cmux terminals. Used as default --surface.
           CMUX_SOCKET_PATH    Override the Unix socket path. Without this, the CLI defaults
                               to /tmp/cmux.sock and auto-discovers tagged/debug sockets.
-          CMUX_CLI_SENTRY_DISABLED
-                              Set to 1 to disable CLI Sentry socket diagnostics.
         """
     }
 }

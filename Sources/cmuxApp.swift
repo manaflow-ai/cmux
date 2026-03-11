@@ -2815,6 +2815,10 @@ enum ClaudeCodeIntegrationSettings {
     }
 }
 
+enum WelcomeSettings {
+    static let shownKey = "cmuxWelcomeShown"
+}
+
 enum TelemetrySettings {
     static let sendAnonymousTelemetryKey = "sendAnonymousTelemetry"
     static let defaultSendAnonymousTelemetry = true

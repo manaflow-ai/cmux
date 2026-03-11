@@ -805,6 +805,23 @@
         }
       }
     },
+    "sidebar.help.welcome": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Welcome"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ようこそ"
+          }
+        }
+      }
+    },
     "sidebar.help.changelog": {
       "extractionState": "manual",
       "localizations": {

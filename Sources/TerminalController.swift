@@ -1737,6 +1737,16 @@ class TerminalController {
         case "workspace.last":
             return v2Result(id: id, self.v2WorkspaceLast(params: params))
 
+        // Settings
+        case "settings.open":
+            return v2Result(id: id, self.v2SettingsOpen(params: params))
+
+        // Feedback
+        case "feedback.open":
+            return v2Result(id: id, self.v2FeedbackOpen(params: params))
+        case "feedback.submit":
+            return v2Result(id: id, self.v2FeedbackSubmit(params: params))
+
 
         // Surfaces / input
         case "surface.list":
@@ -2096,6 +2106,9 @@ class TerminalController {
             "workspace.next",
             "workspace.previous",
             "workspace.last",
+            "settings.open",
+            "feedback.open",
+            "feedback.submit",
             "surface.list",
             "surface.current",
             "surface.focus",
@@ -5380,6 +5393,109 @@ class TerminalController {
             TerminalNotificationStore.shared.clearAll()
         }
         return .ok([:])
+    }
+
+    private func v2FeedbackOpen(params: [String: Any]) -> V2CallResult {
+        let workspaceId = v2UUID(params, "workspace_id")
+        let windowId = v2UUID(params, "window_id")
+        let shouldActivate = v2Bool(params, "activate") ?? false
+        DispatchQueue.main.async {
+            let targetWindow: NSWindow?
+            if let windowId, let app = AppDelegate.shared {
+                targetWindow = app.mainWindow(for: windowId)
+            } else if let workspaceId, let app = AppDelegate.shared {
+                targetWindow = app.mainWindowContainingWorkspace(workspaceId)
+            } else {
+                targetWindow = nil
+            }
+
+            if shouldActivate {
+                if let targetWindow {
+                    targetWindow.makeKeyAndOrderFront(nil)
+                    NSRunningApplication.current.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+                } else {
+                    NSRunningApplication.current.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+                }
+            }
+
+            FeedbackComposerBridge.openComposer(in: targetWindow)
+        }
+        return .ok(["opened": true])
+    }
+
+    private func v2SettingsOpen(params: [String: Any]) -> V2CallResult {
+        let targetRaw = v2String(params, "target")
+        let shouldActivate = v2Bool(params, "activate") ?? true
+
+        let navigationTarget: SettingsNavigationTarget?
+        switch targetRaw {
+        case nil:
+            navigationTarget = nil
+        case SettingsNavigationTarget.keyboardShortcuts.rawValue:
+            navigationTarget = .keyboardShortcuts
+        default:
+            return .err(code: "invalid_params", message: "Unknown settings target", data: ["target": targetRaw ?? ""])
+        }
+
+        DispatchQueue.main.async {
+            if shouldActivate {
+                AppDelegate.presentPreferencesWindow(navigationTarget: navigationTarget)
+            } else {
+                SettingsWindowController.shared.show(navigationTarget: navigationTarget)
+            }
+        }
+        return .ok([
+            "opened": true,
+            "target": navigationTarget?.rawValue ?? "general",
+        ])
+    }
+
+    private func v2FeedbackSubmit(params: [String: Any]) -> V2CallResult {
+        guard let email = params["email"] as? String else {
+            return .err(code: "invalid_params", message: "Missing email", data: ["field": "email"])
+        }
+        guard let body = params["body"] as? String else {
+            return .err(code: "invalid_params", message: "Missing body", data: ["field": "body"])
+        }
+        let imagePaths = params["image_paths"] as? [String] ?? []
+
+        let semaphore = DispatchSemaphore(value: 0)
+        var result: V2CallResult = .err(code: "internal_error", message: "Feedback submission failed", data: nil)
+
+        Task {
+            let resolved: V2CallResult
+            do {
+                let attachmentCount = try await FeedbackComposerBridge.submit(
+                    email: email,
+                    message: body,
+                    imagePaths: imagePaths
+                )
+                resolved = .ok([
+                    "submitted": true,
+                    "attachment_count": attachmentCount,
+                ])
+            } catch let error as FeedbackComposerBridgeError {
+                let code: String
+                switch error {
+                case .invalidEmail, .emptyMessage, .messageTooLong, .tooManyImages, .invalidImagePath:
+                    code = "invalid_params"
+                case .submissionFailed:
+                    code = "request_failed"
+                }
+                resolved = .err(code: code, message: error.localizedDescription, data: nil)
+            } catch {
+                resolved = .err(code: "internal_error", message: error.localizedDescription, data: nil)
+            }
+
+            result = resolved
+            semaphore.signal()
+        }
+
+        if semaphore.wait(timeout: .now() + 35) == .timedOut {
+            return .err(code: "timeout", message: "Feedback submission timed out", data: nil)
+        }
+
+        return result
     }
 
     // MARK: - V2 App Focus Methods
