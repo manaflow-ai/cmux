@@ -1672,12 +1672,15 @@ final class WindowBrowserSlotView: NSView {
     func pinHostedWebView(_ webView: WKWebView) {
         guard webView.superview === self else { return }
 
+        let needsPlainWebViewFrameReset =
+            !Self.hasWebKitCompanionSubview(in: self, primaryWebView: webView) &&
+            Self.frameDiffersFromBounds(webView.frame, bounds: bounds)
         let needsFrameHosting =
             hostedWebView !== webView ||
             !hostedWebViewConstraints.isEmpty ||
+            needsPlainWebViewFrameReset ||
             !webView.translatesAutoresizingMaskIntoConstraints ||
-            webView.autoresizingMask != [.width, .height] ||
-            !Self.rectApproximatelyEqual(webView.frame, bounds)
+            webView.autoresizingMask != [.width, .height]
         guard needsFrameHosting else {
             needsLayout = true
             layoutSubtreeIfNeeded()
@@ -1688,12 +1691,34 @@ final class WindowBrowserSlotView: NSView {
         hostedWebViewConstraints = []
         hostedWebView = webView
         // Attached Web Inspector mutates the moved WKWebView's frame directly.
-        // Edge constraints fight side-docked resizing and cause visible churn.
+        // Re-pin plain web views after cross-host reattach, but preserve the
+        // WebKit-managed split frame when docked DevTools siblings are present.
         webView.translatesAutoresizingMaskIntoConstraints = true
         webView.autoresizingMask = [.width, .height]
         webView.frame = bounds
         needsLayout = true
         layoutSubtreeIfNeeded()
+    }
+
+    private static func frameDiffersFromBounds(_ frame: NSRect, bounds: NSRect, epsilon: CGFloat = 0.5) -> Bool {
+        abs(frame.minX - bounds.minX) > epsilon ||
+            abs(frame.minY - bounds.minY) > epsilon ||
+            abs(frame.width - bounds.width) > epsilon ||
+            abs(frame.height - bounds.height) > epsilon
+    }
+
+    private static func hasWebKitCompanionSubview(in host: NSView, primaryWebView: WKWebView) -> Bool {
+        var stack = host.subviews.filter { $0 !== primaryWebView }
+        while let current = stack.popLast() {
+            if current.isDescendant(of: primaryWebView) {
+                continue
+            }
+            if String(describing: type(of: current)).contains("WK") {
+                return true
+            }
+            stack.append(contentsOf: current.subviews)
+        }
+        return false
     }
 
     func effectivePaneTopChromeHeight() -> CGFloat {
@@ -1975,6 +2000,7 @@ final class WindowBrowserPortal: NSObject {
             guard let webView = entry.webView,
                   let containerView = entry.containerView,
                   !containerView.isHidden else { continue }
+            guard webView.superview === containerView else { continue }
             refreshHostedWebViewPresentation(
                 webView,
                 in: containerView,
@@ -2650,7 +2676,7 @@ final class WindowBrowserPortal: NSObject {
             containerView.setPaneTopChromeHeight(0)
             containerView.setSearchOverlay(nil)
             containerView.setDropZoneOverlay(zone: nil)
-            if !containerView.isHidden {
+            if !containerView.isHidden, webView.superview === containerView {
                 webView.browserPortalNotifyHidden(reason: reason)
             }
             containerView.isHidden = true
@@ -2752,7 +2778,18 @@ final class WindowBrowserPortal: NSObject {
             hostView.addSubview(containerView, positioned: .above, relativeTo: nil)
             refreshReasons.append("syncAttachContainer")
         }
-        if webView.superview !== containerView {
+        let shouldPreserveExternalHostForHiddenEntry =
+            !entry.visibleInUI &&
+            webView.superview !== containerView
+        if shouldPreserveExternalHostForHiddenEntry {
+#if DEBUG
+            dlog(
+                "browser.portal.reparent.skip web=\(browserPortalDebugToken(webView)) " +
+                "reason=hiddenEntryExternalHost super=\(browserPortalDebugToken(webView.superview)) " +
+                "container=\(browserPortalDebugToken(containerView))"
+            )
+#endif
+        } else if webView.superview !== containerView {
 #if DEBUG
             dlog(
                 "browser.portal.reparent web=\(browserPortalDebugToken(webView)) " +
@@ -2943,15 +2980,16 @@ final class WindowBrowserPortal: NSObject {
             refreshReasons.append("bounds")
         }
 
+        let containerOwnsWebView = webView.superview === containerView
         let containerBounds = containerView.bounds
-        let preNormalizeWebFrame = webView.frame
+        let preNormalizeWebFrame = containerOwnsWebView ? webView.frame : .zero
         let inspectorHeightFromInsets = max(0, containerBounds.height - preNormalizeWebFrame.height)
         let inspectorHeightFromOverflow = max(0, preNormalizeWebFrame.maxY - containerBounds.maxY)
         let inspectorHeightApprox = max(inspectorHeightFromInsets, inspectorHeightFromOverflow)
 #if DEBUG
         let inspectorSubviews = Self.inspectorSubviewCount(in: containerView)
 #endif
-        if Self.frameExtendsOutsideBounds(preNormalizeWebFrame, bounds: containerBounds) {
+        if containerOwnsWebView && Self.frameExtendsOutsideBounds(preNormalizeWebFrame, bounds: containerBounds) {
             let oldWebFrame = preNormalizeWebFrame
             CATransaction.begin()
             CATransaction.setDisableActions(true)
@@ -3010,14 +3048,16 @@ final class WindowBrowserPortal: NSObject {
         if transientRecoveryReason == nil {
             resetTransientRecoveryRetryIfNeeded(forWebViewId: webViewId, entry: &entry)
         }
-        if !shouldHide, !refreshReasons.isEmpty {
+        if !shouldHide, containerOwnsWebView, !refreshReasons.isEmpty {
             refreshHostedWebViewPresentation(
                 webView,
                 in: containerView,
                 reason: "\(source):" + refreshReasons.joined(separator: ",")
             )
         }
-        hostView.reapplyHostedInspectorDividerIfNeeded(in: containerView, reason: "portal.sync")
+        if containerOwnsWebView {
+            hostView.reapplyHostedInspectorDividerIfNeeded(in: containerView, reason: "portal.sync")
+        }
 #if DEBUG
         dlog(
             "browser.portal.sync.result web=\(browserPortalDebugToken(webView)) source=\(source) " +
@@ -3027,6 +3067,7 @@ final class WindowBrowserPortal: NSObject {
             "old=\(browserPortalDebugFrame(oldFrame)) raw=\(browserPortalDebugFrame(frameInHost)) " +
             "target=\(browserPortalDebugFrame(targetFrame)) hide=\(shouldHide ? 1 : 0) " +
             "entryVisible=\(entry.visibleInUI ? 1 : 0) " +
+            "containerOwnsWeb=\(containerOwnsWebView ? 1 : 0) " +
             "containerHidden=\(containerView.isHidden ? 1 : 0) webHidden=\(webView.isHidden ? 1 : 0) " +
             "containerBounds=\(browserPortalDebugFrame(containerView.bounds)) " +
             "preWebFrame=\(browserPortalDebugFrame(preNormalizeWebFrame)) " +

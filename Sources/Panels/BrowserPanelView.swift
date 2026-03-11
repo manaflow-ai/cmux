@@ -3786,8 +3786,7 @@ struct WebViewRepresentable: NSViewRepresentable {
                 hostedWebView !== webView ||
                 !hostedWebViewConstraints.isEmpty ||
                 !webView.translatesAutoresizingMaskIntoConstraints ||
-                webView.autoresizingMask != [.width, .height] ||
-                webView.frame != container.bounds
+                webView.autoresizingMask != [.width, .height]
             guard needsFrameHosting else {
                 needsLayout = true
                 layoutSubtreeIfNeeded()
@@ -3799,8 +3798,8 @@ struct WebViewRepresentable: NSViewRepresentable {
             hostedWebView = webView
 
             // WebKit's attached inspector does not reliably dock into a constraint-managed
-            // WKWebView hierarchy on macOS. Host the moved webview with autoresizing so
-            // the inspector can resize the content view in place.
+            // WKWebView hierarchy on macOS. Host the moved webview with autoresizing and
+            // keep WebKit-owned page frames intact when DevTools is side-docked.
             webView.translatesAutoresizingMaskIntoConstraints = true
             webView.autoresizingMask = [.width, .height]
             webView.frame = container.bounds
@@ -4485,6 +4484,34 @@ struct WebViewRepresentable: NSViewRepresentable {
                 webView: webView,
                 source: "viewStateChanged.localInlineHosting"
             )
+        }
+
+        let shouldPreserveExistingExternalLocalHost =
+            host.window == nil &&
+            webView.superview != nil &&
+            webView.superview !== slotView
+        if shouldPreserveExistingExternalLocalHost {
+            // Split zoom can instantiate a replacement local host before it joins a window.
+            // Never let that off-window host steal the live page + inspector hierarchy away
+            // from the currently visible local host.
+            host.setLocalInlineSlotHidden(true)
+            coordinator.lastPortalHostId = nil
+            coordinator.lastSynchronizedHostGeometryRevision = 0
+#if DEBUG
+            dlog(
+                "browser.localHost.reparent.skip web=\(Self.objectID(webView)) " +
+                "reason=offWindowReplacementHost super=\(Self.objectID(webView.superview)) " +
+                "host=\(Self.objectID(host)) slot=\(Self.objectID(slotView))"
+            )
+            Self.logDevToolsState(
+                panel,
+                event: "localHost.skip",
+                generation: coordinator.attachGeneration,
+                retryCount: 0,
+                details: Self.attachContext(webView: webView, host: host)
+            )
+#endif
+            return false
         }
 
         if webView.superview !== slotView {
