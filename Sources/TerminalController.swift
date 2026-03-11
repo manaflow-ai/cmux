@@ -1992,6 +1992,14 @@ class TerminalController {
         case "browser.input_touch":
             return v2Result(id: id, self.v2BrowserInputTouch(params: params))
 
+        // Popup terminal
+        case "popup-terminal.toggle":
+            return v2Result(id: id, self.v2PopupTerminalToggle(params: params))
+        case "popup-terminal.show":
+            return v2Result(id: id, self.v2PopupTerminalShow(params: params))
+        case "popup-terminal.hide":
+            return v2Result(id: id, self.v2PopupTerminalHide(params: params))
+
         // Markdown
         case "markdown.open":
             return v2Result(id: id, self.v2MarkdownOpen(params: params))
@@ -2859,6 +2867,23 @@ class TerminalController {
                 "window_id": windowId.uuidString,
                 "window_ref": v2Ref(kind: .window, uuid: windowId)
             ])
+    }
+
+    // MARK: - V2 Popup Terminal Methods
+
+    private func v2PopupTerminalToggle(params _: [String: Any]) -> V2CallResult {
+        v2MainSync { PopupTerminalController.shared.toggle() }
+        return .ok(["visible": v2MainSync { PopupTerminalController.shared.isVisible }])
+    }
+
+    private func v2PopupTerminalShow(params _: [String: Any]) -> V2CallResult {
+        v2MainSync { PopupTerminalController.shared.show() }
+        return .ok(["visible": true])
+    }
+
+    private func v2PopupTerminalHide(params _: [String: Any]) -> V2CallResult {
+        v2MainSync { PopupTerminalController.shared.hide() }
+        return .ok(["visible": false])
     }
 
     // MARK: - V2 Workspace Methods

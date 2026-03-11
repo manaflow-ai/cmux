@@ -1767,6 +1767,19 @@ struct CMUXCLI {
         case "markdown":
             try runMarkdownCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
 
+        // Popup terminal commands
+        case "popup-terminal-toggle":
+            let payload = try client.sendV2(method: "popup-terminal.toggle", params: [:])
+            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat))
+
+        case "popup-terminal-show":
+            let payload = try client.sendV2(method: "popup-terminal.show", params: [:])
+            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat))
+
+        case "popup-terminal-hide":
+            let payload = try client.sendV2(method: "popup-terminal.hide", params: [:])
+            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat))
+
         default:
             print(usage())
             throw CLIError(message: "Unknown command: \(command)")
@@ -8458,6 +8471,10 @@ struct CMUXCLI {
 
           set-app-focus <active|inactive|clear>
           simulate-app-active
+
+          popup-terminal-toggle     Toggle the popup terminal
+          popup-terminal-show       Show the popup terminal
+          popup-terminal-hide       Hide the popup terminal
 
           # tmux compatibility commands
           capture-pane [--workspace <id|ref>] [--surface <id|ref>] [--scrollback] [--lines <n>]
