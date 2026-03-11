@@ -5168,6 +5168,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         pasteboard.setString(payload, forType: .string)
     }
 
+    private func sendTextWhenReady(_ text: String, to tab: Tab, attempt: Int = 0, beforeSend: (() -> Void)? = nil) {
+        let maxAttempts = 60
+        if let terminalPanel = tab.focusedTerminalPanel, terminalPanel.surface.surface != nil {
+            beforeSend?()
+            terminalPanel.sendText(text)
+            return
+        }
+        guard attempt < maxAttempts else {
+            NSLog("Command send: surface not ready after \(maxAttempts) attempts")
+            return
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+            self?.sendTextWhenReady(text, to: tab, attempt: attempt + 1, beforeSend: beforeSend)
+        }
+    }
+
 #if DEBUG
     private let debugColorWorkspaceTitlePrefix = "Debug Color - "
     private let debugPerfWorkspaceTitlePrefix = "Debug Perf - "
@@ -5499,22 +5515,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             "terminals=\(snapshot.terminalPanelCount) surfacesReady=\(snapshot.loadedSurfaceCount) " +
             "selected=\(snapshot.selectedWorkspace)"
         )
-    }
-
-    private func sendTextWhenReady(_ text: String, to tab: Tab, attempt: Int = 0, beforeSend: (() -> Void)? = nil) {
-        let maxAttempts = 60
-        if let terminalPanel = tab.focusedTerminalPanel, terminalPanel.surface.surface != nil {
-            beforeSend?()
-            terminalPanel.sendText(text)
-            return
-        }
-        guard attempt < maxAttempts else {
-            NSLog("Debug scrollback: surface not ready after \(maxAttempts) attempts")
-            return
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
-            self?.sendTextWhenReady(text, to: tab, attempt: attempt + 1, beforeSend: beforeSend)
-        }
     }
 
     @objc func triggerSentryTestCrash(_ sender: Any?) {
