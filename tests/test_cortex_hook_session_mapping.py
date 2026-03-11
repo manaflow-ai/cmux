@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-E2E regression test for Claude hook session mapping.
+E2E regression test for Cortex Code hook session mapping.
 
 Validates:
 1) session-start records session_id -> workspace/surface mapping on disk
@@ -47,7 +47,7 @@ def resolve_cmux_cli() -> str:
     raise RuntimeError("Unable to find cmux CLI binary. Set CMUX_CLI_BIN.")
 
 
-def run_claude_hook(
+def run_cortex_hook(
     cli_path: str,
     socket_path: str,
     subcommand: str,
@@ -55,7 +55,7 @@ def run_claude_hook(
     env: dict[str, str],
 ) -> str:
     proc = subprocess.run(
-        [cli_path, "--socket", socket_path, "claude-hook", subcommand],
+        [cli_path, "--socket", socket_path, "cortex-hook", subcommand],
         input=json.dumps(payload),
         text=True,
         capture_output=True,
@@ -64,7 +64,7 @@ def run_claude_hook(
     )
     if proc.returncode != 0:
         raise RuntimeError(
-            f"cmux claude-hook {subcommand} failed:\n"
+            f"cmux cortex-hook {subcommand} failed:\n"
             f"exit={proc.returncode}\nstdout={proc.stdout}\nstderr={proc.stderr}"
         )
     return proc.stdout.strip()
@@ -99,7 +99,7 @@ def main() -> int:
     except Exception as exc:
         return fail(str(exc))
 
-    state_path = Path(tempfile.gettempdir()) / f"cmux_claude_hook_state_{os.getpid()}.json"
+    state_path = Path(tempfile.gettempdir()) / f"cmux_cortex_hook_state_{os.getpid()}.json"
     lock_path = Path(str(state_path) + ".lock")
     try:
         if state_path.exists():
@@ -109,7 +109,7 @@ def main() -> int:
     except OSError:
         pass
 
-    project_dir = Path(tempfile.gettempdir()) / f"cmux_claude_map_project_{os.getpid()}"
+    project_dir = Path(tempfile.gettempdir()) / f"cmux_cortex_map_project_{os.getpid()}"
     project_dir.mkdir(parents=True, exist_ok=True)
     session_id = f"sess-{uuid.uuid4().hex}"
     last_message = "Please approve deploy migration"
@@ -132,9 +132,9 @@ def main() -> int:
             hook_env["CMUX_SOCKET_PATH"] = client.socket_path
             hook_env["CMUX_WORKSPACE_ID"] = workspace_id
             hook_env["CMUX_SURFACE_ID"] = surface_id
-            hook_env["CMUX_CLAUDE_HOOK_STATE_PATH"] = str(state_path)
+            hook_env["CMUX_CORTEX_HOOK_STATE_PATH"] = str(state_path)
 
-            run_claude_hook(
+            run_cortex_hook(
                 cli_path,
                 client.socket_path,
                 "session-start",
@@ -158,7 +158,7 @@ def main() -> int:
             if session_row.get("surfaceId") != surface_id:
                 return fail("Mapped surfaceId did not match active surface")
 
-            run_claude_hook(
+            run_cortex_hook(
                 cli_path,
                 client.socket_path,
                 "notification",
@@ -172,7 +172,7 @@ def main() -> int:
 
             items = wait_for_notification_count(client, minimum=1)
             if not items:
-                return fail("Expected at least one notification after claude-hook notification")
+                return fail("Expected at least one notification after cortex-hook notification")
             permission_notification = latest_notification_with_subtitle(items, "Permission")
             if permission_notification is None:
                 return fail("Expected a Permission subtitle notification")
@@ -181,7 +181,7 @@ def main() -> int:
             if last_message not in permission_notification.get("body", ""):
                 return fail("Expected notification body to include mapped last message")
 
-            run_claude_hook(
+            run_cortex_hook(
                 cli_path,
                 client.socket_path,
                 "stop",
@@ -201,7 +201,7 @@ def main() -> int:
             if "Last:" not in body:
                 return fail("Expected stop notification body to include last activity summary")
             if "approve deploy migration" not in body.lower():
-                return fail("Expected stop notification body to include last Claude message context")
+                return fail("Expected stop notification body to include last Cortex Code message context")
             if completed_notification.get("surface_id") != surface_id:
                 return fail("Expected stop notification to target mapped surface")
 
@@ -210,7 +210,7 @@ def main() -> int:
             if session_id in (post_stop_state.get("sessions") or {}):
                 return fail("Expected session mapping to be consumed on stop")
 
-            print("PASS: Claude hook session mapping + stop summary notification")
+            print("PASS: Cortex Code hook session mapping + stop summary notification")
             return 0
 
     except (cmuxError, RuntimeError) as exc:

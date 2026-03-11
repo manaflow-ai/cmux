@@ -1,0 +1,94 @@
+#!/usr/bin/env bash
+# cmux cortex wrapper - injects hooks and session tracking
+#
+# When running inside a cmux terminal (CMUX_SURFACE_ID is set), this wrapper
+# intercepts `cortex` invocations to inject hooks configuration so that
+# Cortex Code hooks fire back into cmux for notifications/status.
+# Outside cmux, it passes through to the real cortex binary unchanged.
+
+# Find the real cortex binary, skipping our own directory.
+find_real_cortex() {
+    local self_dir
+    self_dir="$(cd "$(dirname "$0")" && pwd)"
+    local IFS=:
+    for d in $PATH; do
+        [[ "$d" == "$self_dir" ]] && continue
+        [[ -x "$d/cortex" ]] && printf '%s' "$d/cortex" && return 0
+    done
+    return 1
+}
+
+# Pass through if not in a cmux terminal or hooks are disabled.
+if [[ -z "$CMUX_SURFACE_ID" || "$CMUX_CORTEX_HOOKS_DISABLED" == "1" ]]; then
+    REAL_CORTEX="$(find_real_cortex)" || { echo "Error: cortex not found in PATH" >&2; exit 127; }
+    exec "$REAL_CORTEX" "$@"
+fi
+
+# Find real cortex.
+REAL_CORTEX="$(find_real_cortex)" || { echo "Error: cortex not found in PATH" >&2; exit 127; }
+
+# Only the bare `cortex` command (no subcommand) starts an interactive session
+# that supports hooks. Any subcommand (mcp, ctx, search, etc.) passes through.
+if [[ $# -gt 0 && "${1:0:1}" != "-" ]]; then
+    exec "$REAL_CORTEX" "$@"
+fi
+
+# Create a temp directory for the hooks config.
+CMUX_CORTEX_TMPDIR="$(mktemp -d -t cmux-cortex-XXXXXX)"
+cleanup() { rm -rf "$CMUX_CORTEX_TMPDIR"; }
+trap cleanup EXIT
+
+# cmux hooks JSON that routes lifecycle events to cmux cortex-hook.
+CMUX_HOOKS='{
+  "SessionStart": [{"hooks": [{"type": "command", "command": "cmux cortex-hook session-start", "timeout": 10}]}],
+  "Stop": [{"hooks": [{"type": "command", "command": "cmux cortex-hook stop", "timeout": 10}]}],
+  "Notification": [{"hooks": [{"type": "command", "command": "cmux cortex-hook notification", "timeout": 10}]}]
+}'
+
+# Extract user's --config path if provided, so we can merge hooks into it.
+USER_CONFIG=""
+FILTERED_ARGS=()
+SKIP_NEXT=false
+for arg in "$@"; do
+    if [[ "$SKIP_NEXT" == true ]]; then
+        USER_CONFIG="$arg"
+        SKIP_NEXT=false
+        continue
+    fi
+    case "$arg" in
+        --config)
+            SKIP_NEXT=true
+            continue
+            ;;
+        --config=*)
+            USER_CONFIG="${arg#--config=}"
+            continue
+            ;;
+    esac
+    FILTERED_ARGS+=("$arg")
+done
+
+# Build merged config: user's config + cmux hooks.
+if [[ -n "$USER_CONFIG" && -f "$USER_CONFIG" ]]; then
+    # Merge: read user config, inject our hooks alongside any existing hooks.
+    python3 -c "
+import json, sys
+try:
+    with open('$USER_CONFIG') as f:
+        user = json.load(f)
+    cmux = json.loads('''$CMUX_HOOKS''')
+    hooks = user.get('hooks', {})
+    for event, entries in cmux.items():
+        hooks.setdefault(event, []).extend(entries)
+    user['hooks'] = hooks
+    json.dump(user, sys.stdout)
+except Exception:
+    # Fallback: just use our hooks
+    json.dump({'hooks': json.loads('''$CMUX_HOOKS''')}, sys.stdout)
+" > "$CMUX_CORTEX_TMPDIR/hooks.json" 2>/dev/null
+else
+    # No user config; write hooks-only config.
+    printf '{"hooks": %s}\n' "$CMUX_HOOKS" > "$CMUX_CORTEX_TMPDIR/hooks.json"
+fi
+
+exec "$REAL_CORTEX" --config "$CMUX_CORTEX_TMPDIR/hooks.json" "${FILTERED_ARGS[@]}"
