@@ -292,6 +292,10 @@ if [[ -x "$CMUXD_SRC" ]]; then
   cp "$CMUXD_SRC" "$BIN_DIR/cmuxd"
   chmod +x "$BIN_DIR/cmuxd"
 fi
+CLI_PATH="$APP_PATH/Contents/Resources/bin/cmux"
+if [[ -x "$CLI_PATH" ]]; then
+  echo "$CLI_PATH" > /tmp/cmux-last-cli-path || true
+fi
 # Avoid inheriting cmux/ghostty environment variables from the terminal that
 # runs this script (often inside another cmux instance), which can cause
 # socket and resource-path conflicts.

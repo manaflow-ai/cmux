@@ -6380,7 +6380,11 @@ struct CMUXCLI {
     }
 
     private func createClaudeTeamsShimDirectory() throws -> URL {
-        let rootPath = NSString(string: "~/.cmuxterm/claude-teams-bin").expandingTildeInPath
+        let homePath = ProcessInfo.processInfo.environment["HOME"] ?? NSHomeDirectory()
+        let rootPath = URL(fileURLWithPath: homePath, isDirectory: true)
+            .appendingPathComponent(".cmuxterm", isDirectory: true)
+            .appendingPathComponent("claude-teams-bin", isDirectory: true)
+            .path
         let root = URL(fileURLWithPath: rootPath, isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true, attributes: nil)
         let tmuxURL = root.appendingPathComponent("tmux", isDirectory: false)
@@ -6389,7 +6393,11 @@ struct CMUXCLI {
         set -euo pipefail
         exec "${CMUX_CLAUDE_TEAMS_CMUX_BIN:-cmux}" __tmux-compat "$@"
         """
-        try script.write(to: tmuxURL, atomically: true, encoding: .utf8)
+        let normalizedScript = script.trimmingCharacters(in: .whitespacesAndNewlines)
+        let existingScript = try? String(contentsOf: tmuxURL, encoding: .utf8)
+        if existingScript?.trimmingCharacters(in: .whitespacesAndNewlines) != normalizedScript {
+            try script.write(to: tmuxURL, atomically: false, encoding: .utf8)
+        }
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: tmuxURL.path)
         return root
     }
