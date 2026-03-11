@@ -75,6 +75,12 @@ class TerminalController {
         let pendingRearmGeneration: UInt64?
     }
 
+    private enum SocketListenerLogLevel {
+        case info
+        case warning
+        case error
+    }
+
     private static let focusIntentV1Commands: Set<String> = [
         "focus_window",
         "select_workspace",
@@ -452,9 +458,41 @@ class TerminalController {
         errnoCode: Int32? = nil,
         extra: [String: Any] = [:]
     ) {
+        recordSocketListenerEvent(
+            message,
+            stage: stage,
+            level: .error,
+            errnoCode: errnoCode,
+            extra: extra
+        )
+    }
+
+    private nonisolated func socketListenerLogLine(message: String, data: [String: Any]) -> String {
+        let details = data.keys.sorted().map { key in
+            "\(key)=\(String(describing: data[key]!))"
+        }.joined(separator: " ")
+        guard !details.isEmpty else { return "TerminalController: \(message)" }
+        return "TerminalController: \(message) \(details)"
+    }
+
+    private nonisolated func recordSocketListenerEvent(
+        _ message: String,
+        stage: String,
+        level: SocketListenerLogLevel = .info,
+        errnoCode: Int32? = nil,
+        extra: [String: Any] = [:]
+    ) {
         let data = socketListenerEventData(stage: stage, errnoCode: errnoCode, extra: extra)
+        NSLog("%@", socketListenerLogLine(message: message, data: data))
         sentryBreadcrumb(message, category: "socket", data: data)
-        sentryCaptureError(message, category: "socket", data: data, contextKey: "socket_listener")
+        switch level {
+        case .info:
+            break
+        case .warning:
+            sentryCaptureWarning(message, category: "socket", data: data, contextKey: "socket_listener")
+        case .error:
+            sentryCaptureError(message, category: "socket", data: data, contextKey: "socket_listener")
+        }
     }
 
     nonisolated static func acceptErrorClassification(errnoCode: Int32) -> String {
@@ -615,7 +653,12 @@ class TerminalController {
         return (false, connectErrno)
     }
 
-    func start(tabManager: TabManager, socketPath: String, accessMode: SocketControlMode) {
+    func start(
+        tabManager: TabManager,
+        socketPath: String,
+        accessMode: SocketControlMode,
+        source: String = "unspecified"
+    ) {
         self.tabManager = tabManager
         self.accessMode = accessMode
 
@@ -623,7 +666,20 @@ class TerminalController {
             (isRunning: isRunning, socketPath: self.socketPath, acceptLoopAlive: acceptLoopAlive)
         }
 
-        if existing.isRunning && existing.socketPath == socketPath && existing.acceptLoopAlive {
+        recordSocketListenerEvent(
+            "socket.listener.start.requested",
+            stage: "start_request",
+            extra: [
+                "source": source,
+                "requestedPath": socketPath,
+                "requestedMode": accessMode.rawValue,
+                "existingIsRunning": existing.isRunning ? 1 : 0,
+                "existingAcceptLoopAlive": existing.acceptLoopAlive ? 1 : 0,
+                "existingPath": existing.socketPath
+            ]
+        )
+
+        if existing.isRunning && existing.socketPath == socketPath {
             self.accessMode = accessMode
             applySocketPermissions()
             return
@@ -646,18 +702,29 @@ class TerminalController {
             }
         }
 
-        // Remove existing socket file
-        unlink(socketPath)
+        // Remove any stale socket file from a previous listener generation.
+        if unlink(socketPath) != 0 {
+            let errnoCode = errno
+            if errnoCode != ENOENT {
+                recordSocketListenerEvent(
+                    "socket.listener.cleanup.failed",
+                    stage: "unlink",
+                    level: .warning,
+                    errnoCode: errnoCode,
+                    extra: ["source": source]
+                )
+            }
+        }
 
         // Create socket
         let newServerSocket = socket(AF_UNIX, SOCK_STREAM, 0)
         guard newServerSocket >= 0 else {
             let errnoCode = errno
-            print("TerminalController: Failed to create socket")
             reportSocketListenerFailure(
                 message: "socket.listener.start.failed",
                 stage: "create_socket",
-                errnoCode: errnoCode
+                errnoCode: errnoCode,
+                extra: ["source": source]
             )
             return
         }
@@ -670,6 +737,7 @@ class TerminalController {
                 stage: "bind_path_too_long",
                 errnoCode: ENAMETOOLONG,
                 extra: [
+                    "source": source,
                     "pathLength": socketPath.utf8.count,
                     "maxPathLength": Self.unixSocketPathMaxLength
                 ]
@@ -679,12 +747,12 @@ class TerminalController {
 
         guard bindResult >= 0 else {
             let errnoCode = errno
-            print("TerminalController: Failed to bind socket")
             close(newServerSocket)
             reportSocketListenerFailure(
                 message: "socket.listener.start.failed",
                 stage: "bind",
-                errnoCode: errnoCode
+                errnoCode: errnoCode,
+                extra: ["source": source]
             )
             return
         }
@@ -694,12 +762,24 @@ class TerminalController {
         // Listen
         guard listen(newServerSocket, Self.socketListenBacklog) >= 0 else {
             let errnoCode = errno
-            print("TerminalController: Failed to listen on socket")
             close(newServerSocket)
+            if unlink(socketPath) != 0 {
+                let unlinkErrno = errno
+                if unlinkErrno != ENOENT {
+                    recordSocketListenerEvent(
+                        "socket.listener.cleanup.failed",
+                        stage: "listen_unlink",
+                        level: .warning,
+                        errnoCode: unlinkErrno,
+                        extra: ["source": source]
+                    )
+                }
+            }
             reportSocketListenerFailure(
                 message: "socket.listener.start.failed",
                 stage: "listen",
-                errnoCode: errnoCode
+                errnoCode: errnoCode,
+                extra: ["source": source]
             )
             return
         }
@@ -716,12 +796,11 @@ class TerminalController {
         }
         listenerActivated = true
         let listenerSocket = newServerSocket
-        print("TerminalController: Listening on \(socketPath)")
-        sentryBreadcrumb(
+        recordSocketListenerEvent(
             "socket.listener.listening",
-            category: "socket",
-            data: [
-                "path": socketPath,
+            stage: "listening",
+            extra: [
+                "source": source,
                 "mode": accessMode.rawValue,
                 "generation": generation,
                 "backlog": Self.socketListenBacklog
@@ -906,17 +985,15 @@ class TerminalController {
         let currentSocketPath = withListenerState { socketPath }
         if chmod(currentSocketPath, permissions) != 0 {
             let errnoCode = errno
-            print(
-                "TerminalController: Failed to set socket permissions to \(String(permissions, radix: 8)) for \(currentSocketPath)"
-            )
-            sentryBreadcrumb(
+            recordSocketListenerEvent(
                 "socket.listener.permissions.failed",
-                category: "socket",
-                data: socketListenerEventData(
-                    stage: "chmod",
-                    errnoCode: errnoCode,
-                    extra: ["permissions": String(permissions, radix: 8)]
-                )
+                stage: "chmod",
+                level: .warning,
+                errnoCode: errnoCode,
+                extra: [
+                    "permissions": String(permissions, radix: 8),
+                    "currentPath": currentSocketPath
+                ]
             )
         }
     }

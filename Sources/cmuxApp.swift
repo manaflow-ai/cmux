@@ -661,7 +661,8 @@ struct cmuxApp: App {
             TerminalController.shared.start(
                 tabManager: tabManager,
                 socketPath: SocketControlSettings.socketPath(),
-                accessMode: mode
+                accessMode: mode,
+                source: "cmuxApp.updateSocketController"
             )
         } else {
             TerminalController.shared.stop()

@@ -1963,28 +1963,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         prepareStartupSessionSnapshotIfNeeded()
         startSessionAutosaveTimerIfNeeded()
         startSocketListenerHealthMonitorIfNeeded()
+        // Don't rely solely on SwiftUI `.onAppear` for socket startup. Stable builds can
+        // miss that callback, which leaves `/tmp/cmux.sock` absent until a manual restart.
+        startSocketListenerIfEnabled(source: "app.configure")
 #if DEBUG
         setupJumpUnreadUITestIfNeeded()
         setupGotoSplitUITestIfNeeded()
         setupMultiWindowNotificationsUITestIfNeeded()
-
-        // UI tests sometimes don't run SwiftUI `.onAppear` soon enough (or at all) on the VM.
-        // The automation socket is a core testing primitive, so ensure it's started here when
-        // we detect XCTest, even if the main view lifecycle is flaky.
-        let env = ProcessInfo.processInfo.environment
-        if isRunningUnderXCTest(env) {
-            let raw = UserDefaults.standard.string(forKey: SocketControlSettings.appStorageKey)
-                ?? SocketControlSettings.defaultMode.rawValue
-            let userMode = SocketControlSettings.migrateMode(raw)
-            let mode = SocketControlSettings.effectiveMode(userMode: userMode)
-            if mode != .off {
-                TerminalController.shared.start(
-                    tabManager: tabManager,
-                    socketPath: SocketControlSettings.socketPath(),
-                    accessMode: mode
-                )
-            }
-        }
 #endif
     }
 
@@ -2561,6 +2546,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return (mode: mode, path: SocketControlSettings.socketPath())
     }
 
+    private func startSocketListenerIfEnabled(source: String) {
+        guard let tabManager,
+              let config = socketListenerConfigurationIfEnabled() else { return }
+        TerminalController.shared.start(
+            tabManager: tabManager,
+            socketPath: config.path,
+            accessMode: config.mode,
+            source: source
+        )
+    }
+
     private func restartSocketListenerIfEnabled(source: String) {
         guard let tabManager,
               let config = socketListenerConfigurationIfEnabled() else { return }
@@ -2570,7 +2566,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             "source": source
         ])
         TerminalController.shared.stop()
-        TerminalController.shared.start(tabManager: tabManager, socketPath: config.path, accessMode: config.mode)
+        TerminalController.shared.start(
+            tabManager: tabManager,
+            socketPath: config.path,
+            accessMode: config.mode,
+            source: source
+        )
     }
 
     private func startSocketListenerHealthMonitorIfNeeded() {
