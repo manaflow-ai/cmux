@@ -6700,12 +6700,7 @@ struct CMUXCLI {
                 throw CLIError(message: "surface.split did not return surface_id")
             }
             let paneId = created["pane_id"] as? String
-            if !parsed.hasFlag("-d") {
-                _ = try client.sendV2(method: "surface.focus", params: [
-                    "workspace_id": target.workspaceId,
-                    "surface_id": surfaceId
-                ])
-            }
+            // Keep the leader pane focused while Claude starts teammates beside it.
             if let text = tmuxShellCommandText(commandTokens: parsed.positional, cwd: parsed.value("-c")) {
                 Thread.sleep(forTimeInterval: 0.3)
                 _ = try client.sendV2(method: "surface.send_text", params: [
