@@ -1744,7 +1744,7 @@ final class BrowserPanel: Panel, ObservableObject {
     private var insecureHTTPAlertFactory: () -> NSAlert
     private var insecureHTTPAlertWindowProvider: () -> NSWindow? = { NSApp.keyWindow ?? NSApp.mainWindow }
     // Persist user intent across WebKit detach/reattach churn (split/layout updates).
-    private var preferredDeveloperToolsVisible: Bool = false
+    @Published private(set) var preferredDeveloperToolsVisible: Bool = false
     private var forceDeveloperToolsRefreshOnNextAttach: Bool = false
     private var developerToolsRestoreRetryWorkItem: DispatchWorkItem?
     private var developerToolsRestoreRetryAttempt: Int = 0
@@ -2752,6 +2752,70 @@ extension BrowserPanel {
         webView.stopLoading()
     }
 
+    private func attachDeveloperToolsIfSupported(_ inspector: NSObject) {
+        let attachSelector = NSSelectorFromString("attach")
+        if inspector.responds(to: attachSelector) {
+            inspector.cmuxCallVoid(selector: attachSelector)
+        }
+    }
+
+    private func isDeveloperToolsAttached(_ inspector: NSObject) -> Bool? {
+        inspector.cmuxCallBool(selector: NSSelectorFromString("isAttached"))
+    }
+
+    private static func windowContainsInspectorViews(_ root: NSView) -> Bool {
+        if String(describing: type(of: root)).contains("WKInspector") {
+            return true
+        }
+        for subview in root.subviews where windowContainsInspectorViews(subview) {
+            return true
+        }
+        return false
+    }
+
+    private static func isDetachedInspectorWindow(_ window: NSWindow) -> Bool {
+        guard window.title.hasPrefix("Web Inspector") else { return false }
+        guard let contentView = window.contentView else { return false }
+        return windowContainsInspectorViews(contentView)
+    }
+
+    private func dismissDetachedDeveloperToolsWindowsIfNeeded() {
+        guard preferredDeveloperToolsVisible || isDeveloperToolsVisible(),
+              let mainWindow = webView.window else { return }
+        for window in NSApp.windows where window !== mainWindow && Self.isDetachedInspectorWindow(window) {
+#if DEBUG
+            dlog(
+                "browser.devtools strayWindow.close panel=\(id.uuidString.prefix(5)) " +
+                "title=\(window.title) frame=\(NSStringFromRect(window.frame))"
+            )
+#endif
+            window.close()
+        }
+    }
+
+    private func scheduleDetachedDeveloperToolsWindowDismissal() {
+        for delay in [0.0, 0.15] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                self?.dismissDetachedDeveloperToolsWindowsIfNeeded()
+            }
+        }
+    }
+
+    @discardableResult
+    private func revealDeveloperTools(_ inspector: NSObject) -> Bool {
+        attachDeveloperToolsIfSupported(inspector)
+
+        let isVisibleSelector = NSSelectorFromString("isVisible")
+        if inspector.cmuxCallBool(selector: isVisibleSelector) ?? false {
+            return true
+        }
+
+        let showSelector = NSSelectorFromString("show")
+        guard inspector.responds(to: showSelector) else { return false }
+        inspector.cmuxCallVoid(selector: showSelector)
+        return inspector.cmuxCallBool(selector: isVisibleSelector) ?? false
+    }
+
     @discardableResult
     func toggleDeveloperTools() -> Bool {
 #if DEBUG
@@ -2764,14 +2828,19 @@ extension BrowserPanel {
         let isVisibleSelector = NSSelectorFromString("isVisible")
         let visible = inspector.cmuxCallBool(selector: isVisibleSelector) ?? false
         let targetVisible = !visible
-        let selector = NSSelectorFromString(targetVisible ? "show" : "close")
-        guard inspector.responds(to: selector) else { return false }
-        inspector.cmuxCallVoid(selector: selector)
+        if targetVisible {
+            _ = revealDeveloperTools(inspector)
+        } else {
+            let selector = NSSelectorFromString("close")
+            guard inspector.responds(to: selector) else { return false }
+            inspector.cmuxCallVoid(selector: selector)
+        }
         preferredDeveloperToolsVisible = targetVisible
         if targetVisible {
             let visibleAfterToggle = inspector.cmuxCallBool(selector: isVisibleSelector) ?? false
             if visibleAfterToggle {
                 cancelDeveloperToolsRestoreRetry()
+                scheduleDetachedDeveloperToolsWindowDismissal()
             } else {
                 developerToolsRestoreRetryAttempt = 0
                 scheduleDeveloperToolsRestoreRetry()
@@ -2800,14 +2869,14 @@ extension BrowserPanel {
     func showDeveloperTools() -> Bool {
         guard let inspector = webView.cmuxInspectorObject() else { return false }
         let visible = inspector.cmuxCallBool(selector: NSSelectorFromString("isVisible")) ?? false
-        if !visible {
-            let showSelector = NSSelectorFromString("show")
-            guard inspector.responds(to: showSelector) else { return false }
-            inspector.cmuxCallVoid(selector: showSelector)
+        let attached = isDeveloperToolsAttached(inspector) ?? false
+        if !visible || !attached {
+            guard revealDeveloperTools(inspector) || visible else { return false }
         }
         preferredDeveloperToolsVisible = true
         if (inspector.cmuxCallBool(selector: NSSelectorFromString("isVisible")) ?? false) {
             cancelDeveloperToolsRestoreRetry()
+            scheduleDetachedDeveloperToolsWindowDismissal()
         } else {
             scheduleDeveloperToolsRestoreRetry()
         }
@@ -2866,7 +2935,8 @@ extension BrowserPanel {
         forceDeveloperToolsRefreshOnNextAttach = false
 
         let visible = inspector.cmuxCallBool(selector: NSSelectorFromString("isVisible")) ?? false
-        if visible {
+        let attached = isDeveloperToolsAttached(inspector) ?? false
+        if visible && attached {
             #if DEBUG
             if shouldForceRefresh {
                 dlog("browser.devtools refresh.consumeVisible panel=\(id.uuidString.prefix(5)) \(debugDeveloperToolsStateSummary())")
@@ -2876,26 +2946,22 @@ extension BrowserPanel {
             return
         }
 
-        let selector = NSSelectorFromString("show")
-        guard inspector.responds(to: selector) else {
-            cancelDeveloperToolsRestoreRetry()
-            return
-        }
         #if DEBUG
         if shouldForceRefresh {
             dlog("browser.devtools refresh.forceShowWhenHidden panel=\(id.uuidString.prefix(5)) \(debugDeveloperToolsStateSummary())")
         }
         #endif
-        // WebKit inspector "show" can trigger transient first-responder churn while
+        // WebKit inspector attach/show can trigger transient first-responder churn while
         // panel attachment is still stabilizing. Keep this auto-restore path from
         // mutating first responder so AppKit doesn't walk tearing-down responder chains.
         cmuxWithWindowFirstResponderBypass {
-            inspector.cmuxCallVoid(selector: selector)
+            _ = revealDeveloperTools(inspector)
         }
         preferredDeveloperToolsVisible = true
         let visibleAfterShow = inspector.cmuxCallBool(selector: NSSelectorFromString("isVisible")) ?? false
         if visibleAfterShow {
             cancelDeveloperToolsRestoreRetry()
+            scheduleDetachedDeveloperToolsWindowDismissal()
         } else {
             scheduleDeveloperToolsRestoreRetry()
         }
@@ -2939,6 +3005,20 @@ extension BrowserPanel {
 
     func hasPendingDeveloperToolsRefreshAfterAttach() -> Bool {
         forceDeveloperToolsRefreshOnNextAttach
+    }
+
+    func shouldPreserveDeveloperToolsIntentWhileDetached() -> Bool {
+        preferredDeveloperToolsVisible &&
+            (
+                forceDeveloperToolsRefreshOnNextAttach ||
+                developerToolsRestoreRetryWorkItem != nil ||
+                webView.superview == nil ||
+                webView.window == nil
+            )
+    }
+
+    func shouldUseLocalInlineDeveloperToolsHosting() -> Bool {
+        preferredDeveloperToolsVisible || isDeveloperToolsVisible()
     }
 
     @discardableResult

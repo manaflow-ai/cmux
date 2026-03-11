@@ -2389,12 +2389,24 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
     private final class WKInspectorProbeView: NSView {}
 
     private final class FakeInspector: NSObject {
+        private(set) var attachCount = 0
         private(set) var showCount = 0
         private(set) var closeCount = 0
         private var visible = false
+        private var attached = false
 
         @objc func isVisible() -> Bool {
             visible
+        }
+
+        @objc func isAttached() -> Bool {
+            attached
+        }
+
+        @objc func attach() {
+            attachCount += 1
+            attached = true
+            show()
         }
 
         @objc func show() {
@@ -2405,6 +2417,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         @objc func close() {
             closeCount += 1
             visible = false
+            attached = false
         }
     }
 
