@@ -4614,7 +4614,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
         // Use accumulated text from insertText (for IME), or compute text for key
         let accumulatedText = keyTextAccumulator ?? []
-        var shouldRefreshAfterTextInput = false
         if !accumulatedText.isEmpty {
             // Accumulated text comes from insertText (IME composition result).
             // These never have "composing" set to true because these are the
@@ -4622,7 +4621,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             keyEvent.composing = false
             for text in accumulatedText {
                 if shouldSendText(text) {
-                    shouldRefreshAfterTextInput = true
                     text.withCString { ptr in
                         keyEvent.text = ptr
                         _ = ghostty_surface_key(surface, keyEvent)
@@ -4643,7 +4641,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 )
             if let text = textForKeyEvent(translationEvent) {
                 if shouldSendText(text), !suppressShiftSpaceFallbackText {
-                    shouldRefreshAfterTextInput = true
                     text.withCString { ptr in
                         keyEvent.text = ptr
                         _ = ghostty_surface_key(surface, keyEvent)
@@ -4656,10 +4653,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 keyEvent.text = nil
                 _ = ghostty_surface_key(surface, keyEvent)
             }
-        }
-
-        if shouldRefreshAfterTextInput {
-            terminalSurface?.forceRefresh(reason: "keyDown.textInput")
         }
 
         // Rendering is driven by Ghostty's wakeups/renderer.
