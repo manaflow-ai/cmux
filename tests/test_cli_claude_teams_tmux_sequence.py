@@ -355,6 +355,13 @@ tmux list-panes -t "$window_target" -F '#{pane_id}' > "$FAKE_PANE_LIST_LOG"
             print(f"FAIL: expected list-panes output {expected_panes!r}, got {pane_lines!r}")
             return 1
 
+        if state.current_pane_id != INITIAL_PANE_ID:
+            print(
+                "FAIL: expected split-window to keep the leader pane focused, "
+                f"got current pane {state.current_pane_id!r}"
+            )
+            return 1
+
         if "surface.send_text" in state.requests:
             print("FAIL: split-window treated '-l 70%' like shell text and called surface.send_text")
             print(f"requests={state.requests!r}")
