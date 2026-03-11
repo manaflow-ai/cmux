@@ -4486,6 +4486,34 @@ struct WebViewRepresentable: NSViewRepresentable {
             )
         }
 
+        let shouldPreserveExistingExternalLocalHost =
+            host.window == nil &&
+            webView.superview != nil &&
+            webView.superview !== slotView
+        if shouldPreserveExistingExternalLocalHost {
+            // Split zoom can instantiate a replacement local host before it joins a window.
+            // Never let that off-window host steal the live page + inspector hierarchy away
+            // from the currently visible local host.
+            host.setLocalInlineSlotHidden(true)
+            coordinator.lastPortalHostId = nil
+            coordinator.lastSynchronizedHostGeometryRevision = 0
+#if DEBUG
+            dlog(
+                "browser.localHost.reparent.skip web=\(Self.objectID(webView)) " +
+                "reason=offWindowReplacementHost super=\(Self.objectID(webView.superview)) " +
+                "host=\(Self.objectID(host)) slot=\(Self.objectID(slotView))"
+            )
+            Self.logDevToolsState(
+                panel,
+                event: "localHost.skip",
+                generation: coordinator.attachGeneration,
+                retryCount: 0,
+                details: Self.attachContext(webView: webView, host: host)
+            )
+#endif
+            return false
+        }
+
         if webView.superview !== slotView {
             if let sourceSuperview = webView.superview {
                 Self.moveWebKitRelatedSubviewsIntoHostIfNeeded(
