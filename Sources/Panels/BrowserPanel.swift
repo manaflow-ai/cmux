@@ -1680,6 +1680,10 @@ final class BrowserPanel: Panel, ObservableObject {
     /// Increment to request a UI-only flash highlight (e.g. from a keyboard shortcut).
     @Published private(set) var focusFlashToken: Int = 0
 
+    /// Bump this token to force SwiftUI to call `updateNSView` on `WebViewRepresentable`
+    /// after bonsplit move/reparent sequences leave the current host detached.
+    @Published var viewReattachToken: UInt64 = 0
+
     /// Sticky omnibar-focus intent. This survives view mount timing races and is
     /// cleared only after BrowserPanelView acknowledges handling it.
     @Published private(set) var pendingAddressBarFocusRequestId: UUID?
@@ -1731,13 +1735,22 @@ final class BrowserPanel: Panel, ObservableObject {
         let inWindow: Bool
         let area: CGFloat
     }
+    private struct LocalInlineHostLease {
+        let hostId: ObjectIdentifier
+        let paneId: UUID
+        let inWindow: Bool
+        let area: CGFloat
+    }
     private struct PortalHostLock {
         let hostId: ObjectIdentifier
         let paneId: UUID
     }
     private var activePortalHostLease: PortalHostLease?
+    private var activeLocalInlineHostLease: LocalInlineHostLease?
     private var pendingDistinctPortalHostReplacementPaneId: UUID?
     private var lockedPortalHost: PortalHostLock?
+    private var pendingDistinctLocalInlineHostReplacementPaneId: UUID?
+    private var lockedLocalInlineHost: PortalHostLock?
     private var webViewCancellables = Set<AnyCancellable>()
     private var navigationDelegate: BrowserNavigationDelegate?
     private var uiDelegate: BrowserUIDelegate?
@@ -1790,6 +1803,10 @@ final class BrowserPanel: Panel, ObservableObject {
         lease.inWindow && lease.area > portalHostAreaThreshold
     }
 
+    private static func localInlineHostIsUsable(_ lease: LocalInlineHostLease) -> Bool {
+        lease.inWindow && lease.area > portalHostAreaThreshold
+    }
+
     func preparePortalHostReplacementForNextDistinctClaim(
         inPane paneId: PaneID,
         reason: String
@@ -1801,6 +1818,22 @@ final class BrowserPanel: Panel, ObservableObject {
 #if DEBUG
         dlog(
             "browser.portal.host.rearm panel=\(id.uuidString.prefix(5)) " +
+            "reason=\(reason) pane=\(paneId.id.uuidString.prefix(5))"
+        )
+#endif
+    }
+
+    func prepareLocalInlineHostReplacementForNextDistinctClaim(
+        inPane paneId: PaneID,
+        reason: String
+    ) {
+        pendingDistinctLocalInlineHostReplacementPaneId = paneId.id
+        if lockedLocalInlineHost?.paneId == paneId.id {
+            lockedLocalInlineHost = nil
+        }
+#if DEBUG
+        dlog(
+            "browser.localHost.rearm panel=\(id.uuidString.prefix(5)) " +
             "reason=\(reason) pane=\(paneId.id.uuidString.prefix(5))"
         )
 #endif
@@ -1922,6 +1955,129 @@ final class BrowserPanel: Panel, ObservableObject {
 #if DEBUG
         dlog(
             "browser.portal.host.release panel=\(id.uuidString.prefix(5)) " +
+            "reason=\(reason) host=\(hostId) pane=\(current.paneId.uuidString.prefix(5)) " +
+            "inWin=\(current.inWindow ? 1 : 0) area=\(String(format: "%.1f", current.area))"
+        )
+#endif
+        return true
+    }
+
+    func claimLocalInlineHost(
+        hostId: ObjectIdentifier,
+        paneId: PaneID,
+        inWindow: Bool,
+        bounds: CGRect,
+        reason: String
+    ) -> Bool {
+        let next = LocalInlineHostLease(
+            hostId: hostId,
+            paneId: paneId.id,
+            inWindow: inWindow,
+            area: Self.portalHostArea(for: bounds)
+        )
+
+        if let current = activeLocalInlineHostLease {
+            if let lock = lockedLocalInlineHost,
+               (lock.hostId != current.hostId || lock.paneId != current.paneId) {
+                lockedLocalInlineHost = nil
+            }
+
+            if current.hostId == hostId {
+                activeLocalInlineHostLease = next
+                return true
+            }
+
+            let currentUsable = Self.localInlineHostIsUsable(current)
+            let nextUsable = Self.localInlineHostIsUsable(next)
+            let isSamePaneReplacement = current.paneId == paneId.id
+            let shouldForceDistinctReplacement =
+                !isSamePaneReplacement &&
+                pendingDistinctLocalInlineHostReplacementPaneId == paneId.id &&
+                inWindow
+            if shouldForceDistinctReplacement {
+#if DEBUG
+                dlog(
+                    "browser.localHost.claim panel=\(id.uuidString.prefix(5)) " +
+                    "reason=\(reason) host=\(hostId) pane=\(paneId.id.uuidString.prefix(5)) " +
+                    "inWin=\(inWindow ? 1 : 0) size=\(String(format: "%.1fx%.1f", bounds.width, bounds.height)) " +
+                    "replacingHost=\(current.hostId) replacingPane=\(current.paneId.uuidString.prefix(5)) " +
+                    "replacingInWin=\(current.inWindow ? 1 : 0) replacingArea=\(String(format: "%.1f", current.area)) " +
+                    "forced=1"
+                )
+#endif
+                activeLocalInlineHostLease = next
+                pendingDistinctLocalInlineHostReplacementPaneId = nil
+                lockedLocalInlineHost = PortalHostLock(hostId: hostId, paneId: paneId.id)
+                return true
+            }
+
+            let lockBlocksSamePaneReplacement =
+                isSamePaneReplacement &&
+                currentUsable &&
+                lockedLocalInlineHost?.hostId == current.hostId &&
+                lockedLocalInlineHost?.paneId == current.paneId
+            let shouldReplace =
+                !currentUsable ||
+                (
+                    isSamePaneReplacement &&
+                    !lockBlocksSamePaneReplacement &&
+                    nextUsable &&
+                    next.area > (current.area * Self.portalHostReplacementAreaGainRatio)
+                )
+
+            if shouldReplace {
+                if lockedLocalInlineHost?.hostId == current.hostId &&
+                    lockedLocalInlineHost?.paneId == current.paneId {
+                    lockedLocalInlineHost = nil
+                }
+#if DEBUG
+                dlog(
+                    "browser.localHost.claim panel=\(id.uuidString.prefix(5)) " +
+                    "reason=\(reason) host=\(hostId) pane=\(paneId.id.uuidString.prefix(5)) " +
+                    "inWin=\(inWindow ? 1 : 0) size=\(String(format: "%.1fx%.1f", bounds.width, bounds.height)) " +
+                    "replacingHost=\(current.hostId) replacingPane=\(current.paneId.uuidString.prefix(5)) " +
+                    "replacingInWin=\(current.inWindow ? 1 : 0) replacingArea=\(String(format: "%.1f", current.area))"
+                )
+#endif
+                activeLocalInlineHostLease = next
+                return true
+            }
+
+#if DEBUG
+            dlog(
+                "browser.localHost.skip panel=\(id.uuidString.prefix(5)) " +
+                "reason=\(reason) host=\(hostId) pane=\(paneId.id.uuidString.prefix(5)) " +
+                "inWin=\(inWindow ? 1 : 0) size=\(String(format: "%.1fx%.1f", bounds.width, bounds.height)) " +
+                "ownerHost=\(current.hostId) ownerPane=\(current.paneId.uuidString.prefix(5)) " +
+                "ownerInWin=\(current.inWindow ? 1 : 0) ownerArea=\(String(format: "%.1f", current.area)) " +
+                "locked=\(lockBlocksSamePaneReplacement ? 1 : 0)"
+            )
+#endif
+            return false
+        }
+
+        activeLocalInlineHostLease = next
+#if DEBUG
+        dlog(
+            "browser.localHost.claim panel=\(id.uuidString.prefix(5)) " +
+            "reason=\(reason) host=\(hostId) pane=\(paneId.id.uuidString.prefix(5)) " +
+            "inWin=\(inWindow ? 1 : 0) size=\(String(format: "%.1fx%.1f", bounds.width, bounds.height)) " +
+            "replacingHost=nil"
+        )
+#endif
+        return true
+    }
+
+    @discardableResult
+    func releaseLocalInlineHostIfOwned(hostId: ObjectIdentifier, reason: String) -> Bool {
+        guard let current = activeLocalInlineHostLease, current.hostId == hostId else { return false }
+        activeLocalInlineHostLease = nil
+        if lockedLocalInlineHost?.hostId == hostId {
+            lockedLocalInlineHost = nil
+        }
+#if DEBUG
+        dlog(
+            "browser.localHost.release panel=\(id.uuidString.prefix(5)) " +
             "reason=\(reason) host=\(hostId) pane=\(current.paneId.uuidString.prefix(5)) " +
             "inWin=\(current.inWindow ? 1 : 0) area=\(String(format: "%.1f", current.area))"
         )
@@ -2110,6 +2266,10 @@ final class BrowserPanel: Panel, ObservableObject {
 
     func triggerFlash() {
         focusFlashToken &+= 1
+    }
+
+    func requestViewReattach() {
+        viewReattachToken &+= 1
     }
 
     func sessionNavigationHistorySnapshot() -> (

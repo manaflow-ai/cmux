@@ -3,6 +3,54 @@ import SwiftUI
 import WebKit
 import AppKit
 
+private extension NSObject {
+    @discardableResult
+    func cmuxLocalHostCallVoidIfAvailable(_ rawSelector: String) -> Bool {
+        let selector = NSSelectorFromString(rawSelector)
+        guard responds(to: selector) else { return false }
+        typealias Fn = @convention(c) (AnyObject, Selector) -> Void
+        let fn = unsafeBitCast(method(for: selector), to: Fn.self)
+        fn(self, selector)
+        return true
+    }
+}
+
+private extension WKWebView {
+    func cmuxReattachLocalHostRenderingState(reason: String) {
+        guard window != nil else { return }
+
+        let firedSelectors = [
+            "viewDidUnhide",
+            "_enterInWindow",
+            "_endDeferringViewInWindowChangesSync",
+        ].filter {
+            cmuxLocalHostCallVoidIfAvailable($0)
+        }
+
+        if let scrollView = enclosingScrollView {
+            scrollView.needsLayout = true
+            scrollView.needsDisplay = true
+            scrollView.setNeedsDisplay(scrollView.bounds)
+            scrollView.contentView.needsLayout = true
+            scrollView.contentView.needsDisplay = true
+        }
+
+        needsLayout = true
+        needsDisplay = true
+        setNeedsDisplay(bounds)
+
+#if DEBUG
+        if !firedSelectors.isEmpty {
+            dlog(
+                "browser.localHost.webview.reattach web=\(ObjectIdentifier(self)) " +
+                "reason=\(reason) selectors=\(firedSelectors.joined(separator: ",")) " +
+                "frame=\(NSStringFromRect(frame))"
+            )
+        }
+#endif
+    }
+}
+
 enum BrowserDevToolsIconOption: String, CaseIterable, Identifiable {
     case wrenchAndScrewdriver = "wrench.and.screwdriver"
     case wrenchAndScrewdriverFill = "wrench.and.screwdriver.fill"
@@ -554,6 +602,13 @@ struct BrowserPanelView: View {
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)) { _ in
             ghosttyBackgroundGeneration &+= 1
         }
+        .onReceive(
+            NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)
+                .compactMap { $0.object as? NSWindow }
+        ) { window in
+            guard window === panel.webView.window else { return }
+            requestVisibleLocalInlineRefreshIfNeeded(reason: "window.didBecomeKey")
+        }
     }
 
     private var addressBar: some View {
@@ -827,6 +882,7 @@ struct BrowserPanelView: View {
                 WebViewRepresentable(
                     panel: panel,
                     paneId: paneId,
+                    reattachToken: panel.viewReattachToken,
                     shouldAttachWebView: isVisibleInUI && isCurrentPaneOwner && !useLocalInlineDeveloperToolsHosting,
                     useLocalInlineHosting: useLocalInlineDeveloperToolsHosting,
                     shouldFocusWebView: isFocused && !addressBarFocused,
@@ -1184,6 +1240,18 @@ struct BrowserPanelView: View {
             browserThemeModeRaw = mode.rawValue
         }
         panel.setBrowserThemeMode(mode)
+    }
+
+    private func requestVisibleLocalInlineRefreshIfNeeded(reason: String) {
+        guard isFocused else { return }
+        guard panel.shouldUseLocalInlineDeveloperToolsHosting() else { return }
+#if DEBUG
+        dlog(
+            "browser.localHost.keyRefresh.request panel=\(panel.id.uuidString.prefix(5)) " +
+            "reason=\(reason) focused=\(isFocused ? 1 : 0)"
+        )
+#endif
+        panel.requestViewReattach()
     }
 
     private func handleOmnibarTap() {
@@ -3559,6 +3627,7 @@ private struct OmnibarSuggestionsView: View {
 struct WebViewRepresentable: NSViewRepresentable {
     let panel: BrowserPanel
     let paneId: PaneID
+    let reattachToken: UInt64
     let shouldAttachWebView: Bool
     let useLocalInlineHosting: Bool
     let shouldFocusWebView: Bool
@@ -3571,11 +3640,16 @@ struct WebViewRepresentable: NSViewRepresentable {
     final class Coordinator {
         weak var panel: BrowserPanel?
         weak var webView: WKWebView?
+        weak var localInlineSlotView: WindowBrowserSlotView?
         var attachGeneration: Int = 0
         var desiredPortalVisibleInUI: Bool = true
         var desiredPortalZPriority: Int = 0
         var lastPortalHostId: ObjectIdentifier?
         var lastSynchronizedHostGeometryRevision: UInt64 = 0
+        var lastLocalInlinePanelFocused: Bool?
+        var lastLocalInlineWebResponder: Bool?
+        var lastLocalInlineRefreshToken: UInt64?
+        var localInlineDidReparent: Bool = false
     }
 
     final class HostContainerView: NSView {
@@ -4412,9 +4486,18 @@ struct WebViewRepresentable: NSViewRepresentable {
         reason: String
     ) {
         guard sourceSuperview !== container else { return }
-        let relatedSubviews = sourceSuperview.subviews.filter { view in
-            if view === primaryWebView { return true }
-            return String(describing: type(of: view)).contains("WK")
+        let relatedSubviews: [NSView]
+        if let sourceSlot = sourceSuperview as? WindowBrowserSlotView {
+            relatedSubviews = sourceSlot.localInlineHostedContentSubviews(primaryWebView: primaryWebView)
+            container.prepareHostedContentLayoutSnapshot(
+                from: sourceSlot,
+                hostedSubviews: relatedSubviews
+            )
+        } else {
+            relatedSubviews = sourceSuperview.subviews.filter { view in
+                if view === primaryWebView { return true }
+                return String(describing: type(of: view)).contains("WK")
+            }
         }
         guard !relatedSubviews.isEmpty else { return }
 #if DEBUG
@@ -4437,6 +4520,210 @@ struct WebViewRepresentable: NSViewRepresentable {
             )
 #endif
         }
+    }
+
+    private static func attachLocalInlineHostedWebView(
+        _ webView: WKWebView,
+        to slotView: WindowBrowserSlotView,
+        in host: HostContainerView,
+        coordinator: Coordinator,
+        panel: BrowserPanel,
+        reason: String
+    ) -> Bool {
+        guard host.window != nil else {
+            host.setLocalInlineSlotHidden(true)
+            host.releaseHostedWebViewConstraints()
+            coordinator.localInlineDidReparent = false
+#if DEBUG
+            dlog(
+                "browser.localHost.attach.skip web=\(Self.objectID(webView)) " +
+                "reason=\(reason) host=\(Self.objectID(host)) slot=\(Self.objectID(slotView)) " +
+                "skip=hostWithoutWindow"
+            )
+#endif
+            return false
+        }
+
+        let didReparentIntoLocalHost = webView.superview !== slotView
+        coordinator.localInlineDidReparent = didReparentIntoLocalHost
+        if didReparentIntoLocalHost {
+            if let sourceSuperview = webView.superview {
+                Self.moveWebKitRelatedSubviewsIntoHostIfNeeded(
+                    from: sourceSuperview,
+                    to: slotView,
+                    primaryWebView: webView,
+                    reason: reason
+                )
+            } else {
+                slotView.addSubview(webView, positioned: .above, relativeTo: nil)
+            }
+        }
+
+        slotView.isHidden = false
+        host.pinHostedWebView(webView, in: slotView)
+        coordinator.lastPortalHostId = nil
+        coordinator.lastSynchronizedHostGeometryRevision = 0
+        panel.restoreDeveloperToolsAfterAttachIfNeeded()
+        webView.needsLayout = true
+        webView.layoutSubtreeIfNeeded()
+        slotView.layoutSubtreeIfNeeded()
+        slotView.applyHostedContentLayoutSnapshotIfNeeded(
+            to: slotView.localInlineHostedContentSubviews(primaryWebView: webView)
+        )
+        host.displayIfNeeded()
+        slotView.displayIfNeeded()
+        webView.displayIfNeeded()
+        if didReparentIntoLocalHost {
+            Self.refreshLocalInlineHostedWebViewPresentation(
+                webView,
+                in: slotView,
+                reason: reason
+            )
+        }
+        return true
+    }
+
+    private static func runLocalInlineHostedWebViewRefreshPass(
+        _ webView: WKWebView,
+        in container: WindowBrowserSlotView,
+        reason: String,
+        phase: String
+    ) {
+        guard !container.isHidden else { return }
+
+        container.applyHostedContentLayoutSnapshotIfNeeded(
+            to: container.localInlineHostedContentSubviews(primaryWebView: webView)
+        )
+
+        webView.needsLayout = true
+        webView.needsDisplay = true
+        webView.setNeedsDisplay(webView.bounds)
+
+        container.layoutSubtreeIfNeeded()
+        if let scrollView = webView.enclosingScrollView {
+            scrollView.layoutSubtreeIfNeeded()
+            scrollView.contentView.layoutSubtreeIfNeeded()
+            scrollView.displayIfNeeded()
+        }
+        webView.layoutSubtreeIfNeeded()
+        webView.cmuxReattachLocalHostRenderingState(reason: "\(reason):\(phase)")
+        container.displayIfNeeded()
+        webView.displayIfNeeded()
+        (webView.window ?? container.window)?.displayIfNeeded()
+#if DEBUG
+        dlog(
+            "browser.localHost.refresh web=\(ObjectIdentifier(webView)) " +
+            "container=\(Self.objectID(container)) reason=\(reason) phase=\(phase) " +
+            "frame=\(Self.rectDescription(container.frame))"
+        )
+#endif
+    }
+
+    static func refreshLocalInlineHostedWebViewPresentation(
+        _ webView: WKWebView,
+        in container: WindowBrowserSlotView,
+        reason: String
+    ) {
+        guard !container.isHidden else { return }
+
+        Self.runLocalInlineHostedWebViewRefreshPass(
+            webView,
+            in: container,
+            reason: reason,
+            phase: "immediate"
+        )
+        DispatchQueue.main.async { [weak webView, weak container] in
+            guard let webView, let container else { return }
+            Self.runLocalInlineHostedWebViewRefreshPass(
+                webView,
+                in: container,
+                reason: reason,
+                phase: "async"
+            )
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) { [weak webView, weak container] in
+            guard let webView, let container else { return }
+            Self.runLocalInlineHostedWebViewRefreshPass(
+                webView,
+                in: container,
+                reason: reason,
+                phase: "delayed"
+            )
+        }
+    }
+
+    private static func resetLocalInlineFocusRefreshState(_ coordinator: Coordinator) {
+        coordinator.localInlineSlotView = nil
+        coordinator.lastLocalInlinePanelFocused = nil
+        coordinator.lastLocalInlineWebResponder = nil
+        coordinator.lastLocalInlineRefreshToken = nil
+        coordinator.localInlineDidReparent = false
+    }
+
+    static func refreshLocalInlineHostedWebViewPresentationIfRequested(
+        _ webView: WKWebView,
+        in container: WindowBrowserSlotView,
+        coordinator: Coordinator,
+        refreshToken: UInt64,
+        reason: String
+    ) {
+        defer { coordinator.lastLocalInlineRefreshToken = refreshToken }
+
+        guard !container.isHidden, container.window != nil else { return }
+        guard let lastRefreshToken = coordinator.lastLocalInlineRefreshToken else { return }
+        guard lastRefreshToken != refreshToken else { return }
+
+#if DEBUG
+        dlog(
+            "browser.localHost.tokenRefresh web=\(ObjectIdentifier(webView)) " +
+            "container=\(Self.objectID(container)) reason=\(reason) " +
+            "oldToken=\(lastRefreshToken) newToken=\(refreshToken)"
+        )
+#endif
+        refreshLocalInlineHostedWebViewPresentation(
+            webView,
+            in: container,
+            reason: reason
+        )
+    }
+
+    static func refreshLocalInlineHostedWebViewPresentationAfterFocusChangeIfNeeded(
+        _ webView: WKWebView,
+        in container: WindowBrowserSlotView,
+        coordinator: Coordinator,
+        isPanelFocused: Bool,
+        isWebViewFirstResponder: Bool,
+        reason: String
+    ) {
+        defer {
+            coordinator.lastLocalInlinePanelFocused = isPanelFocused
+            coordinator.lastLocalInlineWebResponder = isWebViewFirstResponder
+            coordinator.localInlineDidReparent = false
+        }
+
+        guard !container.isHidden, container.window != nil else { return }
+        guard !coordinator.localInlineDidReparent else { return }
+        guard let lastPanelFocused = coordinator.lastLocalInlinePanelFocused,
+              let lastWebResponder = coordinator.lastLocalInlineWebResponder else {
+            return
+        }
+        guard lastPanelFocused != isPanelFocused || lastWebResponder != isWebViewFirstResponder else {
+            return
+        }
+
+#if DEBUG
+        dlog(
+            "browser.localHost.focusRefresh web=\(ObjectIdentifier(webView)) " +
+            "container=\(Self.objectID(container)) reason=\(reason) " +
+            "oldPanelFocused=\(lastPanelFocused ? 1 : 0) newPanelFocused=\(isPanelFocused ? 1 : 0) " +
+            "oldWebResponder=\(lastWebResponder ? 1 : 0) newWebResponder=\(isWebViewFirstResponder ? 1 : 0)"
+        )
+#endif
+        refreshLocalInlineHostedWebViewPresentation(
+            webView,
+            in: container,
+            reason: reason
+        )
     }
 
     private static func installPortalAnchorView(_ anchorView: NSView, in host: NSView) {
@@ -4470,20 +4757,121 @@ struct WebViewRepresentable: NSViewRepresentable {
     private func updateUsingLocalInlineHosting(_ nsView: NSView, context: Context, webView: WKWebView) -> Bool {
         guard let host = nsView as? HostContainerView else { return false }
         let slotView = host.ensureLocalInlineSlotView()
+        let hostId = ObjectIdentifier(host)
 
         let coordinator = context.coordinator
+        coordinator.localInlineSlotView = slotView
         coordinator.desiredPortalVisibleInUI = false
         coordinator.desiredPortalZPriority = 0
         coordinator.attachGeneration += 1
+        let generation = coordinator.attachGeneration
+
+        let retryDeferredAttachIfNeeded: (String) -> Void = { [weak host, weak webView, weak coordinator, weak slotView, weak browserPanel = panel] reason in
+            guard let host, let webView, let coordinator, let slotView, let browserPanel else { return }
+            guard coordinator.attachGeneration == generation else { return }
+            guard browserPanel.claimLocalInlineHost(
+                hostId: ObjectIdentifier(host),
+                paneId: paneId,
+                inWindow: host.window != nil,
+                bounds: host.bounds,
+                reason: reason
+            ) else {
+                host.setLocalInlineSlotHidden(true)
+                host.releaseHostedWebViewConstraints()
+                return
+            }
+            // During move churn the visible replacement host can join a window before
+            // workspace pane mapping converges to the destination pane. Once this host
+            // successfully owns the local inline lease, trust that lease instead of
+            // re-checking the potentially stale pane mapping here.
+            guard host.window != nil else { return }
+            guard webView.superview !== slotView else { return }
+
+            host.layoutSubtreeIfNeeded()
+            slotView.layoutSubtreeIfNeeded()
+            guard slotView.bounds.width > 1, slotView.bounds.height > 1 else { return }
+
+#if DEBUG
+            dlog(
+                "browser.localHost.deferredAttach web=\(Self.objectID(webView)) " +
+                "reason=\(reason) host=\(Self.objectID(host)) slot=\(Self.objectID(slotView))"
+            )
+#endif
+            guard Self.attachLocalInlineHostedWebView(
+                webView,
+                to: slotView,
+                in: host,
+                coordinator: coordinator,
+                panel: browserPanel,
+                reason: reason
+            ) else {
+                return
+            }
+#if DEBUG
+            Self.logDevToolsState(
+                browserPanel,
+                event: "localHost.update",
+                generation: generation,
+                retryCount: 0,
+                details: Self.attachContext(webView: webView, host: host) + " deferred=1 reason=\(reason)"
+            )
+#endif
+        }
+        host.onDidMoveToWindow = { [weak host, weak browserPanel = panel] in
+            DispatchQueue.main.async {
+                guard let host, let browserPanel else { return }
+                _ = browserPanel.claimLocalInlineHost(
+                    hostId: ObjectIdentifier(host),
+                    paneId: paneId,
+                    inWindow: host.window != nil,
+                    bounds: host.bounds,
+                    reason: "didMoveToWindow"
+                )
+                retryDeferredAttachIfNeeded("localHost.didMoveToWindow")
+            }
+        }
+        host.onGeometryChanged = {
+            _ = panel.claimLocalInlineHost(
+                hostId: hostId,
+                paneId: paneId,
+                inWindow: host.window != nil,
+                bounds: host.bounds,
+                reason: "geometryChanged"
+            )
+            retryDeferredAttachIfNeeded("localHost.geometryChanged")
+        }
 
         if panel.releasePortalHostIfOwned(
-            hostId: ObjectIdentifier(host),
+            hostId: hostId,
             reason: "localInlineHosting"
         ) {
             BrowserWindowPortalRegistry.hide(
                 webView: webView,
                 source: "viewStateChanged.localInlineHosting"
             )
+        }
+
+        guard panel.claimLocalInlineHost(
+            hostId: hostId,
+            paneId: paneId,
+            inWindow: host.window != nil,
+            bounds: host.bounds,
+            reason: "update"
+        ) else {
+            host.setLocalInlineSlotHidden(true)
+            host.releaseHostedWebViewConstraints()
+            coordinator.lastPortalHostId = nil
+            coordinator.lastSynchronizedHostGeometryRevision = 0
+#if DEBUG
+            Self.logDevToolsState(
+                panel,
+                event: "localHost.skip",
+                generation: coordinator.attachGeneration,
+                retryCount: 0,
+                details: Self.attachContext(webView: webView, host: host) + " reason=hostOwnershipRejected"
+            )
+#endif
+            return false
         }
 
         let shouldPreserveExistingExternalLocalHost =
@@ -4514,30 +4902,25 @@ struct WebViewRepresentable: NSViewRepresentable {
             return false
         }
 
-        if webView.superview !== slotView {
-            if let sourceSuperview = webView.superview {
-                Self.moveWebKitRelatedSubviewsIntoHostIfNeeded(
-                    from: sourceSuperview,
-                    to: slotView,
-                    primaryWebView: webView,
-                    reason: "attachLocalHost"
-                )
-            } else {
-                slotView.addSubview(webView, positioned: .above, relativeTo: nil)
-            }
+        guard Self.attachLocalInlineHostedWebView(
+            webView,
+            to: slotView,
+            in: host,
+            coordinator: coordinator,
+            panel: panel,
+            reason: "localHost.attach"
+        ) else {
+#if DEBUG
+            Self.logDevToolsState(
+                panel,
+                event: "localHost.skip",
+                generation: coordinator.attachGeneration,
+                retryCount: 0,
+                details: Self.attachContext(webView: webView, host: host) + " reason=hostWithoutWindow"
+            )
+#endif
+            return false
         }
-
-        slotView.isHidden = false
-        host.pinHostedWebView(webView, in: slotView)
-        coordinator.lastPortalHostId = nil
-        coordinator.lastSynchronizedHostGeometryRevision = 0
-        panel.restoreDeveloperToolsAfterAttachIfNeeded()
-        webView.needsLayout = true
-        webView.layoutSubtreeIfNeeded()
-        slotView.layoutSubtreeIfNeeded()
-        host.displayIfNeeded()
-        slotView.displayIfNeeded()
-        webView.displayIfNeeded()
 
 #if DEBUG
         Self.logDevToolsState(
@@ -4555,8 +4938,13 @@ struct WebViewRepresentable: NSViewRepresentable {
         guard let host = nsView as? HostContainerView else { return false }
         host.setLocalInlineSlotHidden(true)
         host.releaseHostedWebViewConstraints()
+        _ = panel.releaseLocalInlineHostIfOwned(
+            hostId: ObjectIdentifier(host),
+            reason: "windowPortal"
+        )
 
         let coordinator = context.coordinator
+        Self.resetLocalInlineFocusRefreshState(coordinator)
         let paneDropContext = currentPaneDropContext()
         let isCurrentPaneOwner = paneDropContext?.paneId.id == paneId.id
         let hostId = ObjectIdentifier(host)
@@ -4761,27 +5149,53 @@ struct WebViewRepresentable: NSViewRepresentable {
             BrowserWindowPortalRegistry.detach(webView: previousWebView)
             coordinator.lastPortalHostId = nil
             coordinator.lastSynchronizedHostGeometryRevision = 0
+            Self.resetLocalInlineFocusRefreshState(coordinator)
         }
         coordinator.panel = panel
         coordinator.webView = webView
 
         Self.clearPortalCallbacks(for: nsView)
+        let resolvedPanelFocused = isPanelFocused && isCurrentPaneOwner
+        let resolvedShouldFocusWebView = shouldFocusWebView && isCurrentPaneOwner
         let hostOwnsPortal = useLocalInlineHosting
             ? updateUsingLocalInlineHosting(nsView, context: context, webView: webView)
             : updateUsingWindowPortal(nsView, context: context, webView: webView)
         Self.applyWebViewFirstResponderPolicy(
             panel: panel,
             webView: webView,
-            isPanelFocused: isPanelFocused && isCurrentPaneOwner && hostOwnsPortal
+            isPanelFocused: resolvedPanelFocused && hostOwnsPortal
         )
 
         Self.applyFocus(
             panel: panel,
             webView: webView,
             nsView: nsView,
-            shouldFocusWebView: shouldFocusWebView && isCurrentPaneOwner && hostOwnsPortal,
-            isPanelFocused: isPanelFocused && isCurrentPaneOwner && hostOwnsPortal
+            shouldFocusWebView: resolvedShouldFocusWebView && hostOwnsPortal,
+            isPanelFocused: resolvedPanelFocused && hostOwnsPortal
         )
+
+        if useLocalInlineHosting,
+           hostOwnsPortal,
+           let slotView = coordinator.localInlineSlotView,
+           let window = nsView.window ?? webView.window {
+            Self.refreshLocalInlineHostedWebViewPresentationAfterFocusChangeIfNeeded(
+                webView,
+                in: slotView,
+                coordinator: coordinator,
+                isPanelFocused: resolvedPanelFocused,
+                isWebViewFirstResponder: Self.responderChainContains(window.firstResponder, target: webView),
+                reason: "localHost.focusChange"
+            )
+            Self.refreshLocalInlineHostedWebViewPresentationIfRequested(
+                webView,
+                in: slotView,
+                coordinator: coordinator,
+                refreshToken: reattachToken,
+                reason: "localHost.reattachToken"
+            )
+        } else {
+            Self.resetLocalInlineFocusRefreshState(coordinator)
+        }
     }
 
     private static func applyFocus(
@@ -4873,6 +5287,10 @@ struct WebViewRepresentable: NSViewRepresentable {
         clearPortalCallbacks(for: nsView)
         if let panel = coordinator.panel, let host = nsView as? HostContainerView {
             panel.releasePortalHostIfOwned(
+                hostId: ObjectIdentifier(host),
+                reason: "dismantle"
+            )
+            panel.releaseLocalInlineHostIfOwned(
                 hostId: ObjectIdentifier(host),
                 reason: "dismantle"
             )

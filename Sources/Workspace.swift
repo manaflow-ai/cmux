@@ -3809,6 +3809,26 @@ final class Workspace: Identifiable, ObservableObject {
         runRefreshPass(0.03)
     }
 
+    private func scheduleMovedBrowserRefresh(panelId: UUID, remainingPasses: Int = 8) {
+        guard let browser = browserPanel(for: panelId) else { return }
+
+        // Tab drag/move can leave the replacement browser host off-window for a few turns.
+        // Keep nudging SwiftUI until the WKWebView is reattached to a live host again.
+        browser.requestViewReattach()
+        browser.requestDeveloperToolsRefreshAfterNextAttach(reason: "workspace.movedBrowserRefresh")
+
+        let webViewAttached =
+            browser.webView.superview != nil &&
+            browser.webView.window != nil &&
+            browser.webView.bounds.width > 1 &&
+            browser.webView.bounds.height > 1
+        guard !webViewAttached, remainingPasses > 1 else { return }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+            self?.scheduleMovedBrowserRefresh(panelId: panelId, remainingPasses: remainingPasses - 1)
+        }
+    }
+
     private func closeTabs(_ tabIds: [TabID], skipPinned: Bool = true) {
         for tabId in tabIds {
             if skipPinned,
@@ -4651,7 +4671,12 @@ extension Workspace: BonsplitDelegate {
         let movedPanelIdAfter = panelIdFromSurfaceId(tab.id)
 #endif
         if let movedPanelId = panelIdFromSurfaceId(tab.id) {
+            browserPanel(for: movedPanelId)?.prepareLocalInlineHostReplacementForNextDistinctClaim(
+                inPane: destination,
+                reason: "workspace.didMoveTab"
+            )
             scheduleMovedTerminalRefresh(panelId: movedPanelId)
+            scheduleMovedBrowserRefresh(panelId: movedPanelId)
         }
 #if DEBUG
         let selectedAfter = controller.selectedTab(inPane: destination)

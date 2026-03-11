@@ -2069,6 +2069,81 @@ final class BrowserDeveloperToolsConfigurationTests: XCTestCase {
         XCTAssertEqual(actual.blueComponent, expected.blueComponent, accuracy: 0.005)
         XCTAssertEqual(actual.alphaComponent, expected.alphaComponent, accuracy: 0.005)
     }
+
+    func testLocalInlineHostKeepsUsableOwnerUntilDistinctHandoffIsPrepared() {
+        let panel = BrowserPanel(workspaceId: UUID())
+        let ownerPaneId = PaneID(id: UUID())
+        let contenderPaneId = PaneID(id: UUID())
+        let ownerHost = NSView()
+        let contenderHost = NSView()
+        let ownerHostId = ObjectIdentifier(ownerHost)
+        let contenderHostId = ObjectIdentifier(contenderHost)
+        let ownerBounds = CGRect(x: 0, y: 0, width: 600, height: 400)
+        let contenderBounds = CGRect(x: 0, y: 0, width: 900, height: 400)
+
+        XCTAssertTrue(
+            panel.claimLocalInlineHost(
+                hostId: ownerHostId,
+                paneId: ownerPaneId,
+                inWindow: true,
+                bounds: ownerBounds,
+                reason: "test"
+            )
+        )
+
+        XCTAssertFalse(
+            panel.claimLocalInlineHost(
+                hostId: contenderHostId,
+                paneId: contenderPaneId,
+                inWindow: true,
+                bounds: contenderBounds,
+                reason: "test"
+            )
+        )
+
+        XCTAssertFalse(panel.releaseLocalInlineHostIfOwned(hostId: contenderHostId, reason: "test"))
+        XCTAssertTrue(panel.releaseLocalInlineHostIfOwned(hostId: ownerHostId, reason: "test"))
+    }
+
+    func testPreparedDistinctLocalInlineHandoffAllowsDestinationPaneToClaim() {
+        let panel = BrowserPanel(workspaceId: UUID())
+        let sourcePaneId = PaneID(id: UUID())
+        let destinationPaneId = PaneID(id: UUID())
+        let sourceHost = NSView()
+        let destinationHost = NSView()
+        let sourceHostId = ObjectIdentifier(sourceHost)
+        let destinationHostId = ObjectIdentifier(destinationHost)
+        let sourceBounds = CGRect(x: 0, y: 0, width: 600, height: 400)
+        let destinationBounds = CGRect(x: 0, y: 0, width: 400, height: 400)
+
+        XCTAssertTrue(
+            panel.claimLocalInlineHost(
+                hostId: sourceHostId,
+                paneId: sourcePaneId,
+                inWindow: true,
+                bounds: sourceBounds,
+                reason: "test"
+            )
+        )
+
+        panel.prepareLocalInlineHostReplacementForNextDistinctClaim(
+            inPane: destinationPaneId,
+            reason: "test"
+        )
+
+        XCTAssertTrue(
+            panel.claimLocalInlineHost(
+                hostId: destinationHostId,
+                paneId: destinationPaneId,
+                inWindow: true,
+                bounds: destinationBounds,
+                reason: "test"
+            )
+        )
+
+        XCTAssertFalse(panel.releaseLocalInlineHostIfOwned(hostId: sourceHostId, reason: "test"))
+        XCTAssertTrue(panel.releaseLocalInlineHostIfOwned(hostId: destinationHostId, reason: "test"))
+    }
 }
 
 final class GhosttyBackgroundThemeTests: XCTestCase {
@@ -2434,7 +2509,9 @@ final class BrowserSessionHistoryRestoreTests: XCTestCase {
 
 @MainActor
 final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
-    private final class WKInspectorProbeView: NSView {}
+    private final class WKInspectorProbeView: NSView {
+        override var acceptsFirstResponder: Bool { true }
+    }
 
     private final class FakeInspector: NSObject {
         private(set) var attachCount = 0
@@ -2488,6 +2565,18 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         for subview in root.subviews {
             if let host = findHostContainerView(in: subview) {
                 return host
+            }
+        }
+        return nil
+    }
+
+    private func findWindowBrowserSlotView(in root: NSView) -> WindowBrowserSlotView? {
+        if let slot = root as? WindowBrowserSlotView {
+            return slot
+        }
+        for subview in root.subviews {
+            if let slot = findWindowBrowserSlotView(in: subview) {
+                return slot
             }
         }
         return nil
@@ -2609,6 +2698,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         let representable = WebViewRepresentable(
             panel: panel,
             paneId: paneId,
+            reattachToken: 0,
             shouldAttachWebView: true,
             useLocalInlineHosting: false,
             shouldFocusWebView: false,
@@ -2651,6 +2741,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         let representable = WebViewRepresentable(
             panel: panel,
             paneId: paneId,
+            reattachToken: 0,
             shouldAttachWebView: true,
             useLocalInlineHosting: false,
             shouldFocusWebView: false,
@@ -2712,6 +2803,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         let representable = WebViewRepresentable(
             panel: panel,
             paneId: paneId,
+            reattachToken: 0,
             shouldAttachWebView: false,
             useLocalInlineHosting: true,
             shouldFocusWebView: false,
@@ -2784,6 +2876,216 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         XCTAssertTrue(
             inspectorView.superview === visibleSlot,
             "An off-window replacement host should leave DevTools companion views in the visible local host"
+        )
+    }
+
+    func testOffWindowReplacementLocalHostReattachesWhenItJoinsAWindow() {
+        let (panel, _) = makePanelWithInspector()
+        XCTAssertTrue(panel.showDeveloperTools())
+
+        let paneId = PaneID(id: UUID())
+        let representable = WebViewRepresentable(
+            panel: panel,
+            paneId: paneId,
+            reattachToken: 0,
+            shouldAttachWebView: false,
+            useLocalInlineHosting: true,
+            shouldFocusWebView: false,
+            isPanelFocused: true,
+            portalZPriority: 0,
+            paneDropZone: nil,
+            searchOverlay: nil,
+            paneTopChromeHeight: 0
+        )
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let visibleHosting = NSHostingView(rootView: representable)
+        visibleHosting.frame = contentView.bounds
+        visibleHosting.autoresizingMask = [.width, .height]
+        contentView.addSubview(visibleHosting)
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        visibleHosting.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        guard let visibleSlot = panel.webView.superview as? WindowBrowserSlotView else {
+            XCTFail("Expected visible local inline slot")
+            return
+        }
+
+        let detachedRoot = NSView(frame: visibleHosting.frame)
+        let replacementHosting = NSHostingView(rootView: representable)
+        replacementHosting.frame = detachedRoot.bounds
+        replacementHosting.autoresizingMask = [.width, .height]
+        detachedRoot.addSubview(replacementHosting)
+        detachedRoot.layoutSubtreeIfNeeded()
+        replacementHosting.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        guard findHostContainerView(in: replacementHosting) != nil else {
+            XCTFail("Expected off-window replacement host")
+            return
+        }
+
+        visibleHosting.removeFromSuperview()
+        contentView.layoutSubtreeIfNeeded()
+        replacementHosting.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        guard let replacementSlotWhileOffWindow = findWindowBrowserSlotView(in: replacementHosting) else {
+            XCTFail("Expected off-window replacement slot")
+            return
+        }
+
+        XCTAssertNil(replacementHosting.window)
+        XCTAssertTrue(
+            panel.webView.superview !== replacementSlotWhileOffWindow,
+            "A replacement local host must not steal the DevTools-hosted web view until that host actually joins a window"
+        )
+
+        replacementHosting.removeFromSuperview()
+        replacementHosting.frame = contentView.bounds
+        replacementHosting.autoresizingMask = [.width, .height]
+        contentView.addSubview(replacementHosting)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        replacementHosting.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        guard let replacementSlot = findWindowBrowserSlotView(in: replacementHosting) else {
+            XCTFail("Expected replacement local inline slot")
+            return
+        }
+
+        XCTAssertNil(visibleSlot.window)
+        XCTAssertTrue(
+            panel.webView.superview === replacementSlot,
+            "A replacement local host should reattach the DevTools-hosted web view once it joins a window"
+        )
+        XCTAssertTrue(replacementSlot.window === window)
+    }
+
+    func testReplacementLocalHostMovesNonWebKitDevToolsCompanionViews() {
+        let (panel, _) = makePanelWithInspector()
+        XCTAssertTrue(panel.showDeveloperTools())
+
+        let initialPaneId = PaneID(id: UUID())
+        let replacementPaneId = PaneID(id: UUID())
+        func makeRepresentable(for paneId: PaneID) -> WebViewRepresentable {
+            WebViewRepresentable(
+                panel: panel,
+                paneId: paneId,
+                reattachToken: 0,
+                shouldAttachWebView: false,
+                useLocalInlineHosting: true,
+                shouldFocusWebView: false,
+                isPanelFocused: true,
+                portalZPriority: 0,
+                paneDropZone: nil,
+                searchOverlay: nil,
+                paneTopChromeHeight: 0
+            )
+        }
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let visibleHosting = NSHostingView(rootView: makeRepresentable(for: initialPaneId))
+        visibleHosting.frame = NSRect(x: 0, y: 0, width: 210, height: contentView.bounds.height)
+        visibleHosting.autoresizingMask = [.height]
+        contentView.addSubview(visibleHosting)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        visibleHosting.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        guard let visibleSlot = panel.webView.superview as? WindowBrowserSlotView else {
+            XCTFail("Expected visible local inline slot")
+            return
+        }
+
+        let inspectorView = WKInspectorProbeView(
+            frame: NSRect(x: 0, y: 0, width: visibleSlot.bounds.width, height: 72)
+        )
+        inspectorView.autoresizingMask = [.width]
+        visibleSlot.addSubview(inspectorView)
+
+        let companionToolbar = NSView(
+            frame: NSRect(x: 0, y: inspectorView.frame.maxY, width: visibleSlot.bounds.width, height: 24)
+        )
+        companionToolbar.identifier = NSUserInterfaceItemIdentifier("DevToolsCompanionToolbar")
+        companionToolbar.autoresizingMask = [.width]
+        visibleSlot.addSubview(companionToolbar)
+
+        panel.webView.frame = NSRect(
+            x: 0,
+            y: companionToolbar.frame.maxY,
+            width: visibleSlot.bounds.width,
+            height: visibleSlot.bounds.height - companionToolbar.frame.maxY
+        )
+        visibleSlot.layoutSubtreeIfNeeded()
+
+        let detachedRoot = NSView(frame: visibleHosting.frame)
+        let replacementHosting = NSHostingView(rootView: makeRepresentable(for: replacementPaneId))
+        replacementHosting.frame = detachedRoot.bounds
+        replacementHosting.autoresizingMask = [.width, .height]
+        detachedRoot.addSubview(replacementHosting)
+        detachedRoot.layoutSubtreeIfNeeded()
+        replacementHosting.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        replacementHosting.removeFromSuperview()
+        replacementHosting.frame = NSRect(x: 210, y: 0, width: 210, height: contentView.bounds.height)
+        replacementHosting.autoresizingMask = [.minXMargin, .height]
+        contentView.addSubview(replacementHosting)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        replacementHosting.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        guard let replacementSlot = findWindowBrowserSlotView(in: replacementHosting) else {
+            XCTFail("Expected replacement local inline slot")
+            return
+        }
+
+        XCTAssertTrue(
+            panel.webView.superview === replacementSlot,
+            "A replacement local host should move the shared browser web view into the new pane"
+        )
+        XCTAssertTrue(
+            inspectorView.superview === replacementSlot,
+            "A replacement local host should move WKInspector companion views into the new pane"
+        )
+        XCTAssertTrue(
+            companionToolbar.superview === replacementSlot,
+            "A replacement local host should move non-WebKit DevTools companion views into the new pane so old panes do not leave stray inspector chrome behind"
+        )
+        XCTAssertFalse(
+            visibleSlot.subviews.contains(where: { $0 === companionToolbar }),
+            "The retiring pane should not keep stale DevTools companion views after local host reparent"
         )
     }
 }
@@ -5287,6 +5589,51 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
             workspace.focusedPanelId,
             originalFocusedPanelId,
             "Expected non-focus browser split to preserve pre-split focus"
+        )
+    }
+
+    func testMovedBrowserTabRequestsViewReattachRefresh() {
+        let workspace = Workspace()
+        guard let originalFocusedPanelId = workspace.focusedPanelId,
+              let originalPaneId = workspace.paneId(forPanelId: originalFocusedPanelId) else {
+            XCTFail("Expected initial focused panel and pane")
+            return
+        }
+
+        guard let browserSplitPanel = workspace.newBrowserSplit(
+            from: originalFocusedPanelId,
+            orientation: .horizontal,
+            focus: true
+        ) else {
+            XCTFail("Expected browser split panel to be created")
+            return
+        }
+
+        guard let browserTabId = workspace.surfaceIdFromPanelId(browserSplitPanel.id),
+              let browserPaneId = workspace.paneId(forPanelId: browserSplitPanel.id) else {
+            XCTFail("Expected browser split tab and pane mapping")
+            return
+        }
+
+        XCTAssertNotEqual(browserPaneId, originalPaneId, "Expected browser split to land in a different pane")
+
+        let initialReattachToken = browserSplitPanel.viewReattachToken
+        XCTAssertTrue(
+            workspace.bonsplitController.moveTab(browserTabId, toPane: originalPaneId),
+            "Expected browser tab move to succeed"
+        )
+
+        drainMainQueue()
+
+        XCTAssertGreaterThan(
+            browserSplitPanel.viewReattachToken,
+            initialReattachToken,
+            "Moving a browser tab should force a follow-up representable update so detached web views can reattach"
+        )
+        XCTAssertEqual(
+            workspace.paneId(forPanelId: browserSplitPanel.id),
+            originalPaneId,
+            "Expected moved browser panel to resolve to the destination pane"
         )
     }
 
@@ -9167,6 +9514,22 @@ final class BrowserPanelHostContainerViewTests: XCTestCase {
         }
     }
 
+    private final class ReattachProbeWebView: WKWebView {
+        private(set) var firedSelectors: [String] = []
+
+        override func viewDidUnhide() {
+            firedSelectors.append("viewDidUnhide")
+        }
+
+        @objc func _enterInWindow() {
+            firedSelectors.append("_enterInWindow")
+        }
+
+        @objc func _endDeferringViewInWindowChangesSync() {
+            firedSelectors.append("_endDeferringViewInWindowChangesSync")
+        }
+    }
+
     private func makeMouseEvent(type: NSEvent.EventType, location: NSPoint, window: NSWindow) -> NSEvent {
         guard let event = NSEvent.mouseEvent(
             with: type,
@@ -9182,6 +9545,14 @@ final class BrowserPanelHostContainerViewTests: XCTestCase {
             fatalError("Failed to create \(type) mouse event")
         }
         return event
+    }
+
+    private func realizeWindowLayout(_ window: NSWindow) {
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        window.contentView?.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        window.contentView?.layoutSubtreeIfNeeded()
     }
 
     func testBrowserPanelHostPrefersNativeHostedInspectorSiblingDividerHit() {
@@ -9466,6 +9837,225 @@ final class BrowserPanelHostContainerViewTests: XCTestCase {
         XCTAssertEqual(webView.frame, slot.bounds)
     }
 
+    func testLocalInlineHostedRefreshReattachesRenderingStateAcrossAsyncPasses() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        realizeWindowLayout(window)
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let slot = WindowBrowserSlotView(frame: NSRect(x: 40, y: 24, width: 240, height: 180))
+        contentView.addSubview(slot)
+
+        let webView = ReattachProbeWebView(
+            frame: slot.bounds,
+            configuration: WKWebViewConfiguration()
+        )
+        slot.addSubview(webView)
+        slot.pinHostedWebView(webView)
+        contentView.layoutSubtreeIfNeeded()
+        slot.layoutSubtreeIfNeeded()
+        window.displayIfNeeded()
+
+        WebViewRepresentable.refreshLocalInlineHostedWebViewPresentation(
+            webView,
+            in: slot,
+            reason: "test"
+        )
+
+        XCTAssertEqual(
+            webView.firedSelectors,
+            ["viewDidUnhide", "_enterInWindow", "_endDeferringViewInWindowChangesSync"]
+        )
+
+        RunLoop.current.run(until: Date().addingTimeInterval(0.06))
+
+        XCTAssertEqual(webView.firedSelectors.count, 9)
+    }
+
+    func testLocalInlineHostedRefreshReattachesAfterFocusTransitionWithoutReparent() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        realizeWindowLayout(window)
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let slot = WindowBrowserSlotView(frame: NSRect(x: 40, y: 24, width: 240, height: 180))
+        contentView.addSubview(slot)
+
+        let webView = ReattachProbeWebView(
+            frame: slot.bounds,
+            configuration: WKWebViewConfiguration()
+        )
+        slot.addSubview(webView)
+        slot.pinHostedWebView(webView)
+        contentView.layoutSubtreeIfNeeded()
+        slot.layoutSubtreeIfNeeded()
+        window.displayIfNeeded()
+
+        let coordinator = WebViewRepresentable.Coordinator()
+
+        WebViewRepresentable.refreshLocalInlineHostedWebViewPresentationAfterFocusChangeIfNeeded(
+            webView,
+            in: slot,
+            coordinator: coordinator,
+            isPanelFocused: true,
+            isWebViewFirstResponder: true,
+            reason: "test"
+        )
+
+        XCTAssertTrue(webView.firedSelectors.isEmpty)
+
+        WebViewRepresentable.refreshLocalInlineHostedWebViewPresentationAfterFocusChangeIfNeeded(
+            webView,
+            in: slot,
+            coordinator: coordinator,
+            isPanelFocused: false,
+            isWebViewFirstResponder: false,
+            reason: "test"
+        )
+
+        XCTAssertEqual(
+            webView.firedSelectors,
+            ["viewDidUnhide", "_enterInWindow", "_endDeferringViewInWindowChangesSync"]
+        )
+
+        RunLoop.current.run(until: Date().addingTimeInterval(0.06))
+
+        XCTAssertEqual(webView.firedSelectors.count, 9)
+
+        WebViewRepresentable.refreshLocalInlineHostedWebViewPresentationAfterFocusChangeIfNeeded(
+            webView,
+            in: slot,
+            coordinator: coordinator,
+            isPanelFocused: false,
+            isWebViewFirstResponder: false,
+            reason: "test"
+        )
+
+        RunLoop.current.run(until: Date().addingTimeInterval(0.06))
+
+        XCTAssertEqual(webView.firedSelectors.count, 9)
+    }
+
+    func testLocalInlineHostedRefreshReattachesAfterRefreshTokenChangeWithoutFocusTransition() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        realizeWindowLayout(window)
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let slot = WindowBrowserSlotView(frame: NSRect(x: 40, y: 24, width: 240, height: 180))
+        contentView.addSubview(slot)
+
+        let webView = ReattachProbeWebView(
+            frame: slot.bounds,
+            configuration: WKWebViewConfiguration()
+        )
+        slot.addSubview(webView)
+        slot.pinHostedWebView(webView)
+        contentView.layoutSubtreeIfNeeded()
+        slot.layoutSubtreeIfNeeded()
+        window.displayIfNeeded()
+
+        let coordinator = WebViewRepresentable.Coordinator()
+
+        WebViewRepresentable.refreshLocalInlineHostedWebViewPresentationIfRequested(
+            webView,
+            in: slot,
+            coordinator: coordinator,
+            refreshToken: 0,
+            reason: "test"
+        )
+
+        XCTAssertTrue(webView.firedSelectors.isEmpty)
+
+        WebViewRepresentable.refreshLocalInlineHostedWebViewPresentationIfRequested(
+            webView,
+            in: slot,
+            coordinator: coordinator,
+            refreshToken: 1,
+            reason: "test"
+        )
+
+        XCTAssertEqual(
+            webView.firedSelectors,
+            ["viewDidUnhide", "_enterInWindow", "_endDeferringViewInWindowChangesSync"]
+        )
+
+        RunLoop.current.run(until: Date().addingTimeInterval(0.06))
+
+        let refreshedSelectorCount = webView.firedSelectors.count
+        XCTAssertGreaterThanOrEqual(refreshedSelectorCount, 6)
+        XCTAssertEqual(coordinator.lastLocalInlineRefreshToken, 1)
+
+        WebViewRepresentable.refreshLocalInlineHostedWebViewPresentationIfRequested(
+            webView,
+            in: slot,
+            coordinator: coordinator,
+            refreshToken: 1,
+            reason: "test"
+        )
+
+        XCTAssertEqual(webView.firedSelectors.count, refreshedSelectorCount)
+        XCTAssertEqual(coordinator.lastLocalInlineRefreshToken, 1)
+    }
+
+    func testWindowBrowserSlotRestoresHostedContentFramesAfterReparentSnapshot() {
+        let sourceSlot = WindowBrowserSlotView(frame: NSRect(x: 0, y: 0, width: 1200, height: 1314))
+        let targetSlot = WindowBrowserSlotView(frame: NSRect(x: 0, y: 0, width: 589, height: 1314))
+
+        let webView = WKWebView(frame: NSRect(x: 0, y: 500, width: 1200, height: 814))
+        let inspectorView = NSView(frame: NSRect(x: 0, y: 0, width: 1200, height: 500))
+        sourceSlot.addSubview(webView)
+        sourceSlot.addSubview(inspectorView)
+
+        let hostedSubviews = sourceSlot.localInlineHostedContentSubviews(primaryWebView: webView)
+        targetSlot.prepareHostedContentLayoutSnapshot(from: sourceSlot, hostedSubviews: hostedSubviews)
+
+        webView.removeFromSuperview()
+        inspectorView.removeFromSuperview()
+        targetSlot.addSubview(webView)
+        targetSlot.addSubview(inspectorView)
+        webView.frame = targetSlot.bounds
+        inspectorView.frame = targetSlot.bounds
+
+        targetSlot.applyHostedContentLayoutSnapshotIfNeeded(
+            to: targetSlot.localInlineHostedContentSubviews(primaryWebView: webView)
+        )
+
+        XCTAssertEqual(webView.frame.minX, 0, accuracy: 0.5)
+        XCTAssertEqual(webView.frame.minY, 500, accuracy: 0.5)
+        XCTAssertEqual(webView.frame.width, 589, accuracy: 0.5)
+        XCTAssertEqual(webView.frame.height, 814, accuracy: 0.5)
+
+        XCTAssertEqual(inspectorView.frame.minX, 0, accuracy: 0.5)
+        XCTAssertEqual(inspectorView.frame.minY, 0, accuracy: 0.5)
+        XCTAssertEqual(inspectorView.frame.width, 589, accuracy: 0.5)
+        XCTAssertEqual(inspectorView.frame.height, 500, accuracy: 0.5)
+    }
+
     func testWindowBrowserSlotReattachesPlainWebViewAtFullBoundsAfterHiddenHostResize() {
         let slot = WindowBrowserSlotView(frame: NSRect(x: 0, y: 0, width: 400, height: 180))
         let webView = WKWebView(frame: .zero)
@@ -9556,7 +10146,6 @@ final class InternalTabDragConfigurationTests: XCTestCase {
         let configuration = InternalTabDragConfigurationProvider.value
         let withinApp = try dragConfigurationOperationsSnapshot(from: configuration.operationsWithinApp)
         let outsideApp = try dragConfigurationOperationsSnapshot(from: configuration.operationsOutsideApp)
-
         XCTAssertEqual(
             withinApp,
             DragConfigurationOperationsSnapshot(
@@ -11512,6 +12101,46 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             webView.frame.width,
             slot.bounds.width,
             "Side-docked inspector should still own part of the slot after pane resize"
+        )
+    }
+
+    func testHidingBrowserSlotYieldsOwnedInspectorFirstResponder() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        realizeWindowLayout(window)
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let slot = WindowBrowserSlotView(frame: NSRect(x: 40, y: 24, width: 260, height: 180))
+        contentView.addSubview(slot)
+
+        let inspectorContainer = NSView(frame: slot.bounds)
+        inspectorContainer.autoresizingMask = [.width, .height]
+        let inspectorView = WKInspectorProbeView(frame: inspectorContainer.bounds)
+        inspectorView.autoresizingMask = [.width, .height]
+        inspectorContainer.addSubview(inspectorView)
+        slot.addSubview(inspectorContainer)
+        contentView.layoutSubtreeIfNeeded()
+
+        XCTAssertTrue(
+            window.makeFirstResponder(inspectorView),
+            "Precondition failed: inspector probe should become first responder"
+        )
+        XCTAssertTrue(window.firstResponder === inspectorView)
+
+        slot.isHidden = true
+
+        XCTAssertNil(
+            window.firstResponder,
+            "Hiding a browser slot should yield any owned inspector responder before it goes off-screen"
         )
     }
 
