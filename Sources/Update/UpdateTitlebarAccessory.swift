@@ -910,31 +910,31 @@ private struct NotificationsPopoverView: View {
                 Text(String(localized: "notifications.title", defaultValue: "Notifications"))
                     .font(.headline)
                 Spacer()
-                if !notificationStore.notifications.isEmpty {
-                    Button(action: jumpToLatestUnread) {
-                        HStack(spacing: 6) {
-                            Text(String(localized: "notifications.jumpToLatest", defaultValue: "Jump to Latest"))
-                            ShortcutAnnotation(
-                                text: jumpToUnreadShortcut.displayString,
-                                accessibilityIdentifier: "notificationsPopover.jumpToLatest.shortcut"
-                            )
-                        }
-                    }
-                    .buttonStyle(.bordered)
-                    .accessibilityIdentifier("notificationsPopover.jumpToLatest")
-                    .accessibilityValue(jumpToUnreadShortcut.displayString)
-                    .safeHelp(
-                        KeyboardShortcutSettings.Action.jumpToUnread.tooltip(
-                            String(localized: "notifications.jumpToLatest", defaultValue: "Jump to Latest")
+                Button(action: jumpToLatestUnread) {
+                    HStack(spacing: 6) {
+                        Text(String(localized: "notifications.jumpToLatest", defaultValue: "Jump to Latest"))
+                        ShortcutAnnotation(
+                            text: jumpToUnreadShortcut.displayString,
+                            accessibilityIdentifier: "notificationsPopover.jumpToLatest.shortcut"
                         )
-                    )
-                    .disabled(!hasUnreadNotifications)
-
-                    Button(String(localized: "notifications.clearAll", defaultValue: "Clear All")) {
-                        notificationStore.clearAll()
                     }
-                    .buttonStyle(.bordered)
                 }
+                .buttonStyle(.bordered)
+                .accessibilityIdentifier("notificationsPopover.jumpToLatest")
+                .accessibilityValue(jumpToUnreadShortcut.displayString)
+                .safeHelp(
+                    KeyboardShortcutSettings.Action.jumpToUnread.tooltip(
+                        String(localized: "notifications.jumpToLatest", defaultValue: "Jump to Latest")
+                    )
+                )
+                .disabled(!hasUnreadNotifications)
+
+                Button(String(localized: "notifications.clearAll", defaultValue: "Clear All")) {
+                    notificationStore.clearAll()
+                }
+                .buttonStyle(.bordered)
+                .accessibilityIdentifier("notificationsPopover.clearAll")
+                .disabled(notificationStore.notifications.isEmpty)
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
