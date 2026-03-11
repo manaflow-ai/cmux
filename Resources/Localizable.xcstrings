@@ -115,6 +115,210 @@
         }
       }
     },
+    "cli.claude-teams.usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux claude-teams [claude-args...]\n\nLaunch Claude Code with agent teams enabled.\n\nThis command:\n  - defaults Claude teammate mode to auto\n  - sets a tmux-like environment so Claude auto mode uses cmux splits\n  - sets CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1\n  - prepends a private tmux shim to PATH\n  - forwards all remaining arguments to claude\n\nThe tmux shim translates supported tmux window/pane commands into cmux\nworkspace and split operations in the current cmux session.\n\nExamples:\n  cmux claude-teams\n  cmux claude-teams --continue\n  cmux claude-teams --model sonnet"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使い方: cmux claude-teams [claude-args...]\n\nエージェントチームを有効にした状態で Claude Code を起動します。\n\nこのコマンドは次を行います:\n  - Claude の teammate mode を auto に設定\n  - Claude の auto mode が cmux の split を使うよう tmux 風の環境を設定\n  - CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 を設定\n  - 専用の tmux shim を PATH の先頭に追加\n  - 残りの引数をそのまま claude に渡す\n\ntmux shim は、対応している tmux の window/pane コマンドを、現在の cmux セッション内の workspace と split 操作に変換します。\n\n例:\n  cmux claude-teams\n  cmux claude-teams --continue\n  cmux claude-teams --model sonnet"
+          }
+        }
+      }
+    },
+    "applescript.error.disabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AppleScript is disabled by the macos-applescript configuration."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macos-applescript の設定で AppleScript は無効になっています。"
+          }
+        }
+      }
+    },
+    "applescript.error.failedToCreateSplit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to create split."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分割の作成に失敗しました。"
+          }
+        }
+      }
+    },
+    "applescript.error.failedToCreateWindow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to create window."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ウインドウの作成に失敗しました。"
+          }
+        }
+      }
+    },
+    "applescript.error.failedToCreateWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to create workspace."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースの作成に失敗しました。"
+          }
+        }
+      }
+    },
+    "applescript.error.missingAction": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Missing action string."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アクション文字列がありません。"
+          }
+        }
+      }
+    },
+    "applescript.error.missingInputText": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Missing input text."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "入力するテキストがありません。"
+          }
+        }
+      }
+    },
+    "applescript.error.missingSplitDirection": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Missing or unknown split direction."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分割方向がないか、不明です。"
+          }
+        }
+      }
+    },
+    "applescript.error.missingTerminalTarget": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Missing terminal target."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "対象のターミナルがありません。"
+          }
+        }
+      }
+    },
+    "applescript.error.terminalUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal is no longer available."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルはもう利用できません。"
+          }
+        }
+      }
+    },
+    "applescript.error.windowUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Window is no longer available."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ウインドウはもう利用できません。"
+          }
+        }
+      }
+    },
+    "applescript.error.workspaceUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace is no longer available."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースはもう利用できません。"
+          }
+        }
+      }
+    },
     "about.build": {
       "extractionState": "manual",
       "localizations": {
@@ -614,6 +818,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "ヘルプ"
+          }
+        }
+      }
+    },
+    "sidebar.help.welcome": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Welcome"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ようこそ"
           }
         }
       }
@@ -38770,6 +38991,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Henüz bildirim yok"
+          }
+        }
+      }
+    },
+    "notifications.jumpToLatest": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jump to Latest"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最新へジャンプ"
           }
         }
       }

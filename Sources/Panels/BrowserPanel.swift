@@ -1705,10 +1705,17 @@ final class BrowserPanel: Panel, ObservableObject {
     /// cleared only after BrowserPanelView acknowledges handling it.
     @Published private(set) var pendingAddressBarFocusRequestId: UUID?
 
+    /// Semantic in-panel focus target used by split switching and transient overlays.
+    private(set) var preferredFocusIntent: BrowserPanelFocusIntent = .webView
+
+    /// Incremented whenever async browser find focus ownership changes.
+    @Published private(set) var searchFocusRequestGeneration: UInt64 = 0
+
     /// Find-in-page state. Non-nil when the find bar is visible.
     @Published var searchState: BrowserSearchState? = nil {
         didSet {
             if let searchState {
+                preferredFocusIntent = .findField
                 NSLog("Find: browser search state created panel=%@", id.uuidString)
                 searchNeedleCancellable = searchState.$needle
                     .removeDuplicates()
@@ -1728,6 +1735,10 @@ final class BrowserPanel: Panel, ObservableObject {
                     }
             } else if oldValue != nil {
                 searchNeedleCancellable = nil
+                if preferredFocusIntent == .findField {
+                    preferredFocusIntent = .webView
+                }
+                invalidateSearchFocusRequests(reason: "searchStateCleared")
                 NSLog("Find: browser search state cleared panel=%@", id.uuidString)
                 executeFindClear()
             }
@@ -1741,7 +1752,18 @@ final class BrowserPanel: Panel, ObservableObject {
         let inWindow: Bool
         let area: CGFloat
     }
+    private struct PortalHostLock {
+        let hostId: ObjectIdentifier
+        let paneId: UUID
+    }
+    private enum DeveloperToolsPresentation {
+        case unknown
+        case attached
+        case detached
+    }
     private var activePortalHostLease: PortalHostLease?
+    private var pendingDistinctPortalHostReplacementPaneId: UUID?
+    private var lockedPortalHost: PortalHostLock?
     private var webViewCancellables = Set<AnyCancellable>()
     private var navigationDelegate: BrowserNavigationDelegate?
     private var uiDelegate: BrowserUIDelegate?
@@ -1765,7 +1787,8 @@ final class BrowserPanel: Panel, ObservableObject {
     private var insecureHTTPAlertFactory: () -> NSAlert
     private var insecureHTTPAlertWindowProvider: () -> NSWindow? = { NSApp.keyWindow ?? NSApp.mainWindow }
     // Persist user intent across WebKit detach/reattach churn (split/layout updates).
-    private var preferredDeveloperToolsVisible: Bool = false
+    @Published private(set) var preferredDeveloperToolsVisible: Bool = false
+    private var preferredDeveloperToolsPresentation: DeveloperToolsPresentation = .unknown
     private var forceDeveloperToolsRefreshOnNextAttach: Bool = false
     private var developerToolsRestoreRetryWorkItem: DispatchWorkItem?
     private var developerToolsRestoreRetryAttempt: Int = 0
@@ -1773,6 +1796,11 @@ final class BrowserPanel: Panel, ObservableObject {
     private let developerToolsRestoreRetryMaxAttempts: Int = 40
     private var remoteProxyEndpoint: BrowserProxyEndpoint?
     @Published private(set) var remoteWorkspaceStatus: BrowserRemoteWorkspaceStatus?
+    private let developerToolsDetachedOpenGracePeriod: TimeInterval = 0.35
+    private var developerToolsDetachedOpenGraceDeadline: Date?
+    private var detachedDeveloperToolsWindowCloseObserver: NSObjectProtocol?
+    private var preferredAttachedDeveloperToolsWidth: CGFloat?
+    private var preferredAttachedDeveloperToolsWidthFraction: CGFloat?
     private var browserThemeMode: BrowserThemeMode
 
     var displayTitle: String {
@@ -1796,6 +1824,22 @@ final class BrowserPanel: Panel, ObservableObject {
         lease.inWindow && lease.area > portalHostAreaThreshold
     }
 
+    func preparePortalHostReplacementForNextDistinctClaim(
+        inPane paneId: PaneID,
+        reason: String
+    ) {
+        pendingDistinctPortalHostReplacementPaneId = paneId.id
+        if lockedPortalHost?.paneId == paneId.id {
+            lockedPortalHost = nil
+        }
+#if DEBUG
+        dlog(
+            "browser.portal.host.rearm panel=\(id.uuidString.prefix(5)) " +
+            "reason=\(reason) pane=\(paneId.id.uuidString.prefix(5))"
+        )
+#endif
+    }
+
     func claimPortalHost(
         hostId: ObjectIdentifier,
         paneId: PaneID,
@@ -1811,6 +1855,11 @@ final class BrowserPanel: Panel, ObservableObject {
         )
 
         if let current = activePortalHostLease {
+            if let lock = lockedPortalHost,
+               (lock.hostId != current.hostId || lock.paneId != current.paneId) {
+                lockedPortalHost = nil
+            }
+
             if current.hostId == hostId {
                 activePortalHostLease = next
                 return true
@@ -1818,12 +1867,47 @@ final class BrowserPanel: Panel, ObservableObject {
 
             let currentUsable = Self.portalHostIsUsable(current)
             let nextUsable = Self.portalHostIsUsable(next)
+            let isSamePaneReplacement = current.paneId == paneId.id
+            let shouldForceDistinctReplacement =
+                isSamePaneReplacement &&
+                pendingDistinctPortalHostReplacementPaneId == paneId.id &&
+                inWindow
+            if shouldForceDistinctReplacement {
+#if DEBUG
+                dlog(
+                    "browser.portal.host.claim panel=\(id.uuidString.prefix(5)) " +
+                    "reason=\(reason) host=\(hostId) pane=\(paneId.id.uuidString.prefix(5)) " +
+                    "inWin=\(inWindow ? 1 : 0) size=\(String(format: "%.1fx%.1f", bounds.width, bounds.height)) " +
+                    "replacingHost=\(current.hostId) replacingPane=\(current.paneId.uuidString.prefix(5)) " +
+                    "replacingInWin=\(current.inWindow ? 1 : 0) replacingArea=\(String(format: "%.1f", current.area)) " +
+                    "forced=1"
+                )
+#endif
+                activePortalHostLease = next
+                pendingDistinctPortalHostReplacementPaneId = nil
+                lockedPortalHost = PortalHostLock(hostId: hostId, paneId: paneId.id)
+                return true
+            }
+
+            let lockBlocksSamePaneReplacement =
+                isSamePaneReplacement &&
+                currentUsable &&
+                lockedPortalHost?.hostId == current.hostId &&
+                lockedPortalHost?.paneId == current.paneId
             let shouldReplace =
                 current.paneId != paneId.id ||
                 !currentUsable ||
-                (nextUsable && next.area > (current.area * Self.portalHostReplacementAreaGainRatio))
+                (
+                    !lockBlocksSamePaneReplacement &&
+                    nextUsable &&
+                    next.area > (current.area * Self.portalHostReplacementAreaGainRatio)
+                )
 
             if shouldReplace {
+                if lockedPortalHost?.hostId == current.hostId &&
+                    lockedPortalHost?.paneId == current.paneId {
+                    lockedPortalHost = nil
+                }
 #if DEBUG
                 dlog(
                     "browser.portal.host.claim panel=\(id.uuidString.prefix(5)) " +
@@ -1843,7 +1927,8 @@ final class BrowserPanel: Panel, ObservableObject {
                 "reason=\(reason) host=\(hostId) pane=\(paneId.id.uuidString.prefix(5)) " +
                 "inWin=\(inWindow ? 1 : 0) size=\(String(format: "%.1fx%.1f", bounds.width, bounds.height)) " +
                 "ownerHost=\(current.hostId) ownerPane=\(current.paneId.uuidString.prefix(5)) " +
-                "ownerInWin=\(current.inWindow ? 1 : 0) ownerArea=\(String(format: "%.1f", current.area))"
+                "ownerInWin=\(current.inWindow ? 1 : 0) ownerArea=\(String(format: "%.1f", current.area)) " +
+                "locked=\(lockBlocksSamePaneReplacement ? 1 : 0)"
             )
 #endif
             return false
@@ -1865,6 +1950,9 @@ final class BrowserPanel: Panel, ObservableObject {
     func releasePortalHostIfOwned(hostId: ObjectIdentifier, reason: String) -> Bool {
         guard let current = activePortalHostLease, current.hostId == hostId else { return false }
         activePortalHostLease = nil
+        if lockedPortalHost?.hostId == hostId {
+            lockedPortalHost = nil
+        }
 #if DEBUG
         dlog(
             "browser.portal.host.release panel=\(id.uuidString.prefix(5)) " +
@@ -2023,6 +2111,7 @@ final class BrowserPanel: Panel, ObservableObject {
         self.uiDelegate = browserUIDelegate
 
         bindWebView(webView)
+        installDetachedDeveloperToolsWindowCloseObserver()
         applyBrowserThemeModeIfNeeded()
         insecureHTTPAlertWindowProvider = { [weak self] in
             self?.webView.window ?? NSApp.keyWindow ?? NSApp.mainWindow
@@ -2298,12 +2387,16 @@ final class BrowserPanel: Panel, ObservableObject {
         }
 
         if Self.responderChainContains(window.firstResponder, target: webView) {
+            noteWebViewFocused()
             return
         }
-        window.makeFirstResponder(webView)
+        if window.makeFirstResponder(webView) {
+            noteWebViewFocused()
+        }
     }
 
     func unfocus() {
+        invalidateSearchFocusRequests(reason: "panelUnfocus")
         guard let window = webView.window else { return }
         if Self.responderChainContains(window.firstResponder, target: webView) {
             window.makeFirstResponder(nil)
@@ -2700,6 +2793,9 @@ final class BrowserPanel: Panel, ObservableObject {
     deinit {
         developerToolsRestoreRetryWorkItem?.cancel()
         developerToolsRestoreRetryWorkItem = nil
+        if let detachedDeveloperToolsWindowCloseObserver {
+            NotificationCenter.default.removeObserver(detachedDeveloperToolsWindowCloseObserver)
+        }
         let webView = webView
         Task { @MainActor in
             BrowserWindowPortalRegistry.detach(webView: webView)
@@ -2847,6 +2943,160 @@ extension BrowserPanel {
         webView.stopLoading()
     }
 
+    private static func windowContainsInspectorViews(_ root: NSView) -> Bool {
+        if String(describing: type(of: root)).contains("WKInspector") {
+            return true
+        }
+        for subview in root.subviews where windowContainsInspectorViews(subview) {
+            return true
+        }
+        return false
+    }
+
+    private static func isDetachedInspectorWindow(_ window: NSWindow) -> Bool {
+        guard window.title.hasPrefix("Web Inspector") else { return false }
+        guard let contentView = window.contentView else { return false }
+        return windowContainsInspectorViews(contentView)
+    }
+
+    private func detachedDeveloperToolsWindows() -> [NSWindow] {
+        let mainWindow = webView.window
+        return NSApp.windows.filter { candidate in
+            if let mainWindow, candidate === mainWindow {
+                return false
+            }
+            return Self.isDetachedInspectorWindow(candidate)
+        }
+    }
+
+    private func hasAttachedDeveloperToolsLayout() -> Bool {
+        guard let container = webView.superview else { return false }
+        return Self.visibleDescendants(in: container)
+            .contains { Self.isVisibleSideDockInspectorCandidate($0) && Self.isInspectorView($0) }
+    }
+
+    private func setPreferredDeveloperToolsPresentation(_ next: DeveloperToolsPresentation) {
+        guard preferredDeveloperToolsPresentation != next else { return }
+        preferredDeveloperToolsPresentation = next
+        DispatchQueue.main.async { [weak self] in
+            self?.objectWillChange.send()
+        }
+    }
+
+    private func syncDeveloperToolsPresentationPreferenceFromUI() {
+        if !detachedDeveloperToolsWindows().isEmpty {
+            setPreferredDeveloperToolsPresentation(.detached)
+        } else if hasAttachedDeveloperToolsLayout() {
+            setPreferredDeveloperToolsPresentation(.attached)
+            developerToolsDetachedOpenGraceDeadline = nil
+        }
+    }
+
+    private func installDetachedDeveloperToolsWindowCloseObserver() {
+        guard detachedDeveloperToolsWindowCloseObserver == nil else { return }
+        detachedDeveloperToolsWindowCloseObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let self,
+                  let window = notification.object as? NSWindow else { return }
+            let isDetachedInspectorWindow = MainActor.assumeIsolated {
+                Self.isDetachedInspectorWindow(window)
+            }
+            guard isDetachedInspectorWindow else { return }
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                guard self.preferredDeveloperToolsPresentation == .detached else { return }
+                guard self.preferredDeveloperToolsVisible else { return }
+                guard !self.isDeveloperToolsVisible() else { return }
+                self.developerToolsDetachedOpenGraceDeadline = nil
+                self.preferredDeveloperToolsVisible = false
+                self.cancelDeveloperToolsRestoreRetry()
+#if DEBUG
+                dlog(
+                    "browser.devtools detachedClose.manual panel=\(self.id.uuidString.prefix(5)) " +
+                    "\(self.debugDeveloperToolsStateSummary()) \(self.debugDeveloperToolsGeometrySummary())"
+                )
+#endif
+            }
+        }
+    }
+
+    private func shouldDismissDetachedDeveloperToolsWindows() -> Bool {
+        preferredDeveloperToolsPresentation == .attached
+    }
+
+    private func dismissDetachedDeveloperToolsWindowsIfNeeded() {
+        guard shouldDismissDetachedDeveloperToolsWindows() else { return }
+        guard preferredDeveloperToolsVisible || isDeveloperToolsVisible(),
+              let mainWindow = webView.window else { return }
+        for window in NSApp.windows where window !== mainWindow && Self.isDetachedInspectorWindow(window) {
+#if DEBUG
+            dlog(
+                "browser.devtools strayWindow.close panel=\(id.uuidString.prefix(5)) " +
+                "title=\(window.title) frame=\(NSStringFromRect(window.frame))"
+            )
+#endif
+            window.close()
+        }
+    }
+
+    private func scheduleDetachedDeveloperToolsWindowDismissal() {
+        guard shouldDismissDetachedDeveloperToolsWindows() else { return }
+        for delay in [0.0, 0.15] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                self?.dismissDetachedDeveloperToolsWindowsIfNeeded()
+            }
+        }
+    }
+
+    private func prepareDeveloperToolsForRevealIfNeeded(_ inspector: NSObject) {
+        guard preferredDeveloperToolsPresentation == .unknown else { return }
+        let attachSelector = NSSelectorFromString("attach")
+        guard inspector.responds(to: attachSelector) else { return }
+        inspector.cmuxCallVoid(selector: attachSelector)
+    }
+
+    @discardableResult
+    private func revealDeveloperTools(_ inspector: NSObject) -> Bool {
+        let isVisibleSelector = NSSelectorFromString("isVisible")
+        if inspector.cmuxCallBool(selector: isVisibleSelector) ?? false {
+            developerToolsDetachedOpenGraceDeadline = nil
+            return true
+        }
+
+        prepareDeveloperToolsForRevealIfNeeded(inspector)
+
+        let showSelector = NSSelectorFromString("show")
+        guard inspector.responds(to: showSelector) else { return false }
+        inspector.cmuxCallVoid(selector: showSelector)
+        let visibleAfterShow = inspector.cmuxCallBool(selector: isVisibleSelector) ?? false
+        if preferredDeveloperToolsPresentation == .detached {
+            developerToolsDetachedOpenGraceDeadline = visibleAfterShow
+                ? nil
+                : Date().addingTimeInterval(developerToolsDetachedOpenGracePeriod)
+        } else {
+            developerToolsDetachedOpenGraceDeadline = nil
+        }
+        return visibleAfterShow
+    }
+
+    @discardableResult
+    private func concealDeveloperTools(_ inspector: NSObject) -> Bool {
+        let isVisibleSelector = NSSelectorFromString("isVisible")
+        guard inspector.cmuxCallBool(selector: isVisibleSelector) ?? false else { return true }
+
+        for rawSelector in ["hide", "close"] {
+            let selector = NSSelectorFromString(rawSelector)
+            guard inspector.responds(to: selector) else { continue }
+            inspector.cmuxCallVoid(selector: selector)
+            return true
+        }
+
+        return false
+    }
+
     @discardableResult
     func toggleDeveloperTools() -> Bool {
 #if DEBUG
@@ -2859,14 +3109,20 @@ extension BrowserPanel {
         let isVisibleSelector = NSSelectorFromString("isVisible")
         let visible = inspector.cmuxCallBool(selector: isVisibleSelector) ?? false
         let targetVisible = !visible
-        let selector = NSSelectorFromString(targetVisible ? "show" : "close")
-        guard inspector.responds(to: selector) else { return false }
-        inspector.cmuxCallVoid(selector: selector)
+        if targetVisible {
+            _ = revealDeveloperTools(inspector)
+        } else {
+            syncDeveloperToolsPresentationPreferenceFromUI()
+            guard concealDeveloperTools(inspector) else { return false }
+            developerToolsDetachedOpenGraceDeadline = nil
+        }
         preferredDeveloperToolsVisible = targetVisible
         if targetVisible {
             let visibleAfterToggle = inspector.cmuxCallBool(selector: isVisibleSelector) ?? false
             if visibleAfterToggle {
+                syncDeveloperToolsPresentationPreferenceFromUI()
                 cancelDeveloperToolsRestoreRetry()
+                scheduleDetachedDeveloperToolsWindowDismissal()
             } else {
                 developerToolsRestoreRetryAttempt = 0
                 scheduleDeveloperToolsRestoreRetry()
@@ -2896,13 +3152,13 @@ extension BrowserPanel {
         guard let inspector = webView.cmuxInspectorObject() else { return false }
         let visible = inspector.cmuxCallBool(selector: NSSelectorFromString("isVisible")) ?? false
         if !visible {
-            let showSelector = NSSelectorFromString("show")
-            guard inspector.responds(to: showSelector) else { return false }
-            inspector.cmuxCallVoid(selector: showSelector)
+            guard revealDeveloperTools(inspector) else { return false }
         }
         preferredDeveloperToolsVisible = true
         if (inspector.cmuxCallBool(selector: NSSelectorFromString("isVisible")) ?? false) {
+            syncDeveloperToolsPresentationPreferenceFromUI()
             cancelDeveloperToolsRestoreRetry()
+            scheduleDetachedDeveloperToolsWindowDismissal()
         } else {
             scheduleDeveloperToolsRestoreRetry()
         }
@@ -2934,6 +3190,8 @@ extension BrowserPanel {
         guard let inspector = webView.cmuxInspectorObject() else { return }
         guard let visible = inspector.cmuxCallBool(selector: NSSelectorFromString("isVisible")) else { return }
         if visible {
+            developerToolsDetachedOpenGraceDeadline = nil
+            syncDeveloperToolsPresentationPreferenceFromUI()
             preferredDeveloperToolsVisible = true
             cancelDeveloperToolsRestoreRetry()
             return
@@ -2962,6 +3220,8 @@ extension BrowserPanel {
 
         let visible = inspector.cmuxCallBool(selector: NSSelectorFromString("isVisible")) ?? false
         if visible {
+            developerToolsDetachedOpenGraceDeadline = nil
+            syncDeveloperToolsPresentationPreferenceFromUI()
             #if DEBUG
             if shouldForceRefresh {
                 dlog("browser.devtools refresh.consumeVisible panel=\(id.uuidString.prefix(5)) \(debugDeveloperToolsStateSummary())")
@@ -2971,26 +3231,37 @@ extension BrowserPanel {
             return
         }
 
-        let selector = NSSelectorFromString("show")
-        guard inspector.responds(to: selector) else {
+        let detachedOpenStillSettling = developerToolsDetachedOpenGraceDeadline.map { $0 > Date() } ?? false
+        if preferredDeveloperToolsPresentation == .detached && !detachedOpenStillSettling {
+            preferredDeveloperToolsVisible = false
+            developerToolsDetachedOpenGraceDeadline = nil
             cancelDeveloperToolsRestoreRetry()
+#if DEBUG
+            dlog(
+                "browser.devtools detachedClose.consume panel=\(id.uuidString.prefix(5)) " +
+                "\(debugDeveloperToolsStateSummary()) \(debugDeveloperToolsGeometrySummary())"
+            )
+#endif
             return
         }
+
         #if DEBUG
         if shouldForceRefresh {
             dlog("browser.devtools refresh.forceShowWhenHidden panel=\(id.uuidString.prefix(5)) \(debugDeveloperToolsStateSummary())")
         }
         #endif
-        // WebKit inspector "show" can trigger transient first-responder churn while
+        // WebKit inspector show can trigger transient first-responder churn while
         // panel attachment is still stabilizing. Keep this auto-restore path from
         // mutating first responder so AppKit doesn't walk tearing-down responder chains.
         cmuxWithWindowFirstResponderBypass {
-            inspector.cmuxCallVoid(selector: selector)
+            _ = revealDeveloperTools(inspector)
         }
         preferredDeveloperToolsVisible = true
         let visibleAfterShow = inspector.cmuxCallBool(selector: NSSelectorFromString("isVisible")) ?? false
         if visibleAfterShow {
+            syncDeveloperToolsPresentationPreferenceFromUI()
             cancelDeveloperToolsRestoreRetry()
+            scheduleDetachedDeveloperToolsWindowDismissal()
         } else {
             scheduleDeveloperToolsRestoreRetry()
         }
@@ -3007,11 +3278,11 @@ extension BrowserPanel {
         guard let inspector = webView.cmuxInspectorObject() else { return false }
         let visible = inspector.cmuxCallBool(selector: NSSelectorFromString("isVisible")) ?? false
         if visible {
-            let selector = NSSelectorFromString("close")
-            guard inspector.responds(to: selector) else { return false }
-            inspector.cmuxCallVoid(selector: selector)
+            syncDeveloperToolsPresentationPreferenceFromUI()
+            guard concealDeveloperTools(inspector) else { return false }
         }
         preferredDeveloperToolsVisible = false
+        developerToolsDetachedOpenGraceDeadline = nil
         forceDeveloperToolsRefreshOnNextAttach = false
         cancelDeveloperToolsRestoreRetry()
         return true
@@ -3034,6 +3305,38 @@ extension BrowserPanel {
 
     func hasPendingDeveloperToolsRefreshAfterAttach() -> Bool {
         forceDeveloperToolsRefreshOnNextAttach
+    }
+
+    func shouldPreserveDeveloperToolsIntentWhileDetached() -> Bool {
+        preferredDeveloperToolsVisible &&
+            (
+                forceDeveloperToolsRefreshOnNextAttach ||
+                developerToolsRestoreRetryWorkItem != nil ||
+                webView.superview == nil ||
+                webView.window == nil
+            )
+    }
+
+    func shouldUseLocalInlineDeveloperToolsHosting() -> Bool {
+        guard preferredDeveloperToolsVisible || isDeveloperToolsVisible() else { return false }
+        if preferredDeveloperToolsPresentation == .detached {
+            return false
+        }
+        return detachedDeveloperToolsWindows().isEmpty
+    }
+
+    func recordPreferredAttachedDeveloperToolsWidth(_ width: CGFloat, containerBounds: NSRect) {
+        let normalizedWidth = max(0, width)
+        preferredAttachedDeveloperToolsWidth = normalizedWidth
+        guard containerBounds.width > 0 else {
+            preferredAttachedDeveloperToolsWidthFraction = nil
+            return
+        }
+        preferredAttachedDeveloperToolsWidthFraction = normalizedWidth / containerBounds.width
+    }
+
+    func preferredAttachedDeveloperToolsWidthState() -> (width: CGFloat?, widthFraction: CGFloat?) {
+        (preferredAttachedDeveloperToolsWidth, preferredAttachedDeveloperToolsWidthFraction)
     }
 
     @discardableResult
@@ -3082,21 +3385,52 @@ extension BrowserPanel {
     // MARK: - Find in Page
 
     func startFind() {
-        if searchState == nil {
+        preferredFocusIntent = .findField
+        let created = searchState == nil
+        if created {
             searchState = BrowserSearchState()
         }
-        postBrowserSearchFocusNotification()
+        let generation = beginSearchFocusRequest(reason: "startFind")
+#if DEBUG
+        let window = webView.window
+        dlog(
+            "browser.find.start panel=\(id.uuidString.prefix(5)) " +
+            "created=\(created ? 1 : 0) render=\(shouldRenderWebView ? 1 : 0) " +
+            "generation=\(generation) " +
+            "window=\(window?.windowNumber ?? -1) key=\(NSApp.keyWindow === window ? 1 : 0) " +
+            "firstResponder=\(String(describing: window?.firstResponder))"
+        )
+#endif
+        postBrowserSearchFocusNotification(reason: "immediate", generation: generation)
         // Focus notification can race with portal overlay mount. Re-post on the
         // next runloop and shortly after so the find field can claim first responder.
         DispatchQueue.main.async { [weak self] in
-            self?.postBrowserSearchFocusNotification()
+            self?.postBrowserSearchFocusNotification(reason: "async0", generation: generation)
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
-            self?.postBrowserSearchFocusNotification()
+            self?.postBrowserSearchFocusNotification(reason: "async50ms", generation: generation)
         }
     }
 
-    private func postBrowserSearchFocusNotification() {
+    private func postBrowserSearchFocusNotification(reason: String, generation: UInt64) {
+        guard canApplySearchFocusRequest(generation) else {
+#if DEBUG
+            dlog(
+                "browser.find.focusNotification.skip panel=\(id.uuidString.prefix(5)) " +
+                "reason=\(reason) generation=\(generation)"
+            )
+#endif
+            return
+        }
+#if DEBUG
+        let window = webView.window
+        dlog(
+            "browser.find.focusNotification panel=\(id.uuidString.prefix(5)) " +
+            "generation=\(generation) " +
+            "reason=\(reason) window=\(window?.windowNumber ?? -1) " +
+            "firstResponder=\(String(describing: window?.firstResponder))"
+        )
+#endif
         NotificationCenter.default.post(name: .browserSearchFocus, object: id)
     }
 
@@ -3117,6 +3451,7 @@ extension BrowserPanel {
     }
 
     func hideFind() {
+        invalidateSearchFocusRequests(reason: "hideFind")
         searchState = nil
     }
 
@@ -3127,7 +3462,10 @@ extension BrowserPanel {
         if replaySearch, !state.needle.isEmpty {
             executeFindSearch(state.needle)
         }
-        postBrowserSearchFocusNotification()
+        postBrowserSearchFocusNotification(
+            reason: "restoreAfterNavigation",
+            generation: searchFocusRequestGeneration
+        )
     }
 
     private func executeFindSearch(_ needle: String) {
@@ -3254,6 +3592,8 @@ extension BrowserPanel {
 
     @discardableResult
     func requestAddressBarFocus() -> UUID {
+        preferredFocusIntent = .addressBar
+        invalidateSearchFocusRequests(reason: "requestAddressBarFocus")
         beginSuppressWebViewFocusForAddressBar()
         if let pendingAddressBarFocusRequestId {
 #if DEBUG
@@ -3273,6 +3613,173 @@ extension BrowserPanel {
         )
 #endif
         return requestId
+    }
+
+    func noteWebViewFocused() {
+        guard searchState == nil else { return }
+        guard preferredFocusIntent != .webView else { return }
+        preferredFocusIntent = .webView
+        invalidateSearchFocusRequests(reason: "webViewFocused")
+    }
+
+    func noteAddressBarFocused() {
+        guard preferredFocusIntent != .addressBar else { return }
+        preferredFocusIntent = .addressBar
+        invalidateSearchFocusRequests(reason: "addressBarFocused")
+    }
+
+    func noteFindFieldFocused() {
+        guard preferredFocusIntent != .findField else { return }
+        preferredFocusIntent = .findField
+    }
+
+    func canApplySearchFocusRequest(_ generation: UInt64) -> Bool {
+        generation != 0 &&
+            generation == searchFocusRequestGeneration &&
+            searchState != nil &&
+            preferredFocusIntent == .findField
+    }
+
+    func captureFocusIntent(in window: NSWindow?) -> PanelFocusIntent {
+        if pendingAddressBarFocusRequestId != nil || AppDelegate.shared?.focusedBrowserAddressBarPanelId() == id {
+            return .browser(.addressBar)
+        }
+
+        if searchState != nil && preferredFocusIntent == .findField {
+            return .browser(.findField)
+        }
+
+        if let window,
+           Self.responderChainContains(window.firstResponder, target: webView) {
+            return .browser(.webView)
+        }
+
+        return .browser(preferredFocusIntent)
+    }
+
+    func preferredFocusIntentForActivation() -> PanelFocusIntent {
+        if pendingAddressBarFocusRequestId != nil {
+            return .browser(.addressBar)
+        }
+        if searchState != nil && preferredFocusIntent == .findField {
+            return .browser(.findField)
+        }
+        return .browser(preferredFocusIntent)
+    }
+
+    func prepareFocusIntentForActivation(_ intent: PanelFocusIntent) {
+        guard case .browser(let target) = intent else { return }
+
+        switch target {
+        case .webView:
+            preferredFocusIntent = .webView
+            invalidateSearchFocusRequests(reason: "prepareWebView")
+            endSuppressWebViewFocusForAddressBar()
+        case .addressBar:
+            preferredFocusIntent = .addressBar
+            invalidateSearchFocusRequests(reason: "prepareAddressBar")
+            beginSuppressWebViewFocusForAddressBar()
+        case .findField:
+            preferredFocusIntent = .findField
+        }
+#if DEBUG
+        dlog(
+            "browser.focus.prepare panel=\(id.uuidString.prefix(5)) " +
+            "target=\(String(describing: target)) suppressWeb=\(shouldSuppressWebViewFocus() ? 1 : 0)"
+        )
+#endif
+    }
+
+    @discardableResult
+    func restoreFocusIntent(_ intent: PanelFocusIntent) -> Bool {
+        guard case .browser(let target) = intent else { return false }
+
+        switch target {
+        case .webView:
+            noteWebViewFocused()
+            focus()
+            return true
+        case .addressBar:
+            let requestId = requestAddressBarFocus()
+            NotificationCenter.default.post(name: .browserFocusAddressBar, object: id)
+#if DEBUG
+            dlog(
+                "browser.focus.restore panel=\(id.uuidString.prefix(5)) " +
+                "target=addressBar request=\(requestId.uuidString.prefix(8))"
+            )
+#endif
+            return true
+        case .findField:
+            startFind()
+            return true
+        }
+    }
+
+    func ownedFocusIntent(for responder: NSResponder, in window: NSWindow) -> PanelFocusIntent? {
+        if AppDelegate.shared?.focusedBrowserAddressBarPanelId() == id {
+            return .browser(.addressBar)
+        }
+
+        if BrowserWindowPortalRegistry.searchOverlayPanelId(for: responder, in: window) == id {
+            return .browser(.findField)
+        }
+
+        if Self.responderChainContains(responder, target: webView) {
+            return .browser(.webView)
+        }
+
+        return nil
+    }
+
+    @discardableResult
+    func yieldFocusIntent(_ intent: PanelFocusIntent, in window: NSWindow) -> Bool {
+        guard case .browser(let target) = intent else { return false }
+
+        switch target {
+        case .findField:
+            invalidateSearchFocusRequests(reason: "yieldFindField")
+            let yielded = BrowserWindowPortalRegistry.yieldSearchOverlayFocusIfOwned(by: id, in: window)
+#if DEBUG
+            if yielded {
+                dlog("focus.handoff.yield panel=\(id.uuidString.prefix(5)) target=browserFind")
+            }
+#endif
+            return yielded
+        case .addressBar:
+            guard AppDelegate.shared?.focusedBrowserAddressBarPanelId() == id else { return false }
+            let yielded = window.makeFirstResponder(nil)
+#if DEBUG
+            if yielded {
+                dlog("focus.handoff.yield panel=\(id.uuidString.prefix(5)) target=addressBar")
+            }
+#endif
+            return yielded
+        case .webView:
+            guard Self.responderChainContains(window.firstResponder, target: webView) else { return false }
+            return window.makeFirstResponder(nil)
+        }
+    }
+
+    @discardableResult
+    private func beginSearchFocusRequest(reason: String) -> UInt64 {
+        searchFocusRequestGeneration &+= 1
+#if DEBUG
+        dlog(
+            "browser.find.focusLease.begin panel=\(id.uuidString.prefix(5)) " +
+            "generation=\(searchFocusRequestGeneration) reason=\(reason)"
+        )
+#endif
+        return searchFocusRequestGeneration
+    }
+
+    private func invalidateSearchFocusRequests(reason: String) {
+        searchFocusRequestGeneration &+= 1
+#if DEBUG
+        dlog(
+            "browser.find.focusLease.invalidate panel=\(id.uuidString.prefix(5)) " +
+            "generation=\(searchFocusRequestGeneration) reason=\(reason)"
+        )
+#endif
     }
 
     func acknowledgeAddressBarFocusRequest(_ requestId: UUID) {
@@ -3767,7 +4274,7 @@ private extension BrowserPanel {
     }
 }
 
-private extension WKWebView {
+extension WKWebView {
     func cmuxInspectorObject() -> NSObject? {
         let selector = NSSelectorFromString("_inspector")
         guard responds(to: selector),
@@ -3775,6 +4282,16 @@ private extension WKWebView {
             return nil
         }
         return inspector
+    }
+
+    func cmuxInspectorFrontendWebView() -> WKWebView? {
+        guard let inspector = cmuxInspectorObject() else { return nil }
+        let selector = NSSelectorFromString("inspectorWebView")
+        guard inspector.responds(to: selector),
+              let inspectorWebView = inspector.perform(selector)?.takeUnretainedValue() as? WKWebView else {
+            return nil
+        }
+        return inspectorWebView
     }
 }
 

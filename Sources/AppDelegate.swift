@@ -307,6 +307,9 @@ final class VSCodeServeWebController {
     private var isLaunching = false
     private var activeLaunchGeneration: UInt64?
     private var lifecycleGeneration: UInt64 = 0
+#if DEBUG
+    private var testingTrackedProcesses: [Process] = []
+#endif
 
     private init(launchProcessOverride: ((URL, UInt64) -> (process: Process, url: URL)?)? = nil) {
         self.launchProcessOverride = launchProcessOverride
@@ -317,6 +320,26 @@ final class VSCodeServeWebController {
         launchProcessOverride: @escaping (URL, UInt64) -> (process: Process, url: URL)?
     ) -> VSCodeServeWebController {
         VSCodeServeWebController(launchProcessOverride: launchProcessOverride)
+    }
+
+    func trackConnectionTokenFileForTesting(
+        _ connectionTokenFileURL: URL,
+        setAsLaunchingProcess: Bool = false,
+        setAsServeWebProcess: Bool = false
+    ) {
+        let process = Process()
+        queue.sync {
+            if setAsLaunchingProcess {
+                self.launchingProcess = process
+            }
+            if setAsServeWebProcess {
+                self.serveWebProcess = process
+            }
+            if !setAsLaunchingProcess && !setAsServeWebProcess {
+                self.testingTrackedProcesses.append(process)
+            }
+            self.connectionTokenFilesByProcessID[ObjectIdentifier(process)] = connectionTokenFileURL
+        }
     }
 #endif
 
@@ -420,6 +443,9 @@ final class VSCodeServeWebController {
             }
             self.serveWebProcess = nil
             self.launchingProcess = nil
+#if DEBUG
+            self.testingTrackedProcesses.removeAll()
+#endif
             var tokenFileURLs = processes.compactMap {
                 self.connectionTokenFilesByProcessID.removeValue(forKey: ObjectIdentifier($0))
             }
@@ -1488,6 +1514,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         func windowWillClose(_ notification: Notification) {
             onClose?()
         }
+    }
+
+    struct ScriptableMainWindowState {
+        let windowId: UUID
+        let tabManager: TabManager
+        let window: NSWindow?
     }
 
     struct SessionDisplayGeometry {
@@ -3414,6 +3446,95 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         windowForMainWindowId(windowId)
     }
 
+    func mainWindowContainingWorkspace(_ workspaceId: UUID) -> NSWindow? {
+        for context in mainWindowContexts.values where context.tabManager.tabs.contains(where: { $0.id == workspaceId }) {
+            if let window = context.window ?? windowForMainWindowId(context.windowId) {
+                return window
+            }
+        }
+        return nil
+    }
+
+    func scriptableMainWindows() -> [ScriptableMainWindowState] {
+        var results: [ScriptableMainWindowState] = []
+        var seen: Set<UUID> = []
+
+        for window in NSApp.orderedWindows {
+            guard let context = contextForMainTerminalWindow(window, reindex: false) else { continue }
+            guard seen.insert(context.windowId).inserted else { continue }
+            results.append(
+                ScriptableMainWindowState(
+                    windowId: context.windowId,
+                    tabManager: context.tabManager,
+                    window: context.window ?? windowForMainWindowId(context.windowId)
+                )
+            )
+        }
+
+        let remaining = mainWindowContexts.values
+            .sorted { $0.windowId.uuidString < $1.windowId.uuidString }
+            .filter { seen.insert($0.windowId).inserted }
+
+        for context in remaining {
+            results.append(
+                ScriptableMainWindowState(
+                    windowId: context.windowId,
+                    tabManager: context.tabManager,
+                    window: context.window ?? windowForMainWindowId(context.windowId)
+                )
+            )
+        }
+
+        return results
+    }
+
+    func scriptableMainWindow(windowId: UUID) -> ScriptableMainWindowState? {
+        guard let context = mainWindowContexts.values.first(where: { $0.windowId == windowId }) else {
+            return nil
+        }
+        return ScriptableMainWindowState(
+            windowId: context.windowId,
+            tabManager: context.tabManager,
+            window: context.window ?? windowForMainWindowId(context.windowId)
+        )
+    }
+
+    func scriptableMainWindowForTab(_ tabId: UUID) -> ScriptableMainWindowState? {
+        guard let context = contextContainingTabId(tabId) else { return nil }
+        return ScriptableMainWindowState(
+            windowId: context.windowId,
+            tabManager: context.tabManager,
+            window: context.window ?? windowForMainWindowId(context.windowId)
+        )
+    }
+
+    @discardableResult
+    func focusScriptableMainWindow(windowId: UUID, bringToFront shouldBringToFront: Bool) -> Bool {
+        guard let state = scriptableMainWindow(windowId: windowId),
+              let window = state.window else {
+            return false
+        }
+        setActiveMainWindow(window)
+        if shouldBringToFront {
+            bringToFront(window)
+        }
+        return true
+    }
+
+    @discardableResult
+    func addWorkspace(windowId: UUID, workingDirectory: String? = nil, bringToFront shouldBringToFront: Bool = false) -> UUID? {
+        guard let state = scriptableMainWindow(windowId: windowId) else { return nil }
+        if shouldBringToFront, let window = state.window {
+            setActiveMainWindow(window)
+            bringToFront(window)
+        }
+        let workspace = state.tabManager.addWorkspace(
+            workingDirectory: workingDirectory,
+            select: shouldBringToFront
+        )
+        return workspace.id
+    }
+
     private func markCommandPaletteOpenRequested(for window: NSWindow?) {
         guard let window,
               let windowId = mainWindowId(for: window) else { return }
@@ -4785,6 +4906,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         updateController.checkForUpdates()
     }
 
+    func openWelcomeWorkspace() {
+        guard let context = preferredMainWindowContextForWorkspaceCreation(event: nil, debugSource: "welcome") else {
+            return
+        }
+        if let window = context.window ?? windowForMainWindowId(context.windowId) {
+            setActiveMainWindow(window)
+            bringToFront(window)
+        }
+        let workspace = context.tabManager.addWorkspace(select: true, autoWelcomeIfNeeded: false)
+        sendWelcomeCommandWhenReady(to: workspace)
+    }
+
+    func sendWelcomeCommandWhenReady(to workspace: Workspace, markShownOnSend: Bool = false) {
+        sendTextWhenReady("cmux welcome\n", to: workspace) {
+            if markShownOnSend {
+                UserDefaults.standard.set(true, forKey: WelcomeSettings.shownKey)
+            }
+        }
+    }
+
     @objc func applyUpdateIfAvailable(_ sender: Any?) {
         updateViewModel.overrideState = nil
         updateController.installUpdate()
@@ -4914,7 +5055,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             SettingsWindowController.shared.show(navigationTarget: target)
         },
         activateApplication: @MainActor () -> Void = {
-            NSApp.activate(ignoringOtherApps: true)
+            NSRunningApplication.current.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
         }
     ) {
 #if DEBUG
@@ -4922,6 +5063,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
         showFallbackSettingsWindow(navigationTarget)
         activateApplication()
+        if let window = SettingsWindowController.shared.window {
+            window.orderFrontRegardless()
+            window.makeKeyAndOrderFront(nil)
+            DispatchQueue.main.async {
+                window.orderFrontRegardless()
+                window.makeKeyAndOrderFront(nil)
+            }
+        }
 #if DEBUG
         dlog("settings.open.present activate=1")
 #endif
@@ -5017,6 +5166,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         pasteboard.setString(payload, forType: .string)
+    }
+
+    private func sendTextWhenReady(_ text: String, to tab: Tab, attempt: Int = 0, beforeSend: (() -> Void)? = nil) {
+        let maxAttempts = 60
+        if let terminalPanel = tab.focusedTerminalPanel, terminalPanel.surface.surface != nil {
+            beforeSend?()
+            terminalPanel.sendText(text)
+            return
+        }
+        guard attempt < maxAttempts else {
+            NSLog("Command send: surface not ready after \(maxAttempts) attempts")
+            return
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+            self?.sendTextWhenReady(text, to: tab, attempt: attempt + 1, beforeSend: beforeSend)
+        }
     }
 
 #if DEBUG
@@ -5350,21 +5515,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             "terminals=\(snapshot.terminalPanelCount) surfacesReady=\(snapshot.loadedSurfaceCount) " +
             "selected=\(snapshot.selectedWorkspace)"
         )
-    }
-
-    private func sendTextWhenReady(_ text: String, to tab: Tab, attempt: Int = 0) {
-        let maxAttempts = 60
-        if let terminalPanel = tab.focusedTerminalPanel, terminalPanel.surface.surface != nil {
-            terminalPanel.sendText(text)
-            return
-        }
-        guard attempt < maxAttempts else {
-            NSLog("Debug scrollback: surface not ready after \(maxAttempts) attempts")
-            return
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
-            self?.sendTextWhenReady(text, to: tab, attempt: attempt + 1)
-        }
     }
 
     @objc func triggerSentryTestCrash(_ sender: Any?) {
@@ -6127,6 +6277,80 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         updates["lastSplitDirection"] = directionValue
         updates["paneCountAfterSplit"] = String(workspace.bonsplitController.allPaneIds.count)
         writeGotoSplitTestData(updates)
+    }
+
+    private func recordGotoSplitZoomIfNeeded() {
+        guard isGotoSplitUITestRecordingEnabled() else { return }
+        recordGotoSplitZoomRetry(attempt: 0)
+    }
+
+    private func recordGotoSplitZoomRetry(attempt: Int) {
+        let delays: [Double] = [0.05, 0.1, 0.2, 0.35, 0.5]
+        let delay = attempt < delays.count ? delays[attempt] : delays.last!
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            guard let self,
+                  let workspace = self.tabManager?.selectedWorkspace else { return }
+
+            let browserPanel = workspace.panels.values.compactMap { $0 as? BrowserPanel }.first
+            let otherTerminal = workspace.panels.values.compactMap { $0 as? TerminalPanel }.first
+            let browserSnapshot = browserPanel.flatMap {
+                BrowserWindowPortalRegistry.debugSnapshot(for: $0.webView)
+            }
+
+            var updates = self.gotoSplitFindStateSnapshot(for: workspace)
+            updates["splitZoomedAfterToggle"] = workspace.bonsplitController.isSplitZoomed ? "true" : "false"
+            updates["zoomedPaneIdAfterToggle"] = workspace.bonsplitController.zoomedPaneId?.description ?? ""
+            updates["browserPanelIdAfterToggle"] = browserPanel?.id.uuidString ?? ""
+            updates["browserContainerHiddenAfterToggle"] = browserSnapshot.map { $0.containerHidden ? "true" : "false" } ?? ""
+            updates["browserVisibleFlagAfterToggle"] = browserSnapshot.map { $0.visibleInUI ? "true" : "false" } ?? ""
+            updates["browserFrameAfterToggle"] = browserSnapshot.map {
+                String(
+                    format: "%.1f,%.1f %.1fx%.1f",
+                    $0.frameInWindow.origin.x,
+                    $0.frameInWindow.origin.y,
+                    $0.frameInWindow.size.width,
+                    $0.frameInWindow.size.height
+                )
+            } ?? ""
+            updates["otherTerminalPanelIdAfterToggle"] = otherTerminal?.id.uuidString ?? ""
+            updates["otherTerminalHostHiddenAfterToggle"] = otherTerminal.map { $0.hostedView.isHidden ? "true" : "false" } ?? ""
+            updates["otherTerminalVisibleFlagAfterToggle"] = otherTerminal.map { $0.hostedView.debugPortalVisibleInUI ? "true" : "false" } ?? ""
+            updates["otherTerminalFrameAfterToggle"] = otherTerminal.map {
+                let frame = $0.hostedView.debugPortalFrameInWindow
+                return String(
+                    format: "%.1f,%.1f %.1fx%.1f",
+                    frame.origin.x,
+                    frame.origin.y,
+                    frame.size.width,
+                    frame.size.height
+                )
+            } ?? ""
+
+            let settled: Bool = {
+                if workspace.bonsplitController.isSplitZoomed {
+                    if let focusedPanelId = workspace.focusedPanelId,
+                       workspace.terminalPanel(for: focusedPanelId) != nil {
+                        guard let browserSnapshot else { return false }
+                        return browserSnapshot.containerHidden && !browserSnapshot.visibleInUI
+                    }
+                    guard let otherTerminal else { return true }
+                    return otherTerminal.hostedView.isHidden && !otherTerminal.hostedView.debugPortalVisibleInUI
+                }
+                let browserRestored = browserSnapshot.map { !$0.containerHidden && $0.visibleInUI } ?? true
+                let terminalRestored = otherTerminal.map {
+                    !$0.hostedView.isHidden && $0.hostedView.debugPortalVisibleInUI
+                } ?? true
+                return browserRestored && terminalRestored
+            }()
+
+            if !settled && attempt < delays.count - 1 {
+                self.recordGotoSplitZoomRetry(attempt: attempt + 1)
+                return
+            }
+
+            self.writeGotoSplitTestData(updates)
+        }
     }
 
     private func writeGotoSplitTestData(_ updates: [String: String]) {
@@ -7432,6 +7656,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .toggleSplitZoom)) {
             _ = tabManager?.toggleFocusedSplitZoom()
+#if DEBUG
+            recordGotoSplitZoomIfNeeded()
+#endif
             return true
         }
 
@@ -10138,7 +10365,14 @@ private extension NSWindow {
             }
             if String(describing: type(of: candidate)).contains("WindowBrowserSlotView"),
                let portalWebView = cmuxUniqueBrowserWebView(in: candidate) {
-                return portalWebView
+                // Portal-hosted browser chrome (for example the Cmd+F overlay) is a
+                // sibling of the hosted WKWebView inside WindowBrowserSlotView, not a
+                // descendant of it. Treating every view in that slot as "web-owned"
+                // blocks legitimate first-responder changes to overlay text fields.
+                if view === portalWebView || view.isDescendant(of: portalWebView) {
+                    return portalWebView
+                }
+                return nil
             }
             current = candidate.superview
         }

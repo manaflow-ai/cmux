@@ -82,6 +82,40 @@ func sidebarSelectedWorkspaceForegroundNSColor(opacity: CGFloat) -> NSColor {
     let clampedOpacity = max(0, min(opacity, 1))
     return NSColor.white.withAlphaComponent(clampedOpacity)
 }
+
+#if compiler(>=6.2)
+@available(macOS 26.0, *)
+enum InternalTabDragConfigurationProvider {
+    // These drags only make sense inside cmux. Outside the app, Finder should
+    // reject them instead of materializing placeholder files from the payload.
+    static let value = DragConfiguration(
+        operationsWithinApp: .init(allowCopy: false, allowMove: true, allowDelete: false),
+        operationsOutsideApp: .init(allowCopy: false, allowMove: false, allowDelete: false)
+    )
+}
+#endif
+
+private struct InternalTabDragConfigurationModifier: ViewModifier {
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        #if compiler(>=6.2)
+        if #available(macOS 26.0, *) {
+            content.dragConfiguration(InternalTabDragConfigurationProvider.value)
+        } else {
+            content
+        }
+        #else
+        content
+        #endif
+    }
+}
+
+extension View {
+    func internalOnlyTabDrag() -> some View {
+        modifier(InternalTabDragConfigurationModifier())
+    }
+}
+
 struct ShortcutHintPillBackground: View {
     var emphasis: Double = 1.0
 
@@ -1398,15 +1432,10 @@ struct ContentView: View {
         }
     }
 
-    private enum CommandPaletteRestoreFocusIntent {
-        case panel
-        case browserAddressBar
-    }
-
     private struct CommandPaletteRestoreFocusTarget {
         let workspaceId: UUID
         let panelId: UUID
-        let intent: CommandPaletteRestoreFocusIntent
+        let intent: PanelFocusIntent
     }
 
     private enum CommandPaletteInputFocusTarget {
@@ -5337,7 +5366,7 @@ struct ContentView: View {
     static func shouldRestoreBrowserAddressBarAfterCommandPaletteDismiss(
         focusedPanelIsBrowser: Bool,
         focusedBrowserAddressBarPanelId: UUID?,
-        focusedPanelId: UUID
+        focusedPanelId: UUID?
     ) -> Bool {
         focusedPanelIsBrowser && focusedBrowserAddressBarPanelId == focusedPanelId
     }
@@ -5383,15 +5412,10 @@ struct ContentView: View {
 
     private func presentCommandPalette(initialQuery: String) {
         if let panelContext = focusedPanelContext {
-            let shouldRestoreBrowserAddressBar = Self.shouldRestoreBrowserAddressBarAfterCommandPaletteDismiss(
-                focusedPanelIsBrowser: panelContext.panel.panelType == .browser,
-                focusedBrowserAddressBarPanelId: AppDelegate.shared?.focusedBrowserAddressBarPanelId(),
-                focusedPanelId: panelContext.panelId
-            )
             commandPaletteRestoreFocusTarget = CommandPaletteRestoreFocusTarget(
                 workspaceId: panelContext.workspace.id,
                 panelId: panelContext.panelId,
-                intent: shouldRestoreBrowserAddressBar ? .browserAddressBar : .panel
+                intent: panelContext.panel.captureFocusIntent(in: observedWindow)
             )
         } else {
             commandPaletteRestoreFocusTarget = nil
@@ -5468,7 +5492,7 @@ struct ContentView: View {
         if let clickedFocusTarget {
             dlog(
                 "palette.dismiss.backdrop focusTarget panel=\(clickedFocusTarget.panelId.uuidString.prefix(5)) " +
-                "workspace=\(clickedFocusTarget.workspaceId.uuidString.prefix(5)) intent=\(clickedFocusTarget.intent == .browserAddressBar ? "addressBar" : "panel")"
+                "workspace=\(clickedFocusTarget.workspaceId.uuidString.prefix(5)) intent=\(debugCommandPaletteFocusIntent(clickedFocusTarget.intent))"
             )
         } else {
             dlog("palette.dismiss.backdrop focusTarget=nil")
@@ -5507,10 +5531,11 @@ struct ContentView: View {
            let workspaceId = terminalView.tabId,
            let panelId = terminalView.terminalSurface?.id,
            tabManager.tabs.contains(where: { $0.id == workspaceId }) {
-            return CommandPaletteRestoreFocusTarget(
+            return commandPaletteRestoreFocusTarget(
                 workspaceId: workspaceId,
                 panelId: panelId,
-                intent: .panel
+                fallbackIntent: .terminal(.surface),
+                in: window
             )
         }
 
@@ -5522,10 +5547,11 @@ struct ContentView: View {
            let workspaceId = terminalView.tabId,
            let panelId = terminalView.terminalSurface?.id,
            tabManager.tabs.contains(where: { $0.id == workspaceId }) {
-            return CommandPaletteRestoreFocusTarget(
+            return commandPaletteRestoreFocusTarget(
                 workspaceId: workspaceId,
                 panelId: panelId,
-                intent: .panel
+                fallbackIntent: .terminal(.surface),
+                in: observedWindow
             )
         }
 
@@ -5563,14 +5589,33 @@ struct ContentView: View {
                 continue
             }
 
-            return CommandPaletteRestoreFocusTarget(
+            return commandPaletteRestoreFocusTarget(
                 workspaceId: workspace.id,
                 panelId: panelId,
-                intent: .panel
+                fallbackIntent: .browser(.webView),
+                in: observedWindow
             )
         }
 
         return nil
+    }
+
+    private func commandPaletteRestoreFocusTarget(
+        workspaceId: UUID,
+        panelId: UUID,
+        fallbackIntent: PanelFocusIntent,
+        in window: NSWindow?
+    ) -> CommandPaletteRestoreFocusTarget {
+        let intent = tabManager.tabs
+            .first(where: { $0.id == workspaceId })?
+            .panels[panelId]?
+            .captureFocusIntent(in: window) ?? fallbackIntent
+
+        return CommandPaletteRestoreFocusTarget(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            intent: intent
+        )
     }
 
     private func restoreCommandPaletteFocus(
@@ -5588,8 +5633,9 @@ struct ContentView: View {
         if let context = focusedPanelContext,
            context.workspace.id == target.workspaceId,
            context.panelId == target.panelId {
-            restoreCommandPaletteInputFocusIfNeeded(target: target, attemptsRemaining: 6)
-            return
+            if context.panel.restoreFocusIntent(target.intent) {
+                return
+            }
         }
 
         guard attemptsRemaining > 0 else { return }
@@ -5598,33 +5644,32 @@ struct ContentView: View {
             if let context = focusedPanelContext,
                context.workspace.id == target.workspaceId,
                context.panelId == target.panelId {
-                restoreCommandPaletteInputFocusIfNeeded(target: target, attemptsRemaining: 6)
-                return
+                if context.panel.restoreFocusIntent(target.intent) {
+                    return
+                }
             }
             restoreCommandPaletteFocus(target: target, attemptsRemaining: attemptsRemaining - 1)
         }
     }
 
-    private func restoreCommandPaletteInputFocusIfNeeded(
-        target: CommandPaletteRestoreFocusTarget,
-        attemptsRemaining: Int
-    ) {
-        guard !isCommandPalettePresented else { return }
-        guard target.intent == .browserAddressBar else { return }
-        guard attemptsRemaining > 0 else { return }
-        guard let appDelegate = AppDelegate.shared else { return }
-
-        if appDelegate.requestBrowserAddressBarFocus(panelId: target.panelId) {
-            return
-        }
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) {
-            restoreCommandPaletteInputFocusIfNeeded(
-                target: target,
-                attemptsRemaining: attemptsRemaining - 1
-            )
+#if DEBUG
+    private func debugCommandPaletteFocusIntent(_ intent: PanelFocusIntent) -> String {
+        switch intent {
+        case .panel:
+            return "panel"
+        case .terminal(.surface):
+            return "terminal.surface"
+        case .terminal(.findField):
+            return "terminal.findField"
+        case .browser(.webView):
+            return "browser.webView"
+        case .browser(.addressBar):
+            return "browser.addressBar"
+        case .browser(.findField):
+            return "browser.findField"
         }
     }
+#endif
 
     private func resetCommandPaletteSearchFocus() {
         applyCommandPaletteInputFocusPolicy(.search)
@@ -8079,6 +8124,7 @@ private enum SidebarHelpMenuAction {
     case githubIssues
     case checkForUpdates
     case sendFeedback
+    case welcome
 }
 
 private struct SidebarFeedbackComposerSheet: View {
@@ -8455,6 +8501,122 @@ private struct SidebarFeedbackComposerSheet: View {
     }
 }
 
+enum FeedbackComposerBridgeError: LocalizedError {
+    case invalidEmail
+    case emptyMessage
+    case messageTooLong
+    case tooManyImages
+    case invalidImagePath(String)
+    case submissionFailed(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidEmail:
+            return "Enter a valid email address."
+        case .emptyMessage:
+            return "Enter a message before sending."
+        case .messageTooLong:
+            return "Your message is too long."
+        case .tooManyImages:
+            return "You can attach up to 10 images."
+        case .invalidImagePath(let path):
+            return "Could not attach image: \(path)"
+        case .submissionFailed(let message):
+            return message
+        }
+    }
+}
+
+enum FeedbackComposerBridge {
+    static func openComposer(in window: NSWindow? = NSApp.keyWindow ?? NSApp.mainWindow) {
+        NotificationCenter.default.post(name: .feedbackComposerRequested, object: window)
+    }
+
+    static func submit(
+        email: String,
+        message: String,
+        imagePaths: [String]
+    ) async throws -> Int {
+        let trimmedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedMessage = message.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard isValidEmail(trimmedEmail) else {
+            throw FeedbackComposerBridgeError.invalidEmail
+        }
+        guard normalizedMessage.isEmpty == false else {
+            throw FeedbackComposerBridgeError.emptyMessage
+        }
+        guard message.count <= FeedbackComposerSettings.maxMessageLength else {
+            throw FeedbackComposerBridgeError.messageTooLong
+        }
+        guard imagePaths.count <= FeedbackComposerSettings.maxAttachmentCount else {
+            throw FeedbackComposerBridgeError.tooManyImages
+        }
+
+        let attachments = try imagePaths.map { rawPath in
+            let resolvedURL = URL(fileURLWithPath: rawPath).standardizedFileURL
+            do {
+                return try FeedbackComposerAttachment(url: resolvedURL)
+            } catch {
+                throw FeedbackComposerBridgeError.invalidImagePath(resolvedURL.path)
+            }
+        }
+
+        do {
+            try await FeedbackComposerClient.submit(
+                email: trimmedEmail,
+                message: normalizedMessage,
+                attachments: attachments
+            )
+        } catch {
+            throw FeedbackComposerBridgeError.submissionFailed(userFacingMessage(for: error))
+        }
+
+        UserDefaults.standard.set(trimmedEmail, forKey: FeedbackComposerSettings.storedEmailKey)
+        return attachments.count
+    }
+
+    private static func isValidEmail(_ rawValue: String) -> Bool {
+        let email = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard email.isEmpty == false else { return false }
+        let pattern = #"^[A-Z0-9a-z._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$"#
+        return NSPredicate(format: "SELF MATCHES %@", pattern).evaluate(with: email)
+    }
+
+    private static func userFacingMessage(for error: Error) -> String {
+        guard let submissionError = error as? FeedbackComposerSubmissionError else {
+            return "Couldn't send feedback. Please try again."
+        }
+
+        switch submissionError {
+        case .invalidEndpoint:
+            return "Feedback is unavailable right now. Email founders@manaflow.com instead."
+        case .invalidResponse:
+            return "Couldn't send feedback. Please try again."
+        case .attachmentReadFailed:
+            return "One of the selected files could not be attached."
+        case .attachmentPreparationFailed:
+            return "These images are too large to send together. Remove a few and try again."
+        case .transport(let transportError):
+            if transportError.code == .notConnectedToInternet || transportError.code == .networkConnectionLost {
+                return "Couldn't send feedback. Check your connection and try again."
+            }
+            return "Couldn't send feedback. Please try again."
+        case .rejected(let statusCode):
+            switch statusCode {
+            case 400, 413, 415:
+                return "Check your message and attachments, then try again."
+            case 429:
+                return "Too many feedback attempts. Please try again later."
+            case 500...599:
+                return "Feedback is unavailable right now. Email founders@manaflow.com instead."
+            default:
+                return "Couldn't send feedback. Please try again."
+            }
+        }
+    }
+}
+
 private struct SidebarHelpMenuButton: View {
     private let docsURL = URL(string: "https://cmux.dev/docs")
     private let changelogURL = URL(string: "https://cmux.dev/docs/changelog")
@@ -8503,6 +8665,12 @@ private struct SidebarHelpMenuButton: View {
 
     private var helpPopover: some View {
         VStack(alignment: .leading, spacing: 2) {
+            helpOptionButton(
+                title: String(localized: "sidebar.help.welcome", defaultValue: "Welcome"),
+                action: .welcome,
+                accessibilityIdentifier: "SidebarHelpMenuOptionWelcome",
+                isExternalLink: false
+            )
             helpOptionButton(
                 title: String(localized: "sidebar.help.sendFeedback", defaultValue: "Send Feedback"),
                 action: .sendFeedback,
@@ -8614,14 +8782,17 @@ private struct SidebarHelpMenuButton: View {
     private func perform(_ action: SidebarHelpMenuAction) {
         switch action {
         case .keyboardShortcuts:
-            Task { @MainActor in
-                if let appDelegate = AppDelegate.shared {
-                    appDelegate.openPreferencesWindow(
-                        debugSource: "sidebarHelpMenu.keyboardShortcuts",
-                        navigationTarget: .keyboardShortcuts
-                    )
-                } else {
-                    AppDelegate.presentPreferencesWindow(navigationTarget: .keyboardShortcuts)
+            isPopoverPresented = false
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+                Task { @MainActor in
+                    if let appDelegate = AppDelegate.shared {
+                        appDelegate.openPreferencesWindow(
+                            debugSource: "sidebarHelpMenu.keyboardShortcuts",
+                            navigationTarget: .keyboardShortcuts
+                        )
+                    } else {
+                        AppDelegate.presentPreferencesWindow(navigationTarget: .keyboardShortcuts)
+                    }
                 }
             }
         case .docs:
@@ -8643,6 +8814,13 @@ private struct SidebarHelpMenuButton: View {
         case .sendFeedback:
             isPopoverPresented = false
             onSendFeedback()
+        case .welcome:
+            isPopoverPresented = false
+            Task { @MainActor in
+                if let appDelegate = AppDelegate.shared {
+                    appDelegate.openWelcomeWorkspace()
+                }
+            }
         }
     }
 
@@ -9538,6 +9716,7 @@ private struct TabItemView: View {
             dropIndicator = nil
             return SidebarTabDragPayload.provider(for: tab.id)
         }
+        .internalOnlyTabDrag()
         .onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: SidebarTabDropDelegate(
             targetTabId: tab.id,
             tabManager: tabManager,

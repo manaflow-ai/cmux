@@ -124,6 +124,11 @@ sanitize_path() {
   echo "$cleaned"
 }
 
+tagged_derived_data_path() {
+  local slug="$1"
+  echo "$HOME/Library/Developer/Xcode/DerivedData/cmux-${slug}"
+}
+
 print_tag_cleanup_reminder() {
   local current_slug="$1"
   local path=""
@@ -132,7 +137,13 @@ print_tag_cleanup_reminder() {
   local -a stale_tags=()
 
   while IFS= read -r -d '' path; do
-    tag="${path#/tmp/cmux-}"
+    if [[ "$path" == /tmp/cmux-* ]]; then
+      tag="${path#/tmp/cmux-}"
+    elif [[ "$path" == "$HOME/Library/Developer/Xcode/DerivedData/cmux-"* ]]; then
+      tag="${path#$HOME/Library/Developer/Xcode/DerivedData/cmux-}"
+    else
+      continue
+    fi
     if [[ "$tag" == "$current_slug" ]]; then
       continue
     fi
@@ -145,7 +156,10 @@ print_tag_cleanup_reminder() {
     fi
     seen="${seen}${tag} "
     stale_tags+=("$tag")
-  done < <(find /tmp -maxdepth 1 -type d -name 'cmux-*' -print0 2>/dev/null)
+  done < <(
+    find /tmp -maxdepth 1 -name 'cmux-*' -print0 2>/dev/null
+    find "$HOME/Library/Developer/Xcode/DerivedData" -maxdepth 1 -type d -name 'cmux-*' -print0 2>/dev/null
+  )
 
   echo
   echo "Tag cleanup status:"
@@ -161,14 +175,14 @@ print_tag_cleanup_reminder() {
     echo "Cleanup stale tags only:"
     for tag in "${stale_tags[@]}"; do
       echo "  pkill -f \"cmux DEV ${tag}.app/Contents/MacOS/cmux DEV\""
-      echo "  rm -rf \"/tmp/cmux-${tag}\" \"/tmp/cmux-debug-${tag}.sock\""
+      echo "  rm -rf \"$(tagged_derived_data_path "$tag")\" \"/tmp/cmux-${tag}\" \"/tmp/cmux-debug-${tag}.sock\""
       echo "  rm -f \"/tmp/cmux-debug-${tag}.log\""
       echo "  rm -f \"$HOME/Library/Application Support/cmux/cmuxd-dev-${tag}.sock\""
     done
   fi
   echo "After you verify current tag, cleanup command:"
   echo "  pkill -f \"cmux DEV ${current_slug}.app/Contents/MacOS/cmux DEV\""
-  echo "  rm -rf \"/tmp/cmux-${current_slug}\" \"/tmp/cmux-debug-${current_slug}.sock\""
+  echo "  rm -rf \"$(tagged_derived_data_path "$current_slug")\" \"/tmp/cmux-${current_slug}\" \"/tmp/cmux-debug-${current_slug}.sock\""
   echo "  rm -f \"/tmp/cmux-debug-${current_slug}.log\""
   echo "  rm -f \"$HOME/Library/Application Support/cmux/cmuxd-dev-${current_slug}.sock\""
 }
@@ -238,7 +252,7 @@ if [[ -n "$TAG" ]]; then
     BUNDLE_ID="com.cmuxterm.app.debug.${TAG_ID}"
   fi
   if [[ "$DERIVED_SET" -eq 0 ]]; then
-    DERIVED_DATA="/tmp/cmux-${TAG_SLUG}"
+    DERIVED_DATA="$(tagged_derived_data_path "$TAG_SLUG")"
   fi
 fi
 
@@ -307,6 +321,15 @@ fi
 if [[ -z "${APP_PATH}" || ! -d "${APP_PATH}" ]]; then
   echo "${APP_NAME}.app not found in DerivedData" >&2
   exit 1
+fi
+
+if [[ -n "${TAG_SLUG:-}" ]]; then
+  TMP_COMPAT_DERIVED_LINK="/tmp/cmux-${TAG_SLUG}"
+  if [[ "$DERIVED_DATA" != "$TMP_COMPAT_DERIVED_LINK" ]]; then
+    ABS_DERIVED_DATA="$(cd "$DERIVED_DATA" && pwd)"
+    rm -rf "$TMP_COMPAT_DERIVED_LINK"
+    ln -s "$ABS_DERIVED_DATA" "$TMP_COMPAT_DERIVED_LINK"
+  fi
 fi
 
 if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
@@ -385,6 +408,10 @@ if [[ -x "$CMUXD_SRC" ]]; then
   mkdir -p "$BIN_DIR"
   cp "$CMUXD_SRC" "$BIN_DIR/cmuxd"
   chmod +x "$BIN_DIR/cmuxd"
+fi
+CLI_PATH="$APP_PATH/Contents/Resources/bin/cmux"
+if [[ -x "$CLI_PATH" ]]; then
+  echo "$CLI_PATH" > /tmp/cmux-last-cli-path || true
 fi
 # Avoid inheriting cmux/ghostty environment variables from the terminal that
 # runs this script (often inside another cmux instance), which can cause
