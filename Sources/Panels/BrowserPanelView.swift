@@ -3571,6 +3571,7 @@ struct WebViewRepresentable: NSViewRepresentable {
             let containerView: NSView
             let pageView: NSView
             let inspectorView: NSView
+            let dockSide: HostedInspectorDockSide
         }
 
         private struct GeometryState: Equatable {
@@ -3584,6 +3585,7 @@ struct WebViewRepresentable: NSViewRepresentable {
             let containerView: NSView
             let pageView: NSView
             let inspectorView: NSView
+            let dockSide: HostedInspectorDockSide
             let initialWindowX: CGFloat
             let initialPageFrame: NSRect
             let initialInspectorFrame: NSRect
@@ -3917,6 +3919,7 @@ struct WebViewRepresentable: NSViewRepresentable {
                 containerView: hostedInspectorHit.containerView,
                 pageView: hostedInspectorHit.pageView,
                 inspectorView: hostedInspectorHit.inspectorView,
+                dockSide: hostedInspectorHit.dockSide,
                 initialWindowX: event.locationInWindow.x,
                 initialPageFrame: hostedInspectorHit.pageView.frame,
                 initialInspectorFrame: hostedInspectorHit.inspectorView.frame
@@ -3937,18 +3940,29 @@ struct WebViewRepresentable: NSViewRepresentable {
                 Self.minimumHostedInspectorWidth,
                 max(60, dragState.initialInspectorFrame.width)
             )
-            let minDividerX = max(containerBounds.minX, dragState.initialPageFrame.minX)
-            let maxDividerX = max(minDividerX, containerBounds.maxX - minimumInspectorWidth)
-            let proposedDividerX = dragState.initialInspectorFrame.minX + (event.locationInWindow.x - dragState.initialWindowX)
-            let clampedDividerX = max(minDividerX, min(maxDividerX, proposedDividerX))
-            let inspectorWidth = max(0, containerBounds.maxX - clampedDividerX)
+            let initialDividerX = dragState.dockSide.dividerX(
+                pageFrame: dragState.initialPageFrame,
+                inspectorFrame: dragState.initialInspectorFrame
+            )
+            let proposedDividerX = initialDividerX + (event.locationInWindow.x - dragState.initialWindowX)
+            let clampedDividerX = dragState.dockSide.clampedDividerX(
+                proposedDividerX,
+                containerBounds: containerBounds,
+                pageFrame: dragState.initialPageFrame,
+                minimumInspectorWidth: minimumInspectorWidth
+            )
+            let inspectorWidth = dragState.dockSide.inspectorWidth(
+                forDividerX: clampedDividerX,
+                in: containerBounds
+            )
             preferredHostedInspectorWidth = inspectorWidth
             _ = applyHostedInspectorDividerWidth(
                 inspectorWidth,
                 to: HostedInspectorDividerHit(
                     containerView: dragState.containerView,
                     pageView: dragState.pageView,
-                    inspectorView: dragState.inspectorView
+                    inspectorView: dragState.inspectorView,
+                    dockSide: dragState.dockSide
                 ),
                 reason: "drag"
             )
@@ -3959,7 +3973,8 @@ struct WebViewRepresentable: NSViewRepresentable {
                 hit: HostedInspectorDividerHit(
                     containerView: dragState.containerView,
                     pageView: dragState.pageView,
-                    inspectorView: dragState.inspectorView
+                    inspectorView: dragState.inspectorView,
+                    dockSide: dragState.dockSide
                 )
             )
 #endif
@@ -3968,7 +3983,8 @@ struct WebViewRepresentable: NSViewRepresentable {
                 hostedInspectorHit: HostedInspectorDividerHit(
                     containerView: dragState.containerView,
                     pageView: dragState.pageView,
-                    inspectorView: dragState.inspectorView
+                    inspectorView: dragState.inspectorView,
+                    dockSide: dragState.dockSide
                 )
             )
         }
@@ -3983,7 +3999,8 @@ struct WebViewRepresentable: NSViewRepresentable {
                 let finalHit = HostedInspectorDividerHit(
                     containerView: finalDragState.containerView,
                     pageView: finalDragState.pageView,
-                    inspectorView: finalDragState.inspectorView
+                    inspectorView: finalDragState.inspectorView,
+                    dockSide: finalDragState.dockSide
                 )
                 debugLogHostedInspectorFrames(
                     stage: "drag.end",
@@ -4104,13 +4121,11 @@ struct WebViewRepresentable: NSViewRepresentable {
         private func hostedInspectorDividerHitRect(for hit: HostedInspectorDividerHit) -> NSRect {
             let pageFrame = convert(hit.pageView.bounds, from: hit.pageView)
             let inspectorFrame = convert(hit.inspectorView.bounds, from: hit.inspectorView)
-            let minY = max(bounds.minY, min(pageFrame.minY, inspectorFrame.minY))
-            let maxY = min(bounds.maxY, max(pageFrame.maxY, inspectorFrame.maxY))
-            return NSRect(
-                x: inspectorFrame.minX - Self.hostedInspectorDividerHitExpansion,
-                y: minY,
-                width: Self.hostedInspectorDividerHitExpansion * 2,
-                height: max(0, maxY - minY)
+            return hit.dockSide.dividerHitRect(
+                in: bounds,
+                pageFrame: pageFrame,
+                inspectorFrame: inspectorFrame,
+                expansion: Self.hostedInspectorDividerHitExpansion
             )
         }
 
@@ -4121,21 +4136,30 @@ struct WebViewRepresentable: NSViewRepresentable {
             while let inspectorView = current, inspectorView !== self {
                 guard let containerView = inspectorView.superview else { break }
 
-                let pageCandidates = containerView.subviews.filter { candidate in
-                    guard Self.isVisibleHostedInspectorSiblingCandidate(candidate) else { return false }
-                    guard candidate !== inspectorView else { return false }
-                    guard candidate.frame.maxX <= inspectorView.frame.minX + 1 else { return false }
-                    return Self.verticalOverlap(between: candidate.frame, and: inspectorView.frame) > 8
+                let pageCandidates = containerView.subviews.compactMap { candidate -> (view: NSView, dockSide: HostedInspectorDockSide)? in
+                    guard Self.isVisibleHostedInspectorSiblingCandidate(candidate) else { return nil }
+                    guard candidate !== inspectorView else { return nil }
+                    guard Self.verticalOverlap(between: candidate.frame, and: inspectorView.frame) > 8 else {
+                        return nil
+                    }
+                    guard let dockSide = HostedInspectorDockSide.resolve(
+                        pageFrame: candidate.frame,
+                        inspectorFrame: inspectorView.frame
+                    ) else {
+                        return nil
+                    }
+                    return (view: candidate, dockSide: dockSide)
                 }
 
-                if let pageView = pageCandidates.max(by: {
-                    hostedInspectorPageCandidateScore($0, inspectorView: inspectorView)
-                        < hostedInspectorPageCandidateScore($1, inspectorView: inspectorView)
+                if let pageCandidate = pageCandidates.max(by: {
+                    hostedInspectorPageCandidateScore($0.view, inspectorView: inspectorView)
+                        < hostedInspectorPageCandidateScore($1.view, inspectorView: inspectorView)
                 }) {
                     bestHit = HostedInspectorDividerHit(
                         containerView: containerView,
-                        pageView: pageView,
-                        inspectorView: inspectorView
+                        pageView: pageCandidate.view,
+                        inspectorView: inspectorView,
+                        dockSide: pageCandidate.dockSide
                     )
                 }
 
@@ -4194,16 +4218,14 @@ struct WebViewRepresentable: NSViewRepresentable {
             reason: String
         ) -> (pageFrame: NSRect, inspectorFrame: NSRect) {
             let containerBounds = hit.containerView.bounds
-            let maximumInspectorWidth = max(0, containerBounds.maxX - hit.pageView.frame.minX)
-            let clampedInspectorWidth = max(0, min(maximumInspectorWidth, preferredWidth))
-            let dividerX = max(hit.pageView.frame.minX, containerBounds.maxX - clampedInspectorWidth)
-
-            var pageFrame = hit.pageView.frame
-            pageFrame.size.width = max(0, dividerX - pageFrame.minX)
-
-            var inspectorFrame = hit.inspectorView.frame
-            inspectorFrame.origin.x = dividerX
-            inspectorFrame.size.width = max(0, containerBounds.maxX - dividerX)
+            let nextFrames = hit.dockSide.resizedFrames(
+                preferredWidth: preferredWidth,
+                in: containerBounds,
+                pageFrame: hit.pageView.frame,
+                inspectorFrame: hit.inspectorView.frame
+            )
+            let pageFrame = nextFrames.pageFrame
+            let inspectorFrame = nextFrames.inspectorFrame
 
             let pageChanged = !Self.rectApproximatelyEqual(pageFrame, hit.pageView.frame, epsilon: 0.5)
             let inspectorChanged = !Self.rectApproximatelyEqual(inspectorFrame, hit.inspectorView.frame, epsilon: 0.5)
