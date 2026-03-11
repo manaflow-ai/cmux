@@ -1684,10 +1684,17 @@ final class BrowserPanel: Panel, ObservableObject {
     /// cleared only after BrowserPanelView acknowledges handling it.
     @Published private(set) var pendingAddressBarFocusRequestId: UUID?
 
+    /// Semantic in-panel focus target used by split switching and transient overlays.
+    private(set) var preferredFocusIntent: BrowserPanelFocusIntent = .webView
+
+    /// Incremented whenever async browser find focus ownership changes.
+    @Published private(set) var searchFocusRequestGeneration: UInt64 = 0
+
     /// Find-in-page state. Non-nil when the find bar is visible.
     @Published var searchState: BrowserSearchState? = nil {
         didSet {
             if let searchState {
+                preferredFocusIntent = .findField
                 NSLog("Find: browser search state created panel=%@", id.uuidString)
                 searchNeedleCancellable = searchState.$needle
                     .removeDuplicates()
@@ -1707,6 +1714,10 @@ final class BrowserPanel: Panel, ObservableObject {
                     }
             } else if oldValue != nil {
                 searchNeedleCancellable = nil
+                if preferredFocusIntent == .findField {
+                    preferredFocusIntent = .webView
+                }
+                invalidateSearchFocusRequests(reason: "searchStateCleared")
                 NSLog("Find: browser search state cleared panel=%@", id.uuidString)
                 executeFindClear()
             }
@@ -2298,12 +2309,16 @@ final class BrowserPanel: Panel, ObservableObject {
         }
 
         if Self.responderChainContains(window.firstResponder, target: webView) {
+            noteWebViewFocused()
             return
         }
-        window.makeFirstResponder(webView)
+        if window.makeFirstResponder(webView) {
+            noteWebViewFocused()
+        }
     }
 
     func unfocus() {
+        invalidateSearchFocusRequests(reason: "panelUnfocus")
         guard let window = webView.window else { return }
         if Self.responderChainContains(window.firstResponder, target: webView) {
             window.makeFirstResponder(nil)
@@ -3043,21 +3058,52 @@ extension BrowserPanel {
     // MARK: - Find in Page
 
     func startFind() {
-        if searchState == nil {
+        preferredFocusIntent = .findField
+        let created = searchState == nil
+        if created {
             searchState = BrowserSearchState()
         }
-        postBrowserSearchFocusNotification()
+        let generation = beginSearchFocusRequest(reason: "startFind")
+#if DEBUG
+        let window = webView.window
+        dlog(
+            "browser.find.start panel=\(id.uuidString.prefix(5)) " +
+            "created=\(created ? 1 : 0) render=\(shouldRenderWebView ? 1 : 0) " +
+            "generation=\(generation) " +
+            "window=\(window?.windowNumber ?? -1) key=\(NSApp.keyWindow === window ? 1 : 0) " +
+            "firstResponder=\(String(describing: window?.firstResponder))"
+        )
+#endif
+        postBrowserSearchFocusNotification(reason: "immediate", generation: generation)
         // Focus notification can race with portal overlay mount. Re-post on the
         // next runloop and shortly after so the find field can claim first responder.
         DispatchQueue.main.async { [weak self] in
-            self?.postBrowserSearchFocusNotification()
+            self?.postBrowserSearchFocusNotification(reason: "async0", generation: generation)
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
-            self?.postBrowserSearchFocusNotification()
+            self?.postBrowserSearchFocusNotification(reason: "async50ms", generation: generation)
         }
     }
 
-    private func postBrowserSearchFocusNotification() {
+    private func postBrowserSearchFocusNotification(reason: String, generation: UInt64) {
+        guard canApplySearchFocusRequest(generation) else {
+#if DEBUG
+            dlog(
+                "browser.find.focusNotification.skip panel=\(id.uuidString.prefix(5)) " +
+                "reason=\(reason) generation=\(generation)"
+            )
+#endif
+            return
+        }
+#if DEBUG
+        let window = webView.window
+        dlog(
+            "browser.find.focusNotification panel=\(id.uuidString.prefix(5)) " +
+            "generation=\(generation) " +
+            "reason=\(reason) window=\(window?.windowNumber ?? -1) " +
+            "firstResponder=\(String(describing: window?.firstResponder))"
+        )
+#endif
         NotificationCenter.default.post(name: .browserSearchFocus, object: id)
     }
 
@@ -3078,6 +3124,7 @@ extension BrowserPanel {
     }
 
     func hideFind() {
+        invalidateSearchFocusRequests(reason: "hideFind")
         searchState = nil
     }
 
@@ -3088,7 +3135,10 @@ extension BrowserPanel {
         if replaySearch, !state.needle.isEmpty {
             executeFindSearch(state.needle)
         }
-        postBrowserSearchFocusNotification()
+        postBrowserSearchFocusNotification(
+            reason: "restoreAfterNavigation",
+            generation: searchFocusRequestGeneration
+        )
     }
 
     private func executeFindSearch(_ needle: String) {
@@ -3215,6 +3265,8 @@ extension BrowserPanel {
 
     @discardableResult
     func requestAddressBarFocus() -> UUID {
+        preferredFocusIntent = .addressBar
+        invalidateSearchFocusRequests(reason: "requestAddressBarFocus")
         beginSuppressWebViewFocusForAddressBar()
         if let pendingAddressBarFocusRequestId {
 #if DEBUG
@@ -3234,6 +3286,173 @@ extension BrowserPanel {
         )
 #endif
         return requestId
+    }
+
+    func noteWebViewFocused() {
+        guard searchState == nil else { return }
+        guard preferredFocusIntent != .webView else { return }
+        preferredFocusIntent = .webView
+        invalidateSearchFocusRequests(reason: "webViewFocused")
+    }
+
+    func noteAddressBarFocused() {
+        guard preferredFocusIntent != .addressBar else { return }
+        preferredFocusIntent = .addressBar
+        invalidateSearchFocusRequests(reason: "addressBarFocused")
+    }
+
+    func noteFindFieldFocused() {
+        guard preferredFocusIntent != .findField else { return }
+        preferredFocusIntent = .findField
+    }
+
+    func canApplySearchFocusRequest(_ generation: UInt64) -> Bool {
+        generation != 0 &&
+            generation == searchFocusRequestGeneration &&
+            searchState != nil &&
+            preferredFocusIntent == .findField
+    }
+
+    func captureFocusIntent(in window: NSWindow?) -> PanelFocusIntent {
+        if pendingAddressBarFocusRequestId != nil || AppDelegate.shared?.focusedBrowserAddressBarPanelId() == id {
+            return .browser(.addressBar)
+        }
+
+        if searchState != nil && preferredFocusIntent == .findField {
+            return .browser(.findField)
+        }
+
+        if let window,
+           Self.responderChainContains(window.firstResponder, target: webView) {
+            return .browser(.webView)
+        }
+
+        return .browser(preferredFocusIntent)
+    }
+
+    func preferredFocusIntentForActivation() -> PanelFocusIntent {
+        if pendingAddressBarFocusRequestId != nil {
+            return .browser(.addressBar)
+        }
+        if searchState != nil && preferredFocusIntent == .findField {
+            return .browser(.findField)
+        }
+        return .browser(preferredFocusIntent)
+    }
+
+    func prepareFocusIntentForActivation(_ intent: PanelFocusIntent) {
+        guard case .browser(let target) = intent else { return }
+
+        switch target {
+        case .webView:
+            preferredFocusIntent = .webView
+            invalidateSearchFocusRequests(reason: "prepareWebView")
+            endSuppressWebViewFocusForAddressBar()
+        case .addressBar:
+            preferredFocusIntent = .addressBar
+            invalidateSearchFocusRequests(reason: "prepareAddressBar")
+            beginSuppressWebViewFocusForAddressBar()
+        case .findField:
+            preferredFocusIntent = .findField
+        }
+#if DEBUG
+        dlog(
+            "browser.focus.prepare panel=\(id.uuidString.prefix(5)) " +
+            "target=\(String(describing: target)) suppressWeb=\(shouldSuppressWebViewFocus() ? 1 : 0)"
+        )
+#endif
+    }
+
+    @discardableResult
+    func restoreFocusIntent(_ intent: PanelFocusIntent) -> Bool {
+        guard case .browser(let target) = intent else { return false }
+
+        switch target {
+        case .webView:
+            noteWebViewFocused()
+            focus()
+            return true
+        case .addressBar:
+            let requestId = requestAddressBarFocus()
+            NotificationCenter.default.post(name: .browserFocusAddressBar, object: id)
+#if DEBUG
+            dlog(
+                "browser.focus.restore panel=\(id.uuidString.prefix(5)) " +
+                "target=addressBar request=\(requestId.uuidString.prefix(8))"
+            )
+#endif
+            return true
+        case .findField:
+            startFind()
+            return true
+        }
+    }
+
+    func ownedFocusIntent(for responder: NSResponder, in window: NSWindow) -> PanelFocusIntent? {
+        if AppDelegate.shared?.focusedBrowserAddressBarPanelId() == id {
+            return .browser(.addressBar)
+        }
+
+        if BrowserWindowPortalRegistry.searchOverlayPanelId(for: responder, in: window) == id {
+            return .browser(.findField)
+        }
+
+        if Self.responderChainContains(responder, target: webView) {
+            return .browser(.webView)
+        }
+
+        return nil
+    }
+
+    @discardableResult
+    func yieldFocusIntent(_ intent: PanelFocusIntent, in window: NSWindow) -> Bool {
+        guard case .browser(let target) = intent else { return false }
+
+        switch target {
+        case .findField:
+            invalidateSearchFocusRequests(reason: "yieldFindField")
+            let yielded = BrowserWindowPortalRegistry.yieldSearchOverlayFocusIfOwned(by: id, in: window)
+#if DEBUG
+            if yielded {
+                dlog("focus.handoff.yield panel=\(id.uuidString.prefix(5)) target=browserFind")
+            }
+#endif
+            return yielded
+        case .addressBar:
+            guard AppDelegate.shared?.focusedBrowserAddressBarPanelId() == id else { return false }
+            let yielded = window.makeFirstResponder(nil)
+#if DEBUG
+            if yielded {
+                dlog("focus.handoff.yield panel=\(id.uuidString.prefix(5)) target=addressBar")
+            }
+#endif
+            return yielded
+        case .webView:
+            guard Self.responderChainContains(window.firstResponder, target: webView) else { return false }
+            return window.makeFirstResponder(nil)
+        }
+    }
+
+    @discardableResult
+    private func beginSearchFocusRequest(reason: String) -> UInt64 {
+        searchFocusRequestGeneration &+= 1
+#if DEBUG
+        dlog(
+            "browser.find.focusLease.begin panel=\(id.uuidString.prefix(5)) " +
+            "generation=\(searchFocusRequestGeneration) reason=\(reason)"
+        )
+#endif
+        return searchFocusRequestGeneration
+    }
+
+    private func invalidateSearchFocusRequests(reason: String) {
+        searchFocusRequestGeneration &+= 1
+#if DEBUG
+        dlog(
+            "browser.find.focusLease.invalidate panel=\(id.uuidString.prefix(5)) " +
+            "generation=\(searchFocusRequestGeneration) reason=\(reason)"
+        )
+#endif
     }
 
     func acknowledgeAddressBarFocusRequest(_ requestId: UUID) {

@@ -6406,10 +6406,8 @@ final class GhosttySurfaceScrollView: NSView {
 #endif
         if active {
             applyFirstResponderIfNeeded()
-        } else if let window,
-                  let fr = window.firstResponder as? NSView,
-                  fr === surfaceView || fr.isDescendant(of: surfaceView) {
-            window.makeFirstResponder(nil)
+        } else {
+            resignOwnedFirstResponderIfNeeded(reason: "setActive(false)")
         }
     }
 
@@ -6459,15 +6457,29 @@ final class GhosttySurfaceScrollView: NSView {
 #if DEBUG
         let surfaceShort = self.surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil"
         let searchActive = self.surfaceView.terminalSurface?.searchState != nil
-        dlog("find.moveFocus to=\(surfaceShort) searchState=\(searchActive ? "active" : "nil")")
+        dlog(
+            "find.moveFocus to=\(surfaceShort) " +
+            "from=\(previous?.surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") " +
+            "searchState=\(searchActive ? "active" : "nil") " +
+            "delayMs=\(Int((delay ?? 0) * 1000))"
+        )
 #endif
         let work = { [weak self] in
             guard let self else { return }
             guard let window = self.window else { return }
+#if DEBUG
+            let before = String(describing: window.firstResponder)
+#endif
             if let previous, previous !== self {
                 _ = previous.surfaceView.resignFirstResponder()
             }
-            window.makeFirstResponder(self.surfaceView)
+            let result = window.makeFirstResponder(self.surfaceView)
+#if DEBUG
+            dlog(
+                "find.moveFocus.apply to=\(self.surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") " +
+                "result=\(result ? 1 : 0) before=\(before) after=\(String(describing: window.firstResponder))"
+            )
+#endif
         }
 
         if let delay, delay > 0 {
@@ -6611,6 +6623,12 @@ final class GhosttySurfaceScrollView: NSView {
         guard isActive else { return }
         guard let window else { return }
         guard surfaceView.isVisibleInUI else {
+#if DEBUG
+            dlog(
+                "focus.ensure.defer surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") " +
+                "reason=not_visible attempts=\(attemptsRemaining)"
+            )
+#endif
             retry()
             return
         }
@@ -6650,6 +6668,13 @@ final class GhosttySurfaceScrollView: NSView {
 
         // Search focus restoration — only after confirming this is the active tab/pane.
         if surfaceView.terminalSurface?.searchState != nil {
+#if DEBUG
+            dlog(
+                "focus.ensure.search surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") " +
+                "tab=\(tabId.uuidString.prefix(5)) panel=\(surfaceId.uuidString.prefix(5)) " +
+                "attempts=\(attemptsRemaining) firstResponder=\(String(describing: window.firstResponder))"
+            )
+#endif
             restoreSearchFocus(window: window)
             return
         }
@@ -6663,7 +6688,15 @@ final class GhosttySurfaceScrollView: NSView {
         if !window.isKeyWindow {
             window.makeKeyAndOrderFront(nil)
         }
-        _ = window.makeFirstResponder(surfaceView)
+        let result = window.makeFirstResponder(surfaceView)
+#if DEBUG
+        dlog(
+            "focus.ensure.apply surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") " +
+            "tab=\(tabId.uuidString.prefix(5)) panel=\(surfaceId.uuidString.prefix(5)) " +
+            "result=\(result ? 1 : 0) firstResponder=\(String(describing: window.firstResponder)) " +
+            "attempts=\(attemptsRemaining)"
+        )
+#endif
 
         if !isSurfaceViewFirstResponder() {
             retry()
@@ -6793,6 +6826,18 @@ final class GhosttySurfaceScrollView: NSView {
         let surfaceShort = surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil"
         switch searchFocusTarget {
         case .searchField:
+            if let firstResponder = window.firstResponder,
+               isSearchOverlayOrDescendant(firstResponder),
+               !isCurrentSurfaceSearchResponder(firstResponder) {
+                surfaceView.terminalSurface?.setFocus(false)
+#if DEBUG
+                dlog(
+                    "find.restoreSearchFocus.skip surface=\(surfaceShort) target=searchField " +
+                    "reason=foreignSearchResponder firstResponder=\(String(describing: firstResponder))"
+                )
+#endif
+                return
+            }
             // Explicitly unfocus the terminal so cursor stops blinking immediately.
             // The notification observer also does this, but it runs async when posted from main.
             surfaceView.terminalSurface?.setFocus(false)
@@ -6802,14 +6847,150 @@ final class GhosttySurfaceScrollView: NSView {
                 NotificationCenter.default.post(name: .ghosttySearchFocus, object: terminalSurface)
             }
 #if DEBUG
-            dlog("find.restoreSearchFocus surface=\(surfaceShort) target=searchField via=notification")
+            dlog(
+                "find.restoreSearchFocus surface=\(surfaceShort) target=searchField " +
+                "via=notification firstResponder=\(String(describing: window.firstResponder))"
+            )
 #endif
         case .terminal:
-            window.makeFirstResponder(surfaceView)
+            let result = window.makeFirstResponder(surfaceView)
 #if DEBUG
-            dlog("find.restoreSearchFocus surface=\(surfaceShort) target=terminal")
+            dlog(
+                "find.restoreSearchFocus surface=\(surfaceShort) target=terminal " +
+                "result=\(result ? 1 : 0) firstResponder=\(String(describing: window.firstResponder))"
+            )
 #endif
         }
+    }
+
+    func capturePanelFocusIntent(in window: NSWindow?) -> TerminalPanelFocusIntent {
+        if surfaceView.terminalSurface?.searchState != nil {
+            if let firstResponder = window?.firstResponder as? NSView,
+               (firstResponder === surfaceView || firstResponder.isDescendant(of: surfaceView)) {
+                return .surface
+            }
+            if let firstResponder = window?.firstResponder,
+               isCurrentSurfaceSearchResponder(firstResponder) {
+                return .findField
+            }
+            if searchFocusTarget == .searchField {
+                return .findField
+            }
+        }
+        return .surface
+    }
+
+    func preferredPanelFocusIntentForActivation() -> TerminalPanelFocusIntent {
+        if surfaceView.terminalSurface?.searchState != nil, searchFocusTarget == .searchField {
+            return .findField
+        }
+        return .surface
+    }
+
+    func preparePanelFocusIntentForActivation(_ intent: TerminalPanelFocusIntent) {
+        switch intent {
+        case .surface:
+            searchFocusTarget = .terminal
+        case .findField:
+            guard surfaceView.terminalSurface?.searchState != nil else { return }
+            searchFocusTarget = .searchField
+        }
+#if DEBUG
+        dlog(
+            "find.preparePanelFocusIntent surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") " +
+            "target=\(intent == .findField ? "searchField" : "terminal")"
+        )
+#endif
+    }
+
+    @discardableResult
+    func restorePanelFocusIntent(_ intent: TerminalPanelFocusIntent) -> Bool {
+        switch intent {
+        case .surface:
+            searchFocusTarget = .terminal
+            setActive(true)
+            applyFirstResponderIfNeeded()
+            return true
+        case .findField:
+            guard let terminalSurface = surfaceView.terminalSurface,
+                  terminalSurface.searchState != nil else {
+                return false
+            }
+            searchFocusTarget = .searchField
+            setActive(true)
+            if let window {
+                restoreSearchFocus(window: window)
+            } else {
+                terminalSurface.setFocus(false)
+                NotificationCenter.default.post(name: .ghosttySearchFocus, object: terminalSurface)
+            }
+#if DEBUG
+            dlog(
+                "find.restorePanelFocusIntent surface=\(terminalSurface.id.uuidString.prefix(5)) " +
+                "target=searchField firstResponder=\(String(describing: window?.firstResponder))"
+            )
+#endif
+            return true
+        }
+    }
+
+    func ownedPanelFocusIntent(for responder: NSResponder) -> TerminalPanelFocusIntent? {
+        if isCurrentSurfaceSearchResponder(responder) {
+            return .findField
+        }
+
+        let resolvedResponder: NSResponder
+        if let editor = responder as? NSTextView,
+           editor.isFieldEditor,
+           let editedView = editor.delegate as? NSView {
+            resolvedResponder = editedView
+        } else {
+            resolvedResponder = responder
+        }
+
+        guard let view = resolvedResponder as? NSView else { return nil }
+        if view === surfaceView || view.isDescendant(of: surfaceView) {
+            return .surface
+        }
+        return nil
+    }
+
+    @discardableResult
+    func yieldPanelFocusIntent(_ intent: TerminalPanelFocusIntent, in window: NSWindow) -> Bool {
+        guard let firstResponder = window.firstResponder,
+              ownedPanelFocusIntent(for: firstResponder) == intent else {
+            return false
+        }
+
+        surfaceView.terminalSurface?.setFocus(false)
+        resignOwnedFirstResponderIfNeeded(reason: "yieldPanelFocusIntent")
+#if DEBUG
+        dlog(
+            "focus.handoff.yield surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") " +
+            "target=\(intent == .findField ? "searchField" : "terminal")"
+        )
+#endif
+        return true
+    }
+
+    private func resignOwnedFirstResponderIfNeeded(reason: String) {
+        guard let window,
+              let firstResponder = window.firstResponder else { return }
+
+        let ownsSurfaceResponder: Bool = {
+            guard let view = firstResponder as? NSView else { return false }
+            return view === surfaceView || view.isDescendant(of: surfaceView)
+        }()
+
+        guard ownsSurfaceResponder || isCurrentSurfaceSearchResponder(firstResponder) else { return }
+
+#if DEBUG
+        dlog(
+            "focus.surface.resign surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") " +
+            "reason=\(reason) firstResponder=\(String(describing: firstResponder))"
+        )
+#endif
+        window.makeFirstResponder(nil)
     }
 
     /// Check if a responder is inside a search overlay hosting view.
@@ -6827,9 +7008,25 @@ final class GhosttySurfaceScrollView: NSView {
         var current: NSView? = view
         while let v = current {
             if v is NSHostingView<SurfaceSearchOverlay> { return true }
+            let typeName = String(describing: type(of: v))
+            if typeName.contains("BrowserSearchOverlay") { return true }
             current = v.superview
         }
         return false
+    }
+
+    private func isCurrentSurfaceSearchResponder(_ responder: NSResponder) -> Bool {
+        let resolvedResponder: NSResponder
+        if let editor = responder as? NSTextView,
+           editor.isFieldEditor,
+           let editedView = editor.delegate as? NSView {
+            resolvedResponder = editedView
+        } else {
+            resolvedResponder = responder
+        }
+
+        guard let view = resolvedResponder as? NSView else { return false }
+        return view.isDescendant(of: self)
     }
 
 #if DEBUG

@@ -197,4 +197,42 @@ final class TerminalPanel: Panel, ObservableObject {
     func applyWindowBackgroundIfActive() {
         surface.applyWindowBackgroundIfActive()
     }
+
+    func captureFocusIntent(in window: NSWindow?) -> PanelFocusIntent {
+        .terminal(hostedView.capturePanelFocusIntent(in: window))
+    }
+
+    func preferredFocusIntentForActivation() -> PanelFocusIntent {
+        .terminal(hostedView.preferredPanelFocusIntentForActivation())
+    }
+
+    func prepareFocusIntentForActivation(_ intent: PanelFocusIntent) {
+        guard case .terminal(let target) = intent else { return }
+        hostedView.preparePanelFocusIntentForActivation(target)
+    }
+
+    @discardableResult
+    func restoreFocusIntent(_ intent: PanelFocusIntent) -> Bool {
+        switch intent {
+        case .panel:
+            focus()
+            return true
+        case .terminal(let target):
+            return hostedView.restorePanelFocusIntent(target)
+        default:
+            return false
+        }
+    }
+
+    func ownedFocusIntent(for responder: NSResponder, in window: NSWindow) -> PanelFocusIntent? {
+        _ = window
+        guard let intent = hostedView.ownedPanelFocusIntent(for: responder) else { return nil }
+        return .terminal(intent)
+    }
+
+    @discardableResult
+    func yieldFocusIntent(_ intent: PanelFocusIntent, in window: NSWindow) -> Bool {
+        guard case .terminal(let target) = intent else { return false }
+        return hostedView.yieldPanelFocusIntent(target, in: window)
+    }
 }

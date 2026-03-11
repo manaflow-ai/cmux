@@ -6,6 +6,7 @@ import WebKit
 
 private var cmuxWindowBrowserPortalKey: UInt8 = 0
 private var cmuxWindowBrowserPortalCloseObserverKey: UInt8 = 0
+private var cmuxBrowserSearchOverlayPanelIdAssociationKey: UInt8 = 0
 
 #if DEBUG
 private func browserPortalDebugToken(_ view: NSView?) -> String {
@@ -28,6 +29,17 @@ private extension NSObject {
         let fn = unsafeBitCast(method(for: selector), to: Fn.self)
         fn(self, selector)
         return true
+    }
+}
+
+private extension NSResponder {
+    var browserPortalOwningView: NSView? {
+        if let editor = self as? NSTextView,
+           editor.isFieldEditor,
+           let editedView = editor.delegate as? NSView {
+            return editedView
+        }
+        return self as? NSView
     }
 }
 
@@ -978,9 +990,12 @@ private final class BrowserDropZoneOverlayView: NSView {
 struct BrowserPortalSearchOverlayConfiguration {
     let panelId: UUID
     let searchState: BrowserSearchState
+    let focusRequestGeneration: UInt64
+    let canApplyFocusRequest: (UInt64) -> Bool
     let onNext: () -> Void
     let onPrevious: () -> Void
     let onClose: () -> Void
+    let onFieldDidFocus: () -> Void
 }
 
 struct BrowserPaneDropContext: Equatable {
@@ -1420,23 +1435,63 @@ final class WindowBrowserSlotView: NSView {
         applyResolvedDropZoneOverlay()
     }
 
+    private func logSearchOverlayEvent(_ action: String, panelId: UUID?) {
+#if DEBUG
+        let firstResponderSummary: String = {
+            guard let firstResponder = window?.firstResponder else { return "nil" }
+            if let editor = firstResponder as? NSTextView, editor.isFieldEditor {
+                let delegateSummary = editor.delegate.map { String(describing: type(of: $0)) } ?? "nil"
+                return "fieldEditor(delegate=\(delegateSummary))"
+            }
+            return String(describing: type(of: firstResponder))
+        }()
+        dlog(
+            "browser.findbar.portal action=\(action) " +
+            "panel=\(panelId?.uuidString.prefix(5) ?? "nil") " +
+            "window=\(window?.windowNumber ?? -1) " +
+            "firstResponder=\(firstResponderSummary) " +
+            "hasOverlay=\(searchOverlayHostingView != nil ? 1 : 0)"
+        )
+#endif
+    }
+
     func setSearchOverlay(_ configuration: BrowserPortalSearchOverlayConfiguration?) {
         guard let configuration else {
+            logSearchOverlayEvent("remove", panelId: nil)
+            if let overlay = searchOverlayHostingView {
+                objc_setAssociatedObject(
+                    overlay,
+                    &cmuxBrowserSearchOverlayPanelIdAssociationKey,
+                    nil,
+                    .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+                )
+            }
             searchOverlayHostingView?.removeFromSuperview()
             searchOverlayHostingView = nil
             return
         }
 
+        logSearchOverlayEvent("set", panelId: configuration.panelId)
         let rootView = BrowserSearchOverlay(
             panelId: configuration.panelId,
             searchState: configuration.searchState,
+            focusRequestGeneration: configuration.focusRequestGeneration,
+            canApplyFocusRequest: configuration.canApplyFocusRequest,
             onNext: configuration.onNext,
             onPrevious: configuration.onPrevious,
-            onClose: configuration.onClose
+            onClose: configuration.onClose,
+            onFieldDidFocus: configuration.onFieldDidFocus
         )
 
         if let overlay = searchOverlayHostingView {
+            logSearchOverlayEvent("updateExisting", panelId: configuration.panelId)
             overlay.rootView = rootView
+            objc_setAssociatedObject(
+                overlay,
+                &cmuxBrowserSearchOverlayPanelIdAssociationKey,
+                configuration.panelId,
+                .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+            )
             if overlay.superview !== self {
                 overlay.removeFromSuperview()
                 addSubview(overlay)
@@ -1452,6 +1507,12 @@ final class WindowBrowserSlotView: NSView {
 
         let overlay = NSHostingView(rootView: rootView)
         overlay.translatesAutoresizingMaskIntoConstraints = false
+        objc_setAssociatedObject(
+            overlay,
+            &cmuxBrowserSearchOverlayPanelIdAssociationKey,
+            configuration.panelId,
+            .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+        )
         addSubview(overlay)
         NSLayoutConstraint.activate([
             overlay.topAnchor.constraint(equalTo: topAnchor),
@@ -1460,6 +1521,25 @@ final class WindowBrowserSlotView: NSView {
             overlay.trailingAnchor.constraint(equalTo: trailingAnchor),
         ])
         searchOverlayHostingView = overlay
+        logSearchOverlayEvent("create", panelId: configuration.panelId)
+    }
+
+    func searchOverlayPanelId(for responder: NSResponder) -> UUID? {
+        guard let overlay = searchOverlayHostingView,
+              let view = responder.browserPortalOwningView,
+              view.isDescendant(of: overlay) else {
+            return nil
+        }
+        return objc_getAssociatedObject(overlay, &cmuxBrowserSearchOverlayPanelIdAssociationKey) as? UUID
+    }
+
+    @discardableResult
+    func yieldSearchOverlayFocusIfOwned(by panelId: UUID, in window: NSWindow) -> Bool {
+        guard let firstResponder = window.firstResponder,
+              searchOverlayPanelId(for: firstResponder) == panelId else {
+            return false
+        }
+        return window.makeFirstResponder(nil)
     }
 
     func pinHostedWebView(_ webView: WKWebView) {
@@ -1872,7 +1952,9 @@ final class WindowBrowserPortal: NSObject {
         case (nil, nil):
             return true
         case let (lhs?, rhs?):
-            return lhs.panelId == rhs.panelId && lhs.searchState === rhs.searchState
+            return lhs.panelId == rhs.panelId &&
+                lhs.searchState === rhs.searchState &&
+                lhs.focusRequestGeneration == rhs.focusRequestGeneration
         default:
             return false
         }
@@ -2142,6 +2224,26 @@ final class WindowBrowserPortal: NSObject {
         entry.searchOverlay = configuration
         entriesByWebViewId[webViewId] = entry
         entry.containerView?.setSearchOverlay(configuration)
+    }
+
+    func searchOverlayPanelId(for responder: NSResponder) -> UUID? {
+        for entry in entriesByWebViewId.values {
+            if let panelId = entry.containerView?.searchOverlayPanelId(for: responder) {
+                return panelId
+            }
+        }
+        return nil
+    }
+
+    @discardableResult
+    func yieldSearchOverlayFocusIfOwned(by panelId: UUID) -> Bool {
+        guard let window else { return false }
+        for entry in entriesByWebViewId.values {
+            if entry.containerView?.yieldSearchOverlayFocusIfOwned(by: panelId, in: window) == true {
+                return true
+            }
+        }
+        return false
     }
 
     func updatePaneTopChromeHeight(forWebViewId webViewId: ObjectIdentifier, height: CGFloat) {
@@ -3029,6 +3131,19 @@ enum BrowserWindowPortalRegistry {
         guard let windowId = webViewToWindowId[webViewId],
               let portal = portalsByWindowId[windowId] else { return }
         portal.updateSearchOverlay(forWebViewId: webViewId, configuration: configuration)
+    }
+
+    static func searchOverlayPanelId(for responder: NSResponder, in window: NSWindow) -> UUID? {
+        let windowId = ObjectIdentifier(window)
+        guard let portal = portalsByWindowId[windowId] else { return nil }
+        return portal.searchOverlayPanelId(for: responder)
+    }
+
+    @discardableResult
+    static func yieldSearchOverlayFocusIfOwned(by panelId: UUID, in window: NSWindow) -> Bool {
+        let windowId = ObjectIdentifier(window)
+        guard let portal = portalsByWindowId[windowId] else { return false }
+        return portal.yieldSearchOverlayFocusIfOwned(by: panelId)
     }
 
     static func updatePaneTopChromeHeight(for webView: WKWebView, height: CGFloat) {
