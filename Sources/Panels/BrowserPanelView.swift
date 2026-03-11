@@ -3618,22 +3618,51 @@ struct WebViewRepresentable: NSViewRepresentable {
         }
 
         private static let hostedInspectorDividerHitExpansion: CGFloat = 6
-        private static let minimumHostedInspectorWidth: CGFloat = 120
+        private static let minimumHostedInspectorWidth: CGFloat = 1
         private var trackingArea: NSTrackingArea?
         private var activeDividerCursorKind: DividerCursorKind?
         private var hostedInspectorDividerDrag: HostedInspectorDividerDragState?
         private var preferredHostedInspectorWidth: CGFloat?
+        private var preferredHostedInspectorWidthFraction: CGFloat?
+        var onPreferredHostedInspectorWidthChanged: ((CGFloat, CGFloat?) -> Void)?
+        private var isHostedInspectorDividerDragActive = false
         private var isApplyingHostedInspectorLayout = false
+        private var hostedInspectorReapplyWorkItem: DispatchWorkItem?
+        private var lastHostedInspectorLayoutBoundsSize: NSSize?
 #if DEBUG
         private var lastLoggedHostedInspectorFrames: (page: NSRect, inspector: NSRect)?
         private var hasLoggedMissingHostedInspectorCandidate = false
 #endif
 
         deinit {
+            hostedInspectorReapplyWorkItem?.cancel()
             if let trackingArea {
                 removeTrackingArea(trackingArea)
             }
             clearActiveDividerCursor(restoreArrow: false)
+        }
+
+        private func recordPreferredHostedInspectorWidth(_ width: CGFloat, containerBounds: NSRect) {
+            preferredHostedInspectorWidth = width
+            guard containerBounds.width > 0 else {
+                preferredHostedInspectorWidthFraction = nil
+                onPreferredHostedInspectorWidthChanged?(width, nil)
+                return
+            }
+            preferredHostedInspectorWidthFraction = width / containerBounds.width
+            onPreferredHostedInspectorWidthChanged?(width, preferredHostedInspectorWidthFraction)
+        }
+
+        private func resolvedPreferredHostedInspectorWidth(in containerBounds: NSRect) -> CGFloat? {
+            if let preferredHostedInspectorWidthFraction, containerBounds.width > 0 {
+                return max(0, containerBounds.width * preferredHostedInspectorWidthFraction)
+            }
+            return preferredHostedInspectorWidth
+        }
+
+        func setPreferredHostedInspectorWidth(width: CGFloat?, widthFraction: CGFloat?) {
+            preferredHostedInspectorWidth = width
+            preferredHostedInspectorWidthFraction = widthFraction
         }
 
 #if DEBUG
@@ -3732,6 +3761,11 @@ struct WebViewRepresentable: NSViewRepresentable {
                 abs(lhs.height - rhs.height) <= epsilon
         }
 
+        private static func sizeApproximatelyEqual(_ lhs: NSSize, _ rhs: NSSize, epsilon: CGFloat = 0.5) -> Bool {
+            abs(lhs.width - rhs.width) <= epsilon &&
+                abs(lhs.height - rhs.height) <= epsilon
+        }
+
         private func currentGeometryState() -> GeometryState {
             GeometryState(
                 frame: frame,
@@ -3773,6 +3807,11 @@ struct WebViewRepresentable: NSViewRepresentable {
             localInlineSlotView?.isHidden = hidden
         }
 
+        func clearLocalInlineCallbacks() {
+            onPreferredHostedInspectorWidthChanged = nil
+            localInlineSlotView?.onHostedInspectorLayout = nil
+        }
+
         func releaseHostedWebViewConstraints() {
             NSLayoutConstraint.deactivate(hostedWebViewConstraints)
             hostedWebViewConstraints = []
@@ -3782,9 +3821,17 @@ struct WebViewRepresentable: NSViewRepresentable {
         func pinHostedWebView(_ webView: WKWebView, in container: NSView) {
             guard webView.superview === container else { return }
 
+            let hasCompanionWKSubviews = Self.hasWebKitCompanionSubview(
+                in: container,
+                primaryWebView: webView
+            )
+            let needsPlainWebViewFrameReset =
+                !hasCompanionWKSubviews &&
+                Self.frameDiffersFromBounds(webView.frame, bounds: container.bounds)
             let needsFrameHosting =
                 hostedWebView !== webView ||
                 !hostedWebViewConstraints.isEmpty ||
+                needsPlainWebViewFrameReset ||
                 !webView.translatesAutoresizingMaskIntoConstraints ||
                 webView.autoresizingMask != [.width, .height]
             guard needsFrameHosting else {
@@ -3799,12 +3846,35 @@ struct WebViewRepresentable: NSViewRepresentable {
 
             // WebKit's attached inspector does not reliably dock into a constraint-managed
             // WKWebView hierarchy on macOS. Host the moved webview with autoresizing and
-            // keep WebKit-owned page frames intact when DevTools is side-docked.
+            // preserve WebKit-managed split frames when docked DevTools siblings exist.
             webView.translatesAutoresizingMaskIntoConstraints = true
             webView.autoresizingMask = [.width, .height]
-            webView.frame = container.bounds
+            if !hasCompanionWKSubviews {
+                webView.frame = container.bounds
+            }
             needsLayout = true
             layoutSubtreeIfNeeded()
+        }
+
+        private static func frameDiffersFromBounds(_ frame: NSRect, bounds: NSRect, epsilon: CGFloat = 0.5) -> Bool {
+            abs(frame.minX - bounds.minX) > epsilon ||
+                abs(frame.minY - bounds.minY) > epsilon ||
+                abs(frame.width - bounds.width) > epsilon ||
+                abs(frame.height - bounds.height) > epsilon
+        }
+
+        private static func hasWebKitCompanionSubview(in host: NSView, primaryWebView: WKWebView) -> Bool {
+            var stack = host.subviews.filter { $0 !== primaryWebView }
+            while let current = stack.popLast() {
+                if current.isDescendant(of: primaryWebView) {
+                    continue
+                }
+                if String(describing: type(of: current)).contains("WK") {
+                    return true
+                }
+                stack.append(contentsOf: current.subviews)
+            }
+            return false
         }
 
         override func viewDidMoveToWindow() {
@@ -3812,7 +3882,7 @@ struct WebViewRepresentable: NSViewRepresentable {
             if window == nil {
                 clearActiveDividerCursor(restoreArrow: false)
             } else {
-                reapplyHostedInspectorDividerIfNeeded(reason: "viewDidMoveToWindow")
+                scheduleHostedInspectorDividerReapply(reason: "viewDidMoveToWindow")
             }
             window?.invalidateCursorRects(for: self)
             onDidMoveToWindow?()
@@ -3824,7 +3894,7 @@ struct WebViewRepresentable: NSViewRepresentable {
 
         override func viewDidMoveToSuperview() {
             super.viewDidMoveToSuperview()
-            reapplyHostedInspectorDividerIfNeeded(reason: "viewDidMoveToSuperview")
+            scheduleHostedInspectorDividerReapply(reason: "viewDidMoveToSuperview")
             notifyGeometryChangedIfNeeded()
 #if DEBUG
             debugLogHostedInspectorLayoutIfNeeded(reason: "viewDidMoveToSuperview")
@@ -3833,7 +3903,16 @@ struct WebViewRepresentable: NSViewRepresentable {
 
         override func layout() {
             super.layout()
-            reapplyHostedInspectorDividerIfNeeded(reason: "layout")
+            if let previousSize = lastHostedInspectorLayoutBoundsSize,
+               Self.sizeApproximatelyEqual(previousSize, bounds.size, epsilon: 0.5) {
+                notifyGeometryChangedIfNeeded()
+#if DEBUG
+                debugLogHostedInspectorLayoutIfNeeded(reason: "layout")
+#endif
+                return
+            }
+            lastHostedInspectorLayoutBoundsSize = bounds.size
+            captureHostedInspectorPreferredWidthFromCurrentLayout(reason: "host.layout")
             notifyGeometryChangedIfNeeded()
 #if DEBUG
             debugLogHostedInspectorLayoutIfNeeded(reason: "layout")
@@ -3843,7 +3922,6 @@ struct WebViewRepresentable: NSViewRepresentable {
         override func setFrameOrigin(_ newOrigin: NSPoint) {
             super.setFrameOrigin(newOrigin)
             window?.invalidateCursorRects(for: self)
-            reapplyHostedInspectorDividerIfNeeded(reason: "setFrameOrigin")
             notifyGeometryChangedIfNeeded()
 #if DEBUG
             debugLogHostedInspectorLayoutIfNeeded(reason: "setFrameOrigin")
@@ -3853,7 +3931,6 @@ struct WebViewRepresentable: NSViewRepresentable {
         override func setFrameSize(_ newSize: NSSize) {
             super.setFrameSize(newSize)
             window?.invalidateCursorRects(for: self)
-            reapplyHostedInspectorDividerIfNeeded(reason: "setFrameSize")
             notifyGeometryChangedIfNeeded()
 #if DEBUG
             debugLogHostedInspectorLayoutIfNeeded(reason: "setFrameSize")
@@ -3934,6 +4011,7 @@ struct WebViewRepresentable: NSViewRepresentable {
                 return
             }
 
+            isHostedInspectorDividerDragActive = true
             hostedInspectorDividerDrag = HostedInspectorDividerDragState(
                 containerView: hostedInspectorHit.containerView,
                 pageView: hostedInspectorHit.pageView,
@@ -3955,10 +4033,7 @@ struct WebViewRepresentable: NSViewRepresentable {
             }
 
             let containerBounds = dragState.containerView.bounds
-            let minimumInspectorWidth = min(
-                Self.minimumHostedInspectorWidth,
-                max(60, dragState.initialInspectorFrame.width)
-            )
+            let minimumInspectorWidth = Self.minimumHostedInspectorWidth
             let initialDividerX = dragState.dockSide.dividerX(
                 pageFrame: dragState.initialPageFrame,
                 inspectorFrame: dragState.initialInspectorFrame
@@ -3974,7 +4049,7 @@ struct WebViewRepresentable: NSViewRepresentable {
                 forDividerX: clampedDividerX,
                 in: containerBounds
             )
-            preferredHostedInspectorWidth = inspectorWidth
+            recordPreferredHostedInspectorWidth(inspectorWidth, containerBounds: containerBounds)
             _ = applyHostedInspectorDividerWidth(
                 inspectorWidth,
                 to: HostedInspectorDividerHit(
@@ -4011,6 +4086,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         override func mouseUp(with event: NSEvent) {
             let finalDragState = hostedInspectorDividerDrag
             hostedInspectorDividerDrag = nil
+            isHostedInspectorDividerDragActive = false
             updateDividerCursor(at: convert(event.locationInWindow, from: nil))
             scheduleHostedInspectorDividerReapply(reason: "dragEndAsync")
 #if DEBUG
@@ -4028,7 +4104,7 @@ struct WebViewRepresentable: NSViewRepresentable {
                 )
                 DispatchQueue.main.async { [weak self] in
                     guard let self else { return }
-                    self.reapplyHostedInspectorDividerIfNeeded(reason: "drag.end.async")
+                    self.captureHostedInspectorPreferredWidthFromCurrentLayout(reason: "drag.end.async")
                     self.debugLogHostedInspectorFrames(stage: "drag.end.async", hit: finalHit)
                     self.debugLogHostedInspectorLayoutIfNeeded(reason: "dragEndAsync")
                 }
@@ -4202,32 +4278,64 @@ struct WebViewRepresentable: NSViewRepresentable {
             return (overlap * 1_000) + coverageWidth + pageView.frame.width
         }
 
-        private func scheduleHostedInspectorDividerReapply(reason: String) {
-            guard preferredHostedInspectorWidth != nil else { return }
-            DispatchQueue.main.async { [weak self] in
-                self?.reapplyHostedInspectorDividerIfNeeded(reason: reason)
+        fileprivate func scheduleHostedInspectorDividerReapply(reason: String) {
+            hostedInspectorReapplyWorkItem?.cancel()
+            let workItem = DispatchWorkItem { [weak self] in
+                guard let self else { return }
+                self.hostedInspectorReapplyWorkItem = nil
+                self.captureHostedInspectorPreferredWidthFromCurrentLayout(reason: reason)
             }
+            hostedInspectorReapplyWorkItem = workItem
+            DispatchQueue.main.async(execute: workItem)
         }
 
-        private func reapplyHostedInspectorDividerIfNeeded(reason: String) {
+        private func captureHostedInspectorPreferredWidthFromCurrentLayout(reason: String) {
             guard !isApplyingHostedInspectorLayout else { return }
-            guard let preferredWidth = preferredHostedInspectorWidth else { return }
+            guard !isHostedInspectorDividerDragActive else { return }
             guard let hit = hostedInspectorDividerCandidate() else {
 #if DEBUG
                 if !hasLoggedMissingHostedInspectorCandidate {
                     hasLoggedMissingHostedInspectorCandidate = true
+                    let preferredWidthDesc = preferredHostedInspectorWidth.map {
+                        String(format: "%.1f", $0)
+                    } ?? "nil"
                     dlog(
-                        "browser.panel.hostedInspector stage=\(reason).reapplyMissingCandidate " +
-                        "host=\(Self.debugObjectID(self)) preferredWidth=\(String(format: "%.1f", preferredWidth))"
+                        "browser.panel.hostedInspector stage=\(reason).captureMissingCandidate " +
+                        "host=\(Self.debugObjectID(self)) preferredWidth=\(preferredWidthDesc)"
                     )
                 }
 #endif
                 return
             }
+
+            let inspectorWidth = max(0, hit.inspectorView.frame.width)
+            guard inspectorWidth > 1 else { return }
+            let currentFraction: CGFloat? = {
+                guard hit.containerView.bounds.width > 0 else { return nil }
+                return inspectorWidth / hit.containerView.bounds.width
+            }()
+            let widthMatches = preferredHostedInspectorWidth.map {
+                abs($0 - inspectorWidth) <= 0.5
+            } ?? false
+            let fractionMatches: Bool = {
+                switch (preferredHostedInspectorWidthFraction, currentFraction) {
+                case (nil, nil):
+                    return true
+                case let (lhs?, rhs?):
+                    return abs(lhs - rhs) <= 0.001
+                default:
+                    return false
+                }
+            }()
+            guard !(widthMatches && fractionMatches) else { return }
+
 #if DEBUG
             hasLoggedMissingHostedInspectorCandidate = false
 #endif
-            _ = applyHostedInspectorDividerWidth(preferredWidth, to: hit, reason: reason)
+            recordPreferredHostedInspectorWidth(
+                inspectorWidth,
+                containerBounds: hit.containerView.bounds
+            )
         }
 
         @discardableResult
@@ -4241,13 +4349,16 @@ struct WebViewRepresentable: NSViewRepresentable {
                 preferredWidth: preferredWidth,
                 in: containerBounds,
                 pageFrame: hit.pageView.frame,
-                inspectorFrame: hit.inspectorView.frame
+                inspectorFrame: hit.inspectorView.frame,
+                minimumInspectorWidth: 0
             )
             let pageFrame = nextFrames.pageFrame
             let inspectorFrame = nextFrames.inspectorFrame
 
-            let pageChanged = !Self.rectApproximatelyEqual(pageFrame, hit.pageView.frame, epsilon: 0.5)
-            let inspectorChanged = !Self.rectApproximatelyEqual(inspectorFrame, hit.inspectorView.frame, epsilon: 0.5)
+            let oldPageFrame = hit.pageView.frame
+            let oldInspectorFrame = hit.inspectorView.frame
+            let pageChanged = !Self.rectApproximatelyEqual(pageFrame, oldPageFrame, epsilon: 0.5)
+            let inspectorChanged = !Self.rectApproximatelyEqual(inspectorFrame, oldInspectorFrame, epsilon: 0.5)
             guard pageChanged || inspectorChanged else {
                 return (pageFrame, inspectorFrame)
             }
@@ -4260,14 +4371,14 @@ struct WebViewRepresentable: NSViewRepresentable {
             CATransaction.commit()
             isApplyingHostedInspectorLayout = false
 
-            hit.pageView.needsLayout = true
-            hit.inspectorView.needsLayout = true
-            hit.containerView.needsLayout = true
-            needsLayout = true
+            let isLiveDrag = reason == "drag"
 #if DEBUG
             dlog(
                 "browser.panel.hostedInspector stage=\(reason).reapply " +
                 "host=\(Self.debugObjectID(self)) preferredWidth=\(String(format: "%.1f", preferredWidth)) " +
+                "liveDrag=\(isLiveDrag ? 1 : 0) " +
+                "pageChanged=\(pageChanged ? 1 : 0) inspectorChanged=\(inspectorChanged ? 1 : 0) " +
+                "oldPage=\(Self.debugRect(oldPageFrame)) oldInspector=\(Self.debugRect(oldInspectorFrame)) " +
                 "container=\(Self.debugObjectID(hit.containerView)) " +
                 "pageFrame=\(Self.debugRect(pageFrame)) inspectorFrame=\(Self.debugRect(inspectorFrame))"
             )
@@ -4285,11 +4396,11 @@ struct WebViewRepresentable: NSViewRepresentable {
             return descendants
         }
 
-        private static func isInspectorView(_ view: NSView) -> Bool {
+        fileprivate static func isInspectorView(_ view: NSView) -> Bool {
             String(describing: type(of: view)).contains("WKInspector")
         }
 
-        private static func isVisibleHostedInspectorCandidate(_ view: NSView) -> Bool {
+        fileprivate static func isVisibleHostedInspectorCandidate(_ view: NSView) -> Bool {
             !view.isHidden &&
                 view.alphaValue > 0 &&
                 view.frame.width > 1 &&
@@ -4403,6 +4514,23 @@ struct WebViewRepresentable: NSViewRepresentable {
         guard let host = host as? HostContainerView else { return }
         host.onDidMoveToWindow = nil
         host.onGeometryChanged = nil
+        host.clearLocalInlineCallbacks()
+    }
+
+    private static func localInlineTransferRoot(for webView: WKWebView) -> NSView? {
+        var current = webView.superview
+        var last: NSView?
+        while let view = current {
+            if view is WindowBrowserSlotView {
+                return view
+            }
+            if view is HostContainerView {
+                break
+            }
+            last = view
+            current = view.superview
+        }
+        return last ?? webView.superview
     }
 
     private static func moveWebKitRelatedSubviewsIntoHostIfNeeded(
@@ -4414,7 +4542,12 @@ struct WebViewRepresentable: NSViewRepresentable {
         guard sourceSuperview !== container else { return }
         let relatedSubviews = sourceSuperview.subviews.filter { view in
             if view === primaryWebView { return true }
-            return String(describing: type(of: view)).contains("WK")
+            let className = String(describing: type(of: view))
+            guard className.contains("WK") else { return false }
+            if className.contains("WKInspector") {
+                return !view.isHidden && view.alphaValue > 0 && view.frame.width > 1 && view.frame.height > 1
+            }
+            return true
         }
         guard !relatedSubviews.isEmpty else { return }
 #if DEBUG
@@ -4470,6 +4603,10 @@ struct WebViewRepresentable: NSViewRepresentable {
     private func updateUsingLocalInlineHosting(_ nsView: NSView, context: Context, webView: WKWebView) -> Bool {
         guard let host = nsView as? HostContainerView else { return false }
         let slotView = host.ensureLocalInlineSlotView()
+        let isAlreadyInLocalHost =
+            webView.superview === slotView ||
+            (webView.superview?.isDescendant(of: slotView) ?? false)
+        let didAttachWebViewToLocalHost = !isAlreadyInLocalHost
 
         let coordinator = context.coordinator
         coordinator.desiredPortalVisibleInUI = false
@@ -4514,8 +4651,19 @@ struct WebViewRepresentable: NSViewRepresentable {
             return false
         }
 
-        if webView.superview !== slotView {
-            if let sourceSuperview = webView.superview {
+        host.onPreferredHostedInspectorWidthChanged = { [weak browserPanel = panel] width, _ in
+            guard let browserPanel else { return }
+            browserPanel.recordPreferredAttachedDeveloperToolsWidth(
+                width,
+                containerBounds: slotView.bounds
+            )
+        }
+        slotView.onHostedInspectorLayout = { [weak host] _ in
+            host?.scheduleHostedInspectorDividerReapply(reason: "slot.layout")
+        }
+
+        if didAttachWebViewToLocalHost {
+            if let sourceSuperview = Self.localInlineTransferRoot(for: webView) {
                 Self.moveWebKitRelatedSubviewsIntoHostIfNeeded(
                     from: sourceSuperview,
                     to: slotView,
@@ -4531,13 +4679,14 @@ struct WebViewRepresentable: NSViewRepresentable {
         host.pinHostedWebView(webView, in: slotView)
         coordinator.lastPortalHostId = nil
         coordinator.lastSynchronizedHostGeometryRevision = 0
-        panel.restoreDeveloperToolsAfterAttachIfNeeded()
-        webView.needsLayout = true
-        webView.layoutSubtreeIfNeeded()
-        slotView.layoutSubtreeIfNeeded()
-        host.displayIfNeeded()
-        slotView.displayIfNeeded()
-        webView.displayIfNeeded()
+        if didAttachWebViewToLocalHost {
+            panel.restoreDeveloperToolsAfterAttachIfNeeded()
+            webView.needsLayout = true
+            webView.layoutSubtreeIfNeeded()
+            slotView.layoutSubtreeIfNeeded()
+            host.layoutSubtreeIfNeeded()
+            host.scheduleHostedInspectorDividerReapply(reason: "localInline.update.sync")
+        }
 
 #if DEBUG
         Self.logDevToolsState(
