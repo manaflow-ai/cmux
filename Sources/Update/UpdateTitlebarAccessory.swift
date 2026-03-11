@@ -901,6 +901,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
 
 private struct NotificationsPopoverView: View {
     @ObservedObject var notificationStore: TerminalNotificationStore
+    @AppStorage(KeyboardShortcutSettings.Action.jumpToUnread.defaultsKey) private var jumpToUnreadShortcutData = Data()
     let onDismiss: () -> Void
 
     var body: some View {
@@ -910,6 +911,24 @@ private struct NotificationsPopoverView: View {
                     .font(.headline)
                 Spacer()
                 if !notificationStore.notifications.isEmpty {
+                    Button(action: jumpToLatestUnread) {
+                        HStack(spacing: 6) {
+                            Text(String(localized: "notifications.jumpToLatest", defaultValue: "Jump to Latest"))
+                            ShortcutAnnotation(
+                                text: jumpToUnreadShortcut.displayString,
+                                accessibilityIdentifier: "notificationsPopover.jumpToLatest.shortcut"
+                            )
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                    .accessibilityIdentifier("notificationsPopover.jumpToLatest")
+                    .safeHelp(
+                        KeyboardShortcutSettings.Action.jumpToUnread.tooltip(
+                            String(localized: "notifications.jumpToLatest", defaultValue: "Jump to Latest")
+                        )
+                    )
+                    .disabled(!hasUnreadNotifications)
+
                     Button(String(localized: "notifications.clearAll", defaultValue: "Clear All")) {
                         notificationStore.clearAll()
                     }
@@ -955,6 +974,32 @@ private struct NotificationsPopoverView: View {
 
     private func tabTitle(for tabId: UUID) -> String? {
         AppDelegate.shared?.tabTitle(for: tabId)
+    }
+
+    private var jumpToUnreadShortcut: StoredShortcut {
+        decodeShortcut(
+            from: jumpToUnreadShortcutData,
+            fallback: KeyboardShortcutSettings.Action.jumpToUnread.defaultShortcut
+        )
+    }
+
+    private var hasUnreadNotifications: Bool {
+        notificationStore.notifications.contains(where: { !$0.isRead })
+    }
+
+    private func decodeShortcut(from data: Data, fallback: StoredShortcut) -> StoredShortcut {
+        guard !data.isEmpty,
+              let shortcut = try? JSONDecoder().decode(StoredShortcut.self, from: data) else {
+            return fallback
+        }
+        return shortcut
+    }
+
+    private func jumpToLatestUnread() {
+        DispatchQueue.main.async {
+            AppDelegate.shared?.jumpToLatestUnread()
+            onDismiss()
+        }
     }
 
     private func open(_ notification: TerminalNotification) {
