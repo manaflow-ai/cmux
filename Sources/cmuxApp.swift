@@ -2857,6 +2857,22 @@ struct SettingsView: View {
     private var interceptTerminalOpenCommandInCmuxBrowser = BrowserLinkOpenSettings.initialInterceptTerminalOpenCommandInCmuxBrowserValue()
     @AppStorage(BrowserLinkOpenSettings.browserHostWhitelistKey) private var browserHostWhitelist = BrowserLinkOpenSettings.defaultBrowserHostWhitelist
     @AppStorage(BrowserLinkOpenSettings.browserHostListModeKey) private var browserHostListMode = BrowserLinkOpenSettings.defaultBrowserHostListMode
+
+    private var resolvedBrowserHostListMode: BrowserLinkOpenSettings.HostListMode {
+        BrowserLinkOpenSettings.HostListMode(rawValue: browserHostListMode) ?? .whitelist
+    }
+
+    private var browserHostListModeSelection: Binding<String> {
+        Binding(
+            get: { resolvedBrowserHostListMode.rawValue },
+            set: { newValue in
+                browserHostListMode =
+                    BrowserLinkOpenSettings.HostListMode(rawValue: newValue)?.rawValue
+                    ?? BrowserLinkOpenSettings.defaultBrowserHostListMode
+            }
+        )
+    }
+
     @AppStorage(BrowserLinkOpenSettings.browserExternalOpenPatternsKey)
     private var browserExternalOpenPatterns = BrowserLinkOpenSettings.defaultBrowserExternalOpenPatterns
     @AppStorage(BrowserInsecureHTTPSettings.allowlistKey) private var browserInsecureHTTPAllowlist = BrowserInsecureHTTPSettings.defaultAllowlistText
@@ -3789,7 +3805,7 @@ struct SettingsView: View {
                                 String(localized: "settings.browser.hostListMode", defaultValue: "Host List Mode"),
                                 subtitle: String(localized: "settings.browser.hostListMode.subtitle", defaultValue: "Whitelist: only listed hosts open in cmux. Blacklist: listed hosts always open in your default browser.")
                             ) {
-                                Picker("", selection: $browserHostListMode) {
+                                Picker("", selection: browserHostListModeSelection) {
                                     Text(String(localized: "settings.browser.hostListMode.whitelist", defaultValue: "Whitelist"))
                                         .tag(BrowserLinkOpenSettings.HostListMode.whitelist.rawValue)
                                     Text(String(localized: "settings.browser.hostListMode.blacklist", defaultValue: "Blacklist"))
@@ -3804,10 +3820,10 @@ struct SettingsView: View {
 
                             VStack(alignment: .leading, spacing: 6) {
                                 SettingsCardRow(
-                                    browserHostListMode == BrowserLinkOpenSettings.HostListMode.blacklist.rawValue
+                                    resolvedBrowserHostListMode == .blacklist
                                         ? String(localized: "settings.browser.hostBlacklist", defaultValue: "Hosts to Block from Embedded Browser")
                                         : String(localized: "settings.browser.hostWhitelist", defaultValue: "Hosts to Open in Embedded Browser"),
-                                    subtitle: browserHostListMode == BrowserLinkOpenSettings.HostListMode.blacklist.rawValue
+                                    subtitle: resolvedBrowserHostListMode == .blacklist
                                         ? String(localized: "settings.browser.hostBlacklist.subtitle", defaultValue: "Applies to terminal link clicks and intercepted `open https://...` calls. These hosts always open in your default browser. All other hosts open in cmux. One host or wildcard per line (for example: example.com, *.internal.example). Leave empty to open all hosts in cmux.")
                                         : String(localized: "settings.browser.hostWhitelist.subtitle", defaultValue: "Applies to terminal link clicks and intercepted `open https://...` calls. Only these hosts open in cmux. Others open in your default browser. One host or wildcard per line (for example: example.com, *.internal.example). Leave empty to open all hosts in cmux.")
                                 ) {
