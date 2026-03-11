@@ -2481,6 +2481,18 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         return (panel, inspector)
     }
 
+    private func findHostContainerView(in root: NSView) -> WebViewRepresentable.HostContainerView? {
+        if let host = root as? WebViewRepresentable.HostContainerView {
+            return host
+        }
+        for subview in root.subviews {
+            if let host = findHostContainerView(in: subview) {
+                return host
+            }
+        }
+        return nil
+    }
+
     func testRestoreReopensInspectorAfterAttachWhenPreferredVisible() {
         let (panel, inspector) = makePanelWithInspector()
 
@@ -2690,6 +2702,89 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         host.addSubview(inspectorContainer)
 
         XCTAssertTrue(panel.shouldPreserveWebViewAttachmentDuringTransientHide())
+    }
+
+    func testOffWindowReplacementLocalHostDoesNotStealVisibleDevToolsWebView() {
+        let (panel, _) = makePanelWithInspector()
+        XCTAssertTrue(panel.showDeveloperTools())
+
+        let paneId = PaneID(id: UUID())
+        let representable = WebViewRepresentable(
+            panel: panel,
+            paneId: paneId,
+            shouldAttachWebView: false,
+            useLocalInlineHosting: true,
+            shouldFocusWebView: false,
+            isPanelFocused: true,
+            portalZPriority: 0,
+            paneDropZone: nil,
+            searchOverlay: nil,
+            paneTopChromeHeight: 0
+        )
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let visibleHosting = NSHostingView(rootView: representable)
+        visibleHosting.frame = contentView.bounds
+        visibleHosting.autoresizingMask = [.width, .height]
+        contentView.addSubview(visibleHosting)
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        visibleHosting.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        guard let visibleHost = findHostContainerView(in: visibleHosting) else {
+            XCTFail("Expected visible local host")
+            return
+        }
+        guard let visibleSlot = panel.webView.superview as? WindowBrowserSlotView else {
+            XCTFail("Expected visible local inline slot")
+            return
+        }
+
+        let inspectorView = WKInspectorProbeView(
+            frame: NSRect(x: 0, y: 0, width: visibleSlot.bounds.width, height: 72)
+        )
+        inspectorView.autoresizingMask = [.width]
+        visibleSlot.addSubview(inspectorView)
+        panel.webView.frame = NSRect(
+            x: 0,
+            y: inspectorView.frame.maxY,
+            width: visibleSlot.bounds.width,
+            height: visibleSlot.bounds.height - inspectorView.frame.height
+        )
+        visibleSlot.layoutSubtreeIfNeeded()
+
+        let detachedRoot = NSView(frame: visibleHosting.frame)
+        let offWindowHosting = NSHostingView(rootView: representable)
+        offWindowHosting.frame = detachedRoot.bounds
+        offWindowHosting.autoresizingMask = [.width, .height]
+        detachedRoot.addSubview(offWindowHosting)
+        detachedRoot.layoutSubtreeIfNeeded()
+        offWindowHosting.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        XCTAssertNotNil(findHostContainerView(in: offWindowHosting), "Expected off-window replacement host")
+        XCTAssertTrue(visibleHost.window === window)
+        XCTAssertTrue(
+            panel.webView.superview === visibleSlot,
+            "An off-window replacement host should not steal a visible DevTools-hosted web view during split zoom churn"
+        )
+        XCTAssertTrue(
+            inspectorView.superview === visibleSlot,
+            "An off-window replacement host should leave DevTools companion views in the visible local host"
+        )
     }
 }
 
