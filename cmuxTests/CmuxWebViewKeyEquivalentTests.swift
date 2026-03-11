@@ -9465,6 +9465,33 @@ final class BrowserPanelHostContainerViewTests: XCTestCase {
         XCTAssertEqual(webView.autoresizingMask, [.width, .height])
         XCTAssertEqual(webView.frame, slot.bounds)
     }
+
+    func testWindowBrowserSlotReattachesPlainWebViewAtFullBoundsAfterHiddenHostResize() {
+        let slot = WindowBrowserSlotView(frame: NSRect(x: 0, y: 0, width: 400, height: 180))
+        let webView = WKWebView(frame: .zero)
+        slot.addSubview(webView)
+        slot.pinHostedWebView(webView)
+        XCTAssertEqual(webView.frame, slot.bounds)
+
+        let externalHost = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 180))
+        webView.removeFromSuperview()
+        externalHost.addSubview(webView)
+        webView.frame = externalHost.bounds
+        webView.translatesAutoresizingMaskIntoConstraints = true
+        webView.autoresizingMask = [.width, .height]
+
+        slot.addSubview(webView)
+        slot.pinHostedWebView(webView)
+
+        slot.frame = NSRect(x: 0, y: 0, width: 300, height: 180)
+        slot.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(
+            webView.frame,
+            slot.bounds,
+            "Reattaching a plain web view should restore full-bounds hosting instead of preserving a stale inset frame from a hidden host"
+        )
+    }
 }
 
 @MainActor
@@ -11471,7 +11498,9 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         localInlineSlot.layoutSubtreeIfNeeded()
 
         anchor.frame = NSRect(x: 40, y: 24, width: 220, height: 180)
+        localInlineSlot.frame = anchor.frame
         contentView.layoutSubtreeIfNeeded()
+        localInlineSlot.layoutSubtreeIfNeeded()
         portal.synchronizeWebViewForAnchor(anchor)
 
         XCTAssertTrue(
