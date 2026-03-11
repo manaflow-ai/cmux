@@ -167,17 +167,18 @@ enum HostedInspectorDockSide {
         preferredWidth: CGFloat,
         in containerBounds: NSRect,
         pageFrame: NSRect,
-        inspectorFrame: NSRect
+        inspectorFrame: NSRect,
+        minimumInspectorWidth _: CGFloat
     ) -> (pageFrame: NSRect, inspectorFrame: NSRect) {
         switch self {
         case .leading:
-            let maximumInspectorWidth = max(0, pageFrame.maxX - containerBounds.minX)
+            let maximumInspectorWidth = max(0, containerBounds.width)
             let clampedInspectorWidth = max(0, min(maximumInspectorWidth, preferredWidth))
-            let dividerX = min(pageFrame.maxX, containerBounds.minX + clampedInspectorWidth)
+            let dividerX = min(containerBounds.maxX, containerBounds.minX + clampedInspectorWidth)
 
             var nextPageFrame = pageFrame
             nextPageFrame.origin.x = dividerX
-            nextPageFrame.size.width = max(0, pageFrame.maxX - dividerX)
+            nextPageFrame.size.width = max(0, containerBounds.maxX - dividerX)
 
             var nextInspectorFrame = inspectorFrame
             nextInspectorFrame.origin.x = containerBounds.minX
@@ -185,12 +186,13 @@ enum HostedInspectorDockSide {
             return (pageFrame: nextPageFrame, inspectorFrame: nextInspectorFrame)
 
         case .trailing:
-            let maximumInspectorWidth = max(0, containerBounds.maxX - pageFrame.minX)
+            let maximumInspectorWidth = max(0, containerBounds.width)
             let clampedInspectorWidth = max(0, min(maximumInspectorWidth, preferredWidth))
-            let dividerX = max(pageFrame.minX, containerBounds.maxX - clampedInspectorWidth)
+            let dividerX = max(containerBounds.minX, containerBounds.maxX - clampedInspectorWidth)
 
             var nextPageFrame = pageFrame
-            nextPageFrame.size.width = max(0, dividerX - pageFrame.minX)
+            nextPageFrame.origin.x = containerBounds.minX
+            nextPageFrame.size.width = max(0, dividerX - containerBounds.minX)
 
             var nextInspectorFrame = inspectorFrame
             nextInspectorFrame.origin.x = dividerX
@@ -252,6 +254,7 @@ final class WindowBrowserHostView: NSView {
     private var trackingArea: NSTrackingArea?
     private var activeDividerCursorKind: DividerCursorKind?
     private var hostedInspectorDividerDrag: HostedInspectorDividerDragState?
+    private var lastHostedInspectorLayoutBoundsSize: NSSize?
 
     deinit {
         if let trackingArea {
@@ -321,6 +324,11 @@ final class WindowBrowserHostView: NSView {
 
     override func layout() {
         super.layout()
+        if let previousSize = lastHostedInspectorLayoutBoundsSize,
+           Self.sizeApproximatelyEqual(previousSize, bounds.size, epsilon: 0.5) {
+            return
+        }
+        lastHostedInspectorLayoutBoundsSize = bounds.size
         reapplyHostedInspectorDividersIfNeeded(reason: "host.layout")
     }
 
@@ -499,6 +507,7 @@ final class WindowBrowserHostView: NSView {
             return
         }
 
+        hostedInspectorHit.slotView.isHostedInspectorDividerDragActive = true
         hostedInspectorDividerDrag = HostedInspectorDividerDragState(
             slotView: hostedInspectorHit.slotView,
             containerView: hostedInspectorHit.containerView,
@@ -526,6 +535,7 @@ final class WindowBrowserHostView: NSView {
             return
         }
         guard dragState.slotView.window === window else {
+            dragState.slotView.isHostedInspectorDividerDragActive = false
             hostedInspectorDividerDrag = nil
             super.mouseDragged(with: event)
             return
@@ -552,7 +562,7 @@ final class WindowBrowserHostView: NSView {
             in: containerBounds
         )
 
-        dragState.slotView.preferredHostedInspectorWidth = inspectorWidth
+        dragState.slotView.recordPreferredHostedInspectorWidth(inspectorWidth, containerBounds: containerBounds)
         let appliedFrames = applyHostedInspectorDividerWidth(
             inspectorWidth,
             to: HostedInspectorDividerHit(
@@ -587,6 +597,7 @@ final class WindowBrowserHostView: NSView {
 
     override func mouseUp(with event: NSEvent) {
         if let dragState = hostedInspectorDividerDrag {
+            dragState.slotView.isHostedInspectorDividerDragActive = false
 #if DEBUG
             dlog(
                 "browser.portal.manualInspectorDrag stage=end slot=\(browserPortalDebugToken(dragState.slotView)) " +
@@ -920,10 +931,24 @@ final class WindowBrowserHostView: NSView {
         }
     }
 
-    fileprivate func reapplyHostedInspectorDividerIfNeeded(in slot: WindowBrowserSlotView, reason: String) {
-        guard let preferredWidth = slot.preferredHostedInspectorWidth else { return }
-        guard let hit = hostedInspectorDividerCandidate(in: slot) else { return }
+    @discardableResult
+    fileprivate func reapplyHostedInspectorDividerIfNeeded(in slot: WindowBrowserSlotView, reason: String) -> Bool {
+        guard !slot.isHostedInspectorDividerDragActive else {
+#if DEBUG
+            dlog(
+                "browser.portal.manualInspectorDrag stage=skipReapply slot=\(browserPortalDebugToken(slot)) " +
+                "reason=\(reason)"
+            )
+#endif
+            return false
+        }
+        guard let preferredWidth = slot.resolvedPreferredHostedInspectorWidth(in: slot.bounds) else { return false }
+        guard let hit = hostedInspectorDividerCandidate(in: slot) else { return false }
+        let oldPageFrame = hit.pageView.frame
+        let oldInspectorFrame = hit.inspectorView.frame
         _ = applyHostedInspectorDividerWidth(preferredWidth, to: hit, reason: reason)
+        return !Self.rectApproximatelyEqual(oldPageFrame, hit.pageView.frame, epsilon: 0.5) ||
+            !Self.rectApproximatelyEqual(oldInspectorFrame, hit.inspectorView.frame, epsilon: 0.5)
     }
 
     @discardableResult
@@ -937,13 +962,16 @@ final class WindowBrowserHostView: NSView {
             preferredWidth: preferredWidth,
             in: containerBounds,
             pageFrame: hit.pageView.frame,
-            inspectorFrame: hit.inspectorView.frame
+            inspectorFrame: hit.inspectorView.frame,
+            minimumInspectorWidth: 0
         )
         let pageFrame = nextFrames.pageFrame
         let inspectorFrame = nextFrames.inspectorFrame
 
-        let pageChanged = !Self.rectApproximatelyEqual(pageFrame, hit.pageView.frame, epsilon: 0.5)
-        let inspectorChanged = !Self.rectApproximatelyEqual(inspectorFrame, hit.inspectorView.frame, epsilon: 0.5)
+        let oldPageFrame = hit.pageView.frame
+        let oldInspectorFrame = hit.inspectorView.frame
+        let pageChanged = !Self.rectApproximatelyEqual(pageFrame, oldPageFrame, epsilon: 0.5)
+        let inspectorChanged = !Self.rectApproximatelyEqual(inspectorFrame, oldInspectorFrame, epsilon: 0.5)
         guard pageChanged || inspectorChanged else {
             return (pageFrame, inspectorFrame)
         }
@@ -956,15 +984,23 @@ final class WindowBrowserHostView: NSView {
         CATransaction.commit()
         hit.slotView.isApplyingHostedInspectorLayout = false
 
-        hit.pageView.needsLayout = true
-        hit.inspectorView.needsLayout = true
-        hit.containerView.needsLayout = true
-        hit.slotView.needsLayout = true
+        let isLiveDrag = reason == "drag"
+        hit.pageView.needsDisplay = true
+        hit.pageView.setNeedsDisplay(hit.pageView.bounds)
+        hit.inspectorView.needsDisplay = true
+        hit.inspectorView.setNeedsDisplay(hit.inspectorView.bounds)
+        hit.containerView.needsDisplay = true
+        hit.containerView.setNeedsDisplay(hit.containerView.bounds)
+        hit.slotView.needsDisplay = true
+        hit.slotView.setNeedsDisplay(hit.slotView.bounds)
 #if DEBUG
         dlog(
             "browser.portal.manualInspectorDrag stage=reapply slot=\(browserPortalDebugToken(hit.slotView)) " +
             "container=\(browserPortalDebugToken(hit.containerView)) reason=\(reason) " +
             "preferredWidth=\(String(format: "%.1f", preferredWidth)) " +
+            "liveDrag=\(isLiveDrag ? 1 : 0) " +
+            "pageChanged=\(pageChanged ? 1 : 0) inspectorChanged=\(inspectorChanged ? 1 : 0) " +
+            "oldPageFrame=\(browserPortalDebugFrame(oldPageFrame)) oldInspectorFrame=\(browserPortalDebugFrame(oldInspectorFrame)) " +
             "pageFrame=\(browserPortalDebugFrame(pageFrame)) " +
             "inspectorFrame=\(browserPortalDebugFrame(inspectorFrame))"
         )
@@ -1040,6 +1076,11 @@ final class WindowBrowserHostView: NSView {
             abs(lhs.origin.y - rhs.origin.y) <= epsilon &&
             abs(lhs.size.width - rhs.size.width) <= epsilon &&
             abs(lhs.size.height - rhs.size.height) <= epsilon
+    }
+
+    private static func sizeApproximatelyEqual(_ lhs: NSSize, _ rhs: NSSize, epsilon: CGFloat = 0.01) -> Bool {
+        abs(lhs.width - rhs.width) <= epsilon &&
+            abs(lhs.height - rhs.height) <= epsilon
     }
 
     private static func visibleDescendants(in root: NSView) -> [NSView] {
@@ -1501,8 +1542,11 @@ final class WindowBrowserSlotView: NSView {
     private var isRefreshingInteractionLayers = false
     private var paneTopChromeHeight: CGFloat = 0
     var preferredHostedInspectorWidth: CGFloat?
+    private var preferredHostedInspectorWidthFraction: CGFloat?
+    fileprivate var isHostedInspectorDividerDragActive = false
     var onHostedInspectorLayout: ((WindowBrowserSlotView) -> Void)?
     fileprivate var isApplyingHostedInspectorLayout = false
+    private var lastHostedInspectorLayoutBoundsSize: NSSize?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -1532,6 +1576,11 @@ final class WindowBrowserSlotView: NSView {
         paneDropTargetView.frame = bounds
         applyResolvedDropZoneOverlay()
         guard !isApplyingHostedInspectorLayout else { return }
+        if let previousSize = lastHostedInspectorLayoutBoundsSize,
+           Self.sizeApproximatelyEqual(previousSize, bounds.size) {
+            return
+        }
+        lastHostedInspectorLayoutBoundsSize = bounds.size
         onHostedInspectorLayout?(self)
     }
 
@@ -1539,6 +1588,27 @@ final class WindowBrowserSlotView: NSView {
         super.viewDidMoveToSuperview()
         attachDropZoneOverlayIfNeeded()
         applyResolvedDropZoneOverlay()
+    }
+
+    func recordPreferredHostedInspectorWidth(_ width: CGFloat, containerBounds: NSRect) {
+        preferredHostedInspectorWidth = width
+        guard containerBounds.width > 0 else {
+            preferredHostedInspectorWidthFraction = nil
+            return
+        }
+        preferredHostedInspectorWidthFraction = width / containerBounds.width
+    }
+
+    func resolvedPreferredHostedInspectorWidth(in containerBounds: NSRect) -> CGFloat? {
+        if let preferredHostedInspectorWidthFraction, containerBounds.width > 0 {
+            return max(0, containerBounds.width * preferredHostedInspectorWidthFraction)
+        }
+        return preferredHostedInspectorWidth
+    }
+
+    private static func sizeApproximatelyEqual(_ lhs: NSSize, _ rhs: NSSize, epsilon: CGFloat = 0.5) -> Bool {
+        abs(lhs.width - rhs.width) <= epsilon &&
+            abs(lhs.height - rhs.height) <= epsilon
     }
 
     func setDropZoneOverlay(zone: DropZone?) {
@@ -2216,6 +2286,15 @@ final class WindowBrowserPortal: NSObject {
         phase: String
     ) {
         guard !containerView.isHidden else { return }
+        guard !containerView.isHostedInspectorDividerDragActive else {
+#if DEBUG
+            dlog(
+                "browser.portal.refresh.skip web=\(browserPortalDebugToken(webView)) " +
+                "container=\(browserPortalDebugToken(containerView)) reason=\(reason) phase=\(phase) drag=1"
+            )
+#endif
+            return
+        }
 
         containerView.needsLayout = true
         containerView.needsDisplay = true
@@ -2293,7 +2372,12 @@ final class WindowBrowserPortal: NSObject {
         // UI state does not get orphaned in the old host during split churn.
         let relatedSubviews = sourceSuperview.subviews.filter { view in
             if view === primaryWebView { return true }
-            return String(describing: type(of: view)).contains("WK")
+            let className = String(describing: type(of: view))
+            guard className.contains("WK") else { return false }
+            if className.contains("WKInspector") {
+                return !view.isHidden && view.alphaValue > 0 && view.frame.width > 1 && view.frame.height > 1
+            }
+            return true
         }
         guard !relatedSubviews.isEmpty else { return }
 #if DEBUG
@@ -3048,15 +3132,30 @@ final class WindowBrowserPortal: NSObject {
         if transientRecoveryReason == nil {
             resetTransientRecoveryRetryIfNeeded(forWebViewId: webViewId, entry: &entry)
         }
-        if !shouldHide, containerOwnsWebView, !refreshReasons.isEmpty {
-            refreshHostedWebViewPresentation(
-                webView,
-                in: containerView,
-                reason: "\(source):" + refreshReasons.joined(separator: ",")
-            )
-        }
-        if containerOwnsWebView {
+        let hostedInspectorAdjustedDuringSync =
+            containerOwnsWebView &&
             hostView.reapplyHostedInspectorDividerIfNeeded(in: containerView, reason: "portal.sync")
+        if !shouldHide, containerOwnsWebView, !refreshReasons.isEmpty {
+            if hostedInspectorAdjustedDuringSync {
+#if DEBUG
+                dlog(
+                    "browser.portal.refresh.skip web=\(browserPortalDebugToken(webView)) " +
+                    "container=\(browserPortalDebugToken(containerView)) reason=\(source):" +
+                    "\(refreshReasons.joined(separator: ",")) adjustedDuringSync=1"
+                )
+#endif
+            } else {
+                refreshHostedWebViewPresentation(
+                    webView,
+                    in: containerView,
+                    reason: "\(source):" + refreshReasons.joined(separator: ",")
+                )
+            }
+        }
+        if containerOwnsWebView, !hostedInspectorAdjustedDuringSync {
+            // Keep the existing post-sync pass for cases where the inspector candidate
+            // appears only after WebKit settles, but avoid a second apply when sync already clamped it.
+            _ = hostView.reapplyHostedInspectorDividerIfNeeded(in: containerView, reason: "portal.sync.postRefresh")
         }
 #if DEBUG
         dlog(
@@ -3068,6 +3167,7 @@ final class WindowBrowserPortal: NSObject {
             "target=\(browserPortalDebugFrame(targetFrame)) hide=\(shouldHide ? 1 : 0) " +
             "entryVisible=\(entry.visibleInUI ? 1 : 0) " +
             "containerOwnsWeb=\(containerOwnsWebView ? 1 : 0) " +
+            "inspectorAdjusted=\(hostedInspectorAdjustedDuringSync ? 1 : 0) " +
             "containerHidden=\(containerView.isHidden ? 1 : 0) webHidden=\(webView.isHidden ? 1 : 0) " +
             "containerBounds=\(browserPortalDebugFrame(containerView.bounds)) " +
             "preWebFrame=\(browserPortalDebugFrame(preNormalizeWebFrame)) " +
