@@ -570,6 +570,7 @@ class TabManager: ObservableObject {
     @Published var tabs: [Workspace] = []
     @Published private(set) var isWorkspaceCycleHot: Bool = false
     @Published private(set) var pendingBackgroundWorkspaceLoadIds: Set<UUID> = []
+    @Published private(set) var debugPinnedWorkspaceLoadIds: Set<UUID> = []
 
     /// Global monotonically increasing counter for CMUX_PORT ordinal assignment.
     /// Static so port ranges don't overlap across multiple windows (each window has its own TabManager).
@@ -1059,10 +1060,25 @@ class TabManager: ObservableObject {
         guard pendingBackgroundWorkspaceLoadIds.remove(workspaceId) != nil else { return }
     }
 
+    func retainDebugWorkspaceLoads(for workspaceIds: Set<UUID>) {
+        guard !workspaceIds.isEmpty else { return }
+        debugPinnedWorkspaceLoadIds.formUnion(workspaceIds)
+    }
+
+    func releaseDebugWorkspaceLoads(for workspaceIds: Set<UUID>) {
+        guard !workspaceIds.isEmpty else { return }
+        debugPinnedWorkspaceLoadIds.subtract(workspaceIds)
+    }
+
     func pruneBackgroundWorkspaceLoads(existingIds: Set<UUID>) {
         let pruned = pendingBackgroundWorkspaceLoadIds.intersection(existingIds)
-        guard pruned != pendingBackgroundWorkspaceLoadIds else { return }
-        pendingBackgroundWorkspaceLoadIds = pruned
+        if pruned != pendingBackgroundWorkspaceLoadIds {
+            pendingBackgroundWorkspaceLoadIds = pruned
+        }
+        let retained = debugPinnedWorkspaceLoadIds.intersection(existingIds)
+        if retained != debugPinnedWorkspaceLoadIds {
+            debugPinnedWorkspaceLoadIds = retained
+        }
     }
 
     // Keep addTab as convenience alias
