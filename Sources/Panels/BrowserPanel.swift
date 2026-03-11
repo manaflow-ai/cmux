@@ -3289,6 +3289,7 @@ extension BrowserPanel {
     }
 
     func noteWebViewFocused() {
+        guard searchState == nil else { return }
         guard preferredFocusIntent != .webView else { return }
         preferredFocusIntent = .webView
         invalidateSearchFocusRequests(reason: "webViewFocused")
