@@ -1676,8 +1676,7 @@ final class WindowBrowserSlotView: NSView {
             hostedWebView !== webView ||
             !hostedWebViewConstraints.isEmpty ||
             !webView.translatesAutoresizingMaskIntoConstraints ||
-            webView.autoresizingMask != [.width, .height] ||
-            !Self.rectApproximatelyEqual(webView.frame, bounds)
+            webView.autoresizingMask != [.width, .height]
         guard needsFrameHosting else {
             needsLayout = true
             layoutSubtreeIfNeeded()
@@ -1688,7 +1687,8 @@ final class WindowBrowserSlotView: NSView {
         hostedWebViewConstraints = []
         hostedWebView = webView
         // Attached Web Inspector mutates the moved WKWebView's frame directly.
-        // Edge constraints fight side-docked resizing and cause visible churn.
+        // Re-pin only when hosting mode changes, not when WebKit resizes the page
+        // inside the slot for side-docked DevTools.
         webView.translatesAutoresizingMaskIntoConstraints = true
         webView.autoresizingMask = [.width, .height]
         webView.frame = bounds
