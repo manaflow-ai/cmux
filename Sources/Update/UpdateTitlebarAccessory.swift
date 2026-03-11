@@ -914,8 +914,6 @@ private struct NotificationsPopoverView: View {
                     HStack(spacing: 6) {
                         Text(String(localized: "notifications.jumpToLatest", defaultValue: "Jump to Latest"))
                         Text(jumpToUnreadShortcut.displayString)
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.secondary)
                     }
                 }
                 .buttonStyle(.bordered)
