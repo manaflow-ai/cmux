@@ -5,6 +5,8 @@ import SwiftUI
 struct BrowserSearchOverlay: View {
     let panelId: UUID
     @ObservedObject var searchState: BrowserSearchState
+    let focusRequestGeneration: UInt64
+    let canApplyFocusRequest: (UInt64) -> Bool
     let onNext: () -> Void
     let onPrevious: () -> Void
     let onClose: () -> Void
@@ -42,15 +44,31 @@ struct BrowserSearchOverlay: View {
 
     private func requestSearchFieldFocus(maxAttempts: Int = 3, origin: String) {
         guard maxAttempts > 0 else { return }
+        guard canApplyFocusRequest(focusRequestGeneration) else {
+#if DEBUG
+            logFocusState("request.skip origin=\(origin) generation=\(focusRequestGeneration)")
+#endif
+            return
+        }
         logFocusState("request.begin origin=\(origin) remaining=\(maxAttempts)")
         isSearchFieldFocused = true
 #if DEBUG
         DispatchQueue.main.async {
+            guard canApplyFocusRequest(focusRequestGeneration) else {
+                logFocusState("request.skipAsync origin=\(origin) generation=\(focusRequestGeneration)")
+                return
+            }
             logFocusState("request.afterAsync origin=\(origin) remaining=\(maxAttempts)")
         }
 #endif
         guard maxAttempts > 1 else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            guard canApplyFocusRequest(focusRequestGeneration) else {
+#if DEBUG
+                logFocusState("request.skipRetry origin=\(origin) generation=\(focusRequestGeneration)")
+#endif
+                return
+            }
             requestSearchFieldFocus(maxAttempts: maxAttempts - 1, origin: origin)
         }
     }

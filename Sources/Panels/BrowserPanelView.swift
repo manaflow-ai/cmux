@@ -338,6 +338,10 @@ struct BrowserPanelView: View {
                 BrowserSearchOverlay(
                     panelId: panel.id,
                     searchState: searchState,
+                    focusRequestGeneration: panel.searchFocusRequestGeneration,
+                    canApplyFocusRequest: { generation in
+                        panel.canApplySearchFocusRequest(generation)
+                    },
                     onNext: { panel.findNext() },
                     onPrevious: { panel.findPrevious() },
                     onClose: { panel.hideFind() },
@@ -817,6 +821,10 @@ struct BrowserPanelView: View {
                         BrowserPortalSearchOverlayConfiguration(
                             panelId: panel.id,
                             searchState: searchState,
+                            focusRequestGeneration: panel.searchFocusRequestGeneration,
+                            canApplyFocusRequest: { generation in
+                                panel.canApplySearchFocusRequest(generation)
+                            },
                             onNext: { panel.findNext() },
                             onPrevious: { panel.findPrevious() },
                             onClose: { panel.hideFind() },
