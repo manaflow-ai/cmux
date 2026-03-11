@@ -3993,9 +3993,9 @@ struct WebViewRepresentable: NSViewRepresentable {
                     return nativeHit
                 }
 #if DEBUG
-                debugLogHitTest(stage: "hitTest.hostedInspectorManual", point: point, passThrough: false, hitView: hostedInspectorHit.inspectorView)
+                debugLogHitTest(stage: "hitTest.hostedInspectorFallback", point: point, passThrough: false, hitView: hostedInspectorHit.inspectorView)
 #endif
-                return self
+                return hostedInspectorHit.inspectorView
             }
             let hit = super.hitTest(point)
 #if DEBUG
@@ -4005,111 +4005,17 @@ struct WebViewRepresentable: NSViewRepresentable {
         }
 
         override func mouseDown(with event: NSEvent) {
-            let point = convert(event.locationInWindow, from: nil)
-            guard let hostedInspectorHit = hostedInspectorDividerHit(at: point) else {
-                super.mouseDown(with: event)
-                return
-            }
-
-            isHostedInspectorDividerDragActive = true
-            hostedInspectorDividerDrag = HostedInspectorDividerDragState(
-                containerView: hostedInspectorHit.containerView,
-                pageView: hostedInspectorHit.pageView,
-                inspectorView: hostedInspectorHit.inspectorView,
-                dockSide: hostedInspectorHit.dockSide,
-                initialWindowX: event.locationInWindow.x,
-                initialPageFrame: hostedInspectorHit.pageView.frame,
-                initialInspectorFrame: hostedInspectorHit.inspectorView.frame
-            )
-#if DEBUG
-            debugLogHostedInspectorFrames(stage: "drag.start", point: point, hit: hostedInspectorHit)
-#endif
+            super.mouseDown(with: event)
         }
 
         override func mouseDragged(with event: NSEvent) {
-            guard let dragState = hostedInspectorDividerDrag else {
-                super.mouseDragged(with: event)
-                return
-            }
-
-            let containerBounds = dragState.containerView.bounds
-            let minimumInspectorWidth = Self.minimumHostedInspectorWidth
-            let initialDividerX = dragState.dockSide.dividerX(
-                pageFrame: dragState.initialPageFrame,
-                inspectorFrame: dragState.initialInspectorFrame
-            )
-            let proposedDividerX = initialDividerX + (event.locationInWindow.x - dragState.initialWindowX)
-            let clampedDividerX = dragState.dockSide.clampedDividerX(
-                proposedDividerX,
-                containerBounds: containerBounds,
-                pageFrame: dragState.initialPageFrame,
-                minimumInspectorWidth: minimumInspectorWidth
-            )
-            let inspectorWidth = dragState.dockSide.inspectorWidth(
-                forDividerX: clampedDividerX,
-                in: containerBounds
-            )
-            recordPreferredHostedInspectorWidth(inspectorWidth, containerBounds: containerBounds)
-            _ = applyHostedInspectorDividerWidth(
-                inspectorWidth,
-                to: HostedInspectorDividerHit(
-                    containerView: dragState.containerView,
-                    pageView: dragState.pageView,
-                    inspectorView: dragState.inspectorView,
-                    dockSide: dragState.dockSide
-                ),
-                reason: "drag"
-            )
-#if DEBUG
-            debugLogHostedInspectorFrames(
-                stage: "drag.update",
-                point: convert(event.locationInWindow, from: nil),
-                hit: HostedInspectorDividerHit(
-                    containerView: dragState.containerView,
-                    pageView: dragState.pageView,
-                    inspectorView: dragState.inspectorView,
-                    dockSide: dragState.dockSide
-                )
-            )
-#endif
-            updateDividerCursor(
-                at: convert(event.locationInWindow, from: nil),
-                hostedInspectorHit: HostedInspectorDividerHit(
-                    containerView: dragState.containerView,
-                    pageView: dragState.pageView,
-                    inspectorView: dragState.inspectorView,
-                    dockSide: dragState.dockSide
-                )
-            )
+            super.mouseDragged(with: event)
         }
 
         override func mouseUp(with event: NSEvent) {
-            let finalDragState = hostedInspectorDividerDrag
             hostedInspectorDividerDrag = nil
             isHostedInspectorDividerDragActive = false
             updateDividerCursor(at: convert(event.locationInWindow, from: nil))
-            scheduleHostedInspectorDividerReapply(reason: "dragEndAsync")
-#if DEBUG
-            if let finalDragState {
-                let finalHit = HostedInspectorDividerHit(
-                    containerView: finalDragState.containerView,
-                    pageView: finalDragState.pageView,
-                    inspectorView: finalDragState.inspectorView,
-                    dockSide: finalDragState.dockSide
-                )
-                debugLogHostedInspectorFrames(
-                    stage: "drag.end",
-                    point: convert(event.locationInWindow, from: nil),
-                    hit: finalHit
-                )
-                DispatchQueue.main.async { [weak self] in
-                    guard let self else { return }
-                    self.captureHostedInspectorPreferredWidthFromCurrentLayout(reason: "drag.end.async")
-                    self.debugLogHostedInspectorFrames(stage: "drag.end.async", hit: finalHit)
-                    self.debugLogHostedInspectorLayoutIfNeeded(reason: "dragEndAsync")
-                }
-            }
-#endif
             super.mouseUp(with: event)
         }
 
