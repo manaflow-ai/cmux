@@ -4853,6 +4853,146 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
             "Expected the clicked split pane to become first responder"
         )
     }
+
+    func testProgrammaticSplitSuppressionKeepsSourceFirstResponderUntilReplacementIsReady() {
+        let window = makeWindow()
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let sourceSurfaceView = GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 180, height: 220))
+        let sourceHostedView = GhosttySurfaceScrollView(surfaceView: sourceSurfaceView)
+        sourceHostedView.frame = contentView.bounds
+        sourceHostedView.autoresizingMask = [.width, .height]
+        sourceHostedView.setVisibleInUI(true)
+        contentView.addSubview(sourceHostedView)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        sourceHostedView.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        sourceHostedView.setActive(true)
+        XCTAssertTrue(
+            window.makeFirstResponder(sourceSurfaceView),
+            "Expected the source terminal surface view to accept first responder before the split handoff"
+        )
+        XCTAssertTrue(
+            sourceHostedView.isSurfaceViewFirstResponder(),
+            "Expected the source terminal to start as first responder"
+        )
+
+        sourceHostedView.suppressReparentFocus()
+        sourceHostedView.setActive(false)
+
+        XCTAssertTrue(
+            sourceHostedView.isSurfaceViewFirstResponder(),
+            "Expected split reparent suppression to keep the source terminal as first responder until the replacement terminal can take focus"
+        )
+    }
+
+    func testInactiveTerminalStillResignsFirstResponderOutsideProgrammaticSplitHandoff() {
+        let window = makeWindow()
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let sourceSurfaceView = GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 180, height: 220))
+        let sourceHostedView = GhosttySurfaceScrollView(surfaceView: sourceSurfaceView)
+        sourceHostedView.frame = contentView.bounds
+        sourceHostedView.autoresizingMask = [.width, .height]
+        sourceHostedView.setVisibleInUI(true)
+        contentView.addSubview(sourceHostedView)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        sourceHostedView.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        sourceHostedView.setActive(true)
+        XCTAssertTrue(window.makeFirstResponder(sourceSurfaceView))
+        XCTAssertTrue(sourceHostedView.isSurfaceViewFirstResponder())
+
+        sourceHostedView.setActive(false)
+
+        XCTAssertFalse(
+            sourceHostedView.isSurfaceViewFirstResponder(),
+            "Expected non-split inactive terminals to resign first responder normally"
+        )
+    }
+
+    func testProgrammaticSplitSelectionKeepsSourceActiveUntilReplacementActuallyBecomesFirstResponder() {
+        let window = makeWindow()
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let sourceSurfaceView = GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 180, height: 220))
+        let sourceHostedView = GhosttySurfaceScrollView(surfaceView: sourceSurfaceView)
+        sourceHostedView.frame = NSRect(x: 0, y: 0, width: 180, height: 220)
+        sourceHostedView.setVisibleInUI(true)
+
+        let replacementSurfaceView = GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 180, height: 220))
+        let replacementHostedView = GhosttySurfaceScrollView(surfaceView: replacementSurfaceView)
+        replacementHostedView.frame = NSRect(x: 180, y: 0, width: 0, height: 0)
+        replacementHostedView.setBoundsSize(NSSize(width: 180, height: 220))
+        replacementHostedView.setVisibleInUI(true)
+
+        contentView.addSubview(sourceHostedView)
+        contentView.addSubview(replacementHostedView)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        sourceHostedView.setActive(true)
+        replacementHostedView.setActive(false)
+        XCTAssertTrue(window.makeFirstResponder(sourceSurfaceView))
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        XCTAssertTrue(
+            sourceHostedView.isSurfaceViewFirstResponder(),
+            "Expected source pane to own first responder before the split handoff"
+        )
+        XCTAssertTrue(
+            replacementHostedView.requiresDeferredProgrammaticFocusCompletion(),
+            "Expected a zero-frame replacement host to report deferred focus completion even if stale bounds are non-zero"
+        )
+
+        replacementHostedView.setActive(true)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.02))
+
+        XCTAssertTrue(
+            sourceHostedView.isSurfaceViewFirstResponder(),
+            "Expected a zero-frame replacement host to avoid stealing first responder"
+        )
+        XCTAssertFalse(
+            replacementHostedView.isSurfaceViewFirstResponder(),
+            "Expected replacement pane to wait for usable frame geometry before taking first responder"
+        )
+
+        replacementHostedView.frame = NSRect(x: 180, y: 0, width: 180, height: 220)
+        contentView.layoutSubtreeIfNeeded()
+        replacementHostedView.layoutSubtreeIfNeeded()
+        window.displayIfNeeded()
+        replacementHostedView.setActive(true)
+        XCTAssertTrue(replacementHostedView.makeSurfaceViewFirstResponder())
+        RunLoop.current.run(until: Date().addingTimeInterval(0.10))
+
+        XCTAssertTrue(
+            replacementHostedView.isSurfaceViewFirstResponder(),
+            "Expected replacement pane to become first responder once it has usable geometry"
+        )
+    }
 }
 
 @MainActor
@@ -5871,6 +6011,46 @@ final class BrowserPanelAddressBarFocusRequestTests: XCTestCase {
 
         panel.acknowledgeAddressBarFocusRequest(secondRequest)
         XCTAssertNil(panel.pendingAddressBarFocusRequestId)
+    }
+}
+
+@MainActor
+final class BrowserPanelSearchFocusLeaseTests: XCTestCase {
+    func testOrdinaryBrowserFocusChangesDoNotStartFindFocusLease() {
+        let panel = BrowserPanel(workspaceId: UUID())
+
+        XCTAssertEqual(panel.searchFocusRequestGeneration, 0)
+
+        panel.noteWebViewFocused()
+        XCTAssertEqual(panel.searchFocusRequestGeneration, 0)
+
+        let requestId = panel.requestAddressBarFocus()
+        XCTAssertNotNil(panel.pendingAddressBarFocusRequestId)
+        XCTAssertEqual(panel.searchFocusRequestGeneration, 0)
+
+        panel.noteAddressBarFocused()
+        XCTAssertEqual(panel.searchFocusRequestGeneration, 0)
+
+        panel.acknowledgeAddressBarFocusRequest(requestId)
+        XCTAssertNil(panel.pendingAddressBarFocusRequestId)
+        XCTAssertEqual(panel.searchFocusRequestGeneration, 0)
+
+        panel.prepareFocusIntentForActivation(.browser(.webView))
+        XCTAssertEqual(panel.searchFocusRequestGeneration, 0)
+    }
+
+    func testFindFocusLeaseStillInvalidatesWhenLeavingFind() {
+        let panel = BrowserPanel(workspaceId: UUID())
+
+        panel.startFind()
+        let generationBeforeAddressBarRequest = panel.searchFocusRequestGeneration
+        XCTAssertGreaterThan(generationBeforeAddressBarRequest, 0)
+
+        _ = panel.requestAddressBarFocus()
+        XCTAssertEqual(panel.searchFocusRequestGeneration, generationBeforeAddressBarRequest + 1)
+
+        panel.hideFind()
+        XCTAssertGreaterThan(panel.searchFocusRequestGeneration, generationBeforeAddressBarRequest + 1)
     }
 }
 

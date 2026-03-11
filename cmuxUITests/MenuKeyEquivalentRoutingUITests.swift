@@ -24,45 +24,91 @@ final class MenuKeyEquivalentRoutingUITests: XCTestCase {
 
     func testCmdNWorksWhenWebViewFocusedAfterTabSwitch() {
         let app = launchWithBrowserSetup()
+        runMenuKeyEquivalentScenario(
+            app: app,
+            key: "n",
+            modifiers: [.command],
+            counterKey: "addTabInvocations",
+            expectedIncrement: 1,
+            timeout: 5.0,
+            failureMessage: "Expected Cmd+N to reach app menu and create a new tab even when WKWebView is first responder"
+        )
+    }
 
-        // Simulate the repro: switch away and back.
-        app.typeKey("[", modifierFlags: [.command, .shift])
-        app.typeKey("]", modifierFlags: [.command, .shift])
-
-        // Force WebKit to become first responder again (Cmd+L then Escape).
-        refocusWebView(app: app)
-
-        let baseline = loadKeyequiv()["addTabInvocations"].flatMap(Int.init) ?? 0
-        app.typeKey("n", modifierFlags: [.command])
-
-        XCTAssertTrue(
-            waitForKeyequivInt(key: "addTabInvocations", toBeAtLeast: baseline + 1, timeout: 5.0),
-            "Expected Cmd+N to reach app menu and create a new tab even when WKWebView is first responder"
+    func testGraphV1CmdNWorksWhenWebViewFocusedAfterTabSwitch() {
+        let app = launchWithBrowserSetup(useGraphV1: true)
+        runMenuKeyEquivalentScenario(
+            app: app,
+            key: "n",
+            modifiers: [.command],
+            counterKey: "addTabInvocations",
+            expectedIncrement: 1,
+            timeout: 5.0,
+            failureMessage: "Expected graph-v1 Cmd+N to reach app menu and create a new tab even when WKWebView is first responder"
         )
     }
 
     func testCmdWWorksWhenWebViewFocusedAfterTabSwitch() {
         let app = launchWithBrowserSetup()
+        runMenuKeyEquivalentScenario(
+            app: app,
+            key: "w",
+            modifiers: [.command],
+            counterKey: "closePanelInvocations",
+            expectedIncrement: 1,
+            timeout: 5.0,
+            failureMessage: "Expected Cmd+W to reach app menu and close the focused tab even when WKWebView is first responder"
+        )
+    }
 
-        // Simulate the repro: switch away and back.
-        app.typeKey("[", modifierFlags: [.command, .shift])
-        app.typeKey("]", modifierFlags: [.command, .shift])
-
-        // Force WebKit to become first responder again (Cmd+L then Escape).
-        refocusWebView(app: app)
-
-        let baseline = loadKeyequiv()["closePanelInvocations"].flatMap(Int.init) ?? 0
-        app.typeKey("w", modifierFlags: [.command])
-
-        XCTAssertTrue(
-            waitForKeyequivInt(key: "closePanelInvocations", toBeAtLeast: baseline + 1, timeout: 5.0),
-            "Expected Cmd+W to reach app menu and close the focused tab even when WKWebView is first responder"
+    func testGraphV1CmdWWorksWhenWebViewFocusedAfterTabSwitch() {
+        let app = launchWithBrowserSetup(useGraphV1: true)
+        runMenuKeyEquivalentScenario(
+            app: app,
+            key: "w",
+            modifiers: [.command],
+            counterKey: "closePanelInvocations",
+            expectedIncrement: 1,
+            timeout: 5.0,
+            failureMessage: "Expected graph-v1 Cmd+W to reach app menu and close the focused tab even when WKWebView is first responder"
         )
     }
 
     func testCmdShiftWWorksWhenWebViewFocusedAfterTabSwitch() {
         let app = launchWithBrowserSetup()
+        runMenuKeyEquivalentScenario(
+            app: app,
+            key: "w",
+            modifiers: [.command, .shift],
+            counterKey: "closeTabInvocations",
+            expectedIncrement: 1,
+            timeout: 6.0,
+            failureMessage: "Expected Cmd+Shift+W to reach app menu and close the current workspace even when WKWebView is first responder"
+        )
+    }
 
+    func testGraphV1CmdShiftWWorksWhenWebViewFocusedAfterTabSwitch() {
+        let app = launchWithBrowserSetup(useGraphV1: true)
+        runMenuKeyEquivalentScenario(
+            app: app,
+            key: "w",
+            modifiers: [.command, .shift],
+            counterKey: "closeTabInvocations",
+            expectedIncrement: 1,
+            timeout: 6.0,
+            failureMessage: "Expected graph-v1 Cmd+Shift+W to reach app menu and close the current workspace even when WKWebView is first responder"
+        )
+    }
+
+    private func runMenuKeyEquivalentScenario(
+        app: XCUIApplication,
+        key: String,
+        modifiers: XCUIElement.KeyModifierFlags,
+        counterKey: String,
+        expectedIncrement: Int,
+        timeout: TimeInterval,
+        failureMessage: String
+    ) {
         // Simulate the repro: switch away and back.
         app.typeKey("[", modifierFlags: [.command, .shift])
         app.typeKey("]", modifierFlags: [.command, .shift])
@@ -70,17 +116,20 @@ final class MenuKeyEquivalentRoutingUITests: XCTestCase {
         // Force WebKit to become first responder again (Cmd+L then Escape).
         refocusWebView(app: app)
 
-        let baseline = loadKeyequiv()["closeTabInvocations"].flatMap(Int.init) ?? 0
-        app.typeKey("w", modifierFlags: [.command, .shift])
+        let baseline = loadKeyequiv()[counterKey].flatMap(Int.init) ?? 0
+        app.typeKey(key, modifierFlags: modifiers)
 
         XCTAssertTrue(
-            waitForKeyequivInt(key: "closeTabInvocations", toBeAtLeast: baseline + 1, timeout: 6.0),
-            "Expected Cmd+Shift+W to reach app menu and close the current workspace even when WKWebView is first responder"
+            waitForKeyequivInt(key: counterKey, toBeAtLeast: baseline + expectedIncrement, timeout: timeout),
+            failureMessage
         )
     }
 
-    private func launchWithBrowserSetup() -> XCUIApplication {
+    private func launchWithBrowserSetup(useGraphV1: Bool = false) -> XCUIApplication {
         let app = XCUIApplication()
+        if useGraphV1 {
+            app.launchEnvironment["CMUX_WORKSPACE_ENGINE"] = "graph-v1"
+        }
         app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = gotoSplitPath
@@ -311,6 +360,104 @@ final class SplitCloseRightBlankRegressionUITests: XCTestCase {
         XCTAssertFalse(
             sizeMismatchSeen,
             "Transient IOSurface size mismatch detected (stretched text). at=\(data["sizeMismatchObservedAt"] ?? "") iter=\(data["sizeMismatchObservedIteration"] ?? "") trace=\(trace)"
+        )
+    }
+
+    func testGraphV1ReproBlankAfterClosingRightSplitsViaShortcuts() {
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_WORKSPACE_ENGINE"] = "graph-v1"
+        app.launchEnvironment["CMUX_UI_TEST_DIAGNOSTICS_PATH"] = diagnosticsPath
+        app.launchEnvironment["CMUX_UI_TEST_SPLIT_CLOSE_RIGHT_SETUP"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_SPLIT_CLOSE_RIGHT_PATH"] = dataPath
+        app.launchEnvironment["CMUX_UI_TEST_SPLIT_CLOSE_RIGHT_VISUAL"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_SPLIT_CLOSE_RIGHT_ITERATIONS"] = "12"
+        app.launchEnvironment["CMUX_UI_TEST_SPLIT_CLOSE_RIGHT_CLOSE_DELAY_MS"] = "0"
+        app.launchEnvironment["CMUX_UI_TEST_SPLIT_CLOSE_RIGHT_BURST_FRAMES"] = "32"
+        app.launchEnvironment["CMUX_UI_TEST_SPLIT_CLOSE_RIGHT_PATTERN"] = "close_right_lrtd"
+        app.launch()
+        app.activate()
+
+        XCTAssertTrue(waitForAnyData(timeout: 12.0), "Expected split-close-right test data to be written at \(dataPath)")
+
+        let doneDeadline = Date().addingTimeInterval(90.0)
+        while Date() < doneDeadline {
+            if let data = loadData(), data["visualDone"] == "1" {
+                break
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.10))
+        }
+
+        guard let data = loadData() else {
+            XCTFail("Missing split-close-right data after waiting. path=\(dataPath)")
+            return
+        }
+        if let setupError = data["setupError"], !setupError.isEmpty {
+            XCTFail("Test setup failed: \(setupError)")
+            return
+        }
+
+        let lastIter = Int(data["visualLastIteration"] ?? "") ?? 0
+        XCTAssertGreaterThan(lastIter, 0, "Expected at least one visual iteration. data=\(data)")
+
+        let blankSeen = (data["blankFrameSeen"] ?? "") == "1"
+        let sizeMismatchSeen = (data["sizeMismatchSeen"] ?? "") == "1"
+        let trace = data["timelineTrace"] ?? ""
+
+        XCTAssertFalse(
+            blankSeen,
+            "Transient blank frame detected. at=\(data["blankObservedAt"] ?? "") iter=\(data["blankObservedIteration"] ?? "") trace=\(trace)"
+        )
+        XCTAssertFalse(
+            sizeMismatchSeen,
+            "Transient IOSurface size mismatch detected (stretched text). at=\(data["sizeMismatchObservedAt"] ?? "") iter=\(data["sizeMismatchObservedIteration"] ?? "") trace=\(trace)"
+        )
+    }
+
+    func testGraphV1ReproNoStretchAfterCreatingRightSplit() {
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_WORKSPACE_ENGINE"] = "graph-v1"
+        app.launchEnvironment["CMUX_UI_TEST_SPLIT_CREATE_RIGHT_SETUP"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_SPLIT_CREATE_RIGHT_PATH"] = dataPath
+        app.launchEnvironment["CMUX_UI_TEST_SPLIT_CREATE_RIGHT_VISUAL"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_SPLIT_CREATE_RIGHT_ITERATIONS"] = "16"
+        app.launchEnvironment["CMUX_UI_TEST_SPLIT_CREATE_RIGHT_BURST_FRAMES"] = "32"
+        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        app.launch()
+        app.activate()
+
+        XCTAssertTrue(waitForAnyData(timeout: 12.0), "Expected split-create-right test data to be written at \(dataPath)")
+
+        let doneDeadline = Date().addingTimeInterval(90.0)
+        while Date() < doneDeadline {
+            if let data = loadData(), data["visualDone"] == "1" {
+                break
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.10))
+        }
+
+        guard let data = loadData() else {
+            XCTFail("Missing split-create-right data after waiting. path=\(dataPath)")
+            return
+        }
+        if let setupError = data["setupError"], !setupError.isEmpty {
+            XCTFail("Test setup failed: \(setupError)")
+            return
+        }
+
+        let lastIter = Int(data["visualLastIteration"] ?? "") ?? 0
+        XCTAssertGreaterThan(lastIter, 0, "Expected at least one visual iteration. data=\(data)")
+
+        let blankSeen = (data["blankFrameSeen"] ?? "") == "1"
+        let sizeMismatchSeen = (data["sizeMismatchSeen"] ?? "") == "1"
+        let trace = data["timelineTrace"] ?? ""
+
+        XCTAssertFalse(
+            blankSeen,
+            "Transient blank frame detected after split creation. at=\(data["blankObservedAt"] ?? "") iter=\(data["blankObservedIteration"] ?? "") trace=\(trace)"
+        )
+        XCTAssertFalse(
+            sizeMismatchSeen,
+            "Transient IOSurface size mismatch detected after split creation. at=\(data["sizeMismatchObservedAt"] ?? "") iter=\(data["sizeMismatchObservedIteration"] ?? "") trace=\(trace)"
         )
     }
 

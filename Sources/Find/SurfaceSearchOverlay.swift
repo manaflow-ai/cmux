@@ -248,6 +248,23 @@ private struct SearchTextFieldRepresentable: NSViewRepresentable {
             }
         }
 
+        func responderBelongsToCurrentSurface(
+            _ responder: NSResponder?,
+            currentSurfaceView: GhosttySurfaceScrollView
+        ) -> Bool {
+            let resolvedResponder: NSResponder?
+            if let editor = responder as? NSTextView,
+               editor.isFieldEditor,
+               let editedView = editor.delegate as? NSView {
+                resolvedResponder = editedView
+            } else {
+                resolvedResponder = responder
+            }
+
+            guard let view = resolvedResponder as? NSView else { return false }
+            return view === currentSurfaceView || view.isDescendant(of: currentSurfaceView)
+        }
+
         func controlTextDidChange(_ obj: Notification) {
             guard !isProgrammaticMutation else { return }
             guard let field = obj.object as? NSTextField else { return }
@@ -327,14 +344,31 @@ private struct SearchTextFieldRepresentable: NSViewRepresentable {
             let alreadyFocused = fr === field ||
                 field.currentEditor() != nil ||
                 ((fr as? NSTextView)?.delegate as? NSTextField) === field
+            let priorFocusBelongedToCurrentSurface: Bool = {
+                guard let currentSurfaceView = field.cmuxAncestor(of: GhosttySurfaceScrollView.self) else {
+                    return false
+                }
+                return coordinator.responderBelongsToCurrentSurface(
+                    fr,
+                    currentSurfaceView: currentSurfaceView
+                )
+            }()
             #if DEBUG
             dlog(
                 "find.nativeField.searchFocusNotification surface=\(coordinator.parent.surfaceId.uuidString.prefix(5)) " +
-                "alreadyFocused=\(alreadyFocused) firstResponder=\(String(describing: fr))"
+                "alreadyFocused=\(alreadyFocused) fromCurrentSurface=\(priorFocusBelongedToCurrentSurface) " +
+                "firstResponder=\(String(describing: fr))"
             )
             #endif
             guard !alreadyFocused else { return }
             let result = window.makeFirstResponder(field)
+            if result,
+               !priorFocusBelongedToCurrentSurface,
+               !coordinator.parent.text.isEmpty,
+               let editor = field.currentEditor() as? NSTextView {
+                let end = (editor.string as NSString).length
+                editor.setSelectedRange(NSRange(location: end, length: 0))
+            }
 #if DEBUG
             dlog(
                 "find.nativeField.searchFocusApply surface=\(coordinator.parent.surfaceId.uuidString.prefix(5)) " +

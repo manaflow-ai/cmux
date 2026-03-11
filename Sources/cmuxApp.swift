@@ -16,6 +16,8 @@ struct cmuxApp: App {
     @AppStorage(ShortcutHintDebugSettings.alwaysShowHintsKey) private var alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
     @AppStorage(DevBuildBannerDebugSettings.sidebarBannerVisibleKey)
     private var showSidebarDevBuildBanner = DevBuildBannerDebugSettings.defaultShowSidebarBanner
+    @AppStorage(WorkspaceEngineSettings.defaultEngineKindKey)
+    private var defaultWorkspaceEngineKindRaw = WorkspaceEngineSettings.fallbackEngineKind.rawValue
     @AppStorage(SocketControlSettings.appStorageKey) private var socketControlMode = SocketControlSettings.defaultMode.rawValue
     @AppStorage(KeyboardShortcutSettings.Action.toggleSidebar.defaultsKey) private var toggleSidebarShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.newTab.defaultsKey) private var newWorkspaceShortcutData = Data()
@@ -51,7 +53,11 @@ struct cmuxApp: App {
 
         let startupAppearance = AppearanceSettings.resolvedMode()
         Self.applyAppearance(startupAppearance)
-        _tabManager = StateObject(wrappedValue: TabManager())
+        _tabManager = StateObject(
+            wrappedValue: TabManager(
+                workspaceEngineKind: WorkspaceEngineSettings.defaultEngineKind()
+            )
+        )
         // Migrate legacy and old-format socket mode values to the new enum.
         let defaults = UserDefaults.standard
         if let stored = defaults.string(forKey: SocketControlSettings.appStorageKey) {
@@ -193,9 +199,25 @@ struct cmuxApp: App {
         defaults.set(targetVersion, forKey: migrationKey)
     }
 
+    private var defaultWorkspaceEngineKindBinding: Binding<WorkspaceEngineKind> {
+        Binding(
+            get: {
+                WorkspaceEngineSettings.resolve(rawValue: defaultWorkspaceEngineKindRaw)
+                    ?? WorkspaceEngineSettings.fallbackEngineKind
+            },
+            set: { newValue in
+                defaultWorkspaceEngineKindRaw = newValue.rawValue
+            }
+        )
+    }
+
     var body: some Scene {
         WindowGroup {
-            ContentView(updateViewModel: appDelegate.updateViewModel, windowId: primaryWindowId)
+            ContentView(
+                updateViewModel: appDelegate.updateViewModel,
+                windowId: primaryWindowId,
+                initialTabManager: tabManager
+            )
                 .environmentObject(tabManager)
                 .environmentObject(notificationStore)
                 .environmentObject(sidebarState)
@@ -329,6 +351,41 @@ struct cmuxApp: App {
                     )
                 ) {
                     appDelegate.openDebugStressWorkspacesWithLoadedSurfaces(nil)
+                }
+
+                Divider()
+                Menu(String(localized: "debug.menu.workspaceEngine", defaultValue: "Workspace Engine")) {
+                    Picker(
+                        String(
+                            localized: "debug.menu.workspaceEngine.defaultNewWindows",
+                            defaultValue: "Default for New Windows"
+                        ),
+                        selection: defaultWorkspaceEngineKindBinding
+                    ) {
+                        ForEach(WorkspaceEngineKind.allCases) { kind in
+                            Text(kind.displayName).tag(kind)
+                        }
+                    }
+
+                    Divider()
+
+                    Button(
+                        String(
+                            localized: "debug.menu.workspaceEngine.openLegacyWindow",
+                            defaultValue: "Open Legacy Engine Window"
+                        )
+                    ) {
+                        appDelegate.openNewMainWindow(workspaceEngineKind: .legacy)
+                    }
+
+                    Button(
+                        String(
+                            localized: "debug.menu.workspaceEngine.openGraphWindow",
+                            defaultValue: "Open Graph Engine Window"
+                        )
+                    ) {
+                        appDelegate.openNewMainWindow(workspaceEngineKind: .graphV1)
+                    }
                 }
 
                 Divider()

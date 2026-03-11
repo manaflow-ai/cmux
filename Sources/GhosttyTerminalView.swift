@@ -2350,14 +2350,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
         case closing
         case closed
     }
-    private struct PortalHostLease {
-        let hostId: ObjectIdentifier
-        let inWindow: Bool
-        let area: CGFloat
-    }
     private var portalLifecycleState: PortalLifecycleState = .live
     private var portalLifecycleGeneration: UInt64 = 1
-    private var activePortalHostLease: PortalHostLease?
+    private var portalHostLeasing = PortalHostLeasingState()
     @Published var searchState: SearchState? = nil {
 	        didSet {
 	            if let searchState {
@@ -2449,81 +2444,66 @@ final class TerminalSurface: Identifiable, ObservableObject {
         return true
     }
 
-    private static let portalHostAreaThreshold: CGFloat = 4
-    private static let portalHostReplacementAreaGainRatio: CGFloat = 1.2
-
-    private static func portalHostArea(for bounds: CGRect) -> CGFloat {
-        max(0, bounds.width) * max(0, bounds.height)
-    }
-
-    private static func portalHostIsUsable(_ lease: PortalHostLease) -> Bool {
-        lease.inWindow && lease.area > portalHostAreaThreshold
-    }
-
     func claimPortalHost(
         hostId: ObjectIdentifier,
+        paneId: PaneID?,
         inWindow: Bool,
         bounds: CGRect,
         reason: String
     ) -> Bool {
-        let next = PortalHostLease(
+        let outcome = portalHostLeasing.claim(
             hostId: hostId,
+            contextId: paneId?.id,
             inWindow: inWindow,
-            area: Self.portalHostArea(for: bounds)
+            bounds: bounds
         )
-
-        if let current = activePortalHostLease {
-            if current.hostId == hostId {
-                activePortalHostLease = next
-                return true
-            }
-
-            let currentUsable = Self.portalHostIsUsable(current)
-            let nextUsable = Self.portalHostIsUsable(next)
-            let shouldReplace =
-                !currentUsable ||
-                (nextUsable && next.area > (current.area * Self.portalHostReplacementAreaGainRatio))
-
-            if shouldReplace {
 #if DEBUG
+        if outcome.didAcquireOwnership {
+            if let replacedLease = outcome.replacedLease {
                 dlog(
                     "terminal.portal.host.claim surface=\(id.uuidString.prefix(5)) " +
-                    "reason=\(reason) host=\(hostId) inWin=\(inWindow ? 1 : 0) " +
+                    "reason=\(reason) host=\(hostId) pane=\(paneId?.id.uuidString.prefix(5) ?? "nil") " +
+                    "inWin=\(inWindow ? 1 : 0) " +
                     "size=\(String(format: "%.1fx%.1f", bounds.width, bounds.height)) " +
-                    "replacingHost=\(current.hostId) replacingInWin=\(current.inWindow ? 1 : 0) " +
-                    "replacingArea=\(String(format: "%.1f", current.area))"
+                    "replacingHost=\(replacedLease.hostId) replacingPane=\(replacedLease.contextId.map { String($0.uuidString.prefix(5)) } ?? "nil") " +
+                    "replacingInWin=\(replacedLease.inWindow ? 1 : 0) " +
+                    "replacingArea=\(String(format: "%.1f", replacedLease.area))"
                 )
-#endif
-                activePortalHostLease = next
-                return true
+            } else {
+                dlog(
+                    "terminal.portal.host.claim surface=\(id.uuidString.prefix(5)) " +
+                    "reason=\(reason) host=\(hostId) pane=\(paneId?.id.uuidString.prefix(5) ?? "nil") " +
+                    "inWin=\(inWindow ? 1 : 0) " +
+                    "size=\(String(format: "%.1fx%.1f", bounds.width, bounds.height)) replacingHost=nil"
+                )
             }
-
-#if DEBUG
+        } else if !outcome.accepted, let activeLease = outcome.activeLease {
             dlog(
                 "terminal.portal.host.skip surface=\(id.uuidString.prefix(5)) " +
-                "reason=\(reason) host=\(hostId) inWin=\(inWindow ? 1 : 0) " +
+                "reason=\(reason) host=\(hostId) pane=\(paneId?.id.uuidString.prefix(5) ?? "nil") " +
+                "inWin=\(inWindow ? 1 : 0) " +
                 "size=\(String(format: "%.1fx%.1f", bounds.width, bounds.height)) " +
-                "ownerHost=\(current.hostId) ownerInWin=\(current.inWindow ? 1 : 0) " +
-                "ownerArea=\(String(format: "%.1f", current.area))"
+                "ownerHost=\(activeLease.hostId) ownerPane=\(activeLease.contextId.map { String($0.uuidString.prefix(5)) } ?? "nil") " +
+                "ownerInWin=\(activeLease.inWindow ? 1 : 0) " +
+                "ownerArea=\(String(format: "%.1f", activeLease.area))"
             )
-#endif
-            return false
         }
+#endif
+        return outcome.accepted
+    }
 
-        activePortalHostLease = next
+    func preparePortalHostReplacementForNextDistinctClaim(inPane paneId: PaneID, reason: String) {
+        portalHostLeasing.prepareForNextDistinctReplacement(contextId: paneId.id)
 #if DEBUG
         dlog(
-            "terminal.portal.host.claim surface=\(id.uuidString.prefix(5)) " +
-            "reason=\(reason) host=\(hostId) inWin=\(inWindow ? 1 : 0) " +
-            "size=\(String(format: "%.1fx%.1f", bounds.width, bounds.height)) replacingHost=nil"
+            "terminal.portal.host.rearm surface=\(id.uuidString.prefix(5)) " +
+            "reason=\(reason) pane=\(paneId.id.uuidString.prefix(5))"
         )
 #endif
-        return true
     }
 
     func releasePortalHostIfOwned(hostId: ObjectIdentifier, reason: String) {
-        guard let current = activePortalHostLease, current.hostId == hostId else { return }
-        activePortalHostLease = nil
+        guard let current = portalHostLeasing.releaseIfOwned(hostId: hostId) else { return }
 #if DEBUG
         dlog(
             "terminal.portal.host.release surface=\(id.uuidString.prefix(5)) " +
@@ -2531,6 +2511,10 @@ final class TerminalSurface: Identifiable, ObservableObject {
             "area=\(String(format: "%.1f", current.area))"
         )
 #endif
+    }
+
+    func ownsPortalHost(hostId: ObjectIdentifier) -> Bool {
+        portalHostLeasing.owns(hostId: hostId)
     }
 
     func beginPortalCloseLifecycle(reason: String) {
@@ -4182,6 +4166,55 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return selected.isEmpty ? nil : selected
     }
 
+#if DEBUG
+    private func debugFirstResponderPanelLabel() -> String {
+        guard let window else { return "nil" }
+        return cmuxOwningGhosttyView(for: window.firstResponder)?
+            .terminalSurface?
+            .id
+            .uuidString
+            .prefix(5)
+            .description ?? "nil"
+    }
+
+    private func debugWorkspaceFocusSuffix() -> String {
+        let workspaceId = terminalSurface?.tabId ?? tabId
+        let workspaceShort = workspaceId.map { String($0.uuidString.prefix(5)) } ?? "nil"
+        let firstResponderPanel = debugFirstResponderPanelLabel()
+        guard let workspaceId,
+              let appDelegate = AppDelegate.shared else {
+            return
+                "workspace=\(workspaceShort) pane=nil focusedPane=nil selectedPanel=nil " +
+                "focusedPanel=nil firstResponderPanel=\(firstResponderPanel)"
+        }
+
+        let manager = appDelegate.tabManagerFor(tabId: workspaceId) ?? appDelegate.tabManager
+        guard let workspace = manager?.tabs.first(where: { $0.id == workspaceId }) else {
+            return
+                "workspace=\(workspaceShort) pane=nil focusedPane=nil selectedPanel=nil " +
+                "focusedPanel=nil firstResponderPanel=\(firstResponderPanel)"
+        }
+
+        let panelId = terminalSurface?.id
+        let paneId = panelId.flatMap { workspace.paneId(forPanelId: $0) }
+        let paneShort = paneId.map { String($0.id.uuidString.prefix(5)) } ?? "nil"
+        let focusedPaneShort = workspace.bonsplitController.focusedPaneId
+            .map { String($0.id.uuidString.prefix(5)) } ?? "nil"
+        let selectedTab = workspace.bonsplitController.focusedPaneId
+            .flatMap { workspace.bonsplitController.selectedTab(inPane: $0) }
+        let selectedPanelShort = selectedTab
+            .flatMap { workspace.panelIdFromSurfaceId($0.id) }
+            .map { String($0.uuidString.prefix(5)) } ?? "nil"
+        let focusedPanelShort = workspace.focusedPanelId
+            .map { String($0.uuidString.prefix(5)) } ?? "nil"
+
+        return
+            "workspace=\(workspaceShort) pane=\(paneShort) focusedPane=\(focusedPaneShort) " +
+            "selectedPanel=\(selectedPanelShort) focusedPanel=\(focusedPanelShort) " +
+            "firstResponderPanel=\(firstResponderPanel)"
+    }
+#endif
+
     override var acceptsFirstResponder: Bool { true }
 
     override func becomeFirstResponder() -> Bool {
@@ -4197,7 +4230,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             // the old view from stealing focus and creating model/surface divergence.
             if suppressingReparentFocus {
 #if DEBUG
-                dlog("focus.firstResponder SUPPRESSED (reparent) surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil")")
+                dlog(
+                    "focus.firstResponder SUPPRESSED (reparent) " +
+                    "surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") \(debugWorkspaceFocusSuffix())"
+                )
 #endif
                 return result
             }
@@ -4214,7 +4250,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #if DEBUG
                 dlog(
                     "focus.firstResponder SUPPRESSED (hidden_or_tiny) surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") " +
-                    "frame=\(String(format: "%.1fx%.1f", bounds.width, bounds.height)) hidden=\(hiddenInHierarchy ? 1 : 0)"
+                    "frame=\(String(format: "%.1fx%.1f", bounds.width, bounds.height)) " +
+                    "hidden=\(hiddenInHierarchy ? 1 : 0) \(debugWorkspaceFocusSuffix())"
                 )
 #endif
             }
@@ -4222,9 +4259,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if result, shouldApplySurfaceFocus, let surface = ensureSurfaceReadyForInput() {
             let now = CACurrentMediaTime()
             let deltaMs = (now - lastScrollEventTime) * 1000
-            Self.focusLog("becomeFirstResponder: surface=\(terminalSurface?.id.uuidString ?? "nil") deltaSinceScrollMs=\(String(format: "%.2f", deltaMs))")
+            Self.focusLog(
+                "becomeFirstResponder: surface=\(terminalSurface?.id.uuidString ?? "nil") " +
+                "\(debugWorkspaceFocusSuffix()) deltaSinceScrollMs=\(String(format: "%.2f", deltaMs))"
+            )
 #if DEBUG
-            dlog("focus.firstResponder surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil")")
+            dlog(
+                "focus.firstResponder surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") " +
+                "\(debugWorkspaceFocusSuffix())"
+            )
             if let terminalSurface {
                 AppDelegate.shared?.recordJumpUnreadFocusIfExpected(
                     tabId: terminalSurface.tabId,
@@ -4264,7 +4307,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if result, let surface = surface {
             let now = CACurrentMediaTime()
             let deltaMs = (now - lastScrollEventTime) * 1000
-            Self.focusLog("resignFirstResponder: surface=\(terminalSurface?.id.uuidString ?? "nil") deltaSinceScrollMs=\(String(format: "%.2f", deltaMs))")
+            Self.focusLog(
+                "resignFirstResponder: surface=\(terminalSurface?.id.uuidString ?? "nil") " +
+                "\(debugWorkspaceFocusSuffix()) deltaSinceScrollMs=\(String(format: "%.2f", deltaMs))"
+            )
             ghostty_surface_set_focus(surface, false)
         }
         return result
@@ -5099,7 +5145,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     private func requestPointerFocusRecovery() {
 #if DEBUG
-        dlog("focus.pointerDown surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil")")
+        dlog(
+            "focus.pointerDown surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") " +
+            "\(debugWorkspaceFocusSuffix())"
+        )
 #endif
         onFocus?()
     }
@@ -5608,6 +5657,7 @@ final class GhosttySurfaceScrollView: NSView {
     private let documentView: NSView
     private let surfaceView: GhosttyNSView
     private let inactiveOverlayView: GhosttyFlashOverlayView
+    private let framePreservationOverlayView: GhosttyFlashOverlayView
     private let dropZoneOverlayView: GhosttyFlashOverlayView
     private let notificationRingOverlayView: GhosttyFlashOverlayView
     private let notificationRingLayer: CAShapeLayer
@@ -5628,6 +5678,10 @@ final class GhosttySurfaceScrollView: NSView {
     private var activeDropZone: DropZone?
     private var pendingDropZone: DropZone?
     private var dropZoneOverlayAnimationGeneration: UInt64 = 0
+    private var framePreservationGeneration: UInt64 = 0
+    private var framePreservationCapturedContentsKey: String?
+    private var framePreservationCapturedSize: CGSize = .zero
+    private var onNextConfirmedSurfaceFocus: (() -> Void)?
     // Intentionally no focus retry loops: rely on AppKit first-responder and bonsplit selection.
 
     /// Tracks whether keyboard focus should go to the search field or the terminal
@@ -5786,6 +5840,7 @@ final class GhosttySurfaceScrollView: NSView {
         backgroundView = NSView(frame: .zero)
         scrollView = GhosttyScrollView()
         inactiveOverlayView = GhosttyFlashOverlayView(frame: .zero)
+        framePreservationOverlayView = GhosttyFlashOverlayView(frame: .zero)
         dropZoneOverlayView = GhosttyFlashOverlayView(frame: .zero)
         notificationRingOverlayView = GhosttyFlashOverlayView(frame: .zero)
         notificationRingLayer = CAShapeLayer()
@@ -5827,6 +5882,14 @@ final class GhosttySurfaceScrollView: NSView {
         inactiveOverlayView.layer?.backgroundColor = NSColor.clear.cgColor
         inactiveOverlayView.isHidden = true
         addSubview(inactiveOverlayView)
+        framePreservationOverlayView.wantsLayer = true
+        framePreservationOverlayView.layer?.backgroundColor = NSColor.clear.cgColor
+        // Preserve the old frame without scaling it to the new pane bounds.
+        // Cropping a stale snapshot is less jarring than stretching text during split churn.
+        framePreservationOverlayView.layer?.contentsGravity = .topLeft
+        framePreservationOverlayView.layer?.masksToBounds = true
+        framePreservationOverlayView.isHidden = true
+        addSubview(framePreservationOverlayView)
         dropZoneOverlayView.wantsLayer = true
         dropZoneOverlayView.layer?.backgroundColor = cmuxAccentNSColor().withAlphaComponent(0.25).cgColor
         dropZoneOverlayView.layer?.borderColor = cmuxAccentNSColor().cgColor
@@ -6059,6 +6122,7 @@ final class GhosttySurfaceScrollView: NSView {
         )
         _ = setFrameIfNeeded(documentView, to: targetDocumentFrame)
         _ = setFrameIfNeeded(inactiveOverlayView, to: bounds)
+        _ = setFrameIfNeeded(framePreservationOverlayView, to: bounds)
         if let zone = activeDropZone {
             _ = setFrameIfNeeded(
                 dropZoneOverlayView,
@@ -6100,6 +6164,201 @@ final class GhosttySurfaceScrollView: NSView {
 
     private func pointApproximatelyEqual(_ lhs: CGPoint, _ rhs: CGPoint, epsilon: CGFloat = 0.5) -> Bool {
         abs(lhs.x - rhs.x) <= epsilon && abs(lhs.y - rhs.y) <= epsilon
+    }
+
+    private struct IOSurfaceBlankMetrics {
+        let uniqueQuantized: Int
+        let lumaStdDev: Double
+        let modeFraction: Double
+
+        var isProbablyBlank: Bool {
+            (lumaStdDev < 3.5 && modeFraction > 0.985) ||
+            (uniqueQuantized <= 6 && modeFraction > 0.95)
+        }
+    }
+
+    private func sampleCurrentIOSurfaceBlankMetrics(normalizedCrop: CGRect) -> IOSurfaceBlankMetrics? {
+        guard let modelLayer = surfaceView.layer else { return nil }
+        let layer = modelLayer.presentation() ?? modelLayer
+        guard let contents = layer.contents else { return nil }
+
+        let cf = contents as CFTypeRef
+        guard CFGetTypeID(cf) == IOSurfaceGetTypeID() else {
+            return IOSurfaceBlankMetrics(uniqueQuantized: 1, lumaStdDev: 999, modeFraction: 0)
+        }
+
+        let surfaceRef = (contents as! IOSurfaceRef)
+        let width = Int(IOSurfaceGetWidth(surfaceRef))
+        let height = Int(IOSurfaceGetHeight(surfaceRef))
+        guard width > 0, height > 0 else { return nil }
+
+        let cropPx = CGRect(
+            x: max(0, min(CGFloat(width - 1), normalizedCrop.origin.x * CGFloat(width))),
+            y: max(0, min(CGFloat(height - 1), normalizedCrop.origin.y * CGFloat(height))),
+            width: max(1, min(CGFloat(width), normalizedCrop.width * CGFloat(width))),
+            height: max(1, min(CGFloat(height), normalizedCrop.height * CGFloat(height)))
+        ).integral
+
+        let x0 = Int(cropPx.minX)
+        let y0 = Int(cropPx.minY)
+        let x1 = Int(min(CGFloat(width), cropPx.maxX))
+        let y1 = Int(min(CGFloat(height), cropPx.maxY))
+        guard x1 > x0, y1 > y0 else { return nil }
+
+        IOSurfaceLock(surfaceRef, [], nil)
+        defer { IOSurfaceUnlock(surfaceRef, [], nil) }
+
+        let base = IOSurfaceGetBaseAddress(surfaceRef)
+        let bytesPerRow = IOSurfaceGetBytesPerRow(surfaceRef)
+        guard bytesPerRow > 0 else { return nil }
+
+        let bytesPerPixel = 4
+        let step = 6
+        var hist = [UInt16: Int]()
+        hist.reserveCapacity(256)
+        var lumas = [Double]()
+        lumas.reserveCapacity(((x1 - x0) / step) * ((y1 - y0) / step))
+
+        for y in stride(from: y0, to: y1, by: step) {
+            let row = base.advanced(by: y * bytesPerRow)
+            for x in stride(from: x0, to: x1, by: step) {
+                let pixel = row.advanced(by: x * bytesPerPixel)
+                let b = Double(pixel.load(fromByteOffset: 0, as: UInt8.self))
+                let g = Double(pixel.load(fromByteOffset: 1, as: UInt8.self))
+                let r = Double(pixel.load(fromByteOffset: 2, as: UInt8.self))
+                let luma = 0.2126 * r + 0.7152 * g + 0.0722 * b
+                lumas.append(luma)
+
+                let rq = UInt16(UInt8(r) >> 4)
+                let gq = UInt16(UInt8(g) >> 4)
+                let bq = UInt16(UInt8(b) >> 4)
+                let key = (rq << 8) | (gq << 4) | bq
+                hist[key, default: 0] += 1
+            }
+        }
+
+        guard !lumas.isEmpty else { return nil }
+        let mean = lumas.reduce(0.0, +) / Double(lumas.count)
+        let variance = lumas.reduce(0.0) { partial, value in
+            partial + ((value - mean) * (value - mean))
+        } / Double(lumas.count)
+        let modeCount = hist.values.max() ?? 0
+
+        return IOSurfaceBlankMetrics(
+            uniqueQuantized: hist.count,
+            lumaStdDev: sqrt(variance),
+            modeFraction: Double(modeCount) / Double(lumas.count)
+        )
+    }
+
+    private func currentSurfaceLooksReadyForPreservedFrameRetirement() -> Bool {
+        let topStripCrop = CGRect(x: 0.04, y: 0.01, width: 0.92, height: 0.08)
+        guard let metrics = sampleCurrentIOSurfaceBlankMetrics(normalizedCrop: topStripCrop) else {
+            return false
+        }
+        return !metrics.isProbablyBlank
+    }
+
+    func preserveCurrentFrameDuringTransition(reason: String) {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in
+                self?.preserveCurrentFrameDuringTransition(reason: reason)
+            }
+            return
+        }
+
+        guard bounds.width > 2, bounds.height > 2 else { return }
+        guard let image = copyCurrentSurfaceCGImage() else {
+#if DEBUG
+            dlog(
+                "surface.framePreserve.skip surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") " +
+                "reason=\(reason) capture=nil key=\(Self.contentsKey(for: surfaceView.layer)) " +
+                "inWindow=\(window != nil ? 1 : 0) size=\(String(format: "%.1fx%.1f", bounds.width, bounds.height))"
+            )
+#endif
+            return
+        }
+
+        framePreservationGeneration &+= 1
+        let generation = framePreservationGeneration
+        framePreservationCapturedContentsKey = Self.contentsKey(for: surfaceView.layer)
+        framePreservationCapturedSize = bounds.size
+
+        _ = setFrameIfNeeded(framePreservationOverlayView, to: bounds)
+        framePreservationOverlayView.layer?.contentsScale = max(
+            1.0,
+            window?.backingScaleFactor
+                ?? surfaceView.layer?.contentsScale
+                ?? NSScreen.main?.backingScaleFactor
+                ?? 1.0
+        )
+        framePreservationOverlayView.layer?.contents = image
+        framePreservationOverlayView.isHidden = false
+
+#if DEBUG
+        dlog(
+            "surface.framePreserve.show surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") " +
+            "reason=\(reason) size=\(String(format: "%.1fx%.1f", bounds.width, bounds.height)) " +
+            "key=\(framePreservationCapturedContentsKey ?? "nil")"
+        )
+#endif
+
+        scheduleFramePreservationRetirementCheck(generation: generation, attempt: 0)
+    }
+
+    private func scheduleFramePreservationRetirementCheck(generation: UInt64, attempt: Int) {
+        let delays: [TimeInterval] = [0.016, 0.033, 0.05, 0.075, 0.11, 0.16, 0.22, 0.30]
+        guard attempt < delays.count else {
+            hidePreservedFrameOverlay(reason: "timeout")
+            return
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + delays[attempt]) { [weak self] in
+            guard let self else { return }
+            guard generation == self.framePreservationGeneration else { return }
+            if self.shouldRetirePreservedFrameOverlay() {
+                self.hidePreservedFrameOverlay(reason: "ready")
+            } else {
+                self.scheduleFramePreservationRetirementCheck(
+                    generation: generation,
+                    attempt: attempt + 1
+                )
+            }
+        }
+    }
+
+    private func shouldRetirePreservedFrameOverlay() -> Bool {
+        guard !framePreservationOverlayView.isHidden else { return true }
+        guard window != nil else { return true }
+
+        let currentKey = Self.contentsKey(for: surfaceView.layer)
+        guard let capturedKey = framePreservationCapturedContentsKey else {
+            return currentKey != "nil" && currentSurfaceLooksReadyForPreservedFrameRetirement()
+        }
+        guard currentKey != "nil", currentKey != capturedKey else {
+            return false
+        }
+        return currentSurfaceLooksReadyForPreservedFrameRetirement()
+    }
+
+    private func hidePreservedFrameOverlay(reason: String) {
+        guard !framePreservationOverlayView.isHidden || framePreservationOverlayView.layer?.contents != nil else {
+            framePreservationCapturedContentsKey = nil
+            framePreservationCapturedSize = .zero
+            return
+        }
+
+        framePreservationOverlayView.isHidden = true
+        framePreservationOverlayView.layer?.contents = nil
+        framePreservationCapturedContentsKey = nil
+        framePreservationCapturedSize = .zero
+
+#if DEBUG
+        dlog(
+            "surface.framePreserve.hide surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") " +
+            "reason=\(reason)"
+        )
+#endif
     }
 
 #if DEBUG
@@ -6588,11 +6847,35 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     func setActive(_ active: Bool) {
-        let wasActive = isActive
-        isActive = active
+        let resolvedActive: Bool = {
+            guard let tabId = surfaceView.tabId ?? surfaceView.terminalSurface?.tabId,
+                  let panelId = surfaceView.terminalSurface?.id else {
+                return active
+            }
+            let modelTargetsThisSurface = matchesCurrentTerminalFocusTarget(tabId: tabId, surfaceId: panelId)
+            if active {
+                return modelTargetsThisSurface
+            }
+            if modelTargetsThisSurface, surfaceView.isVisibleInUI {
+                return true
+            }
+            return false
+        }()
+
 #if DEBUG
-        if wasActive != active {
-            let transition = "\(wasActive ? 1 : 0)->\(active ? 1 : 0)"
+        if active != resolvedActive {
+            dlog(
+                "focus.active.coerce surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") " +
+                "requested=\(active ? 1 : 0) resolved=\(resolvedActive ? 1 : 0) \(debugWorkspaceFocusSuffix())"
+            )
+        }
+#endif
+
+        let wasActive = isActive
+        isActive = resolvedActive
+#if DEBUG
+        if wasActive != resolvedActive {
+            let transition = "\(wasActive ? 1 : 0)->\(resolvedActive ? 1 : 0)"
             let suffix = debugVisibilityStateSuffix(transition: transition)
             debugLogWorkspaceSwitchTiming(
                 event: "ws.term.active",
@@ -6600,7 +6883,7 @@ final class GhosttySurfaceScrollView: NSView {
             )
         }
 #endif
-        if active {
+        if resolvedActive {
             applyFirstResponderIfNeeded()
         } else {
             resignOwnedFirstResponderIfNeeded(reason: "setActive(false)")
@@ -6631,6 +6914,53 @@ final class GhosttySurfaceScrollView: NSView {
         return String(describing: type(of: firstResponder))
     }
 
+    private func debugFirstResponderPanelLabel() -> String {
+        guard let window else { return "nil" }
+        return cmuxOwningGhosttyView(for: window.firstResponder)?
+            .terminalSurface?
+            .id
+            .uuidString
+            .prefix(5)
+            .description ?? "nil"
+    }
+
+    private func debugWorkspaceFocusSuffix() -> String {
+        let workspaceId = surfaceView.terminalSurface?.tabId ?? surfaceView.tabId
+        let workspaceShort = workspaceId.map { String($0.uuidString.prefix(5)) } ?? "nil"
+        let firstResponderPanel = debugFirstResponderPanelLabel()
+        guard let workspaceId,
+              let appDelegate = AppDelegate.shared else {
+            return
+                "workspace=\(workspaceShort) pane=nil focusedPane=nil selectedPanel=nil " +
+                "focusedPanel=nil firstResponderPanel=\(firstResponderPanel)"
+        }
+
+        let manager = appDelegate.tabManagerFor(tabId: workspaceId) ?? appDelegate.tabManager
+        guard let workspace = manager?.tabs.first(where: { $0.id == workspaceId }) else {
+            return
+                "workspace=\(workspaceShort) pane=nil focusedPane=nil selectedPanel=nil " +
+                "focusedPanel=nil firstResponderPanel=\(firstResponderPanel)"
+        }
+
+        let panelId = surfaceView.terminalSurface?.id
+        let paneId = panelId.flatMap { workspace.paneId(forPanelId: $0) }
+        let paneShort = paneId.map { String($0.id.uuidString.prefix(5)) } ?? "nil"
+        let focusedPaneShort = workspace.bonsplitController.focusedPaneId
+            .map { String($0.id.uuidString.prefix(5)) } ?? "nil"
+        let selectedTab = workspace.bonsplitController.focusedPaneId
+            .flatMap { workspace.bonsplitController.selectedTab(inPane: $0) }
+        let selectedPanelShort = selectedTab
+            .flatMap { workspace.panelIdFromSurfaceId($0.id) }
+            .map { String($0.uuidString.prefix(5)) } ?? "nil"
+        let focusedPanelShort = workspace.focusedPanelId
+            .map { String($0.uuidString.prefix(5)) } ?? "nil"
+
+        return
+            "workspace=\(workspaceShort) pane=\(paneShort) focusedPane=\(focusedPaneShort) " +
+            "selectedPanel=\(selectedPanelShort) focusedPanel=\(focusedPanelShort) " +
+            "firstResponderPanel=\(firstResponderPanel)"
+    }
+
     private func debugVisibilityStateSuffix(transition: String) -> String {
         let surface = surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil"
         let hiddenInHierarchy = (isHiddenOrHasHiddenAncestor || surfaceView.isHiddenOrHasHiddenAncestor) ? 1 : 0
@@ -6645,7 +6975,7 @@ final class GhosttySurfaceScrollView: NSView {
             "surface=\(surface) transition=\(transition) active=\(isActive ? 1 : 0) " +
             "visibleFlag=\(surfaceView.isVisibleInUI ? 1 : 0) hostHidden=\(hostHidden) surfaceHidden=\(surfaceHidden) " +
             "hiddenHierarchy=\(hiddenInHierarchy) inWindow=\(inWindow) hasSuperview=\(hasSuperview) " +
-            "bounds=\(boundsText) frame=\(frameText) firstResponder=\(responder)"
+            "bounds=\(boundsText) frame=\(frameText) firstResponder=\(responder) \(debugWorkspaceFocusSuffix())"
     }
 #endif
 
@@ -6811,7 +7141,7 @@ final class GhosttySurfaceScrollView: NSView {
         }
 
         let hasUsablePortalGeometry: Bool = {
-            let size = bounds.size
+            let size = frame.size
             return size.width > 1 && size.height > 1
         }()
         let isHiddenForFocus = isHiddenOrHasHiddenAncestor || surfaceView.isHiddenOrHasHiddenAncestor
@@ -6833,7 +7163,7 @@ final class GhosttySurfaceScrollView: NSView {
             dlog(
                 "focus.ensure.defer surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") " +
                 "reason=hidden_or_tiny hidden=\(isHiddenForFocus ? 1 : 0) " +
-                "frame=\(String(format: "%.1fx%.1f", bounds.width, bounds.height)) attempts=\(attemptsRemaining)"
+                "frame=\(String(format: "%.1fx%.1f", frame.width, frame.height)) attempts=\(attemptsRemaining)"
             )
 #endif
             retry()
@@ -6890,7 +7220,7 @@ final class GhosttySurfaceScrollView: NSView {
             "focus.ensure.apply surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") " +
             "tab=\(tabId.uuidString.prefix(5)) panel=\(surfaceId.uuidString.prefix(5)) " +
             "result=\(result ? 1 : 0) firstResponder=\(String(describing: window.firstResponder)) " +
-            "attempts=\(attemptsRemaining)"
+            "attempts=\(attemptsRemaining) \(debugWorkspaceFocusSuffix())"
         )
 #endif
 
@@ -6927,6 +7257,20 @@ final class GhosttySurfaceScrollView: NSView {
         surfaceView.suppressingReparentFocus = false
     }
 
+    var isSuppressingReparentFocus: Bool {
+        surfaceView.suppressingReparentFocus
+    }
+
+    func requiresDeferredProgrammaticFocusCompletion() -> Bool {
+        let hasUsablePortalGeometry = frame.width > 1 && frame.height > 1
+        let isHiddenForFocus = isHiddenOrHasHiddenAncestor || surfaceView.isHiddenOrHasHiddenAncestor
+        return window == nil || !surfaceView.isVisibleInUI || isHiddenForFocus || !hasUsablePortalGeometry
+    }
+
+    func setOnNextConfirmedSurfaceFocus(_ handler: (() -> Void)?) {
+        onNextConfirmedSurfaceFocus = handler
+    }
+
     /// Returns true if the terminal's actual Ghostty surface view is (or contains) the window first responder.
     /// This is stricter than checking `hostedView` descendants, since the scroll view can sometimes become
     /// first responder transiently while focus is being applied.
@@ -6935,12 +7279,25 @@ final class GhosttySurfaceScrollView: NSView {
         return fr === surfaceView || fr.isDescendant(of: surfaceView)
     }
 
+    @discardableResult
+    func makeSurfaceViewFirstResponder() -> Bool {
+        guard let window else { return false }
+        return window.makeFirstResponder(surfaceView)
+    }
+
     private func reassertTerminalSurfaceFocus(reason: String) {
         guard let terminalSurface = surfaceView.terminalSurface else { return }
 #if DEBUG
-        dlog("focus.surface.reassert surface=\(terminalSurface.id.uuidString.prefix(5)) reason=\(reason)")
+        dlog(
+            "focus.surface.reassert surface=\(terminalSurface.id.uuidString.prefix(5)) " +
+            "reason=\(reason) \(debugWorkspaceFocusSuffix())"
+        )
 #endif
         terminalSurface.setFocus(true)
+        if let handler = onNextConfirmedSurfaceFocus {
+            onNextConfirmedSurfaceFocus = nil
+            handler()
+        }
         refreshSurfaceAfterFocusIfNeeded(reason: reason)
     }
 
@@ -6957,14 +7314,17 @@ final class GhosttySurfaceScrollView: NSView {
         }
         lastFocusRefreshAt = now
 #if DEBUG
-        dlog("focus.surface.refresh surface=\(terminalSurface.id.uuidString.prefix(5)) reason=\(reason)")
+        dlog(
+            "focus.surface.refresh surface=\(terminalSurface.id.uuidString.prefix(5)) " +
+            "reason=\(reason) \(debugWorkspaceFocusSuffix())"
+        )
 #endif
         terminalSurface.forceRefresh(reason: "focus.surface.\(reason)")
     }
 
     private func applyFirstResponderIfNeeded() {
         let hasUsablePortalGeometry: Bool = {
-            let size = bounds.size
+            let size = frame.size
             return size.width > 1 && size.height > 1
         }()
         let isHiddenForFocus = isHiddenOrHasHiddenAncestor || surfaceView.isHiddenOrHasHiddenAncestor
@@ -6976,7 +7336,8 @@ final class GhosttySurfaceScrollView: NSView {
 #if DEBUG
             dlog(
                 "focus.apply.skip surface=\(surfaceShort) " +
-                "reason=hidden_or_tiny hidden=\(isHiddenForFocus ? 1 : 0) frame=\(String(format: "%.1fx%.1f", bounds.width, bounds.height))"
+                "reason=hidden_or_tiny hidden=\(isHiddenForFocus ? 1 : 0) " +
+                "frame=\(String(format: "%.1fx%.1f", frame.width, frame.height)) \(debugWorkspaceFocusSuffix())"
             )
 #endif
             return
@@ -6986,7 +7347,10 @@ final class GhosttySurfaceScrollView: NSView {
               let panelId = surfaceView.terminalSurface?.id,
               matchesCurrentTerminalFocusTarget(tabId: tabId, surfaceId: panelId) else {
 #if DEBUG
-            dlog("focus.apply.skip surface=\(surfaceShort) reason=stale_target")
+            dlog(
+                "focus.apply.skip surface=\(surfaceShort) " +
+                "reason=stale_target \(debugWorkspaceFocusSuffix())"
+            )
 #endif
             return
         }
@@ -7179,11 +7543,21 @@ final class GhosttySurfaceScrollView: NSView {
         }()
 
         guard ownsSurfaceResponder || isCurrentSurfaceSearchResponder(firstResponder) else { return }
+        if ownsSurfaceResponder && surfaceView.suppressingReparentFocus {
+#if DEBUG
+            dlog(
+                "focus.surface.resign.defer surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") " +
+                "reason=\(reason) \(debugWorkspaceFocusSuffix())"
+            )
+#endif
+            return
+        }
 
 #if DEBUG
         dlog(
             "focus.surface.resign surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") " +
-            "reason=\(reason) firstResponder=\(String(describing: firstResponder))"
+            "reason=\(reason) firstResponder=\(String(describing: firstResponder)) " +
+            "\(debugWorkspaceFocusSuffix())"
         )
 #endif
         window.makeFirstResponder(nil)
@@ -7223,6 +7597,48 @@ final class GhosttySurfaceScrollView: NSView {
 
         guard let view = resolvedResponder as? NSView else { return false }
         return view.isDescendant(of: self)
+    }
+
+    private func copyCurrentSurfaceCGImage() -> CGImage? {
+        guard let modelLayer = surfaceView.layer else { return nil }
+        let layer = modelLayer.presentation() ?? modelLayer
+        guard let contents = layer.contents else { return nil }
+
+        let cf = contents as CFTypeRef
+        guard CFGetTypeID(cf) == IOSurfaceGetTypeID() else { return nil }
+        let surfaceRef = (contents as! IOSurfaceRef)
+
+        let width = Int(IOSurfaceGetWidth(surfaceRef))
+        let height = Int(IOSurfaceGetHeight(surfaceRef))
+        let bytesPerRow = Int(IOSurfaceGetBytesPerRow(surfaceRef))
+        guard width > 0, height > 0, bytesPerRow > 0 else { return nil }
+
+        IOSurfaceLock(surfaceRef, [], nil)
+        defer { IOSurfaceUnlock(surfaceRef, [], nil) }
+
+        let base = IOSurfaceGetBaseAddress(surfaceRef)
+        let size = bytesPerRow * height
+        let data = Data(bytes: base, count: size)
+
+        guard let provider = CGDataProvider(data: data as CFData) else { return nil }
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        let bitmapInfo = CGBitmapInfo.byteOrder32Little.union(
+            CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedFirst.rawValue)
+        )
+
+        return CGImage(
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bitsPerPixel: 32,
+            bytesPerRow: bytesPerRow,
+            space: colorSpace,
+            bitmapInfo: bitmapInfo,
+            provider: provider,
+            decode: nil,
+            shouldInterpolate: false,
+            intent: .defaultIntent
+        )
     }
 
 #if DEBUG
@@ -7306,45 +7722,7 @@ final class GhosttySurfaceScrollView: NSView {
     /// This avoids Screen Recording permissions (unlike CGWindowListCreateImage) and is therefore
     /// suitable for debug socket tests running in headless/VM contexts.
     func debugCopyIOSurfaceCGImage() -> CGImage? {
-        guard let modelLayer = surfaceView.layer else { return nil }
-        let layer = modelLayer.presentation() ?? modelLayer
-        guard let contents = layer.contents else { return nil }
-
-        let cf = contents as CFTypeRef
-        guard CFGetTypeID(cf) == IOSurfaceGetTypeID() else { return nil }
-        let surfaceRef = (contents as! IOSurfaceRef)
-
-        let width = Int(IOSurfaceGetWidth(surfaceRef))
-        let height = Int(IOSurfaceGetHeight(surfaceRef))
-        let bytesPerRow = Int(IOSurfaceGetBytesPerRow(surfaceRef))
-        guard width > 0, height > 0, bytesPerRow > 0 else { return nil }
-
-        IOSurfaceLock(surfaceRef, [], nil)
-        defer { IOSurfaceUnlock(surfaceRef, [], nil) }
-
-        let base = IOSurfaceGetBaseAddress(surfaceRef)
-        let size = bytesPerRow * height
-        let data = Data(bytes: base, count: size)
-
-        guard let provider = CGDataProvider(data: data as CFData) else { return nil }
-        let colorSpace = CGColorSpaceCreateDeviceRGB()
-        let bitmapInfo = CGBitmapInfo.byteOrder32Little.union(
-            CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedFirst.rawValue)
-        )
-
-        return CGImage(
-            width: width,
-            height: height,
-            bitsPerComponent: 8,
-            bitsPerPixel: 32,
-            bytesPerRow: bytesPerRow,
-            space: colorSpace,
-            bitmapInfo: bitmapInfo,
-            provider: provider,
-            decode: nil,
-            shouldInterpolate: false,
-            intent: .defaultIntent
-        )
+        copyCurrentSurfaceCGImage()
     }
 
     /// Sample the IOSurface backing the terminal layer (if any) to detect a transient blank frame
@@ -7359,6 +7737,30 @@ final class GhosttySurfaceScrollView: NSView {
         let presentationScale = max(1.0, layer.contentsScale)
         let expectedWidthPx = Int((layer.bounds.width * presentationScale).rounded(.toNearestOrAwayFromZero))
         let expectedHeightPx = Int((layer.bounds.height * presentationScale).rounded(.toNearestOrAwayFromZero))
+
+        if !framePreservationOverlayView.isHidden,
+           framePreservationOverlayView.layer?.contents != nil {
+            var fnv: UInt64 = 1469598103934665603
+            let overlayKey = "preserved:\(framePreservationCapturedContentsKey ?? "nil")"
+            for b in overlayKey.utf8 {
+                fnv ^= UInt64(b)
+                fnv &*= 1099511628211
+            }
+            return DebugFrameSample(
+                sampleCount: 1,
+                uniqueQuantized: 1,
+                lumaStdDev: 999,
+                modeFraction: 0,
+                fingerprint: fnv,
+                iosurfaceWidthPx: expectedWidthPx,
+                iosurfaceHeightPx: expectedHeightPx,
+                expectedWidthPx: expectedWidthPx,
+                expectedHeightPx: expectedHeightPx,
+                layerClass: "FramePreservationOverlay",
+                layerContentsGravity: CALayerContentsGravity.resize.rawValue,
+                layerContentsKey: overlayKey
+            )
+        }
 
         // Ghostty uses a CoreAnimation layer whose `contents` is an IOSurface-backed object.
         // The concrete layer class is often `IOSurfaceLayer` (private), so avoid referencing it directly.
@@ -7503,37 +7905,15 @@ final class GhosttySurfaceScrollView: NSView {
         surfaceView.frame.origin = visibleRect.origin
     }
 
-    /// Match upstream Ghostty behavior: use content area width (excluding non-content
-    /// regions such as scrollbar space) when telling libghostty the terminal size.
+    /// Match the actual clip-view content width when telling libghostty the terminal size.
+    /// Reserving extra width for overlay scrollers makes split-close topology changes oscillate
+    /// between two terminal widths and can blank the surviving pane for several frames.
     @discardableResult
     private func synchronizeCoreSurface() -> Bool {
-        let width = max(0, scrollView.contentSize.width - overlayScrollbarInsetWidth())
+        let width = max(0, scrollView.contentSize.width)
         let height = surfaceView.frame.height
         guard width > 0, height > 0 else { return false }
         return surfaceView.pushTargetSurfaceSize(CGSize(width: width, height: height))
-    }
-
-    /// Reserve overlay scrollbar gutter so wrapped text never sits underneath a visible scroller.
-    private func overlayScrollbarInsetWidth() -> CGFloat {
-        guard scrollView.hasVerticalScroller, scrollView.scrollerStyle == .overlay else { return 0 }
-
-        // If AppKit already reserved non-content width in `contentSize`, avoid double-subtraction.
-        let alreadyReserved = max(0, scrollView.bounds.width - scrollView.contentSize.width)
-        if alreadyReserved > 0.5 { return 0 }
-
-        let fallback = NSScroller.scrollerWidth(for: .regular, scrollerStyle: .overlay)
-        guard let verticalScroller = scrollView.verticalScroller else { return fallback }
-
-        let measuredWidth = verticalScroller.frame.width
-        if measuredWidth > 0 {
-            return max(measuredWidth, fallback)
-        }
-
-        let controlSizeWidth = NSScroller.scrollerWidth(
-            for: verticalScroller.controlSize,
-            scrollerStyle: .overlay
-        )
-        return max(controlSizeWidth, fallback)
     }
 
     private func updateNotificationRingPath() {
@@ -7872,6 +8252,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
     @Environment(\.paneDropZone) var paneDropZone
 
     let terminalSurface: TerminalSurface
+    let paneId: PaneID
     var isActive: Bool = true
     var isVisibleInUI: Bool = true
     var portalZPriority: Int = 0
@@ -8020,6 +8401,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
         let hostOwnsPortalNow = hostContainer.map { host in
             terminalSurface.claimPortalHost(
                 hostId: ObjectIdentifier(host),
+                paneId: paneId,
                 inWindow: host.window != nil,
                 bounds: host.bounds,
                 reason: "update"
@@ -8075,6 +8457,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
                 guard coordinator.attachGeneration == generation else { return }
                 guard terminalSurface.claimPortalHost(
                     hostId: ObjectIdentifier(host),
+                    paneId: paneId,
                     inWindow: host.window != nil,
                     bounds: host.bounds,
                     reason: "didMoveToWindow"
@@ -8099,6 +8482,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
                 guard coordinator.attachGeneration == generation else { return }
                 guard terminalSurface.claimPortalHost(
                     hostId: ObjectIdentifier(host),
+                    paneId: paneId,
                     inWindow: host.window != nil,
                     bounds: host.bounds,
                     reason: "geometryChanged"
@@ -8133,6 +8517,15 @@ struct GhosttyTerminalView: NSViewRepresentable {
 
             if host.window != nil, hostOwnsPortalNow {
                 let hostId = ObjectIdentifier(host)
+                guard terminalSurface.ownsPortalHost(hostId: hostId) else {
+#if DEBUG
+                    dlog(
+                        "ws.hostState.skipBind surface=\(terminalSurface.id.uuidString.prefix(5)) " +
+                        "reason=staleOwnership host=\(hostId)"
+                    )
+#endif
+                    return
+                }
                 let geometryRevision = host.geometryRevision
                 let portalEntryMissing = !TerminalWindowPortalRegistry.isHostedView(hostedView, boundTo: host)
                 let shouldBindNow =

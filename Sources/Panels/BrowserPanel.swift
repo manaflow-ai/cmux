@@ -1714,10 +1714,10 @@ final class BrowserPanel: Panel, ObservableObject {
                     }
             } else if oldValue != nil {
                 searchNeedleCancellable = nil
+                invalidateSearchFocusRequests(reason: "searchStateCleared", force: true)
                 if preferredFocusIntent == .findField {
                     preferredFocusIntent = .webView
                 }
-                invalidateSearchFocusRequests(reason: "searchStateCleared")
                 NSLog("Find: browser search state cleared panel=%@", id.uuidString)
                 executeFindClear()
             }
@@ -1725,19 +1725,7 @@ final class BrowserPanel: Panel, ObservableObject {
     }
     private var searchNeedleCancellable: AnyCancellable?
     let portalAnchorView = BrowserPortalAnchorView(frame: .zero)
-    private struct PortalHostLease {
-        let hostId: ObjectIdentifier
-        let paneId: UUID
-        let inWindow: Bool
-        let area: CGFloat
-    }
-    private struct PortalHostLock {
-        let hostId: ObjectIdentifier
-        let paneId: UUID
-    }
-    private var activePortalHostLease: PortalHostLease?
-    private var pendingDistinctPortalHostReplacementPaneId: UUID?
-    private var lockedPortalHost: PortalHostLock?
+    private var portalHostLeasing = PortalHostLeasingState()
     private var webViewCancellables = Set<AnyCancellable>()
     private var navigationDelegate: BrowserNavigationDelegate?
     private var uiDelegate: BrowserUIDelegate?
@@ -1779,25 +1767,11 @@ final class BrowserPanel: Panel, ObservableObject {
         return String(localized: "browser.newTab", defaultValue: "New tab")
     }
 
-    private static let portalHostAreaThreshold: CGFloat = 4
-    private static let portalHostReplacementAreaGainRatio: CGFloat = 1.2
-
-    private static func portalHostArea(for bounds: CGRect) -> CGFloat {
-        max(0, bounds.width) * max(0, bounds.height)
-    }
-
-    private static func portalHostIsUsable(_ lease: PortalHostLease) -> Bool {
-        lease.inWindow && lease.area > portalHostAreaThreshold
-    }
-
     func preparePortalHostReplacementForNextDistinctClaim(
         inPane paneId: PaneID,
         reason: String
     ) {
-        pendingDistinctPortalHostReplacementPaneId = paneId.id
-        if lockedPortalHost?.paneId == paneId.id {
-            lockedPortalHost = nil
-        }
+        portalHostLeasing.prepareForNextDistinctReplacement(contextId: paneId.id)
 #if DEBUG
         dlog(
             "browser.portal.host.rearm panel=\(id.uuidString.prefix(5)) " +
@@ -1813,120 +1787,60 @@ final class BrowserPanel: Panel, ObservableObject {
         bounds: CGRect,
         reason: String
     ) -> Bool {
-        let next = PortalHostLease(
+        let outcome = portalHostLeasing.claim(
             hostId: hostId,
-            paneId: paneId.id,
+            contextId: paneId.id,
             inWindow: inWindow,
-            area: Self.portalHostArea(for: bounds)
+            bounds: bounds
         )
-
-        if let current = activePortalHostLease {
-            if let lock = lockedPortalHost,
-               (lock.hostId != current.hostId || lock.paneId != current.paneId) {
-                lockedPortalHost = nil
-            }
-
-            if current.hostId == hostId {
-                activePortalHostLease = next
-                return true
-            }
-
-            let currentUsable = Self.portalHostIsUsable(current)
-            let nextUsable = Self.portalHostIsUsable(next)
-            let isSamePaneReplacement = current.paneId == paneId.id
-            let shouldForceDistinctReplacement =
-                isSamePaneReplacement &&
-                pendingDistinctPortalHostReplacementPaneId == paneId.id &&
-                inWindow
-            if shouldForceDistinctReplacement {
 #if DEBUG
+        if outcome.didAcquireOwnership {
+            if let replacedLease = outcome.replacedLease {
                 dlog(
                     "browser.portal.host.claim panel=\(id.uuidString.prefix(5)) " +
                     "reason=\(reason) host=\(hostId) pane=\(paneId.id.uuidString.prefix(5)) " +
                     "inWin=\(inWindow ? 1 : 0) size=\(String(format: "%.1fx%.1f", bounds.width, bounds.height)) " +
-                    "replacingHost=\(current.hostId) replacingPane=\(current.paneId.uuidString.prefix(5)) " +
-                    "replacingInWin=\(current.inWindow ? 1 : 0) replacingArea=\(String(format: "%.1f", current.area)) " +
-                    "forced=1"
+                    "replacingHost=\(replacedLease.hostId) replacingPane=\(replacedLease.contextId.map { String($0.uuidString.prefix(5)) } ?? "nil") " +
+                    "replacingInWin=\(replacedLease.inWindow ? 1 : 0) replacingArea=\(String(format: "%.1f", replacedLease.area)) " +
+                    "forced=\(outcome.forcedDistinctReplacement ? 1 : 0)"
                 )
-#endif
-                activePortalHostLease = next
-                pendingDistinctPortalHostReplacementPaneId = nil
-                lockedPortalHost = PortalHostLock(hostId: hostId, paneId: paneId.id)
-                return true
-            }
-
-            let lockBlocksSamePaneReplacement =
-                isSamePaneReplacement &&
-                currentUsable &&
-                lockedPortalHost?.hostId == current.hostId &&
-                lockedPortalHost?.paneId == current.paneId
-            let shouldReplace =
-                current.paneId != paneId.id ||
-                !currentUsable ||
-                (
-                    !lockBlocksSamePaneReplacement &&
-                    nextUsable &&
-                    next.area > (current.area * Self.portalHostReplacementAreaGainRatio)
-                )
-
-            if shouldReplace {
-                if lockedPortalHost?.hostId == current.hostId &&
-                    lockedPortalHost?.paneId == current.paneId {
-                    lockedPortalHost = nil
-                }
-#if DEBUG
+            } else {
                 dlog(
                     "browser.portal.host.claim panel=\(id.uuidString.prefix(5)) " +
                     "reason=\(reason) host=\(hostId) pane=\(paneId.id.uuidString.prefix(5)) " +
                     "inWin=\(inWindow ? 1 : 0) size=\(String(format: "%.1fx%.1f", bounds.width, bounds.height)) " +
-                    "replacingHost=\(current.hostId) replacingPane=\(current.paneId.uuidString.prefix(5)) " +
-                    "replacingInWin=\(current.inWindow ? 1 : 0) replacingArea=\(String(format: "%.1f", current.area))"
+                    "replacingHost=nil"
                 )
-#endif
-                activePortalHostLease = next
-                return true
             }
-
-#if DEBUG
+        } else if !outcome.accepted, let activeLease = outcome.activeLease {
             dlog(
                 "browser.portal.host.skip panel=\(id.uuidString.prefix(5)) " +
                 "reason=\(reason) host=\(hostId) pane=\(paneId.id.uuidString.prefix(5)) " +
                 "inWin=\(inWindow ? 1 : 0) size=\(String(format: "%.1fx%.1f", bounds.width, bounds.height)) " +
-                "ownerHost=\(current.hostId) ownerPane=\(current.paneId.uuidString.prefix(5)) " +
-                "ownerInWin=\(current.inWindow ? 1 : 0) ownerArea=\(String(format: "%.1f", current.area)) " +
-                "locked=\(lockBlocksSamePaneReplacement ? 1 : 0)"
+                "ownerHost=\(activeLease.hostId) ownerPane=\(activeLease.contextId.map { String($0.uuidString.prefix(5)) } ?? "nil") " +
+                "ownerInWin=\(activeLease.inWindow ? 1 : 0) ownerArea=\(String(format: "%.1f", activeLease.area)) " +
+                "locked=\(outcome.blockedByLock ? 1 : 0)"
             )
-#endif
-            return false
         }
+#endif
+        return outcome.accepted
+    }
 
-        activePortalHostLease = next
+    @discardableResult
+    func releasePortalHostIfOwned(hostId: ObjectIdentifier, reason: String) -> Bool {
+        guard let current = portalHostLeasing.releaseIfOwned(hostId: hostId) else { return false }
 #if DEBUG
         dlog(
-            "browser.portal.host.claim panel=\(id.uuidString.prefix(5)) " +
-            "reason=\(reason) host=\(hostId) pane=\(paneId.id.uuidString.prefix(5)) " +
-            "inWin=\(inWindow ? 1 : 0) size=\(String(format: "%.1fx%.1f", bounds.width, bounds.height)) " +
-            "replacingHost=nil"
+            "browser.portal.host.release panel=\(id.uuidString.prefix(5)) " +
+            "reason=\(reason) host=\(hostId) pane=\(current.contextId.map { String($0.uuidString.prefix(5)) } ?? "nil") " +
+            "inWin=\(current.inWindow ? 1 : 0) area=\(String(format: "%.1f", current.area))"
         )
 #endif
         return true
     }
 
-    @discardableResult
-    func releasePortalHostIfOwned(hostId: ObjectIdentifier, reason: String) -> Bool {
-        guard let current = activePortalHostLease, current.hostId == hostId else { return false }
-        activePortalHostLease = nil
-        if lockedPortalHost?.hostId == hostId {
-            lockedPortalHost = nil
-        }
-#if DEBUG
-        dlog(
-            "browser.portal.host.release panel=\(id.uuidString.prefix(5)) " +
-            "reason=\(reason) host=\(hostId) pane=\(current.paneId.uuidString.prefix(5)) " +
-            "inWin=\(current.inWindow ? 1 : 0) area=\(String(format: "%.1f", current.area))"
-        )
-#endif
-        return true
+    func ownsPortalHost(hostId: ObjectIdentifier) -> Bool {
+        portalHostLeasing.owns(hostId: hostId)
     }
 
     var displayIcon: String? {
@@ -3525,7 +3439,8 @@ extension BrowserPanel {
         return searchFocusRequestGeneration
     }
 
-    private func invalidateSearchFocusRequests(reason: String) {
+    private func invalidateSearchFocusRequests(reason: String, force: Bool = false) {
+        guard force || searchState != nil || preferredFocusIntent == .findField else { return }
         searchFocusRequestGeneration &+= 1
 #if DEBUG
         dlog(

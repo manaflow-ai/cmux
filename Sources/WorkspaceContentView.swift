@@ -6,6 +6,7 @@ import Bonsplit
 /// View that renders a Workspace's content using BonsplitView
 struct WorkspaceContentView: View {
     @ObservedObject var workspace: Workspace
+    let workspaceGraphSnapshot: WorkspaceGraphSnapshot?
     let isWorkspaceVisible: Bool
     let isWorkspaceInputActive: Bool
     let workspacePortalPriority: Int
@@ -32,8 +33,10 @@ struct WorkspaceContentView: View {
 
     var body: some View {
         let appearance = PanelAppearance.fromConfig(config)
-        let isSplit = workspace.bonsplitController.allPaneIds.count > 1 ||
+        let isSplit = workspaceGraphSnapshot?.isSplit ?? (
+            workspace.bonsplitController.allPaneIds.count > 1 ||
             workspace.panels.count > 1
+        )
 
         // Inactive workspaces are kept alive in a ZStack (for state preservation) but their
         // AppKit-backed views can still intercept drags. Disable drop acceptance for them.
@@ -44,10 +47,9 @@ struct WorkspaceContentView: View {
         let _ = {
             workspace.bonsplitController.onFileDrop = { [weak workspace] urls, paneId in
                 guard let workspace else { return false }
-                // Find the focused panel in this pane and drop the files into it.
-                guard let tabId = workspace.bonsplitController.selectedTab(inPane: paneId)?.id,
-                      let panelId = workspace.panelIdFromSurfaceId(tabId),
-                      let panel = workspace.panels[panelId] as? TerminalPanel else { return false }
+                let selectedPanelId = selectedPanelId(in: paneId, workspace: workspace)
+                guard let selectedPanelId,
+                      let panel = workspace.panels[selectedPanelId] as? TerminalPanel else { return false }
                 return panel.hostedView.handleDroppedURLs(urls)
             }
         }()
@@ -56,8 +58,8 @@ struct WorkspaceContentView: View {
             // Content for each tab in bonsplit
             let _ = Self.debugPanelLookup(tab: tab, workspace: workspace)
             if let panel = workspace.panel(for: tab.id) {
-                let isFocused = isWorkspaceInputActive && workspace.focusedPanelId == panel.id
-                let isSelectedInPane = workspace.bonsplitController.selectedTab(inPane: paneId)?.id == tab.id
+                let isFocused = isWorkspaceInputActive && focusedPanelId(workspace: workspace) == panel.id
+                let isSelectedInPane = selectedPanelId(in: paneId, workspace: workspace) == panel.id
                 let isVisibleInUI = Self.panelVisibleInUI(
                     isWorkspaceVisible: isWorkspaceVisible,
                     isSelectedInPane: isSelectedInPane,
@@ -179,7 +181,21 @@ struct WorkspaceContentView: View {
     }
 
     private var splitZoomRenderIdentity: String {
-        workspace.bonsplitController.zoomedPaneId.map { "zoom:\($0.id.uuidString)" } ?? "unzoomed"
+        workspaceGraphSnapshot?.splitZoomRenderIdentity ??
+            (workspace.bonsplitController.zoomedPaneId.map { "zoom:\($0.id.uuidString)" } ?? "unzoomed")
+    }
+
+    private func focusedPanelId(workspace: Workspace) -> UUID? {
+        workspaceGraphSnapshot?.focusedPanelId ?? workspace.focusedPanelId
+    }
+
+    private func selectedPanelId(in paneId: PaneID, workspace: Workspace) -> UUID? {
+        if let workspaceGraphSnapshot,
+           let selectedPanelId = workspaceGraphSnapshot.selectedPanelId(inPane: paneId) {
+            return selectedPanelId
+        }
+        guard let tabId = workspace.bonsplitController.selectedTab(inPane: paneId)?.id else { return nil }
+        return workspace.panelIdFromSurfaceId(tabId)
     }
 
     static func resolveGhosttyAppearanceConfig(

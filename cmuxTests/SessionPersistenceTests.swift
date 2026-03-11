@@ -77,6 +77,42 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertNil(SessionPersistenceStore.load(fileURL: snapshotURL))
     }
 
+    func testWorkspaceEngineSettingsDefaultEngineKindPrefersEnvironmentOverride() throws {
+        let suiteName = "cmux-workspace-engine-tests-\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Expected isolated UserDefaults suite")
+            return
+        }
+        defaults.removePersistentDomain(forName: suiteName)
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        defaults.set(WorkspaceEngineKind.legacy.rawValue, forKey: WorkspaceEngineSettings.defaultEngineKindKey)
+
+        XCTAssertEqual(
+            WorkspaceEngineSettings.defaultEngineKind(defaults: defaults, env: [:]),
+            .legacy
+        )
+        XCTAssertEqual(
+            WorkspaceEngineSettings.defaultEngineKind(
+                defaults: defaults,
+                env: [WorkspaceEngineSettings.environmentOverrideKey: WorkspaceEngineKind.graphV1.rawValue]
+            ),
+            .graphV1
+        )
+    }
+
+    func testSessionWindowSnapshotRoundTripPreservesWorkspaceEngineKind() throws {
+        var snapshot = makeSnapshot(version: SessionSnapshotSchema.currentVersion)
+        snapshot.windows[0].workspaceEngineKindRaw = WorkspaceEngineKind.graphV1.rawValue
+
+        let data = try JSONEncoder().encode(snapshot)
+        let decoded = try JSONDecoder().decode(AppSessionSnapshot.self, from: data)
+
+        XCTAssertEqual(decoded.windows.first?.workspaceEngineKind, .graphV1)
+    }
+
     func testDefaultSnapshotPathSanitizesBundleIdentifier() {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-session-tests-\(UUID().uuidString)", isDirectory: true)
@@ -550,6 +586,7 @@ final class SessionPersistenceTests: XCTestCase {
                 frame: SessionRectSnapshot(x: 0, y: 0, width: 1_600, height: 1_000),
                 visibleFrame: SessionRectSnapshot(x: 0, y: 0, width: 1_600, height: 1_000)
             ),
+            workspaceEngineKind: nil,
             tabManager: SessionTabManagerSnapshot(selectedWorkspaceIndex: nil, workspaces: []),
             sidebar: SessionSidebarSnapshot(isVisible: true, selection: .tabs, width: 220)
         )
@@ -722,6 +759,7 @@ final class SessionPersistenceTests: XCTestCase {
                 frame: SessionRectSnapshot(x: 0, y: 0, width: 1920, height: 1200),
                 visibleFrame: SessionRectSnapshot(x: 0, y: 25, width: 1920, height: 1175)
             ),
+            workspaceEngineKind: nil,
             tabManager: tabManager,
             sidebar: SessionSidebarSnapshot(isVisible: true, selection: .tabs, width: 240)
         )

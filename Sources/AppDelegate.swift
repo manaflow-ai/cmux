@@ -1904,6 +1904,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var browserOmnibarRepeatDelta: Int = 0
     private var browserAddressBarFocusObserver: NSObjectProtocol?
     private var browserAddressBarBlurObserver: NSObjectProtocol?
+    private var browserWebViewFocusObserver: NSObjectProtocol?
+    private weak var browserFirstResponderWindow: NSWindow?
     private let updateController = UpdateController()
     private lazy var titlebarAccessoryController = UpdateTitlebarAccessoryController(viewModel: updateViewModel)
     private let windowDecorationsController = WindowDecorationsController()
@@ -1954,11 +1956,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var didSetupJumpUnreadUITest = false
     private var jumpUnreadFocusExpectation: (tabId: UUID, surfaceId: UUID)?
     private var jumpUnreadFocusObserver: NSObjectProtocol?
+    private var didSetupSocketSanityUITest = false
     private var didSetupGotoSplitUITest = false
     private var gotoSplitUITestObservers: [NSObjectProtocol] = []
     private var didSetupMultiWindowNotificationsUITest = false
+    private var didSetupMovedBrowserWindowUITest = false
+    private var movedBrowserWindowUITestSnapshotTimer: DispatchSourceTimer?
+    private weak var browserSurfaceShortcutTargetWindow: NSWindow?
     // Keep debug-only windows alive when tests intentionally inject key mismatches.
     private var debugDetachedContextWindows: [NSWindow] = []
+
+    private struct MovedBrowserWindowUITestContext {
+        let path: String
+        let sourceWindowId: UUID
+        let destinationWindowId: UUID
+        let movedWorkspaceId: UUID
+        let browserPanelId: UUID
+        let expectedDestinationWorkspaceCount: Int
+    }
+
+    private enum MovedBrowserWindowUITestDestinationMode: String {
+        case newWindow = "new_window"
+        case existingWindow = "existing_window"
+    }
 
     private func childExitKeyboardProbePath() -> String? {
         let env = ProcessInfo.processInfo.environment
@@ -2325,9 +2345,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         startSessionAutosaveTimerIfNeeded()
         startSocketListenerHealthMonitorIfNeeded()
 #if DEBUG
-        setupJumpUnreadUITestIfNeeded()
-        setupGotoSplitUITestIfNeeded()
-        setupMultiWindowNotificationsUITestIfNeeded()
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.setupJumpUnreadUITestIfNeeded()
+            self.setupSocketSanityUITestIfNeeded()
+            self.setupGotoSplitUITestIfNeeded()
+            self.setupMultiWindowNotificationsUITestIfNeeded()
+            self.setupMovedBrowserWindowUITestIfNeeded()
+        }
 
         // UI tests sometimes don't run SwiftUI `.onAppear` soon enough (or at all) on the VM.
         // The automation socket is a core testing primitive, so ensure it's started here when
@@ -2497,6 +2522,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 "snapshotDisplay={\(debugSessionDisplayDescription(snapshot.display))}"
         )
 #endif
+        if let workspaceEngineKind = snapshot.workspaceEngineKind {
+            context.tabManager.workspaceEngineKind = workspaceEngineKind
+        }
         context.tabManager.restoreSessionSnapshot(snapshot.tabManager)
         context.sidebarState.isVisible = snapshot.sidebar.isVisible
         context.sidebarState.persistedWidth = CGFloat(
@@ -3327,6 +3355,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return SessionWindowSnapshot(
                     frame: window.map { SessionRectSnapshot($0.frame) },
                     display: displaySnapshot(for: window),
+                    workspaceEngineKind: context.tabManager.workspaceEngineKind,
                     tabManager: context.tabManager.sessionSnapshot(includeScrollback: includeScrollback),
                     sidebar: SessionSidebarSnapshot(
                         isVisible: context.sidebarState.isVisible,
@@ -3569,7 +3598,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @discardableResult
     func moveWorkspaceToNewWindow(workspaceId: UUID, focus: Bool = true) -> UUID? {
-        let windowId = createMainWindow()
+        guard let sourceManager = tabManagerFor(tabId: workspaceId) else { return nil }
+        let windowId = createMainWindow(workspaceEngineKind: sourceManager.workspaceEngineKind)
         guard let destinationManager = tabManagerFor(windowId: windowId) else { return nil }
         let bootstrapWorkspaceId = destinationManager.tabs.first?.id
 
@@ -4746,6 +4776,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
 
     private func mainWindowForShortcutEvent(_ event: NSEvent) -> NSWindow? {
+        if let browserSurfaceWindow = preferredBrowserSurfaceShortcutWindow() {
+            return browserSurfaceWindow
+        }
         if let window = event.window, isMainTerminalWindow(window) {
             return window
         }
@@ -4762,6 +4795,110 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return mainWindow
         }
         return nil
+    }
+
+    private func preferredBrowserSurfaceShortcutWindow() -> NSWindow? {
+        if let overrideWindow = browserSurfaceShortcutTargetWindow,
+           isMainTerminalWindow(overrideWindow) {
+            return overrideWindow
+        }
+        if let context = preferredBrowserSurfaceShortcutContext() {
+            return context.window ?? windowForMainWindowId(context.windowId)
+        }
+        return nil
+    }
+
+    private func preferredBrowserSurfaceShortcutContext() -> MainWindowContext? {
+        if let overrideWindow = browserSurfaceShortcutTargetWindow,
+           let context = contextForMainTerminalWindow(overrideWindow) {
+            return context
+        }
+        if let context = contextForFocusedBrowserSurfaceWindow() {
+            return context
+        }
+        return liveBrowserSurfaceShortcutContext()
+    }
+
+    private func contextForFocusedBrowserSurfaceWindow() -> MainWindowContext? {
+        guard let window = browserFirstResponderWindow,
+              window === NSApp.keyWindow || window.isKeyWindow,
+              let context = browserSurfaceShortcutContext(
+                  for: window,
+                  allowSelectedBrowserFallback: true
+              ) else {
+            browserFirstResponderWindow = nil
+            return nil
+        }
+        return context
+    }
+
+    private func browserSurfaceShortcutContext(
+        for window: NSWindow?,
+        allowSelectedBrowserFallback: Bool = false
+    ) -> MainWindowContext? {
+        guard let window,
+              isMainTerminalWindow(window),
+              let context = contextForMainTerminalWindow(window),
+              let focusedBrowser = context.tabManager.focusedBrowserPanel else {
+            return nil
+        }
+        if responderChainContains(window.firstResponder, target: focusedBrowser.webView) {
+            return context
+        }
+        if allowSelectedBrowserFallback,
+           window === NSApp.keyWindow || window === NSApp.mainWindow || window.isKeyWindow || window.isMainWindow {
+            return context
+        }
+        return nil
+    }
+
+    private func liveBrowserSurfaceShortcutContext() -> MainWindowContext? {
+        if let context = browserSurfaceShortcutContext(
+            for: NSApp.keyWindow,
+            allowSelectedBrowserFallback: true
+        ) {
+            browserFirstResponderWindow = context.window ?? windowForMainWindowId(context.windowId)
+            return context
+        }
+        if let context = browserSurfaceShortcutContext(
+            for: NSApp.mainWindow,
+            allowSelectedBrowserFallback: true
+        ) {
+            browserFirstResponderWindow = context.window ?? windowForMainWindowId(context.windowId)
+            return context
+        }
+        for window in NSApp.orderedWindows where isMainTerminalWindow(window) {
+            if let context = browserSurfaceShortcutContext(for: window) {
+                browserFirstResponderWindow = window
+                return context
+            }
+        }
+        for context in mainWindowContexts.values {
+            guard let window = context.window ?? windowForMainWindowId(context.windowId),
+                  let liveContext = browserSurfaceShortcutContext(for: window) else {
+                continue
+            }
+            browserFirstResponderWindow = window
+            return liveContext
+        }
+        return nil
+    }
+
+    private func responderChainContains(_ start: NSResponder?, target: NSResponder) -> Bool {
+        var responder = start
+        var hops = 0
+        while let current = responder, hops < 64 {
+            if current === target {
+                return true
+            }
+            responder = current.nextResponder
+            hops += 1
+        }
+        return false
+    }
+
+    private func preferredWindowForPanelCloseShortcut(event: NSEvent) -> NSWindow? {
+        preferredBrowserSurfaceShortcutWindow() ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
     }
 
     /// Re-sync app-level active window pointers from the currently focused main terminal window.
@@ -4822,6 +4959,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func preferredMainWindowContextForShortcuts(event: NSEvent) -> MainWindowContext? {
+        if let context = preferredBrowserSurfaceShortcutContext() {
+            return context
+        }
         if let context = contextForMainWindow(event.window) {
             return context
         }
@@ -4897,6 +5037,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @objc func openNewMainWindow(_ sender: Any?) {
         _ = createMainWindow()
+    }
+
+    func openNewMainWindow(workspaceEngineKind: WorkspaceEngineKind) {
+        _ = createMainWindow(workspaceEngineKind: workspaceEngineKind)
     }
 
     @objc func openWindow(
@@ -5053,6 +5197,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         event: NSEvent? = nil,
         debugSource: String = "unspecified"
     ) -> MainWindowContext? {
+        if let context = preferredBrowserSurfaceShortcutContext() {
+#if DEBUG
+            logWorkspaceCreationRouting(
+                phase: "choose",
+                source: debugSource,
+                reason: "browser_surface_target_override",
+                event: event,
+                chosenContext: context
+            )
+#endif
+            return context
+        }
+
         if let context = mainWindowContext(forShortcutEvent: event, debugSource: debugSource) {
             return context
         }
@@ -5113,6 +5270,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 #endif
                 return context
             }
+        }
+
+        if event == nil,
+           let activeManager = tabManager,
+           let context = mainWindowContexts.values.first(where: { $0.tabManager === activeManager }) {
+#if DEBUG
+            logWorkspaceCreationRouting(
+                phase: "choose",
+                source: debugSource,
+                reason: "active_manager_no_event",
+                event: event,
+                chosenContext: context
+            )
+#endif
+            return context
         }
 
         let fallback = mainWindowContexts.values.first
@@ -5200,6 +5372,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func preferredMainWindowContextForShortcutRouting(event: NSEvent) -> MainWindowContext? {
+        if let context = preferredBrowserSurfaceShortcutContext() {
+            return context
+        }
+
         if let context = mainWindowContext(forShortcutEvent: event, debugSource: "shortcut.routing") {
             return context
         }
@@ -5272,10 +5448,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     @discardableResult
     func createMainWindow(
         initialWorkingDirectory: String? = nil,
-        sessionWindowSnapshot: SessionWindowSnapshot? = nil
+        sessionWindowSnapshot: SessionWindowSnapshot? = nil,
+        workspaceEngineKind: WorkspaceEngineKind? = nil
     ) -> UUID {
         let windowId = UUID()
-        let tabManager = TabManager(initialWorkingDirectory: initialWorkingDirectory)
+        let resolvedWorkspaceEngineKind = workspaceEngineKind
+            ?? sessionWindowSnapshot?.workspaceEngineKind
+            ?? WorkspaceEngineSettings.defaultEngineKind()
+        let tabManager = TabManager(
+            initialWorkingDirectory: initialWorkingDirectory,
+            workspaceEngineKind: resolvedWorkspaceEngineKind
+        )
         if let tabManagerSnapshot = sessionWindowSnapshot?.tabManager {
             tabManager.restoreSessionSnapshot(tabManagerSnapshot)
         }
@@ -5292,7 +5475,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
         let notificationStore = TerminalNotificationStore.shared
 
-        let root = ContentView(updateViewModel: updateViewModel, windowId: windowId)
+        let root = ContentView(
+            updateViewModel: updateViewModel,
+            windowId: windowId,
+            initialTabManager: tabManager
+        )
             .environmentObject(tabManager)
             .environmentObject(notificationStore)
             .environmentObject(sidebarState)
@@ -6275,6 +6462,56 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return object
     }
 
+    private func normalizeGotoSplitUITestWindow(
+        _ window: NSWindow,
+        context: MainWindowContext
+    ) {
+        context.sidebarSelectionState.selection = .tabs
+        context.sidebarState.isVisible = false
+        context.sidebarState.persistedWidth = CGFloat(SessionPersistencePolicy.defaultSidebarWidth)
+
+        let targetFrame = resolvedGotoSplitUITestWindowFrame(for: window)
+        let currentFrame = window.frame
+        let needsResize =
+            abs(currentFrame.origin.x - targetFrame.origin.x) > 0.5 ||
+            abs(currentFrame.origin.y - targetFrame.origin.y) > 0.5 ||
+            abs(currentFrame.size.width - targetFrame.size.width) > 0.5 ||
+            abs(currentFrame.size.height - targetFrame.size.height) > 0.5
+        if needsResize {
+            window.setFrame(targetFrame, display: true)
+        }
+
+        writeGotoSplitTestData([
+            "windowFrameBeforeGotoSplitSetup": String(
+                format: "%.1f,%.1f %.1fx%.1f",
+                targetFrame.origin.x,
+                targetFrame.origin.y,
+                targetFrame.size.width,
+                targetFrame.size.height
+            ),
+            "sidebarVisibleBeforeGotoSplitSetup": context.sidebarState.isVisible ? "true" : "false",
+            "sidebarWidthBeforeGotoSplitSetup": String(format: "%.1f", context.sidebarState.persistedWidth)
+        ])
+    }
+
+    private func resolvedGotoSplitUITestWindowFrame(for window: NSWindow) -> NSRect {
+        let visibleFrame = window.screen?.visibleFrame
+            ?? NSScreen.main?.visibleFrame
+            ?? NSRect(x: 0, y: 0, width: 1280, height: 820)
+        let insetVisibleFrame = visibleFrame.insetBy(dx: 40, dy: 40)
+        let targetWidth = min(insetVisibleFrame.width, 1000)
+        let targetHeight = min(insetVisibleFrame.height, 760)
+        let x = max(
+            insetVisibleFrame.minX,
+            min(insetVisibleFrame.midX - (targetWidth / 2), insetVisibleFrame.maxX - targetWidth)
+        )
+        let y = max(
+            insetVisibleFrame.minY,
+            min(insetVisibleFrame.midY - (targetHeight / 2), insetVisibleFrame.maxY - targetHeight)
+        )
+        return NSRect(x: x, y: y, width: targetWidth, height: targetHeight)
+    }
+
     private func setupGotoSplitUITestIfNeeded() {
         guard !didSetupGotoSplitUITest else { return }
         didSetupGotoSplitUITest = true
@@ -6317,11 +6554,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // On the VM, launching/initializing multiple windows can occasionally take longer than a
         // few seconds; keep the deadline generous so the test doesn't flake.
         let deadline = Date().addingTimeInterval(20.0)
-        func hasMainTerminalWindow() -> Bool {
-            NSApp.windows.contains { window in
-                guard let raw = window.identifier?.rawValue else { return false }
-                return raw == "cmux.main" || raw.hasPrefix("cmux.main.")
+        func currentMainTerminalWindow() -> NSWindow? {
+            if let keyWindow = NSApp.keyWindow,
+               self.contextForMainWindow(keyWindow) != nil {
+                return keyWindow
             }
+            if let mainWindow = NSApp.mainWindow,
+               self.contextForMainWindow(mainWindow) != nil {
+                return mainWindow
+            }
+            if let context = self.mainWindowContexts.values.first,
+               let window = context.window ?? self.windowForMainWindowId(context.windowId) {
+                return window
+            }
+            return nil
         }
 
         func runSetupWhenWindowReady() {
@@ -6329,38 +6575,50 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 writeGotoSplitTestData(["setupError": "Timed out waiting for main window"])
                 return
             }
-            guard hasMainTerminalWindow() else {
+            guard let targetWindow = currentMainTerminalWindow() else {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
                     runSetupWhenWindowReady()
                 }
                 return
             }
-            guard let tabManager = self.tabManager else { return }
-
-            let tab = tabManager.addTab()
-            guard let initialPanelId = tab.focusedPanelId else {
-                self.writeGotoSplitTestData(["setupError": "Missing initial panel id"])
+            self.setActiveMainWindow(targetWindow)
+            _ = self.synchronizeActiveMainWindowContext(preferredWindow: targetWindow)
+            guard let context = self.contextForMainTerminalWindow(targetWindow, reindex: false) else {
+                self.writeGotoSplitTestData(["setupError": "Missing main window context"])
                 return
             }
-
-            let url = URL(string: "https://example.com")
-            guard let browserPanelId = tabManager.newBrowserSplit(
-                tabId: tab.id,
-                fromPanelId: initialPanelId,
-                orientation: .horizontal,
-                url: url
-            ) else {
-                self.writeGotoSplitTestData(["setupError": "Failed to create browser split"])
-                return
+            self.normalizeGotoSplitUITestWindow(targetWindow, context: context)
+            let tabManager = context.tabManager
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+                self?.finishGotoSplitUITestSetup(tabManager: tabManager)
             }
-
-            self.focusWebViewForGotoSplitUITest(tab: tab, browserPanelId: browserPanelId)
         }
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
             guard self != nil else { return }
             runSetupWhenWindowReady()
         }
+    }
+
+    private func finishGotoSplitUITestSetup(tabManager: TabManager) {
+        let tab = tabManager.addTab()
+        guard let initialPanelId = tab.focusedPanelId else {
+            writeGotoSplitTestData(["setupError": "Missing initial panel id"])
+            return
+        }
+
+        let url = URL(string: "https://example.com")
+        guard let browserPanelId = tabManager.newBrowserSplit(
+            tabId: tab.id,
+            fromPanelId: initialPanelId,
+            orientation: .horizontal,
+            url: url
+        ) else {
+            writeGotoSplitTestData(["setupError": "Failed to create browser split"])
+            return
+        }
+
+        focusWebViewForGotoSplitUITest(tab: tab, browserPanelId: browserPanelId)
     }
 
     private func isGotoSplitUITestRecordingEnabled() -> Bool {
@@ -6415,6 +6673,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         updates["browserFindNeedle"] = browserWithFind?.searchState?.needle ?? ""
 
         return updates
+    }
+
+    func recordGotoSplitFocusSnapshotIfNeeded(for workspace: Workspace) {
+        guard isGotoSplitUITestRecordingEnabled() else { return }
+        writeGotoSplitTestData(gotoSplitFindStateSnapshot(for: workspace))
     }
 
     private func focusWebViewForGotoSplitUITest(tab: Workspace, browserPanelId: UUID, attempt: Int = 0) {
@@ -7000,6 +7263,251 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return object
     }
 
+    private func setupSocketSanityUITestIfNeeded() {
+        guard !didSetupSocketSanityUITest else { return }
+        didSetupSocketSanityUITest = true
+
+        let env = ProcessInfo.processInfo.environment
+        guard let path = env["CMUX_UI_TEST_SOCKET_SANITY_PATH"], !path.isEmpty else { return }
+
+        try? FileManager.default.removeItem(atPath: path)
+        publishSocketSanityState(at: path) { [weak self] updates, targetPath in
+            self?.writeSocketSanityTestData(updates, at: targetPath)
+        }
+    }
+
+    private func writeSocketSanityTestData(_ updates: [String: String], at path: String) {
+        var payload = loadSocketSanityTestData(at: path)
+        for (key, value) in updates {
+            payload[key] = value
+        }
+        guard let data = try? JSONSerialization.data(withJSONObject: payload) else { return }
+        try? data.write(to: URL(fileURLWithPath: path), options: .atomic)
+    }
+
+    private func loadSocketSanityTestData(at path: String) -> [String: String] {
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
+            return [:]
+        }
+        return object
+    }
+
+    private func setupMovedBrowserWindowUITestIfNeeded() {
+        guard !didSetupMovedBrowserWindowUITest else { return }
+        didSetupMovedBrowserWindowUITest = true
+
+        let env = ProcessInfo.processInfo.environment
+        guard env["CMUX_UI_TEST_MOVED_BROWSER_WINDOW_SETUP"] == "1" else { return }
+        guard let path = env["CMUX_UI_TEST_MOVED_BROWSER_WINDOW_PATH"], !path.isEmpty else { return }
+        let destinationMode = MovedBrowserWindowUITestDestinationMode(
+            rawValue: env["CMUX_UI_TEST_MOVED_BROWSER_WINDOW_MODE"] ?? ""
+        ) ?? .newWindow
+
+        try? FileManager.default.removeItem(atPath: path)
+        writeMovedBrowserWindowUITestData([
+            "setupReady": "pending",
+            "setupError": "",
+        ], at: path)
+
+        let deadline = Date().addingTimeInterval(8.0)
+        func waitForInitialContext(_ completion: @escaping (MainWindowContext) -> Void) {
+            if let context = mainWindowContexts.values.first(where: { $0.window != nil || windowForMainWindowId($0.windowId) != nil }) {
+                completion(context)
+                return
+            }
+            guard Date() < deadline else {
+                failMovedBrowserWindowUITest(at: path, reason: "missing_source_window")
+                return
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                waitForInitialContext(completion)
+            }
+        }
+
+        waitForInitialContext { [weak self] sourceContext in
+            self?.buildMovedBrowserWindowUITestScenario(
+                from: sourceContext,
+                at: path,
+                destinationMode: destinationMode
+            )
+        }
+    }
+
+    private func buildMovedBrowserWindowUITestScenario(
+        from sourceContext: MainWindowContext,
+        at path: String,
+        destinationMode: MovedBrowserWindowUITestDestinationMode
+    ) {
+        _ = focusMainWindow(windowId: sourceContext.windowId)
+        TerminalController.shared.setActiveTabManager(sourceContext.tabManager)
+
+        let movedWorkspace = sourceContext.tabManager.addWorkspace(
+            select: true,
+            autoWelcomeIfNeeded: false
+        )
+        guard let browserPanelId = sourceContext.tabManager.openBrowser(url: URL(string: "about:blank")) else {
+            failMovedBrowserWindowUITest(at: path, reason: "open_browser_failed")
+            return
+        }
+        let destinationWindowId: UUID
+        let expectedDestinationWorkspaceCount: Int
+        switch destinationMode {
+        case .newWindow:
+            guard let movedWindowId = moveWorkspaceToNewWindow(workspaceId: movedWorkspace.id) else {
+                failMovedBrowserWindowUITest(at: path, reason: "move_workspace_to_new_window_failed")
+                return
+            }
+            destinationWindowId = movedWindowId
+            expectedDestinationWorkspaceCount = 1
+        case .existingWindow:
+            let existingWindowId = createMainWindow(workspaceEngineKind: sourceContext.tabManager.workspaceEngineKind)
+            _ = focusMainWindow(windowId: sourceContext.windowId)
+            guard moveWorkspaceToWindow(workspaceId: movedWorkspace.id, windowId: existingWindowId, focus: true) else {
+                failMovedBrowserWindowUITest(at: path, reason: "move_workspace_to_existing_window_failed")
+                return
+            }
+            destinationWindowId = existingWindowId
+            expectedDestinationWorkspaceCount = 2
+        }
+
+        let context = MovedBrowserWindowUITestContext(
+            path: path,
+            sourceWindowId: sourceContext.windowId,
+            destinationWindowId: destinationWindowId,
+            movedWorkspaceId: movedWorkspace.id,
+            browserPanelId: browserPanelId,
+            expectedDestinationWorkspaceCount: expectedDestinationWorkspaceCount
+        )
+        publishMovedBrowserWindowUITestSnapshot(context, setupReady: "pending")
+        finishMovedBrowserWindowUITestSetup(context, attempt: 0)
+    }
+
+    private func finishMovedBrowserWindowUITestSetup(_ context: MovedBrowserWindowUITestContext, attempt: Int) {
+        let maxAttempts = 160
+        guard attempt < maxAttempts else {
+            failMovedBrowserWindowUITest(at: context.path, reason: "timed_out_waiting_for_destination_browser_focus")
+            return
+        }
+
+        guard let destinationManager = tabManagerFor(windowId: context.destinationWindowId),
+              let destinationWorkspace = destinationManager.tabs.first(where: { $0.id == context.movedWorkspaceId }),
+              let browserPanel = destinationWorkspace.browserPanel(for: context.browserPanelId),
+              let destinationWindow = mainWindow(for: context.destinationWindowId) else {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+                self?.finishMovedBrowserWindowUITestSetup(context, attempt: attempt + 1)
+            }
+            return
+        }
+
+        _ = focusMainWindow(windowId: context.destinationWindowId)
+        destinationManager.focusTab(context.movedWorkspaceId, surfaceId: context.browserPanelId, suppressFlash: true)
+        destinationWorkspace.focusPanel(context.browserPanelId)
+        _ = destinationWindow.makeFirstResponder(browserPanel.webView)
+
+        let sourceWorkspaceCount = tabManagerFor(windowId: context.sourceWindowId)?.tabs.count ?? 0
+        let isReady =
+            destinationWindow.isKeyWindow
+            && destinationManager.selectedTabId == context.movedWorkspaceId
+            && sourceWorkspaceCount == 1
+            && destinationManager.tabs.count == context.expectedDestinationWorkspaceCount
+            && isWebViewFocused(browserPanel)
+
+        if isReady {
+            startMovedBrowserWindowUITestSnapshotTimer(context)
+            publishMovedBrowserWindowUITestSnapshot(context, setupReady: "1")
+            return
+        }
+
+        publishMovedBrowserWindowUITestSnapshot(context, setupReady: "pending")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+            self?.finishMovedBrowserWindowUITestSetup(context, attempt: attempt + 1)
+        }
+    }
+
+    private func startMovedBrowserWindowUITestSnapshotTimer(_ context: MovedBrowserWindowUITestContext) {
+        movedBrowserWindowUITestSnapshotTimer?.cancel()
+        let timer = DispatchSource.makeTimerSource(queue: .main)
+        timer.schedule(deadline: .now(), repeating: .milliseconds(50), leeway: .milliseconds(10))
+        timer.setEventHandler { [weak self] in
+            self?.publishMovedBrowserWindowUITestSnapshot(context, setupReady: "1")
+        }
+        movedBrowserWindowUITestSnapshotTimer = timer
+        timer.resume()
+    }
+
+    private func publishMovedBrowserWindowUITestSnapshot(
+        _ context: MovedBrowserWindowUITestContext,
+        setupReady: String
+    ) {
+        let sourceManager = tabManagerFor(windowId: context.sourceWindowId)
+        let destinationManager = tabManagerFor(windowId: context.destinationWindowId)
+        let destinationWorkspace = destinationManager?.tabs.first(where: { $0.id == context.movedWorkspaceId })
+        let browserPanel = destinationWorkspace?.browserPanel(for: context.browserPanelId)
+        let sourceWindow = mainWindow(for: context.sourceWindowId)
+        let destinationWindow = mainWindow(for: context.destinationWindowId)
+        let windowSummaries = listMainWindowSummaries()
+        let windowSummary = windowSummaries
+            .sorted { $0.windowId.uuidString < $1.windowId.uuidString }
+            .map { summary in
+                [
+                    "id=\(summary.windowId.uuidString)",
+                    "key=\(summary.isKeyWindow ? 1 : 0)",
+                    "count=\(summary.workspaceCount)",
+                    "selected=\(summary.selectedWorkspaceId?.uuidString ?? "")"
+                ].joined(separator: " ")
+            }
+            .joined(separator: "; ")
+
+        writeMovedBrowserWindowUITestData([
+            "setupReady": setupReady,
+            "setupError": "",
+            "windowCount": String(windowSummaries.count),
+            "windowSummary": windowSummary,
+            "sourceWindowId": context.sourceWindowId.uuidString,
+            "destinationWindowId": context.destinationWindowId.uuidString,
+            "movedWorkspaceId": context.movedWorkspaceId.uuidString,
+            "browserPanelId": context.browserPanelId.uuidString,
+            "sourceWorkspaceCount": sourceManager.map { String($0.tabs.count) } ?? "",
+            "destinationWorkspaceCount": destinationManager.map { String($0.tabs.count) } ?? "",
+            "expectedDestinationWorkspaceCount": String(context.expectedDestinationWorkspaceCount),
+            "sourceSelectedWorkspaceId": sourceManager?.selectedTabId?.uuidString ?? "",
+            "destinationSelectedWorkspaceId": destinationManager?.selectedTabId?.uuidString ?? "",
+            "sourceIsKeyWindow": sourceWindow?.isKeyWindow == true ? "1" : "0",
+            "destinationIsKeyWindow": destinationWindow?.isKeyWindow == true ? "1" : "0",
+            "destinationSurfaceCount": destinationWorkspace.map { String($0.panels.count) } ?? "",
+            "browserPanelPresent": browserPanel == nil ? "0" : "1",
+            "webViewFocused": browserPanel.map { isWebViewFocused($0) ? "true" : "false" } ?? "false",
+            "focusedPanelId": destinationWorkspace?.focusedPanelId?.uuidString ?? "",
+        ], at: context.path)
+    }
+
+    private func failMovedBrowserWindowUITest(at path: String, reason: String) {
+        movedBrowserWindowUITestSnapshotTimer?.cancel()
+        movedBrowserWindowUITestSnapshotTimer = nil
+        writeMovedBrowserWindowUITestData([
+            "setupReady": "0",
+            "setupError": reason,
+        ], at: path)
+    }
+
+    private func writeMovedBrowserWindowUITestData(_ updates: [String: String], at path: String) {
+        var payload = loadMovedBrowserWindowUITestData(at: path)
+        for (key, value) in updates {
+            payload[key] = value
+        }
+        guard let data = try? JSONSerialization.data(withJSONObject: payload) else { return }
+        try? data.write(to: URL(fileURLWithPath: path), options: .atomic)
+    }
+
+    private func loadMovedBrowserWindowUITestData(at path: String) -> [String: String] {
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
+            return [:]
+        }
+        return object
+    }
+
     private func setupMultiWindowNotificationsUITestIfNeeded() {
         guard !didSetupMultiWindowNotificationsUITest else { return }
         didSetupMultiWindowNotificationsUITest = true
@@ -7199,8 +7707,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let env = ProcessInfo.processInfo.environment
         guard env["CMUX_UI_TEST_SOCKET_SANITY"] == "1" else { return }
 
+        publishSocketSanityState(at: path) { [weak self] updates, targetPath in
+            self?.writeMultiWindowNotificationTestData(updates, at: targetPath)
+        }
+    }
+
+    private func publishSocketSanityState(
+        at path: String,
+        write: @escaping ([String: String], String) -> Void
+    ) {
+        let env = ProcessInfo.processInfo.environment
         guard let config = socketListenerConfigurationIfEnabled() else {
-            writeMultiWindowNotificationTestData([
+            write([
                 "socketExpectedPath": env["CMUX_SOCKET_PATH"] ?? "",
                 "socketMode": "off",
                 "socketReady": "0",
@@ -7210,18 +7728,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 "socketPathMatches": "0",
                 "socketPathExists": "0",
                 "socketFailureSignals": "socket_disabled",
-            ], at: path)
+            ], path)
             return
         }
 
-        writeMultiWindowNotificationTestData([
+        write([
             "socketExpectedPath": config.path,
             "socketMode": config.mode.rawValue,
             "socketReady": "pending",
             "socketPingResponse": "",
-        ], at: path)
+        ], path)
 
-        restartSocketListenerIfEnabled(source: "uiTest.multiWindowNotifications.setup")
+        restartSocketListenerIfEnabled(source: "uiTest.socketSanity.setup")
 
         let deadline = Date().addingTimeInterval(20.0)
         func publish() {
@@ -7231,7 +7749,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let socketMode = config.mode.rawValue
             let dataPath = path
 
-            DispatchQueue.global(qos: .utility).async { [weak self] in
+            DispatchQueue.global(qos: .utility).async {
                 let pingResponse = health.isHealthy
                     ? TerminalController.probeSocketCommand("ping", at: socketPath, timeout: 1.0)
                     : nil
@@ -7244,9 +7762,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     return signals.joined(separator: ",")
                 }()
 
-                DispatchQueue.main.async { [weak self] in
-                    guard let self else { return }
-                    self.writeMultiWindowNotificationTestData([
+                DispatchQueue.main.async {
+                    write([
                         "socketExpectedPath": socketPath,
                         "socketMode": socketMode,
                         "socketReady": isReady ? "1" : (isTimedOut ? "0" : "pending"),
@@ -7256,7 +7773,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                         "socketPathMatches": health.socketPathMatches ? "1" : "0",
                         "socketPathExists": health.socketPathExists ? "1" : "0",
                         "socketFailureSignals": failureSignals,
-                    ], at: dataPath)
+                    ], dataPath)
                     guard !isTimedOut, !isReady else { return }
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
                         publish()
@@ -8151,13 +8668,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             event: event,
             shortcut: StoredShortcut(key: "t", command: true, shift: false, option: true, control: false)
         ) {
-            if let targetWindow = event.window ?? NSApp.keyWindow ?? NSApp.mainWindow,
+            if let targetWindow = preferredWindowForPanelCloseShortcut(event: event),
                targetWindow.identifier?.rawValue == "cmux.settings" {
                 targetWindow.performClose(nil)
             } else {
-                let responder = event.window?.firstResponder
-                    ?? NSApp.keyWindow?.firstResponder
-                    ?? NSApp.mainWindow?.firstResponder
+                let responder = preferredWindowForPanelCloseShortcut(event: event)?.firstResponder
                 if let ghosttyView = cmuxOwningGhosttyView(for: responder),
                    let workspaceId = ghosttyView.tabId,
                    let manager = tabManagerFor(tabId: workspaceId) ?? tabManager {
@@ -8175,13 +8690,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             event: event,
             shortcut: StoredShortcut(key: "w", command: true, shift: false, option: false, control: false)
         ) {
-            if let targetWindow = event.window ?? NSApp.keyWindow ?? NSApp.mainWindow,
+            if let targetWindow = preferredWindowForPanelCloseShortcut(event: event),
                targetWindow.identifier?.rawValue == "cmux.settings" {
                 targetWindow.performClose(nil)
             } else {
-                let responder = event.window?.firstResponder
-                    ?? NSApp.keyWindow?.firstResponder
-                    ?? NSApp.mainWindow?.firstResponder
+                let responder = preferredWindowForPanelCloseShortcut(event: event)?.firstResponder
                 if let ghosttyView = cmuxOwningGhosttyView(for: responder),
                    let workspaceId = ghosttyView.tabId,
                    let panelId = ghosttyView.terminalSurface?.id,
@@ -9012,34 +9525,55 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         #endif
 
-        prepareFocusedBrowserDevToolsForSplit(directionLabel: directionLabel)
-        tabManager?.createSplit(direction: direction)
+        let shouldDeferSplitMutation = {
+            guard let keyWindow = NSApp.keyWindow else { return false }
+            return isLikelyWebInspectorResponder(keyWindow.firstResponder)
+        }()
+
+        func runSplitMutation(appDelegate: AppDelegate) {
+            appDelegate.prepareFocusedBrowserDevToolsForSplit(directionLabel: directionLabel)
+            appDelegate.tabManager?.createSplit(direction: direction)
 #if DEBUG
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
-            let keyWindow = NSApp.keyWindow
-            let firstResponder = keyWindow?.firstResponder
-            let firstResponderType = firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
-            let firstResponderPtr = firstResponder.map { String(describing: Unmanaged.passUnretained($0).toOpaque()) } ?? "nil"
-            let firstResponderWindow: Int = {
-                if let v = firstResponder as? NSView {
-                    return v.window?.windowNumber ?? -1
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak appDelegate] in
+                let keyWindow = NSApp.keyWindow
+                let firstResponder = keyWindow?.firstResponder
+                let firstResponderType = firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
+                let firstResponderPtr = firstResponder.map { String(describing: Unmanaged.passUnretained($0).toOpaque()) } ?? "nil"
+                let firstResponderWindow: Int = {
+                    if let v = firstResponder as? NSView {
+                        return v.window?.windowNumber ?? -1
+                    }
+                    if let w = firstResponder as? NSWindow {
+                        return w.windowNumber
+                    }
+                    return -1
+                }()
+                let splitContext = "keyWin=\(keyWindow?.windowNumber ?? -1) mainWin=\(NSApp.mainWindow?.windowNumber ?? -1) fr=\(firstResponderType)@\(firstResponderPtr) frWin=\(firstResponderWindow)"
+                if let browser = appDelegate?.tabManager?.focusedBrowserPanel {
+                    let webWindow = browser.webView.window?.windowNumber ?? -1
+                    let webSuperview = browser.webView.superview.map { String(describing: Unmanaged.passUnretained($0).toOpaque()) } ?? "nil"
+                    dlog("split.shortcut dir=\(directionLabel) post panel=\(browser.id.uuidString.prefix(5)) \(browser.debugDeveloperToolsStateSummary()) webWin=\(webWindow) webSuper=\(webSuperview) \(splitContext)")
+                } else {
+                    dlog("split.shortcut dir=\(directionLabel) post panel=nil \(splitContext)")
                 }
-                if let w = firstResponder as? NSWindow {
-                    return w.windowNumber
-                }
-                return -1
-            }()
-            let splitContext = "keyWin=\(keyWindow?.windowNumber ?? -1) mainWin=\(NSApp.mainWindow?.windowNumber ?? -1) fr=\(firstResponderType)@\(firstResponderPtr) frWin=\(firstResponderWindow)"
-            if let browser = self?.tabManager?.focusedBrowserPanel {
-                let webWindow = browser.webView.window?.windowNumber ?? -1
-                let webSuperview = browser.webView.superview.map { String(describing: Unmanaged.passUnretained($0).toOpaque()) } ?? "nil"
-                dlog("split.shortcut dir=\(directionLabel) post panel=\(browser.id.uuidString.prefix(5)) \(browser.debugDeveloperToolsStateSummary()) webWin=\(webWindow) webSuper=\(webSuperview) \(splitContext)")
-            } else {
-                dlog("split.shortcut dir=\(directionLabel) post panel=nil \(splitContext)")
+            }
+            appDelegate.recordGotoSplitSplitIfNeeded(direction: direction)
+#endif
+        }
+
+        if shouldDeferSplitMutation {
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                runSplitMutation(appDelegate: self)
+            }
+        } else if Thread.isMainThread {
+            runSplitMutation(appDelegate: self)
+        } else {
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                runSplitMutation(appDelegate: self)
             }
         }
-        recordGotoSplitSplitIfNeeded(direction: direction)
-#endif
         return true
     }
 
@@ -9086,8 +9620,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// Allow AppKit-backed browser surfaces (WKWebView) to route non-menu shortcuts
     /// through the same app-level shortcut handler used by the local key monitor.
     @discardableResult
-    func handleBrowserSurfaceKeyEquivalent(_ event: NSEvent) -> Bool {
-        handleCustomShortcut(event: event)
+    func handleBrowserSurfaceKeyEquivalent(_ event: NSEvent, preferredWindow: NSWindow? = nil) -> Bool {
+        withBrowserSurfaceShortcutRoutingWindow(preferredWindow) {
+            handleCustomShortcut(event: event)
+        }
+    }
+
+    @discardableResult
+    func routeBrowserSurfaceCommandKeyEquivalent(_ event: NSEvent, window: NSWindow?) -> Bool {
+        withBrowserSurfaceShortcutRoutingWindow(window) {
+            _ = prepareBrowserWindowForShortcutRouting(window)
+            if handleCustomShortcut(event: event) {
+                return true
+            }
+            if let menu = NSApp.mainMenu, menu.performKeyEquivalent(with: event) {
+                return true
+            }
+            return false
+        }
     }
 
     @discardableResult
@@ -9604,27 +10154,59 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             object: nil,
             queue: .main
         ) { [weak self] note in
-            guard let self, let window = note.object as? NSWindow else { return }
-            self.setActiveMainWindow(window)
+            guard let window = note.object as? NSWindow else { return }
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.setActiveMainWindow(window)
+            }
         }
     }
 
     private func installBrowserAddressBarFocusObservers() {
-        guard browserAddressBarFocusObserver == nil, browserAddressBarBlurObserver == nil else { return }
+        guard browserAddressBarFocusObserver == nil,
+              browserAddressBarBlurObserver == nil,
+              browserWebViewFocusObserver == nil else { return }
+
+        browserWebViewFocusObserver = NotificationCenter.default.addObserver(
+            forName: .browserDidBecomeFirstResponderWebView,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let webView = notification.object as? WKWebView else {
+                return
+            }
+            Task { @MainActor [weak self] in
+                guard let self,
+                      let window = webView.window,
+                      let context = self.contextForMainTerminalWindow(window),
+                      let focusedBrowser = context.tabManager.focusedBrowserPanel,
+                      focusedBrowser.webView === webView else {
+                    return
+                }
+                self.browserFirstResponderWindow = window
+                if self.tabManager !== context.tabManager
+                    || self.sidebarState !== context.sidebarState
+                    || self.sidebarSelectionState !== context.sidebarSelectionState {
+                    self.setActiveMainWindow(window)
+                }
+            }
+        }
 
         browserAddressBarFocusObserver = NotificationCenter.default.addObserver(
             forName: .browserDidFocusAddressBar,
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            guard let self else { return }
             guard let panelId = notification.object as? UUID else { return }
-            self.browserPanel(for: panelId)?.beginSuppressWebViewFocusForAddressBar()
-            self.browserAddressBarFocusedPanelId = panelId
-            self.stopBrowserOmnibarSelectionRepeat()
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.browserPanel(for: panelId)?.beginSuppressWebViewFocusForAddressBar()
+                self.browserAddressBarFocusedPanelId = panelId
+                self.stopBrowserOmnibarSelectionRepeat()
 #if DEBUG
-            dlog("addressBar FOCUS panelId=\(panelId.uuidString.prefix(8))")
+                dlog("addressBar FOCUS panelId=\(panelId.uuidString.prefix(8))")
 #endif
+            }
         }
 
         browserAddressBarBlurObserver = NotificationCenter.default.addObserver(
@@ -9632,21 +10214,57 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            guard let self else { return }
             guard let panelId = notification.object as? UUID else { return }
-            self.browserPanel(for: panelId)?.endSuppressWebViewFocusForAddressBar()
-            if self.browserAddressBarFocusedPanelId == panelId {
-                self.browserAddressBarFocusedPanelId = nil
-                self.stopBrowserOmnibarSelectionRepeat()
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.browserPanel(for: panelId)?.endSuppressWebViewFocusForAddressBar()
+                if self.browserAddressBarFocusedPanelId == panelId {
+                    self.browserAddressBarFocusedPanelId = nil
+                    self.stopBrowserOmnibarSelectionRepeat()
 #if DEBUG
-                dlog("addressBar BLUR panelId=\(panelId.uuidString.prefix(8))")
+                    dlog("addressBar BLUR panelId=\(panelId.uuidString.prefix(8))")
 #endif
+                }
             }
         }
     }
 
     private func browserPanel(for panelId: UUID) -> BrowserPanel? {
         return tabManager?.selectedWorkspace?.browserPanel(for: panelId)
+    }
+
+    @discardableResult
+    func prepareBrowserWindowForShortcutRouting(_ window: NSWindow?) -> Bool {
+        guard let window,
+              let context = contextForMainTerminalWindow(window) else {
+            return false
+        }
+        if window.isMiniaturized {
+            window.deminiaturize(nil)
+        }
+        if NSApp.keyWindow !== window || NSApp.mainWindow !== window {
+            window.makeKeyAndOrderFront(nil)
+        }
+        tabManager = context.tabManager
+        sidebarState = context.sidebarState
+        sidebarSelectionState = context.sidebarSelectionState
+        browserFirstResponderWindow = window
+        TerminalController.shared.setActiveTabManager(context.tabManager)
+        return true
+    }
+
+    private func withBrowserSurfaceShortcutRoutingWindow<T>(
+        _ window: NSWindow?,
+        perform work: () -> T
+    ) -> T {
+        let previousWindow = browserSurfaceShortcutTargetWindow
+        if let window, isMainTerminalWindow(window) {
+            browserSurfaceShortcutTargetWindow = window
+        }
+        defer {
+            browserSurfaceShortcutTargetWindow = previousWindow
+        }
+        return work()
     }
 
     private func setActiveMainWindow(_ window: NSWindow) {

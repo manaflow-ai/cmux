@@ -349,8 +349,27 @@ struct SessionTabManagerSnapshot: Codable, Sendable {
 struct SessionWindowSnapshot: Codable, Sendable {
     var frame: SessionRectSnapshot?
     var display: SessionDisplaySnapshot?
+    var workspaceEngineKindRaw: String?
     var tabManager: SessionTabManagerSnapshot
     var sidebar: SessionSidebarSnapshot
+
+    init(
+        frame: SessionRectSnapshot?,
+        display: SessionDisplaySnapshot?,
+        workspaceEngineKind: WorkspaceEngineKind?,
+        tabManager: SessionTabManagerSnapshot,
+        sidebar: SessionSidebarSnapshot
+    ) {
+        self.frame = frame
+        self.display = display
+        self.workspaceEngineKindRaw = workspaceEngineKind?.rawValue
+        self.tabManager = tabManager
+        self.sidebar = sidebar
+    }
+
+    var workspaceEngineKind: WorkspaceEngineKind? {
+        WorkspaceEngineSettings.resolve(rawValue: workspaceEngineKindRaw)
+    }
 }
 
 struct AppSessionSnapshot: Codable, Sendable {

@@ -1330,6 +1330,9 @@ class TerminalController {
         case "move_workspace_to_window":
             return moveWorkspaceToWindow(args)
 
+        case "move_workspace_to_new_window":
+            return moveWorkspaceToNewWindow(args)
+
         case "list_workspaces":
             return listWorkspaces()
 
@@ -10776,6 +10779,31 @@ class TerminalController {
         }
 
         return ok ? "OK" : "ERROR: Move failed"
+    }
+
+    private func moveWorkspaceToNewWindow(_ args: String) -> String {
+        let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let workspaceId = UUID(uuidString: trimmed) else {
+            return "ERROR: Usage move_workspace_to_new_window <workspace_id>"
+        }
+
+        let focus = socketCommandAllowsInAppFocusMutations()
+        var destinationWindowId: UUID?
+        v2MainSync {
+            destinationWindowId = AppDelegate.shared?.moveWorkspaceToNewWindow(
+                workspaceId: workspaceId,
+                focus: focus
+            )
+            guard focus,
+                  let destinationWindowId,
+                  let destinationManager = AppDelegate.shared?.tabManagerFor(windowId: destinationWindowId) else {
+                return
+            }
+            setActiveTabManager(destinationManager)
+        }
+
+        guard let destinationWindowId else { return "ERROR: Move failed" }
+        return "OK \(destinationWindowId.uuidString)"
     }
 
     private func listWorkspaces() -> String {

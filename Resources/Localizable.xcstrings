@@ -788,6 +788,108 @@
         }
       }
     },
+    "debug.menu.workspaceEngine": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace Engine"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースエンジン"
+          }
+        }
+      }
+    },
+    "debug.menu.workspaceEngine.defaultNewWindows": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Default for New Windows"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいウインドウのデフォルト"
+          }
+        }
+      }
+    },
+    "debug.menu.workspaceEngine.openGraphWindow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Graph Engine Window"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Graph v1 エンジンのウインドウを開く"
+          }
+        }
+      }
+    },
+    "debug.menu.workspaceEngine.openLegacyWindow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Legacy Engine Window"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "レガシーエンジンのウインドウを開く"
+          }
+        }
+      }
+    },
+    "debug.workspaceEngine.graphV1": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Graph v1"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Graph v1"
+          }
+        }
+      }
+    },
+    "debug.workspaceEngine.legacy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Legacy"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "レガシー"
+          }
+        }
+      }
+    },
     "debug.devBuildBanner.title": {
       "extractionState": "manual",
       "localizations": {

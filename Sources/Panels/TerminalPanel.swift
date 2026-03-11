@@ -168,6 +168,10 @@ final class TerminalPanel: Panel, ObservableObject {
         viewReattachToken &+= 1
     }
 
+    func preparePortalHostReplacementForNextDistinctClaim(inPane paneId: PaneID, reason: String) {
+        surface.preparePortalHostReplacementForNextDistinctClaim(inPane: paneId, reason: reason)
+    }
+
     // MARK: - Terminal-specific methods
 
     func sendText(_ text: String) {

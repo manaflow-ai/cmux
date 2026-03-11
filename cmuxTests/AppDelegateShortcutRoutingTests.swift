@@ -10,6 +10,8 @@ import XCTest
 final class AppDelegateShortcutRoutingTests: XCTestCase {
     private var savedShortcutsByAction: [KeyboardShortcutSettings.Action: StoredShortcut] = [:]
     private var actionsWithPersistedShortcut: Set<KeyboardShortcutSettings.Action> = []
+    private var savedWorkspaceEngineDefaultRaw: String?
+    private var hadPersistedWorkspaceEngineDefault = false
 
     override func setUp() {
         super.setUp()
@@ -24,6 +26,12 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             }
         )
         KeyboardShortcutSettings.resetAll()
+        hadPersistedWorkspaceEngineDefault =
+            UserDefaults.standard.object(forKey: WorkspaceEngineSettings.defaultEngineKindKey) != nil
+        savedWorkspaceEngineDefaultRaw = UserDefaults.standard.string(
+            forKey: WorkspaceEngineSettings.defaultEngineKindKey
+        )
+        UserDefaults.standard.removeObject(forKey: WorkspaceEngineSettings.defaultEngineKindKey)
     }
 
     override func tearDown() {
@@ -38,7 +46,398 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                 KeyboardShortcutSettings.resetShortcut(for: action)
             }
         }
+        if hadPersistedWorkspaceEngineDefault,
+           let savedWorkspaceEngineDefaultRaw {
+            UserDefaults.standard.set(
+                savedWorkspaceEngineDefaultRaw,
+                forKey: WorkspaceEngineSettings.defaultEngineKindKey
+            )
+        } else {
+            UserDefaults.standard.removeObject(forKey: WorkspaceEngineSettings.defaultEngineKindKey)
+        }
         super.tearDown()
+    }
+
+    func testCreateMainWindowUsesPersistedWorkspaceEngineDefault() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        UserDefaults.standard.set(
+            WorkspaceEngineKind.graphV1.rawValue,
+            forKey: WorkspaceEngineSettings.defaultEngineKindKey
+        )
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let manager = appDelegate.tabManagerFor(windowId: windowId) else {
+            XCTFail("Expected tab manager for created window")
+            return
+        }
+
+        XCTAssertEqual(manager.workspaceEngineKind, .graphV1)
+    }
+
+    func testCreateMainWindowRestoresWorkspaceEngineKindFromSessionSnapshot() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        UserDefaults.standard.set(
+            WorkspaceEngineKind.legacy.rawValue,
+            forKey: WorkspaceEngineSettings.defaultEngineKindKey
+        )
+
+        let windowId = appDelegate.createMainWindow(
+            sessionWindowSnapshot: makeSessionWindowSnapshot(workspaceEngineKind: .graphV1)
+        )
+        defer { closeWindow(withId: windowId) }
+
+        guard let manager = appDelegate.tabManagerFor(windowId: windowId) else {
+            XCTFail("Expected tab manager for restored window")
+            return
+        }
+
+        XCTAssertEqual(manager.workspaceEngineKind, .graphV1)
+    }
+
+    func testExplicitWorkspaceEngineKindOverridesSessionSnapshot() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow(
+            sessionWindowSnapshot: makeSessionWindowSnapshot(workspaceEngineKind: .legacy),
+            workspaceEngineKind: .graphV1
+        )
+        defer { closeWindow(withId: windowId) }
+
+        guard let manager = appDelegate.tabManagerFor(windowId: windowId) else {
+            XCTFail("Expected tab manager for overridden window")
+            return
+        }
+
+        XCTAssertEqual(manager.workspaceEngineKind, .graphV1)
+    }
+
+    func testMoveWorkspaceToNewWindowPreservesWorkspaceEngineKind() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let sourceWindowId = appDelegate.createMainWindow(workspaceEngineKind: .graphV1)
+        var destinationWindowId: UUID?
+        defer {
+            closeWindow(withId: sourceWindowId)
+            if let destinationWindowId {
+                closeWindow(withId: destinationWindowId)
+            }
+        }
+
+        guard let sourceManager = appDelegate.tabManagerFor(windowId: sourceWindowId),
+              let sourceWorkspaceId = sourceManager.selectedTabId else {
+            XCTFail("Expected graph-v1 source window context")
+            return
+        }
+
+        destinationWindowId = appDelegate.moveWorkspaceToNewWindow(workspaceId: sourceWorkspaceId)
+
+        guard let destinationWindowId,
+              let destinationManager = appDelegate.tabManagerFor(windowId: destinationWindowId) else {
+            XCTFail("Expected destination window after moving workspace")
+            return
+        }
+
+        XCTAssertEqual(destinationManager.workspaceEngineKind, .graphV1)
+        XCTAssertTrue(destinationManager.tabs.contains(where: { $0.id == sourceWorkspaceId }))
+    }
+
+    func testMoveWorkspaceToNewWindowRemovesBootstrapWorkspaceAndSelectsMovedWorkspace() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let sourceWindowId = appDelegate.createMainWindow(workspaceEngineKind: .graphV1)
+        var destinationWindowId: UUID?
+        defer {
+            closeWindow(withId: sourceWindowId)
+            if let destinationWindowId {
+                closeWindow(withId: destinationWindowId)
+            }
+        }
+
+        guard let sourceManager = appDelegate.tabManagerFor(windowId: sourceWindowId) else {
+            XCTFail("Expected graph-v1 source window context")
+            return
+        }
+
+        let sourceWorkspaceIdsBeforeMove = sourceManager.tabs.map(\.id)
+        guard sourceWorkspaceIdsBeforeMove.count == 1,
+              let sourceWorkspaceId = sourceWorkspaceIdsBeforeMove.first else {
+            XCTFail("Expected exactly one source workspace before move")
+            return
+        }
+
+        destinationWindowId = appDelegate.moveWorkspaceToNewWindow(workspaceId: sourceWorkspaceId)
+
+        guard let destinationWindowId,
+              let destinationManager = appDelegate.tabManagerFor(windowId: destinationWindowId) else {
+            XCTFail("Expected destination window after moving workspace")
+            return
+        }
+
+        XCTAssertEqual(destinationManager.tabs.map(\.id), [sourceWorkspaceId])
+        XCTAssertEqual(destinationManager.selectedTabId, sourceWorkspaceId)
+    }
+
+    func testMoveWorkspaceToExistingWindowPreservesDestinationEngineKind() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let sourceWindowId = appDelegate.createMainWindow(workspaceEngineKind: .graphV1)
+        let destinationWindowId = appDelegate.createMainWindow(workspaceEngineKind: .legacy)
+        defer {
+            closeWindow(withId: sourceWindowId)
+            closeWindow(withId: destinationWindowId)
+        }
+
+        guard let sourceManager = appDelegate.tabManagerFor(windowId: sourceWindowId),
+              let destinationManager = appDelegate.tabManagerFor(windowId: destinationWindowId),
+              let sourceWorkspaceId = sourceManager.selectedTabId else {
+            XCTFail("Expected source and destination window contexts")
+            return
+        }
+
+        let destinationWorkspaceIdsBefore = Set(destinationManager.tabs.map(\.id))
+
+        XCTAssertTrue(
+            appDelegate.moveWorkspaceToWindow(
+                workspaceId: sourceWorkspaceId,
+                windowId: destinationWindowId,
+                focus: true
+            )
+        )
+
+        XCTAssertEqual(sourceManager.workspaceEngineKind, .graphV1)
+        XCTAssertEqual(destinationManager.workspaceEngineKind, .legacy)
+        XCTAssertFalse(sourceManager.tabs.contains(where: { $0.id == sourceWorkspaceId }))
+        XCTAssertTrue(destinationManager.tabs.contains(where: { $0.id == sourceWorkspaceId }))
+        XCTAssertEqual(
+            Set(destinationManager.tabs.map(\.id)),
+            destinationWorkspaceIdsBefore.union([sourceWorkspaceId])
+        )
+    }
+
+    func testBrowserSurfaceCmdNRoutesToPreferredMovedWindowDespiteSourceEventWindow() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let sourceWindowId = appDelegate.createMainWindow(workspaceEngineKind: .graphV1)
+        var destinationWindowId: UUID?
+        defer {
+            closeWindow(withId: sourceWindowId)
+            if let destinationWindowId {
+                closeWindow(withId: destinationWindowId)
+            }
+        }
+
+        guard let sourceManager = appDelegate.tabManagerFor(windowId: sourceWindowId),
+              let sourceWindow = window(withId: sourceWindowId) else {
+            XCTFail("Expected source graph-v1 window")
+            return
+        }
+
+        let movedWorkspace = sourceManager.addWorkspace(select: true, autoWelcomeIfNeeded: false)
+        guard sourceManager.openBrowser(url: URL(string: "about:blank")) != nil else {
+            XCTFail("Expected browser panel in moved workspace")
+            return
+        }
+
+        destinationWindowId = appDelegate.moveWorkspaceToNewWindow(workspaceId: movedWorkspace.id)
+        guard let destinationWindowId,
+              let destinationManager = appDelegate.tabManagerFor(windowId: destinationWindowId),
+              let destinationWindow = window(withId: destinationWindowId) else {
+            XCTFail("Expected destination window after moving browser workspace")
+            return
+        }
+
+        let sourceCount = sourceManager.tabs.count
+        let destinationCount = destinationManager.tabs.count
+
+        guard let event = makeKeyDownEvent(
+            key: "n",
+            modifiers: [.command],
+            keyCode: 45,
+            windowNumber: sourceWindow.windowNumber
+        ) else {
+            XCTFail("Failed to construct Cmd+N event")
+            return
+        }
+
+        XCTAssertTrue(
+            appDelegate.routeBrowserSurfaceCommandKeyEquivalent(event, window: destinationWindow)
+        )
+        XCTAssertEqual(sourceManager.tabs.count, sourceCount, "Cmd+N should not add a workspace back to the source window")
+        XCTAssertEqual(destinationManager.tabs.count, destinationCount + 1, "Cmd+N should add a workspace in the moved destination window")
+    }
+
+    func testBrowserSurfaceCmdWRoutesToPreferredMovedWindowDespiteSourceEventWindow() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let sourceWindowId = appDelegate.createMainWindow(workspaceEngineKind: .graphV1)
+        var destinationWindowId: UUID?
+        defer {
+            closeWindow(withId: sourceWindowId)
+            if let destinationWindowId {
+                closeWindow(withId: destinationWindowId)
+            }
+        }
+
+        guard let sourceManager = appDelegate.tabManagerFor(windowId: sourceWindowId),
+              let sourceWindow = window(withId: sourceWindowId) else {
+            XCTFail("Expected source graph-v1 window")
+            return
+        }
+
+        let movedWorkspace = sourceManager.addWorkspace(select: true, autoWelcomeIfNeeded: false)
+        guard let browserPanelId = sourceManager.openBrowser(url: URL(string: "about:blank")) else {
+            XCTFail("Expected browser panel in moved workspace")
+            return
+        }
+
+        destinationWindowId = appDelegate.moveWorkspaceToNewWindow(workspaceId: movedWorkspace.id)
+        guard let destinationWindowId,
+              let destinationManager = appDelegate.tabManagerFor(windowId: destinationWindowId),
+              let destinationWindow = window(withId: destinationWindowId),
+              let destinationWorkspace = destinationManager.tabs.first(where: { $0.id == movedWorkspace.id }) else {
+            XCTFail("Expected destination window after moving browser workspace")
+            return
+        }
+
+        destinationManager.focusTab(movedWorkspace.id, surfaceId: browserPanelId, suppressFlash: true)
+        destinationWorkspace.focusPanel(browserPanelId)
+
+        let destinationSurfaceCount = destinationWorkspace.panels.count
+
+        guard let event = makeKeyDownEvent(
+            key: "w",
+            modifiers: [.command],
+            keyCode: 13,
+            windowNumber: sourceWindow.windowNumber
+        ) else {
+            XCTFail("Failed to construct Cmd+W event")
+            return
+        }
+
+        XCTAssertTrue(
+            appDelegate.routeBrowserSurfaceCommandKeyEquivalent(event, window: destinationWindow)
+        )
+        XCTAssertEqual(
+            destinationWorkspace.panels.count,
+            destinationSurfaceCount - 1,
+            "Cmd+W should close the focused browser panel in the moved destination window"
+        )
+        XCTAssertNil(destinationWorkspace.browserPanel(for: browserPanelId))
+    }
+
+    func testMovedBrowserFocusedWebViewCmdNRoutesToDestinationWindowDespiteSourceEventWindow() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+        guard let scenario = prepareMovedBrowserShortcutScenario() else {
+            return
+        }
+
+        defer {
+            closeWindow(withId: scenario.sourceWindowId)
+            closeWindow(withId: scenario.destinationWindowId)
+        }
+
+        let sourceCount = scenario.sourceManager.tabs.count
+        let destinationCount = scenario.destinationManager.tabs.count
+        appDelegate.tabManager = scenario.sourceManager
+
+        guard let event = makeKeyDownEvent(
+            key: "n",
+            modifiers: [.command],
+            keyCode: 45,
+            windowNumber: scenario.sourceWindow.windowNumber
+        ) else {
+            XCTFail("Failed to construct Cmd+N event")
+            return
+        }
+
+#if DEBUG
+        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+
+        XCTAssertEqual(
+            scenario.sourceManager.tabs.count,
+            sourceCount,
+            "Cmd+N should not add a workspace back to the source window"
+        )
+        XCTAssertEqual(
+            scenario.destinationManager.tabs.count,
+            destinationCount + 1,
+            "Cmd+N should add a workspace in the focused moved browser window"
+        )
+    }
+
+    func testMovedBrowserFocusedWebViewCmdWRoutesToDestinationWindowDespiteSourceEventWindow() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+        guard let scenario = prepareMovedBrowserShortcutScenario() else {
+            return
+        }
+
+        defer {
+            closeWindow(withId: scenario.sourceWindowId)
+            closeWindow(withId: scenario.destinationWindowId)
+        }
+
+        let destinationSurfaceCount = scenario.destinationWorkspace.panels.count
+        appDelegate.tabManager = scenario.sourceManager
+
+        guard let event = makeKeyDownEvent(
+            key: "w",
+            modifiers: [.command],
+            keyCode: 13,
+            windowNumber: scenario.sourceWindow.windowNumber
+        ) else {
+            XCTFail("Failed to construct Cmd+W event")
+            return
+        }
+
+#if DEBUG
+        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+
+        XCTAssertEqual(
+            scenario.destinationWorkspace.panels.count,
+            destinationSurfaceCount - 1,
+            "Cmd+W should close the focused browser panel in the moved destination window"
+        )
+        XCTAssertNil(scenario.destinationWorkspace.browserPanel(for: scenario.browserPanelId))
     }
 
     func testCmdNUsesEventWindowContextWhenActiveManagerIsStale() {
@@ -2175,6 +2574,73 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
     }
 
+    private func prepareMovedBrowserShortcutScenario(
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) -> (
+        sourceWindowId: UUID,
+        sourceWindow: NSWindow,
+        sourceManager: TabManager,
+        destinationWindowId: UUID,
+        destinationWindow: NSWindow,
+        destinationManager: TabManager,
+        destinationWorkspace: Workspace,
+        browserPanelId: UUID
+    )? {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared", file: file, line: line)
+            return nil
+        }
+
+        let sourceWindowId = appDelegate.createMainWindow(workspaceEngineKind: .graphV1)
+        guard let sourceManager = appDelegate.tabManagerFor(windowId: sourceWindowId),
+              let sourceWindow = window(withId: sourceWindowId) else {
+            XCTFail("Expected source graph-v1 window", file: file, line: line)
+            closeWindow(withId: sourceWindowId)
+            return nil
+        }
+
+        let movedWorkspace = sourceManager.addWorkspace(select: true, autoWelcomeIfNeeded: false)
+        guard let browserPanelId = sourceManager.openBrowser(url: URL(string: "about:blank")) else {
+            XCTFail("Expected browser panel in moved workspace", file: file, line: line)
+            closeWindow(withId: sourceWindowId)
+            return nil
+        }
+
+        guard let destinationWindowId = appDelegate.moveWorkspaceToNewWindow(workspaceId: movedWorkspace.id),
+              let destinationManager = appDelegate.tabManagerFor(windowId: destinationWindowId),
+              let destinationWindow = window(withId: destinationWindowId),
+              let destinationWorkspace = destinationManager.tabs.first(where: { $0.id == movedWorkspace.id }),
+              let browserPanel = destinationWorkspace.browserPanel(for: browserPanelId) else {
+            XCTFail("Expected destination window after moving browser workspace", file: file, line: line)
+            closeWindow(withId: sourceWindowId)
+            return nil
+        }
+
+        destinationWindow.makeKeyAndOrderFront(nil)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        destinationManager.focusTab(movedWorkspace.id, surfaceId: browserPanelId, suppressFlash: true)
+        destinationWorkspace.focusPanel(browserPanelId)
+        XCTAssertTrue(
+            destinationWindow.makeFirstResponder(browserPanel.webView),
+            "Expected moved browser web view to become first responder",
+            file: file,
+            line: line
+        )
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        return (
+            sourceWindowId: sourceWindowId,
+            sourceWindow: sourceWindow,
+            sourceManager: sourceManager,
+            destinationWindowId: destinationWindowId,
+            destinationWindow: destinationWindow,
+            destinationManager: destinationManager,
+            destinationWorkspace: destinationWorkspace,
+            browserPanelId: browserPanelId
+        )
+    }
+
     private func withTemporaryShortcut(
         action: KeyboardShortcutSettings.Action,
         shortcut: StoredShortcut? = nil,
@@ -2262,6 +2728,34 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         guard let window = window(withId: windowId) else { return }
         window.performClose(nil)
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+    }
+
+    private func makeSessionWindowSnapshot(workspaceEngineKind: WorkspaceEngineKind?) -> SessionWindowSnapshot {
+        let workspace = SessionWorkspaceSnapshot(
+            processTitle: "Terminal",
+            customTitle: "Restored",
+            customColor: nil,
+            isPinned: false,
+            currentDirectory: "/tmp",
+            focusedPanelId: nil,
+            layout: .pane(SessionPaneLayoutSnapshot(panelIds: [], selectedPanelId: nil)),
+            panels: [],
+            statusEntries: [],
+            logEntries: [],
+            progress: nil,
+            gitBranch: nil
+        )
+
+        return SessionWindowSnapshot(
+            frame: nil,
+            display: nil,
+            workspaceEngineKind: workspaceEngineKind,
+            tabManager: SessionTabManagerSnapshot(
+                selectedWorkspaceIndex: 0,
+                workspaces: [workspace]
+            ),
+            sidebar: SessionSidebarSnapshot(isVisible: true, selection: .tabs, width: 240)
+        )
     }
 }
 

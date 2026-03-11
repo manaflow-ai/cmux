@@ -387,10 +387,10 @@ struct BrowserPanelView: View {
         }
         .coordinateSpace(name: "BrowserPanelViewSpace")
         .onPreferenceChange(OmnibarPillFramePreferenceKey.self) { frame in
-            omnibarPillFrame = frame
+            scheduleOmnibarPillFrameUpdate(frame)
         }
         .onPreferenceChange(BrowserAddressBarHeightPreferenceKey.self) { height in
-            addressBarHeight = height
+            scheduleAddressBarHeightUpdate(height)
         }
         .onReceive(NotificationCenter.default.publisher(for: .webViewDidReceiveClick).filter { [weak panel] note in
             // Only handle clicks from our own webview.
@@ -420,18 +420,10 @@ struct BrowserPanelView: View {
                 BrowserSearchSettings.searchSuggestionsEnabledKey: BrowserSearchSettings.defaultSearchSuggestionsEnabled,
                 BrowserThemeSettings.modeKey: BrowserThemeSettings.defaultMode.rawValue,
             ])
-            let resolvedThemeMode = BrowserThemeSettings.mode(defaults: .standard)
-            if browserThemeModeRaw != resolvedThemeMode.rawValue {
-                browserThemeModeRaw = resolvedThemeMode.rawValue
-            }
             panel.refreshAppearanceDrivenColors()
             panel.setBrowserThemeMode(browserThemeMode)
-            applyPendingAddressBarFocusRequestIfNeeded()
-            syncURLFromPanel()
-            // If the browser surface is focused but has no URL loaded yet, auto-focus the omnibar.
-            autoFocusOmnibarIfBlank()
-            syncWebViewResponderPolicyWithViewState(reason: "onAppear")
             BrowserHistoryStore.shared.loadIfNeeded()
+            scheduleInitialBrowserViewStateSync()
 #if DEBUG
             logBrowserFocusState(event: "view.onAppear")
 #endif
@@ -462,7 +454,7 @@ struct BrowserPanelView: View {
             panel.refreshAppearanceDrivenColors()
         }
         .onChange(of: panel.pendingAddressBarFocusRequestId) { _ in
-            applyPendingAddressBarFocusRequestIfNeeded()
+            schedulePendingAddressBarFocusRequestApply()
         }
         .onChange(of: isFocused) { focused in
 #if DEBUG
@@ -473,7 +465,7 @@ struct BrowserPanelView: View {
 #endif
             // Ensure this view doesn't retain focus while hidden (bonsplit keepAllAlive).
             if focused {
-                applyPendingAddressBarFocusRequestIfNeeded()
+                schedulePendingAddressBarFocusRequestApply()
                 autoFocusOmnibarIfBlank()
             } else {
                 panel.invalidateAddressBarPageFocusRestoreAttempts()
@@ -556,11 +548,49 @@ struct BrowserPanelView: View {
         }
     }
 
+    private func scheduleOmnibarPillFrameUpdate(_ frame: CGRect) {
+        guard !rectApproximatelyEqual(omnibarPillFrame, frame) else { return }
+        DispatchQueue.main.async {
+            guard !rectApproximatelyEqual(omnibarPillFrame, frame) else { return }
+            omnibarPillFrame = frame
+        }
+    }
+
+    private func scheduleAddressBarHeightUpdate(_ height: CGFloat) {
+        guard abs(addressBarHeight - height) > 0.5 else { return }
+        DispatchQueue.main.async {
+            guard abs(addressBarHeight - height) > 0.5 else { return }
+            addressBarHeight = height
+        }
+    }
+
+    private func rectApproximatelyEqual(_ lhs: CGRect, _ rhs: CGRect, epsilon: CGFloat = 0.5) -> Bool {
+        abs(lhs.origin.x - rhs.origin.x) <= epsilon &&
+            abs(lhs.origin.y - rhs.origin.y) <= epsilon &&
+            abs(lhs.size.width - rhs.size.width) <= epsilon &&
+            abs(lhs.size.height - rhs.size.height) <= epsilon
+    }
+
+    private func scheduleInitialBrowserViewStateSync() {
+        DispatchQueue.main.async {
+            let resolvedThemeMode = BrowserThemeSettings.mode(defaults: .standard)
+            if browserThemeModeRaw != resolvedThemeMode.rawValue {
+                browserThemeModeRaw = resolvedThemeMode.rawValue
+            }
+            schedulePendingAddressBarFocusRequestApply()
+            syncURLFromPanel()
+            // If the browser surface is focused but has no URL loaded yet, auto-focus the omnibar.
+            autoFocusOmnibarIfBlank()
+            syncWebViewResponderPolicyWithViewState(reason: "onAppear")
+        }
+    }
+
     private var addressBar: some View {
         HStack(spacing: 8) {
             addressBarButtonBar
 
             omnibarField
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .accessibilityIdentifier("BrowserOmnibarPill")
                 .accessibilityLabel("Browser omnibar")
 
@@ -805,6 +835,10 @@ struct BrowserPanelView: View {
                 .stroke(addressBarFocused ? cmuxAccentColor() : Color.clear, lineWidth: 1)
         )
         .accessibilityElement(children: .contain)
+        .contentShape(Rectangle())
+        .simultaneousGesture(TapGesture().onEnded {
+            handleOmnibarTap()
+        })
         .background {
             GeometryReader { geo in
                 Color.clear
@@ -941,6 +975,7 @@ struct BrowserPanelView: View {
             )
         }
 #endif
+        guard addressBarFocused != focused else { return }
         addressBarFocused = focused
         if focused {
             panel.noteAddressBarFocused()
@@ -1038,6 +1073,12 @@ struct BrowserPanelView: View {
     private func clearPendingAddressBarFocusRetry() {
         pendingAddressBarFocusRetryRequestId = nil
         pendingAddressBarFocusRetryGeneration &+= 1
+    }
+
+    private func schedulePendingAddressBarFocusRequestApply() {
+        DispatchQueue.main.async {
+            applyPendingAddressBarFocusRequestIfNeeded()
+        }
     }
 
     private func schedulePendingAddressBarFocusRetryIfNeeded(requestId: UUID) {
@@ -1190,7 +1231,10 @@ struct BrowserPanelView: View {
 #if DEBUG
         logBrowserFocusState(event: "addressBar.tap")
 #endif
-        if !addressBarFocused {
+        if addressBarFocused {
+            _ = panel.requestAddressBarFocus()
+            applyPendingAddressBarFocusRequestIfNeeded()
+        } else {
             // Mark focused before pane selection converges so WebKit focus is not
             // briefly re-acquired during `focusPane`.
             setAddressBarFocused(true, reason: "omnibar.tap")
@@ -1199,6 +1243,13 @@ struct BrowserPanelView: View {
     }
 
     private func hideSuggestions() {
+        let hasSuggestionState =
+            suggestionTask != nil ||
+            isLoadingRemoteSuggestions ||
+            inlineCompletion != nil ||
+            !omnibarState.suggestions.isEmpty ||
+            omnibarState.selectedSuggestionID != nil
+        guard hasSuggestionState else { return }
         suggestionTask?.cancel()
         suggestionTask = nil
         let effects = omnibarReduce(state: &omnibarState, event: .suggestionsUpdated([]))
@@ -3125,14 +3176,18 @@ private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
                 }
                 lastPublishedSelection = range
                 lastPublishedHasMarkedText = hasMarkedText
-                parent.onSelectionChanged(range, hasMarkedText)
+                DispatchQueue.main.async { [parent] in
+                    parent.onSelectionChanged(range, hasMarkedText)
+                }
             } else {
                 let location = field.stringValue.utf16.count
                 let range = NSRange(location: location, length: 0)
                 guard !NSEqualRanges(range, lastPublishedSelection) || lastPublishedHasMarkedText else { return }
                 lastPublishedSelection = range
                 lastPublishedHasMarkedText = false
-                parent.onSelectionChanged(range, false)
+                DispatchQueue.main.async { [parent] in
+                    parent.onSelectionChanged(range, false)
+                }
             }
         }
 
@@ -4791,6 +4846,15 @@ struct WebViewRepresentable: NSViewRepresentable {
         }
 
         if host.window != nil, portalHostAccepted {
+            guard panel.ownsPortalHost(hostId: hostId) else {
+#if DEBUG
+                dlog(
+                    "browser.portal.bind.skip panel=\(panel.id.uuidString.prefix(5)) " +
+                    "reason=staleOwnership host=\(hostId)"
+                )
+#endif
+                return false
+            }
             let geometryRevision = host.geometryRevision
             let portalEntryMissing = !BrowserWindowPortalRegistry.isWebView(webView, boundTo: portalAnchorView)
             let shouldBindNow =
