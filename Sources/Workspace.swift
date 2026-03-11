@@ -642,6 +642,7 @@ enum SidebarPullRequestStatus: String {
     case open
     case merged
     case closed
+    case draft
 }
 
 struct SidebarPullRequestState: Equatable {
@@ -738,8 +739,9 @@ enum SidebarBranchOrdering {
     ) -> [SidebarPullRequestState] {
         func statusPriority(_ status: SidebarPullRequestStatus) -> Int {
             switch status {
-            case .merged: return 3
-            case .open: return 2
+            case .merged: return 4
+            case .open: return 3
+            case .draft: return 2
             case .closed: return 1
             }
         }
