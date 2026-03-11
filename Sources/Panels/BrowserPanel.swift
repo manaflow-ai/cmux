@@ -3289,16 +3289,19 @@ extension BrowserPanel {
     }
 
     func noteWebViewFocused() {
+        guard preferredFocusIntent != .webView else { return }
         preferredFocusIntent = .webView
         invalidateSearchFocusRequests(reason: "webViewFocused")
     }
 
     func noteAddressBarFocused() {
+        guard preferredFocusIntent != .addressBar else { return }
         preferredFocusIntent = .addressBar
         invalidateSearchFocusRequests(reason: "addressBarFocused")
     }
 
     func noteFindFieldFocused() {
+        guard preferredFocusIntent != .findField else { return }
         preferredFocusIntent = .findField
     }
 
