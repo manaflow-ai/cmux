@@ -2833,6 +2833,7 @@ enum TelemetrySettings {
 struct SettingsView: View {
     private let contentTopInset: CGFloat = 8
     private let pickerColumnWidth: CGFloat = 196
+    private let notificationSoundControlWidth: CGFloat = 280
 
     @AppStorage(LanguageSettings.languageKey) private var appLanguage = LanguageSettings.defaultLanguage.rawValue
     @AppStorage(AppearanceSettings.appearanceModeKey) private var appearanceMode = AppearanceSettings.defaultMode.rawValue
@@ -3321,7 +3322,8 @@ struct SettingsView: View {
 
                         SettingsCardRow(
                             String(localized: "settings.notifications.sound.title", defaultValue: "Notification Sound"),
-                            subtitle: String(localized: "settings.notifications.sound.subtitle", defaultValue: "Sound played when a notification arrives.")
+                            subtitle: String(localized: "settings.notifications.sound.subtitle", defaultValue: "Sound played when a notification arrives."),
+                            controlWidth: notificationSoundControlWidth
                         ) {
                             VStack(alignment: .trailing, spacing: 6) {
                                 HStack(spacing: 6) {
@@ -3381,6 +3383,7 @@ struct SettingsView: View {
                                     }
                                 }
                             }
+                            .frame(maxWidth: .infinity, alignment: .trailing)
                         }
 
                         SettingsCardDivider()
