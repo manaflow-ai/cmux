@@ -913,10 +913,9 @@ private struct NotificationsPopoverView: View {
                 Button(action: jumpToLatestUnread) {
                     HStack(spacing: 6) {
                         Text(String(localized: "notifications.jumpToLatest", defaultValue: "Jump to Latest"))
-                        ShortcutAnnotation(
-                            text: jumpToUnreadShortcut.displayString,
-                            accessibilityIdentifier: "notificationsPopover.jumpToLatest.shortcut"
-                        )
+                        Text(jumpToUnreadShortcut.displayString)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
                     }
                 }
                 .buttonStyle(.bordered)
