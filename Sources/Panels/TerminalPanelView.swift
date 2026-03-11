@@ -24,9 +24,9 @@ struct TerminalPanelView: View {
             portalZPriority: portalPriority,
             showsInactiveOverlay: isSplit && !isFocused,
             showsUnreadNotificationRing: hasUnreadNotification,
-            searchState: panel.searchState,
             inactiveOverlayColor: appearance.unfocusedOverlayNSColor,
             inactiveOverlayOpacity: appearance.unfocusedOverlayOpacity,
+            searchState: panel.searchState,
             reattachToken: panel.viewReattachToken,
             onFocus: { _ in onFocus() },
             onTriggerFlash: onTriggerFlash
