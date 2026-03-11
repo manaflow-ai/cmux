@@ -9388,6 +9388,29 @@ final class CmuxWebViewDragRoutingTests: XCTestCase {
     }
 }
 
+#if compiler(>=6.2)
+@MainActor
+final class InternalTabDragConfigurationTests: XCTestCase {
+    func testDisablesExternalOperationsForInternalTabDrags() throws {
+        guard #available(macOS 26.0, *) else {
+            throw XCTSkip("Requires macOS 26 drag configuration APIs")
+        }
+
+        let configuration = InternalTabDragConfigurationProvider.value
+
+        XCTAssertFalse(configuration.operationsWithinApp.allowCopy)
+        XCTAssertTrue(configuration.operationsWithinApp.allowMove)
+        XCTAssertFalse(configuration.operationsWithinApp.allowDelete)
+        XCTAssertFalse(configuration.operationsWithinApp.allowAlias)
+
+        XCTAssertFalse(configuration.operationsOutsideApp.allowCopy)
+        XCTAssertFalse(configuration.operationsOutsideApp.allowMove)
+        XCTAssertFalse(configuration.operationsOutsideApp.allowDelete)
+        XCTAssertFalse(configuration.operationsOutsideApp.allowAlias)
+    }
+}
+#endif
+
 @MainActor
 final class BrowserPaneDropRoutingTests: XCTestCase {
     func testVerticalZonesFollowAppKitCoordinates() {
