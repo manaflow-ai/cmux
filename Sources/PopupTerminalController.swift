@@ -4,18 +4,19 @@ import SwiftUI
 // ┌──────────────────────────────────────────────────────────────────────────┐
 // │ Popup Terminal – Window Management Design Notes                         │
 // │                                                                         │
-// │ The popup is a floating NSPanel that appears over everything via F10.   │
+// │ The popup is a floating NSPanel toggled via a configurable global       │
+// │ hotkey (default: F10), registered through Carbon RegisterEventHotKey.  │
 // │ Getting this right on macOS requires careful coordination of three      │
 // │ AppKit subsystems that interact in non-obvious ways:                    │
 // │                                                                         │
 // │ 1. ACTIVATION POLICY (.accessory vs .regular)                          │
-// │    • .accessory hides the app from menu bar and Dock.                  │
+// │    • .accessory hides the app from Dock and app switcher.              │
 // │    • We switch to .accessory on show so NSApp.activate doesn't raise   │
 // │      regular cmux windows (only the popup should appear).              │
 // │    • We switch back to .regular on hide so the dock icon works.        │
 // │                                                                         │
 // │ 2. WINDOW VISIBILITY                                                   │
-// │    • On show: we orderOut all non-NSPanel windows. This hides regular  │
+// │    • On show: we orderOut all visible non-NSPanel windows. This hides  │
 // │      terminal windows so only the popup is visible. We do NOT restore  │
 // │      them on hide — the user gets them back via the dock icon.         │
 // │    • The popup panel uses .transient + .ignoresCycle collection        │

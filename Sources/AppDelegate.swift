@@ -7543,7 +7543,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let shortcut = KeyboardShortcutSettings.shortcut(for: .togglePopupTerminal)
         let key = shortcut.key.lowercased()
 
-        guard let fkCode = Self.functionKeyCodeMap[key] else { return }
+        guard let fkCode = Self.functionKeyCodeMap[key] else {
+            print("[PopupTerminal] Shortcut key '\(shortcut.key)' is not a function key; hotkey not registered")
+            return
+        }
         let keyCode = UInt32(fkCode)
 
         var mods: UInt32 = 0
@@ -7559,6 +7562,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let status = RegisterEventHotKey(keyCode, mods, hotKeyID, GetApplicationEventTarget(), 0, &ref)
         if status == noErr, let ref {
             globalHotkeyRef = ref
+        } else {
+            print("[PopupTerminal] Failed to register hotkey '\(shortcut.key)': OSStatus \(status)")
         }
     }
 
@@ -7593,8 +7598,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
                 // Check if this is our popup terminal hotkey.
                 // Carbon RegisterEventHotKey consumes the key event at the system
-                // level, so no window (local or popup) ever sees F10 as a keyDown.
-                // This handler is the sole toggle path for the popup terminal.
+                // level, so no window (local or popup) ever sees the registered
+                // hotkey as a keyDown. This handler is the sole toggle path for
+                // the popup terminal.
                 if hotKeyID.signature == AppDelegate.popupTerminalHotKeyID.signature,
                    hotKeyID.id == AppDelegate.popupTerminalHotKeyID.id {
                     // Carbon event handlers on GetApplicationEventTarget() run
