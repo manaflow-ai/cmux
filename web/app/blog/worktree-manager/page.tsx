@@ -1,0 +1,169 @@
+import type { Metadata } from "next";
+import Link from "next/link";
+import { CodeBlock } from "../../components/code-block";
+
+export const metadata: Metadata = {
+  title: "The best git worktree manager is Claude Code",
+  description:
+    "How we use a dedicated HQ repo with git worktrees to run parallel agents across codebases, and how you can replicate it.",
+  keywords: [
+    "cmux",
+    "claude code",
+    "git worktrees",
+    "AI coding agents",
+    "developer tools",
+    "monorepo",
+    "workflow",
+    "terminal",
+    "macOS",
+  ],
+  openGraph: {
+    title: "The best git worktree manager is Claude Code",
+    description:
+      "How we use a dedicated HQ repo with git worktrees to run parallel agents across codebases, and how you can replicate it.",
+    type: "article",
+    publishedTime: "2026-03-06T00:00:00Z",
+    url: "https://cmux.dev/blog/worktree-manager",
+  },
+  twitter: {
+    card: "summary",
+    title: "The best git worktree manager is Claude Code",
+    description:
+      "How we use a dedicated HQ repo with git worktrees to run parallel agents across codebases, and how you can replicate it.",
+  },
+  alternates: {
+    canonical: "https://cmux.dev/blog/worktree-manager",
+  },
+};
+
+export default async function WorktreeManagerPage() {
+  return (
+    <>
+      <div className="mb-8">
+        <Link
+          href="/blog"
+          className="text-sm text-muted hover:text-foreground transition-colors"
+        >
+          &larr; Back to blog
+        </Link>
+      </div>
+
+      <h1>The best git worktree manager is Claude Code</h1>
+      <time dateTime="2026-03-06" className="text-sm text-muted">
+        March 6, 2026
+      </time>
+
+      <p className="mt-6">
+        cmux intentionally does not have a builtin git worktree manager. cmux
+        intentionally has no opinion on worktrees. There are plenty of dedicated
+        tools for this like{" "}
+        <Link href="https://github.com/d-kuro/gwq">gwq</Link>,{" "}
+        <Link href="https://github.com/satococoa/wtp">wtp</Link>,{" "}
+        <Link href="https://github.com/max-sixty/worktrunk">worktrunk</Link>,{" "}
+        <Link href="https://github.com/coderabbitai/git-worktree-runner">
+          git-worktree-runner
+        </Link>
+        .
+      </p>
+
+      <p>
+        I personally like a different approach, which is just putting a few
+        paragraphs of instructions in a <code>CLAUDE.md</code>. Claude Code
+        handles the rest: creating worktrees, working in them, committing,
+        pushing, opening PRs, cleaning up.
+      </p>
+
+      <h2>cmux HQ</h2>
+
+      <p>
+        We have a repo called <code>cmuxterm-hq</code> that sits outside the
+        cmux source repo. It contains a primary checkout, a folder of worktrees,
+        and the <code>CLAUDE.md</code> that tells agents how to use them.
+      </p>
+
+      <pre>
+        <code>{`cmuxterm-hq/
+  repo/               # primary checkout (stays on main, never edited directly)
+  worktrees/
+    issue-537-notif-crash/
+    issue-541-keychain/
+    feat-sidebar-ports/
+  CLAUDE.md
+  scripts/`}</code>
+      </pre>
+
+      <p>
+        When an agent picks up a task, it creates a worktree off <code>main</code>,
+        does the work there, and cleans up when done. Each worktree is a full
+        working copy with its own branch, so agents can build and test in
+        parallel without conflicts.
+      </p>
+
+      <p>
+        The HQ being its own repo is nice because you can version your
+        automation, scripts, and agent conventions separately from your
+        project&apos;s commit history. Skills defined in the HQ are available
+        to every agent regardless of which worktree they&apos;re in.
+      </p>
+
+      <h2>Multiple codebases</h2>
+
+      <p>
+        This also works across repos. If you have an iOS app and a backend in
+        separate repos, one HQ can hold both checkouts and a single{" "}
+        <code>CLAUDE.md</code> that spans them.
+      </p>
+
+      <pre>
+        <code>{`my-hq/
+  ios-repo/
+  backend-repo/
+  worktrees/
+    ios-issue-42-auth/
+    backend-feat-api-v2/
+  CLAUDE.md`}</code>
+      </pre>
+
+      <p>
+        The agent sees one <code>CLAUDE.md</code> that knows about both
+        projects, so it can reason across them without you having to merge
+        anything into a monorepo.
+      </p>
+
+      <h2>Try it</h2>
+
+      <p>
+        Open Claude Code in your project directory and paste this:
+      </p>
+
+      <CodeBlock copyable>{`I want to set up an HQ repo for this project so I can use git worktrees to work on multiple things in parallel. Create a new directory called <project>-hq one level up from here, git init it, clone this repo into <project>-hq/repo/, create a worktrees/ directory, and set up the following files:
+
+<project>-hq/
+  repo/               # clone of this project (stays on main)
+  worktrees/          # one worktree per task/issue
+  CLAUDE.md           # symlink to AGENTS.md
+  AGENTS.md           # worktree workflow instructions
+
+AGENTS.md should contain instructions for the worktree workflow:
+- Never edit code directly in repo/. It stays on main as the base for worktrees.
+- Before creating a worktree, always fetch and pull main first: cd repo && git fetch origin && git pull origin main
+- Create worktrees with: git worktree add ../worktrees/<branch> -b <branch> origin/main
+- Name branches issue-<N>-<slug> for issues, feat-<slug> for features.
+- Before writing code in a worktree, read its AGENTS.md and CLAUDE.md if they exist (the project repo may have its own instructions).
+- Push branches and open PRs. Never push to main directly.
+- Clean up when done: git worktree remove ../worktrees/<branch>
+
+Symlink CLAUDE.md to AGENTS.md so both Claude Code and other agents read the same instructions.
+
+Before writing AGENTS.md, interview me about my project: what language/framework it uses, how to build and test, any branch naming conventions I already follow, whether I use multiple repos, and anything else that would make the instructions more useful. Then write AGENTS.md tailored to my answers.`}</CodeBlock>
+
+      <p>
+        Claude Code will ask you a few questions, set up the structure, and
+        write an <code>AGENTS.md</code> that actually fits your project. The{" "}
+        <code>CLAUDE.md</code> symlink means the same instructions work for any
+        agent that reads either filename. You can keep adding to it over time
+        and the workflow grows with you.
+      </p>
+    </>
+  );
+}

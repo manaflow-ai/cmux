@@ -1,15 +1,18 @@
 import { codeToHtml } from "shiki";
+import { CopyButton } from "./copy-button";
 
 export async function CodeBlock({
   children,
   title,
   lang,
   variant = "code",
+  copyable = false,
 }: {
   children: string;
   title?: string;
   lang?: string;
   variant?: "code" | "ascii";
+  copyable?: boolean;
 }) {
   const lineHeightClass =
     variant === "ascii" ? "leading-[1.15]" : "leading-[1.45]";
@@ -22,12 +25,13 @@ export async function CodeBlock({
     });
 
     return (
-      <div className="mb-4">
+      <div className="relative mb-4">
         {title && (
           <div className="text-[11px] font-mono text-muted px-4 py-1.5 bg-code-bg border border-border border-b-0 rounded-t-lg">
             {title}
           </div>
         )}
+        {copyable && <CopyButton text={children} />}
         <div
           className={`[&_pre]:bg-code-bg [&_pre]:border [&_pre]:border-border [&_pre]:px-4 [&_pre]:py-3 [&_pre]:overflow-x-auto [&_pre]:text-[13px] [&_pre]:${lineHeightClass} [&_pre]:font-mono ${
             title
@@ -41,12 +45,13 @@ export async function CodeBlock({
   }
 
   return (
-    <div className="mb-4">
+    <div className="relative mb-4">
       {title && (
         <div className="text-[11px] font-mono text-muted px-4 py-1.5 bg-code-bg border border-border border-b-0 rounded-t-lg">
           {title}
         </div>
       )}
+      {copyable && <CopyButton text={children} />}
       <pre
         className={`bg-code-bg border border-border px-4 py-3 overflow-x-auto text-[13px] ${lineHeightClass} ${
           variant === "ascii" ? "" : "font-mono "
