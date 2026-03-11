@@ -3097,6 +3097,12 @@ struct SettingsView: View {
     @AppStorage("sidebarShowLog") private var sidebarShowLog = true
     @AppStorage("sidebarShowProgress") private var sidebarShowProgress = true
     @AppStorage("sidebarShowStatusPills") private var sidebarShowMetadata = true
+    @AppStorage(PopupTerminalSettings.enabledKey) private var popupEnabled = PopupTerminalSettings.defaultEnabled
+    @AppStorage(PopupTerminalSettings.positionKey) private var popupPosition = PopupTerminalSettings.defaultPosition.rawValue
+    @AppStorage(PopupTerminalSettings.screenKey) private var popupScreen = PopupTerminalSettings.defaultScreen.rawValue
+    @AppStorage(PopupTerminalSettings.widthPercentKey) private var popupWidth = PopupTerminalSettings.defaultWidthPercent
+    @AppStorage(PopupTerminalSettings.heightPercentKey) private var popupHeight = PopupTerminalSettings.defaultHeightPercent
+    @AppStorage(PopupTerminalSettings.autoHideOnFocusLossKey) private var popupAutoHide = PopupTerminalSettings.defaultAutoHideOnFocusLoss
     @ObservedObject private var notificationStore = TerminalNotificationStore.shared
     @State private var shortcutResetToken = UUID()
     @State private var topBlurOpacity: Double = 0
@@ -3433,6 +3439,70 @@ struct SettingsView: View {
             socketPasswordStatusMessage = String(localized: "settings.automation.socketPassword.clearFailed", defaultValue: "Failed to clear password (\(error.localizedDescription)).")
             socketPasswordStatusIsError = true
         }
+    }
+
+    @ViewBuilder
+    private var popupTerminalSettingsSection: some View {
+        SettingsSectionHeader(title: String(localized: "settings.section.popupTerminal", defaultValue: "Popup Terminal"))
+
+        SettingsCard {
+            VStack(spacing: 0) {
+                SettingsCardRow(String(localized: "popupTerminal.settings.enabled", defaultValue: "Enable popup terminal")) {
+                    Toggle("", isOn: $popupEnabled)
+                        .labelsHidden()
+                }
+
+                SettingsCardDivider()
+
+                ShortcutSettingRow(action: .togglePopupTerminal)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 9)
+
+                SettingsCardDivider()
+
+                SettingsPickerRow(String(localized: "popupTerminal.settings.position", defaultValue: "Position"), controlWidth: 160, selection: $popupPosition) {
+                    ForEach(PopupTerminalSettings.Position.allCases) { pos in
+                        Text(pos.label).tag(pos.rawValue)
+                    }
+                }
+
+                SettingsCardDivider()
+
+                SettingsPickerRow(String(localized: "popupTerminal.settings.screen", defaultValue: "Screen"), controlWidth: 160, selection: $popupScreen) {
+                    ForEach(PopupTerminalSettings.ScreenSelection.allCases) { sel in
+                        Text(sel.label).tag(sel.rawValue)
+                    }
+                }
+
+                SettingsCardDivider()
+
+                SettingsCardRow(String(localized: "popupTerminal.settings.widthPercent", defaultValue: "Width %")) {
+                    TextField("", value: $popupWidth, format: .number)
+                        .frame(width: 60)
+                        .textFieldStyle(.roundedBorder)
+                }
+
+                SettingsCardDivider()
+
+                SettingsCardRow(String(localized: "popupTerminal.settings.heightPercent", defaultValue: "Height %")) {
+                    TextField("", value: $popupHeight, format: .number)
+                        .frame(width: 60)
+                        .textFieldStyle(.roundedBorder)
+                }
+
+                SettingsCardDivider()
+
+                SettingsCardRow(String(localized: "popupTerminal.settings.autoHide", defaultValue: "Auto-hide on focus loss")) {
+                    Toggle("", isOn: $popupAutoHide)
+                        .labelsHidden()
+                }
+            }
+        }
+        .onChange(of: popupEnabled) { _ in AppDelegate.shared?.registerPopupTerminalHotKey() }
+        .onChange(of: popupPosition) { _ in PopupTerminalController.shared.reposition() }
+        .onChange(of: popupScreen) { _ in PopupTerminalController.shared.reposition() }
+        .onChange(of: popupWidth) { _ in PopupTerminalController.shared.reposition() }
+        .onChange(of: popupHeight) { _ in PopupTerminalController.shared.reposition() }
     }
 
     var body: some View {
@@ -4254,6 +4324,8 @@ struct SettingsView: View {
                         .foregroundColor(.secondary)
                         .padding(.leading, 2)
                         .accessibilityIdentifier("ShortcutRecordingHint")
+
+                    popupTerminalSettingsSection
 
                     SettingsSectionHeader(title: String(localized: "settings.section.reset", defaultValue: "Reset"))
                     SettingsCard {
