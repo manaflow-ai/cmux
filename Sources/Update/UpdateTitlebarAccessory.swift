@@ -922,6 +922,7 @@ private struct NotificationsPopoverView: View {
                     }
                     .buttonStyle(.bordered)
                     .accessibilityIdentifier("notificationsPopover.jumpToLatest")
+                    .accessibilityValue(jumpToUnreadShortcut.displayString)
                     .safeHelp(
                         KeyboardShortcutSettings.Action.jumpToUnread.tooltip(
                             String(localized: "notifications.jumpToLatest", defaultValue: "Jump to Latest")
