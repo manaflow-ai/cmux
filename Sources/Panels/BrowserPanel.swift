@@ -280,7 +280,7 @@ enum BrowserLinkOpenSettings {
     /// Check whether a hostname matches the configured host list.
     /// Empty list means "allow all" (no filtering) regardless of mode.
     /// Supports exact match and wildcard prefix (`*.example.com`).
-    static func hostMatchesWhitelist(_ host: String, defaults: UserDefaults = .standard) -> Bool {
+    private static func hostMatchesWhitelist(_ host: String, defaults: UserDefaults = .standard) -> Bool {
         let rawPatterns = hostWhitelist(defaults: defaults)
         if rawPatterns.isEmpty { return true }
         guard let normalizedHost = BrowserInsecureHTTPSettings.normalizeHost(host) else { return false }
