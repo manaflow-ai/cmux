@@ -42,6 +42,9 @@ enum KeyboardShortcutSettings {
         case toggleBrowserDeveloperTools
         case showBrowserJavaScriptConsole
 
+        // Popup terminal
+        case togglePopupTerminal
+
         var id: String { rawValue }
 
         var label: String {
@@ -76,6 +79,7 @@ enum KeyboardShortcutSettings {
             case .openBrowser: return String(localized: "shortcut.openBrowser.label", defaultValue: "Open Browser")
             case .toggleBrowserDeveloperTools: return String(localized: "shortcut.toggleBrowserDevTools.label", defaultValue: "Toggle Browser Developer Tools")
             case .showBrowserJavaScriptConsole: return String(localized: "shortcut.showBrowserJSConsole.label", defaultValue: "Show Browser JavaScript Console")
+            case .togglePopupTerminal: return String(localized: "shortcut.togglePopupTerminal.label", defaultValue: "Toggle Popup Terminal")
             }
         }
 
@@ -111,6 +115,7 @@ enum KeyboardShortcutSettings {
             case .openBrowser: return "shortcut.openBrowser"
             case .toggleBrowserDeveloperTools: return "shortcut.toggleBrowserDeveloperTools"
             case .showBrowserJavaScriptConsole: return "shortcut.showBrowserJavaScriptConsole"
+            case .togglePopupTerminal: return "shortcut.togglePopupTerminal"
             }
         }
 
@@ -178,6 +183,8 @@ enum KeyboardShortcutSettings {
             case .showBrowserJavaScriptConsole:
                 // Safari default: Show JavaScript Console.
                 return StoredShortcut(key: "c", command: true, shift: false, option: true, control: false)
+            case .togglePopupTerminal:
+                return StoredShortcut(key: "F10", command: false, shift: false, option: false, control: false)
             }
         }
 
@@ -368,7 +375,9 @@ struct StoredShortcut: Codable, Equatable {
         )
 
         // Avoid recording plain typing; require at least one modifier.
-        if !shortcut.command && !shortcut.shift && !shortcut.option && !shortcut.control {
+        // Exception: function keys (F1-F12) are allowed without modifiers.
+        let isFunctionKey = key.lowercased().hasPrefix("f") && key.count <= 3 && Int(key.dropFirst()) != nil
+        if !isFunctionKey && !shortcut.command && !shortcut.shift && !shortcut.option && !shortcut.control {
             return nil
         }
         return shortcut
@@ -394,6 +403,19 @@ struct StoredShortcut: Codable, Equatable {
         case 39: return "'"  // kVK_ANSI_Quote
         case 50: return "`"  // kVK_ANSI_Grave
         case 42: return "\\" // kVK_ANSI_Backslash
+        // Function keys
+        case 122: return "F1"
+        case 120: return "F2"
+        case 99:  return "F3"
+        case 118: return "F4"
+        case 96:  return "F5"
+        case 97:  return "F6"
+        case 98:  return "F7"
+        case 100: return "F8"
+        case 101: return "F9"
+        case 109: return "F10"
+        case 103: return "F11"
+        case 111: return "F12"
         default:
             break
         }

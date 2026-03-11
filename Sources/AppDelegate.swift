@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import Bonsplit
+import Carbon
 import CoreServices
 import UserNotifications
 import Sentry
@@ -1905,6 +1906,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var lifecycleSnapshotObservers: [NSObjectProtocol] = []
     private var windowKeyObserver: NSObjectProtocol?
     private var shortcutMonitor: Any?
+    private var globalHotkeyRef: EventHotKeyRef?
     private var shortcutDefaultsObserver: NSObjectProtocol?
     private var menuBarVisibilityObserver: NSObjectProtocol?
     private var splitButtonTooltipRefreshScheduled = false
@@ -2321,6 +2323,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         notificationStore?.clearAll()
         enableSuddenTerminationIfNeeded()
+        unregisterPopupTerminalHotKey()
     }
 
     func applicationWillResignActive(_ notification: Notification) {
@@ -7523,6 +7526,92 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
             return event
         }
+        registerPopupTerminalHotKey()
+    }
+
+    // MARK: - Global hotkey (Carbon RegisterEventHotKey)
+
+    private static let popupTerminalHotKeyID = EventHotKeyID(
+        signature: OSType(0x636D7578), // "cmux"
+        id: 1
+    )
+
+    func registerPopupTerminalHotKey() {
+        unregisterPopupTerminalHotKey()
+
+        guard PopupTerminalSettings.isEnabled else { return }
+        let shortcut = KeyboardShortcutSettings.shortcut(for: .togglePopupTerminal)
+        let key = shortcut.key.lowercased()
+
+        guard let fkCode = Self.functionKeyCodeMap[key] else { return }
+        let keyCode = UInt32(fkCode)
+
+        var mods: UInt32 = 0
+        if shortcut.command { mods |= UInt32(cmdKey) }
+        if shortcut.shift { mods |= UInt32(shiftKey) }
+        if shortcut.option { mods |= UInt32(optionKey) }
+        if shortcut.control { mods |= UInt32(controlKey) }
+
+        installCarbonHotKeyHandler()
+
+        var hotKeyID = Self.popupTerminalHotKeyID
+        var ref: EventHotKeyRef?
+        let status = RegisterEventHotKey(keyCode, mods, hotKeyID, GetApplicationEventTarget(), 0, &ref)
+        if status == noErr, let ref {
+            globalHotkeyRef = ref
+        }
+    }
+
+    func unregisterPopupTerminalHotKey() {
+        if let ref = globalHotkeyRef {
+            UnregisterEventHotKey(ref)
+            globalHotkeyRef = nil
+        }
+    }
+
+    /// One-time installation of the Carbon event handler that dispatches hotkey events.
+    private static var carbonHandlerInstalled = false
+    private func installCarbonHotKeyHandler() {
+        guard !Self.carbonHandlerInstalled else { return }
+        Self.carbonHandlerInstalled = true
+
+        var eventType = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
+        InstallEventHandler(
+            GetApplicationEventTarget(),
+            { _, event, _ -> OSStatus in
+                var hotKeyID = EventHotKeyID()
+                let status = GetEventParameter(
+                    event,
+                    EventParamName(kEventParamDirectObject),
+                    EventParamType(typeEventHotKeyID),
+                    nil,
+                    MemoryLayout<EventHotKeyID>.size,
+                    nil,
+                    &hotKeyID
+                )
+                guard status == noErr else { return status }
+
+                // Check if this is our popup terminal hotkey.
+                // Carbon RegisterEventHotKey consumes the key event at the system
+                // level, so no window (local or popup) ever sees F10 as a keyDown.
+                // This handler is the sole toggle path for the popup terminal.
+                if hotKeyID.signature == AppDelegate.popupTerminalHotKeyID.signature,
+                   hotKeyID.id == AppDelegate.popupTerminalHotKeyID.id {
+                    // Carbon event handlers on GetApplicationEventTarget() run
+                    // on the main thread, so we can call toggle directly.
+                    if PopupTerminalSettings.isEnabled {
+                        PopupTerminalController.shared.toggle()
+                    }
+                    return noErr
+                }
+
+                return OSStatus(eventNotHandledErr)
+            },
+            1,
+            &eventType,
+            nil,
+            nil
+        )
     }
 
     private func installShortcutDefaultsObserver() {
@@ -8105,7 +8194,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
 
-        // Primary UI shortcuts
         if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .toggleSidebar)) {
             _ = toggleSidebarInActiveMainWindow()
             return true
@@ -9274,7 +9362,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return false
     }
 
-    /// Match a shortcut against an event, handling normal keys.
+    private static let functionKeyCodeMap: [String: UInt16] = [
+        "f1": 122, "f2": 120, "f3": 99, "f4": 118, "f5": 96, "f6": 97,
+        "f7": 98, "f8": 100, "f9": 101, "f10": 109, "f11": 103, "f12": 111,
+    ]
+
     private func matchShortcut(event: NSEvent, shortcut: StoredShortcut) -> Bool {
         // Some keys can include extra flags (e.g. .function) depending on the responder chain.
         // Strip those for consistent matching across first responders (terminal, WebKit, etc).
@@ -9283,6 +9375,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard flags == shortcut.modifierFlags else { return false }
 
         let shortcutKey = shortcut.key.lowercased()
+
+        // Function keys: match by keyCode since charactersIgnoringModifiers
+        // returns special Unicode characters that don't match "F11" etc.
+        if let expectedKeyCode = Self.functionKeyCodeMap[shortcutKey] {
+            return event.keyCode == expectedKeyCode
+        }
+
         if shortcutKey == "\r" {
             return event.keyCode == 36 || event.keyCode == 76
         }
@@ -11063,6 +11162,7 @@ private extension NSWindow {
             Self.cmuxOwningWebView(for: $0, in: self, event: event)
         }
         if let ghosttyView = firstResponderGhosttyView {
+
             // If the IME is composing and the key has no Cmd modifier, don't intercept —
             // let it flow through normal AppKit event dispatch so the input method can
             // process it. Cmd-based shortcuts should still work during composition since
