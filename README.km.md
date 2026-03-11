@@ -3,7 +3,7 @@
 
 <p align="center">
   <a href="https://github.com/manaflow-ai/cmux/releases/latest/download/cmux-macos.dmg">
-    <img src="https://github.com/manaflow-ai/cmux/raw/main/docs/assets/macos-badge.png" alt="Download cmux for macOS" width="180" />
+    <img src="./docs/assets/macos-badge.png" alt="Download cmux for macOS" width="180" />
   </a>
 </p>
 
@@ -17,7 +17,7 @@
 </p>
 
 <p align="center">
-  <img src="https://github.com/manaflow-ai/cmux/raw/main/docs/assets/main-first-image.png" alt="cmux screenshot" width="900" />
+  <img src="./docs/assets/main-first-image.png" alt="cmux screenshot" width="900" />
 </p>
 
 <p align="center">
@@ -25,6 +25,45 @@
 </p>
 
 ## លក្ខណៈពិសេសនានា (Features)
+
+<table>
+<tr>
+<td width="40%" valign="middle">
+<h3>Notification rings</h3>
+Panes get a blue ring and tabs light up when coding agents need your attention
+</td>
+<td width="60%">
+<img src="./docs/assets/notification-rings.png" alt="Notification rings" width="100%" />
+</td>
+</tr>
+<tr>
+<td width="40%" valign="middle">
+<h3>Notification panel</h3>
+See all pending notifications in one place, jump to the most recent unread
+</td>
+<td width="60%">
+<img src="./docs/assets/sidebar-notification-badge.png" alt="Sidebar notification badge" width="100%" />
+</td>
+</tr>
+<tr>
+<td width="40%" valign="middle">
+<h3>In-app browser</h3>
+Split a browser alongside your terminal with a scriptable API ported from <a href="https://github.com/vercel-labs/agent-browser">agent-browser</a>
+</td>
+<td width="60%">
+<img src="./docs/assets/built-in-browser.png" alt="Built-in browser" width="100%" />
+</td>
+</tr>
+<tr>
+<td width="40%" valign="middle">
+<h3>Vertical + horizontal tabs</h3>
+Sidebar shows git branch, linked PR status/number, working directory, listening ports, and latest notification text. Split horizontally and vertically.
+</td>
+<td width="60%">
+<img src="./docs/assets/vertical-horizontal-tabs-and-splits.png" alt="Vertical tabs and split panes" width="100%" />
+</td>
+</tr>
+</table>
 
 * **អាចសរសេរ Script បាន (Scriptable)** — CLI និង socket API ដើម្បីបង្កើត workspaces, បំបែក panes, បញ្ជូន keystrokes, និងធ្វើស្វ័យប្រវត្តិកម្មកម្មវិធីរុករក (browser)
 * **កម្មវិធីដើមរបស់ macOS (Native macOS app)** — បង្កើតឡើងដោយប្រើ Swift និង AppKit មិនមែន Electron ទេ។ ចាប់ផ្តើមលឿន, ស៊ីមេម៉ូរី (memory) តិច។
@@ -117,6 +156,8 @@ cmux គឺជាមូលដ្ឋានគ្រឹះ (primitive) មិន�
 
 ### កម្មវិធីរុករក (Browser)
 
+Browser developer-tool shortcuts follow Safari defaults and are customizable in `Settings → Keyboard Shortcuts`.
+
 | ផ្លូវកាត់ (Shortcut) | សកម្មភាព (Action) |
 |---|---|
 | ⌘ ⇧ L | បើកកម្មវិធីរុករកក្នុងលក្ខណៈបំបែក (split) |
@@ -178,6 +219,16 @@ cmux NIGHTLY គឺជាកម្មវិធីដាច់ដោយឡែក�
 * ប្រវត្តិរុករក និង URL របស់កម្មវិធីរុករក
 
 cmux **មិន** ស្ដារស្ថានភាពដំណើរការផ្ទាល់ (live process state) នៅក្នុងកម្មវិធី terminal ឡើយ។ ឧទាហរណ៍ session របស់ Claude Code/tmux/vim ដែលកំពុងដំណើរការ មិនទាន់អាចបន្តឡើងវិញបានទេបន្ទាប់ពីចាប់ផ្ដើមឡើងវិញ។
+
+## Star History
+
+<a href="https://star-history.com/#manaflow-ai/cmux&Date">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=manaflow-ai/cmux&type=Date&theme=dark" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=manaflow-ai/cmux&type=Date" />
+   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=manaflow-ai/cmux&type=Date" width="600" />
+ </picture>
+</a>
 
 ## ការចូលរួមចំណែក (Contributing)
 
