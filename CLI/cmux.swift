@@ -899,7 +899,7 @@ struct CMUXCLI {
 
         // Check for --help/-h on subcommands before connecting to the socket,
         // so help text is available even when cmux is not running.
-        if commandArgs.contains("--help") || commandArgs.contains("-h") {
+        if commandArgs.first == "--help" || commandArgs.first == "-h" {
             if dispatchSubcommandHelp(command: command, commandArgs: commandArgs) {
                 return
             }
@@ -6381,6 +6381,86 @@ struct CMUXCLI {
         return ordered.joined(separator: ":")
     }
 
+    private struct ClaudeTeamsFocusedContext {
+        let socketPath: String
+        let workspaceId: String
+        let windowId: String?
+        let paneHandle: String
+        let paneId: String?
+        let surfaceId: String?
+    }
+
+    private func claudeTeamsResolvedSocketPath(processEnvironment: [String: String]) -> String {
+        let envSocketPath: String? = {
+            for key in ["CMUX_SOCKET_PATH", "CMUX_SOCKET"] {
+                guard let raw = processEnvironment[key] else { continue }
+                let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty {
+                    return trimmed
+                }
+            }
+            return nil
+        }()
+
+        let requestedSocketPath = envSocketPath ?? CLISocketPathResolver.defaultSocketPath
+        let source: CLISocketPathSource
+        if let envSocketPath {
+            source = envSocketPath == CLISocketPathResolver.defaultSocketPath ? .implicitDefault : .environment
+        } else {
+            source = .implicitDefault
+        }
+
+        return CLISocketPathResolver.resolve(
+            requestedPath: requestedSocketPath,
+            source: source,
+            environment: processEnvironment
+        )
+    }
+
+    private func claudeTeamsFocusedContext(processEnvironment: [String: String]) -> ClaudeTeamsFocusedContext? {
+        let socketPath = claudeTeamsResolvedSocketPath(processEnvironment: processEnvironment)
+        let client = SocketClient(path: socketPath)
+
+        do {
+            try client.connect()
+            defer { client.close() }
+
+            let payload = try client.sendV2(method: "system.identify")
+            let focused = payload["focused"] as? [String: Any] ?? [:]
+
+            let workspaceId = (focused["workspace_id"] as? String)
+                ?? (focused["workspace_ref"] as? String)
+            let paneId = (focused["pane_id"] as? String)
+                ?? (focused["pane_ref"] as? String)
+
+            guard let workspaceId, let paneId else {
+                return nil
+            }
+
+            let paneHandle = paneId.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !paneHandle.isEmpty else {
+                return nil
+            }
+
+            let windowId = (focused["window_id"] as? String)
+                ?? (focused["window_ref"] as? String)
+            let surfaceId = (focused["surface_id"] as? String)
+                ?? (focused["surface_ref"] as? String)
+
+            return ClaudeTeamsFocusedContext(
+                socketPath: socketPath,
+                workspaceId: workspaceId,
+                windowId: windowId,
+                paneHandle: paneHandle,
+                paneId: focused["pane_id"] as? String,
+                surfaceId: surfaceId
+            )
+        } catch {
+            client.close()
+            return nil
+        }
+    }
+
     private func isCmuxClaudeWrapper(at path: String) -> Bool {
         guard let data = FileManager.default.contents(atPath: path) else { return false }
         let prefixData = data.prefix(512)
@@ -6422,15 +6502,23 @@ struct CMUXCLI {
     private func configureClaudeTeamsEnvironment(
         processEnvironment: [String: String],
         shimDirectory: URL,
-        executablePath: String
+        executablePath: String,
+        focusedContext: ClaudeTeamsFocusedContext?
     ) {
         let updatedPath = prependPathEntries(
             [shimDirectory.path],
             to: processEnvironment["PATH"]
         )
-        let fakeTmuxValue = processEnvironment["TMUX"]
-            ?? "/tmp/cmux-claude-teams/default,0,0"
-        let fakeTmuxPane = processEnvironment["TMUX_PANE"] ?? "%1"
+        let fakeTmuxValue: String = {
+            if let focusedContext {
+                let windowToken = focusedContext.windowId ?? focusedContext.workspaceId
+                return "/tmp/cmux-claude-teams/\(focusedContext.workspaceId),\(windowToken),\(focusedContext.paneHandle)"
+            }
+            return processEnvironment["TMUX"] ?? "/tmp/cmux-claude-teams/default,0,0"
+        }()
+        let fakeTmuxPane = focusedContext.map { "%\($0.paneHandle)" }
+            ?? processEnvironment["TMUX_PANE"]
+            ?? "%1"
         let fakeTerm = processEnvironment["CMUX_CLAUDE_TEAMS_TERM"] ?? "screen-256color"
 
         setenv("CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS", "1", 1)
@@ -6440,6 +6528,14 @@ struct CMUXCLI {
         setenv("TMUX_PANE", fakeTmuxPane, 1)
         setenv("TERM", fakeTerm, 1)
         unsetenv("TERM_PROGRAM")
+        if let focusedContext {
+            setenv("CMUX_SOCKET_PATH", focusedContext.socketPath, 1)
+            setenv("CMUX_SOCKET", focusedContext.socketPath, 1)
+            setenv("CMUX_WORKSPACE_ID", focusedContext.workspaceId, 1)
+            if let surfaceId = focusedContext.surfaceId, !surfaceId.isEmpty {
+                setenv("CMUX_SURFACE_ID", surfaceId, 1)
+            }
+        }
     }
 
     private func createClaudeTeamsShimDirectory() throws -> URL {
@@ -6469,6 +6565,7 @@ struct CMUXCLI {
         let processEnvironment = ProcessInfo.processInfo.environment
         let shimDirectory = try createClaudeTeamsShimDirectory()
         let executablePath = resolvedExecutableURL()?.path ?? (args.first ?? "cmux")
+        let focusedContext = claudeTeamsFocusedContext(processEnvironment: processEnvironment)
         let bundledClaudePath = resolvedExecutableURL()?
             .deletingLastPathComponent()
             .appendingPathComponent("claude", isDirectory: false)
@@ -6482,7 +6579,8 @@ struct CMUXCLI {
         configureClaudeTeamsEnvironment(
             processEnvironment: processEnvironment,
             shimDirectory: shimDirectory,
-            executablePath: executablePath
+            executablePath: executablePath,
+            focusedContext: focusedContext
         )
 
         let launchPath = claudeExecutablePath ?? "claude"
@@ -6583,7 +6681,7 @@ struct CMUXCLI {
         case "split-window", "splitw":
             let parsed = try parseTmuxArguments(
                 rawArgs,
-                valueFlags: ["-c", "-F", "-t"],
+                valueFlags: ["-c", "-F", "-l", "-t"],
                 boolFlags: ["-P", "-b", "-d", "-h", "-v"]
             )
             let target = try tmuxResolveSurfaceTarget(parsed.value("-t"), client: client)
@@ -6633,7 +6731,10 @@ struct CMUXCLI {
             _ = try client.sendV2(method: "workspace.select", params: ["workspace_id": workspaceId])
 
         case "select-pane", "selectp":
-            let parsed = try parseTmuxArguments(rawArgs, valueFlags: ["-t"], boolFlags: [])
+            let parsed = try parseTmuxArguments(rawArgs, valueFlags: ["-P", "-T", "-t"], boolFlags: [])
+            if parsed.value("-P") != nil || parsed.value("-T") != nil {
+                return
+            }
             let target = try tmuxResolvePaneTarget(parsed.value("-t"), client: client)
             _ = try client.sendV2(method: "pane.focus", params: [
                 "workspace_id": target.workspaceId,
@@ -6744,6 +6845,13 @@ struct CMUXCLI {
                 valueFlags: ["-t", "-x", "-y"],
                 boolFlags: ["-D", "-L", "-R", "-U"]
             )
+            let hasDirectionalFlags = parsed.hasFlag("-L")
+                || parsed.hasFlag("-R")
+                || parsed.hasFlag("-U")
+                || parsed.hasFlag("-D")
+            if !hasDirectionalFlags {
+                return
+            }
             let target = try tmuxResolvePaneTarget(parsed.value("-t"), client: client)
             let direction: String
             if parsed.hasFlag("-L") {
@@ -6755,7 +6863,9 @@ struct CMUXCLI {
             } else {
                 direction = "right"
             }
-            let amount = Int(parsed.value("-x") ?? parsed.value("-y") ?? "5") ?? 5
+            let rawAmount = (parsed.value("-x") ?? parsed.value("-y") ?? "5")
+                .replacingOccurrences(of: "%", with: "")
+            let amount = Int(rawAmount) ?? 5
             _ = try client.sendV2(method: "pane.resize", params: [
                 "workspace_id": target.workspaceId,
                 "pane_id": target.paneId,
@@ -6792,7 +6902,7 @@ struct CMUXCLI {
             let parsed = try parseTmuxArguments(rawArgs, valueFlags: ["-t"], boolFlags: [])
             _ = try tmuxResolveWorkspaceTarget(parsed.value("-t"), client: client)
 
-        case "set-option", "set", "set-window-option", "setw", "source-file", "refresh-client", "attach-session", "detach-client":
+        case "select-layout", "set-option", "set", "set-window-option", "setw", "source-file", "refresh-client", "attach-session", "detach-client":
             return
 
         default:
