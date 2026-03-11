@@ -6380,8 +6380,8 @@ struct CMUXCLI {
     }
 
     private func createClaudeTeamsShimDirectory() throws -> URL {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-claude-teams-\(UUID().uuidString)", isDirectory: true)
+        let rootPath = NSString(string: "~/.cmuxterm/claude-teams-bin").expandingTildeInPath
+        let root = URL(fileURLWithPath: rootPath, isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true, attributes: nil)
         let tmuxURL = root.appendingPathComponent("tmux", isDirectory: false)
         let script = """
@@ -6396,7 +6396,6 @@ struct CMUXCLI {
 
     private func runClaudeTeams(commandArgs: [String]) throws {
         let shimDirectory = try createClaudeTeamsShimDirectory()
-
         let executablePath = resolvedExecutableURL()?.path ?? (args.first ?? "cmux")
         let bundledBinDirectory = resolvedExecutableURL()?.deletingLastPathComponent()
         let bundledBinPath: String? = {
@@ -6404,32 +6403,26 @@ struct CMUXCLI {
             let claudePath = bundledBinDirectory.appendingPathComponent("claude").path
             return FileManager.default.isExecutableFile(atPath: claudePath) ? bundledBinDirectory.path : nil
         }()
-
-        var environment = ProcessInfo.processInfo.environment
-        environment["CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS"] = "1"
-        environment["CMUX_CLAUDE_TEAMS_CMUX_BIN"] = executablePath
-        environment["PATH"] = prependPathEntries(
+        let updatedPath = prependPathEntries(
             [shimDirectory.path, bundledBinPath].compactMap { $0 },
-            to: environment["PATH"]
+            to: ProcessInfo.processInfo.environment["PATH"]
         )
 
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = ["claude"] + commandArgs
-        process.environment = environment
-        do {
-            try process.run()
-        } catch {
-            try? FileManager.default.removeItem(at: shimDirectory)
-            throw error
-        }
-        process.waitUntilExit()
-        try? FileManager.default.removeItem(at: shimDirectory)
+        setenv("CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS", "1", 1)
+        setenv("CMUX_CLAUDE_TEAMS_CMUX_BIN", executablePath, 1)
+        setenv("PATH", updatedPath, 1)
 
-        if process.terminationReason == .uncaughtSignal {
-            Darwin.exit(128 + process.terminationStatus)
+        var argv = (["claude"] + commandArgs).map { strdup($0) }
+        defer {
+            for item in argv {
+                free(item)
+            }
         }
-        Darwin.exit(process.terminationStatus)
+        argv.append(nil)
+
+        execvp("claude", &argv)
+        let code = errno
+        throw CLIError(message: "Failed to launch claude: \(String(cString: strerror(code)))")
     }
 
     private func runClaudeTeamsTmuxCompat(
