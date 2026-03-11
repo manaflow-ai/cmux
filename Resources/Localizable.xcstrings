@@ -38961,6 +38961,23 @@
         }
       }
     },
+    "notifications.jumpToLatest": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jump to Latest"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最新へジャンプ"
+          }
+        }
+      }
+    },
     "notifications.jumpToLatestUnread": {
       "extractionState": "manual",
       "localizations": {

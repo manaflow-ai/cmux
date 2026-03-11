@@ -147,6 +147,31 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         XCTAssertTrue(waitForElementToDisappear(targetButton, timeout: 3.0), "Expected popover to close on Escape")
     }
 
+    func testNotificationsPopoverJumpToLatestButtonShowsShortcut() {
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_UI_TEST_MULTI_WINDOW_NOTIF_SETUP"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_MULTI_WINDOW_NOTIF_PATH"] = dataPath
+        app.launchEnvironment["CMUX_TAG"] = launchTag
+        app.launch()
+        XCTAssertTrue(
+            ensureForegroundAfterLaunch(app, timeout: 12.0),
+            "Expected app to launch for jump-to-latest popover test. state=\(app.state.rawValue)"
+        )
+
+        XCTAssertTrue(waitForData(keys: ["notifId1"], timeout: 15.0), "Expected multi-window notification setup data")
+        XCTAssertTrue(waitForWindowCount(atLeast: 1, app: app, timeout: 6.0))
+
+        app.typeKey("i", modifierFlags: [.command])
+
+        let jumpButton = app.buttons["notificationsPopover.jumpToLatest"]
+        XCTAssertTrue(jumpButton.waitForExistence(timeout: 6.0), "Expected Jump to Latest button in notifications popover")
+        let shortcutValue = jumpButton.value as? String
+        XCTAssertNotNil(shortcutValue, "Expected Jump to Latest shortcut badge")
+        XCTAssertTrue(shortcutValue?.contains("⌘") == true, "Expected Jump to Latest shortcut to include Command")
+        XCTAssertTrue(shortcutValue?.contains("⇧") == true, "Expected Jump to Latest shortcut to include Shift")
+        XCTAssertTrue(shortcutValue?.uppercased().contains("U") == true, "Expected Jump to Latest shortcut to include U")
+    }
+
     func testEmptyNotificationsPopoverBlocksTerminalTyping() throws {
         let app = XCUIApplication()
         app.launchArguments += ["-socketControlMode", "allowAll"]
@@ -175,6 +200,12 @@ final class MultiWindowNotificationsUITests: XCTestCase {
 
         app.typeKey("i", modifierFlags: [.command])
         XCTAssertTrue(app.staticTexts["No notifications yet"].waitForExistence(timeout: 6.0), "Expected empty notifications popover state")
+        let jumpButton = app.buttons["notificationsPopover.jumpToLatest"]
+        XCTAssertTrue(jumpButton.waitForExistence(timeout: 2.0), "Expected Jump to Latest button in empty notifications popover")
+        XCTAssertFalse(jumpButton.isEnabled, "Expected Jump to Latest button to be disabled with no notifications")
+        let clearAllButton = app.buttons["notificationsPopover.clearAll"]
+        XCTAssertTrue(clearAllButton.waitForExistence(timeout: 2.0), "Expected Clear All button in empty notifications popover")
+        XCTAssertFalse(clearAllButton.isEnabled, "Expected Clear All button to be disabled with no notifications")
 
         let marker = "cmux_notif_block_\(UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(8))"
         let before = readCurrentTerminalText() ?? ""
