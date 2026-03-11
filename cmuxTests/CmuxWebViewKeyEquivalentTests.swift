@@ -11323,6 +11323,73 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         )
     }
 
+    func testHiddenPortalSyncDoesNotStealLocallyHostedDevToolsWebViewDuringResize() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        realizeWindowLayout(window)
+        let portal = WindowBrowserPortal(window: window)
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let anchor = NSView(frame: NSRect(x: 40, y: 24, width: 260, height: 180))
+        contentView.addSubview(anchor)
+
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        portal.bind(webView: webView, to: anchor, visibleInUI: true)
+        contentView.layoutSubtreeIfNeeded()
+        portal.synchronizeWebViewForAnchor(anchor)
+        advanceAnimations()
+
+        guard let hiddenPortalSlot = webView.superview as? WindowBrowserSlotView else {
+            XCTFail("Expected browser slot")
+            return
+        }
+
+        portal.updateEntryVisibility(forWebViewId: ObjectIdentifier(webView), visibleInUI: false, zPriority: 0)
+        portal.synchronizeWebViewForAnchor(anchor)
+        advanceAnimations()
+        XCTAssertTrue(hiddenPortalSlot.isHidden, "Hidden portal entry should keep its slot hidden")
+
+        let localInlineSlot = WindowBrowserSlotView(frame: anchor.frame)
+        contentView.addSubview(localInlineSlot)
+
+        let inspectorView = WKInspectorProbeView(
+            frame: NSRect(x: 0, y: 0, width: localInlineSlot.bounds.width, height: 72)
+        )
+        inspectorView.autoresizingMask = [.width]
+        localInlineSlot.addSubview(inspectorView)
+
+        localInlineSlot.addSubview(webView)
+        webView.frame = NSRect(
+            x: 0,
+            y: inspectorView.frame.maxY,
+            width: localInlineSlot.bounds.width,
+            height: localInlineSlot.bounds.height - inspectorView.frame.height
+        )
+        localInlineSlot.layoutSubtreeIfNeeded()
+
+        anchor.frame = NSRect(x: 40, y: 24, width: 220, height: 180)
+        contentView.layoutSubtreeIfNeeded()
+        portal.synchronizeWebViewForAnchor(anchor)
+
+        XCTAssertTrue(
+            webView.superview === localInlineSlot,
+            "Hidden portal sync should not steal a DevTools-hosted web view back out of local inline hosting during pane resize"
+        )
+        XCTAssertTrue(
+            inspectorView.superview === localInlineSlot,
+            "Hidden portal sync should leave local DevTools companion views in the local inline host"
+        )
+        XCTAssertTrue(hiddenPortalSlot.isHidden, "The retiring hidden portal slot should stay hidden during local inline hosting")
+    }
+
     func testPortalHostBoundsBecomeReadyAfterBindingInFrameDrivenHierarchy() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
