@@ -1,0 +1,127 @@
+#!/usr/bin/env python3
+"""
+Regression test: `cmux claude-teams` injects the agent-teams env and tmux shim.
+"""
+
+from __future__ import annotations
+
+import glob
+import os
+import shutil
+import subprocess
+import tempfile
+from pathlib import Path
+
+
+def resolve_cmux_cli() -> str:
+    explicit = os.environ.get("CMUX_CLI_BIN") or os.environ.get("CMUX_CLI")
+    if explicit and os.path.exists(explicit) and os.access(explicit, os.X_OK):
+        return explicit
+
+    candidates: list[str] = []
+    candidates.extend(glob.glob(os.path.expanduser("~/Library/Developer/Xcode/DerivedData/*/Build/Products/Debug/cmux")))
+    candidates.extend(glob.glob("/tmp/cmux-*/Build/Products/Debug/cmux"))
+    candidates = [path for path in candidates if os.path.exists(path) and os.access(path, os.X_OK)]
+    if candidates:
+        candidates.sort(key=os.path.getmtime, reverse=True)
+        return candidates[0]
+
+    in_path = shutil.which("cmux")
+    if in_path:
+        return in_path
+
+    raise RuntimeError("Unable to find cmux CLI binary. Set CMUX_CLI_BIN.")
+
+
+def make_executable(path: Path, content: str) -> None:
+    path.write_text(content, encoding="utf-8")
+    path.chmod(0o755)
+
+
+def read_text(path: Path) -> str:
+    if not path.exists():
+        return ""
+    return path.read_text(encoding="utf-8").strip()
+
+
+def main() -> int:
+    try:
+        cli_path = resolve_cmux_cli()
+    except Exception as exc:
+        print(f"FAIL: {exc}")
+        return 1
+
+    with tempfile.TemporaryDirectory(prefix="cmux-claude-teams-env-") as td:
+        tmp = Path(td)
+        real_bin = tmp / "real-bin"
+        real_bin.mkdir(parents=True, exist_ok=True)
+
+        env_log = tmp / "agent-teams.log"
+        tmux_log = tmp / "tmux-path.log"
+        cmux_bin_log = tmp / "cmux-bin.log"
+
+        make_executable(
+            real_bin / "claude",
+            """#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\\n' "${CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS-__UNSET__}" > "$FAKE_AGENT_TEAMS_LOG"
+command -v tmux > "$FAKE_TMUX_PATH_LOG"
+printf '%s\\n' "${CMUX_CLAUDE_TEAMS_CMUX_BIN-__UNSET__}" > "$FAKE_CMUX_BIN_LOG"
+""",
+        )
+
+        env = os.environ.copy()
+        env["PATH"] = f"{real_bin}:/usr/bin:/bin"
+        env["FAKE_AGENT_TEAMS_LOG"] = str(env_log)
+        env["FAKE_TMUX_PATH_LOG"] = str(tmux_log)
+        env["FAKE_CMUX_BIN_LOG"] = str(cmux_bin_log)
+
+        proc = subprocess.run(
+            [cli_path, "claude-teams", "--version"],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+        )
+
+        if proc.returncode != 0:
+            print("FAIL: `cmux claude-teams --version` exited non-zero")
+            print(f"exit={proc.returncode}")
+            print(f"stdout={proc.stdout.strip()}")
+            print(f"stderr={proc.stderr.strip()}")
+            return 1
+
+        agent_teams_value = read_text(env_log)
+        if agent_teams_value != "1":
+            print(f"FAIL: expected CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1, got {agent_teams_value!r}")
+            return 1
+
+        tmux_path = read_text(tmux_log)
+        if not tmux_path:
+            print("FAIL: fake claude did not observe a tmux binary in PATH")
+            return 1
+
+        tmux_name = Path(tmux_path).name
+        if tmux_name != "tmux":
+            print(f"FAIL: expected tmux shim path to end with 'tmux', got {tmux_path!r}")
+            return 1
+
+        if "cmux-claude-teams-" not in tmux_path:
+            print(f"FAIL: expected private tmux shim path, got {tmux_path!r}")
+            return 1
+
+        cmux_bin_value = read_text(cmux_bin_log)
+        if not cmux_bin_value or cmux_bin_value == "__UNSET__":
+            print("FAIL: missing CMUX_CLAUDE_TEAMS_CMUX_BIN")
+            return 1
+
+        if not os.path.exists(cmux_bin_value):
+            print(f"FAIL: CMUX_CLAUDE_TEAMS_CMUX_BIN does not exist: {cmux_bin_value!r}")
+            return 1
+
+    print("PASS: cmux claude-teams injects the agent-teams env and tmux shim")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
