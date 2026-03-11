@@ -4265,6 +4265,8 @@ struct CMUXCLI {
             Launch Claude Code with agent teams enabled.
 
             This command:
+              - defaults Claude teammate mode to auto
+              - sets a tmux-like environment so Claude auto mode uses cmux splits
               - sets CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1
               - prepends a private tmux shim to PATH
               - forwards all remaining arguments to claude
@@ -6404,6 +6406,42 @@ struct CMUXCLI {
         return fallback
     }
 
+    private func claudeTeamsHasExplicitTeammateMode(commandArgs: [String]) -> Bool {
+        commandArgs.contains { arg in
+            arg == "--teammate-mode" || arg.hasPrefix("--teammate-mode=")
+        }
+    }
+
+    private func claudeTeamsLaunchArguments(commandArgs: [String]) -> [String] {
+        guard !claudeTeamsHasExplicitTeammateMode(commandArgs: commandArgs) else {
+            return commandArgs
+        }
+        return ["--teammate-mode", "auto"] + commandArgs
+    }
+
+    private func configureClaudeTeamsEnvironment(
+        processEnvironment: [String: String],
+        shimDirectory: URL,
+        executablePath: String
+    ) {
+        let updatedPath = prependPathEntries(
+            [shimDirectory.path],
+            to: processEnvironment["PATH"]
+        )
+        let fakeTmuxValue = processEnvironment["TMUX"]
+            ?? "/tmp/cmux-claude-teams/default,0,0"
+        let fakeTmuxPane = processEnvironment["TMUX_PANE"] ?? "%1"
+        let fakeTerm = processEnvironment["CMUX_CLAUDE_TEAMS_TERM"] ?? "screen-256color"
+
+        setenv("CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS", "1", 1)
+        setenv("CMUX_CLAUDE_TEAMS_CMUX_BIN", executablePath, 1)
+        setenv("PATH", updatedPath, 1)
+        setenv("TMUX", fakeTmuxValue, 1)
+        setenv("TMUX_PANE", fakeTmuxPane, 1)
+        setenv("TERM", fakeTerm, 1)
+        unsetenv("TERM_PROGRAM")
+    }
+
     private func createClaudeTeamsShimDirectory() throws -> URL {
         let homePath = ProcessInfo.processInfo.environment["HOME"] ?? NSHomeDirectory()
         let rootPath = URL(fileURLWithPath: homePath, isDirectory: true)
@@ -6441,17 +6479,15 @@ struct CMUXCLI {
                       FileManager.default.isExecutableFile(atPath: bundledClaudePath) else { return nil }
                 return bundledClaudePath
             }()
-        let updatedPath = prependPathEntries(
-            [shimDirectory.path],
-            to: processEnvironment["PATH"]
+        configureClaudeTeamsEnvironment(
+            processEnvironment: processEnvironment,
+            shimDirectory: shimDirectory,
+            executablePath: executablePath
         )
 
-        setenv("CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS", "1", 1)
-        setenv("CMUX_CLAUDE_TEAMS_CMUX_BIN", executablePath, 1)
-        setenv("PATH", updatedPath, 1)
-
         let launchPath = claudeExecutablePath ?? "claude"
-        var argv = ([launchPath] + commandArgs).map { strdup($0) }
+        let launchArguments = claudeTeamsLaunchArguments(commandArgs: commandArgs)
+        var argv = ([launchPath] + launchArguments).map { strdup($0) }
         defer {
             for item in argv {
                 free(item)
