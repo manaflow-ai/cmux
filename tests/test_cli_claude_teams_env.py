@@ -79,6 +79,10 @@ printf '%s\\n' "${CMUX_SOCKET_PASSWORD-__UNSET__}" > "$FAKE_SOCKET_PASSWORD_LOG"
         env["FAKE_TERM_PROGRAM_LOG"] = str(term_program_log)
         env["FAKE_SOCKET_PATH_LOG"] = str(socket_path_log)
         env["FAKE_SOCKET_PASSWORD_LOG"] = str(socket_password_log)
+        env["TMUX"] = "__HOST_TMUX__"
+        env["TMUX_PANE"] = "%999"
+        env["TERM"] = "xterm-256color"
+        env["TERM_PROGRAM"] = "Terminal.app"
         explicit_socket_path = str(tmp / "explicit-cmux.sock")
         explicit_socket_password = "topsecret"
 

@@ -900,6 +900,7 @@ struct CMUXCLI {
         // Check for --help/-h on subcommands before connecting to the socket,
         // so help text is available even when cmux is not running.
         if command != "__tmux-compat",
+           command != "claude-teams",
            (commandArgs.contains("--help") || commandArgs.contains("-h")) {
             if dispatchSubcommandHelp(command: command, commandArgs: commandArgs) {
                 return
