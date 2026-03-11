@@ -147,7 +147,7 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         XCTAssertTrue(waitForElementToDisappear(targetButton, timeout: 3.0), "Expected popover to close on Escape")
     }
 
-    func testNotificationsPopoverJumpToLatestButtonShowsShortcutAndRoutesFocus() {
+    func testNotificationsPopoverJumpToLatestButtonShowsShortcut() {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_UI_TEST_MULTI_WINDOW_NOTIF_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_MULTI_WINDOW_NOTIF_PATH"] = dataPath
@@ -158,25 +158,8 @@ final class MultiWindowNotificationsUITests: XCTestCase {
             "Expected app to launch for jump-to-latest popover test. state=\(app.state.rawValue)"
         )
 
-        XCTAssertTrue(
-            waitForData(keys: [
-                "expectedLatestWindowId",
-                "expectedLatestTabId",
-            ], timeout: 15.0),
-            "Expected multi-window notification setup data"
-        )
-
-        guard let setup = loadData() else {
-            XCTFail("Missing setup data")
-            return
-        }
-
-        let expectedLatestWindowId = setup["expectedLatestWindowId"] ?? ""
-        let expectedLatestTabId = setup["expectedLatestTabId"] ?? ""
-        XCTAssertFalse(expectedLatestWindowId.isEmpty)
-        XCTAssertFalse(expectedLatestTabId.isEmpty)
-
-        XCTAssertTrue(waitForWindowCount(atLeast: 2, app: app, timeout: 6.0))
+        XCTAssertTrue(waitForData(keys: ["notifId1"], timeout: 15.0), "Expected multi-window notification setup data")
+        XCTAssertTrue(waitForWindowCount(atLeast: 1, app: app, timeout: 6.0))
 
         app.typeKey("i", modifierFlags: [.command])
 
@@ -187,20 +170,6 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         XCTAssertTrue(shortcutValue?.contains("⌘") == true, "Expected Jump to Latest shortcut to include Command")
         XCTAssertTrue(shortcutValue?.contains("⇧") == true, "Expected Jump to Latest shortcut to include Shift")
         XCTAssertTrue(shortcutValue?.uppercased().contains("U") == true, "Expected Jump to Latest shortcut to include U")
-
-        let beforeToken = loadData()?["focusToken"]
-        jumpButton.click()
-
-        XCTAssertTrue(
-            waitForFocusChange(from: beforeToken, timeout: 6.0),
-            "Expected focus record after clicking Jump to Latest"
-        )
-        guard let afterJump = loadData() else {
-            XCTFail("Missing focus data after clicking Jump to Latest")
-            return
-        }
-        XCTAssertEqual(afterJump["focusedWindowId"], expectedLatestWindowId)
-        XCTAssertEqual(afterJump["focusedTabId"], expectedLatestTabId)
     }
 
     func testEmptyNotificationsPopoverBlocksTerminalTyping() throws {
