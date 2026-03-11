@@ -113,7 +113,7 @@ Tout est scriptable via le CLI et l'API socket — créer des espaces de travail
 
 cmux ne prescrit pas comment les développeurs utilisent leurs outils. C'est un terminal et un navigateur avec un CLI, le reste vous appartient.
 
-cmux est une primitive, pas une solution. Il vous donne un terminal, un navigateur, des notifications, des espaces de travail, des divisions, des onglets et un CLI pour tout contrôler. cmux ne vous impose pas une façon opiniâtre d'utiliser les agents de programmation. Ce que vous construisez avec ces primitives vous appartient.
+cmux est une primitive, pas une solution. Il vous donne un terminal, un navigateur, des notifications, des espaces de travail, des divisions, des onglets et un CLI pour tout contrôler. cmux ne vous impose pas une façon préconçue d'utiliser les agents de programmation. Ce que vous construisez avec ces primitives vous appartient.
 
 Les meilleurs développeurs ont toujours construit leurs propres outils. Personne n'a encore trouvé la meilleure façon de travailler avec les agents, et les équipes qui construisent des produits fermés ne l'ont pas trouvée non plus. Les développeurs les plus proches de leurs propres bases de code trouveront la solution en premier.
 
@@ -171,7 +171,7 @@ Les raccourcis des outils de développement du navigateur suivent les valeurs pa
 | ⌘ [ | Reculer |
 | ⌘ ] | Avancer |
 | ⌘ R | Recharger la page |
-| ⌥ ⌘ I | Ouvrir les outils de développement (par défaut Safari) |
+| ⌥ ⌘ I | Basculer les outils de développement (par défaut Safari) |
 | ⌥ ⌘ C | Afficher la console JavaScript (par défaut Safari) |
 
 ### Notifications

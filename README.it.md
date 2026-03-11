@@ -171,7 +171,7 @@ Le scorciatoie degli strumenti di sviluppo del browser seguono i valori predefin
 | ⌘ [ | Indietro |
 | ⌘ ] | Avanti |
 | ⌘ R | Ricarica pagina |
-| ⌥ ⌘ I | Apri Strumenti di Sviluppo (predefinito Safari) |
+| ⌥ ⌘ I | Mostra/Nascondi Strumenti di Sviluppo (predefinito Safari) |
 | ⌥ ⌘ C | Mostra Console JavaScript (predefinito Safari) |
 
 ### Notifiche

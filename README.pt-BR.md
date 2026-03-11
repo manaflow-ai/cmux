@@ -125,7 +125,7 @@ Para mais informações sobre como configurar o cmux, [acesse nossa documentaç�
 
 ## Atalhos de Teclado
 
-### Workspaces
+### Áreas de Trabalho
 
 | Atalho | Ação |
 |----------|--------|
@@ -138,7 +138,7 @@ Para mais informações sobre como configurar o cmux, [acesse nossa documentaç�
 | ⌘ ⇧ R | Renomear workspace |
 | ⌘ B | Alternar barra lateral |
 
-### Surfaces
+### Superfícies
 
 | Atalho | Ação |
 |----------|--------|

@@ -241,7 +241,7 @@ Sposoby zaangażowania się:
 
 - Obserwuj nas na X po aktualizacje [@manaflowai](https://x.com/manaflowai), [@lawrencecchen](https://x.com/lawrencecchen) i [@austinywang](https://x.com/austinywang)
 - Dołącz do rozmowy na [Discordzie](https://discord.gg/xsgFEVrWCZ)
-- Twórz i uczestncz w [zgłoszeniach GitHub](https://github.com/manaflow-ai/cmux/issues) i [dyskusjach](https://github.com/manaflow-ai/cmux/discussions)
+- Twórz i uczestniczaj w [zgłoszeniach GitHub](https://github.com/manaflow-ai/cmux/issues) i [dyskusjach](https://github.com/manaflow-ai/cmux/discussions)
 - Daj nam znać, co budujesz z cmux
 
 ## Społeczność
