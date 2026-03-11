@@ -323,9 +323,13 @@ extension Workspace {
                 capturedScrollback: capturedScrollback,
                 includeScrollback: includeScrollback
             )
+            let agentResumeCommand = includeScrollback
+                ? AgentProcessDetector.detectAgentResumeCommand(ttyName: ttyName)
+                : nil
             terminalSnapshot = SessionTerminalPanelSnapshot(
                 workingDirectory: panelDirectories[panelId],
-                scrollback: resolvedScrollback
+                scrollback: resolvedScrollback,
+                agentResumeCommand: agentResumeCommand
             )
             browserSnapshot = nil
             markdownSnapshot = nil
@@ -493,7 +497,8 @@ extension Workspace {
         case .terminal:
             let workingDirectory = snapshot.terminal?.workingDirectory ?? snapshot.directory ?? currentDirectory
             let replayEnvironment = SessionScrollbackReplayStore.replayEnvironment(
-                for: snapshot.terminal?.scrollback
+                for: snapshot.terminal?.scrollback,
+                agentResumeCommand: snapshot.terminal?.agentResumeCommand
             )
             guard let terminalPanel = newTerminalSurface(
                 inPane: paneId,

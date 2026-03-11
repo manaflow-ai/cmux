@@ -35,6 +35,34 @@ _cmux_restore_scrollback_once() {
 }
 _cmux_restore_scrollback_once
 
+_cmux_resume_agent_once() {
+    local cmd="${CMUX_RESTORE_AGENT_COMMAND:-}"
+    [[ -n "$cmd" ]] || return 0
+    unset CMUX_RESTORE_AGENT_COMMAND
+
+    # Validate against an allowlist to prevent command injection from a
+    # tampered snapshot JSON file. Only known safe resume commands are accepted.
+    case "$cmd" in
+        "claude --continue"|"codex --resume"|"aider"|"goose session resume") ;;
+        *)
+            printf '\033[33mcmux:\033[0m Unknown agent resume command, skipping.\n'
+            return 0 ;;
+    esac
+
+    # Extract the binary name and verify it is installed.
+    local bin="${cmd%% *}"
+    if ! command -v "$bin" >/dev/null 2>&1; then
+        return 0
+    fi
+
+    printf '\033[33mcmux:\033[0m Resuming previous \033[1m%s\033[0m session...\n' "$bin"
+    printf '\033[33mcmux:\033[0m Running: \033[1m%s\033[0m\n' "$cmd"
+    printf '\n'
+
+    eval "$cmd"
+}
+_cmux_resume_agent_once
+
 # Throttle heavy work to avoid prompt latency.
 _CMUX_PWD_LAST_PWD="${_CMUX_PWD_LAST_PWD:-}"
 _CMUX_GIT_LAST_PWD="${_CMUX_GIT_LAST_PWD:-}"
