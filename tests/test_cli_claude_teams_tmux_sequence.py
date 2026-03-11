@@ -5,17 +5,15 @@ Regression test: `cmux claude-teams` supports Claude's tmux teammate flow.
 
 from __future__ import annotations
 
-import glob
 import json
 import os
-import shutil
 import socketserver
 import subprocess
 import tempfile
 import threading
 from pathlib import Path
 
-
+from claude_teams_test_utils import resolve_cmux_cli
 INITIAL_WORKSPACE_ID = "11111111-1111-4111-8111-111111111111"
 INITIAL_WINDOW_ID = "22222222-2222-4222-8222-222222222222"
 INITIAL_PANE_ID = "33333333-3333-4333-8333-333333333333"
@@ -23,33 +21,6 @@ INITIAL_SURFACE_ID = "44444444-4444-4444-8444-444444444444"
 INITIAL_TAB_ID = "55555555-5555-4555-8555-555555555555"
 NEW_PANE_ID = "66666666-6666-4666-8666-666666666666"
 NEW_SURFACE_ID = "77777777-7777-4777-8777-777777777777"
-
-
-def resolve_cmux_cli() -> str:
-    explicit = os.environ.get("CMUX_CLI_BIN") or os.environ.get("CMUX_CLI")
-    if explicit and os.path.exists(explicit) and os.access(explicit, os.X_OK):
-        return explicit
-
-    candidates: list[str] = []
-    candidates.extend(
-        glob.glob(
-            os.path.expanduser(
-                "~/Library/Developer/Xcode/DerivedData/*/Build/Products/Debug/cmux DEV*.app/Contents/Resources/bin/cmux"
-            )
-        )
-    )
-    candidates.extend(glob.glob(os.path.expanduser("~/Library/Developer/Xcode/DerivedData/*/Build/Products/Debug/cmux")))
-    candidates.extend(glob.glob("/tmp/cmux-*/Build/Products/Debug/cmux"))
-    candidates = [path for path in candidates if os.path.exists(path) and os.access(path, os.X_OK)]
-    if candidates:
-        candidates.sort(key=os.path.getmtime, reverse=True)
-        return candidates[0]
-
-    in_path = shutil.which("cmux")
-    if in_path:
-        return in_path
-
-    raise RuntimeError("Unable to find cmux CLI binary. Set CMUX_CLI_BIN.")
 
 
 def make_executable(path: Path, content: str) -> None:
@@ -130,6 +101,17 @@ class FakeCmuxState:
                             "ref": self.workspace["ref"],
                             "index": self.workspace["index"],
                             "title": self.workspace["title"],
+                        }
+                    ]
+                }
+            if method == "window.list":
+                return {
+                    "windows": [
+                        {
+                            "id": self.window["id"],
+                            "ref": self.window["ref"],
+                            "workspace_id": self.workspace["id"],
+                            "workspace_ref": self.workspace["ref"],
                         }
                     ]
                 }
@@ -316,7 +298,12 @@ tmux list-panes -t "$window_target" -F '#{pane_id}' > "$FAKE_PANE_LIST_LOG"
                 text=True,
                 check=False,
                 env=env,
+                timeout=30,
             )
+        except subprocess.TimeoutExpired as exc:
+            print("FAIL: `cmux claude-teams --version` timed out")
+            print(f"cmd={exc.cmd!r}")
+            return 1
         finally:
             server.shutdown()
             server.server_close()

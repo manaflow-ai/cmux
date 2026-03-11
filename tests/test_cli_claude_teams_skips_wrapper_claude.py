@@ -5,32 +5,12 @@ Regression test: `cmux claude-teams` skips cmux wrapper scripts on PATH.
 
 from __future__ import annotations
 
-import glob
 import os
-import shutil
 import subprocess
 import tempfile
 from pathlib import Path
 
-
-def resolve_cmux_cli() -> str:
-    explicit = os.environ.get("CMUX_CLI_BIN") or os.environ.get("CMUX_CLI")
-    if explicit and os.path.exists(explicit) and os.access(explicit, os.X_OK):
-        return explicit
-
-    candidates: list[str] = []
-    candidates.extend(glob.glob(os.path.expanduser("~/Library/Developer/Xcode/DerivedData/*/Build/Products/Debug/cmux")))
-    candidates.extend(glob.glob("/tmp/cmux-*/Build/Products/Debug/cmux"))
-    candidates = [path for path in candidates if os.path.exists(path) and os.access(path, os.X_OK)]
-    if candidates:
-        candidates.sort(key=os.path.getmtime, reverse=True)
-        return candidates[0]
-
-    in_path = shutil.which("cmux")
-    if in_path:
-        return in_path
-
-    raise RuntimeError("Unable to find cmux CLI binary. Set CMUX_CLI_BIN.")
+from claude_teams_test_utils import resolve_cmux_cli
 
 
 def make_executable(path: Path, content: str) -> None:
@@ -83,6 +63,7 @@ printf 'REAL\\n' > {real_hit}
             text=True,
             check=False,
             env=env,
+            timeout=30,
         )
 
         if proc.returncode != 0:

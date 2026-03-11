@@ -247,8 +247,9 @@ fi
 if [[ -n "${TAG_SLUG:-}" ]]; then
   TMP_COMPAT_DERIVED_LINK="/tmp/cmux-${TAG_SLUG}"
   if [[ "$DERIVED_DATA" != "$TMP_COMPAT_DERIVED_LINK" ]]; then
+    ABS_DERIVED_DATA="$(cd "$DERIVED_DATA" && pwd)"
     rm -rf "$TMP_COMPAT_DERIVED_LINK"
-    ln -s "$DERIVED_DATA" "$TMP_COMPAT_DERIVED_LINK"
+    ln -s "$ABS_DERIVED_DATA" "$TMP_COMPAT_DERIVED_LINK"
   fi
 fi
 

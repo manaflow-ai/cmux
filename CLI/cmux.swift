@@ -899,7 +899,8 @@ struct CMUXCLI {
 
         // Check for --help/-h on subcommands before connecting to the socket,
         // so help text is available even when cmux is not running.
-        if commandArgs.first == "--help" || commandArgs.first == "-h" {
+        if command != "__tmux-compat",
+           (commandArgs.contains("--help") || commandArgs.contains("-h")) {
             if dispatchSubcommandHelp(command: command, commandArgs: commandArgs) {
                 return
             }
@@ -933,7 +934,11 @@ struct CMUXCLI {
         }
 
         if command == "claude-teams" {
-            try runClaudeTeams(commandArgs: commandArgs)
+            try runClaudeTeams(
+                commandArgs: commandArgs,
+                socketPath: resolvedSocketPath,
+                explicitPassword: socketPasswordArg
+            )
             return
         }
 
@@ -4259,7 +4264,7 @@ struct CMUXCLI {
               private code, credentials, tokens, and other sensitive information first.
             """
         case "claude-teams":
-            return """
+            return String(localized: "cli.claude-teams.usage", defaultValue: """
             Usage: cmux claude-teams [claude-args...]
 
             Launch Claude Code with agent teams enabled.
@@ -4278,7 +4283,7 @@ struct CMUXCLI {
               cmux claude-teams
               cmux claude-teams --continue
               cmux claude-teams --model sonnet
-            """
+            """)
         case "identify":
             return """
             Usage: cmux identify [--workspace <id|ref|index>] [--surface <id|ref|index>] [--no-caller]
@@ -6130,8 +6135,116 @@ struct CMUXCLI {
         return payload["workspaces"] as? [[String: Any]] ?? []
     }
 
+    private func tmuxCallerWorkspaceHandle() -> String? {
+        normalizedTmuxTarget(ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"])
+    }
+
+    private func tmuxCallerPaneHandle() -> String? {
+        guard let pane = normalizedTmuxTarget(ProcessInfo.processInfo.environment["TMUX_PANE"])
+            ?? normalizedTmuxTarget(ProcessInfo.processInfo.environment["CMUX_PANE_ID"]) else {
+            return nil
+        }
+        return pane.hasPrefix("%") ? String(pane.dropFirst()) : pane
+    }
+
+    private func tmuxCallerSurfaceHandle() -> String? {
+        normalizedTmuxTarget(ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"])
+    }
+
+    private func tmuxCanonicalPaneId(
+        _ handle: String,
+        workspaceId: String,
+        client: SocketClient
+    ) throws -> String {
+        if isUUID(handle) {
+            return handle
+        }
+
+        let payload = try client.sendV2(method: "pane.list", params: ["workspace_id": workspaceId])
+        let panes = payload["panes"] as? [[String: Any]] ?? []
+        for pane in panes {
+            if (pane["ref"] as? String) == handle || (pane["id"] as? String) == handle {
+                if let id = pane["id"] as? String {
+                    return id
+                }
+            }
+        }
+
+        if let index = Int(handle) {
+            for pane in panes where intFromAny(pane["index"]) == index {
+                if let id = pane["id"] as? String {
+                    return id
+                }
+            }
+        }
+
+        throw CLIError(message: "Pane target not found")
+    }
+
+    private func tmuxCanonicalSurfaceId(
+        _ handle: String,
+        workspaceId: String,
+        client: SocketClient
+    ) throws -> String {
+        if isUUID(handle) {
+            return handle
+        }
+
+        let payload = try client.sendV2(method: "surface.list", params: ["workspace_id": workspaceId])
+        let surfaces = payload["surfaces"] as? [[String: Any]] ?? []
+        for surface in surfaces {
+            if (surface["ref"] as? String) == handle || (surface["id"] as? String) == handle {
+                if let id = surface["id"] as? String {
+                    return id
+                }
+            }
+        }
+
+        if let index = Int(handle) {
+            for surface in surfaces where intFromAny(surface["index"]) == index {
+                if let id = surface["id"] as? String {
+                    return id
+                }
+            }
+        }
+
+        throw CLIError(message: "Surface target not found")
+    }
+
+    private func tmuxWorkspaceIdForPaneHandle(_ handle: String, client: SocketClient) throws -> String? {
+        guard isUUID(handle) || isHandleRef(handle) else {
+            return nil
+        }
+
+        let workspaces = try tmuxWorkspaceItems(client: client)
+        for workspace in workspaces {
+            guard let workspaceId = workspace["id"] as? String else { continue }
+            let payload = try client.sendV2(method: "pane.list", params: ["workspace_id": workspaceId])
+            let panes = payload["panes"] as? [[String: Any]] ?? []
+            if panes.contains(where: { ($0["id"] as? String) == handle || ($0["ref"] as? String) == handle }) {
+                return workspaceId
+            }
+        }
+
+        return nil
+    }
+
+    private func tmuxFocusedPaneId(workspaceId: String, client: SocketClient) throws -> String {
+        let payload = try client.sendV2(method: "surface.current", params: ["workspace_id": workspaceId])
+        if let paneId = payload["pane_id"] as? String {
+            return paneId
+        }
+        if let paneRef = payload["pane_ref"] as? String {
+            return try tmuxCanonicalPaneId(paneRef, workspaceId: workspaceId, client: client)
+        }
+        throw CLIError(message: "Pane target not found")
+    }
+
     private func tmuxResolveWorkspaceTarget(_ raw: String?, client: SocketClient) throws -> String {
         guard var token = normalizedTmuxTarget(raw) else {
+            if let callerWorkspace = tmuxCallerWorkspaceHandle() {
+                return try resolveWorkspaceId(callerWorkspace, client: client)
+            }
             return try resolveWorkspaceId(nil, client: client)
         }
 
@@ -6154,8 +6267,8 @@ struct CMUXCLI {
             token = String(token.dropFirst())
         }
 
-        if let resolved = try normalizeWorkspaceHandle(token, client: client, allowCurrent: true) {
-            return resolved
+        if let resolvedHandle = try? normalizeWorkspaceHandle(token, client: client, allowCurrent: true) {
+            return try resolveWorkspaceId(resolvedHandle, client: client)
         }
 
         let needle = token.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -6170,22 +6283,30 @@ struct CMUXCLI {
     }
 
     private func tmuxResolvePaneTarget(_ raw: String?, client: SocketClient) throws -> (workspaceId: String, paneId: String) {
-        let workspaceId = try tmuxResolveWorkspaceTarget(tmuxWindowSelector(from: raw), client: client)
         let paneSelector = tmuxPaneSelector(from: raw)
-        let paneHandle: String?
-        if let paneSelector {
-            paneHandle = paneSelector.hasPrefix("%") ? String(paneSelector.dropFirst()) : paneSelector
-        } else {
-            paneHandle = nil
+        let workspaceSelector = tmuxWindowSelector(from: raw)
+        let workspaceId: String = {
+            if let workspaceSelector {
+                return (try? tmuxResolveWorkspaceTarget(workspaceSelector, client: client)) ?? ""
+            }
+            if let paneSelector,
+               let workspaceId = try? tmuxWorkspaceIdForPaneHandle(paneSelector, client: client) {
+                return workspaceId
+            }
+            return (try? tmuxResolveWorkspaceTarget(nil, client: client)) ?? ""
+        }()
+        guard !workspaceId.isEmpty else {
+            throw CLIError(message: "Workspace target not found")
         }
-
-        guard let paneId = try normalizePaneHandle(
-            paneHandle,
-            client: client,
-            workspaceHandle: workspaceId,
-            allowFocused: true
-        ) else {
-            throw CLIError(message: "Pane target not found")
+        let paneId: String
+        if let paneSelector {
+            paneId = try tmuxCanonicalPaneId(paneSelector, workspaceId: workspaceId, client: client)
+        } else if tmuxCallerWorkspaceHandle() == workspaceId,
+                  let callerPane = tmuxCallerPaneHandle(),
+                  let callerPaneId = try? tmuxCanonicalPaneId(callerPane, workspaceId: workspaceId, client: client) {
+            paneId = callerPaneId
+        } else {
+            paneId = try tmuxFocusedPaneId(workspaceId: workspaceId, client: client)
         }
         return (workspaceId, paneId)
     }
@@ -6225,6 +6346,12 @@ struct CMUXCLI {
         }
 
         let workspaceId = try tmuxResolveWorkspaceTarget(tmuxWindowSelector(from: raw), client: client)
+        if tmuxWindowSelector(from: raw) == nil,
+           tmuxCallerWorkspaceHandle() == workspaceId,
+           let callerSurface = tmuxCallerSurfaceHandle(),
+           let surfaceId = try? tmuxCanonicalSurfaceId(callerSurface, workspaceId: workspaceId, client: client) {
+            return (workspaceId, nil, surfaceId)
+        }
         let surfaceId = try resolveSurfaceId(nil, workspaceId: workspaceId, client: client)
         return (workspaceId, nil, surfaceId)
     }
@@ -6254,14 +6381,17 @@ struct CMUXCLI {
         surfaceId: String? = nil,
         client: SocketClient
     ) throws -> [String: String] {
+        let canonicalWorkspaceId = try resolveWorkspaceId(workspaceId, client: client)
         var context: [String: String] = [
             "session_name": "cmux",
-            "window_id": "@\(workspaceId)",
-            "window_uuid": workspaceId
+            "window_id": "@\(canonicalWorkspaceId)",
+            "window_uuid": canonicalWorkspaceId
         ]
 
         let workspaceItems = try tmuxWorkspaceItems(client: client)
-        if let workspace = workspaceItems.first(where: { ($0["id"] as? String) == workspaceId }) {
+        if let workspace = workspaceItems.first(where: {
+            ($0["id"] as? String) == canonicalWorkspaceId || ($0["ref"] as? String) == workspaceId
+        }) {
             if let index = intFromAny(workspace["index"]) {
                 context["window_index"] = String(index)
             }
@@ -6271,14 +6401,37 @@ struct CMUXCLI {
             }
         }
 
-        let currentPayload = try client.sendV2(method: "surface.current", params: ["workspace_id": workspaceId])
-        let resolvedPaneId = paneId ?? (currentPayload["pane_id"] as? String)
-        let resolvedSurfaceId = surfaceId ?? (currentPayload["surface_id"] as? String)
+        let currentPayload = try client.sendV2(method: "surface.current", params: ["workspace_id": canonicalWorkspaceId])
+        let resolvedPaneId: String? = try {
+            if let paneId {
+                return try tmuxCanonicalPaneId(paneId, workspaceId: canonicalWorkspaceId, client: client)
+            }
+            if let currentPaneId = currentPayload["pane_id"] as? String {
+                return currentPaneId
+            }
+            if let currentPaneRef = currentPayload["pane_ref"] as? String {
+                return try tmuxCanonicalPaneId(currentPaneRef, workspaceId: canonicalWorkspaceId, client: client)
+            }
+            return nil
+        }()
+        let resolvedSurfaceId: String? = try {
+            if let surfaceId {
+                return try tmuxCanonicalSurfaceId(surfaceId, workspaceId: canonicalWorkspaceId, client: client)
+            }
+            if let resolvedPaneId {
+                return try tmuxSelectedSurfaceId(
+                    workspaceId: canonicalWorkspaceId,
+                    paneId: resolvedPaneId,
+                    client: client
+                )
+            }
+            return currentPayload["surface_id"] as? String
+        }()
 
         if let resolvedPaneId {
             context["pane_id"] = "%\(resolvedPaneId)"
             context["pane_uuid"] = resolvedPaneId
-            let panePayload = try client.sendV2(method: "pane.list", params: ["workspace_id": workspaceId])
+            let panePayload = try client.sendV2(method: "pane.list", params: ["workspace_id": canonicalWorkspaceId])
             let panes = panePayload["panes"] as? [[String: Any]] ?? []
             if let pane = panes.first(where: { ($0["id"] as? String) == resolvedPaneId }),
                let index = intFromAny(pane["index"]) {
@@ -6288,7 +6441,7 @@ struct CMUXCLI {
 
         if let resolvedSurfaceId {
             context["surface_id"] = resolvedSurfaceId
-            let surfacePayload = try client.sendV2(method: "surface.list", params: ["workspace_id": workspaceId])
+            let surfacePayload = try client.sendV2(method: "surface.list", params: ["workspace_id": canonicalWorkspaceId])
             let surfaces = surfacePayload["surfaces"] as? [[String: Any]] ?? []
             if let surface = surfaces.first(where: { ($0["id"] as? String) == resolvedSurfaceId }) {
                 let title = ((surface["title"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
@@ -6417,12 +6570,16 @@ struct CMUXCLI {
         )
     }
 
-    private func claudeTeamsFocusedContext(processEnvironment: [String: String]) -> ClaudeTeamsFocusedContext? {
+    private func claudeTeamsFocusedContext(
+        processEnvironment: [String: String],
+        explicitPassword: String?
+    ) -> ClaudeTeamsFocusedContext? {
         let socketPath = claudeTeamsResolvedSocketPath(processEnvironment: processEnvironment)
         let client = SocketClient(path: socketPath)
 
         do {
             try client.connect()
+            try authenticateClientIfNeeded(client, explicitPassword: explicitPassword)
             defer { client.close() }
 
             let payload = try client.sendV2(method: "system.identify")
@@ -6470,20 +6627,15 @@ struct CMUXCLI {
 
     private func resolveClaudeExecutable(searchPath: String?) -> String? {
         let entries = searchPath?.split(separator: ":").map(String.init) ?? []
-        var fallback: String?
         for entry in entries where !entry.isEmpty {
             let candidate = URL(fileURLWithPath: entry, isDirectory: true)
                 .appendingPathComponent("claude", isDirectory: false)
                 .path
             guard FileManager.default.isExecutableFile(atPath: candidate) else { continue }
-            if fallback == nil {
-                fallback = candidate
-            }
-            if !isCmuxClaudeWrapper(at: candidate) {
-                return candidate
-            }
+            guard !isCmuxClaudeWrapper(at: candidate) else { continue }
+            return candidate
         }
-        return fallback
+        return nil
     }
 
     private func claudeTeamsHasExplicitTeammateMode(commandArgs: [String]) -> Bool {
@@ -6503,6 +6655,8 @@ struct CMUXCLI {
         processEnvironment: [String: String],
         shimDirectory: URL,
         executablePath: String,
+        socketPath: String,
+        explicitPassword: String?,
         focusedContext: ClaudeTeamsFocusedContext?
     ) {
         let updatedPath = prependPathEntries(
@@ -6527,10 +6681,14 @@ struct CMUXCLI {
         setenv("TMUX", fakeTmuxValue, 1)
         setenv("TMUX_PANE", fakeTmuxPane, 1)
         setenv("TERM", fakeTerm, 1)
+        setenv("CMUX_SOCKET_PATH", socketPath, 1)
+        setenv("CMUX_SOCKET", socketPath, 1)
+        if let explicitPassword,
+           !explicitPassword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            setenv("CMUX_SOCKET_PASSWORD", explicitPassword, 1)
+        }
         unsetenv("TERM_PROGRAM")
         if let focusedContext {
-            setenv("CMUX_SOCKET_PATH", focusedContext.socketPath, 1)
-            setenv("CMUX_SOCKET", focusedContext.socketPath, 1)
             setenv("CMUX_WORKSPACE_ID", focusedContext.workspaceId, 1)
             if let surfaceId = focusedContext.surfaceId, !surfaceId.isEmpty {
                 setenv("CMUX_SURFACE_ID", surfaceId, 1)
@@ -6561,25 +6719,41 @@ struct CMUXCLI {
         return root
     }
 
-    private func runClaudeTeams(commandArgs: [String]) throws {
+    private func runClaudeTeams(
+        commandArgs: [String],
+        socketPath: String,
+        explicitPassword: String?
+    ) throws {
         let processEnvironment = ProcessInfo.processInfo.environment
+        var launcherEnvironment = processEnvironment
+        launcherEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        launcherEnvironment["CMUX_SOCKET"] = socketPath
+        if let explicitPassword,
+           !explicitPassword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            launcherEnvironment["CMUX_SOCKET_PASSWORD"] = explicitPassword
+        }
         let shimDirectory = try createClaudeTeamsShimDirectory()
         let executablePath = resolvedExecutableURL()?.path ?? (args.first ?? "cmux")
-        let focusedContext = claudeTeamsFocusedContext(processEnvironment: processEnvironment)
+        let focusedContext = claudeTeamsFocusedContext(
+            processEnvironment: launcherEnvironment,
+            explicitPassword: explicitPassword
+        )
         let bundledClaudePath = resolvedExecutableURL()?
             .deletingLastPathComponent()
             .appendingPathComponent("claude", isDirectory: false)
             .path
-        let claudeExecutablePath = resolveClaudeExecutable(searchPath: processEnvironment["PATH"])
+        let claudeExecutablePath = resolveClaudeExecutable(searchPath: launcherEnvironment["PATH"])
             ?? {
                 guard let bundledClaudePath,
                       FileManager.default.isExecutableFile(atPath: bundledClaudePath) else { return nil }
                 return bundledClaudePath
             }()
         configureClaudeTeamsEnvironment(
-            processEnvironment: processEnvironment,
+            processEnvironment: launcherEnvironment,
             shimDirectory: shimDirectory,
             executablePath: executablePath,
+            socketPath: socketPath,
+            explicitPassword: explicitPassword,
             focusedContext: focusedContext
         )
 
@@ -6618,7 +6792,17 @@ struct CMUXCLI {
                 valueFlags: ["-c", "-F", "-n", "-s"],
                 boolFlags: ["-A", "-d", "-P"]
             )
-            let workspaceId = try resolveWorkspaceId(nil, client: client)
+            if parsed.hasFlag("-A") {
+                throw CLIError(message: "new-session -A is not supported in cmux claude-teams mode")
+            }
+            var params: [String: Any] = ["focus": false]
+            if let cwd = parsed.value("-c") {
+                params["cwd"] = resolvePath(cwd)
+            }
+            let created = try client.sendV2(method: "workspace.create", params: params)
+            guard let workspaceId = created["workspace_id"] as? String else {
+                throw CLIError(message: "workspace.create did not return workspace_id")
+            }
             if let title = parsed.value("-n") ?? parsed.value("-s"),
                !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 _ = try client.sendV2(method: "workspace.rename", params: [
@@ -6646,7 +6830,10 @@ struct CMUXCLI {
                 valueFlags: ["-c", "-F", "-n", "-t"],
                 boolFlags: ["-d", "-P"]
             )
-            var params: [String: Any] = [:]
+            if parsed.value("-t") != nil {
+                throw CLIError(message: "new-window -t is not supported in cmux claude-teams mode")
+            }
+            var params: [String: Any] = ["focus": false]
             if let cwd = parsed.value("-c") {
                 params["cwd"] = resolvePath(cwd)
             }
@@ -6660,9 +6847,6 @@ struct CMUXCLI {
                     "workspace_id": workspaceId,
                     "title": title
                 ])
-            }
-            if !parsed.hasFlag("-d") {
-                _ = try client.sendV2(method: "workspace.select", params: ["workspace_id": workspaceId])
             }
             if let text = tmuxShellCommandText(commandTokens: parsed.positional, cwd: parsed.value("-c")) {
                 Thread.sleep(forTimeInterval: 0.3)
@@ -6778,8 +6962,12 @@ struct CMUXCLI {
             }
             let payload = try client.sendV2(method: "surface.read_text", params: params)
             let text = (payload["text"] as? String) ?? ""
-            if parsed.hasFlag("-p") || !text.isEmpty {
+            if parsed.hasFlag("-p") {
                 print(text)
+            } else {
+                var store = loadTmuxCompatStore()
+                store.buffers["default"] = text
+                try saveTmuxCompatStore(store)
             }
 
         case "display-message", "display", "displayp":
@@ -6882,6 +7070,27 @@ struct CMUXCLI {
             let parsed = try parseTmuxArguments(rawArgs, valueFlags: ["-t"], boolFlags: [])
             let workspaceId = try tmuxResolveWorkspaceTarget(parsed.value("-t"), client: client)
             _ = try client.sendV2(method: "pane.last", params: ["workspace_id": workspaceId])
+
+        case "show-buffer", "showb":
+            let parsed = try parseTmuxArguments(rawArgs, valueFlags: ["-b"], boolFlags: [])
+            let name = parsed.value("-b") ?? "default"
+            let store = loadTmuxCompatStore()
+            if let buffer = store.buffers[name] {
+                print(buffer)
+            }
+
+        case "save-buffer", "saveb":
+            let parsed = try parseTmuxArguments(rawArgs, valueFlags: ["-b"], boolFlags: [])
+            let name = parsed.value("-b") ?? "default"
+            let store = loadTmuxCompatStore()
+            guard let buffer = store.buffers[name] else {
+                throw CLIError(message: "Buffer not found: \(name)")
+            }
+            if let outputPath = parsed.positional.last, !outputPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                try buffer.write(toFile: resolvePath(outputPath), atomically: true, encoding: .utf8)
+            } else {
+                print(buffer)
+            }
 
         case "last-window", "next-window", "previous-window", "set-hook", "set-buffer", "list-buffers":
             try runTmuxCompatCommand(
