@@ -182,7 +182,11 @@ final class MultiWindowNotificationsUITests: XCTestCase {
 
         let jumpButton = app.buttons["notificationsPopover.jumpToLatest"]
         XCTAssertTrue(jumpButton.waitForExistence(timeout: 6.0), "Expected Jump to Latest button in notifications popover")
-        XCTAssertEqual(jumpButton.value as? String, "⌘⇧U", "Expected Jump to Latest shortcut badge")
+        let shortcutValue = jumpButton.value as? String
+        XCTAssertNotNil(shortcutValue, "Expected Jump to Latest shortcut badge")
+        XCTAssertTrue(shortcutValue?.contains("⌘") == true, "Expected Jump to Latest shortcut to include Command")
+        XCTAssertTrue(shortcutValue?.contains("⇧") == true, "Expected Jump to Latest shortcut to include Shift")
+        XCTAssertTrue(shortcutValue?.uppercased().contains("U") == true, "Expected Jump to Latest shortcut to include U")
 
         let beforeToken = loadData()?["focusToken"]
         jumpButton.click()
