@@ -10987,6 +10987,8 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         }
     }
 
+    private final class WKInspectorProbeView: NSView {}
+
     private func realizeWindowLayout(_ window: NSWindow) {
         window.makeKeyAndOrderFront(nil)
         window.displayIfNeeded()
@@ -11249,6 +11251,76 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         XCTAssertEqual(webView.frame.origin.y, slot.bounds.origin.y, accuracy: 0.5)
         XCTAssertEqual(webView.frame.size.width, slot.bounds.size.width, accuracy: 0.5)
         XCTAssertEqual(webView.frame.size.height, slot.bounds.size.height, accuracy: 0.5)
+    }
+
+    func testPortalResizePreservesSideDockedInspectorManagedWebViewFrame() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        realizeWindowLayout(window)
+        let portal = WindowBrowserPortal(window: window)
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let anchor = NSView(frame: NSRect(x: 40, y: 24, width: 260, height: 180))
+        contentView.addSubview(anchor)
+
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        portal.bind(webView: webView, to: anchor, visibleInUI: true)
+        contentView.layoutSubtreeIfNeeded()
+        portal.synchronizeWebViewForAnchor(anchor)
+
+        guard let slot = webView.superview as? WindowBrowserSlotView else {
+            XCTFail("Expected browser slot")
+            return
+        }
+
+        let initialInspectorWidth: CGFloat = 110
+        let inspectorContainer = NSView(
+            frame: NSRect(
+                x: slot.bounds.width - initialInspectorWidth,
+                y: 0,
+                width: initialInspectorWidth,
+                height: slot.bounds.height
+            )
+        )
+        inspectorContainer.autoresizingMask = [.minXMargin, .height]
+        let inspectorView = WKInspectorProbeView(frame: inspectorContainer.bounds)
+        inspectorView.autoresizingMask = [.width, .height]
+        inspectorContainer.addSubview(inspectorView)
+        slot.addSubview(inspectorContainer)
+
+        webView.frame = NSRect(
+            x: 0,
+            y: 0,
+            width: slot.bounds.width - initialInspectorWidth,
+            height: slot.bounds.height
+        )
+        webView.autoresizingMask = [.width, .height]
+        slot.layoutSubtreeIfNeeded()
+
+        anchor.frame = NSRect(x: 40, y: 24, width: 220, height: 180)
+        contentView.layoutSubtreeIfNeeded()
+        portal.synchronizeWebViewForAnchor(anchor)
+
+        XCTAssertFalse(slot.isHidden, "Resizing the browser pane should keep the hosted browser visible")
+        XCTAssertEqual(
+            webView.frame.maxX,
+            inspectorContainer.frame.minX,
+            accuracy: 0.5,
+            "Portal sync should preserve the side-docked inspector split instead of stretching the page back over the inspector"
+        )
+        XCTAssertLessThan(
+            webView.frame.width,
+            slot.bounds.width,
+            "Side-docked inspector should still own part of the slot after pane resize"
+        )
     }
 
     func testPortalHostBoundsBecomeReadyAfterBindingInFrameDrivenHierarchy() {
