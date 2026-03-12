@@ -130,6 +130,26 @@ struct WorkspaceRemoteDaemonManifest: Decodable, Equatable {
 }
 
 extension Workspace {
+    static let remoteDaemonManifestInfoKey = WorkspaceRemoteSessionController.remoteDaemonManifestInfoKey
+
+    static func remoteDaemonManifest(from infoDictionary: [String: Any]?) -> WorkspaceRemoteDaemonManifest? {
+        WorkspaceRemoteSessionController.remoteDaemonManifest(from: infoDictionary)
+    }
+
+    static func remoteDaemonCachedBinaryURL(
+        version: String,
+        goOS: String,
+        goArch: String,
+        fileManager: FileManager = .default
+    ) throws -> URL {
+        try WorkspaceRemoteSessionController.remoteDaemonCachedBinaryURL(
+            version: version,
+            goOS: goOS,
+            goArch: goArch,
+            fileManager: fileManager
+        )
+    }
+
     func sessionSnapshot(includeScrollback: Bool) -> SessionWorkspaceSnapshot {
         let tree = bonsplitController.treeSnapshot()
         let layout = sessionLayoutSnapshot(from: tree)
