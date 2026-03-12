@@ -145,13 +145,11 @@ enum HostedInspectorDockSide {
         inspectorFrame: NSRect,
         expansion: CGFloat
     ) -> NSRect {
-        let minY = max(bounds.minY, min(pageFrame.minY, inspectorFrame.minY))
-        let maxY = min(bounds.maxY, max(pageFrame.maxY, inspectorFrame.maxY))
         return NSRect(
             x: dividerX(pageFrame: pageFrame, inspectorFrame: inspectorFrame) - expansion,
-            y: minY,
+            y: bounds.minY,
             width: expansion * 2,
-            height: max(0, maxY - minY)
+            height: max(0, bounds.height)
         )
     }
 
@@ -187,35 +185,54 @@ enum HostedInspectorDockSide {
         in containerBounds: NSRect,
         pageFrame: NSRect,
         inspectorFrame: NSRect,
-        minimumInspectorWidth _: CGFloat
+        minimumInspectorWidth: CGFloat
     ) -> (pageFrame: NSRect, inspectorFrame: NSRect) {
+        let normalizedMinY = containerBounds.minY
+        let normalizedHeight = max(0, containerBounds.height)
+
         switch self {
         case .leading:
             let maximumInspectorWidth = max(0, containerBounds.width)
-            let clampedInspectorWidth = max(0, min(maximumInspectorWidth, preferredWidth))
+            let clampedMinimumInspectorWidth = min(maximumInspectorWidth, max(0, minimumInspectorWidth))
+            let clampedInspectorWidth = min(
+                maximumInspectorWidth,
+                max(clampedMinimumInspectorWidth, preferredWidth)
+            )
             let dividerX = min(containerBounds.maxX, containerBounds.minX + clampedInspectorWidth)
 
             var nextPageFrame = pageFrame
             nextPageFrame.origin.x = dividerX
+            nextPageFrame.origin.y = normalizedMinY
             nextPageFrame.size.width = max(0, containerBounds.maxX - dividerX)
+            nextPageFrame.size.height = normalizedHeight
 
             var nextInspectorFrame = inspectorFrame
             nextInspectorFrame.origin.x = containerBounds.minX
+            nextInspectorFrame.origin.y = normalizedMinY
             nextInspectorFrame.size.width = max(0, dividerX - containerBounds.minX)
+            nextInspectorFrame.size.height = normalizedHeight
             return (pageFrame: nextPageFrame, inspectorFrame: nextInspectorFrame)
 
         case .trailing:
             let maximumInspectorWidth = max(0, containerBounds.width)
-            let clampedInspectorWidth = max(0, min(maximumInspectorWidth, preferredWidth))
+            let clampedMinimumInspectorWidth = min(maximumInspectorWidth, max(0, minimumInspectorWidth))
+            let clampedInspectorWidth = min(
+                maximumInspectorWidth,
+                max(clampedMinimumInspectorWidth, preferredWidth)
+            )
             let dividerX = max(containerBounds.minX, containerBounds.maxX - clampedInspectorWidth)
 
             var nextPageFrame = pageFrame
             nextPageFrame.origin.x = containerBounds.minX
+            nextPageFrame.origin.y = normalizedMinY
             nextPageFrame.size.width = max(0, dividerX - containerBounds.minX)
+            nextPageFrame.size.height = normalizedHeight
 
             var nextInspectorFrame = inspectorFrame
             nextInspectorFrame.origin.x = dividerX
+            nextInspectorFrame.origin.y = normalizedMinY
             nextInspectorFrame.size.width = max(0, containerBounds.maxX - dividerX)
+            nextInspectorFrame.size.height = normalizedHeight
             return (pageFrame: nextPageFrame, inspectorFrame: nextInspectorFrame)
         }
     }
@@ -591,6 +608,7 @@ final class WindowBrowserHostView: NSView {
                 inspectorView: dragState.inspectorView,
                 dockSide: dragState.dockSide
             ),
+            minimumInspectorWidth: Self.minimumHostedInspectorWidth,
             reason: "drag"
         )
         updateDividerCursor(
@@ -965,7 +983,12 @@ final class WindowBrowserHostView: NSView {
         guard let hit = hostedInspectorDividerCandidate(in: slot) else { return false }
         let oldPageFrame = hit.pageView.frame
         let oldInspectorFrame = hit.inspectorView.frame
-        _ = applyHostedInspectorDividerWidth(preferredWidth, to: hit, reason: reason)
+        _ = applyHostedInspectorDividerWidth(
+            preferredWidth,
+            to: hit,
+            minimumInspectorWidth: Self.minimumHostedInspectorWidth,
+            reason: reason
+        )
         return !Self.rectApproximatelyEqual(oldPageFrame, hit.pageView.frame, epsilon: 0.5) ||
             !Self.rectApproximatelyEqual(oldInspectorFrame, hit.inspectorView.frame, epsilon: 0.5)
     }
@@ -974,6 +997,7 @@ final class WindowBrowserHostView: NSView {
     private func applyHostedInspectorDividerWidth(
         _ preferredWidth: CGFloat,
         to hit: HostedInspectorDividerHit,
+        minimumInspectorWidth: CGFloat,
         reason: String
     ) -> (pageFrame: NSRect, inspectorFrame: NSRect) {
         let containerBounds = hit.containerView.bounds
@@ -982,7 +1006,7 @@ final class WindowBrowserHostView: NSView {
             in: containerBounds,
             pageFrame: hit.pageView.frame,
             inspectorFrame: hit.inspectorView.frame,
-            minimumInspectorWidth: 0
+            minimumInspectorWidth: minimumInspectorWidth
         )
         let pageFrame = nextFrames.pageFrame
         let inspectorFrame = nextFrames.inspectorFrame
@@ -1791,8 +1815,9 @@ final class WindowBrowserSlotView: NSView {
     func pinHostedWebView(_ webView: WKWebView) {
         guard webView.superview === self else { return }
 
+        let hasCompanionWKSubviews = Self.hasWebKitCompanionSubview(in: self, primaryWebView: webView)
         let needsPlainWebViewFrameReset =
-            !Self.hasWebKitCompanionSubview(in: self, primaryWebView: webView) &&
+            !hasCompanionWKSubviews &&
             Self.frameDiffersFromBounds(webView.frame, bounds: bounds)
         let needsFrameHosting =
             hostedWebView !== webView ||
@@ -1814,7 +1839,9 @@ final class WindowBrowserSlotView: NSView {
         // WebKit-managed split frame when docked DevTools siblings are present.
         webView.translatesAutoresizingMaskIntoConstraints = true
         webView.autoresizingMask = [.width, .height]
-        webView.frame = bounds
+        if !hasCompanionWKSubviews {
+            webView.frame = bounds
+        }
         needsLayout = true
         layoutSubtreeIfNeeded()
     }
