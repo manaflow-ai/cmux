@@ -9418,6 +9418,18 @@ final class BrowserPanelHostContainerViewTests: XCTestCase {
         }
     }
 
+    private final class TrackingInspectorFrontendWebView: WKWebView {
+        private(set) var evaluatedJavaScript: [String] = []
+
+        override func evaluateJavaScript(
+            _ javaScriptString: String,
+            completionHandler: ((Any?, Error?) -> Void)? = nil
+        ) {
+            evaluatedJavaScript.append(javaScriptString)
+            completionHandler?(nil, nil)
+        }
+    }
+
     private final class WKInspectorProbeView: NSView {
         override func hitTest(_ point: NSPoint) -> NSView? {
             bounds.contains(point) ? self : nil
@@ -9858,6 +9870,47 @@ final class BrowserPanelHostContainerViewTests: XCTestCase {
             host.bounds.height,
             accuracy: 0.5,
             "Automatic shrink should keep the inspector vertically normalized to the host height"
+        )
+    }
+
+    func testBrowserPanelHostRequestsBottomDockWhenSideDockLeavesTooLittlePageWidth() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let host = WebViewRepresentable.HostContainerView(frame: NSRect(x: 180, y: 0, width: 280, height: contentView.bounds.height))
+        host.autoresizingMask = [.minXMargin, .height]
+        contentView.addSubview(host)
+
+        let slotView = host.ensureLocalInlineSlotView()
+        let pageView = WKWebView(frame: NSRect(x: 0, y: 0, width: 120, height: host.bounds.height))
+        let inspectorView = TrackingInspectorFrontendWebView(
+            frame: NSRect(x: 120, y: 0, width: slotView.bounds.width - 120, height: host.bounds.height)
+        )
+        slotView.addSubview(pageView)
+        slotView.addSubview(inspectorView)
+        host.pinHostedWebView(pageView, in: slotView)
+        host.setHostedInspectorFrontendWebView(inspectorView)
+        contentView.layoutSubtreeIfNeeded()
+        host.layoutSubtreeIfNeeded()
+
+        XCTAssertTrue(host.promoteHostedInspectorSideDockFromCurrentLayoutIfNeeded())
+
+        host.setFrameSize(NSSize(width: 210, height: host.frame.height))
+        contentView.layoutSubtreeIfNeeded()
+        host.layoutSubtreeIfNeeded()
+
+        XCTAssertTrue(
+            inspectorView.evaluatedJavaScript.contains(where: { $0.contains("WI._dockBottom()") }),
+            "Narrow pane widths should request bottom-docked DevTools instead of leaving the side-docked inspector in an unstable layout"
         )
     }
 

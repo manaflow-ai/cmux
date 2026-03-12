@@ -3715,6 +3715,17 @@ struct WebViewRepresentable: NSViewRepresentable {
 
     final class HostContainerView: NSView {
         private final class HostedInspectorSideDockContainerView: NSView {
+            override init(frame frameRect: NSRect) {
+                super.init(frame: frameRect)
+                wantsLayer = true
+                layer?.masksToBounds = true
+            }
+
+            @available(*, unavailable)
+            required init?(coder: NSCoder) {
+                nil
+            }
+
             override var isOpaque: Bool { false }
 
             override func resizeSubviews(withOldSize oldSize: NSSize) {
@@ -3767,6 +3778,8 @@ struct WebViewRepresentable: NSViewRepresentable {
 
         private static let hostedInspectorDividerHitExpansion: CGFloat = 10
         private static let minimumHostedInspectorWidth: CGFloat = 120
+        private static let minimumHostedInspectorPageWidthForSideDock: CGFloat = 240
+        private static let adaptiveBottomDockRequestCooldown: TimeInterval = 0.25
         private var trackingArea: NSTrackingArea?
         private var activeDividerCursorKind: DividerCursorKind?
         private var hostedInspectorDividerDrag: HostedInspectorDividerDragState?
@@ -3780,6 +3793,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         private var isApplyingHostedInspectorLayout = false
         private var hostedInspectorReapplyWorkItem: DispatchWorkItem?
         private var hostedInspectorDockConfigurationSyncWorkItem: DispatchWorkItem?
+        private var adaptiveBottomDockRequestCooldownDeadline: Date?
         private var lastHostedInspectorLayoutBoundsSize: NSSize?
 #if DEBUG
         private var lastLoggedHostedInspectorFrames: (page: NSRect, inspector: NSRect)?
@@ -4177,6 +4191,64 @@ struct WebViewRepresentable: NSViewRepresentable {
             )
         }
 
+        func normalizeHostedInspectorLayoutIfNeeded(reason: String) {
+            if enforceAdaptiveBottomDockIfNeeded(reason: "\(reason).adaptive") {
+                return
+            }
+            _ = promoteHostedInspectorSideDockFromCurrentLayoutIfNeeded()
+            if isHostedInspectorSideDockActive() {
+                layoutHostedInspectorSideDockIfNeeded(reason: reason)
+            } else if !hasStoredHostedInspectorWidthPreference {
+                captureHostedInspectorPreferredWidthFromCurrentLayout(reason: reason)
+            }
+        }
+
+        private func shouldForceHostedInspectorBottomDock(using hit: HostedInspectorDividerHit) -> Bool {
+            let containerWidth = max(0, hit.containerView.bounds.width)
+            guard containerWidth > 1 else { return false }
+
+            let currentInspectorWidth = max(0, hit.inspectorView.frame.width)
+            let currentPageWidth = max(0, hit.pageView.frame.width)
+            let remainingPageWidth = max(0, containerWidth - max(Self.minimumHostedInspectorWidth, currentInspectorWidth))
+            let effectivePageWidth = min(currentPageWidth, remainingPageWidth)
+
+            return effectivePageWidth < Self.minimumHostedInspectorPageWidthForSideDock
+        }
+
+        @discardableResult
+        private func requestAdaptiveHostedInspectorBottomDock(reason: String) -> Bool {
+            let now = Date()
+            if let adaptiveBottomDockRequestCooldownDeadline, adaptiveBottomDockRequestCooldownDeadline > now {
+                return true
+            }
+            guard let hostedInspectorFrontendWebView else { return false }
+
+            adaptiveBottomDockRequestCooldownDeadline = now.addingTimeInterval(Self.adaptiveBottomDockRequestCooldown)
+#if DEBUG
+            dlog(
+                "browser.panel.hostedInspector stage=\(reason).adaptiveBottomDock " +
+                "host=\(Self.debugObjectID(self)) bounds=\(Self.debugRect(bounds))"
+            )
+#endif
+            hostedInspectorFrontendWebView.evaluateJavaScript(
+                "typeof WI !== 'undefined' ? WI._dockBottom() : null"
+            ) { [weak self] _, _ in
+                self?.scheduleHostedInspectorDockConfigurationSync(
+                    reason: "\(reason).adaptiveBottomDock"
+                )
+            }
+            return true
+        }
+
+        @discardableResult
+        private func enforceAdaptiveBottomDockIfNeeded(reason: String) -> Bool {
+            guard let hit = hostedInspectorDividerCandidate(),
+                  shouldForceHostedInspectorBottomDock(using: hit) else {
+                return false
+            }
+            return requestAdaptiveHostedInspectorBottomDock(reason: reason)
+        }
+
         fileprivate func scheduleHostedInspectorDockConfigurationSync(reason: String) {
             hostedInspectorDockConfigurationSyncWorkItem?.cancel()
             guard hostedInspectorFrontendWebView != nil else { return }
@@ -4202,22 +4274,37 @@ struct WebViewRepresentable: NSViewRepresentable {
             case "left":
                 hostedInspectorSideDockDockSide = .leading
                 if isHostedInspectorSideDockActive() {
+                    if enforceAdaptiveBottomDockIfNeeded(reason: "\(reason).dockLeft") {
+                        return
+                    }
                     layoutHostedInspectorSideDockIfNeeded(reason: "\(reason).dockLeft")
                 } else if let slotView = localInlineSlotView,
                           let hit = hostedInspectorDividerCandidate(in: slotView),
                           hit.dockSide == .leading {
+                    if shouldForceHostedInspectorBottomDock(using: hit) {
+                        _ = requestAdaptiveHostedInspectorBottomDock(reason: "\(reason).dockLeft")
+                        return
+                    }
                     activateHostedInspectorSideDockIfNeeded(using: hit)
                 }
             case "right":
                 hostedInspectorSideDockDockSide = .trailing
                 if isHostedInspectorSideDockActive() {
+                    if enforceAdaptiveBottomDockIfNeeded(reason: "\(reason).dockRight") {
+                        return
+                    }
                     layoutHostedInspectorSideDockIfNeeded(reason: "\(reason).dockRight")
                 } else if let slotView = localInlineSlotView,
                           let hit = hostedInspectorDividerCandidate(in: slotView),
                           hit.dockSide == .trailing {
+                    if shouldForceHostedInspectorBottomDock(using: hit) {
+                        _ = requestAdaptiveHostedInspectorBottomDock(reason: "\(reason).dockRight")
+                        return
+                    }
                     activateHostedInspectorSideDockIfNeeded(using: hit)
                 }
             default:
+                adaptiveBottomDockRequestCooldownDeadline = nil
                 if isHostedInspectorSideDockActive() {
                     deactivateHostedInspectorSideDockIfNeeded(reparentTo: localInlineSlotView)
                     if dockConfiguration == "bottom" {
@@ -4259,6 +4346,13 @@ struct WebViewRepresentable: NSViewRepresentable {
         override func layout() {
             super.layout()
             _ = promoteHostedInspectorSideDockFromCurrentLayoutIfNeeded()
+            if enforceAdaptiveBottomDockIfNeeded(reason: "host.layout") {
+                notifyGeometryChangedIfNeeded()
+#if DEBUG
+                debugLogHostedInspectorLayoutIfNeeded(reason: "layout")
+#endif
+                return
+            }
             if let previousSize = lastHostedInspectorLayoutBoundsSize,
                Self.sizeApproximatelyEqual(previousSize, bounds.size, epsilon: 0.5) {
                 // Origin-only frame churn is common while the surrounding split layout
@@ -4830,6 +4924,19 @@ struct WebViewRepresentable: NSViewRepresentable {
             CATransaction.commit()
             isApplyingHostedInspectorLayout = false
 
+            hit.pageView.needsDisplay = true
+            hit.pageView.setNeedsDisplay(hit.pageView.bounds)
+            hit.inspectorView.needsDisplay = true
+            hit.inspectorView.setNeedsDisplay(hit.inspectorView.bounds)
+            hit.containerView.needsDisplay = true
+            hit.containerView.setNeedsDisplay(hit.containerView.bounds)
+            if let localInlineSlotView {
+                localInlineSlotView.needsDisplay = true
+                localInlineSlotView.setNeedsDisplay(localInlineSlotView.bounds)
+            }
+            needsDisplay = true
+            setNeedsDisplay(bounds)
+
             let isLiveDrag = reason == "drag"
 #if DEBUG
             dlog(
@@ -5176,6 +5283,7 @@ struct WebViewRepresentable: NSViewRepresentable {
             webView.layoutSubtreeIfNeeded()
             slotView.layoutSubtreeIfNeeded()
             host.layoutSubtreeIfNeeded()
+            host.normalizeHostedInspectorLayoutIfNeeded(reason: "localInline.update.immediate")
             host.scheduleHostedInspectorDividerReapply(reason: "localInline.update.sync")
             DispatchQueue.main.async { [weak host, weak webView] in
                 guard let host, let webView else { return }
