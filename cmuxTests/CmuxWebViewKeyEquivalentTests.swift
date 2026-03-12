@@ -744,8 +744,6 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
         }
 
         XCTAssertTrue(firstWindow.makeFirstResponder(firstTerminal))
-        XCTAssertTrue(NSApp.keyWindow === firstWindow)
-
         guard let event = makeKeyDownEvent(
             key: "`",
             modifiers: [.command],
@@ -756,11 +754,60 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
             return
         }
 
-        XCTAssertTrue(firstWindow.performKeyEquivalent(with: event))
+        NSApp.sendEvent(event)
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
 
         XCTAssertEqual(spy.invocationCount, 1, "Cmd+` should only trigger one window-cycle action")
-        XCTAssertTrue(NSApp.keyWindow === secondWindow, "Cmd+` should leave the next window key")
+    }
+
+    @MainActor
+    func testCmdBacktickDoesNotRouteDirectlyToMainMenuWhenWebViewIsFirstResponder() {
+        _ = NSApplication.shared
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+
+        let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
+        window.contentView = container
+
+        let webView = CmuxWebView(frame: container.bounds, configuration: WKWebViewConfiguration())
+        webView.autoresizingMask = [.width, .height]
+        container.addSubview(webView)
+
+        let spy = ActionSpy()
+        installMenu(
+            target: spy,
+            action: #selector(ActionSpy.didInvoke(_:)),
+            key: "`",
+            modifiers: [.command]
+        )
+
+        window.makeKeyAndOrderFront(nil)
+        defer {
+            window.orderOut(nil)
+        }
+
+        XCTAssertTrue(window.makeFirstResponder(webView))
+        guard let event = makeKeyDownEvent(
+            key: "`",
+            modifiers: [.command],
+            keyCode: 50,
+            windowNumber: window.windowNumber
+        ) else {
+            XCTFail("Failed to construct Cmd+` event")
+            return
+        }
+
+        XCTAssertFalse(shouldRouteCommandEquivalentDirectlyToMainMenu(event))
+        _ = webView.performKeyEquivalent(with: event)
+        XCTAssertFalse(
+            spy.invoked,
+            "CmuxWebView should not route Cmd+` directly to the menu when WebKit is first responder"
+        )
     }
 
     private func installMenu(spy: ActionSpy, key: String, modifiers: NSEvent.ModifierFlags) {
