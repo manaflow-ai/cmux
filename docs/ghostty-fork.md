@@ -12,7 +12,7 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-Fork rebased onto upstream `v1.3.0` plus newer `main` commits as of March 9, 2026.
+Fork rebased onto upstream `v1.3.0` plus newer `main` commits as of March 12, 2026.
 
 ### 1) OSC 99 (kitty) notification parser
 
@@ -45,8 +45,9 @@ Fork rebased onto upstream `v1.3.0` plus newer `main` commits as of March 9, 202
 
 ### 4) macOS resize stale-frame mitigation
 
-Sections 3 and 4 are grouped by feature, not by commit order. The fork branch HEAD is the
-section 3 copy-mode commit, even though the section 4 resize commits were applied earlier.
+Sections 3 and 4 are grouped by feature, not by commit order. The section 4 resize commits were
+applied earlier than the section 3 copy-mode commit, but they are kept together here because they
+touch the same stale-frame mitigation path and tend to conflict in the same files during rebases.
 
 - Commits:
   - `769bbf7a9` (macos: reduce transient blank/scaled frames during resize)
@@ -61,6 +62,26 @@ section 3 copy-mode commit, even though the section 4 resize commits were applie
 - Summary:
   - Replays the last rendered frame during resize and keeps its geometry anchored correctly.
   - Reduces transient blank or scaled frames while a macOS window is being resized.
+
+### 5) zsh prompt redraw markers use OSC 133 P
+
+- Commit: `8ade43ce5` (zsh: use OSC 133 P for prompt redraws)
+- Files:
+  - `src/shell-integration/zsh/ghostty-integration`
+- Summary:
+  - Emits one `OSC 133;A` fresh-prompt mark for real prompt transitions.
+  - Uses `OSC 133;P` markers for prompt redraws so async zsh themes do not look like extra prompt lines.
+
+### 6) zsh Pure-style multiline prompt redraws
+
+- Commit: `0cf559581` (zsh: fix Pure-style multiline prompt redraws)
+- Files:
+  - `src/shell-integration/zsh/ghostty-integration`
+- Summary:
+  - Handles multiline prompts that use `\n%{\r%}` to return to column 0 before the visible prompt line.
+  - Places the continuation marker after Pure's hidden carriage return so async redraws do not leave stale preprompt lines behind.
+
+The fork branch HEAD is now the section 6 zsh redraw commit.
 
 ## Upstreamed fork changes
 
@@ -79,5 +100,10 @@ These files change frequently upstream; be careful when rebasing the fork:
 
 - `src/terminal/osc.zig`
   - OSC dispatch logic moves often. Re-check the integration points for the OSC 99 parser.
+
+- `src/shell-integration/zsh/ghostty-integration`
+  - Prompt marker handling is easy to regress when upstream adjusts zsh redraw behavior. Keep the
+    `OSC 133;A` vs `OSC 133;P` split intact for redraw-heavy themes, and preserve the special
+    handling for Pure-style `\n%{\r%}` prompt newlines.
 
 If you resolve a conflict, update this doc with what changed.

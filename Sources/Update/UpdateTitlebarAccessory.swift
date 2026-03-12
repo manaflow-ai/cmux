@@ -193,6 +193,14 @@ struct ShortcutHintHorizontalPlanner {
     }
 }
 
+func titlebarShortcutHintHeight(for config: TitlebarControlsStyleConfig) -> CGFloat {
+    max(14, config.iconSize + 1)
+}
+
+func titlebarShortcutHintVerticalOffset(for config: TitlebarControlsStyleConfig) -> CGFloat {
+    max(0, floor(config.buttonSize - titlebarShortcutHintHeight(for: config)))
+}
+
 struct TitlebarControlButton<Content: View>: View {
     let config: TitlebarControlsStyleConfig
     let action: () -> Void
@@ -240,7 +248,6 @@ struct TitlebarControlsView: View {
     @StateObject private var modifierKeyMonitor = TitlebarShortcutHintModifierMonitor()
     private let titlebarHintRightSafetyShift: CGFloat = 10
     private let titlebarHintBaseXShift: CGFloat = -10
-    private let titlebarHintBaseYShift: CGFloat = 1
 
     private enum HintSlot: Int, CaseIterable {
         case toggleSidebar
@@ -304,7 +311,7 @@ struct TitlebarControlsView: View {
     }
 
     private func titlebarHintVerticalBaseOffset(for config: TitlebarControlsStyleConfig) -> CGFloat {
-        max(8, config.buttonSize * 0.4)
+        titlebarShortcutHintVerticalOffset(for: config)
     }
 
     @ViewBuilder
@@ -452,7 +459,6 @@ struct TitlebarControlsView: View {
     ) -> some View {
         let yOffset = config.groupPadding.top
             + titlebarHintVerticalBaseOffset(for: config)
-            + titlebarHintBaseYShift
             + ShortcutHintDebugSettings.clamped(titlebarShortcutHintYOffset)
 
         ZStack(alignment: .topLeading) {
@@ -480,7 +486,7 @@ struct TitlebarControlsView: View {
             .foregroundColor(.primary)
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
-            .frame(minHeight: max(14, config.iconSize + 1))
+            .frame(minHeight: titlebarShortcutHintHeight(for: config))
             .background(ShortcutHintPillBackground())
     }
 

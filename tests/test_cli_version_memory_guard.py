@@ -83,6 +83,8 @@ def build_fixture(root: str, cli_path: str) -> str:
     with open(os.path.join(contents_path, "Info.plist"), "wb") as handle:
         plistlib.dump(info, handle)
 
+    # Regular files are enough here because the fallback scan keys off the
+    # ".app" suffix before it ever tries to inspect bundle contents.
     for index in range(JUNK_APP_COUNT):
         open(os.path.join(resources_path, f"junk-{index:05d}.app"), "wb").close()
 

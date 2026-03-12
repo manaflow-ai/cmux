@@ -724,7 +724,7 @@ final class WindowTerminalPortal: NSObject {
         return frameInContainer.width > 1 && frameInContainer.height > 1
     }
 
-    private func synchronizeAllEntriesFromExternalGeometryChange() {
+    fileprivate func synchronizeAllEntriesFromExternalGeometryChange() {
         guard ensureInstalled() else { return }
         synchronizeLayoutHierarchy()
         synchronizeAllHostedViews(excluding: nil)
@@ -1635,6 +1635,7 @@ final class WindowTerminalPortal: NSObject {
 enum TerminalWindowPortalRegistry {
     private static var portalsByWindowId: [ObjectIdentifier: WindowTerminalPortal] = [:]
     private static var hostedToWindowId: [ObjectIdentifier: ObjectIdentifier] = [:]
+    private static var hasPendingExternalGeometrySyncForAllWindows = false
 #if DEBUG
     private static var blockedBindCount: Int = 0
     private static var blockedBindReasons: [String: Int] = [:]
@@ -1778,6 +1779,17 @@ enum TerminalWindowPortalRegistry {
         guard let window = anchorView.window else { return }
         let portal = portal(for: window)
         portal.synchronizeHostedViewForAnchor(anchorView)
+    }
+
+    static func scheduleExternalGeometrySynchronizeForAllWindows() {
+        guard !Self.hasPendingExternalGeometrySyncForAllWindows else { return }
+        Self.hasPendingExternalGeometrySyncForAllWindows = true
+        DispatchQueue.main.async {
+            Self.hasPendingExternalGeometrySyncForAllWindows = false
+            for portal in Self.portalsByWindowId.values {
+                portal.synchronizeAllEntriesFromExternalGeometryChange()
+            }
+        }
     }
 
     static func hideHostedView(_ hostedView: GhosttySurfaceScrollView) {

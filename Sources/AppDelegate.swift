@@ -1682,6 +1682,21 @@ func shouldRouteTerminalFontZoomShortcutToGhostty(
     ) != nil
 }
 
+/// Let AppKit own native Cmd+` window cycling so key-window changes do not
+/// re-enter our direct-to-menu shortcut path.
+func shouldRouteCommandEquivalentDirectlyToMainMenu(_ event: NSEvent) -> Bool {
+    let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+    guard flags.contains(.command) else { return false }
+
+    let normalizedFlags = flags.subtracting([.numericPad, .function, .capsLock])
+    if event.keyCode == 50,
+       normalizedFlags == [.command] || normalizedFlags == [.command, .shift] {
+        return false
+    }
+
+    return true
+}
+
 func cmuxOwningGhosttyView(for responder: NSResponder?) -> GhosttyNSView? {
     guard let responder else { return nil }
     if let ghosttyView = responder as? GhosttyNSView {
@@ -11071,7 +11086,7 @@ private extension NSWindow {
         // (which walks the SwiftUI content view hierarchy) and dispatch Command-key
         // events directly to the main menu. This avoids the broken SwiftUI focus path.
         if firstResponderGhosttyView != nil,
-           event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command),
+           shouldRouteCommandEquivalentDirectlyToMainMenu(event),
            let mainMenu = NSApp.mainMenu {
             let consumedByMenu = mainMenu.performKeyEquivalent(with: event)
 #if DEBUG

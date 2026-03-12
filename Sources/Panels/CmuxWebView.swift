@@ -143,6 +143,14 @@ final class CmuxWebView: WKWebView {
             return result
         }
 
+        if !shouldRouteCommandEquivalentDirectlyToMainMenu(event) {
+            let result = super.performKeyEquivalent(with: event)
+#if DEBUG
+            handled = result
+#endif
+            return result
+        }
+
         // Let the app menu handle key equivalents first (New Tab, Close Tab, tab switching, etc).
         if let menu = NSApp.mainMenu, menu.performKeyEquivalent(with: event) {
 #if DEBUG
