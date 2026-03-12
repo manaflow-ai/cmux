@@ -267,7 +267,62 @@
     "keyboardShortcuts": {
       "title": "Atalhos de Teclado",
       "description": "Todos os atalhos de teclado disponíveis no cmux, agrupados por categoria.",
-      "metaDescription": "Todos os atalhos de teclado do cmux para workspaces, superfícies, painéis divididos, navegador, notificações, busca e gerenciamento de janelas no macOS."
+      "metaDescription": "Todos os atalhos de teclado do cmux para workspaces, superfícies, painéis divididos, navegador, notificações, busca e gerenciamento de janelas no macOS.",
+      "searchPlaceholder": "Buscar atalhos...",
+      "searchLabel": "Buscar atalhos de teclado",
+      "noResults": "Nenhum atalho encontrado",
+      "noResultsHint": "Tente um termo de busca diferente",
+      "cat": {
+        "workspaces": "Workspaces",
+        "workspacesBlurb": "Workspaces ficam na barra lateral. Cada workspace tem seu próprio conjunto de painéis e superfícies.",
+        "surfaces": "Superfícies",
+        "surfacesBlurb": "Superfícies são abas dentro de um painel.",
+        "splitPanes": "Painéis Divididos",
+        "browser": "Navegador",
+        "notifications": "Notificações",
+        "find": "Buscar",
+        "terminal": "Terminal",
+        "window": "Janela"
+      },
+      "sc": {
+        "ws-new": "Novo workspace",
+        "ws-jump-1-8": "Ir para workspace 1–8",
+        "ws-jump-last": "Ir para último workspace",
+        "ws-close": "Fechar workspace",
+        "ws-rename": "Renomear workspace",
+        "sf-new": "Nova superfície",
+        "sf-prev-1": "Superfície anterior",
+        "sf-prev-2": "Superfície anterior",
+        "sf-jump-1-8": "Ir para superfície 1–8",
+        "sf-jump-last": "Ir para última superfície",
+        "sf-close": "Fechar superfície",
+        "sp-right": "Dividir à direita",
+        "sp-down": "Dividir abaixo",
+        "sp-focus": "Focar painel direcionalmente",
+        "sp-browser-right": "Dividir navegador à direita",
+        "sp-browser-down": "Dividir navegador abaixo",
+        "br-open": "Abrir superfície do navegador",
+        "br-addr": "Focar barra de endereço",
+        "br-forward": "Avançar",
+        "br-reload": "Recarregar página",
+        "br-devtools": "Abrir Ferramentas de Desenvolvedor",
+        "nt-panel": "Mostrar painel de notificações",
+        "nt-latest": "Ir para última não lida",
+        "nt-flash": "Disparar flash",
+        "fd-find": "Buscar",
+        "fd-next-prev": "Buscar próximo / anterior",
+        "fd-hide": "Ocultar barra de busca",
+        "fd-selection": "Usar seleção para busca",
+        "tm-clear": "Limpar histórico de rolagem",
+        "tm-copy": "Copiar (com seleção)",
+        "tm-paste": "Colar",
+        "tm-font": "Aumentar / diminuir tamanho da fonte",
+        "tm-reset": "Resetar tamanho da fonte",
+        "wn-new": "Nova janela",
+        "wn-settings": "Configurações",
+        "wn-reload": "Recarregar configuração",
+        "wn-quit": "Sair"
+      }
     },
     "api": {
       "title": "Referência da API",
@@ -447,6 +502,10 @@
     "privacyPolicy": "Política de Privacidade",
     "termsOfService": "Termos de Serviço",
     "eula": "EULA"
+  },
+  "wallOfLove": {
+    "title": "Mural de Amor",
+    "description": "O que as pessoas estão dizendo sobre o cmux."
   },
   "languageSwitcher": {
     "label": "Idioma"

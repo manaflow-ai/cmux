@@ -267,7 +267,62 @@
     "keyboardShortcuts": {
       "title": "Prečice na tastaturi",
       "description": "Sve prečice na tastaturi dostupne u cmux-u, grupirane po kategorijama.",
-      "metaDescription": "Sve cmux prečice na tastaturi za radne prostore, površine, podijeljene panele, preglednik, notifikacije, pretragu i upravljanje prozorima na macOS-u."
+      "metaDescription": "Sve cmux prečice na tastaturi za radne prostore, površine, podijeljene panele, preglednik, notifikacije, pretragu i upravljanje prozorima na macOS-u.",
+      "searchPlaceholder": "Pretraži prečice...",
+      "searchLabel": "Pretraži prečice na tastaturi",
+      "noResults": "Prečice nisu pronađene",
+      "noResultsHint": "Pokušajte sa drugim pojmom za pretragu",
+      "cat": {
+        "workspaces": "Radni prostori",
+        "workspacesBlurb": "Radni prostori se nalaze u bočnoj traci. Svaki radni prostor ima vlastiti set panela i površina.",
+        "surfaces": "Površine",
+        "surfacesBlurb": "Površine su tabovi unutar panela.",
+        "splitPanes": "Podijeljeni paneli",
+        "browser": "Preglednik",
+        "notifications": "Notifikacije",
+        "find": "Pretraga",
+        "terminal": "Terminal",
+        "window": "Prozor"
+      },
+      "sc": {
+        "ws-new": "Novi radni prostor",
+        "ws-jump-1-8": "Skok na radni prostor 1–8",
+        "ws-jump-last": "Skok na posljednji radni prostor",
+        "ws-close": "Zatvori radni prostor",
+        "ws-rename": "Preimenuj radni prostor",
+        "sf-new": "Nova površina",
+        "sf-prev-1": "Prethodna površina",
+        "sf-prev-2": "Prethodna površina",
+        "sf-jump-1-8": "Skok na površinu 1–8",
+        "sf-jump-last": "Skok na posljednju površinu",
+        "sf-close": "Zatvori površinu",
+        "sp-right": "Podijeli desno",
+        "sp-down": "Podijeli dolje",
+        "sp-focus": "Fokusiraj panel po smjeru",
+        "sp-browser-right": "Podijeli preglednik desno",
+        "sp-browser-down": "Podijeli preglednik dolje",
+        "br-open": "Otvori površinu preglednika",
+        "br-addr": "Fokusiraj adresnu traku",
+        "br-forward": "Naprijed",
+        "br-reload": "Ponovo učitaj stranicu",
+        "br-devtools": "Otvori Developer Tools",
+        "nt-panel": "Prikaži panel notifikacija",
+        "nt-latest": "Skok na najnoviju nepročitanu",
+        "nt-flash": "Pokreni bljesak",
+        "fd-find": "Pronađi",
+        "fd-next-prev": "Pronađi sljedeću / prethodnu",
+        "fd-hide": "Sakrij traku pretrage",
+        "fd-selection": "Koristi selekciju za pretragu",
+        "tm-clear": "Obriši scrollback",
+        "tm-copy": "Kopiraj (sa selekcijom)",
+        "tm-paste": "Zalijepi",
+        "tm-font": "Povećaj / smanji font",
+        "tm-reset": "Resetuj veličinu fonta",
+        "wn-new": "Novi prozor",
+        "wn-settings": "Postavke",
+        "wn-reload": "Ponovo učitaj konfiguraciju",
+        "wn-quit": "Izađi"
+      }
     },
     "api": {
       "title": "API Referenca",
@@ -447,6 +502,10 @@
     "privacyPolicy": "Politika privatnosti",
     "termsOfService": "Uslovi korištenja",
     "eula": "EULA"
+  },
+  "wallOfLove": {
+    "title": "Zid ljubavi",
+    "description": "Šta ljudi kažu o cmux-u."
   },
   "languageSwitcher": {
     "label": "Jezik"

@@ -267,7 +267,62 @@
     "keyboardShortcuts": {
       "title": "คีย์ลัด",
       "description": "คีย์ลัดทั้งหมดใน cmux จัดกลุ่มตามหมวดหมู่",
-      "metaDescription": "คีย์ลัด cmux ทั้งหมดสำหรับ workspace, surface, แยกหน้าจอ, เบราว์เซอร์, แจ้งเตือน, ค้นหา และจัดการหน้าต่างบน macOS"
+      "metaDescription": "คีย์ลัด cmux ทั้งหมดสำหรับ workspace, surface, แยกหน้าจอ, เบราว์เซอร์, แจ้งเตือน, ค้นหา และจัดการหน้าต่างบน macOS",
+      "searchPlaceholder": "ค้นหาทางลัด...",
+      "searchLabel": "ค้นหาทางลัดแป้นพิมพ์",
+      "noResults": "ไม่พบทางลัด",
+      "noResultsHint": "ลองใช้คำค้นหาอื่น",
+      "cat": {
+        "workspaces": "Workspace",
+        "workspacesBlurb": "Workspace อยู่ในแถบด้านข้าง Workspace แต่ละอันมีชุดพาเนลและ surface ของตัวเอง",
+        "surfaces": "Surface",
+        "surfacesBlurb": "Surface คือแท็บภายในพาเนล",
+        "splitPanes": "พาเนลแบ่ง",
+        "browser": "เบราว์เซอร์",
+        "notifications": "การแจ้งเตือน",
+        "find": "ค้นหา",
+        "terminal": "เทอร์มินัล",
+        "window": "หน้าต่าง"
+      },
+      "sc": {
+        "ws-new": "Workspace ใหม่",
+        "ws-jump-1-8": "ไปยัง workspace 1–8",
+        "ws-jump-last": "ไปยัง workspace สุดท้าย",
+        "ws-close": "ปิด workspace",
+        "ws-rename": "เปลี่ยนชื่อ workspace",
+        "sf-new": "Surface ใหม่",
+        "sf-prev-1": "Surface ก่อนหน้า",
+        "sf-prev-2": "Surface ก่อนหน้า",
+        "sf-jump-1-8": "ไปยัง surface 1–8",
+        "sf-jump-last": "ไปยัง surface สุดท้าย",
+        "sf-close": "ปิด surface",
+        "sp-right": "แบ่งขวา",
+        "sp-down": "แบ่งล่าง",
+        "sp-focus": "โฟกัสพาเนลตามทิศทาง",
+        "sp-browser-right": "แบ่งเบราว์เซอร์ขวา",
+        "sp-browser-down": "แบ่งเบราว์เซอร์ล่าง",
+        "br-open": "เปิด surface เบราว์เซอร์",
+        "br-addr": "โฟกัสแถบที่อยู่",
+        "br-forward": "ไปข้างหน้า",
+        "br-reload": "โหลดหน้าใหม่",
+        "br-devtools": "เปิดเครื่องมือนักพัฒนา",
+        "nt-panel": "แสดงแผงการแจ้งเตือน",
+        "nt-latest": "ไปยังที่ยังไม่ได้อ่านล่าสุด",
+        "nt-flash": "เรียกการกระพริบ",
+        "fd-find": "ค้นหา",
+        "fd-next-prev": "ค้นหาถัดไป / ก่อนหน้า",
+        "fd-hide": "ซ่อนแถบค้นหา",
+        "fd-selection": "ใช้ข้อความที่เลือกสำหรับค้นหา",
+        "tm-clear": "ล้างประวัติการเลื่อน",
+        "tm-copy": "คัดลอก (เมื่อเลือกข้อความ)",
+        "tm-paste": "วาง",
+        "tm-font": "เพิ่ม / ลดขนาดตัวอักษร",
+        "tm-reset": "รีเซ็ตขนาดตัวอักษร",
+        "wn-new": "หน้าต่างใหม่",
+        "wn-settings": "การตั้งค่า",
+        "wn-reload": "โหลดการตั้งค่าใหม่",
+        "wn-quit": "ออก"
+      }
     },
     "api": {
       "title": "เอกสาร API",
@@ -450,5 +505,9 @@
   },
   "languageSwitcher": {
     "label": "ภาษา"
+  },
+  "wallOfLove": {
+    "title": "กำแพงแห่งความรัก",
+    "description": "สิ่งที่ผู้คนพูดเกี่ยวกับ cmux"
   }
 }

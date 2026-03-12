@@ -267,7 +267,62 @@
     "keyboardShortcuts": {
       "title": "Tastaturkürzel",
       "description": "Alle in cmux verfügbaren Tastaturkürzel, nach Kategorie gruppiert.",
-      "metaDescription": "Alle cmux-Tastaturkürzel für Workspaces, Oberflächen, geteilte Bereiche, Browser, Benachrichtigungen, Suche und Fensterverwaltung unter macOS."
+      "metaDescription": "Alle cmux-Tastaturkürzel für Workspaces, Oberflächen, geteilte Bereiche, Browser, Benachrichtigungen, Suche und Fensterverwaltung unter macOS.",
+      "searchPlaceholder": "Kürzel suchen...",
+      "searchLabel": "Tastaturkürzel durchsuchen",
+      "noResults": "Keine Kürzel gefunden",
+      "noResultsHint": "Versuchen Sie einen anderen Suchbegriff",
+      "cat": {
+        "workspaces": "Workspaces",
+        "workspacesBlurb": "Workspaces befinden sich in der Seitenleiste. Jeder Workspace hat seine eigenen Bereiche und Oberflächen.",
+        "surfaces": "Oberflächen",
+        "surfacesBlurb": "Oberflächen sind Tabs innerhalb eines Bereichs.",
+        "splitPanes": "Geteilte Bereiche",
+        "browser": "Browser",
+        "notifications": "Benachrichtigungen",
+        "find": "Suche",
+        "terminal": "Terminal",
+        "window": "Fenster"
+      },
+      "sc": {
+        "ws-new": "Neuer Workspace",
+        "ws-jump-1-8": "Zu Workspace 1–8 springen",
+        "ws-jump-last": "Zum letzten Workspace springen",
+        "ws-close": "Workspace schließen",
+        "ws-rename": "Workspace umbenennen",
+        "sf-new": "Neue Oberfläche",
+        "sf-prev-1": "Vorherige Oberfläche",
+        "sf-prev-2": "Vorherige Oberfläche",
+        "sf-jump-1-8": "Zu Oberfläche 1–8 springen",
+        "sf-jump-last": "Zur letzten Oberfläche springen",
+        "sf-close": "Oberfläche schließen",
+        "sp-right": "Rechts teilen",
+        "sp-down": "Unten teilen",
+        "sp-focus": "Bereich richtungsabhängig fokussieren",
+        "sp-browser-right": "Browser rechts teilen",
+        "sp-browser-down": "Browser unten teilen",
+        "br-open": "Browser-Oberfläche öffnen",
+        "br-addr": "Adressleiste fokussieren",
+        "br-forward": "Vorwärts",
+        "br-reload": "Seite neu laden",
+        "br-devtools": "Entwicklerwerkzeuge öffnen",
+        "nt-panel": "Benachrichtigungspanel anzeigen",
+        "nt-latest": "Zur neuesten ungelesenen springen",
+        "nt-flash": "Blitz auslösen",
+        "fd-find": "Suchen",
+        "fd-next-prev": "Nächstes / Vorheriges Ergebnis",
+        "fd-hide": "Suchleiste ausblenden",
+        "fd-selection": "Auswahl für Suche verwenden",
+        "tm-clear": "Scrollback löschen",
+        "tm-copy": "Kopieren (mit Auswahl)",
+        "tm-paste": "Einfügen",
+        "tm-font": "Schriftgröße vergrößern / verkleinern",
+        "tm-reset": "Schriftgröße zurücksetzen",
+        "wn-new": "Neues Fenster",
+        "wn-settings": "Einstellungen",
+        "wn-reload": "Konfiguration neu laden",
+        "wn-quit": "Beenden"
+      }
     },
     "api": {
       "title": "API-Referenz",
@@ -447,6 +502,10 @@
     "privacyPolicy": "Datenschutzrichtlinie",
     "termsOfService": "Nutzungsbedingungen",
     "eula": "EULA"
+  },
+  "wallOfLove": {
+    "title": "Wall of Love",
+    "description": "Was andere über cmux sagen."
   },
   "languageSwitcher": {
     "label": "Sprache"

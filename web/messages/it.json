@@ -267,7 +267,62 @@
     "keyboardShortcuts": {
       "title": "Scorciatoie da tastiera",
       "description": "Tutte le scorciatoie da tastiera disponibili in cmux, raggruppate per categoria.",
-      "metaDescription": "Tutte le scorciatoie da tastiera cmux per workspace, superfici, pannelli divisi, browser, notifiche, ricerca e gestione delle finestre su macOS."
+      "metaDescription": "Tutte le scorciatoie da tastiera cmux per workspace, superfici, pannelli divisi, browser, notifiche, ricerca e gestione delle finestre su macOS.",
+      "searchPlaceholder": "Cerca scorciatoie...",
+      "searchLabel": "Cerca scorciatoie da tastiera",
+      "noResults": "Nessuna scorciatoia trovata",
+      "noResultsHint": "Prova un termine di ricerca diverso",
+      "cat": {
+        "workspaces": "Workspace",
+        "workspacesBlurb": "I workspace si trovano nella barra laterale. Ogni workspace ha i propri pannelli e superfici.",
+        "surfaces": "Superfici",
+        "surfacesBlurb": "Le superfici sono tab all'interno di un pannello.",
+        "splitPanes": "Pannelli divisi",
+        "browser": "Browser",
+        "notifications": "Notifiche",
+        "find": "Ricerca",
+        "terminal": "Terminale",
+        "window": "Finestra"
+      },
+      "sc": {
+        "ws-new": "Nuovo workspace",
+        "ws-jump-1-8": "Vai al workspace 1–8",
+        "ws-jump-last": "Vai all'ultimo workspace",
+        "ws-close": "Chiudi workspace",
+        "ws-rename": "Rinomina workspace",
+        "sf-new": "Nuova superficie",
+        "sf-prev-1": "Superficie precedente",
+        "sf-prev-2": "Superficie precedente",
+        "sf-jump-1-8": "Vai alla superficie 1–8",
+        "sf-jump-last": "Vai all'ultima superficie",
+        "sf-close": "Chiudi superficie",
+        "sp-right": "Dividi a destra",
+        "sp-down": "Dividi in basso",
+        "sp-focus": "Focalizza pannello per direzione",
+        "sp-browser-right": "Dividi browser a destra",
+        "sp-browser-down": "Dividi browser in basso",
+        "br-open": "Apri superficie browser",
+        "br-addr": "Focalizza barra degli indirizzi",
+        "br-forward": "Avanti",
+        "br-reload": "Ricarica pagina",
+        "br-devtools": "Apri strumenti di sviluppo",
+        "nt-panel": "Mostra pannello notifiche",
+        "nt-latest": "Vai alla più recente non letta",
+        "nt-flash": "Attiva flash",
+        "fd-find": "Trova",
+        "fd-next-prev": "Risultato successivo / precedente",
+        "fd-hide": "Nascondi barra di ricerca",
+        "fd-selection": "Usa selezione per la ricerca",
+        "tm-clear": "Cancella cronologia",
+        "tm-copy": "Copia (con selezione)",
+        "tm-paste": "Incolla",
+        "tm-font": "Aumenta / diminuisci dimensione font",
+        "tm-reset": "Ripristina dimensione font",
+        "wn-new": "Nuova finestra",
+        "wn-settings": "Impostazioni",
+        "wn-reload": "Ricarica configurazione",
+        "wn-quit": "Esci"
+      }
     },
     "api": {
       "title": "Riferimento API",
@@ -447,6 +502,10 @@
     "privacyPolicy": "Informativa sulla privacy",
     "termsOfService": "Termini di servizio",
     "eula": "EULA"
+  },
+  "wallOfLove": {
+    "title": "Wall of Love",
+    "description": "Cosa dicono le persone di cmux."
   },
   "languageSwitcher": {
     "label": "Lingua"

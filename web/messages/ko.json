@@ -267,7 +267,62 @@
     "keyboardShortcuts": {
       "title": "키보드 단축키",
       "description": "카테고리별로 정리된 cmux의 모든 키보드 단축키.",
-      "metaDescription": "워크스페이스, 서피스, 분할 패널, 브라우저, 알림, 검색, 창 관리를 위한 cmux의 모든 macOS 키보드 단축키."
+      "metaDescription": "워크스페이스, 서피스, 분할 패널, 브라우저, 알림, 검색, 창 관리를 위한 cmux의 모든 macOS 키보드 단축키.",
+      "searchPlaceholder": "단축키 검색...",
+      "searchLabel": "키보드 단축키 검색",
+      "noResults": "단축키를 찾을 수 없습니다",
+      "noResultsHint": "다른 검색어를 사용해 보세요",
+      "cat": {
+        "workspaces": "워크스페이스",
+        "workspacesBlurb": "워크스페이스는 사이드바에 있습니다. 각 워크스페이스에는 자체 패널과 서피스가 있습니다.",
+        "surfaces": "서피스",
+        "surfacesBlurb": "서피스는 패널 내의 탭입니다.",
+        "splitPanes": "분할 패널",
+        "browser": "브라우저",
+        "notifications": "알림",
+        "find": "찾기",
+        "terminal": "터미널",
+        "window": "창"
+      },
+      "sc": {
+        "ws-new": "새 워크스페이스",
+        "ws-jump-1-8": "워크스페이스 1–8로 이동",
+        "ws-jump-last": "마지막 워크스페이스로 이동",
+        "ws-close": "워크스페이스 닫기",
+        "ws-rename": "워크스페이스 이름 변경",
+        "sf-new": "새 서피스",
+        "sf-prev-1": "이전 서피스",
+        "sf-prev-2": "이전 서피스",
+        "sf-jump-1-8": "서피스 1–8로 이동",
+        "sf-jump-last": "마지막 서피스로 이동",
+        "sf-close": "서피스 닫기",
+        "sp-right": "오른쪽으로 분할",
+        "sp-down": "아래로 분할",
+        "sp-focus": "방향별 패널 포커스",
+        "sp-browser-right": "오른쪽에 브라우저 분할",
+        "sp-browser-down": "아래에 브라우저 분할",
+        "br-open": "브라우저 서피스 열기",
+        "br-addr": "주소 표시줄 포커스",
+        "br-forward": "앞으로",
+        "br-reload": "페이지 새로고침",
+        "br-devtools": "개발자 도구 열기",
+        "nt-panel": "알림 패널 표시",
+        "nt-latest": "최근 읽지 않은 알림으로 이동",
+        "nt-flash": "플래시 트리거",
+        "fd-find": "찾기",
+        "fd-next-prev": "다음 찾기 / 이전 찾기",
+        "fd-hide": "찾기 바 숨기기",
+        "fd-selection": "선택 영역으로 찾기",
+        "tm-clear": "스크롤백 지우기",
+        "tm-copy": "복사 (선택 영역)",
+        "tm-paste": "붙여넣기",
+        "tm-font": "글꼴 크기 확대 / 축소",
+        "tm-reset": "글꼴 크기 초기화",
+        "wn-new": "새 창",
+        "wn-settings": "설정",
+        "wn-reload": "설정 새로고침",
+        "wn-quit": "종료"
+      }
     },
     "api": {
       "title": "API 레퍼런스",
@@ -447,6 +502,10 @@
     "privacyPolicy": "개인정보 처리방침",
     "termsOfService": "이용약관",
     "eula": "EULA"
+  },
+  "wallOfLove": {
+    "title": "사랑의 벽",
+    "description": "사람들이 cmux에 대해 말하는 것."
   },
   "languageSwitcher": {
     "label": "언어"

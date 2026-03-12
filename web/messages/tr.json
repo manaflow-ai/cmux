@@ -267,7 +267,62 @@
     "keyboardShortcuts": {
       "title": "Klavye Kısayolları",
       "description": "cmux'ta mevcut tüm klavye kısayolları, kategoriye göre gruplandırılmış.",
-      "metaDescription": "macOS'ta çalışma alanları, yüzeyler, bölünmüş paneller, tarayıcı, bildirimler, bulma ve pencere yönetimi için tüm cmux klavye kısayolları."
+      "metaDescription": "macOS'ta çalışma alanları, yüzeyler, bölünmüş paneller, tarayıcı, bildirimler, bulma ve pencere yönetimi için tüm cmux klavye kısayolları.",
+      "searchPlaceholder": "Kısayol ara...",
+      "searchLabel": "Klavye kısayollarını ara",
+      "noResults": "Kısayol bulunamadı",
+      "noResultsHint": "Farklı bir arama terimi deneyin",
+      "cat": {
+        "workspaces": "Çalışma Alanları",
+        "workspacesBlurb": "Çalışma alanları kenar çubuğunda bulunur. Her çalışma alanının kendi panel ve yüzey seti vardır.",
+        "surfaces": "Yüzeyler",
+        "surfacesBlurb": "Yüzeyler, bir panel içindeki sekmelerdir.",
+        "splitPanes": "Bölünmüş Paneller",
+        "browser": "Tarayıcı",
+        "notifications": "Bildirimler",
+        "find": "Bul",
+        "terminal": "Terminal",
+        "window": "Pencere"
+      },
+      "sc": {
+        "ws-new": "Yeni çalışma alanı",
+        "ws-jump-1-8": "1–8 arası çalışma alanına atla",
+        "ws-jump-last": "Son çalışma alanına atla",
+        "ws-close": "Çalışma alanını kapat",
+        "ws-rename": "Çalışma alanını yeniden adlandır",
+        "sf-new": "Yeni yüzey",
+        "sf-prev-1": "Önceki yüzey",
+        "sf-prev-2": "Önceki yüzey",
+        "sf-jump-1-8": "1–8 arası yüzeye atla",
+        "sf-jump-last": "Son yüzeye atla",
+        "sf-close": "Yüzeyi kapat",
+        "sp-right": "Sağa böl",
+        "sp-down": "Aşağı böl",
+        "sp-focus": "Yönlü panel odağı",
+        "sp-browser-right": "Tarayıcıyı sağa böl",
+        "sp-browser-down": "Tarayıcıyı aşağı böl",
+        "br-open": "Tarayıcı yüzeyi aç",
+        "br-addr": "Adres çubuğuna odaklan",
+        "br-forward": "İleri",
+        "br-reload": "Sayfayı yenile",
+        "br-devtools": "Geliştirici Araçlarını aç",
+        "nt-panel": "Bildirim panelini göster",
+        "nt-latest": "En son okunmamışa atla",
+        "nt-flash": "Yanıp sönmeyi tetikle",
+        "fd-find": "Bul",
+        "fd-next-prev": "Sonrakini / öncekini bul",
+        "fd-hide": "Bulma çubuğunu gizle",
+        "fd-selection": "Seçimi bulmak için kullan",
+        "tm-clear": "Kaydırma geçmişini temizle",
+        "tm-copy": "Kopyala (seçimle)",
+        "tm-paste": "Yapıştır",
+        "tm-font": "Yazı tipi boyutunu büyüt / küçült",
+        "tm-reset": "Yazı tipi boyutunu sıfırla",
+        "wn-new": "Yeni pencere",
+        "wn-settings": "Ayarlar",
+        "wn-reload": "Yapılandırmayı yeniden yükle",
+        "wn-quit": "Çık"
+      }
     },
     "api": {
       "title": "API Referansı",
@@ -447,6 +502,10 @@
     "privacyPolicy": "Gizlilik Politikası",
     "termsOfService": "Hizmet Koşulları",
     "eula": "EULA"
+  },
+  "wallOfLove": {
+    "title": "Sevgi Duvarı",
+    "description": "cmux hakkında söylenenler."
   },
   "languageSwitcher": {
     "label": "Dil"

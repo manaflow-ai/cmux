@@ -267,7 +267,62 @@
     "keyboardShortcuts": {
       "title": "Tastaturgenveje",
       "description": "Alle tastaturgenveje tilgængelige i cmux, grupperet efter kategori.",
-      "metaDescription": "Alle cmux-tastaturgenveje til workspaces, surfaces, opdelte paneler, browser, notifikationer, søgning og vindueshåndtering på macOS."
+      "metaDescription": "Alle cmux-tastaturgenveje til workspaces, surfaces, opdelte paneler, browser, notifikationer, søgning og vindueshåndtering på macOS.",
+      "searchPlaceholder": "Søg efter genveje...",
+      "searchLabel": "Søg i tastaturgenveje",
+      "noResults": "Ingen genveje fundet",
+      "noResultsHint": "Prøv et andet søgeord",
+      "cat": {
+        "workspaces": "Workspaces",
+        "workspacesBlurb": "Workspaces bor i sidebaren. Hvert workspace har sit eget sæt af paneler og surfaces.",
+        "surfaces": "Surfaces",
+        "surfacesBlurb": "Surfaces er faner inde i et panel.",
+        "splitPanes": "Opdelte paneler",
+        "browser": "Browser",
+        "notifications": "Notifikationer",
+        "find": "Find",
+        "terminal": "Terminal",
+        "window": "Vindue"
+      },
+      "sc": {
+        "ws-new": "Nyt workspace",
+        "ws-jump-1-8": "Spring til workspace 1–8",
+        "ws-jump-last": "Spring til sidste workspace",
+        "ws-close": "Luk workspace",
+        "ws-rename": "Omdøb workspace",
+        "sf-new": "Ny surface",
+        "sf-prev-1": "Forrige surface",
+        "sf-prev-2": "Forrige surface",
+        "sf-jump-1-8": "Spring til surface 1–8",
+        "sf-jump-last": "Spring til sidste surface",
+        "sf-close": "Luk surface",
+        "sp-right": "Opdel til højre",
+        "sp-down": "Opdel nedad",
+        "sp-focus": "Fokusér panel retningsbestemt",
+        "sp-browser-right": "Opdel browser til højre",
+        "sp-browser-down": "Opdel browser nedad",
+        "br-open": "Åbn browser-surface",
+        "br-addr": "Fokusér adresselinjen",
+        "br-forward": "Frem",
+        "br-reload": "Genindlæs side",
+        "br-devtools": "Åbn udviklerværktøjer",
+        "nt-panel": "Vis notifikationspanel",
+        "nt-latest": "Spring til seneste ulæste",
+        "nt-flash": "Udløs flash",
+        "fd-find": "Find",
+        "fd-next-prev": "Find næste / forrige",
+        "fd-hide": "Skjul findbjælke",
+        "fd-selection": "Brug markering til find",
+        "tm-clear": "Ryd scrollback",
+        "tm-copy": "Kopiér (med markering)",
+        "tm-paste": "Indsæt",
+        "tm-font": "Forøg / formindsk skriftstørrelse",
+        "tm-reset": "Nulstil skriftstørrelse",
+        "wn-new": "Nyt vindue",
+        "wn-settings": "Indstillinger",
+        "wn-reload": "Genindlæs konfiguration",
+        "wn-quit": "Afslut"
+      }
     },
     "api": {
       "title": "API-reference",
@@ -447,6 +502,10 @@
     "privacyPolicy": "Privatlivspolitik",
     "termsOfService": "Servicevilkår",
     "eula": "EULA"
+  },
+  "wallOfLove": {
+    "title": "Wall of Love",
+    "description": "Hvad folk siger om cmux."
   },
   "languageSwitcher": {
     "label": "Sprog"

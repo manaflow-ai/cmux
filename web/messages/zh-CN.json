@@ -267,7 +267,62 @@
     "keyboardShortcuts": {
       "title": "快捷键",
       "description": "cmux 中所有可用的快捷键，按类别分组。",
-      "metaDescription": "cmux 的所有 macOS 快捷键，涵盖工作区、surface、分屏面板、浏览器、通知、查找和窗口管理。"
+      "metaDescription": "cmux 的所有 macOS 快捷键，涵盖工作区、surface、分屏面板、浏览器、通知、查找和窗口管理。",
+      "searchPlaceholder": "搜索快捷键...",
+      "searchLabel": "搜索键盘快捷键",
+      "noResults": "未找到快捷键",
+      "noResultsHint": "请尝试其他搜索词",
+      "cat": {
+        "workspaces": "工作区",
+        "workspacesBlurb": "工作区位于侧边栏中。每个工作区有自己的面板和 surface。",
+        "surfaces": "Surface",
+        "surfacesBlurb": "Surface 是面板内的标签页。",
+        "splitPanes": "分屏面板",
+        "browser": "浏览器",
+        "notifications": "通知",
+        "find": "查找",
+        "terminal": "终端",
+        "window": "窗口"
+      },
+      "sc": {
+        "ws-new": "新建工作区",
+        "ws-jump-1-8": "跳转到工作区 1–8",
+        "ws-jump-last": "跳转到最后一个工作区",
+        "ws-close": "关闭工作区",
+        "ws-rename": "重命名工作区",
+        "sf-new": "新建 surface",
+        "sf-prev-1": "上一个 surface",
+        "sf-prev-2": "上一个 surface",
+        "sf-jump-1-8": "跳转到 surface 1–8",
+        "sf-jump-last": "跳转到最后一个 surface",
+        "sf-close": "关闭 surface",
+        "sp-right": "向右分屏",
+        "sp-down": "向下分屏",
+        "sp-focus": "按方向聚焦面板",
+        "sp-browser-right": "向右分屏浏览器",
+        "sp-browser-down": "向下分屏浏览器",
+        "br-open": "打开浏览器 surface",
+        "br-addr": "聚焦地址栏",
+        "br-forward": "前进",
+        "br-reload": "刷新页面",
+        "br-devtools": "打开开发者工具",
+        "nt-panel": "显示通知面板",
+        "nt-latest": "跳转到最新未读",
+        "nt-flash": "触发闪烁",
+        "fd-find": "查找",
+        "fd-next-prev": "查找下一个 / 上一个",
+        "fd-hide": "隐藏查找栏",
+        "fd-selection": "使用选中内容查找",
+        "tm-clear": "清除回滚缓冲区",
+        "tm-copy": "复制（选中内容）",
+        "tm-paste": "粘贴",
+        "tm-font": "增大 / 减小字体",
+        "tm-reset": "重置字体大小",
+        "wn-new": "新建窗口",
+        "wn-settings": "设置",
+        "wn-reload": "重新加载配置",
+        "wn-quit": "退出"
+      }
     },
     "api": {
       "title": "API 参考",
@@ -447,6 +502,10 @@
     "privacyPolicy": "隐私政策",
     "termsOfService": "服务条款",
     "eula": "EULA"
+  },
+  "wallOfLove": {
+    "title": "用户好评",
+    "description": "大家对 cmux 的评价。"
   },
   "languageSwitcher": {
     "label": "语言"

@@ -267,7 +267,62 @@
     "keyboardShortcuts": {
       "title": "Tastatursnarveier",
       "description": "Alle tastatursnarveier tilgjengelige i cmux, gruppert etter kategori.",
-      "metaDescription": "Alle cmux-tastatursnarveier for arbeidsområder, overflater, delte paneler, nettleser, varsler, søk og vindusbehandling på macOS."
+      "metaDescription": "Alle cmux-tastatursnarveier for arbeidsområder, overflater, delte paneler, nettleser, varsler, søk og vindusbehandling på macOS.",
+      "searchPlaceholder": "Søk etter snarveier...",
+      "searchLabel": "Søk i tastatursnarveier",
+      "noResults": "Ingen snarveier funnet",
+      "noResultsHint": "Prøv et annet søkeord",
+      "cat": {
+        "workspaces": "Arbeidsområder",
+        "workspacesBlurb": "Arbeidsområder lever i sidefeltet. Hvert arbeidsområde har sitt eget sett med paneler og overflater.",
+        "surfaces": "Overflater",
+        "surfacesBlurb": "Overflater er faner inne i et panel.",
+        "splitPanes": "Delte paneler",
+        "browser": "Nettleser",
+        "notifications": "Varsler",
+        "find": "Finn",
+        "terminal": "Terminal",
+        "window": "Vindu"
+      },
+      "sc": {
+        "ws-new": "Nytt arbeidsområde",
+        "ws-jump-1-8": "Hopp til arbeidsområde 1–8",
+        "ws-jump-last": "Hopp til siste arbeidsområde",
+        "ws-close": "Lukk arbeidsområde",
+        "ws-rename": "Gi arbeidsområde nytt navn",
+        "sf-new": "Ny overflate",
+        "sf-prev-1": "Forrige overflate",
+        "sf-prev-2": "Forrige overflate",
+        "sf-jump-1-8": "Hopp til overflate 1–8",
+        "sf-jump-last": "Hopp til siste overflate",
+        "sf-close": "Lukk overflate",
+        "sp-right": "Del til høyre",
+        "sp-down": "Del nedover",
+        "sp-focus": "Fokuser panel retningsbestemt",
+        "sp-browser-right": "Del nettleser til høyre",
+        "sp-browser-down": "Del nettleser nedover",
+        "br-open": "Åpne nettleseroverflate",
+        "br-addr": "Fokuser adressefeltet",
+        "br-forward": "Fremover",
+        "br-reload": "Last inn side på nytt",
+        "br-devtools": "Åpne utviklerverktøy",
+        "nt-panel": "Vis varselpanel",
+        "nt-latest": "Hopp til siste uleste",
+        "nt-flash": "Utløs blink",
+        "fd-find": "Finn",
+        "fd-next-prev": "Finn neste / forrige",
+        "fd-hide": "Skjul søkelinje",
+        "fd-selection": "Bruk utvalg til søk",
+        "tm-clear": "Tøm scrollback",
+        "tm-copy": "Kopier (med utvalg)",
+        "tm-paste": "Lim inn",
+        "tm-font": "Øk / reduser skriftstørrelse",
+        "tm-reset": "Tilbakestill skriftstørrelse",
+        "wn-new": "Nytt vindu",
+        "wn-settings": "Innstillinger",
+        "wn-reload": "Last inn konfigurasjon på nytt",
+        "wn-quit": "Avslutt"
+      }
     },
     "api": {
       "title": "API-referanse",
@@ -447,6 +502,10 @@
     "privacyPolicy": "Personvernerklæring",
     "termsOfService": "Vilkår for bruk",
     "eula": "EULA"
+  },
+  "wallOfLove": {
+    "title": "Kjærlighetsveggen",
+    "description": "Hva folk sier om cmux."
   },
   "languageSwitcher": {
     "label": "Språk"
