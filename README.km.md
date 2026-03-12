@@ -1,3 +1,5 @@
+> ការបកប្រែនេះត្រូវបានបង្កើតដោយ Claude។ ប្រសិនបើអ្នកមានការកែលម្អ សូមបង្កើត PR។
+
 <h1 align="center">cmux</h1>
 <p align="center">Terminal សម្រាប់ macOS ផ្អែកលើ Ghostty ដែលមាន tab បញ្ឈរ និងការជូនដំណឹងសម្រាប់ AI coding agents</p>
 
@@ -29,8 +31,8 @@
 <table>
 <tr>
 <td width="40%" valign="middle">
-<h3>Notification rings</h3>
-Panes get a blue ring and tabs light up when coding agents need your attention
+<h3>រង្វង់ជូនដំណឹង (Notification rings)</h3>
+ផ្ទាំង (Panes) នឹងមានរង្វង់ពណ៌ខៀវ ហើយ tabs នឹងភ្លឺឡើង នៅពេល coding agents ត្រូវការការយកចិត្តទុកដាក់របស់អ្នក
 </td>
 <td width="60%">
 <img src="./docs/assets/notification-rings.png" alt="Notification rings" width="100%" />
@@ -38,8 +40,8 @@ Panes get a blue ring and tabs light up when coding agents need your attention
 </tr>
 <tr>
 <td width="40%" valign="middle">
-<h3>Notification panel</h3>
-See all pending notifications in one place, jump to the most recent unread
+<h3>ផ្ទាំងជូនដំណឹង (Notification panel)</h3>
+មើលការជូនដំណឹងដែលកំពុងរង់ចាំទាំងអស់នៅកន្លែងតែមួយ លោតទៅកាន់សារមិនទាន់អានថ្មីបំផុត
 </td>
 <td width="60%">
 <img src="./docs/assets/sidebar-notification-badge.png" alt="Sidebar notification badge" width="100%" />
@@ -47,8 +49,8 @@ See all pending notifications in one place, jump to the most recent unread
 </tr>
 <tr>
 <td width="40%" valign="middle">
-<h3>In-app browser</h3>
-Split a browser alongside your terminal with a scriptable API ported from <a href="https://github.com/vercel-labs/agent-browser">agent-browser</a>
+<h3>កម្មវិធីរុករកក្នុងកម្មវិធី (In-app browser)</h3>
+បំបែកកម្មវិធីរុករកនៅក្បែរ terminal របស់អ្នកជាមួយ scriptable API ដែលបានយកចេញពី <a href="https://github.com/vercel-labs/agent-browser">agent-browser</a>
 </td>
 <td width="60%">
 <img src="./docs/assets/built-in-browser.png" alt="Built-in browser" width="100%" />
@@ -56,8 +58,8 @@ Split a browser alongside your terminal with a scriptable API ported from <a hre
 </tr>
 <tr>
 <td width="40%" valign="middle">
-<h3>Vertical + horizontal tabs</h3>
-Sidebar shows git branch, linked PR status/number, working directory, listening ports, and latest notification text. Split horizontally and vertically.
+<h3>Tab បញ្ឈរ + ផ្ដេក (Vertical + horizontal tabs)</h3>
+របារចំហៀងបង្ហាញ git branch, ស្ថានភាព/លេខ PR, ថតការងារ, port ដែលកំពុងស្តាប់ និងអត្ថបទជូនដំណឹងចុងក្រោយ។ បំបែកទាំងផ្ដេក និងបញ្ឈរ។
 </td>
 <td width="60%">
 <img src="./docs/assets/vertical-horizontal-tabs-and-splits.png" alt="Vertical tabs and split panes" width="100%" />
@@ -73,6 +75,10 @@ Sidebar shows git branch, linked PR status/number, working directory, listening 
 ## ការដំឡើង (Install)
 
 ### DMG (ត្រូវបានណែនាំ)
+
+<a href="https://github.com/manaflow-ai/cmux/releases/latest/download/cmux-macos.dmg">
+  <img src="./docs/assets/macos-badge.png" alt="ទាញយក cmux សម្រាប់ macOS" width="180" />
+</a>
 
 បើកឯកសារ `.dmg` ហើយអូស cmux បញ្ចូលទៅក្នុងថត Applications របស់អ្នក។ cmux ធ្វើបច្ចុប្បន្នភាពដោយស្វ័យប្រវត្តិតាមរយៈ Sparkle ដូច្នេះអ្នកគ្រាន់តែទាញយកវាតែម្តងគត់។
 
@@ -156,7 +162,7 @@ cmux គឺជាមូលដ្ឋានគ្រឹះ (primitive) មិន�
 
 ### កម្មវិធីរុករក (Browser)
 
-Browser developer-tool shortcuts follow Safari defaults and are customizable in `Settings → Keyboard Shortcuts`.
+ផ្លូវកាត់ឧបករណ៍អ្នកអភិវឌ្ឍន៍កម្មវិធីរុករក (Browser developer-tool shortcuts) ប្រើតាមលំនាំដើមរបស់ Safari ហើយអាចប្ដូរតាមបំណងបាននៅក្នុង `Settings → Keyboard Shortcuts`។
 
 | ផ្លូវកាត់ (Shortcut) | សកម្មភាព (Action) |
 |---|---|
