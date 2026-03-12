@@ -2851,9 +2851,12 @@ final class WindowBrowserPortal: NSObject {
             }
             return
         }
+        let previousTransientRecoveryReason = entry.transientRecoveryReason
         func hideContainerView(reason: String) {
             containerView.setPaneTopChromeHeight(0)
             containerView.setSearchOverlay(nil)
+            containerView.setPaneDropContext(nil)
+            containerView.setPortalDragDropZone(nil)
             containerView.setDropZoneOverlay(zone: nil)
             if !containerView.isHidden, webView.superview === containerView {
                 webView.browserPortalNotifyHidden(reason: reason)
@@ -2884,6 +2887,8 @@ final class WindowBrowserPortal: NSObject {
                 "reason=\(reason) frame=\(browserPortalDebugFrame(containerView.frame))"
             )
 #endif
+            containerView.setPaneDropContext(nil)
+            containerView.setPortalDragDropZone(nil)
             containerView.setDropZoneOverlay(zone: nil)
             return true
         }
@@ -3027,6 +3032,9 @@ final class WindowBrowserPortal: NSObject {
                         "reason=hostBoundsNotReady frame=\(browserPortalDebugFrame(containerView.frame))"
                     )
 #endif
+                    containerView.setPaneDropContext(nil)
+                    containerView.setPortalDragDropZone(nil)
+                    containerView.setDropZoneOverlay(zone: nil)
                     return
                 }
             } else {
@@ -3089,6 +3097,10 @@ final class WindowBrowserPortal: NSObject {
             shouldHide &&
             entry.visibleInUI &&
             !containerView.isHidden
+        let recoveredFromTransientGeometry =
+            previousTransientRecoveryReason != nil &&
+            transientRecoveryReason == nil &&
+            !shouldHide
 #if DEBUG
         let frameWasClamped = hasFiniteFrame && !Self.rectApproximatelyEqual(frameInHost, targetFrame)
         if frameWasClamped {
@@ -3131,6 +3143,7 @@ final class WindowBrowserPortal: NSObject {
             if hasExistingVisibleFrame {
                 containerView.setDropZoneOverlay(zone: nil)
                 containerView.setPaneDropContext(nil)
+                containerView.setPortalDragDropZone(nil)
                 return
             }
         }
@@ -3240,9 +3253,15 @@ final class WindowBrowserPortal: NSObject {
         }
         containerView.setPaneTopChromeHeight(shouldHide ? 0 : entry.paneTopChromeHeight)
         containerView.setSearchOverlay(shouldHide ? nil : entry.searchOverlay)
+        containerView.setPaneDropContext(containerView.isHidden ? nil : entry.paneDropContext)
         containerView.setDropZoneOverlay(zone: containerView.isHidden ? nil : entry.dropZone)
         if revealedForDisplay {
             refreshReasons.append("reveal")
+        }
+        if recoveredFromTransientGeometry {
+            // Drag/reparent churn can recover to the same visible frame we preserved.
+            // Force a redraw so WebKit doesn't keep stale tiles until a later resize/focus.
+            refreshReasons.append("transientRecovery")
         }
         if forcePresentationRefresh {
             refreshReasons.append("anchor")
@@ -3254,7 +3273,7 @@ final class WindowBrowserPortal: NSObject {
             containerOwnsWebView &&
             hostView.reapplyHostedInspectorDividerIfNeeded(in: containerView, reason: "portal.sync")
         if !shouldHide, containerOwnsWebView, !refreshReasons.isEmpty {
-            if hostedInspectorAdjustedDuringSync {
+            if hostedInspectorAdjustedDuringSync && !recoveredFromTransientGeometry {
 #if DEBUG
                 dlog(
                     "browser.portal.refresh.skip web=\(browserPortalDebugToken(webView)) " +

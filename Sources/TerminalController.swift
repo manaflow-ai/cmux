@@ -13813,16 +13813,7 @@ class TerminalController {
                 result = "ERROR: Tab not found"
                 return
             }
-            tab.statusEntries.removeAll()
-            tab.logEntries.removeAll()
-            tab.progress = nil
-            tab.gitBranch = nil
-            tab.panelGitBranches.removeAll()
-            tab.pullRequest = nil
-            tab.panelPullRequests.removeAll()
-            tab.surfaceListeningPorts.removeAll()
-            tab.listeningPorts.removeAll()
-            tab.metadataBlocks.removeAll()
+            tab.resetSidebarContext(reason: "reset_sidebar")
         }
         return result
     }

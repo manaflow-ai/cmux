@@ -2430,6 +2430,89 @@ final class BrowserSessionHistoryRestoreTests: XCTestCase {
 
         XCTAssertFalse(panel.shouldRenderWebView)
     }
+
+    func testResetSidebarContextClearsBrowserPanelsIntoNewTabState() throws {
+        let workspace = Workspace()
+        let paneId = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let contextPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let browser = try XCTUnwrap(
+            workspace.newBrowserSurface(
+                inPane: paneId,
+                url: URL(string: "https://example.com"),
+                focus: false
+            )
+        )
+
+        browser.restoreSessionNavigationHistory(
+            backHistoryURLStrings: ["https://example.com/prev"],
+            forwardHistoryURLStrings: ["https://example.com/next"],
+            currentURLString: "https://example.com/current"
+        )
+        browser.startFind()
+
+        workspace.statusEntries["task"] = SidebarStatusEntry(key: "task", value: "Issue #1208")
+        workspace.metadataBlocks["notes"] = SidebarMetadataBlock(
+            key: "notes",
+            markdown: "test",
+            priority: 0,
+            timestamp: Date()
+        )
+        workspace.progress = SidebarProgressState(value: 0.5, label: "Loading")
+        workspace.updatePanelGitBranch(panelId: contextPanelId, branch: "issue-1208", isDirty: false)
+        workspace.updatePanelPullRequest(
+            panelId: contextPanelId,
+            number: 1208,
+            label: "PR",
+            url: try XCTUnwrap(URL(string: "https://example.com/pull/1208")),
+            status: .open
+        )
+        workspace.logEntries.append(
+            SidebarLogEntry(
+                message: "Issue #1208",
+                level: .info,
+                source: "test",
+                timestamp: Date()
+            )
+        )
+        workspace.surfaceListeningPorts[contextPanelId] = [3000]
+        workspace.recomputeListeningPorts()
+
+        XCTAssertTrue(browser.shouldRenderWebView)
+        XCTAssertNotNil(browser.preferredURLStringForOmnibar())
+        XCTAssertTrue(browser.canGoBack)
+        XCTAssertTrue(browser.canGoForward)
+        XCTAssertNotNil(browser.searchState)
+        XCTAssertFalse(workspace.statusEntries.isEmpty)
+        XCTAssertFalse(workspace.logEntries.isEmpty)
+        XCTAssertFalse(workspace.metadataBlocks.isEmpty)
+        XCTAssertNotNil(workspace.progress)
+        XCTAssertNotNil(workspace.gitBranch)
+        XCTAssertNotNil(workspace.pullRequest)
+        XCTAssertEqual(workspace.listeningPorts, [3000])
+
+        let priorWebView = browser.webView
+        let priorInstanceID = browser.webViewInstanceID
+        workspace.resetSidebarContext(reason: "test")
+
+        XCTAssertTrue(workspace.statusEntries.isEmpty)
+        XCTAssertTrue(workspace.logEntries.isEmpty)
+        XCTAssertTrue(workspace.metadataBlocks.isEmpty)
+        XCTAssertNil(workspace.progress)
+        XCTAssertNil(workspace.gitBranch)
+        XCTAssertTrue(workspace.panelGitBranches.isEmpty)
+        XCTAssertNil(workspace.pullRequest)
+        XCTAssertTrue(workspace.panelPullRequests.isEmpty)
+        XCTAssertTrue(workspace.surfaceListeningPorts.isEmpty)
+        XCTAssertTrue(workspace.listeningPorts.isEmpty)
+        XCTAssertFalse(browser.shouldRenderWebView)
+        XCTAssertNil(browser.preferredURLStringForOmnibar())
+        XCTAssertFalse(browser.canGoBack)
+        XCTAssertFalse(browser.canGoForward)
+        XCTAssertNil(browser.searchState)
+        XCTAssertFalse(browser.webView === priorWebView)
+        XCTAssertNotEqual(browser.webViewInstanceID, priorInstanceID)
+    }
+
 }
 
 @MainActor

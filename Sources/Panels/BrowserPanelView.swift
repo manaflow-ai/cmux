@@ -5523,12 +5523,11 @@ struct WebViewRepresentable: NSViewRepresentable {
         }
 
         // SwiftUI can transiently dismantle/rebuild the browser host view during split
-        // rearrangement. Do not detach the portal-hosted WKWebView here; explicit detach
-        // still happens on real web view replacement and panel teardown.
+        // rearrangement. Do not detach the portal-hosted WKWebView or clear its pane-drop
+        // context here; explicit teardown still happens on real web view replacement and
+        // panel teardown, and preserving this state lets internal tab drags re-enter the
+        // browser pane while SwiftUI churns underneath.
         BrowserWindowPortalRegistry.updateDropZoneOverlay(for: webView, zone: nil)
-        BrowserWindowPortalRegistry.updatePaneTopChromeHeight(for: webView, height: 0)
-        BrowserWindowPortalRegistry.updatePaneDropContext(for: webView, context: nil)
-        BrowserWindowPortalRegistry.updateSearchOverlay(for: webView, configuration: nil)
         coordinator.lastPortalHostId = nil
         coordinator.lastSynchronizedHostGeometryRevision = 0
     }
