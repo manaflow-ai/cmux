@@ -1686,6 +1686,57 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
+    func resetSidebarContext(reason: String = "unspecified") {
+        statusEntries.removeAll()
+        logEntries.removeAll()
+        progress = nil
+        gitBranch = nil
+        panelGitBranches.removeAll()
+        pullRequest = nil
+        panelPullRequests.removeAll()
+        surfaceListeningPorts.removeAll()
+        listeningPorts.removeAll()
+        metadataBlocks.removeAll()
+        resetBrowserPanelsForContextChange(reason: reason)
+    }
+
+    func resetBrowserPanelsForContextChange(reason: String) {
+        let browserPanels = panels.values.compactMap { $0 as? BrowserPanel }
+        guard !browserPanels.isEmpty else { return }
+
+#if DEBUG
+        dlog(
+            "workspace.contextReset.browserPanels workspace=\(id.uuidString.prefix(5)) " +
+            "reason=\(reason) count=\(browserPanels.count)"
+        )
+#endif
+
+        for browserPanel in browserPanels {
+            browserPanel.resetForWorkspaceContextChange(reason: reason)
+            let nextTitle = browserPanel.displayTitle
+            _ = updatePanelTitle(panelId: browserPanel.id, title: nextTitle)
+
+            guard let tabId = surfaceIdFromPanelId(browserPanel.id),
+                  let existing = bonsplitController.tab(tabId) else {
+                continue
+            }
+
+            let faviconUpdate: Data?? = existing.iconImageData == nil ? nil : .some(nil)
+            let loadingUpdate: Bool? = existing.isLoading ? false : nil
+
+            guard faviconUpdate != nil || loadingUpdate != nil else {
+                continue
+            }
+
+            bonsplitController.updateTab(
+                tabId,
+                iconImageData: faviconUpdate,
+                hasCustomTitle: panelCustomTitles[browserPanel.id] != nil,
+                isLoading: loadingUpdate
+            )
+        }
+    }
+
     @discardableResult
     func updatePanelTitle(panelId: UUID, title: String) -> Bool {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -4839,6 +4890,21 @@ extension Workspace: BonsplitDelegate {
             "originalKinds=[\(paneKindSummary(originalPane))] newKinds=[\(paneKindSummary(newPane))]"
         )
 #endif
+        let rearmBrowserPortalHostReplacement: (PaneID, String) -> Void = { paneId, reason in
+            for tab in controller.tabs(inPane: paneId) {
+                guard let panelId = self.panelIdFromSurfaceId(tab.id),
+                      let browserPanel = self.browserPanel(for: panelId) else {
+                    continue
+                }
+                browserPanel.preparePortalHostReplacementForNextDistinctClaim(
+                    inPane: paneId,
+                    reason: reason
+                )
+            }
+        }
+        rearmBrowserPortalHostReplacement(originalPane, "workspace.didSplit.original")
+        rearmBrowserPortalHostReplacement(newPane, "workspace.didSplit.new")
+
         // Only auto-create a terminal if the split came from bonsplit UI.
         // Programmatic splits via newTerminalSplit() set isProgrammaticSplit and handle their own panels.
         guard !isProgrammaticSplit else {

@@ -27825,6 +27825,40 @@
         }
       }
     },
+    "dialog.closeWindow.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This will close the current window and all of its workspaces."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在のウィンドウとそのすべてのワークスペースを閉じます。"
+          }
+        }
+      }
+    },
+    "dialog.closeWindow.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close window?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ウィンドウを閉じますか？"
+          }
+        }
+      }
+    },
     "dialog.closeWorkspace.message": {
       "extractionState": "manual",
       "localizations": {
