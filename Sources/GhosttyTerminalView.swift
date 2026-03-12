@@ -5724,6 +5724,18 @@ final class GhosttySurfaceScrollView: NSView {
         Self.dropOverlayShowCounts[surfaceId, default: 0] += 1
     }
 
+    /// Remove all debug counters associated with a specific surface to prevent
+    /// unbounded growth of the static dictionaries over long-running sessions.
+    static func removeDebugCounters(for surfaceId: UUID) {
+        flashCounts.removeValue(forKey: surfaceId)
+        drawCounts.removeValue(forKey: surfaceId)
+        lastDrawTimes.removeValue(forKey: surfaceId)
+        presentCounts.removeValue(forKey: surfaceId)
+        dropOverlayShowCounts.removeValue(forKey: surfaceId)
+        lastPresentTimes.removeValue(forKey: surfaceId)
+        lastContentsKeys.removeValue(forKey: surfaceId)
+    }
+
     func debugProbeDropOverlayAnimation(useDeferredPath: Bool) -> (before: Int, after: Int, bounds: CGSize) {
         guard let surfaceId = surfaceView.terminalSurface?.id else {
             return (0, 0, bounds.size)
@@ -5996,12 +6008,25 @@ final class GhosttySurfaceScrollView: NSView {
 
     deinit {
 #if DEBUG
+        let surfaceId = debugSurfaceId
         dlog(
-            "surface.hosted.deinit surface=\(debugSurfaceId?.uuidString.prefix(5) ?? "nil") " +
+            "surface.hosted.deinit surface=\(surfaceId?.uuidString.prefix(5) ?? "nil") " +
             "inWindow=\(window != nil ? 1 : 0) hasSuperview=\(superview != nil ? 1 : 0) " +
             "hidden=\(isHidden ? 1 : 0) frame=\(String(format: "%.1fx%.1f", frame.width, frame.height))"
         )
+        if let surfaceId {
+            Self.removeDebugCounters(for: surfaceId)
+        }
 #endif
+        // Clean up CA animations to release layer backing stores promptly.
+        flashLayer.removeAllAnimations()
+        dropZoneOverlayView.layer?.removeAllAnimations()
+
+        // Detach the search overlay's SwiftUI hosting view so the view hierarchy
+        // is released synchronously rather than waiting for the next layout pass.
+        searchOverlayHostingView?.removeFromSuperview()
+        searchOverlayHostingView = nil
+
         observers.forEach { NotificationCenter.default.removeObserver($0) }
         windowObservers.forEach { NotificationCenter.default.removeObserver($0) }
         dropZoneOverlayView.removeFromSuperview()
