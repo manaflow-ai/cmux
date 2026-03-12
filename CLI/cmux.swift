@@ -7900,8 +7900,16 @@ struct CMUXCLI {
               let json = try? JSONSerialization.jsonObject(with: data, options: []),
               let object = json as? [String: Any] else {
             let fallback = truncate(normalizedSingleLine(trimmed), maxLength: 180)
-            return classifyClaudeNotification(signal: fallback, message: fallback)
+            return classifyClaudeNotification(signal: fallback, message: fallback, projectName: nil)
         }
+
+        let cwd = extractClaudeHookCWD(from: object)
+        let projectName: String? = {
+            guard let cwd = cwd, !cwd.isEmpty else { return nil }
+            let path = NSString(string: cwd).expandingTildeInPath
+            let tail = URL(fileURLWithPath: path).lastPathComponent
+            return tail.isEmpty ? path : tail
+        }()
 
         let nested = (object["notification"] as? [String: Any]) ?? (object["data"] as? [String: Any]) ?? [:]
         let signalParts = [
@@ -7918,7 +7926,7 @@ struct CMUXCLI {
         let dedupedMessage = dedupeBranchContextLines(message)
         let normalizedMessage = normalizedSingleLine(dedupedMessage)
         let signal = signalParts.compactMap { $0 }.joined(separator: " ")
-        var classified = classifyClaudeNotification(signal: signal, message: normalizedMessage)
+        var classified = classifyClaudeNotification(signal: signal, message: normalizedMessage, projectName: projectName)
 
         if let session, !session.isEmpty {
             let shortSession = String(session.prefix(8))
@@ -7931,22 +7939,23 @@ struct CMUXCLI {
         return classified
     }
 
-    private func classifyClaudeNotification(signal: String, message: String) -> (subtitle: String, body: String) {
+    private func classifyClaudeNotification(signal: String, message: String, projectName: String?) -> (subtitle: String, body: String) {
         let lower = "\(signal) \(message)".lowercased()
+        let suffix = projectName.map { " in \($0)" } ?? ""
         if lower.contains("permission") || lower.contains("approve") || lower.contains("approval") {
             let body = message.isEmpty ? "Approval needed" : message
-            return ("Permission", body)
+            return ("Permission\(suffix)", body)
         }
         if lower.contains("error") || lower.contains("failed") || lower.contains("exception") {
             let body = message.isEmpty ? "Claude reported an error" : message
-            return ("Error", body)
+            return ("Error\(suffix)", body)
         }
         if lower.contains("idle") || lower.contains("wait") || lower.contains("input") || lower.contains("prompt") {
             let body = message.isEmpty ? "Claude is waiting for your input" : message
-            return ("Waiting", body)
+            return ("Waiting\(suffix)", body)
         }
         let body = message.isEmpty ? "Claude needs your input" : message
-        return ("Attention", body)
+        return ("Attention\(suffix)", body)
     }
 
     private func dedupeBranchContextLines(_ value: String) -> String {
