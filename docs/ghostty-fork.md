@@ -12,7 +12,7 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-Fork rebased onto upstream `v1.3.0` plus newer `main` commits as of March 9, 2026.
+Fork rebased onto upstream `v1.3.0` plus newer `main` commits as of March 12, 2026.
 
 ### 1) OSC 99 (kitty) notification parser
 
@@ -62,6 +62,17 @@ section 3 copy-mode commit, even though the section 4 resize commits were applie
   - Replays the last rendered frame during resize and keeps its geometry anchored correctly.
   - Reduces transient blank or scaled frames while a macOS window is being resized.
 
+### 5) zsh prompt redraw markers use OSC 133 P
+
+- Commit: `8ade43ce5` (zsh: use OSC 133 P for prompt redraws)
+- Files:
+  - `src/shell-integration/zsh/ghostty-integration`
+- Summary:
+  - Emits one `OSC 133;A` fresh-prompt mark for real prompt transitions.
+  - Uses `OSC 133;P` markers for prompt redraws so async zsh themes do not look like extra prompt lines.
+
+The fork branch HEAD is now the section 5 zsh redraw commit.
+
 ## Upstreamed fork changes
 
 ### cursor-click-to-move respects OSC 133 click-to-move
@@ -79,5 +90,9 @@ These files change frequently upstream; be careful when rebasing the fork:
 
 - `src/terminal/osc.zig`
   - OSC dispatch logic moves often. Re-check the integration points for the OSC 99 parser.
+
+- `src/shell-integration/zsh/ghostty-integration`
+  - Prompt marker handling is easy to regress when upstream adjusts zsh redraw behavior. Keep the
+    `OSC 133;A` vs `OSC 133;P` split intact for redraw-heavy themes.
 
 If you resolve a conflict, update this doc with what changed.
