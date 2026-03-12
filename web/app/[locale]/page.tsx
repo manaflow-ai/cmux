@@ -1,5 +1,4 @@
-import { useTranslations } from "next-intl";
-import { setRequestLocale } from "next-intl/server";
+import { useTranslations, useLocale } from "next-intl";
 import { FadeImage } from "./components/fade-image";
 import Balancer from "react-wrap-balancer";
 import landingImage from "./assets/landing-image.png";
@@ -7,20 +6,18 @@ import { TypingTagline } from "./typing";
 import { DownloadButton } from "./components/download-button";
 import { GitHubButton } from "./components/github-button";
 import { SiteHeader } from "./components/site-header";
-import { testimonials } from "./testimonials";
+import { testimonials, getTestimonialTranslation } from "./testimonials";
 import { Link } from "../../i18n/navigation";
 
-export default function Home({
-  params,
-}: {
-  params: Promise<{ locale: string }>;
-}) {
+export default function Home() {
   return <HomeContent />;
 }
 
 function HomeContent() {
   const t = useTranslations("home");
   const tc = useTranslations("common");
+  const tt = useTranslations("testimonials");
+  const locale = useLocale();
 
   const linkClass =
     "underline underline-offset-2 decoration-border hover:decoration-foreground transition-colors";
@@ -242,7 +239,9 @@ function HomeContent() {
               gap: 16,
             }}
           >
-            {testimonials.map((item) => (
+            {testimonials.map((item) => {
+              const translation = getTestimonialTranslation(item, locale, tt);
+              return (
               <li key={item.url}>
                 <span>
                   <a
@@ -254,10 +253,10 @@ function HomeContent() {
                     <span className="text-muted group-hover:text-foreground transition-colors">
                       &quot;{item.text}&quot;
                     </span>
-                    {"translation" in item && item.translation && (
+                    {translation && (
                       <span className="text-muted/60 text-xs italic">
                         {" "}
-                        — {item.translation}
+                        — {translation}
                       </span>
                     )}
                   </a>{" "}
@@ -284,7 +283,8 @@ function HomeContent() {
                   </a>
                 </span>
               </li>
-            ))}
+              );
+            })}
           </ul>
         </section>
 

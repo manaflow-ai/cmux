@@ -1,145 +1,174 @@
 export const testimonials = [
   {
+    key: "mitchellh",
     name: "Mitchell Hashimoto",
     handle: "@mitchellh",
     subtitle: "Creator of Ghostty and founder of HashiCorp",
     avatar: "/avatars/mitchellh.jpg",
     text: "Another day another libghostty-based project, this time a macOS terminal with vertical tabs, better organization/notifications, embedded/scriptable browser specifically targeted towards people who use a ton of terminal-based agentic workflows.",
+    lang: "en",
     url: "https://x.com/mitchellh/status/2024913161238053296",
     platform: "x" as const,
   },
   {
+    key: "schrockn",
     name: "Nick Schrock",
     handle: "@schrockn",
     subtitle: "Creator of Dagster. GraphQL co-creator.",
     avatar: "/avatars/schrockn.jpg",
     text: "This is exactly the product I've been looking for. After two hours this am I've in love.",
+    lang: "en",
     url: "https://x.com/schrockn/status/2025182278637207857",
     platform: "x" as const,
   },
   {
+    key: "egrefen",
     name: "Edward Grefenstette",
     handle: "@egrefen",
     subtitle: "Director of Research at Google DeepMind",
     avatar: "/avatars/egrefen.jpg",
     text: "I've been using this all weekend and it's amazing.",
+    lang: "en",
     url: "https://x.com/egrefen/status/2026806171563184199",
     platform: "x" as const,
   },
   {
+    key: "max4c",
     name: "Max Forsey",
     handle: "@max4c_",
     avatar: "/avatars/max4c_.jpg",
     text: "this has been my favorite tool for past two weeks",
+    lang: "en",
     url: "https://x.com/max4c_/status/2027266664270889204",
     platform: "x" as const,
   },
   {
+    key: "asaza",
     name: "あさざ",
     handle: "@asaza_0928",
     avatar: "/avatars/asaza_0928.jpg",
     text: "cmux 良さそうすぎてついにバイバイ VSCode するときなのかもしれない",
-    translation: "cmux looks so good it might finally be time to say goodbye to VSCode",
+    lang: "ja",
     url: "https://x.com/asaza_0928/status/2026057269075698015",
     platform: "x" as const,
   },
   {
+    key: "johnthedebs",
     name: "johnthedebs",
     handle: "johnthedebs",
     avatar: null,
     text: "Hey, this looks seriously awesome. Love the ideas here, specifically: the programmability, layered UI, browser w/ api. Looking forward to giving this a spin. Also want to add that I really appreciate Mitchell Hashimoto creating libghostty; it feels like an exciting time to be a terminal user.",
+    lang: "en",
     url: "https://news.ycombinator.com/item?id=47083596",
     platform: "hn" as const,
   },
   {
+    key: "joeriddles",
     name: "Joe Riddle",
     handle: "@joeriddles10",
     avatar: "/avatars/joeriddles10.jpg",
     text: "Vertical tabs in my terminal \u{1F924} I never thought of that before. I use and love Firefox vertical tabs.",
+    lang: "en",
     url: "https://x.com/joeriddles10/status/2024914132416561465",
     platform: "x" as const,
   },
   {
+    key: "dchu17",
     name: "dchu17",
     handle: "dchu17",
     avatar: null,
     text: "Gave this a run and it was pretty intuitive. Good work!",
+    lang: "en",
     url: "https://news.ycombinator.com/item?id=47082577",
     platform: "hn" as const,
   },
   {
+    key: "afruth",
     name: "afruth",
     handle: "u/afruth",
     avatar: null,
     text: "I like it, ran it in the past day on three parallel projects each with several worktrees. Having this paired with lazygit and yazi / nvim made me a bit more productive than usual without having to chase multiple ghostty / iTerm instances. Also feels more natural than tmux.",
+    lang: "en",
     url: "https://www.reddit.com/r/ClaudeCode/comments/1r9g45u/comment/o6sxbr3/",
     platform: "reddit" as const,
   },
   {
+    key: "northprint",
     name: "Norihiro Narayama",
     handle: "@northprint",
     avatar: "/avatars/northprint.jpg",
     text: "cmux良さそうなので入れてみたけれど、良い",
-    translation: "Tried cmux since it looked good — it's good",
+    lang: "ja",
     url: "https://x.com/northprint/status/2025740286677434581",
     platform: "x" as const,
   },
   {
+    key: "indykish",
     name: "Kishore Neelamegam",
     handle: "@indykish",
     avatar: "/avatars/indykish.jpg",
     text: "cmux is pretty good.",
+    lang: "en",
     url: "https://x.com/indykish/status/2025318347970412673",
     platform: "x" as const,
   },
   {
+    key: "kataring",
     name: "かたりん",
     handle: "@kataring",
     avatar: "/avatars/kataring.jpg",
     text: "cmux.dev に乗り換えた",
-    translation: "Switched to cmux.dev",
+    lang: "ja",
     url: "https://x.com/kataring/status/2026189035056832718",
     platform: "x" as const,
   },
   {
+    key: "scottw",
     name: "Scott Watermasysk",
     handle: "@scottw",
     avatar: "/avatars/scottw.jpg",
     text: "This has been such a useful find. I can't recommend it enough.",
+    lang: "en",
     url: "https://x.com/scottw/status/2026806893067551084",
     platform: "x" as const,
   },
   {
+    key: "johnblythe",
     name: "John Blythe",
     handle: "@johnblythe",
     avatar: "/avatars/johnblythe.jpg",
     text: "grabbed this over the weekend and loved it. been waiting for something like this.",
+    lang: "en",
     url: "https://x.com/johnblythe/status/2026812731844637010",
     platform: "x" as const,
   },
   {
+    key: "bchris91",
     name: "Christopher",
     handle: "@BChris91",
     avatar: "/avatars/bchris91.jpg",
     text: "This is exactly what I've wanted. Amazing job thank you!",
+    lang: "en",
     url: "https://x.com/BChris91/status/2026821091637838273",
     platform: "x" as const,
   },
   {
+    key: "connorelsea",
     name: "Connor",
     handle: "@connorelsea",
     avatar: "/avatars/connorelsea.jpg",
     text: "Been using this for a week and it's fantastic. Vert tab for each WIP task. Inside, claudes on one side and browser with PR and resources on the other, switch between tasks and stay organized. Mix that with skills to have Claude watch CI recursively, etc. feeling enlightened tbh",
+    lang: "en",
     url: "https://x.com/connorelsea/status/2026867085750440390",
     platform: "x" as const,
   },
   {
+    key: "tonkotsuboy",
     name: "鹿野 壮 Takeshi Kano",
     handle: "@tonkotsuboy_com",
     avatar: "/avatars/tonkotsuboy_com.jpg",
     text: "年初にWarpからGhosttyに乗り換えたけど、今はcmuxに乗り換えた\uD83D\uDCBB 垂直タブが便利で、Claude Codeのタスクの終了が通知されるのがありがたい。Ghosttyベースだから爆速動作はそのまま。ghosttyでやったブランチ表示や補完もそのまま使える",
-    translation:
-      "I switched from Warp to Ghostty at the start of the year, but now I've switched to cmux. The vertical tabs are convenient, and I appreciate getting notified when Claude Code tasks finish. It's Ghostty-based so the blazing fast performance carries over. Branch display and completions I set up in Ghostty still work too.",
+    lang: "ja",
     url: "https://x.com/tonkotsuboy_com/status/2028458464801108212",
     platform: "x" as const,
   },
@@ -211,10 +240,38 @@ function Initials({ name }: { name: string }) {
   );
 }
 
+/**
+ * Returns the language family prefix for a locale (e.g., "zh" for "zh-CN").
+ */
+function langFamily(locale: string): string {
+  return locale.split("-")[0];
+}
+
+/**
+ * Get the translation to display for a testimonial in the given locale.
+ * Returns null if the testimonial is in the user's language.
+ */
+export function getTestimonialTranslation(
+  testimonial: Testimonial,
+  locale: string,
+  t: (key: string) => string
+): string | null {
+  if (langFamily(locale) === langFamily(testimonial.lang)) {
+    return null;
+  }
+  try {
+    return t(testimonial.key);
+  } catch {
+    return null;
+  }
+}
+
 export function TestimonialCard({
   testimonial,
+  translation,
 }: {
   testimonial: Testimonial;
+  translation?: string | null;
 }) {
   return (
     <a
@@ -253,9 +310,9 @@ export function TestimonialCard({
       <p className="text-[15px] leading-relaxed text-muted group-hover:text-foreground transition-colors">
         {testimonial.text}
       </p>
-      {"translation" in testimonial && testimonial.translation && (
+      {translation && (
         <p className="text-xs text-muted/60 mt-1.5 italic">
-          {testimonial.translation}
+          {translation}
         </p>
       )}
     </a>

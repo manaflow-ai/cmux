@@ -36,8 +36,8 @@
     "language": "语言"
   },
   "home": {
-    "taglinePrefix": "专为",
-    "subtitle": "基于 Ghostty 构建的原生 macOS 应用。支持垂直标签页、agent 需要关注时的通知提醒环、分屏面板，以及用于自动化的 socket API。",
+    "taglinePrefix": "开源终端，专为 ",
+    "subtitle": "基于 Ghostty 构建的原生 macOS 终端应用。开源免费。支持垂直标签页、agent 需要关注时的通知提醒环、分屏面板，以及用于自动化的 socket API。",
     "features": "功能特性",
     "faq": "常见问题",
     "communitySection": "社区",
@@ -430,6 +430,19 @@
       "osc777Desc": "RXVT 协议使用固定格式，包含标题和正文：",
       "osc99Title": "OSC 99（丰富）",
       "osc99Desc": "Kitty 协议支持副标题和通知 ID：",
+      "variableHeader": "变量",
+      "descriptionHeader": "描述",
+      "envTitle": "通知标题（工作区名称或应用名称）",
+      "envSubtitle": "通知副标题",
+      "envBody": "通知正文内容",
+      "cmpTitleBody": "标题 + 正文",
+      "cmpSubtitle": "副标题",
+      "cmpNotificationId": "通知 ID",
+      "cmpComplexity": "复杂度",
+      "cmpYes": "是",
+      "cmpNo": "否",
+      "cmpHigher": "较高",
+      "cmpLower": "较低",
       "featureHeader": "功能",
       "comparisonCallout": "简单通知用 OSC 777。需要副标题或通知 ID 时用 OSC 99。最简单的集成方式是用 CLI（cmux notify）。",
       "claudeCodeHooks": "Claude Code hooks",
@@ -506,6 +519,25 @@
   "wallOfLove": {
     "title": "用户好评",
     "description": "大家对 cmux 的评价。"
+  },
+  "testimonials": {
+    "mitchellh": "又一个基于 libghostty 的项目，这次是一个带垂直标签页、更好的组织/通知、内置可编程浏览器的 macOS 终端，专门面向大量使用终端 agent 工作流的用户。",
+    "schrockn": "这正是我一直在找的产品。用了两小时就爱上了。",
+    "egrefen": "整个周末都在用，太棒了。",
+    "max4c": "过去两周最喜欢的工具",
+    "asaza": "cmux 看起来太棒了，也许终于到了告别 VSCode 的时候",
+    "johnthedebs": "看起来真的很厉害。喜欢这些想法：可编程性、分层 UI、带 API 的浏览器。期待试用。也想说非常感谢 Mitchell Hashimoto 创建了 libghostty，作为终端用户感觉现在是个令人兴奋的时代。",
+    "joeriddles": "终端里的垂直标签页！之前从没想过。我用 Firefox 垂直标签页用得很开心。",
+    "dchu17": "试了一下，很直观。做得好！",
+    "afruth": "很喜欢，过去一天在三个并行项目上用了，每个都有多个 worktree。配合 lazygit 和 yazi/nvim，比以前高效多了，不用在多个 Ghostty/iTerm 实例之间切换。比 tmux 也更自然。",
+    "northprint": "试了 cmux，确实不错",
+    "indykish": "cmux 挺好用的。",
+    "kataring": "换到 cmux.dev 了",
+    "scottw": "非常有用的发现。强烈推荐。",
+    "johnblythe": "周末用了，很喜欢。一直在等这样的工具。",
+    "bchris91": "这正是我想要的。做得太好了，谢谢！",
+    "connorelsea": "用了一周，非常棒。每个进行中的任务一个垂直标签页。里面一边是 Claude，另一边是浏览器看 PR 和资料，在任务之间切换保持有序。配合 skill 让 Claude 递归监控 CI 等等。感觉开悟了。",
+    "tonkotsuboy": "年初从 Warp 换到 Ghostty，现在又换到了 cmux。垂直标签页很方便，Claude Code 任务完成时收到通知很实用。基于 Ghostty 所以依然飞快。之前在 Ghostty 里设置的分支显示和补全也都能用。"
   },
   "languageSwitcher": {
     "label": "语言"

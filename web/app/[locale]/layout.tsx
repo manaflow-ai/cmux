@@ -75,7 +75,7 @@ export default async function LocaleLayout({
 
   const messages = await getMessages();
 
-  const dir = locale === "ar" || locale === "km" ? "rtl" : "ltr";
+  const dir = locale === "ar" ? "rtl" : "ltr";
 
   const jsonLd = {
     "@context": "https://schema.org",

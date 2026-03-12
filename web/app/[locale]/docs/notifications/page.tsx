@@ -46,22 +46,22 @@ export default function NotificationsPage() {
       <table>
         <thead>
           <tr>
-            <th>Variable</th>
-            <th>Description</th>
+            <th>{t("variableHeader")}</th>
+            <th>{t("descriptionHeader")}</th>
           </tr>
         </thead>
         <tbody>
           <tr>
             <td><code>CMUX_NOTIFICATION_TITLE</code></td>
-            <td>Notification title (workspace name or app name)</td>
+            <td>{t("envTitle")}</td>
           </tr>
           <tr>
             <td><code>CMUX_NOTIFICATION_SUBTITLE</code></td>
-            <td>Notification subtitle</td>
+            <td>{t("envSubtitle")}</td>
           </tr>
           <tr>
             <td><code>CMUX_NOTIFICATION_BODY</code></td>
-            <td>Notification body text</td>
+            <td>{t("envBody")}</td>
           </tr>
         </tbody>
       </table>
@@ -114,24 +114,24 @@ printf '\\e]99;i=1;e=1;d=1;p=body:All tests passed\\e\\\\'`}</CodeBlock>
         </thead>
         <tbody>
           <tr>
-            <td>Title + body</td>
-            <td>Yes</td>
-            <td>Yes</td>
+            <td>{t("cmpTitleBody")}</td>
+            <td>{t("cmpYes")}</td>
+            <td>{t("cmpYes")}</td>
           </tr>
           <tr>
-            <td>Subtitle</td>
-            <td>Yes</td>
-            <td>No</td>
+            <td>{t("cmpSubtitle")}</td>
+            <td>{t("cmpYes")}</td>
+            <td>{t("cmpNo")}</td>
           </tr>
           <tr>
-            <td>Notification ID</td>
-            <td>Yes</td>
-            <td>No</td>
+            <td>{t("cmpNotificationId")}</td>
+            <td>{t("cmpYes")}</td>
+            <td>{t("cmpNo")}</td>
           </tr>
           <tr>
-            <td>Complexity</td>
-            <td>Higher</td>
-            <td>Lower</td>
+            <td>{t("cmpComplexity")}</td>
+            <td>{t("cmpHigher")}</td>
+            <td>{t("cmpLower")}</td>
           </tr>
         </tbody>
       </table>

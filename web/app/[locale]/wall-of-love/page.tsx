@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
-import { useTranslations } from "next-intl";
+import { useTranslations, useLocale } from "next-intl";
 import { SiteHeader } from "../components/site-header";
-import { testimonials, TestimonialCard } from "../testimonials";
+import { testimonials, TestimonialCard, getTestimonialTranslation } from "../testimonials";
 
 export const metadata: Metadata = {
   title: "Wall of Love — cmux",
@@ -11,6 +11,8 @@ export const metadata: Metadata = {
 
 export default function WallOfLovePage() {
   const t = useTranslations("wallOfLove");
+  const tt = useTranslations("testimonials");
+  const locale = useLocale();
 
   return (
     <div className="min-h-screen">
@@ -25,7 +27,11 @@ export default function WallOfLovePage() {
 
         <div className="columns-1 sm:columns-2 lg:columns-3 gap-4">
           {testimonials.map((testimonial) => (
-            <TestimonialCard key={testimonial.url} testimonial={testimonial} />
+            <TestimonialCard
+              key={testimonial.url}
+              testimonial={testimonial}
+              translation={getTestimonialTranslation(testimonial, locale, tt)}
+            />
           ))}
         </div>
       </main>
