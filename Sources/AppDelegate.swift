@@ -1305,9 +1305,17 @@ struct CmuxCLIPathInstaller {
     private static func installWithAdministratorPrivileges(sourceURL: URL, destinationURL: URL) throws {
         let destinationPath = destinationURL.path
         let parentPath = destinationURL.deletingLastPathComponent().path
+        // Create the symlink at a unique temp path, then atomically rename it
+        // into place with `mv -f`. This eliminates the TOCTOU window that
+        // existed between the old `rm -f` and `ln -s` steps: an attacker can
+        // no longer win the race to place a symlink at the destination between
+        // removal and creation. `mv` on the same filesystem uses rename(2)
+        // which is atomic even under admin privileges.
+        let tmpPath = destinationPath + ".cmux-install-tmp"
         let command = "/bin/mkdir -p \(shellQuoted(parentPath)) && " +
-            "/bin/rm -f \(shellQuoted(destinationPath)) && " +
-            "/bin/ln -s \(shellQuoted(sourceURL.path)) \(shellQuoted(destinationPath))"
+            "/bin/rm -f \(shellQuoted(tmpPath)) && " +
+            "/bin/ln -s \(shellQuoted(sourceURL.path)) \(shellQuoted(tmpPath)) && " +
+            "/bin/mv -f \(shellQuoted(tmpPath)) \(shellQuoted(destinationPath))"
         try runPrivilegedShellCommand(command)
     }
 
