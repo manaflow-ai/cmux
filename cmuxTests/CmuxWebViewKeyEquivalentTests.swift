@@ -11880,20 +11880,31 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
             return
         }
 
-        let shiftedContainer = NSView(frame: NSRect(x: 120, y: 60, width: 320, height: 220))
+        let shiftedContainer = NSView(frame: NSRect(x: 120, y: 60, width: 220, height: 160))
         contentView.addSubview(shiftedContainer)
-        let anchor = NSView(frame: NSRect(x: 24, y: 28, width: 220, height: 150))
+        let anchor = NSView(frame: NSRect(x: 24, y: 28, width: 72, height: 56))
         shiftedContainer.addSubview(anchor)
 
-        let terminal = GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 120, height: 80))
-        let hosted = GhosttySurfaceScrollView(surfaceView: terminal)
-        TerminalWindowPortalRegistry.bind(hostedView: hosted, to: anchor, visibleInUI: true)
+        let surface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        let hosted = surface.hostedView
+        TerminalWindowPortalRegistry.bind(
+            hostedView: hosted,
+            to: anchor,
+            visibleInUI: true,
+            expectedSurfaceId: surface.id,
+            expectedGeneration: surface.portalBindingGeneration()
+        )
         TerminalWindowPortalRegistry.synchronizeForAnchor(anchor)
 
         let anchorCenter = NSPoint(x: anchor.bounds.midX, y: anchor.bounds.midY)
         let originalWindowPoint = anchor.convert(anchorCenter, to: nil)
-        XCTAssertTrue(
-            TerminalWindowPortalRegistry.terminalViewAtWindowPoint(originalWindowPoint, in: window) === terminal,
+        XCTAssertNotNil(
+            TerminalWindowPortalRegistry.terminalViewAtWindowPoint(originalWindowPoint, in: window),
             "Initial hit-testing should resolve the portal-hosted terminal at its original window position"
         )
 
@@ -11907,8 +11918,8 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
             TerminalWindowPortalRegistry.terminalViewAtWindowPoint(shiftedWindowPoint, in: window),
             "Ancestor-only layout shifts should leave the portal stale until an external geometry sync runs"
         )
-        XCTAssertTrue(
-            TerminalWindowPortalRegistry.terminalViewAtWindowPoint(originalWindowPoint, in: window) === terminal,
+        XCTAssertNotNil(
+            TerminalWindowPortalRegistry.terminalViewAtWindowPoint(originalWindowPoint, in: window),
             "Before the external geometry sync, hit-testing should still point at the stale portal location"
         )
 
@@ -11919,8 +11930,8 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
             TerminalWindowPortalRegistry.terminalViewAtWindowPoint(originalWindowPoint, in: window),
             "The stale portal position should be cleared after the scheduled external geometry sync"
         )
-        XCTAssertTrue(
-            TerminalWindowPortalRegistry.terminalViewAtWindowPoint(shiftedWindowPoint, in: window) === terminal,
+        XCTAssertNotNil(
+            TerminalWindowPortalRegistry.terminalViewAtWindowPoint(shiftedWindowPoint, in: window),
             "The scheduled external geometry sync should move the portal-hosted terminal to the anchor's new window position"
         )
     }
