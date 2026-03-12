@@ -3428,6 +3428,33 @@ final class FullScreenShortcutTests: XCTestCase {
     }
 }
 
+final class TerminalFindShortcutActionTests: XCTestCase {
+    func testMatchesFindWhenCommandAwareLayoutTranslatesNonQwertyKeyToF() {
+        XCTAssertEqual(
+            terminalFindShortcutAction(
+                flags: [.command],
+                chars: "k",
+                keyCode: 40,
+                layoutCharacterProvider: { _, modifierFlags in
+                    modifierFlags.contains(.command) ? "f" : "k"
+                }
+            ),
+            .start
+        )
+    }
+
+    func testDoesNotFallbackToAnsiFWhenCommandAwareLayoutMapsToDifferentShortcut() {
+        XCTAssertNil(
+            terminalFindShortcutAction(
+                flags: [.command],
+                chars: "",
+                keyCode: 3,
+                layoutCharacterProvider: { _, _ in "u" }
+            )
+        )
+    }
+}
+
 final class BrowserZoomShortcutActionTests: XCTestCase {
     func testZoomInSupportsEqualsAndPlusVariants() {
         XCTAssertEqual(
@@ -3577,6 +3604,199 @@ final class GhosttyResponderResolutionTests: XCTestCase {
     func testReturnsNilForUnrelatedResponder() {
         let view = FocusProbeView(frame: NSRect(x: 0, y: 0, width: 40, height: 40))
         XCTAssertNil(cmuxOwningGhosttyView(for: view))
+    }
+}
+
+@MainActor
+final class TerminalFindShortcutRoutingTests: XCTestCase {
+    private final class ActionSpy: NSObject {
+        var invocationCount = 0
+
+        @objc func didInvoke(_ sender: Any?) {
+            invocationCount += 1
+        }
+    }
+
+    private func installMenu(spy: ActionSpy) {
+        let mainMenu = NSMenu()
+        let findItem = NSMenuItem(title: "Find", action: nil, keyEquivalent: "")
+        let findMenu = NSMenu(title: "Find")
+
+        let item = NSMenuItem(title: "Find…", action: #selector(ActionSpy.didInvoke(_:)), keyEquivalent: "f")
+        item.keyEquivalentModifierMask = [.command]
+        item.target = spy
+        findMenu.addItem(item)
+
+        mainMenu.addItem(findItem)
+        mainMenu.setSubmenu(findMenu, for: findItem)
+
+        _ = NSApplication.shared
+        NSApp.mainMenu = mainMenu
+    }
+
+    private func terminalSurfaceView(in hostedView: GhosttySurfaceScrollView) -> GhosttyNSView? {
+        var stack: [NSView] = [hostedView]
+        while let current = stack.popLast() {
+            if let surfaceView = current as? GhosttyNSView {
+                return surfaceView
+            }
+            stack.append(contentsOf: current.subviews)
+        }
+        return nil
+    }
+
+    private func makeTerminalSurfaceWindow() -> (surface: TerminalSurface, hostedView: GhosttySurfaceScrollView, surfaceView: GhosttyNSView, window: NSWindow)? {
+        let surface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        let hostedView = surface.hostedView
+        guard let surfaceView = terminalSurfaceView(in: hostedView) else {
+            return nil
+        }
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        guard let contentView = window.contentView else {
+            return nil
+        }
+        hostedView.frame = contentView.bounds
+        hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostedView)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        hostedView.setVisibleInUI(true)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        return (surface, hostedView, surfaceView, window)
+    }
+
+    private func makeManagedTerminalWindow() -> (manager: TabManager, panel: TerminalPanel, surfaceView: GhosttyNSView, window: NSWindow)? {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let panel = workspace.focusedTerminalPanel else {
+            return nil
+        }
+
+        let hostedView = panel.hostedView
+        guard let surfaceView = terminalSurfaceView(in: hostedView) else {
+            return nil
+        }
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        guard let contentView = window.contentView else {
+            return nil
+        }
+        hostedView.frame = contentView.bounds
+        hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostedView)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        hostedView.setVisibleInUI(true)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        return (manager, panel, surfaceView, window)
+    }
+
+    func testCommandFFiresMenuShortcutBeforeGhosttyBinding() {
+        let previousMenu = NSApp.mainMenu
+        defer { NSApp.mainMenu = previousMenu }
+
+        let spy = ActionSpy()
+        installMenu(spy: spy)
+
+        guard let (surface, hostedView, surfaceView, window) = makeTerminalSurfaceWindow() else {
+            XCTFail("Expected Ghostty surface view")
+            return
+        }
+        defer { window.orderOut(nil) }
+        _ = surface
+        _ = hostedView
+
+        XCTAssertTrue(window.makeFirstResponder(surfaceView), "Expected terminal to be first responder")
+
+        guard let event = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: "f",
+            charactersIgnoringModifiers: "f",
+            isARepeat: false,
+            keyCode: 3
+        ) else {
+            XCTFail("Expected Cmd-F event")
+            return
+        }
+
+        XCTAssertTrue(surfaceView.performKeyEquivalent(with: event))
+        XCTAssertEqual(spy.invocationCount, 1, "Cmd-F should fire the app menu before Ghostty bindings")
+    }
+
+    func testDirectTerminalFindShortcutDoesNotDismissExistingFindOverlay() {
+        guard let (surface, _, surfaceView, window) = makeTerminalSurfaceWindow() else {
+            XCTFail("Expected Ghostty surface view")
+            return
+        }
+        defer { window.orderOut(nil) }
+
+        surface.searchState = TerminalSurface.SearchState()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertNotNil(surface.searchState)
+
+        guard let event = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: "f",
+            charactersIgnoringModifiers: "f",
+            isARepeat: false,
+            keyCode: 3
+        ) else {
+            XCTFail("Expected Cmd-F event")
+            return
+        }
+
+        XCTAssertTrue(handleTerminalFindShortcutEquivalent(event: event, ghosttyView: surfaceView, mainMenu: nil))
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        XCTAssertNotNil(surface.searchState, "Repeated direct terminal Find should keep the existing overlay visible")
+    }
+
+    func testTabManagerStartSearchDoesNotDismissExistingFindOverlay() {
+        guard let (manager, panel, _, window) = makeManagedTerminalWindow() else {
+            XCTFail("Expected managed terminal surface view")
+            return
+        }
+        defer { window.orderOut(nil) }
+
+        panel.searchState = TerminalSurface.SearchState()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        manager.startSearch()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        XCTAssertNotNil(panel.searchState, "Repeated menu terminal Find should keep the existing overlay visible")
     }
 }
 
@@ -11326,6 +11546,74 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
             escapeKeyUpCount,
             0,
             "Escape used to dismiss find overlay must not pass through to the terminal key-up path"
+        )
+    }
+
+    func testRestorePanelFocusIntentDoesNotRepostSearchFocusWhenFieldAlreadyFocused() {
+        _ = NSApplication.shared
+
+        let surface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        let hostedView = surface.hostedView
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+        hostedView.frame = contentView.bounds
+        hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostedView)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        hostedView.setVisibleInUI(true)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        let searchState = TerminalSurface.SearchState(needle: "focus")
+        surface.searchState = searchState
+        hostedView.setSearchOverlay(searchState: searchState)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        guard let searchField = findEditableTextField(in: hostedView) else {
+            XCTFail("Expected mounted find text field")
+            return
+        }
+        XCTAssertTrue(window.makeFirstResponder(searchField), "Expected search field to become first responder")
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        var searchFocusNotificationCount = 0
+        let observer = NotificationCenter.default.addObserver(
+            forName: .ghosttySearchFocus,
+            object: surface,
+            queue: .main
+        ) { _ in
+            searchFocusNotificationCount += 1
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        XCTAssertTrue(
+            hostedView.restorePanelFocusIntent(.findField),
+            "Expected find-field focus intent to restore while search is active"
+        )
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        XCTAssertEqual(
+            searchFocusNotificationCount,
+            0,
+            "Already-focused terminal find field should not repost ghosttySearchFocus"
         )
     }
 

@@ -753,15 +753,16 @@ class TabManager: ObservableObject {
 #endif
             return
         }
-        let wasNil = panel.searchState == nil
-        if wasNil {
-            panel.searchState = TerminalSurface.SearchState()
-        }
+        let hadExistingSearch = panel.searchState != nil
+        let handled = startOrFocusTerminalSearch(panel.surface)
 #if DEBUG
-        dlog("find.startSearch workspace=\(panel.workspaceId.uuidString.prefix(5)) panel=\(panel.id.uuidString.prefix(5)) created=\(wasNil ? "yes" : "no(reuse)") firstResponder=\(String(describing: panel.surface.hostedView.window?.firstResponder))")
+        dlog(
+            "find.startSearch workspace=\(panel.workspaceId.uuidString.prefix(5)) " +
+                "panel=\(panel.id.uuidString.prefix(5)) existing=\(hadExistingSearch ? "yes" : "no") " +
+                "handled=\(handled ? 1 : 0) " +
+                "firstResponder=\(String(describing: panel.surface.hostedView.window?.firstResponder))"
+        )
 #endif
-        NotificationCenter.default.post(name: .ghosttySearchFocus, object: panel.surface)
-        _ = panel.performBindingAction("start_search")
     }
 
     func searchSelection() {

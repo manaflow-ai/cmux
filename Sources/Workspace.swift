@@ -1033,12 +1033,11 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     static func bonsplitChromeHex(backgroundColor: NSColor, backgroundOpacity: Double) -> String {
-        let themedColor = GhosttyBackgroundTheme.color(
-            backgroundColor: backgroundColor,
-            opacity: backgroundOpacity
-        )
-        let includeAlpha = themedColor.alphaComponent < 0.999
-        return themedColor.hexString(includeAlpha: includeAlpha)
+        _ = backgroundOpacity
+        // Terminal translucency should not leak into window chrome. Bonsplit's tab strip
+        // and split backgrounds need an opaque theme color so the titlebar and tabs do not
+        // read as transparent when the terminal background uses alpha.
+        return backgroundColor.withAlphaComponent(1.0).hexString()
     }
 
     nonisolated static func resolvedChromeColors(

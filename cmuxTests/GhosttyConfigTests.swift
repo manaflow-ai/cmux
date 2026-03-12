@@ -583,7 +583,7 @@ final class WorkspaceAppearanceConfigResolutionTests: XCTestCase {
 
 @MainActor
 final class WorkspaceChromeColorTests: XCTestCase {
-    func testBonsplitChromeHexIncludesAlphaWhenTranslucent() {
+    func testBonsplitChromeHexOmitsAlphaWhenTranslucent() {
         let color = NSColor(
             srgbRed: 17.0 / 255.0,
             green: 34.0 / 255.0,
@@ -592,7 +592,7 @@ final class WorkspaceChromeColorTests: XCTestCase {
         )
 
         let hex = Workspace.bonsplitChromeHex(backgroundColor: color, backgroundOpacity: 0.5)
-        XCTAssertEqual(hex, "#1122337F")
+        XCTAssertEqual(hex, "#112233")
     }
 
     func testBonsplitChromeHexOmitsAlphaWhenOpaque() {

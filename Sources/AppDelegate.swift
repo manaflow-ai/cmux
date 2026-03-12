@@ -1682,6 +1682,150 @@ func shouldRouteTerminalFontZoomShortcutToGhostty(
     ) != nil
 }
 
+@discardableResult
+func startOrFocusTerminalSearch(
+    _ terminalSurface: TerminalSurface,
+    searchFocusNotifier: @escaping (TerminalSurface) -> Void = {
+        NotificationCenter.default.post(name: .ghosttySearchFocus, object: $0)
+    }
+) -> Bool {
+    if terminalSurface.searchState != nil {
+        searchFocusNotifier(terminalSurface)
+        return true
+    }
+
+    if terminalSurface.performBindingAction("start_search") {
+        DispatchQueue.main.async { [weak terminalSurface] in
+            guard let terminalSurface, terminalSurface.searchState == nil else { return }
+            terminalSurface.searchState = TerminalSurface.SearchState()
+            searchFocusNotifier(terminalSurface)
+        }
+        return true
+    }
+
+    terminalSurface.searchState = TerminalSurface.SearchState()
+    searchFocusNotifier(terminalSurface)
+    return true
+}
+
+enum TerminalFindShortcutAction {
+    case start
+    case next
+    case previous
+    case hide
+    case selection
+
+#if DEBUG
+    var debugName: String {
+        switch self {
+        case .start: return "start"
+        case .next: return "next"
+        case .previous: return "previous"
+        case .hide: return "hide"
+        case .selection: return "selection"
+        }
+    }
+#endif
+}
+
+func terminalFindShortcutAction(
+    flags: NSEvent.ModifierFlags,
+    chars: String,
+    keyCode: UInt16,
+    layoutCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:)
+) -> TerminalFindShortcutAction? {
+    let normalizedFlags = flags.intersection(.deviceIndependentFlagsMask)
+    guard normalizedFlags.contains(.command),
+          !normalizedFlags.contains(.option),
+          !normalizedFlags.contains(.control) else {
+        return nil
+    }
+
+    let normalizedChars = chars.lowercased()
+    let charsAreControlSequence = !normalizedChars.isEmpty
+        && normalizedChars.unicodeScalars.allSatisfy { CharacterSet.controlCharacters.contains($0) }
+
+    let shortcutCharacter: String? = {
+        if let translated = layoutCharacterProvider(keyCode, normalizedFlags),
+           !translated.isEmpty {
+            return translated.lowercased()
+        }
+        if !normalizedChars.isEmpty && !charsAreControlSequence {
+            return normalizedChars
+        }
+        switch keyCode {
+        case 3:
+            return "f"
+        case 5:
+            return "g"
+        case 14:
+            return "e"
+        default:
+            return nil
+        }
+    }()
+
+    switch (shortcutCharacter, normalizedFlags.contains(.shift)) {
+    case ("f"?, false):
+        return .start
+    case ("g"?, false):
+        return .next
+    case ("g"?, true):
+        return .previous
+    case ("f"?, true):
+        return .hide
+    case ("e"?, false):
+        return .selection
+    default:
+        return nil
+    }
+}
+
+@discardableResult
+func handleTerminalFindShortcutEquivalent(
+    event: NSEvent,
+    ghosttyView: GhosttyNSView,
+    mainMenu: NSMenu? = NSApp.mainMenu
+) -> Bool {
+    guard let action = terminalFindShortcutAction(
+        flags: event.modifierFlags,
+        chars: event.charactersIgnoringModifiers ?? "",
+        keyCode: event.keyCode
+    ) else {
+        return false
+    }
+
+    if let mainMenu, mainMenu.performKeyEquivalent(with: event) {
+        return true
+    }
+
+    guard let terminalSurface = ghosttyView.terminalSurface else { return false }
+    switch action {
+    case .start:
+        _ = startOrFocusTerminalSearch(terminalSurface)
+    case .next:
+        _ = terminalSurface.performBindingAction("search:next")
+    case .previous:
+        _ = terminalSurface.performBindingAction("search:previous")
+    case .hide:
+        terminalSurface.searchState = nil
+    case .selection:
+        if terminalSurface.searchState == nil {
+            terminalSurface.searchState = TerminalSurface.SearchState()
+        }
+        NotificationCenter.default.post(name: .ghosttySearchFocus, object: terminalSurface)
+        _ = terminalSurface.performBindingAction("search_selection")
+    }
+
+#if DEBUG
+    dlog(
+        "find.shortcut.directFallback action=\(action.debugName) " +
+        "surface=\(terminalSurface.id.uuidString.prefix(5))"
+    )
+#endif
+    return true
+}
+
 func cmuxOwningGhosttyView(for responder: NSResponder?) -> GhosttyNSView? {
     guard let responder else { return nil }
     if let ghosttyView = responder as? GhosttyNSView {
@@ -11030,6 +11174,10 @@ private extension NSWindow {
 #if DEBUG
                 dlog("zoom.shortcut stage=window.ghosttyKeyDownDirect event=\(Self.keyDescription(event)) handled=1")
 #endif
+                return true
+            }
+
+            if handleTerminalFindShortcutEquivalent(event: event, ghosttyView: ghosttyView) {
                 return true
             }
         }
