@@ -1,11 +1,19 @@
-import type { Metadata } from "next";
 import { useTranslations } from "next-intl";
+import { getTranslations } from "next-intl/server";
 import { Link } from "../../../i18n/navigation";
 
-export const metadata: Metadata = {
-  title: "Blog",
-  description: "News and updates from the cmux team",
-};
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ locale: string }>;
+}) {
+  const { locale } = await params;
+  const t = await getTranslations({ locale, namespace: "blog" });
+  return {
+    title: t("metaTitle"),
+    description: t("metaDescription"),
+  };
+}
 
 const blogSlugs = [
   "cmdShiftU",

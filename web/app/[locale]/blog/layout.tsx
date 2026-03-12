@@ -1,21 +1,29 @@
-import type { Metadata } from "next";
+import { getTranslations } from "next-intl/server";
 import { SiteHeader } from "../components/site-header";
 import { BlogPager } from "../components/blog-pager";
 import { BlogCTA } from "../components/blog-cta";
 
-export const metadata: Metadata = {
-  title: {
-    template: "%s — cmux blog",
-    default: "cmux blog",
-  },
-  openGraph: {
-    siteName: "cmux",
-    type: "article",
-  },
-  alternates: {
-    canonical: "./",
-  },
-};
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ locale: string }>;
+}) {
+  const { locale } = await params;
+  const t = await getTranslations({ locale, namespace: "blog" });
+  return {
+    title: {
+      template: `%s — ${t("layoutTitle")}`,
+      default: t("layoutTitle"),
+    },
+    openGraph: {
+      siteName: "cmux",
+      type: "article" as const,
+    },
+    alternates: {
+      canonical: "./",
+    },
+  };
+}
 
 export default function BlogLayout({
   children,

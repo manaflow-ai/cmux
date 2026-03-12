@@ -1,7 +1,11 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { NextIntlClientProvider } from "next-intl";
-import { getMessages, setRequestLocale } from "next-intl/server";
+import {
+  getMessages,
+  getTranslations,
+  setRequestLocale,
+} from "next-intl/server";
 import { notFound } from "next/navigation";
 import { routing } from "../../i18n/routing";
 import { Providers } from "./providers";
@@ -19,40 +23,47 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
-export const metadata: Metadata = {
-  title: "cmux — The terminal built for multitasking",
-  description:
-    "Native macOS terminal built on Ghostty. Works with Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider, and any CLI tool. Vertical tabs, notification rings, split panes, and a socket API.",
-  keywords: [
-    "terminal",
-    "macOS",
-    "coding agents",
-    "Claude Code",
-    "Codex",
-    "OpenCode",
-    "Gemini CLI",
-    "Kiro",
-    "Aider",
-    "Ghostty",
-    "AI",
-    "terminal for AI agents",
-  ],
-  openGraph: {
-    title: "cmux — The terminal built for multitasking",
-    description:
-      "Native macOS terminal for AI coding agents. Works with Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider, and any CLI tool.",
-    url: "https://cmux.dev",
-    siteName: "cmux",
-    type: "website",
-  },
-  twitter: {
-    card: "summary",
-    title: "cmux — The terminal built for multitasking",
-    description:
-      "Native macOS terminal for AI coding agents. Works with Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider, and any CLI tool.",
-  },
-  metadataBase: new URL("https://cmux.dev"),
-};
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ locale: string }>;
+}): Promise<Metadata> {
+  const { locale } = await params;
+  const t = await getTranslations({ locale, namespace: "meta" });
+  const url =
+    locale === "en" ? "https://cmux.dev" : `https://cmux.dev/${locale}`;
+  return {
+    title: t("title"),
+    description: t("description"),
+    keywords: [
+      "terminal",
+      "macOS",
+      "coding agents",
+      "Claude Code",
+      "Codex",
+      "OpenCode",
+      "Gemini CLI",
+      "Kiro",
+      "Aider",
+      "Ghostty",
+      "AI",
+      "terminal for AI agents",
+    ],
+    openGraph: {
+      title: t("title"),
+      description: t("ogDescription"),
+      url,
+      siteName: "cmux",
+      type: "website",
+    },
+    twitter: {
+      card: "summary",
+      title: t("title"),
+      description: t("ogDescription"),
+    },
+    metadataBase: new URL("https://cmux.dev"),
+  };
+}
 
 export function generateStaticParams() {
   return routing.locales.map((locale) => ({ locale }));

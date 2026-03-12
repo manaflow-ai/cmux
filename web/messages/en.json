@@ -1,4 +1,9 @@
 {
+  "meta": {
+    "title": "cmux — The terminal built for multitasking",
+    "description": "Native macOS terminal built on Ghostty. Works with Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider, and any CLI tool. Vertical tabs, notification rings, split panes, and a socket API.",
+    "ogDescription": "Native macOS terminal for AI coding agents. Works with Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider, and any CLI tool."
+  },
   "common": {
     "downloadForMac": "Download for Mac",
     "viewOnGitHub": "View on GitHub",
@@ -98,6 +103,9 @@
   },
   "blog": {
     "title": "Blog",
+    "layoutTitle": "cmux blog",
+    "metaTitle": "Blog",
+    "metaDescription": "News and updates from the cmux team",
     "description": "News and updates from the cmux team",
     "zenOfCmux": {
       "metaTitle": "The Zen of cmux",
@@ -175,6 +183,7 @@
     }
   },
   "docs": {
+    "layoutTitle": "cmux docs",
     "gettingStarted": {
       "title": "Getting Started",
       "metaTitle": "Getting Started",
