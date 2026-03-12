@@ -7,6 +7,7 @@ import WebKit
 private var cmuxWindowBrowserPortalKey: UInt8 = 0
 private var cmuxWindowBrowserPortalCloseObserverKey: UInt8 = 0
 private var cmuxBrowserSearchOverlayPanelIdAssociationKey: UInt8 = 0
+private var cmuxBrowserPortalNeedsRenderingStateReattachKey: UInt8 = 0
 
 #if DEBUG
 private func browserPortalDebugToken(_ view: NSView?) -> String {
@@ -44,7 +45,23 @@ private extension NSResponder {
 }
 
 private extension WKWebView {
+    private var browserPortalNeedsRenderingStateReattach: Bool {
+        get {
+            (objc_getAssociatedObject(self, &cmuxBrowserPortalNeedsRenderingStateReattachKey) as? NSNumber)?
+                .boolValue ?? false
+        }
+        set {
+            objc_setAssociatedObject(
+                self,
+                &cmuxBrowserPortalNeedsRenderingStateReattachKey,
+                NSNumber(value: newValue),
+                .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+            )
+        }
+    }
+
     func browserPortalNotifyHidden(reason: String) {
+        browserPortalNeedsRenderingStateReattach = true
         let firedSelectors = ["viewDidHide", "_exitInWindow"].filter {
             browserPortalCallVoidIfAvailable($0)
         }
@@ -59,7 +76,9 @@ private extension WKWebView {
     }
 
     func browserPortalReattachRenderingState(reason: String) {
+        guard browserPortalNeedsRenderingStateReattach else { return }
         guard window != nil else { return }
+        browserPortalNeedsRenderingStateReattach = false
 
         let firedSelectors = [
             "viewDidUnhide",
@@ -2918,7 +2937,11 @@ final class WindowBrowserPortal: NSObject {
             containerView.setPaneDropContext(nil)
             containerView.setPortalDragDropZone(nil)
             containerView.setDropZoneOverlay(zone: nil)
-            if !containerView.isHidden, webView.superview === containerView {
+            // Tab/workspace visibility changes should hide the portal slot without forcing
+            // WebKit through `_exitInWindow`/`_enterInWindow`, which fires visibilitychange
+            // and can trigger page reloads. Reserve the full lifecycle notify for cases
+            // where the visible surface is actually leaving the window/render tree.
+            if entry.visibleInUI, !containerView.isHidden, webView.superview === containerView {
                 webView.browserPortalNotifyHidden(reason: reason)
             }
             containerView.isHidden = true
