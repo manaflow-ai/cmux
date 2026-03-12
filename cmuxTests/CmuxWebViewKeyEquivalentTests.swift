@@ -11515,6 +11515,76 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         )
     }
 
+    func testPortalSyncRepairsBottomDockedInspectorOverflowedPageFrame() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        realizeWindowLayout(window)
+        let portal = WindowBrowserPortal(window: window)
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let anchor = NSView(frame: NSRect(x: 40, y: 24, width: 260, height: 180))
+        contentView.addSubview(anchor)
+
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        portal.bind(webView: webView, to: anchor, visibleInUI: true)
+        contentView.layoutSubtreeIfNeeded()
+        portal.synchronizeWebViewForAnchor(anchor)
+
+        guard let slot = webView.superview as? WindowBrowserSlotView else {
+            XCTFail("Expected browser slot")
+            return
+        }
+
+        let inspectorHeight: CGFloat = 84
+        let inspectorContainer = NSView(
+            frame: NSRect(x: 0, y: 0, width: slot.bounds.width, height: inspectorHeight)
+        )
+        inspectorContainer.autoresizingMask = [.width]
+        let inspectorView = WKInspectorProbeView(frame: inspectorContainer.bounds)
+        inspectorView.autoresizingMask = [.width, .height]
+        inspectorContainer.addSubview(inspectorView)
+        slot.addSubview(inspectorContainer)
+
+        webView.frame = NSRect(
+            x: 0,
+            y: inspectorHeight,
+            width: slot.bounds.width,
+            height: slot.bounds.height
+        )
+        webView.autoresizingMask = [.width, .height]
+        slot.layoutSubtreeIfNeeded()
+
+        portal.synchronizeWebViewForAnchor(anchor)
+
+        XCTAssertFalse(slot.isHidden, "Portal sync should keep the hosted browser visible")
+        XCTAssertEqual(
+            webView.frame.minY,
+            inspectorHeight,
+            accuracy: 0.5,
+            "Portal sync should keep the page viewport below a bottom-docked inspector instead of shifting the page upward"
+        )
+        XCTAssertEqual(
+            webView.frame.height,
+            slot.bounds.height - inspectorHeight,
+            accuracy: 0.5,
+            "Portal sync should shrink the page viewport to the space above a bottom-docked inspector"
+        )
+        XCTAssertEqual(
+            webView.frame.maxY,
+            slot.bounds.maxY,
+            accuracy: 0.5,
+            "The repaired page viewport should stay flush with the top edge of the slot"
+        )
+    }
+
     func testHiddenPortalSyncDoesNotStealLocallyHostedDevToolsWebViewDuringResize() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 520, height: 320),
