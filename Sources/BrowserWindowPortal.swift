@@ -1530,6 +1530,12 @@ final class BrowserPaneDropTargetView: NSView {
 
 final class WindowBrowserSlotView: NSView {
     override var isOpaque: Bool { false }
+    override var isHidden: Bool {
+        didSet {
+            guard isHidden, !oldValue, let window else { return }
+            yieldOwnedFirstResponderIfNeeded(in: window, reason: "slotHidden")
+        }
+    }
     private let paneDropTargetView = BrowserPaneDropTargetView(frame: .zero)
     private let dropZoneOverlayView = BrowserDropZoneOverlayView(frame: .zero)
     private var searchOverlayHostingView: NSHostingView<BrowserSearchOverlay>?
@@ -1569,6 +1575,13 @@ final class WindowBrowserSlotView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         nil
+    }
+
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        if newWindow == nil, let currentWindow = window {
+            yieldOwnedFirstResponderIfNeeded(in: currentWindow, reason: "slotWillLeaveWindow")
+        }
+        super.viewWillMove(toWindow: newWindow)
     }
 
     override func layout() {
@@ -1736,6 +1749,23 @@ final class WindowBrowserSlotView: NSView {
               searchOverlayPanelId(for: firstResponder) == panelId else {
             return false
         }
+        return window.makeFirstResponder(nil)
+    }
+
+    @discardableResult
+    private func yieldOwnedFirstResponderIfNeeded(in window: NSWindow, reason: String) -> Bool {
+        guard let firstResponder = window.firstResponder,
+              let owningView = firstResponder.browserPortalOwningView,
+              owningView === self || owningView.isDescendant(of: self) else {
+            return false
+        }
+#if DEBUG
+        dlog(
+            "browser.slot.firstResponder.yield reason=\(reason) " +
+            "slot=\(browserPortalDebugToken(self)) " +
+            "responder=\(String(describing: type(of: firstResponder)))"
+        )
+#endif
         return window.makeFirstResponder(nil)
     }
 
