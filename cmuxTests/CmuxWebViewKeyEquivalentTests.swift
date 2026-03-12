@@ -2504,7 +2504,9 @@ final class BrowserSessionHistoryRestoreTests: XCTestCase {
 
 @MainActor
 final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
-    private final class WKInspectorProbeView: NSView {}
+    private final class WKInspectorProbeView: NSView {
+        override var acceptsFirstResponder: Bool { true }
+    }
 
     private final class FakeInspector: NSObject {
         private(set) var attachCount = 0
@@ -10753,6 +10755,37 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         XCTAssertFalse(hostedView.debugHasKeyboardCopyModeIndicator())
     }
 
+    @MainActor
+    func testDropHoverOverlayAttachesToParentContainerInsteadOfHostedTerminalView() {
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 240, height: 120))
+        let surfaceView = GhosttyNSView(frame: .zero)
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        hostedView.frame = container.bounds
+        container.addSubview(hostedView)
+
+        hostedView.setDropZoneOverlay(zone: .right)
+        container.layoutSubtreeIfNeeded()
+
+        let state = hostedView.debugDropZoneOverlayState()
+        XCTAssertFalse(state.isHidden)
+        XCTAssertFalse(
+            state.isAttachedToHostedView,
+            "Drop-hover overlay should be mounted outside the hosted terminal view"
+        )
+        XCTAssertTrue(
+            state.isAttachedToParentContainer,
+            "Drop-hover overlay should be mounted in the parent container so it cannot perturb terminal layout"
+        )
+        XCTAssertEqual(state.frame.origin.x, 120, accuracy: 0.5)
+        XCTAssertEqual(state.frame.origin.y, 4, accuracy: 0.5)
+        XCTAssertEqual(state.frame.size.width, 116, accuracy: 0.5)
+        XCTAssertEqual(state.frame.size.height, 112, accuracy: 0.5)
+
+        hostedView.setDropZoneOverlay(zone: nil)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+        XCTAssertTrue(hostedView.debugDropZoneOverlayState().isHidden)
+    }
+
     func testForceRefreshNoopsAfterSurfaceReleaseDuringGeometryReconcile() throws {
 #if DEBUG
         let window = NSWindow(
@@ -11582,6 +11615,46 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             webView.frame.width,
             slot.bounds.width,
             "Side-docked inspector should still own part of the slot after pane resize"
+        )
+    }
+
+    func testHidingBrowserSlotYieldsOwnedInspectorFirstResponder() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        realizeWindowLayout(window)
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let slot = WindowBrowserSlotView(frame: NSRect(x: 40, y: 24, width: 260, height: 180))
+        contentView.addSubview(slot)
+
+        let inspectorContainer = NSView(frame: slot.bounds)
+        inspectorContainer.autoresizingMask = [.width, .height]
+        let inspectorView = WKInspectorProbeView(frame: inspectorContainer.bounds)
+        inspectorView.autoresizingMask = [.width, .height]
+        inspectorContainer.addSubview(inspectorView)
+        slot.addSubview(inspectorContainer)
+        contentView.layoutSubtreeIfNeeded()
+
+        XCTAssertTrue(
+            window.makeFirstResponder(inspectorView),
+            "Precondition failed: inspector probe should become first responder"
+        )
+        XCTAssertTrue(window.firstResponder === inspectorView)
+
+        slot.isHidden = true
+
+        XCTAssertNil(
+            window.firstResponder,
+            "Hiding a browser slot should yield any owned inspector responder before it goes off-screen"
         )
     }
 
