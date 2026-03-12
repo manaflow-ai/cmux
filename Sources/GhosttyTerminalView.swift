@@ -2589,6 +2589,10 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private static let surfaceLogPath = "/tmp/cmux-ghostty-surface.log"
     private static let sizeLogPath = "/tmp/cmux-ghostty-size.log"
 
+    func debugCurrentPixelSize() -> (width: UInt32, height: UInt32) {
+        (lastPixelWidth, lastPixelHeight)
+    }
+
     private static func surfaceLog(_ message: String) {
         let timestamp = ISO8601DateFormatter().string(from: Date())
         let line = "[\(timestamp)] \(message)\n"

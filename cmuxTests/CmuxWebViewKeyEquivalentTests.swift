@@ -10683,6 +10683,74 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         XCTAssertFalse(hostedView.debugHasKeyboardCopyModeIndicator())
     }
 
+    func testDropHoverOverlayDefersTerminalResizeUntilHoverEnds() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let surface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        let hostedView = surface.hostedView
+        hostedView.frame = contentView.bounds
+        contentView.addSubview(hostedView)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        let initialPixelSize = surface.debugCurrentPixelSize()
+        XCTAssertGreaterThan(initialPixelSize.width, 0)
+        XCTAssertGreaterThan(initialPixelSize.height, 0)
+
+        hostedView.setDropZoneOverlay(zone: .left)
+        hostedView.frame = NSRect(x: 0, y: 0, width: 440, height: 280)
+        contentView.layoutSubtreeIfNeeded()
+        hostedView.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        XCTAssertEqual(
+            surface.debugCurrentPixelSize().width,
+            initialPixelSize.width,
+            "Active drop-hover overlay should not resize the terminal surface before drop"
+        )
+        XCTAssertEqual(
+            surface.debugCurrentPixelSize().height,
+            initialPixelSize.height,
+            "Active drop-hover overlay should keep the terminal surface height stable before drop"
+        )
+
+        hostedView.setDropZoneOverlay(zone: nil)
+        contentView.layoutSubtreeIfNeeded()
+        hostedView.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        let resizedPixelSize = surface.debugCurrentPixelSize()
+        XCTAssertGreaterThan(
+            resizedPixelSize.width,
+            initialPixelSize.width,
+            "Clearing the drop-hover overlay should allow the deferred terminal resize to land"
+        )
+        XCTAssertGreaterThan(
+            resizedPixelSize.height,
+            initialPixelSize.height,
+            "Clearing the drop-hover overlay should restore the pending terminal height update"
+        )
+    }
+
     func testForceRefreshNoopsAfterSurfaceReleaseDuringGeometryReconcile() throws {
 #if DEBUG
         let window = NSWindow(
