@@ -2434,7 +2434,9 @@ final class BrowserSessionHistoryRestoreTests: XCTestCase {
 
 @MainActor
 final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
-    private final class WKInspectorProbeView: NSView {}
+    private final class WKInspectorProbeView: NSView {
+        override var acceptsFirstResponder: Bool { true }
+    }
 
     private final class FakeInspector: NSObject {
         private(set) var attachCount = 0
@@ -11695,6 +11697,51 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             accuracy: 0.5,
             "The repaired page viewport should stay flush with the top edge of the slot"
         )
+    }
+
+    func testHidingBrowserSlotYieldsOwnedInspectorFirstResponder() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        realizeWindowLayout(window)
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let slot = WindowBrowserSlotView(frame: NSRect(x: 40, y: 24, width: 260, height: 180))
+        contentView.addSubview(slot)
+
+        let inspectorContainer = NSView(frame: slot.bounds)
+        inspectorContainer.autoresizingMask = [.width, .height]
+        let inspectorView = WKInspectorProbeView(frame: inspectorContainer.bounds)
+        inspectorView.autoresizingMask = [.width, .height]
+        inspectorContainer.addSubview(inspectorView)
+        slot.addSubview(inspectorContainer)
+        contentView.layoutSubtreeIfNeeded()
+
+        XCTAssertTrue(
+            window.makeFirstResponder(inspectorView),
+            "Precondition failed: inspector probe should become first responder"
+        )
+        XCTAssertTrue(window.firstResponder === inspectorView)
+
+        slot.isHidden = true
+
+        XCTAssertFalse(
+            window.firstResponder === inspectorView,
+            "Hiding a browser slot should yield any owned inspector responder before it goes off-screen"
+        )
+        if let firstResponderView = window.firstResponder as? NSView {
+            XCTAssertFalse(
+                firstResponderView === slot || firstResponderView.isDescendant(of: slot),
+                "Hiding a browser slot should not leave first responder inside the hidden slot"
+            )
+        }
     }
 
     func testHiddenPortalSyncDoesNotStealLocallyHostedDevToolsWebViewDuringResize() {
