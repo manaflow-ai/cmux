@@ -1,7 +1,13 @@
 package main
 
 import (
+	"bufio"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
@@ -108,6 +114,80 @@ func startMockTCPSocket(t *testing.T, response string) string {
 	return ln.Addr().String()
 }
 
+func startMockAuthenticatedTCPSocket(t *testing.T, relayID, relayToken, response string) string {
+	t.Helper()
+	relayTokenBytes := mustHex(t, relayToken)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to listen on TCP: %v", err)
+	}
+	t.Cleanup(func() { ln.Close() })
+
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func(conn net.Conn) {
+				defer conn.Close()
+				nonce := "testnonce"
+				challenge, _ := json.Marshal(map[string]any{
+					"protocol": "cmux-relay-auth",
+					"version":  1,
+					"relay_id": relayID,
+					"nonce":    nonce,
+				})
+				_, _ = conn.Write(append(challenge, '\n'))
+
+				reader := bufio.NewReader(conn)
+				line, err := reader.ReadString('\n')
+				if err != nil {
+					return
+				}
+				var authResp map[string]any
+				if err := json.Unmarshal([]byte(line), &authResp); err != nil {
+					_, _ = conn.Write([]byte(`{"ok":false}` + "\n"))
+					return
+				}
+				macHex, _ := authResp["mac"].(string)
+				receivedMAC, err := hex.DecodeString(macHex)
+				if err != nil {
+					_, _ = conn.Write([]byte(`{"ok":false}` + "\n"))
+					return
+				}
+
+				h := hmac.New(sha256.New, relayTokenBytes)
+				_, _ = io.WriteString(h, fmt.Sprintf("relay_id=%s\nnonce=%s\nversion=%d", relayID, nonce, 1))
+				expectedMAC := h.Sum(nil)
+				if !hmac.Equal(receivedMAC, expectedMAC) {
+					_, _ = conn.Write([]byte(`{"ok":false}` + "\n"))
+					return
+				}
+
+				_, _ = conn.Write([]byte(`{"ok":true}` + "\n"))
+				buf := make([]byte, 4096)
+				n, _ := conn.Read(buf)
+				_, _ = conn.Write([]byte(response))
+				if n > 0 && !strings.HasSuffix(response, "\n") {
+					_, _ = conn.Write([]byte("\n"))
+				}
+			}(conn)
+		}
+	}()
+
+	return ln.Addr().String()
+}
+
+func mustHex(t *testing.T, value string) []byte {
+	t.Helper()
+	data, err := hex.DecodeString(value)
+	if err != nil {
+		t.Fatalf("decode hex: %v", err)
+	}
+	return data
+}
+
 func TestDialTCPRetrySuccess(t *testing.T) {
 	// Get a free port, then close the listener so connection is refused initially.
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -172,6 +252,47 @@ func TestCLIPingV1OverTCP(t *testing.T) {
 	code := runCLI([]string{"--socket", addr, "ping"})
 	if code != 0 {
 		t.Fatalf("ping over TCP should return 0, got %d", code)
+	}
+}
+
+func TestCLIPingV1OverAuthenticatedTCPWithEnv(t *testing.T) {
+	relayID := "relay-1"
+	relayToken := strings.Repeat("a1", 32)
+	addr := startMockAuthenticatedTCPSocket(t, relayID, relayToken, "pong")
+	t.Setenv("CMUX_RELAY_ID", relayID)
+	t.Setenv("CMUX_RELAY_TOKEN", relayToken)
+
+	code := runCLI([]string{"--socket", addr, "ping"})
+	if code != 0 {
+		t.Fatalf("ping over authenticated TCP should return 0, got %d", code)
+	}
+}
+
+func TestCLIPingV1OverAuthenticatedTCPWithRelayFile(t *testing.T) {
+	relayID := "relay-2"
+	relayToken := strings.Repeat("b2", 32)
+	addr := startMockAuthenticatedTCPSocket(t, relayID, relayToken, "pong")
+	_, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		t.Fatalf("split host port: %v", err)
+	}
+
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("CMUX_RELAY_ID", "")
+	t.Setenv("CMUX_RELAY_TOKEN", "")
+	relayDir := filepath.Join(home, ".cmux", "relay")
+	if err := os.MkdirAll(relayDir, 0o700); err != nil {
+		t.Fatalf("mkdir relay dir: %v", err)
+	}
+	authPayload, _ := json.Marshal(relayAuthState{RelayID: relayID, RelayToken: relayToken})
+	if err := os.WriteFile(filepath.Join(relayDir, port+".auth"), authPayload, 0o600); err != nil {
+		t.Fatalf("write auth file: %v", err)
+	}
+
+	code := runCLI([]string{"--socket", addr, "ping"})
+	if code != 0 {
+		t.Fatalf("ping over authenticated TCP file relay should return 0, got %d", code)
 	}
 }
 

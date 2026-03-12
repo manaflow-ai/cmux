@@ -247,6 +247,25 @@ func TestProxyStreamRoundTrip(t *testing.T) {
 	}
 }
 
+func TestGetIntParamRejectsFractionalFloat64(t *testing.T) {
+	params := map[string]any{
+		"port":       80.9,
+		"timeout_ms": 100.0,
+	}
+
+	if _, ok := getIntParam(params, "port"); ok {
+		t.Fatalf("fractional float64 should be rejected")
+	}
+
+	timeout, ok := getIntParam(params, "timeout_ms")
+	if !ok {
+		t.Fatalf("integral float64 should be accepted")
+	}
+	if timeout != 100 {
+		t.Fatalf("timeout_ms = %d, want 100", timeout)
+	}
+}
+
 func TestRunStdioOversizedFrameContinuesServing(t *testing.T) {
 	oversized := `{"id":1,"method":"ping","params":{"blob":"` + strings.Repeat("a", maxRPCFrameBytes) + `"}}`
 	input := strings.NewReader(oversized + "\n" + `{"id":2,"method":"ping","params":{}}` + "\n")
