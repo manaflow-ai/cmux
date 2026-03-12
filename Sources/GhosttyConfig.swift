@@ -7,6 +7,13 @@ struct GhosttyConfig {
         case dark
     }
 
+    private struct ThemeSettingComponents {
+        var fallback: String?
+        var light: String?
+        var dark: String?
+        var hasExplicitVariants = false
+    }
+
     private static let loadCacheLock = NSLock()
     private static var cachedConfigsByColorScheme: [ColorSchemePreference: GhosttyConfig] = [:]
 
@@ -68,8 +75,8 @@ struct GhosttyConfig {
 
     static func invalidateLoadCache() {
         loadCacheLock.lock()
+        defer { loadCacheLock.unlock() }
         cachedConfigsByColorScheme.removeAll()
-        loadCacheLock.unlock()
     }
 
     private static func cachedLoad(for colorScheme: ColorSchemePreference) -> GhosttyConfig? {
@@ -243,60 +250,26 @@ struct GhosttyConfig {
         from rawThemeValue: String,
         preferredColorScheme: ColorSchemePreference
     ) -> String {
-        var fallbackTheme: String?
-        var lightTheme: String?
-        var darkTheme: String?
-
-        for token in rawThemeValue.split(separator: ",").map(String.init) {
-            let entry = token.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !entry.isEmpty else { continue }
-
-            let parts = entry.split(separator: ":", maxSplits: 1).map(String.init)
-            if parts.count != 2 {
-                if fallbackTheme == nil {
-                    fallbackTheme = entry
-                }
-                continue
-            }
-
-            let key = parts[0].trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            let value = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !value.isEmpty else { continue }
-
-            switch key {
-            case "light":
-                if lightTheme == nil {
-                    lightTheme = value
-                }
-            case "dark":
-                if darkTheme == nil {
-                    darkTheme = value
-                }
-            default:
-                if fallbackTheme == nil {
-                    fallbackTheme = value
-                }
-            }
-        }
+        let components = themeSettingComponents(from: rawThemeValue)
 
         switch preferredColorScheme {
         case .light:
-            if let lightTheme {
+            if let lightTheme = components.light {
                 return lightTheme
             }
         case .dark:
-            if let darkTheme {
+            if let darkTheme = components.dark {
                 return darkTheme
             }
         }
 
-        if let fallbackTheme {
+        if let fallbackTheme = components.fallback {
             return fallbackTheme
         }
-        if let darkTheme {
+        if let darkTheme = components.dark {
             return darkTheme
         }
-        if let lightTheme {
+        if let lightTheme = components.light {
             return lightTheme
         }
         return rawThemeValue.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -407,6 +380,310 @@ struct GhosttyConfig {
         appendUniquePath("~/Library/Application Support/com.mitchellh.ghostty/themes/\(themeName)")
 
         return paths
+    }
+
+    static func themeSearchDirectories(
+        environment: [String: String],
+        bundleResourceURL: URL?
+    ) -> [String] {
+        var paths: [String] = []
+
+        func appendUniquePath(_ path: String?) {
+            guard let path else { return }
+            let expanded = NSString(string: path).expandingTildeInPath
+            guard !expanded.isEmpty else { return }
+            if !paths.contains(expanded) {
+                paths.append(expanded)
+            }
+        }
+
+        func appendThemeDirectory(in resourcesRoot: String?) {
+            guard let resourcesRoot else { return }
+            let expanded = NSString(string: resourcesRoot).expandingTildeInPath
+            guard !expanded.isEmpty else { return }
+            appendUniquePath(
+                URL(fileURLWithPath: expanded)
+                    .appendingPathComponent("themes", isDirectory: true)
+                    .path
+            )
+        }
+
+        appendThemeDirectory(in: environment["GHOSTTY_RESOURCES_DIR"])
+        appendUniquePath(
+            bundleResourceURL?
+                .appendingPathComponent("ghostty/themes", isDirectory: true)
+                .path
+        )
+
+        if let xdgDataDirs = environment["XDG_DATA_DIRS"] {
+            for dataDir in xdgDataDirs.split(separator: ":").map(String.init) {
+                guard !dataDir.isEmpty else { continue }
+                appendUniquePath(
+                    URL(fileURLWithPath: dataDir)
+                        .appendingPathComponent("ghostty/themes", isDirectory: true)
+                        .path
+                )
+            }
+        }
+
+        appendUniquePath("/Applications/Ghostty.app/Contents/Resources/ghostty/themes")
+        appendUniquePath("~/.config/ghostty/themes")
+        appendUniquePath("~/Library/Application Support/com.mitchellh.ghostty/themes")
+
+        return paths
+    }
+
+    static func discoverThemeNames(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        bundleResourceURL: URL? = Bundle.main.resourceURL,
+        fileManager: FileManager = .default
+    ) -> [String] {
+        var discovered: [String] = []
+        var seen: Set<String> = []
+
+        for directory in themeSearchDirectories(
+            environment: environment,
+            bundleResourceURL: bundleResourceURL
+        ) {
+            guard let children = try? fileManager.contentsOfDirectory(
+                at: URL(fileURLWithPath: directory, isDirectory: true),
+                includingPropertiesForKeys: [.isRegularFileKey, .isDirectoryKey],
+                options: [.skipsHiddenFiles]
+            ) else {
+                continue
+            }
+
+            for child in children {
+                let values = try? child.resourceValues(forKeys: [.isRegularFileKey, .isDirectoryKey])
+                guard values?.isRegularFile == true else { continue }
+                let name = child.lastPathComponent.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !name.isEmpty else { continue }
+                let normalized = name
+                    .folding(options: [.caseInsensitive], locale: .current)
+                    .lowercased()
+                guard seen.insert(normalized).inserted else { continue }
+                discovered.append(name)
+            }
+        }
+
+        return discovered.sorted {
+            $0.localizedCaseInsensitiveCompare($1) == .orderedAscending
+        }
+    }
+
+    static func configSearchPaths() -> [String] {
+        [
+            "~/.config/ghostty/config",
+            "~/.config/ghostty/config.ghostty",
+            "~/Library/Application Support/com.mitchellh.ghostty/config",
+            "~/Library/Application Support/com.mitchellh.ghostty/config.ghostty",
+        ].map { NSString(string: $0).expandingTildeInPath }
+    }
+
+    static func writableConfigPath(
+        fileManager: FileManager = .default,
+        searchPaths: [String]? = nil
+    ) -> String {
+        let resolvedSearchPaths = searchPaths ?? configSearchPaths()
+        for path in resolvedSearchPaths.reversed() where fileManager.fileExists(atPath: path) {
+            return path
+        }
+        return resolvedSearchPaths.last ?? NSString(string: "~/.config/ghostty/config.ghostty").expandingTildeInPath
+    }
+
+    @discardableResult
+    static func upsertConfigValue(
+        key: String,
+        value: String,
+        fileManager: FileManager = .default,
+        searchPaths: [String]? = nil
+    ) throws -> String {
+        let path = writableConfigPath(fileManager: fileManager, searchPaths: searchPaths)
+        let url = URL(fileURLWithPath: path)
+        try fileManager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+
+        let existing: String
+        if fileManager.fileExists(atPath: path) {
+            existing = try String(contentsOf: url, encoding: .utf8)
+        } else {
+            existing = ""
+        }
+        var lines = configLines(from: existing)
+
+        var lastMatchIndex: Int?
+        for index in lines.indices {
+            let line = lines[index]
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard !trimmed.isEmpty, !trimmed.hasPrefix("#") else { continue }
+
+            let parts = trimmed.split(separator: "=", maxSplits: 1)
+            guard let rawKey = parts.first?.trimmingCharacters(in: .whitespaces),
+                  rawKey == key else {
+                continue
+            }
+            lastMatchIndex = index
+        }
+
+        if let index = lastMatchIndex {
+            let indentation = String(lines[index].prefix { $0 == " " || $0 == "\t" })
+            lines[index] = "\(indentation)\(key) = \(value)"
+        } else {
+            if !lines.isEmpty, !(lines.last?.isEmpty ?? true) {
+                lines.append("")
+            }
+            lines.append("\(key) = \(value)")
+        }
+
+        try (lines.joined(separator: "\n") + "\n").write(to: url, atomically: true, encoding: .utf8)
+        return path
+    }
+
+    @discardableResult
+    static func applyTheme(
+        _ themeName: String,
+        fileManager: FileManager = .default,
+        preferredColorScheme: ColorSchemePreference = currentColorSchemePreference(),
+        searchPaths: [String]? = nil
+    ) throws -> String {
+        guard !themeName.isEmpty,
+              !themeName.contains(where: { $0.isNewline || $0 == "," }),
+              !themeName.contains(".."),
+              !themeName.contains("/") else {
+            throw CocoaError(.fileWriteInvalidFileName)
+        }
+
+        let path = writableConfigPath(fileManager: fileManager, searchPaths: searchPaths)
+        let url = URL(fileURLWithPath: path)
+        try fileManager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+
+        let existing: String
+        if fileManager.fileExists(atPath: path) {
+            existing = try String(contentsOf: url, encoding: .utf8)
+        } else {
+            existing = ""
+        }
+        var lines = configLines(from: existing)
+        let lastThemeAssignment = lastActiveConfigAssignment(forKey: "theme", in: lines)
+        let nextThemeValue = updatedThemeValueForSelection(
+            existingThemeValue: lastThemeAssignment?.value,
+            selectedTheme: themeName,
+            preferredColorScheme: preferredColorScheme
+        )
+
+        if let assignment = lastThemeAssignment {
+            let indentation = String(lines[assignment.index].prefix { $0 == " " || $0 == "\t" })
+            lines[assignment.index] = "\(indentation)theme = \(nextThemeValue)"
+        } else {
+            if !lines.isEmpty, !(lines.last?.isEmpty ?? true) {
+                lines.append("")
+            }
+            lines.append("theme = \(nextThemeValue)")
+        }
+
+        try (lines.joined(separator: "\n") + "\n").write(to: url, atomically: true, encoding: .utf8)
+        return path
+    }
+
+    static func updatedThemeValueForSelection(
+        existingThemeValue: String?,
+        selectedTheme: String,
+        preferredColorScheme: ColorSchemePreference
+    ) -> String {
+        guard let existingThemeValue else { return selectedTheme }
+        let components = themeSettingComponents(from: existingThemeValue)
+        guard components.hasExplicitVariants else { return selectedTheme }
+
+        var updated = components
+        switch preferredColorScheme {
+        case .light:
+            updated.light = selectedTheme
+        case .dark:
+            updated.dark = selectedTheme
+        }
+
+        var entries: [String] = []
+        if let fallback = updated.fallback, !fallback.isEmpty {
+            entries.append(fallback)
+        }
+        if let light = updated.light, !light.isEmpty {
+            entries.append("light:\(light)")
+        }
+        if let dark = updated.dark, !dark.isEmpty {
+            entries.append("dark:\(dark)")
+        }
+        return entries.isEmpty ? selectedTheme : entries.joined(separator: ",")
+    }
+
+    private static func themeSettingComponents(from rawThemeValue: String) -> ThemeSettingComponents {
+        var components = ThemeSettingComponents()
+
+        for token in rawThemeValue.split(separator: ",").map(String.init) {
+            let entry = token.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !entry.isEmpty else { continue }
+
+            let parts = entry.split(separator: ":", maxSplits: 1).map(String.init)
+            if parts.count != 2 {
+                if components.fallback == nil {
+                    components.fallback = entry
+                }
+                continue
+            }
+
+            let key = parts[0].trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            let value = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !value.isEmpty else { continue }
+
+            switch key {
+            case "light":
+                components.hasExplicitVariants = true
+                if components.light == nil {
+                    components.light = value
+                }
+            case "dark":
+                components.hasExplicitVariants = true
+                if components.dark == nil {
+                    components.dark = value
+                }
+            default:
+                if components.fallback == nil {
+                    components.fallback = value
+                }
+            }
+        }
+
+        return components
+    }
+
+    private static func configLines(from contents: String) -> [String] {
+        var lines = contents.isEmpty ? [] : contents.components(separatedBy: .newlines)
+        if lines.last == "" {
+            lines.removeLast()
+        }
+        return lines
+    }
+
+    private static func lastActiveConfigAssignment(
+        forKey key: String,
+        in lines: [String]
+    ) -> (index: Int, value: String)? {
+        for index in lines.indices.reversed() {
+            let line = lines[index]
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard !trimmed.isEmpty, !trimmed.hasPrefix("#") else { continue }
+
+            let parts = trimmed.split(separator: "=", maxSplits: 1)
+            guard let rawKey = parts.first?.trimmingCharacters(in: .whitespaces),
+                  rawKey == key else {
+                continue
+            }
+
+            let rawValue = parts.count == 2
+                ? parts[1].trimmingCharacters(in: .whitespaces)
+                    .trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+                : ""
+            return (index, rawValue)
+        }
+        return nil
     }
 
     private static func readConfigFile(at path: String) -> String? {
