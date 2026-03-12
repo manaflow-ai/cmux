@@ -22,7 +22,7 @@
     Required for JIT compilation inside Ghostty. Paired with the above.
 
   device.camera / device.audio-input
-    Terminal programs running inside cmux (e.g. video-call CLIs, arecord)
+    Terminal programs running inside cmux (e.g. video-call CLIs, ffmpeg -f avfoundation)
     trigger OS permission prompts — these entitlements allow the OS to present
     those prompts rather than silently denying access. Usage descriptions are
     in Info.plist (NSCameraUsageDescription / NSMicrophoneUsageDescription).
