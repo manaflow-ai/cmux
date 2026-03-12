@@ -9,6 +9,351 @@ import Combine
 import ObjectiveC.runtime
 import Darwin
 
+#if DEBUG
+enum CmuxTypingTiming {
+    static let isEnabled: Bool = {
+        let environment = ProcessInfo.processInfo.environment
+        if environment["CMUX_TYPING_TIMING_LOGS"] == "1" || environment["CMUX_KEY_LATENCY_PROBE"] == "1" {
+            return true
+        }
+        let defaults = UserDefaults.standard
+        return defaults.bool(forKey: "cmuxTypingTimingLogs") || defaults.bool(forKey: "cmuxKeyLatencyProbe")
+    }()
+    static let isVerboseProbeEnabled: Bool = {
+        let environment = ProcessInfo.processInfo.environment
+        if environment["CMUX_KEY_LATENCY_PROBE"] == "1" {
+            return true
+        }
+        return UserDefaults.standard.bool(forKey: "cmuxKeyLatencyProbe")
+    }()
+    private static let delayLogThresholdMs: Double = 6.0
+    private static let durationLogThresholdMs: Double = 1.0
+
+    @inline(__always)
+    static func start() -> TimeInterval? {
+        guard isEnabled else { return nil }
+        return ProcessInfo.processInfo.systemUptime
+    }
+
+    @inline(__always)
+    static func logEventDelay(path: String, event: NSEvent) {
+        guard isEnabled else { return }
+        guard event.timestamp > 0 else { return }
+        let delayMs = max(0, (ProcessInfo.processInfo.systemUptime - event.timestamp) * 1000.0)
+        guard shouldLog(delayMs: delayMs, elapsedMs: nil) else { return }
+        dlog("typing.delay path=\(path) delayMs=\(format(delayMs)) \(eventFields(event))")
+    }
+
+    @inline(__always)
+    static func logDuration(path: String, startedAt: TimeInterval?, event: NSEvent? = nil, extra: String? = nil) {
+        CmuxMainThreadTurnProfiler.endMeasure(path, startedAt: startedAt)
+        guard let startedAt else { return }
+        let elapsedMs = max(0, (ProcessInfo.processInfo.systemUptime - startedAt) * 1000.0)
+        let delayMs: Double? = {
+            guard let event, event.timestamp > 0 else { return nil }
+            return max(0, (ProcessInfo.processInfo.systemUptime - event.timestamp) * 1000.0)
+        }()
+        guard shouldLog(delayMs: delayMs, elapsedMs: elapsedMs) else { return }
+        var line = "typing.timing path=\(path) elapsedMs=\(format(elapsedMs))"
+        if let event {
+            line += " \(eventFields(event))"
+            if let delayMs {
+                line += " delayMs=\(format(delayMs))"
+            }
+        }
+        if let extra, !extra.isEmpty {
+            line += " \(extra)"
+        }
+        dlog(line)
+    }
+
+    @inline(__always)
+    static func logBreakdown(
+        path: String,
+        totalMs: Double,
+        event: NSEvent? = nil,
+        thresholdMs: Double = 2.0,
+        parts: [(String, Double)],
+        extra: String? = nil
+    ) {
+        guard isEnabled else { return }
+        let delayMs: Double? = {
+            guard let event, event.timestamp > 0 else { return nil }
+            return max(0, (ProcessInfo.processInfo.systemUptime - event.timestamp) * 1000.0)
+        }()
+        let hasSlowPart = parts.contains { $0.1 >= thresholdMs }
+        guard isVerboseProbeEnabled || totalMs >= thresholdMs || hasSlowPart || (delayMs ?? 0) >= delayLogThresholdMs else {
+            return
+        }
+        var line = "typing.phase path=\(path) totalMs=\(format(totalMs))"
+        if let event {
+            line += " \(eventFields(event))"
+        }
+        if let delayMs {
+            line += " delayMs=\(format(delayMs))"
+        }
+        for (name, value) in parts where isVerboseProbeEnabled || value >= 0.05 {
+            line += " \(name)=\(format(value))"
+        }
+        if let extra, !extra.isEmpty {
+            line += " \(extra)"
+        }
+        dlog(line)
+    }
+
+    @inline(__always)
+    private static func eventFields(_ event: NSEvent) -> String {
+        "eventType=\(event.type.rawValue) keyCode=\(event.keyCode) mods=\(event.modifierFlags.rawValue) repeat=\(event.isARepeat ? 1 : 0)"
+    }
+
+    @inline(__always)
+    private static func shouldLog(delayMs: Double?, elapsedMs: Double?) -> Bool {
+        if isVerboseProbeEnabled {
+            return true
+        }
+        if let delayMs, delayMs >= delayLogThresholdMs {
+            return true
+        }
+        if let elapsedMs, elapsedMs >= durationLogThresholdMs {
+            return true
+        }
+        return false
+    }
+
+    @inline(__always)
+    private static func format(_ value: Double) -> String {
+        String(format: "%.2f", value)
+    }
+}
+
+final class CmuxMainRunLoopStallMonitor {
+    static let shared = CmuxMainRunLoopStallMonitor()
+
+    private let thresholdMs: Double = 8.0
+    private var observer: CFRunLoopObserver?
+    private var installed = false
+    private var lastActivity: CFRunLoopActivity?
+    private var lastTimestamp: TimeInterval?
+
+    private init() {}
+
+    func installIfNeeded() {
+        guard CmuxTypingTiming.isEnabled else { return }
+        guard !installed else { return }
+
+        var context = CFRunLoopObserverContext(
+            version: 0,
+            info: Unmanaged.passUnretained(self).toOpaque(),
+            retain: nil,
+            release: nil,
+            copyDescription: nil
+        )
+
+        observer = CFRunLoopObserverCreate(
+            kCFAllocatorDefault,
+            CFRunLoopActivity.allActivities.rawValue,
+            true,
+            CFIndex.max,
+            { _, activity, info in
+                guard let info else { return }
+                let monitor = Unmanaged<CmuxMainRunLoopStallMonitor>.fromOpaque(info).takeUnretainedValue()
+                monitor.handle(activity: activity)
+            },
+            &context
+        )
+
+        guard let observer else { return }
+        CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
+        installed = true
+    }
+
+    private func handle(activity: CFRunLoopActivity) {
+        let now = ProcessInfo.processInfo.systemUptime
+        defer {
+            lastActivity = activity
+            lastTimestamp = now
+        }
+
+        guard let lastActivity, let lastTimestamp else { return }
+        let elapsedMs = max(0, (now - lastTimestamp) * 1000.0)
+        guard elapsedMs >= thresholdMs else { return }
+        if lastActivity == .beforeWaiting && activity == .afterWaiting {
+            return
+        }
+
+        let mode = CFRunLoopCopyCurrentMode(CFRunLoopGetMain()).map { String(describing: $0) } ?? "nil"
+        let firstResponder = NSApp.keyWindow?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
+        let currentEvent = NSApp.currentEvent.map {
+            "eventType=\($0.type.rawValue) keyCode=\($0.keyCode) mods=\($0.modifierFlags.rawValue)"
+        } ?? "event=nil"
+        dlog(
+            "runloop.stall gapMs=\(String(format: "%.2f", elapsedMs)) prev=\(label(for: lastActivity)) " +
+            "next=\(label(for: activity)) mode=\(mode) firstResponder=\(firstResponder) \(currentEvent)"
+        )
+    }
+
+    private func label(for activity: CFRunLoopActivity) -> String {
+        switch activity {
+        case .entry:
+            return "entry"
+        case .beforeTimers:
+            return "beforeTimers"
+        case .beforeSources:
+            return "beforeSources"
+        case .beforeWaiting:
+            return "beforeWaiting"
+        case .afterWaiting:
+            return "afterWaiting"
+        case .exit:
+            return "exit"
+        default:
+            return "unknown(\(activity.rawValue))"
+        }
+    }
+}
+
+final class CmuxMainThreadTurnProfiler {
+    static let shared = CmuxMainThreadTurnProfiler()
+
+    private struct BucketStats {
+        var count: Int = 0
+        var totalMs: Double = 0
+        var maxMs: Double = 0
+    }
+
+    private let trackedThresholdMs: Double = 3.0
+    private let countThreshold: Int = 16
+    private var observer: CFRunLoopObserver?
+    private var installed = false
+    private var turnStart: TimeInterval?
+    private var buckets: [String: BucketStats] = [:]
+
+    private init() {}
+
+    @inline(__always)
+    static func endMeasure(_ bucket: String, startedAt: TimeInterval?) {
+        guard let startedAt, CmuxTypingTiming.isEnabled, Thread.isMainThread else { return }
+        let elapsedMs = max(0, (ProcessInfo.processInfo.systemUptime - startedAt) * 1000.0)
+        shared.record(bucket: bucket, elapsedMs: elapsedMs, count: 1)
+    }
+
+    func installIfNeeded() {
+        guard CmuxTypingTiming.isEnabled else { return }
+        guard !installed else { return }
+
+        var context = CFRunLoopObserverContext(
+            version: 0,
+            info: Unmanaged.passUnretained(self).toOpaque(),
+            retain: nil,
+            release: nil,
+            copyDescription: nil
+        )
+
+        observer = CFRunLoopObserverCreate(
+            kCFAllocatorDefault,
+            CFRunLoopActivity.allActivities.rawValue,
+            true,
+            CFIndex.max,
+            { _, activity, info in
+                guard let info else { return }
+                let profiler = Unmanaged<CmuxMainThreadTurnProfiler>.fromOpaque(info).takeUnretainedValue()
+                profiler.handle(activity: activity)
+            },
+            &context
+        )
+
+        guard let observer else { return }
+        CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
+        installed = true
+    }
+
+    private func handle(activity: CFRunLoopActivity) {
+        let now = ProcessInfo.processInfo.systemUptime
+        switch activity {
+        case .entry, .afterWaiting:
+            turnStart = now
+            buckets.removeAll(keepingCapacity: true)
+        case .beforeWaiting, .exit:
+            flushTurn(at: now, nextActivity: activity)
+        default:
+            break
+        }
+    }
+
+    private func record(bucket: String, elapsedMs: Double, count: Int) {
+        if turnStart == nil {
+            turnStart = ProcessInfo.processInfo.systemUptime
+        }
+        var stats = buckets[bucket, default: BucketStats()]
+        stats.count += count
+        stats.totalMs += elapsedMs
+        stats.maxMs = max(stats.maxMs, elapsedMs)
+        buckets[bucket] = stats
+    }
+
+    private func flushTurn(at now: TimeInterval, nextActivity: CFRunLoopActivity) {
+        defer {
+            turnStart = nil
+            buckets.removeAll(keepingCapacity: true)
+        }
+
+        guard let turnStart else { return }
+        guard !buckets.isEmpty else { return }
+
+        let turnMs = max(0, (now - turnStart) * 1000.0)
+        let trackedMs = buckets.values.reduce(0) { $0 + $1.totalMs }
+        let totalCount = buckets.values.reduce(0) { $0 + $1.count }
+        guard trackedMs >= trackedThresholdMs || totalCount >= countThreshold else { return }
+
+        let mode = CFRunLoopCopyCurrentMode(CFRunLoopGetMain()).map { String(describing: $0) } ?? "nil"
+        let firstResponder = NSApp.keyWindow?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
+        let eventSummary = NSApp.currentEvent.map {
+            "eventType=\($0.type.rawValue) keyCode=\($0.keyCode) mods=\($0.modifierFlags.rawValue)"
+        } ?? "event=nil"
+        let bucketSummary = buckets
+            .sorted {
+                if abs($0.value.totalMs - $1.value.totalMs) > 0.01 {
+                    return $0.value.totalMs > $1.value.totalMs
+                }
+                return $0.value.count > $1.value.count
+            }
+            .prefix(8)
+            .map { key, value in
+                if value.totalMs > 0.05 || value.maxMs > 0.05 {
+                    return "\(key)=\(value.count)/\(String(format: "%.2f", value.totalMs))/\(String(format: "%.2f", value.maxMs))"
+                }
+                return "\(key)=\(value.count)"
+            }
+            .joined(separator: " ")
+
+        dlog(
+            "main.turn.work turnMs=\(String(format: "%.2f", turnMs)) trackedMs=\(String(format: "%.2f", trackedMs)) totalCount=\(totalCount) " +
+            "next=\(label(for: nextActivity)) mode=\(mode) firstResponder=\(firstResponder) \(eventSummary) " +
+            "\(bucketSummary)"
+        )
+    }
+
+    private func label(for activity: CFRunLoopActivity) -> String {
+        switch activity {
+        case .entry:
+            return "entry"
+        case .beforeTimers:
+            return "beforeTimers"
+        case .beforeSources:
+            return "beforeSources"
+        case .beforeWaiting:
+            return "beforeWaiting"
+        case .afterWaiting:
+            return "afterWaiting"
+        case .exit:
+            return "exit"
+        default:
+            return "unknown(\(activity.rawValue))"
+        }
+    }
+}
+#endif
+
 enum FinderServicePathResolver {
     private static func canonicalDirectoryPath(_ path: String) -> String {
         guard path.count > 1 else { return path }
@@ -1594,6 +1939,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         method_exchangeImplementations(originalMethod, swizzledMethod)
     }()
+    private static let didInstallApplicationSendEventSwizzle: Void = {
+        let targetClass: AnyClass = NSApplication.self
+        let originalSelector = #selector(NSApplication.sendEvent(_:))
+        let swizzledSelector = #selector(NSApplication.cmux_applicationSendEvent(_:))
+        guard let originalMethod = class_getInstanceMethod(targetClass, originalSelector),
+              let swizzledMethod = class_getInstanceMethod(targetClass, swizzledSelector) else {
+            return
+        }
+        method_exchangeImplementations(originalMethod, swizzledMethod)
+    }()
 
 #if DEBUG
     private var didSetupJumpUnreadUITest = false
@@ -1650,6 +2005,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var didAttemptStartupSessionRestore = false
     private var isApplyingStartupSessionRestore = false
     private var sessionAutosaveTimer: DispatchSourceTimer?
+    private var sessionAutosaveTickInFlight = false
+    private var sessionAutosaveDeferredRetryPending = false
     private var socketListenerHealthTimer: DispatchSourceTimer?
     private var socketListenerHealthCheckInFlight = false
     private static let socketListenerHealthCheckInterval: DispatchTimeInterval = .seconds(2)
@@ -1668,6 +2025,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
     private var lastSessionAutosaveFingerprint: Int?
     private var lastSessionAutosavePersistedAt: Date = .distantPast
+    private var lastTypingActivityAt: TimeInterval = 0
     private var didHandleExplicitOpenIntentAtStartup = false
     private var isTerminatingApp = false
     private var didInstallLifecycleSnapshotObservers = false
@@ -1681,6 +2039,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var commandPaletteSnapshotByWindowId: [UUID: CommandPaletteDebugSnapshot] = [:]
     private static let commandPaletteRequestGraceInterval: TimeInterval = 1.25
     private static let commandPalettePendingOpenMaxAge: TimeInterval = 8.0
+    private static let sessionAutosaveTypingQuietPeriod: TimeInterval = 0.65
 
     var updateViewModel: UpdateViewModel {
         updateController.viewModel
@@ -1753,6 +2112,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
 #if DEBUG
         writeUITestDiagnosticsIfNeeded(stage: "didFinishLaunching")
+        CmuxMainRunLoopStallMonitor.shared.installIfNeeded()
+        CmuxMainThreadTurnProfiler.shared.installIfNeeded()
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
             self?.writeUITestDiagnosticsIfNeeded(stage: "after1s")
         }
@@ -2474,28 +2835,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                   Self.shouldRunSessionAutosaveTick(isTerminatingApp: self.isTerminatingApp) else {
                 return
             }
-            let now = Date()
-            let autosaveFingerprint = self.sessionAutosaveFingerprint(includeScrollback: false)
-            if Self.shouldSkipSessionAutosaveForUnchangedFingerprint(
-                isTerminatingApp: self.isTerminatingApp,
-                includeScrollback: false,
-                previousFingerprint: self.lastSessionAutosaveFingerprint,
-                currentFingerprint: autosaveFingerprint,
-                lastPersistedAt: self.lastSessionAutosavePersistedAt,
-                now: now
-            ) {
-#if DEBUG
-                dlog("session.save.skipped reason=unchanged_autosave_fingerprint includeScrollback=0")
-#endif
-                return
-            }
-
-            _ = self.saveSessionSnapshot(includeScrollback: false)
-            self.updateSessionAutosaveSaveState(
-                includeScrollback: false,
-                persistedAt: now,
-                fingerprint: autosaveFingerprint
-            )
+            self.runSessionAutosaveTick(source: "timer")
         }
         sessionAutosaveTimer = timer
         timer.resume()
@@ -2504,6 +2844,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func stopSessionAutosaveTimer() {
         sessionAutosaveTimer?.cancel()
         sessionAutosaveTimer = nil
+        sessionAutosaveTickInFlight = false
+        sessionAutosaveDeferredRetryPending = false
     }
 
     private func installLifecycleSnapshotObserversIfNeeded() {
@@ -2719,6 +3061,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             isTerminatingApp: isTerminatingApp,
             includeScrollback: includeScrollback
         )
+#if DEBUG
+        let timingStart = CmuxTypingTiming.start()
+        defer {
+            CmuxTypingTiming.logDuration(
+                path: "session.saveSnapshot",
+                startedAt: timingStart,
+                extra: "includeScrollback=\(includeScrollback ? 1 : 0) removeWhenEmpty=\(removeWhenEmpty ? 1 : 0) sync=\(writeSynchronously ? 1 : 0)"
+            )
+        }
+#endif
 
         guard let snapshot = buildSessionSnapshot(includeScrollback: includeScrollback) else {
             persistSessionSnapshot(
@@ -2768,6 +3120,113 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     nonisolated static func shouldRunSessionAutosaveTick(isTerminatingApp: Bool) -> Bool {
         !isTerminatingApp
+    }
+
+    private func remainingSessionAutosaveTypingQuietPeriod(
+        nowUptime: TimeInterval = ProcessInfo.processInfo.systemUptime
+    ) -> TimeInterval? {
+        guard lastTypingActivityAt > 0 else { return nil }
+        let elapsed = nowUptime - lastTypingActivityAt
+        guard elapsed < Self.sessionAutosaveTypingQuietPeriod else { return nil }
+        return Self.sessionAutosaveTypingQuietPeriod - elapsed
+    }
+
+    private func scheduleDeferredSessionAutosaveRetry(after delay: TimeInterval) {
+        guard delay.isFinite, delay > 0 else { return }
+        guard !sessionAutosaveDeferredRetryPending else { return }
+        sessionAutosaveDeferredRetryPending = true
+        sessionPersistenceQueue.asyncAfter(deadline: .now() + delay) { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.sessionAutosaveDeferredRetryPending = false
+                self.runSessionAutosaveTick(source: "typingQuietRetry")
+            }
+        }
+    }
+
+    private func runSessionAutosaveTick(source: String) {
+        guard Self.shouldRunSessionAutosaveTick(isTerminatingApp: isTerminatingApp) else { return }
+        guard !sessionAutosaveTickInFlight else { return }
+        if let remainingQuietPeriod = remainingSessionAutosaveTypingQuietPeriod() {
+#if DEBUG
+            dlog(
+                "session.save.skipped reason=typing_recent includeScrollback=0 source=\(source) " +
+                "retryMs=\(Int((remainingQuietPeriod * 1000).rounded()))"
+            )
+#endif
+            scheduleDeferredSessionAutosaveRetry(after: remainingQuietPeriod)
+            return
+        }
+
+        sessionAutosaveTickInFlight = true
+#if DEBUG
+        let timingStart = CmuxTypingTiming.start()
+        let phaseStart = ProcessInfo.processInfo.systemUptime
+        var fingerprintMs: Double = 0
+        var saveMs: Double = 0
+        defer {
+            sessionAutosaveTickInFlight = false
+            let totalMs = (ProcessInfo.processInfo.systemUptime - phaseStart) * 1000.0
+            CmuxTypingTiming.logBreakdown(
+                path: "session.autosaveTick.phase",
+                totalMs: totalMs,
+                thresholdMs: 2.0,
+                parts: [
+                    ("fingerprintMs", fingerprintMs),
+                    ("saveMs", saveMs),
+                ],
+                extra: "source=\(source)"
+            )
+            CmuxTypingTiming.logDuration(
+                path: "session.autosaveTick",
+                startedAt: timingStart,
+                extra: "source=\(source)"
+            )
+        }
+#else
+        defer { sessionAutosaveTickInFlight = false }
+#endif
+
+        let now = Date()
+#if DEBUG
+        let fingerprintStart = ProcessInfo.processInfo.systemUptime
+#endif
+        let autosaveFingerprint = sessionAutosaveFingerprint(includeScrollback: false)
+#if DEBUG
+        fingerprintMs = (ProcessInfo.processInfo.systemUptime - fingerprintStart) * 1000.0
+#endif
+        if Self.shouldSkipSessionAutosaveForUnchangedFingerprint(
+            isTerminatingApp: isTerminatingApp,
+            includeScrollback: false,
+            previousFingerprint: lastSessionAutosaveFingerprint,
+            currentFingerprint: autosaveFingerprint,
+            lastPersistedAt: lastSessionAutosavePersistedAt,
+            now: now
+        ) {
+#if DEBUG
+            dlog(
+                "session.save.skipped reason=unchanged_autosave_fingerprint includeScrollback=0 source=\(source)"
+            )
+#endif
+            return
+        }
+
+#if DEBUG
+        let saveStart = ProcessInfo.processInfo.systemUptime
+#endif
+        _ = saveSessionSnapshot(includeScrollback: false)
+#if DEBUG
+        saveMs = (ProcessInfo.processInfo.systemUptime - saveStart) * 1000.0
+#endif
+        updateSessionAutosaveSaveState(
+            includeScrollback: false,
+            persistedAt: now,
+            fingerprint: autosaveFingerprint
+        )
+    }
+
+    fileprivate func recordTypingActivity() {
+        lastTypingActivityAt = ProcessInfo.processInfo.systemUptime
     }
 
     nonisolated static func shouldWriteSessionSnapshotSynchronously(
@@ -5193,6 +5652,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private let debugStressPaneCount = 4
     private let debugStressTabsPerPane = 4
     private let debugStressYieldInterval = 4
+    private let debugStressSurfaceLoadTimeoutSeconds: TimeInterval = 10.0
+    private let debugStressSurfaceLoadPollNanoseconds: UInt64 = 25_000_000
 
     @objc func openDebugScrollbackTab(_ sender: Any?) {
         guard let tabManager else { return }
@@ -5305,14 +5766,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
 
             let creationElapsedMs = (ProcessInfo.processInfo.systemUptime - totalStart) * 1000.0
-            let primeStats = await self.primeDebugStressWorkspacesForSurfaceLoad(created)
-            // Avoid synchronous "load all surfaces" waiting in this command path.
-            // Waiting for every background surface to be ready creates sustained
-            // main-actor churn and can starve typing responsiveness.
-            let loadStats = DebugStressSurfaceLoadStats(
-                pendingSurfaces: self.pendingDebugTerminalSurfaceCount(in: created),
-                attempts: 0,
-                elapsedMs: 0
+            let loadStats = await self.loadAllDebugStressWorkspacesForTerminalSurfaceReadiness(
+                created,
+                tabManager: tabManager
             )
             let totalElapsedMs = (ProcessInfo.processInfo.systemUptime - totalStart) * 1000.0
             let avgWorkspaceMs = created.isEmpty ? 0 : (cumulativeWorkspaceMs / Double(created.count))
@@ -5326,15 +5782,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
             dlog(
                 "stress.setup.done createMs=\(String(format: "%.2f", creationElapsedMs)) " +
-                "primeMs=\(String(format: "%.2f", primeStats.elapsedMs)) primedTabs=\(primeStats.activatedTabs) " +
-                "waitMs=\(String(format: "%.2f", loadStats.elapsedMs)) totalMs=\(String(format: "%.2f", totalElapsedMs)) " +
+                "loadMs=\(String(format: "%.2f", loadStats.elapsedMs)) loadedPanels=\(loadStats.loadedPanels) " +
+                "loadFailures=\(loadStats.failedPanels) totalMs=\(String(format: "%.2f", totalElapsedMs)) " +
                 "workspaceAvgMs=\(String(format: "%.2f", avgWorkspaceMs)) workspaceWorstMs=\(String(format: "%.2f", worstWorkspaceMs)) " +
                 "workspaceSlowCount=\(slowWorkspaceCount) waitAttempts=\(loadStats.attempts) " +
                 "pendingSurfaces=\(loadStats.pendingSurfaces) expectedSurfaces=\(expectedSurfaceCount)"
             )
 
             NSLog(
-                "Debug stress workspaces: created=%d panesPerWorkspace=%d tabsPerPane=%d expectedSurfaces=%d layoutFailures=%d pendingSurfaces=%d createMs=%.2f primeMs=%.2f primedTabs=%d waitMs=%.2f totalMs=%.2f workspaceAvgMs=%.2f workspaceWorstMs=%.2f waitAttempts=%d",
+                "Debug stress workspaces: created=%d panesPerWorkspace=%d tabsPerPane=%d expectedSurfaces=%d layoutFailures=%d pendingSurfaces=%d createMs=%.2f loadMs=%.2f loadedPanels=%d failedPanels=%d totalMs=%.2f workspaceAvgMs=%.2f workspaceWorstMs=%.2f waitAttempts=%d",
                 self.debugStressWorkspaceCount,
                 self.debugStressPaneCount,
                 self.debugStressTabsPerPane,
@@ -5342,49 +5798,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 layoutFailures,
                 loadStats.pendingSurfaces,
                 creationElapsedMs,
-                primeStats.elapsedMs,
-                primeStats.activatedTabs,
                 loadStats.elapsedMs,
+                loadStats.loadedPanels,
+                loadStats.failedPanels,
                 totalElapsedMs,
                 avgWorkspaceMs,
                 worstWorkspaceMs,
                 loadStats.attempts
             )
         }
-    }
-
-    private struct DebugStressSurfacePrimeStats {
-        let activatedTabs: Int
-        let elapsedMs: Double
-    }
-
-    private func primeDebugStressWorkspacesForSurfaceLoad(
-        _ workspaces: [Workspace]
-    ) async -> DebugStressSurfacePrimeStats {
-        guard !workspaces.isEmpty else {
-            return DebugStressSurfacePrimeStats(activatedTabs: 0, elapsedMs: 0)
-        }
-
-        let primeStart = ProcessInfo.processInfo.systemUptime
-        var activatedTabs = 0
-
-        for (index, workspace) in workspaces.enumerated() {
-            activatedTabs += workspace.panels.values.reduce(into: 0) { count, panel in
-                if panel is TerminalPanel {
-                    count += 1
-                }
-            }
-
-            if (index + 1) % debugStressYieldInterval == 0 || index == workspaces.count - 1 {
-                dlog(
-                    "stress.setup.mount idx=\(index + 1)/\(workspaces.count) activatedTabs=\(activatedTabs)"
-                )
-                await Task.yield()
-            }
-        }
-
-        let elapsedMs = (ProcessInfo.processInfo.systemUptime - primeStart) * 1000.0
-        return DebugStressSurfacePrimeStats(activatedTabs: activatedTabs, elapsedMs: elapsedMs)
     }
 
     private func configureDebugStressWorkspaceLayout(
@@ -5445,8 +5867,215 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private struct DebugStressSurfaceLoadStats {
         let pendingSurfaces: Int
+        let loadedPanels: Int
+        let failedPanels: Int
         let attempts: Int
         let elapsedMs: Double
+    }
+
+    private struct DebugStressTerminalLoadTarget {
+        let workspace: Workspace
+        let paneId: PaneID
+        let tabId: TabID
+        let panelId: UUID
+    }
+
+    private func loadAllDebugStressWorkspacesForTerminalSurfaceReadiness(
+        _ workspaces: [Workspace],
+        tabManager: TabManager
+    ) async -> DebugStressSurfaceLoadStats {
+        guard !workspaces.isEmpty else {
+            return DebugStressSurfaceLoadStats(
+                pendingSurfaces: 0,
+                loadedPanels: 0,
+                failedPanels: 0,
+                attempts: 0,
+                elapsedMs: 0
+            )
+        }
+
+        let retainedWorkspaceIds = Set(workspaces.map(\.id))
+        let loadStart = ProcessInfo.processInfo.systemUptime
+        var attempts = 0
+        var queuedTargets: [DebugStressTerminalLoadTarget] = []
+        queuedTargets.reserveCapacity(
+            workspaces.count * debugStressPaneCount * debugStressTabsPerPane
+        )
+
+        tabManager.retainDebugWorkspaceLoads(for: retainedWorkspaceIds)
+        defer { tabManager.releaseDebugWorkspaceLoads(for: retainedWorkspaceIds) }
+
+        await Task.yield()
+        forceDebugStressVisibleLayout()
+        let mountedWorkspaceCount = await waitForDebugStressMountedWorkspaces(workspaces)
+
+        for (workspaceIndex, workspace) in workspaces.enumerated() {
+            for paneId in workspace.bonsplitController.allPaneIds {
+                for tab in workspace.bonsplitController.tabs(inPane: paneId) {
+                    guard let panelId = workspace.panelIdFromSurfaceId(tab.id),
+                          workspace.panel(for: tab.id) is TerminalPanel else {
+                        continue
+                    }
+                    if workspace.preloadTerminalPanelForDebugStress(tabId: tab.id, inPane: paneId) != nil {
+                        queuedTargets.append(
+                            DebugStressTerminalLoadTarget(
+                                workspace: workspace,
+                                paneId: paneId,
+                                tabId: tab.id,
+                                panelId: panelId
+                            )
+                        )
+                        attempts += 1
+                    }
+                }
+            }
+
+            dlog(
+                "stress.setup.queue workspace=\(workspaceIndex + 1)/\(workspaces.count) " +
+                "mounted=\(mountedWorkspaceCount)/\(workspaces.count) queued=\(queuedTargets.count)"
+            )
+            await Task.yield()
+        }
+
+        let waitResult = await waitForDebugStressTerminalPanelSurfaces(queuedTargets)
+        attempts += waitResult.attempts
+        let failedPanels = waitResult.pendingTargets.count
+        let loadedPanels = max(0, queuedTargets.count - failedPanels)
+        for target in waitResult.pendingTargets {
+            dlog(
+                "stress.setup.surfaceTimeout workspace=\(target.workspace.id.uuidString.prefix(5)) " +
+                "panel=\(target.panelId.uuidString.prefix(5)) pane=\(target.paneId.id.uuidString.prefix(5))"
+            )
+        }
+
+        let elapsedMs = (ProcessInfo.processInfo.systemUptime - loadStart) * 1000.0
+        return DebugStressSurfaceLoadStats(
+            pendingSurfaces: pendingDebugTerminalSurfaceCount(in: workspaces),
+            loadedPanels: loadedPanels,
+            failedPanels: failedPanels,
+            attempts: attempts,
+            elapsedMs: elapsedMs
+        )
+    }
+
+    private func waitForDebugStressMountedWorkspaces(_ workspaces: [Workspace]) async -> Int {
+        guard !workspaces.isEmpty else { return 0 }
+        var mountedWorkspaceCount = 0
+        let selectedWorkspaceId = tabManager?.selectedTabId
+
+        for _ in 0..<4 {
+            forceDebugStressVisibleLayout()
+            mountedWorkspaceCount = 0
+            for workspace in workspaces {
+                if workspace.id == selectedWorkspaceId {
+                    workspace.scheduleDebugStressTerminalGeometryReconcile()
+                } else {
+                    workspace.requestBackgroundTerminalSurfaceStartIfNeeded()
+                }
+                if workspace.panels.values.contains(where: { panel in
+                    guard let terminalPanel = panel as? TerminalPanel else { return false }
+                    return terminalPanel.hostedView.superview != nil || terminalPanel.surface.surface != nil
+                }) {
+                    mountedWorkspaceCount += 1
+                }
+            }
+            if mountedWorkspaceCount == workspaces.count {
+                break
+            }
+            await Task.yield()
+            try? await Task.sleep(nanoseconds: debugStressSurfaceLoadPollNanoseconds)
+        }
+
+        dlog("stress.setup.mount mounted=\(mountedWorkspaceCount)/\(workspaces.count)")
+        return mountedWorkspaceCount
+    }
+
+    private func waitForDebugStressTerminalPanelSurfaces(
+        _ targets: [DebugStressTerminalLoadTarget]
+    ) async -> (pendingTargets: [DebugStressTerminalLoadTarget], attempts: Int) {
+        guard !targets.isEmpty else {
+            return (pendingTargets: [], attempts: 0)
+        }
+
+        let deadline = Date().addingTimeInterval(debugStressSurfaceLoadTimeoutSeconds)
+        let selectedWorkspaceId = tabManager?.selectedTabId
+        var pendingTargets = targets
+        var attempts = 0
+        var pass = 0
+
+        while !pendingTargets.isEmpty, Date() < deadline {
+            pass += 1
+            forceDebugStressVisibleLayout()
+
+            var nextPending: [DebugStressTerminalLoadTarget] = []
+            nextPending.reserveCapacity(pendingTargets.count)
+            var restartedThisPass = 0
+
+            for (targetIndex, target) in pendingTargets.enumerated() {
+                guard let terminalPanel = target.workspace.panel(for: target.tabId) as? TerminalPanel else {
+                    nextPending.append(target)
+                    continue
+                }
+                if terminalPanel.surface.surface != nil {
+                    continue
+                }
+
+                let hostedView = terminalPanel.hostedView
+                let shouldReconcileVisibleSelection =
+                    target.workspace.id == selectedWorkspaceId &&
+                    hostedView.window != nil &&
+                    hostedView.superview != nil
+
+                if shouldReconcileVisibleSelection {
+                    target.workspace.scheduleDebugStressTerminalGeometryReconcile()
+                    if pass == 1 || (pass % 4) == 0 {
+                        if target.workspace.preloadTerminalPanelForDebugStress(
+                            tabId: target.tabId,
+                            inPane: target.paneId
+                        ) != nil {
+                            restartedThisPass += 1
+                            attempts += 1
+                        }
+                    } else {
+                        terminalPanel.requestViewReattach()
+                        terminalPanel.surface.requestBackgroundSurfaceStartIfNeeded()
+                    }
+                } else {
+                    terminalPanel.surface.requestBackgroundSurfaceStartIfNeeded()
+                }
+                nextPending.append(target)
+
+                if ((targetIndex + 1) % 16) == 0 {
+                    await Task.yield()
+                }
+            }
+
+            if nextPending.count != pendingTargets.count || restartedThisPass > 0 || pass == 1 || (pass % 8) == 0 {
+                dlog(
+                    "stress.setup.await pass=\(pass) pending=\(nextPending.count) " +
+                    "restarted=\(restartedThisPass)"
+                )
+            }
+            try? await Task.sleep(nanoseconds: debugStressSurfaceLoadPollNanoseconds)
+            pendingTargets = nextPending
+        }
+
+        return (pendingTargets: pendingTargets, attempts: attempts)
+    }
+
+    private func forceDebugStressVisibleLayout() {
+        if let activeWindow = NSApp.keyWindow ?? NSApp.mainWindow {
+            activeWindow.contentView?.layoutSubtreeIfNeeded()
+            activeWindow.contentView?.displayIfNeeded()
+            return
+        }
+
+        for (windowIndex, window) in NSApp.windows.enumerated() {
+            window.contentView?.layoutSubtreeIfNeeded()
+            if windowIndex == 0 {
+                window.contentView?.displayIfNeeded()
+            }
+        }
     }
 
     private func pendingDebugTerminalSurfaceCount(in workspaces: [Workspace]) -> Int {
@@ -6737,6 +7366,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
 
     private func installWindowResponderSwizzles() {
+        _ = Self.didInstallApplicationSendEventSwizzle
         _ = Self.didInstallWindowKeyEquivalentSwizzle
         _ = Self.didInstallWindowFirstResponderSwizzle
         _ = Self.didInstallWindowSendEventSwizzle
@@ -6748,13 +7378,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             guard let self else { return event }
             if event.type == .keyDown {
 #if DEBUG
-                if (ProcessInfo.processInfo.environment["CMUX_KEY_LATENCY_PROBE"] == "1"
-                    || UserDefaults.standard.bool(forKey: "cmuxKeyLatencyProbe")),
-                   event.timestamp > 0 {
-                    let delayMs = max(0, (ProcessInfo.processInfo.systemUptime - event.timestamp) * 1000)
-                    let delayText = String(format: "%.2f", delayMs)
-                    dlog("key.latency path=appMonitor ms=\(delayText) keyCode=\(event.keyCode) mods=\(event.modifierFlags.rawValue) repeat=\(event.isARepeat ? 1 : 0)")
-                }
+                let phaseTotalStart = ProcessInfo.processInfo.systemUptime
+                let preludeStart = ProcessInfo.processInfo.systemUptime
+                var preludeMs: Double = 0
+                var shortcutMs: Double = 0
+                CmuxTypingTiming.logEventDelay(path: "appMonitor", event: event)
                 let shortcutMonitorTraceEnabled =
                     ProcessInfo.processInfo.environment["CMUX_SHORTCUT_MONITOR_TRACE"] == "1"
                     || UserDefaults.standard.bool(forKey: "cmuxShortcutMonitorTrace")
@@ -6767,15 +7395,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 if let probeKind = self.developerToolsShortcutProbeKind(event: event) {
                     self.logDeveloperToolsShortcutSnapshot(phase: "monitor.pre.\(probeKind)", event: event)
                 }
+                preludeMs = (ProcessInfo.processInfo.systemUptime - preludeStart) * 1000.0
+                let shortcutTimingStart = CmuxTypingTiming.start()
 #endif
                 let shortcutStart = ProcessInfo.processInfo.systemUptime
                 let handledByShortcut = self.handleCustomShortcut(event: event)
 #if DEBUG
+                shortcutMs = (ProcessInfo.processInfo.systemUptime - shortcutStart) * 1000.0
+                CmuxTypingTiming.logDuration(
+                    path: "appMonitor.handleCustomShortcut",
+                    startedAt: shortcutTimingStart,
+                    event: event,
+                    extra: "handled=\(handledByShortcut ? 1 : 0)"
+                )
                 let shortcutElapsedMs = (ProcessInfo.processInfo.systemUptime - shortcutStart) * 1000.0
                 self.logSlowShortcutMonitorLatencyIfNeeded(
                     event: event,
                     handledByShortcut: handledByShortcut,
                     elapsedMs: shortcutElapsedMs
+                )
+                let totalMs = (ProcessInfo.processInfo.systemUptime - phaseTotalStart) * 1000.0
+                CmuxTypingTiming.logBreakdown(
+                    path: "appMonitor.phase",
+                    totalMs: totalMs,
+                    event: event,
+                    thresholdMs: 0.75,
+                    parts: [
+                        ("preludeMs", preludeMs),
+                        ("shortcutMs", shortcutMs),
+                    ],
+                    extra: "handled=\(handledByShortcut ? 1 : 0)"
                 )
 #endif
                 if handledByShortcut {
@@ -10022,6 +10671,36 @@ private final class CmuxFieldEditorOwningWebViewBox: NSObject {
     }
 }
 
+private extension NSApplication {
+    @objc func cmux_applicationSendEvent(_ event: NSEvent) {
+#if DEBUG
+        let typingTimingStart = event.type == .keyDown ? CmuxTypingTiming.start() : nil
+        let phaseTotalStart = event.type == .keyDown ? ProcessInfo.processInfo.systemUptime : 0
+        if event.type == .keyDown {
+            CmuxTypingTiming.logEventDelay(path: "app.sendEvent", event: event)
+        }
+        defer {
+            if event.type == .keyDown {
+                let totalMs = (ProcessInfo.processInfo.systemUptime - phaseTotalStart) * 1000.0
+                CmuxTypingTiming.logBreakdown(
+                    path: "app.sendEvent.phase",
+                    totalMs: totalMs,
+                    event: event,
+                    thresholdMs: 1.0,
+                    parts: [("dispatchMs", totalMs)]
+                )
+                CmuxTypingTiming.logDuration(
+                    path: "app.sendEvent",
+                    startedAt: typingTimingStart,
+                    event: event
+                )
+            }
+        }
+#endif
+        cmux_applicationSendEvent(event)
+    }
+}
+
 private extension NSWindow {
     @objc func cmux_makeFirstResponder(_ responder: NSResponder?) -> Bool {
         if cmuxIsWindowFirstResponderBypassActive() {
@@ -10120,12 +10799,70 @@ private extension NSWindow {
     }
 
     @objc func cmux_sendEvent(_ event: NSEvent) {
+#if DEBUG
+        let typingTimingStart = event.type == .keyDown ? CmuxTypingTiming.start() : nil
+        let phaseTotalStart = event.type == .keyDown ? ProcessInfo.processInfo.systemUptime : 0
+        var contextSetupMs: Double = 0
+        var folderGuardMs: Double = 0
+        var originalDispatchMs: Double = 0
+        let typingTimingExtra: String? = {
+            guard event.type == .keyDown else { return nil }
+            let responderWebView = self.firstResponder.flatMap {
+                Self.cmuxOwningWebView(for: $0, in: self, event: event)
+            }
+            let hitWebView = Self.cmuxHitViewForEventDispatch(in: self, event: event).flatMap {
+                Self.cmuxOwningWebView(for: $0)
+            }
+            let firstResponderType = self.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
+            return "browser=\((responderWebView != nil || hitWebView != nil) ? 1 : 0) firstResponder=\(firstResponderType)"
+        }()
+        if event.type == .keyDown {
+            CmuxTypingTiming.logEventDelay(path: "window.sendEvent", event: event)
+        }
+#endif
+        // recordTypingActivity must run in all builds so runSessionAutosaveTick
+        // can honor the typing quiet period in release.
+        if event.type == .keyDown {
+            AppDelegate.shared?.recordTypingActivity()
+        }
+#if DEBUG
+        defer {
+            if event.type == .keyDown {
+                let totalMs = (ProcessInfo.processInfo.systemUptime - phaseTotalStart) * 1000.0
+                CmuxTypingTiming.logBreakdown(
+                    path: "window.sendEvent.phase",
+                    totalMs: totalMs,
+                    event: event,
+                    thresholdMs: 1.0,
+                    parts: [
+                        ("contextSetupMs", contextSetupMs),
+                        ("folderGuardMs", folderGuardMs),
+                        ("originalDispatchMs", originalDispatchMs),
+                    ],
+                    extra: typingTimingExtra
+                )
+                CmuxTypingTiming.logDuration(
+                    path: "window.sendEvent",
+                    startedAt: typingTimingStart,
+                    event: event,
+                    extra: typingTimingExtra
+                )
+            }
+        }
+        let contextSetupStart = event.type == .keyDown ? ProcessInfo.processInfo.systemUptime : 0
+#endif
         let previousContextEvent = cmuxFirstResponderGuardCurrentEventContext
         let previousContextHitView = cmuxFirstResponderGuardHitViewContext
         let previousContextWindowNumber = cmuxFirstResponderGuardContextWindowNumber
         cmuxFirstResponderGuardCurrentEventContext = event
         cmuxFirstResponderGuardHitViewContext = Self.cmuxHitViewForEventDispatch(in: self, event: event)
         cmuxFirstResponderGuardContextWindowNumber = self.windowNumber
+#if DEBUG
+        if event.type == .keyDown {
+            contextSetupMs = (ProcessInfo.processInfo.systemUptime - contextSetupStart) * 1000.0
+        }
+        let folderGuardStart = event.type == .keyDown ? ProcessInfo.processInfo.systemUptime : 0
+#endif
         defer {
             cmuxFirstResponderGuardCurrentEventContext = previousContextEvent
             cmuxFirstResponderGuardHitViewContext = previousContextHitView
@@ -10134,9 +10871,24 @@ private extension NSWindow {
 
         guard shouldSuppressWindowMoveForFolderDrag(window: self, event: event),
               let contentView = self.contentView else {
+#if DEBUG
+            if event.type == .keyDown {
+                folderGuardMs = (ProcessInfo.processInfo.systemUptime - folderGuardStart) * 1000.0
+                let originalDispatchStart = ProcessInfo.processInfo.systemUptime
+                cmux_sendEvent(event)
+                originalDispatchMs = (ProcessInfo.processInfo.systemUptime - originalDispatchStart) * 1000.0
+                return
+            }
+#endif
             cmux_sendEvent(event)
             return
         }
+#if DEBUG
+        if event.type == .keyDown {
+            folderGuardMs = (ProcessInfo.processInfo.systemUptime - folderGuardStart) * 1000.0
+        }
+        let originalDispatchStart = event.type == .keyDown ? ProcessInfo.processInfo.systemUptime : 0
+#endif
 
         let contentPoint = contentView.convert(event.locationInWindow, from: nil)
         let hitView = contentView.hitTest(contentPoint)
@@ -10151,6 +10903,11 @@ private extension NSWindow {
         #endif
 
         cmux_sendEvent(event)
+#if DEBUG
+        if event.type == .keyDown {
+            originalDispatchMs = (ProcessInfo.processInfo.systemUptime - originalDispatchStart) * 1000.0
+        }
+#endif
 
         if previousMovableState {
             isMovable = previousMovableState
@@ -10163,6 +10920,14 @@ private extension NSWindow {
 
     @objc func cmux_performKeyEquivalent(with event: NSEvent) -> Bool {
 #if DEBUG
+        let typingTimingStart = CmuxTypingTiming.start()
+        defer {
+            CmuxTypingTiming.logDuration(
+                path: "window.performKeyEquivalent",
+                startedAt: typingTimingStart,
+                event: event
+            )
+        }
         let frType = self.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
         dlog("performKeyEquiv: \(Self.keyDescription(event)) fr=\(frType)")
 #endif

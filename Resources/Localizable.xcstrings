@@ -788,6 +788,23 @@
         }
       }
     },
+    "debug.menu.openStressWorkspacesWithLoadedSurfaces": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Stress Workspaces and Load All Terminals"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "負荷テスト用ワークスペースを開いてすべてのターミナルを読み込む"
+          }
+        }
+      }
+    },
     "debug.devBuildBanner.title": {
       "extractionState": "manual",
       "localizations": {
