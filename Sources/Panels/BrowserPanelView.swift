@@ -4992,6 +4992,8 @@ struct WebViewRepresentable: NSViewRepresentable {
             return true
         }
         guard !relatedSubviews.isEmpty else { return }
+        let preserveSlotLocalFrames = sourceSuperview is WindowBrowserSlotView
+        let sourceSlotBoundsSize = sourceSuperview.bounds.size
 #if DEBUG
         dlog(
             "browser.localHost.reparent.batch reason=\(reason) source=\(Self.objectID(sourceSuperview)) " +
@@ -5000,17 +5002,28 @@ struct WebViewRepresentable: NSViewRepresentable {
         )
 #endif
         for view in relatedSubviews {
-            let frameInWindow = sourceSuperview.convert(view.frame, to: nil)
             let className = String(describing: type(of: view))
+            let targetFrame: NSRect
+            if preserveSlotLocalFrames {
+                targetFrame = view.frame
+            } else {
+                let frameInWindow = sourceSuperview.convert(view.frame, to: nil)
+                targetFrame = container.convert(frameInWindow, from: nil)
+            }
             view.removeFromSuperview()
             container.addSubview(view, positioned: .above, relativeTo: nil)
-            view.frame = container.convert(frameInWindow, from: nil)
+            view.frame = targetFrame
 #if DEBUG
             dlog(
                 "browser.localHost.reparent.batch.item reason=\(reason) class=\(className) " +
                 "view=\(Self.objectID(view))"
             )
 #endif
+        }
+        if preserveSlotLocalFrames, sourceSlotBoundsSize != container.bounds.size {
+            container.resizeSubviews(withOldSize: sourceSlotBoundsSize)
+            container.needsLayout = true
+            container.layoutSubtreeIfNeeded()
         }
     }
 
