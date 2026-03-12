@@ -8327,8 +8327,8 @@ struct CMUXCLI {
         }
 
         let searchRoots = [
-            executableURL.deletingLastPathComponent(),
-            executableURL.deletingLastPathComponent().deletingLastPathComponent()
+            executableURL.deletingLastPathComponent().standardizedFileURL,
+            executableURL.deletingLastPathComponent().deletingLastPathComponent().standardizedFileURL
         ]
         for root in searchRoots {
             guard let entries = fileManager.enumerator(
