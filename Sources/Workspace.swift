@@ -3785,6 +3785,9 @@ extension Workspace: BonsplitDelegate {
     /// Apply the side-effects of selecting a tab (unfocus others, focus this panel, update state).
     /// bonsplit doesn't always emit didSelectTab for programmatic selection paths (e.g. createTab).
     private func applyTabSelection(tabId: TabID, inPane pane: PaneID) {
+        if let panelId = panelIdFromSurfaceId(tabId) {
+            recordSurfaceSelection(panelId: panelId, in: pane)
+        }
         pendingTabSelection = (tabId: tabId, pane: pane)
         guard !isApplyingTabSelection else { return }
         isApplyingTabSelection = true
@@ -4199,9 +4202,6 @@ extension Workspace: BonsplitDelegate {
     }
 
     func splitTabBar(_ controller: BonsplitController, didSelectTab tab: Bonsplit.Tab, inPane pane: PaneID) {
-        if let panelId = panelIdFromSurfaceId(tab.id) {
-            recordSurfaceSelection(panelId: panelId, in: pane)
-        }
         applyTabSelection(tabId: tab.id, inPane: pane)
     }
 

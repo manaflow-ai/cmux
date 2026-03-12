@@ -3750,23 +3750,30 @@ class TerminalController {
 
         var result: V2CallResult = .err(code: "not_found", message: "No previously visited surface in pane", data: nil)
         v2MainSync {
-            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+            // If pane_id is provided, locate the pane globally and derive workspace from it.
+            let hasPaneKey = params.keys.contains("pane_id")
+            var locatedPane: (windowId: UUID, tabManager: TabManager, workspace: Workspace, paneId: PaneID)?
+            if hasPaneKey {
+                guard let paneUUID = v2UUID(params, "pane_id") else {
+                    result = .err(code: "invalid_params", message: "Missing or invalid pane_id", data: nil)
+                    return
+                }
+                guard let located = v2LocatePane(paneUUID) else {
+                    result = .err(code: "not_found", message: "Pane not found", data: ["pane_id": paneUUID.uuidString])
+                    return
+                }
+                locatedPane = located
+            }
+
+            guard let ws = locatedPane?.workspace ?? v2ResolveWorkspace(params: params, tabManager: tabManager) else {
                 result = .err(code: "not_found", message: "Workspace not found", data: nil)
                 return
             }
 
-            v2MaybeFocusWindow(for: tabManager)
-            v2MaybeSelectWorkspace(tabManager, workspace: ws)
+            v2MaybeFocusWindow(for: locatedPane?.tabManager ?? tabManager)
+            v2MaybeSelectWorkspace(locatedPane?.tabManager ?? tabManager, workspace: ws)
 
-            // Resolve the target pane: use pane_id if provided, otherwise the focused pane.
-            var targetPaneId: PaneID?
-            if let requestedPaneUUID = v2UUID(params, "pane_id") {
-                guard let pane = ws.bonsplitController.allPaneIds.first(where: { $0.id == requestedPaneUUID }) else {
-                    result = .err(code: "not_found", message: "Pane not found", data: ["pane_id": requestedPaneUUID.uuidString])
-                    return
-                }
-                targetPaneId = pane
-            }
+            let targetPaneId = locatedPane?.paneId
 
             guard ws.selectLastVisitedSurface(inPane: targetPaneId) else { return }
 
