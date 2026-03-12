@@ -1,12 +1,5 @@
 import Foundation
-import CryptoKit
 import Darwin
-#if canImport(LocalAuthentication)
-import LocalAuthentication
-#endif
-#if canImport(Security)
-import Security
-#endif
 #if canImport(Sentry)
 import Sentry
 #endif
@@ -422,22 +415,17 @@ enum CLIIDFormat: String {
 }
 
 private enum SocketPasswordResolver {
-    private static let service = "com.cmuxterm.app.socket-control"
-    private static let account = "local-socket-password"
     private static let directoryName = "cmux"
     private static let fileName = "socket-control-password"
 
-    static func resolve(explicit: String?, socketPath: String) -> String? {
+    static func resolve(explicit: String?) -> String? {
         if let explicit = normalized(explicit) {
             return explicit
         }
         if let env = normalized(ProcessInfo.processInfo.environment["CMUX_SOCKET_PASSWORD"]) {
             return env
         }
-        if let filePassword = loadFromFile() {
-            return filePassword
-        }
-        return loadFromKeychain(socketPath: socketPath)
+        return loadFromFile()
     }
 
     private static func normalized(_ value: String?) -> String? {
@@ -460,83 +448,6 @@ private enum SocketPasswordResolver {
             return nil
         }
         return normalized(value)
-    }
-
-    private static func keychainServices(socketPath: String) -> [String] {
-        guard let scope = keychainScope(socketPath: socketPath) else {
-            return [service]
-        }
-        return ["\(service).\(scope)"]
-    }
-
-    private static func keychainScope(socketPath: String) -> String? {
-        if let tag = normalized(ProcessInfo.processInfo.environment["CMUX_TAG"]) {
-            let scoped = sanitizeScope(tag)
-            if !scoped.isEmpty {
-                return scoped
-            }
-        }
-
-        let candidate = URL(fileURLWithPath: socketPath).lastPathComponent
-        let prefixes = ["cmux-debug-", "cmux-"]
-        for prefix in prefixes {
-            guard candidate.hasPrefix(prefix), candidate.hasSuffix(".sock") else { continue }
-            let start = candidate.index(candidate.startIndex, offsetBy: prefix.count)
-            let end = candidate.index(candidate.endIndex, offsetBy: -".sock".count)
-            guard start < end else { continue }
-            let rawScope = String(candidate[start..<end])
-            let scoped = sanitizeScope(rawScope)
-            if !scoped.isEmpty {
-                return scoped
-            }
-        }
-        return nil
-    }
-
-    private static func sanitizeScope(_ raw: String) -> String {
-        let lowered = raw.lowercased()
-        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: ".-"))
-        let mappedScalars = lowered.unicodeScalars.map { scalar -> Character in
-            allowed.contains(scalar) ? Character(scalar) : "."
-        }
-        var normalizedScope = String(mappedScalars)
-        normalizedScope = normalizedScope.replacingOccurrences(
-            of: "\\.+",
-            with: ".",
-            options: .regularExpression
-        )
-        normalizedScope = normalizedScope.trimmingCharacters(in: CharacterSet(charactersIn: "."))
-        return normalizedScope
-    }
-
-    private static func loadFromKeychain(socketPath: String) -> String? {
-        for service in keychainServices(socketPath: socketPath) {
-            let authContext = LAContext()
-            authContext.interactionNotAllowed = true
-            let query: [String: Any] = [
-                kSecClass as String: kSecClassGenericPassword,
-                kSecAttrService as String: service,
-                kSecAttrAccount as String: account,
-                kSecReturnData as String: true,
-                kSecMatchLimit as String: kSecMatchLimitOne,
-                // Never trigger keychain UI from CLI commands; fail fast instead.
-                kSecUseAuthenticationContext as String: authContext,
-            ]
-            var result: CFTypeRef?
-            let status = SecItemCopyMatching(query as CFDictionary, &result)
-            if status == errSecItemNotFound || status == errSecInteractionNotAllowed || status == errSecAuthFailed {
-                continue
-            }
-            guard status == errSecSuccess else {
-                continue
-            }
-            guard let data = result as? Data,
-                  let password = String(data: data, encoding: .utf8) else {
-                continue
-            }
-            return password
-        }
-        return nil
     }
 }
 
@@ -706,10 +617,6 @@ final class SocketClient {
 
     init(path: String) {
         self.path = path
-    }
-
-    var socketPath: String {
-        path
     }
 
     func connect() throws {
@@ -884,53 +791,6 @@ final class SocketClient {
 struct CMUXCLI {
     let args: [String]
 
-    private static let debugLastSocketHintPath = "/tmp/cmux-last-socket-path"
-
-    private static func normalizedEnvValue(_ value: String?) -> String? {
-        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !trimmed.isEmpty else {
-            return nil
-        }
-        return trimmed
-    }
-
-    private static func pathIsSocket(_ path: String) -> Bool {
-        var st = stat()
-        guard lstat(path, &st) == 0 else { return false }
-        return (st.st_mode & S_IFMT) == S_IFSOCK
-    }
-
-    private static func debugSocketPathFromHintFile() -> String? {
-#if DEBUG
-        guard let raw = try? String(contentsOfFile: debugLastSocketHintPath, encoding: .utf8) else {
-            return nil
-        }
-        guard let hinted = normalizedEnvValue(raw),
-              hinted.hasPrefix("/tmp/cmux-debug"),
-              hinted.hasSuffix(".sock"),
-              pathIsSocket(hinted) else {
-            return nil
-        }
-        return hinted
-#else
-        return nil
-#endif
-    }
-
-    private static func defaultSocketPath(environment: [String: String]) -> String {
-        if let explicit = normalizedEnvValue(environment["CMUX_SOCKET_PATH"]) {
-            return explicit
-        }
-#if DEBUG
-        if let hinted = debugSocketPathFromHintFile() {
-            return hinted
-        }
-        return "/tmp/cmux-debug.sock"
-#else
-        return "/tmp/cmux.sock"
-#endif
-    }
-
     func run() throws {
         let processEnv = ProcessInfo.processInfo.environment
         let envSocketPath: String? = {
@@ -1031,11 +891,6 @@ struct CMUXCLI {
             return
         }
 
-        if command == "remote-daemon-status" {
-            try runRemoteDaemonStatus(commandArgs: commandArgs, jsonOutput: jsonOutput)
-            return
-        }
-
         // If the argument looks like a path (not a known command), open a workspace there.
         if looksLikePath(command) {
             try openPath(command, socketPath: resolvedSocketPath)
@@ -1115,11 +970,7 @@ struct CMUXCLI {
         }
         defer { client.close() }
 
-        try authenticateClientIfNeeded(
-            client,
-            explicitPassword: socketPasswordArg,
-            socketPath: resolvedSocketPath
-        )
+        try authenticateClientIfNeeded(client, explicitPassword: socketPasswordArg)
 
         let idFormat = try resolvedIDFormat(jsonOutput: jsonOutput, raw: idFormatArg)
 
@@ -1264,26 +1115,13 @@ struct CMUXCLI {
                         let selected = (ws["selected"] as? Bool) == true
                         let handle = textHandle(ws, idFormat: idFormat)
                         let title = (ws["title"] as? String) ?? ""
-                        let remoteTag: String = {
-                            guard let remote = ws["remote"] as? [String: Any],
-                                  (remote["enabled"] as? Bool) == true else {
-                                return ""
-                            }
-                            let state = (remote["state"] as? String) ?? "unknown"
-                            return "  [ssh:\(state)]"
-                        }()
                         let prefix = selected ? "* " : "  "
                         let selTag = selected ? "  [selected]" : ""
                         let titlePart = title.isEmpty ? "" : "  \(title)"
-                        print("\(prefix)\(handle)\(titlePart)\(remoteTag)\(selTag)")
+                        print("\(prefix)\(handle)\(titlePart)\(selTag)")
                     }
                 }
             }
-
-        case "ssh":
-            try runSSH(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
-        case "ssh-session-end":
-            try runSSHSessionEnd(commandArgs: commandArgs, client: client)
 
         case "new-workspace":
             let (commandOpt, rem0) = parseOption(commandArgs, name: "--command")
@@ -1733,6 +1571,109 @@ struct CMUXCLI {
                 throw error
             }
 
+        case "set-status":
+            let (icon, r1) = parseOption(commandArgs, name: "--icon")
+            let (color, r2) = parseOption(r1, name: "--color")
+            let (wsFlag, r3) = parseOption(r2, name: "--workspace")
+            guard r3.count >= 2 else {
+                throw CLIError(message: "set-status requires <key> and <value>")
+            }
+            let key = r3[0]
+            let value = r3.dropFirst().joined(separator: " ")
+            guard !value.isEmpty else {
+                throw CLIError(message: "set-status requires a non-empty value")
+            }
+            let workspaceArg = wsFlag ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+            let wsId = try resolveWorkspaceId(workspaceArg, client: client)
+            var socketCmd = "set_status \(key) \(socketQuote(value))"
+            if let icon { socketCmd += " --icon=\(socketQuote(icon))" }
+            if let color { socketCmd += " --color=\(socketQuote(color))" }
+            socketCmd += " --tab=\(wsId)"
+            let response = try sendV1Command(socketCmd, client: client)
+            print(response)
+
+        case "clear-status":
+            let (wsFlag, csRemaining) = parseOption(commandArgs, name: "--workspace")
+            guard let key = csRemaining.first else {
+                throw CLIError(message: "clear-status requires a <key>")
+            }
+            let workspaceArg = wsFlag ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+            let wsId = try resolveWorkspaceId(workspaceArg, client: client)
+            let response = try sendV1Command("clear_status \(key) --tab=\(wsId)", client: client)
+            print(response)
+
+        case "list-status":
+            let (wsFlag, _) = parseOption(commandArgs, name: "--workspace")
+            let workspaceArg = wsFlag ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+            let wsId = try resolveWorkspaceId(workspaceArg, client: client)
+            let response = try sendV1Command("list_status --tab=\(wsId)", client: client)
+            print(response)
+
+        case "set-progress":
+            let (label, spR1) = parseOption(commandArgs, name: "--label")
+            let (wsFlag, spR2) = parseOption(spR1, name: "--workspace")
+            guard let valueStr = spR2.first else {
+                throw CLIError(message: "set-progress requires a progress value (0.0-1.0)")
+            }
+            let workspaceArg = wsFlag ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+            let wsId = try resolveWorkspaceId(workspaceArg, client: client)
+            var socketCmd = "set_progress \(valueStr)"
+            if let label { socketCmd += " --label=\(socketQuote(label))" }
+            socketCmd += " --tab=\(wsId)"
+            let response = try sendV1Command(socketCmd, client: client)
+            print(response)
+
+        case "clear-progress":
+            let (wsFlag, _) = parseOption(commandArgs, name: "--workspace")
+            let workspaceArg = wsFlag ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+            let wsId = try resolveWorkspaceId(workspaceArg, client: client)
+            let response = try sendV1Command("clear_progress --tab=\(wsId)", client: client)
+            print(response)
+
+        case "log":
+            let (level, r1) = parseOption(commandArgs, name: "--level")
+            let (source, r2) = parseOption(r1, name: "--source")
+            let (wsFlag, r3) = parseOption(r2, name: "--workspace")
+            // Strip leading "--" separator if present
+            let positional = r3.first == "--" ? Array(r3.dropFirst()) : r3
+            let message = positional.joined(separator: " ")
+            guard !message.isEmpty else {
+                throw CLIError(message: "log requires a message")
+            }
+            let workspaceArg = wsFlag ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+            let wsId = try resolveWorkspaceId(workspaceArg, client: client)
+            var socketCmd = "log"
+            if let level { socketCmd += " --level=\(level)" }
+            if let source { socketCmd += " --source=\(socketQuote(source))" }
+            socketCmd += " --tab=\(wsId) -- \(socketQuote(message))"
+            let response = try sendV1Command(socketCmd, client: client)
+            print(response)
+
+        case "clear-log":
+            let (wsFlag, _) = parseOption(commandArgs, name: "--workspace")
+            let workspaceArg = wsFlag ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+            let wsId = try resolveWorkspaceId(workspaceArg, client: client)
+            let response = try sendV1Command("clear_log --tab=\(wsId)", client: client)
+            print(response)
+
+        case "list-log":
+            let (limitStr, r1) = parseOption(commandArgs, name: "--limit")
+            let (wsFlag, _) = parseOption(r1, name: "--workspace")
+            let workspaceArg = wsFlag ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+            let wsId = try resolveWorkspaceId(workspaceArg, client: client)
+            var socketCmd = "list_log"
+            if let limitStr { socketCmd += " --limit=\(limitStr)" }
+            socketCmd += " --tab=\(wsId)"
+            let response = try sendV1Command(socketCmd, client: client)
+            print(response)
+
+        case "sidebar-state":
+            let (wsFlag, _) = parseOption(commandArgs, name: "--workspace")
+            let workspaceArg = wsFlag ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+            let wsId = try resolveWorkspaceId(workspaceArg, client: client)
+            let response = try sendV1Command("sidebar_state --tab=\(wsId)", client: client)
+            print(response)
+
         case "set-app-focus":
             guard let value = commandArgs.first else { throw CLIError(message: "set-app-focus requires a value") }
             let response = try sendV1Command("set_app_focus \(value)", client: client)
@@ -2150,32 +2091,17 @@ struct CMUXCLI {
             guard connected else {
                 throw CLIError(message: "cmux app did not start in time (socket not found at \(socketPath))")
             }
-            try authenticateClientIfNeeded(
-                pollClient,
-                explicitPassword: explicitPassword,
-                socketPath: socketPath
-            )
+            try authenticateClientIfNeeded(pollClient, explicitPassword: explicitPassword)
             return pollClient
         }
 
         try client.connect()
-        try authenticateClientIfNeeded(
-            client,
-            explicitPassword: explicitPassword,
-            socketPath: socketPath
-        )
+        try authenticateClientIfNeeded(client, explicitPassword: explicitPassword)
         return client
     }
 
-    private func authenticateClientIfNeeded(
-        _ client: SocketClient,
-        explicitPassword: String?,
-        socketPath: String
-    ) throws {
-        if let socketPassword = SocketPasswordResolver.resolve(
-            explicit: explicitPassword,
-            socketPath: socketPath
-        ) {
+    private func authenticateClientIfNeeded(_ client: SocketClient, explicitPassword: String?) throws {
+        if let socketPassword = SocketPasswordResolver.resolve(explicit: explicitPassword) {
             let authResponse = try client.send(command: "auth \(socketPassword)")
             if authResponse.hasPrefix("ERROR:"),
                !authResponse.contains("Unknown command 'auth'") {
@@ -2200,20 +2126,20 @@ struct CMUXCLI {
         process.waitUntilExit()
     }
 
-    private func resolvedIDFormat(jsonOutput: Bool, raw: String?) throws -> CLIIDFormat {
-        _ = jsonOutput
-        if let parsed = try CLIIDFormat.parse(raw) {
-            return parsed
-        }
-        return .refs
-    }
-
     private func sendV1Command(_ command: String, client: SocketClient) throws -> String {
         let response = try client.send(command: command)
         if response.hasPrefix("ERROR:") {
             throw CLIError(message: response)
         }
         return response
+    }
+
+    private func resolvedIDFormat(jsonOutput: Bool, raw: String?) throws -> CLIIDFormat {
+        _ = jsonOutput
+        if let parsed = try CLIIDFormat.parse(raw) {
+            return parsed
+        }
+        return .refs
     }
 
     private func formatIDs(_ object: Any, mode: CLIIDFormat) -> Any {
@@ -2862,807 +2788,6 @@ struct CMUXCLI {
             windowOverride: windowOverride
         )
     }
-    private struct SSHCommandOptions {
-        let destination: String
-        let port: Int?
-        let identityFile: String?
-        let workspaceName: String?
-        let sshOptions: [String]
-        let extraArguments: [String]
-        let localSocketPath: String
-        let remoteRelayPort: Int
-    }
-
-    private struct RemoteDaemonManifest: Decodable {
-        struct Entry: Decodable {
-            let goOS: String
-            let goArch: String
-            let assetName: String
-            let downloadURL: String
-            let sha256: String
-        }
-
-        let schemaVersion: Int
-        let appVersion: String
-        let releaseTag: String
-        let releaseURL: String
-        let checksumsAssetName: String
-        let checksumsURL: String
-        let entries: [Entry]
-
-        func entry(goOS: String, goArch: String) -> Entry? {
-            entries.first { $0.goOS == goOS && $0.goArch == goArch }
-        }
-    }
-
-    private func generateRemoteRelayPort() -> Int {
-        // Random port in the ephemeral range (49152-65535)
-        Int.random(in: 49152...65535)
-    }
-
-    private func randomHex(byteCount: Int) throws -> String {
-        var bytes = [UInt8](repeating: 0, count: byteCount)
-        let status = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
-        guard status == errSecSuccess else {
-            throw CLIError(message: "failed to generate SSH relay credential")
-        }
-        return bytes.map { String(format: "%02x", $0) }.joined()
-    }
-
-    private func runSSH(
-        commandArgs: [String],
-        client: SocketClient,
-        jsonOutput: Bool,
-        idFormat: CLIIDFormat
-    ) throws {
-        // Use the socket path from this invocation (supports --socket overrides).
-        let localSocketPath = client.socketPath
-        let remoteRelayPort = generateRemoteRelayPort()
-        let relayID = UUID().uuidString.lowercased()
-        let relayToken = try randomHex(byteCount: 32)
-        let sshOptions = try parseSSHCommandOptions(commandArgs, localSocketPath: localSocketPath, remoteRelayPort: remoteRelayPort)
-        prepareSSHTerminfoIfNeeded(sshOptions)
-        let sshCommand = buildSSHCommandText(sshOptions)
-        let shellFeaturesValue = scopedGhosttyShellFeaturesValue()
-        let sshStartupCommand = buildSSHStartupCommand(
-            sshCommand: sshCommand,
-            shellFeatures: shellFeaturesValue,
-            remoteRelayPort: sshOptions.remoteRelayPort
-        )
-        let remoteSSHOptions = effectiveSSHOptions(
-            sshOptions.sshOptions,
-            remoteRelayPort: sshOptions.remoteRelayPort
-        )
-
-        cliDebugLog(
-            "cli.ssh.start target=\(sshOptions.destination) port=\(sshOptions.port.map(String.init) ?? "nil") " +
-            "relayPort=\(sshOptions.remoteRelayPort) localSocket=\(sshOptions.localSocketPath) " +
-            "controlPath=\(sshOptionValue(named: "ControlPath", in: remoteSSHOptions) ?? "nil") " +
-            "workspaceName=\(sshOptions.workspaceName?.replacingOccurrences(of: " ", with: "_") ?? "nil") " +
-            "extraArgs=\(sshOptions.extraArguments.count)"
-        )
-
-        let workspaceCreateParams: [String: Any] = [
-            "initial_command": sshStartupCommand,
-        ]
-
-        let workspaceCreate = try client.sendV2(method: "workspace.create", params: workspaceCreateParams)
-        guard let workspaceId = workspaceCreate["workspace_id"] as? String, !workspaceId.isEmpty else {
-            throw CLIError(message: "workspace.create did not return workspace_id")
-        }
-        let workspaceWindowId = (workspaceCreate["window_id"] as? String)?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        cliDebugLog(
-            "cli.ssh.workspace.created workspace=\(String(workspaceId.prefix(8))) " +
-            "window=\(workspaceWindowId.map { String($0.prefix(8)) } ?? "nil")"
-        )
-        let configuredPayload: [String: Any]
-        do {
-            if let workspaceName = sshOptions.workspaceName?.trimmingCharacters(in: .whitespacesAndNewlines),
-               !workspaceName.isEmpty {
-                _ = try client.sendV2(method: "workspace.rename", params: [
-                    "workspace_id": workspaceId,
-                    "title": workspaceName,
-                ])
-            }
-
-            var configureParams: [String: Any] = [
-                "workspace_id": workspaceId,
-                "destination": sshOptions.destination,
-                "auto_connect": true,
-            ]
-            if let port = sshOptions.port {
-                configureParams["port"] = port
-            }
-            if let identityFile = normalizedSSHIdentityPath(sshOptions.identityFile) {
-                configureParams["identity_file"] = identityFile
-            }
-            if !remoteSSHOptions.isEmpty {
-                configureParams["ssh_options"] = remoteSSHOptions
-            }
-            if sshOptions.remoteRelayPort > 0 {
-                configureParams["relay_port"] = sshOptions.remoteRelayPort
-                configureParams["relay_id"] = relayID
-                configureParams["relay_token"] = relayToken
-                configureParams["local_socket_path"] = sshOptions.localSocketPath
-            }
-            configureParams["terminal_startup_command"] = sshStartupCommand
-
-            cliDebugLog(
-                "cli.ssh.remote.configure workspace=\(String(workspaceId.prefix(8))) " +
-                "target=\(sshOptions.destination) relayPort=\(sshOptions.remoteRelayPort) " +
-                "controlPath=\(sshOptionValue(named: "ControlPath", in: remoteSSHOptions) ?? "nil") " +
-                "sshOptions=\(remoteSSHOptions.joined(separator: "|"))"
-            )
-            configuredPayload = try client.sendV2(method: "workspace.remote.configure", params: configureParams)
-            var selectParams: [String: Any] = ["workspace_id": workspaceId]
-            if let workspaceWindowId, !workspaceWindowId.isEmpty {
-                selectParams["window_id"] = workspaceWindowId
-            }
-            _ = try client.sendV2(method: "workspace.select", params: selectParams)
-            let remoteState = ((configuredPayload["remote"] as? [String: Any])?["state"] as? String) ?? "unknown"
-            cliDebugLog(
-                "cli.ssh.remote.configure.ok workspace=\(String(workspaceId.prefix(8))) state=\(remoteState)"
-            )
-        } catch {
-            cliDebugLog(
-                "cli.ssh.remote.configure.error workspace=\(String(workspaceId.prefix(8))) error=\(String(describing: error))"
-            )
-            do {
-                _ = try client.sendV2(method: "workspace.close", params: ["workspace_id": workspaceId])
-            } catch {
-                let warning = "Warning: failed to rollback workspace \(workspaceId): \(error)\n"
-                FileHandle.standardError.write(Data(warning.utf8))
-            }
-            throw error
-        }
-
-        var payload = configuredPayload
-
-        payload["ssh_command"] = sshCommand
-        payload["ssh_startup_command"] = sshStartupCommand
-        payload["ssh_env_overrides"] = [
-            "GHOSTTY_SHELL_FEATURES": shellFeaturesValue,
-        ]
-        payload["remote_relay_port"] = remoteRelayPort
-        if jsonOutput {
-            print(jsonString(formatIDs(payload, mode: idFormat)))
-        } else {
-            let workspaceHandle = formatHandle(payload, kind: "workspace", idFormat: idFormat) ?? workspaceId
-            let remote = payload["remote"] as? [String: Any]
-            let state = (remote?["state"] as? String) ?? "unknown"
-            print("OK workspace=\(workspaceHandle) target=\(sshOptions.destination) state=\(state)")
-        }
-    }
-
-    private func parseSSHCommandOptions(_ commandArgs: [String], localSocketPath: String = "", remoteRelayPort: Int = 0) throws -> SSHCommandOptions {
-        var destination: String?
-        var port: Int?
-        var identityFile: String?
-        var workspaceName: String?
-        var sshOptions: [String] = []
-        var extraArguments: [String] = []
-
-        var passthrough = false
-        var index = 0
-        while index < commandArgs.count {
-            let arg = commandArgs[index]
-            if passthrough {
-                extraArguments.append(arg)
-                index += 1
-                continue
-            }
-
-            switch arg {
-            case "--":
-                passthrough = true
-                index += 1
-            case "--port":
-                guard index + 1 < commandArgs.count else {
-                    throw CLIError(message: "ssh: --port requires a value")
-                }
-                guard let parsed = Int(commandArgs[index + 1]), parsed > 0, parsed <= 65535 else {
-                    throw CLIError(message: "ssh: --port must be 1-65535")
-                }
-                port = parsed
-                index += 2
-            case "--identity":
-                guard index + 1 < commandArgs.count else {
-                    throw CLIError(message: "ssh: --identity requires a path")
-                }
-                identityFile = commandArgs[index + 1]
-                index += 2
-            case "--name":
-                guard index + 1 < commandArgs.count else {
-                    throw CLIError(message: "ssh: --name requires a workspace title")
-                }
-                workspaceName = commandArgs[index + 1]
-                index += 2
-            case "--ssh-option":
-                guard index + 1 < commandArgs.count else {
-                    throw CLIError(message: "ssh: --ssh-option requires a value")
-                }
-                let value = commandArgs[index + 1].trimmingCharacters(in: .whitespacesAndNewlines)
-                if !value.isEmpty {
-                    sshOptions.append(value)
-                }
-                index += 2
-            default:
-                if arg.hasPrefix("--") {
-                    throw CLIError(message: "ssh: unknown flag '\(arg)'")
-                }
-                if destination == nil {
-                    if arg.hasPrefix("-") {
-                        throw CLIError(
-                            message: "ssh: destination must be <user@host>. Use --port/--identity/--ssh-option for SSH flags and `--` for remote command args."
-                        )
-                    }
-                    destination = arg
-                } else {
-                    extraArguments.append(arg)
-                }
-                index += 1
-            }
-        }
-
-        guard let destination else {
-            throw CLIError(message: "ssh requires a destination (example: cmux ssh user@host)")
-        }
-        return SSHCommandOptions(
-            destination: destination,
-            port: port,
-            identityFile: identityFile,
-            workspaceName: workspaceName,
-            sshOptions: sshOptions,
-            extraArguments: extraArguments,
-            localSocketPath: localSocketPath,
-            remoteRelayPort: remoteRelayPort
-        )
-    }
-
-    private func buildSSHCommandText(_ options: SSHCommandOptions) -> String {
-        var parts = baseSSHArguments(options)
-        let shellFeaturesValue = scopedGhosttyShellFeaturesValue()
-
-        if options.extraArguments.isEmpty {
-            // No explicit remote command provided. Use RemoteCommand to bootstrap
-            // the relay wrapper and then hand off to an interactive shell.
-            if !hasSSHOptionKey(options.sshOptions, key: "RequestTTY") {
-                parts.append("-tt")
-            }
-            if !hasSSHOptionKey(options.sshOptions, key: "RemoteCommand") {
-                parts += [
-                    "-o",
-                    "RemoteCommand=\(buildInteractiveRemoteShellCommand(remoteRelayPort: options.remoteRelayPort, shellFeatures: shellFeaturesValue))",
-                ]
-            }
-            parts.append(options.destination)
-        } else {
-            parts.append(options.destination)
-            parts.append(contentsOf: options.extraArguments)
-        }
-        return parts.map(shellQuote).joined(separator: " ")
-    }
-
-    private func effectiveSSHOptions(_ options: [String], remoteRelayPort: Int? = nil) -> [String] {
-        var merged = sshOptionsWithControlSocketDefaults(options, remoteRelayPort: remoteRelayPort)
-        if !hasSSHOptionKey(merged, key: "StrictHostKeyChecking") {
-            merged.append("StrictHostKeyChecking=accept-new")
-        }
-        return merged
-    }
-
-    private func buildInteractiveRemoteShellCommand(remoteRelayPort: Int, shellFeatures: String) -> String {
-        let relayExport = remoteRelayPort > 0
-            ? "export CMUX_SOCKET_PATH=127.0.0.1:\(remoteRelayPort)"
-            : nil
-        let remoteEnvExports = interactiveRemoteShellExports(shellFeatures: shellFeatures)
-        let innerCommand = [
-            remoteEnvExports,
-            "export PATH=\"$HOME/.cmux/bin:$PATH\"",
-            relayExport,
-            "exec \"${SHELL:-/bin/zsh}\" -i",
-        ]
-        .compactMap { $0 }
-        .joined(separator: "; ")
-
-        let outerCommand = [
-            "CMUX_LOGIN_SHELL=\"${SHELL:-/bin/zsh}\"",
-            "case \"${CMUX_LOGIN_SHELL##*/}\" in",
-            "  zsh|bash)",
-            "    exec \"$CMUX_LOGIN_SHELL\" -lc \(shellQuote(innerCommand))",
-            "    ;;",
-            "  *)",
-            remoteEnvExports,
-            "    export PATH=\"$HOME/.cmux/bin:$PATH\"",
-            relayExport,
-            "    exec \"$CMUX_LOGIN_SHELL\" -i",
-            "    ;;",
-            "esac",
-        ]
-        .compactMap { $0 }
-        .joined(separator: "; ")
-
-        return outerCommand
-    }
-
-    private func interactiveRemoteShellExports(shellFeatures: String) -> String {
-        let environment = ProcessInfo.processInfo.environment
-        let term = Self.normalizedEnvValue(environment["TERM"]) ?? "xterm-ghostty"
-        let colorTerm = Self.normalizedEnvValue(environment["COLORTERM"]) ?? "truecolor"
-        let termProgram = Self.normalizedEnvValue(environment["TERM_PROGRAM"]) ?? "ghostty"
-        let termProgramVersion = Self.normalizedEnvValue(environment["TERM_PROGRAM_VERSION"])
-            ?? (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String)
-            ?? ""
-        let trimmedShellFeatures = shellFeatures.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        var exports: [String] = [
-            "export TERM=\(shellQuote(term))",
-            "export COLORTERM=\(shellQuote(colorTerm))",
-            "export TERM_PROGRAM=\(shellQuote(termProgram))",
-        ]
-        if !termProgramVersion.isEmpty {
-            exports.append("export TERM_PROGRAM_VERSION=\(shellQuote(termProgramVersion))")
-        }
-        if !trimmedShellFeatures.isEmpty {
-            exports.append("export GHOSTTY_SHELL_FEATURES=\(shellQuote(trimmedShellFeatures))")
-        }
-        return exports.joined(separator: "; ")
-    }
-
-    private func baseSSHArguments(_ options: SSHCommandOptions) -> [String] {
-        let effectiveSSHOptions = effectiveSSHOptions(
-            options.sshOptions,
-            remoteRelayPort: options.remoteRelayPort
-        )
-        var parts: [String] = ["ssh"]
-        if !hasSSHOptionKey(effectiveSSHOptions, key: "SetEnv") {
-            parts += ["-o", "SetEnv COLORTERM=truecolor"]
-        }
-        if !hasSSHOptionKey(effectiveSSHOptions, key: "SendEnv") {
-            parts += ["-o", "SendEnv TERM_PROGRAM TERM_PROGRAM_VERSION"]
-        }
-        if let port = options.port {
-            parts += ["-p", String(port)]
-        }
-        if let identityFile = normalizedSSHIdentityPath(options.identityFile) {
-            parts += ["-i", identityFile]
-        }
-        for option in effectiveSSHOptions {
-            parts += ["-o", option]
-        }
-        return parts
-    }
-
-    private func prepareSSHTerminfoIfNeeded(_ options: SSHCommandOptions) {
-        guard let terminfoSource = localXtermGhosttyTerminfoSource(), !terminfoSource.isEmpty else { return }
-
-        var args = baseSSHArguments(options)
-        args += ["-o", "BatchMode=yes", "-o", "ControlMaster=no", options.destination]
-        let installScript = """
-        infocmp xterm-ghostty >/dev/null 2>&1 && exit 0
-        command -v tic >/dev/null 2>&1 || exit 1
-        mkdir -p ~/.terminfo 2>/dev/null && tic -x - 2>/dev/null && exit 0
-        exit 1
-        """
-        args.append(installScript)
-
-        _ = runProcess(
-            executablePath: "/usr/bin/ssh",
-            arguments: Array(args.dropFirst()),
-            stdinText: terminfoSource
-        )
-    }
-
-    private func localXtermGhosttyTerminfoSource() -> String? {
-        let result = runProcess(
-            executablePath: "/usr/bin/infocmp",
-            arguments: ["-0", "-x", "xterm-ghostty"]
-        )
-        guard result.status == 0 else { return nil }
-        let output = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
-        return output.isEmpty ? nil : output
-    }
-
-    private func sshOptionsWithControlSocketDefaults(
-        _ options: [String],
-        remoteRelayPort: Int? = nil
-    ) -> [String] {
-        var merged: [String] = []
-        for option in options {
-            let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { continue }
-            merged.append(trimmed)
-        }
-        if !hasSSHOptionKey(merged, key: "ControlMaster") {
-            merged.append("ControlMaster=auto")
-        }
-        if !hasSSHOptionKey(merged, key: "ControlPersist") {
-            merged.append("ControlPersist=600")
-        }
-        if !hasSSHOptionKey(merged, key: "ControlPath") {
-            merged.append("ControlPath=\(defaultSSHControlPathTemplate(remoteRelayPort: remoteRelayPort))")
-        }
-        return merged
-    }
-
-    private func scopedGhosttyShellFeaturesValue() -> String {
-        let rawExisting = ProcessInfo.processInfo.environment["GHOSTTY_SHELL_FEATURES"] ?? ""
-        var seen: Set<String> = []
-        var merged: [String] = []
-
-        for token in rawExisting.split(separator: ",") {
-            let feature = token.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !feature.isEmpty else { continue }
-            if seen.insert(feature).inserted {
-                merged.append(feature)
-            }
-        }
-
-        for required in ["ssh-env", "ssh-terminfo"] {
-            if seen.insert(required).inserted {
-                merged.append(required)
-            }
-        }
-
-        return merged.joined(separator: ",")
-    }
-
-    private func buildSSHStartupCommand(sshCommand: String, shellFeatures: String, remoteRelayPort: Int) -> String {
-        let trimmedFeatures = shellFeatures.trimmingCharacters(in: .whitespacesAndNewlines)
-        let shellFeaturesBootstrap: String = trimmedFeatures.isEmpty
-            ? ""
-            : "export GHOSTTY_SHELL_FEATURES=\(shellQuote(trimmedFeatures))"
-        let lifecycleCleanup = buildSSHSessionEndShellCommand(remoteRelayPort: remoteRelayPort)
-        let script = [
-            shellFeaturesBootstrap,
-            "CMUX_SSH_SESSION_ENDED=0",
-            "cmux_ssh_session_end() { if [ \"${CMUX_SSH_SESSION_ENDED:-0}\" = 1 ]; then return; fi; CMUX_SSH_SESSION_ENDED=1; \(lifecycleCleanup); }",
-            "trap 'cmux_ssh_session_end' EXIT HUP INT TERM",
-            "command \(sshCommand)",
-            "trap - EXIT HUP INT TERM",
-            "cmux_ssh_session_end",
-            "exec ${SHELL:-/bin/zsh} -l",
-        ]
-            .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-            .joined(separator: "\n")
-        return "/bin/zsh -ilc \(shellQuote(script))"
-    }
-
-    private func buildSSHSessionEndShellCommand(remoteRelayPort: Int) -> String {
-        [
-            "if [ -n \"${CMUX_BUNDLED_CLI_PATH:-}\" ]",
-            "&& [ -x \"${CMUX_BUNDLED_CLI_PATH}\" ]",
-            "&& [ -n \"${CMUX_SOCKET_PATH:-}\" ]",
-            "&& [ -n \"${CMUX_WORKSPACE_ID:-}\" ]",
-            "&& [ -n \"${CMUX_SURFACE_ID:-}\" ]; then",
-            "\"${CMUX_BUNDLED_CLI_PATH}\" --socket \"${CMUX_SOCKET_PATH}\" ssh-session-end --relay-port \(remoteRelayPort) --workspace \"${CMUX_WORKSPACE_ID}\" --surface \"${CMUX_SURFACE_ID}\" >/dev/null 2>&1 || true;",
-            "elif command -v cmux >/dev/null 2>&1",
-            "&& [ -n \"${CMUX_WORKSPACE_ID:-}\" ]",
-            "&& [ -n \"${CMUX_SURFACE_ID:-}\" ]; then",
-            "cmux ssh-session-end --relay-port \(remoteRelayPort) --workspace \"${CMUX_WORKSPACE_ID}\" --surface \"${CMUX_SURFACE_ID}\" >/dev/null 2>&1 || true;",
-            "fi",
-        ].joined(separator: " ")
-    }
-
-    private func runSSHSessionEnd(commandArgs: [String], client: SocketClient) throws {
-        guard let relayPortRaw = optionValue(commandArgs, name: "--relay-port"),
-              let relayPort = Int(relayPortRaw),
-              relayPort > 0 else {
-            throw CLIError(message: "ssh-session-end requires --relay-port <port>")
-        }
-        let workspaceRaw = optionValue(commandArgs, name: "--workspace") ?? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
-        let surfaceRaw = optionValue(commandArgs, name: "--surface") ?? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"]
-        guard let workspaceRaw,
-              let workspaceId = try normalizeWorkspaceHandle(workspaceRaw, client: client),
-              !workspaceId.isEmpty else {
-            throw CLIError(message: "ssh-session-end requires --workspace or CMUX_WORKSPACE_ID")
-        }
-        guard let surfaceRaw,
-              let surfaceId = try normalizeSurfaceHandle(surfaceRaw, client: client, workspaceHandle: workspaceId),
-              !surfaceId.isEmpty else {
-            throw CLIError(message: "ssh-session-end requires --surface or CMUX_SURFACE_ID")
-        }
-        _ = try client.sendV2(method: "workspace.remote.terminal_session_end", params: [
-            "workspace_id": workspaceId,
-            "surface_id": surfaceId,
-            "relay_port": relayPort,
-        ])
-    }
-
-    private func runRemoteDaemonStatus(commandArgs: [String], jsonOutput: Bool) throws {
-        let requestedOS = optionValue(commandArgs, name: "--os")?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let requestedArch = optionValue(commandArgs, name: "--arch")?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let info = resolvedVersionInfo()
-        let manifest = remoteDaemonManifest()
-        let platform = defaultRemoteDaemonPlatform(requestedOS: requestedOS, requestedArch: requestedArch)
-        let cacheURL = remoteDaemonCacheURL(version: manifest?.appVersion ?? remoteDaemonVersionString(from: info), goOS: platform.goOS, goArch: platform.goArch)
-        let cacheExists = FileManager.default.fileExists(atPath: cacheURL.path)
-        let cacheSHA = cacheExists ? try? sha256Hex(forFile: cacheURL) : nil
-        let entry = manifest?.entry(goOS: platform.goOS, goArch: platform.goArch)
-        let cacheVerified = (entry != nil && cacheSHA?.lowercased() == entry?.sha256.lowercased())
-        let releaseTag = manifest?.releaseTag ?? "unknown"
-        let assetName = entry?.assetName ?? "unknown"
-        let downloadURL = entry?.downloadURL ?? "unknown"
-        let checksumsAssetName = manifest?.checksumsAssetName ?? "unknown"
-        let checksumsURL = manifest?.checksumsURL ?? "unknown"
-        let downloadCommand = "gh release download \(releaseTag) --repo manaflow-ai/cmux --pattern \(assetName)"
-        let downloadChecksumsCommand = "gh release download \(releaseTag) --repo manaflow-ai/cmux --pattern \(checksumsAssetName)"
-        let checksumVerifyCommand = "shasum -a 256 -c \(checksumsAssetName) --ignore-missing"
-        let signerWorkflow = releaseTag == "nightly"
-            ? "manaflow-ai/cmux/.github/workflows/nightly.yml"
-            : "manaflow-ai/cmux/.github/workflows/release.yml"
-        let verifyCommand = "gh attestation verify ./\(assetName) --repo manaflow-ai/cmux --signer-workflow \(signerWorkflow)"
-
-        let payload: [String: Any] = [
-            "app_version": remoteDaemonVersionString(from: info),
-            "build": info["CFBundleVersion"] ?? NSNull(),
-            "commit": info["CMUXCommit"] ?? NSNull(),
-            "manifest_present": manifest != nil,
-            "release_tag": releaseTag,
-            "release_url": manifest?.releaseURL ?? NSNull(),
-            "target_goos": platform.goOS,
-            "target_goarch": platform.goArch,
-            "asset_name": assetName,
-            "download_url": downloadURL,
-            "checksums_asset_name": checksumsAssetName,
-            "checksums_url": checksumsURL,
-            "expected_sha256": entry?.sha256 ?? NSNull(),
-            "cache_path": cacheURL.path,
-            "cache_exists": cacheExists,
-            "cache_sha256": cacheSHA ?? NSNull(),
-            "cache_verified": cacheVerified,
-            "dev_local_build_fallback": ProcessInfo.processInfo.environment["CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD"] == "1",
-            "download_command": downloadCommand,
-            "download_checksums_command": downloadChecksumsCommand,
-            "checksum_verify_command": checksumVerifyCommand,
-            "attestation_verify_command": verifyCommand,
-        ]
-
-        if jsonOutput {
-            print(jsonString(payload))
-            return
-        }
-
-        print("app version: \(payload["app_version"] as? String ?? "unknown")")
-        if let build = payload["build"] as? String {
-            print("build: \(build)")
-        }
-        if let commit = payload["commit"] as? String {
-            print("commit: \(commit)")
-        }
-        print("manifest: \(manifest != nil ? "present" : "missing")")
-        print("platform: \(platform.goOS)/\(platform.goArch)")
-        print("release: \(releaseTag)")
-        print("asset: \(assetName)")
-        print("download url: \(downloadURL)")
-        print("checksums asset: \(checksumsAssetName)")
-        print("checksums: \(checksumsURL)")
-        if let expectedSHA = entry?.sha256 {
-            print("expected sha256: \(expectedSHA)")
-        }
-        print("cache: \(cacheURL.path)")
-        print("cache exists: \(cacheExists ? "yes" : "no")")
-        if let cacheSHA {
-            print("cache sha256: \(cacheSHA)")
-        }
-        print("cache verified: \(cacheVerified ? "yes" : "no")")
-        print("download command: \(downloadCommand)")
-        print("download checksums: \(downloadChecksumsCommand)")
-        print("verify checksum: \(checksumVerifyCommand)")
-        print("attestation verify: \(verifyCommand)")
-        if manifest == nil {
-            print("note: this build has no embedded remote daemon manifest. Set CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD=1 only for dev builds.")
-        }
-    }
-
-    private func defaultRemoteDaemonPlatform(requestedOS: String?, requestedArch: String?) -> (goOS: String, goArch: String) {
-        let normalizedOS = requestedOS?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        let normalizedArch = requestedArch?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        let goOS = (normalizedOS?.isEmpty == false ? normalizedOS! : hostGoOS())
-        let goArch = (normalizedArch?.isEmpty == false ? normalizedArch! : hostGoArch())
-        return (goOS, goArch)
-    }
-
-    private func hostGoOS() -> String {
-#if os(macOS)
-        return "darwin"
-#elseif os(Linux)
-        return "linux"
-#else
-        return "unknown"
-#endif
-    }
-
-    private func hostGoArch() -> String {
-#if arch(arm64)
-        return "arm64"
-#elseif arch(x86_64)
-        return "amd64"
-#else
-        return "unknown"
-#endif
-    }
-
-    private func remoteDaemonManifest() -> RemoteDaemonManifest? {
-        for plistURL in candidateInfoPlistURLs() {
-            guard let raw = NSDictionary(contentsOf: plistURL) as? [String: Any],
-                  let rawManifest = raw["CMUXRemoteDaemonManifestJSON"] as? String,
-                  let data = rawManifest.trimmingCharacters(in: .whitespacesAndNewlines).data(using: .utf8),
-                  let manifest = try? JSONDecoder().decode(RemoteDaemonManifest.self, from: data) else {
-                continue
-            }
-            return manifest
-        }
-        return nil
-    }
-
-    private func remoteDaemonVersionString(from info: [String: String]) -> String {
-        info["CFBundleShortVersionString"] ?? "dev"
-    }
-
-    private func remoteDaemonCacheURL(version: String, goOS: String, goArch: String) -> URL {
-        let root: URL
-        do {
-            root = try FileManager.default.url(
-                for: .applicationSupportDirectory,
-                in: .userDomainMask,
-                appropriateFor: nil,
-                create: true
-            )
-        } catch {
-            return URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
-                .appendingPathComponent("cmux-remote-daemons", isDirectory: true)
-                .appendingPathComponent(version, isDirectory: true)
-                .appendingPathComponent("\(goOS)-\(goArch)", isDirectory: true)
-                .appendingPathComponent("cmuxd-remote", isDirectory: false)
-        }
-        return root
-            .appendingPathComponent("cmux", isDirectory: true)
-            .appendingPathComponent("remote-daemons", isDirectory: true)
-            .appendingPathComponent(version, isDirectory: true)
-            .appendingPathComponent("\(goOS)-\(goArch)", isDirectory: true)
-            .appendingPathComponent("cmuxd-remote", isDirectory: false)
-    }
-
-    private func sha256Hex(forFile url: URL) throws -> String {
-        let data = try Data(contentsOf: url)
-        let digest = SHA256.hash(data: data)
-        return digest.map { String(format: "%02x", $0) }.joined()
-    }
-
-    private func hasSSHOptionKey(_ options: [String], key: String) -> Bool {
-        let loweredKey = key.lowercased()
-        for option in options {
-            let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { continue }
-            let token = trimmed.split(whereSeparator: { $0 == "=" || $0.isWhitespace }).first.map(String.init)?.lowercased()
-            if token == loweredKey {
-                return true
-            }
-        }
-        return false
-    }
-
-    private func defaultSSHControlPathTemplate(remoteRelayPort: Int? = nil) -> String {
-        if let remoteRelayPort, remoteRelayPort > 0 {
-            return "/tmp/cmux-ssh-\(getuid())-\(remoteRelayPort)-%C"
-        }
-        return "/tmp/cmux-ssh-\(getuid())-%C"
-    }
-
-    private func normalizedSSHIdentityPath(_ rawPath: String?) -> String? {
-        guard let rawPath else { return nil }
-        let trimmed = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        if trimmed.hasPrefix("~") {
-            let expanded = (trimmed as NSString).expandingTildeInPath
-            if !expanded.isEmpty {
-                return expanded
-            }
-        }
-        return trimmed
-    }
-
-    private func shellQuote(_ value: String) -> String {
-        let safePattern = "^[A-Za-z0-9_@%+=:,./-]+$"
-        if value.range(of: safePattern, options: .regularExpression) != nil {
-            return value
-        }
-        return "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
-    }
-
-    private func sshOptionValue(named key: String, in options: [String]) -> String? {
-        let loweredKey = key.lowercased()
-        for option in options {
-            let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { continue }
-            let parts = trimmed.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
-            if parts.count == 2,
-               parts[0].trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == loweredKey {
-                return parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
-            }
-        }
-        return nil
-    }
-
-    private func cliDebugLog(_ message: @autoclosure () -> String) {
-#if DEBUG
-        let trimmedExplicit = ProcessInfo.processInfo.environment["CMUX_DEBUG_LOG"]?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let path: String? = {
-            if let trimmedExplicit, !trimmedExplicit.isEmpty {
-                return trimmedExplicit
-            }
-            guard let marker = try? String(contentsOfFile: "/tmp/cmux-last-debug-log-path", encoding: .utf8) else {
-                return nil
-            }
-            let trimmedMarker = marker.trimmingCharacters(in: .whitespacesAndNewlines)
-            return trimmedMarker.isEmpty ? nil : trimmedMarker
-        }()
-        guard let path else { return }
-        let timestamp = ISO8601DateFormatter().string(from: Date())
-        let line = "\(timestamp) [cmux-cli] \(message())\n"
-        guard let data = line.data(using: .utf8) else { return }
-        if !FileManager.default.fileExists(atPath: path) {
-            FileManager.default.createFile(atPath: path, contents: nil)
-        }
-        guard let handle = FileHandle(forWritingAtPath: path) else { return }
-        defer { try? handle.close() }
-        do {
-            try handle.seekToEnd()
-            try handle.write(contentsOf: data)
-        } catch {
-            return
-        }
-#endif
-    }
-
-    private func runProcess(
-        executablePath: String,
-        arguments: [String],
-        stdinText: String? = nil
-    ) -> (status: Int32, stdout: String, stderr: String) {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: executablePath)
-        process.arguments = arguments
-
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
-
-        let stdinPipe: Pipe?
-        if stdinText != nil {
-            let pipe = Pipe()
-            process.standardInput = pipe
-            stdinPipe = pipe
-        } else {
-            stdinPipe = nil
-        }
-
-        do {
-            try process.run()
-        } catch {
-            return (1, "", String(describing: error))
-        }
-
-        if let stdinText, let stdinPipe {
-            if let data = stdinText.data(using: .utf8) {
-                stdinPipe.fileHandleForWriting.write(data)
-            }
-            stdinPipe.fileHandleForWriting.closeFile()
-        }
-
-        process.waitUntilExit()
-        let stdout = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        return (process.terminationStatus, stdout, stderr)
-    }
 
     private func runBrowserCommand(
         commandArgs: [String],
@@ -3816,6 +2941,7 @@ struct CMUXCLI {
 
             return lines.joined(separator: "\n")
         }
+
         func nonFlagArgs(_ values: [String]) -> [String] {
             values.filter { !$0.hasPrefix("-") }
         }
@@ -4000,7 +3126,13 @@ struct CMUXCLI {
                 throw CLIError(message: "browser eval requires a script")
             }
             let payload = try client.sendV2(method: "browser.eval", params: ["surface_id": sid, "script": trimmed])
-            output(payload, fallback: "OK")
+            let fallback: String
+            if let value = payload["value"] {
+                fallback = displayBrowserValue(value)
+            } else {
+                fallback = "OK"
+            }
+            output(payload, fallback: fallback)
             return
         }
 
@@ -4733,7 +3865,8 @@ struct CMUXCLI {
                 throw CLIError(message: "Unsupported browser console subcommand: \(consoleVerb)")
             }
             let payload = try client.sendV2(method: method, params: ["surface_id": sid])
-            output(payload, fallback: "OK")
+            let fallback = displayBrowserLogItems(payload["entries"]) ?? "OK"
+            output(payload, fallback: fallback)
             return
         }
 
@@ -4747,7 +3880,8 @@ struct CMUXCLI {
                 throw CLIError(message: "Unsupported browser errors subcommand: \(errorsVerb)")
             }
             let payload = try client.sendV2(method: "browser.errors.list", params: params)
-            output(payload, fallback: "OK")
+            let fallback = displayBrowserLogItems(payload["errors"]) ?? "OK"
+            output(payload, fallback: fallback)
             return
         }
 
@@ -5323,7 +4457,7 @@ struct CMUXCLI {
               new-terminal-right | new-browser-right
               reload | duplicate
               pin | unpin
-              mark-unread
+              mark-read | mark-unread
 
             Flags:
               --action <name>              Action name (required if not positional)
@@ -5342,21 +4476,18 @@ struct CMUXCLI {
             return """
             Usage: cmux rename-tab [--workspace <id|ref>] [--tab <id|ref>] [--surface <id|ref>] [--] <title>
 
-            Compatibility alias for tab-action rename.
-
-            Resolution order for target tab:
-            1) --tab
-            2) --surface
-            3) $CMUX_TAB_ID / $CMUX_SURFACE_ID
-            4) currently focused tab (optionally within --workspace)
+            Rename a tab (surface). Defaults to the focused tab, using:
+            1) explicit --tab/--surface
+            2) $CMUX_TAB_ID / $CMUX_SURFACE_ID
+            3) focused tab in the resolved workspace context
 
             Flags:
               --workspace <id|ref>   Workspace context (default: current/$CMUX_WORKSPACE_ID)
-              --tab <id|ref>         Tab target (supports tab:<n> or surface:<n>)
+              --tab <id|ref>         Target tab (accepts tab:<n> or surface:<n>)
               --surface <id|ref>     Alias for --tab
-              --title <text>         Explicit title (or use trailing positional title)
+              --title <text>         New title (or pass trailing title)
 
-            Examples:
+            Example:
               cmux rename-tab "build logs"
               cmux rename-tab --tab tab:3 "staging server"
               cmux rename-tab --workspace workspace:2 --surface surface:5 --title "agent run"
@@ -5384,35 +4515,6 @@ struct CMUXCLI {
 
             Example:
               cmux list-workspaces
-            """
-        case "ssh":
-            return """
-            Usage: cmux ssh <destination> [flags] [-- <remote-command-args>]
-
-            Create a new workspace, mark it as remote-SSH, and start an SSH session in that workspace.
-            cmux will also establish a local SSH proxy endpoint so browser traffic can egress from the remote host.
-
-            Flags:
-              --name <title>          Optional workspace title
-              --port <n>              SSH port
-              --identity <path>       SSH identity file path
-              --ssh-option <opt>      Extra SSH -o option (repeatable)
-
-            Example:
-              cmux ssh dev@my-host
-              cmux ssh dev@my-host --name "gpu-box" --port 2222 --identity ~/.ssh/id_ed25519
-              cmux ssh dev@my-host --ssh-option UserKnownHostsFile=/dev/null --ssh-option StrictHostKeyChecking=no
-            """
-        case "remote-daemon-status":
-            return """
-            Usage: cmux remote-daemon-status [--os <darwin|linux>] [--arch <arm64|amd64>]
-
-            Show the embedded cmuxd-remote release manifest, local cache status, checksum verification state,
-            and the GitHub attestation verification command for a target platform.
-
-            Example:
-              cmux remote-daemon-status
-              cmux remote-daemon-status --os linux --arch arm64
             """
         case "new-split":
             return """
@@ -6226,6 +5328,20 @@ struct CMUXCLI {
         print("")
         print(text)
         return true
+    }
+
+    /// Escape and quote a string for safe embedding in a v1 socket command.
+    /// The socket tokenizer treats `\` and `"` as special inside quoted strings,
+    /// so both must be escaped before wrapping in double quotes. Newlines and
+    /// carriage returns must also be escaped since the socket protocol uses
+    /// newline as the message terminator.
+    private func socketQuote(_ s: String) -> String {
+        let escaped = s
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+            .replacingOccurrences(of: "\n", with: "\\n")
+            .replacingOccurrences(of: "\r", with: "\\r")
+        return "\"\(escaped)\""
     }
 
     private func parseOption(_ args: [String], name: String) -> (String?, [String]) {
@@ -7464,11 +6580,7 @@ struct CMUXCLI {
 
         do {
             try client.connect()
-            try authenticateClientIfNeeded(
-                client,
-                explicitPassword: explicitPassword,
-                socketPath: socketPath
-            )
+            try authenticateClientIfNeeded(client, explicitPassword: explicitPassword)
             defer { client.close() }
 
             let payload = try client.sendV2(method: "system.identify")
@@ -8509,7 +7621,7 @@ struct CMUXCLI {
                 let subtitle = sanitizeNotificationField(completion.subtitle)
                 let body = sanitizeNotificationField(completion.body)
                 let payload = "\(title)|\(subtitle)|\(body)"
-                let response = try client.send(command: "notify_target \(workspaceId) \(surfaceId) \(payload)")
+                let response = try sendV1Command("notify_target \(workspaceId) \(surfaceId) \(payload)", client: client)
                 print(response)
             } else {
                 print("OK")
@@ -8568,7 +7680,7 @@ struct CMUXCLI {
                 )
             }
 
-            let response = try client.send(command: "notify_target \(workspaceId) \(surfaceId) \(payload)")
+            let response = try sendV1Command("notify_target \(workspaceId) \(surfaceId) \(payload)", client: client)
             _ = try? setClaudeStatus(
                 client: client,
                 workspaceId: workspaceId,
@@ -8803,7 +7915,8 @@ struct CMUXCLI {
         ]
         let session = firstString(in: object, keys: ["session_id", "sessionId"])
         let message = messageCandidates.compactMap { $0 }.first ?? "Claude needs your input"
-        let normalizedMessage = normalizedSingleLine(message)
+        let dedupedMessage = dedupeBranchContextLines(message)
+        let normalizedMessage = normalizedSingleLine(dedupedMessage)
         let signal = signalParts.compactMap { $0 }.joined(separator: " ")
         var classified = classifyClaudeNotification(signal: signal, message: normalizedMessage)
 
@@ -8834,6 +7947,42 @@ struct CMUXCLI {
         }
         let body = message.isEmpty ? "Claude needs your input" : message
         return ("Attention", body)
+    }
+
+    private func dedupeBranchContextLines(_ value: String) -> String {
+        let lines = value.components(separatedBy: .newlines)
+        guard lines.count > 1 else { return value }
+
+        var lastIndexByPath: [String: Int] = [:]
+        for (index, line) in lines.enumerated() {
+            guard let path = branchContextPath(from: line) else { continue }
+            lastIndexByPath[path] = index
+        }
+        guard !lastIndexByPath.isEmpty else { return value }
+
+        let deduped = lines.enumerated().compactMap { index, line -> String? in
+            guard let path = branchContextPath(from: line) else { return line }
+            return lastIndexByPath[path] == index ? line : nil
+        }
+        return deduped.joined(separator: "\n")
+    }
+
+    private func branchContextPath(from line: String) -> String? {
+        let parts = line.split(separator: "•", maxSplits: 1, omittingEmptySubsequences: false)
+        guard parts.count == 2 else { return nil }
+
+        let branch = parts[0].trimmingCharacters(in: .whitespacesAndNewlines)
+        let path = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !branch.isEmpty, !path.isEmpty else { return nil }
+
+        let looksLikePath = path.hasPrefix("/") || path.hasPrefix("~") || path.hasPrefix(".") || path.contains("/")
+        guard looksLikePath else { return nil }
+
+        let trimmedQuotes = path.trimmingCharacters(in: CharacterSet(charactersIn: "`'\""))
+        let expanded = NSString(string: trimmedQuotes).expandingTildeInPath
+        let standardized = NSString(string: expanded).standardizingPath
+        let normalized = standardized.trimmingCharacters(in: .whitespacesAndNewlines)
+        return normalized.isEmpty ? nil : normalized
     }
 
     private func firstString(in object: [String: Any], keys: [String]) -> String? {
@@ -9156,6 +8305,8 @@ struct CMUXCLI {
                 appendIfExisting(current.appendingPathComponent("Info.plist"))
             }
 
+            // Local dev fallback: resolve version from the repo's app Info.plist
+            // when running a standalone cmux-cli binary from build/Debug.
             let projectMarker = current.appendingPathComponent("GhosttyTabs.xcodeproj/project.pbxproj")
             let repoInfo = current.appendingPathComponent("Resources/Info.plist")
             if fileManager.fileExists(atPath: projectMarker.path),
@@ -9243,12 +8394,12 @@ struct CMUXCLI {
           --password takes precedence, then CMUX_SOCKET_PASSWORD env var, then password saved in Settings.
 
         Commands:
+          version
           welcome
           shortcuts
           feedback [--email <email> --body <text> [--image <path> ...]]
           claude-teams [claude-args...]
           ping
-          version
           capabilities
           identify [--workspace <id|ref|index>] [--surface <id|ref|index>] [--no-caller]
           list-windows
@@ -9261,8 +8412,6 @@ struct CMUXCLI {
           workspace-action --action <name> [--workspace <id|ref|index>] [--title <text>]
           list-workspaces
           new-workspace [--cwd <path>] [--command <text>]
-          ssh <destination> [--name <title>] [--port <n>] [--identity <path>] [--ssh-option <opt>] [-- <remote-command-args>]
-          remote-daemon-status [--os <darwin|linux>] [--arch <arm64|amd64>]
           new-split <left|right|up|down> [--workspace <id|ref>] [--surface <id|ref>] [--panel <id|ref>]
           list-panes [--workspace <id|ref>]
           list-pane-surfaces [--workspace <id|ref>] [--pane <id|ref>]
@@ -9295,6 +8444,18 @@ struct CMUXCLI {
           list-notifications
           clear-notifications
           claude-hook <session-start|stop|notification> [--workspace <id|ref>] [--surface <id|ref>]
+
+          # sidebar metadata commands
+          set-status <key> <value> [--icon <name>] [--color <#hex>] [--workspace <id|ref>]
+          clear-status <key> [--workspace <id|ref>]
+          list-status [--workspace <id|ref>]
+          set-progress <0.0-1.0> [--label <text>] [--workspace <id|ref>]
+          clear-progress [--workspace <id|ref>]
+          log [--level <level>] [--source <name>] [--workspace <id|ref>] [--] <message>
+          clear-log [--workspace <id|ref>]
+          list-log [--limit <n>] [--workspace <id|ref>]
+          sidebar-state [--workspace <id|ref>]
+
           set-app-focus <active|inactive|clear>
           simulate-app-active
 

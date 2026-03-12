@@ -3086,7 +3086,6 @@ struct SettingsView: View {
     private var openSidebarPullRequestLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenSidebarPullRequestLinksInCmuxBrowser
     @AppStorage(ShortcutHintDebugSettings.showHintsOnCommandHoldKey)
     private var showShortcutHintsOnCommandHold = ShortcutHintDebugSettings.defaultShowHintsOnCommandHold
-    @AppStorage("sidebarShowSSH") private var sidebarShowSSH = true
     @AppStorage("sidebarShowPorts") private var sidebarShowPorts = true
     @AppStorage("sidebarShowLog") private var sidebarShowLog = true
     @AppStorage("sidebarShowProgress") private var sidebarShowProgress = true
@@ -3692,17 +3691,6 @@ struct SettingsView: View {
                                 : String(localized: "settings.app.openSidebarPRLinks.subtitleOff", defaultValue: "Clicks open in your default browser.")
                         ) {
                             Toggle("", isOn: $openSidebarPullRequestLinksInCmuxBrowser)
-                                .labelsHidden()
-                                .controlSize(.small)
-                        }
-
-                        SettingsCardDivider()
-
-                        SettingsCardRow(
-                            String(localized: "settings.app.showSSH", defaultValue: "Show SSH in Sidebar"),
-                            subtitle: String(localized: "settings.app.showSSH.subtitle", defaultValue: "Display the SSH target for remote workspaces in its own row.")
-                        ) {
-                            Toggle("", isOn: $sidebarShowSSH)
                                 .labelsHidden()
                                 .controlSize(.small)
                         }
@@ -4394,7 +4382,6 @@ struct SettingsView: View {
         sidebarShowPullRequest = true
         openSidebarPullRequestLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenSidebarPullRequestLinksInCmuxBrowser
         showShortcutHintsOnCommandHold = ShortcutHintDebugSettings.defaultShowHintsOnCommandHold
-        sidebarShowSSH = true
         sidebarShowPorts = true
         sidebarShowLog = true
         sidebarShowProgress = true

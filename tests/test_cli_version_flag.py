@@ -32,17 +32,13 @@ def resolve_cmux_cli() -> str:
     raise RuntimeError("Unable to find cmux CLI binary. Set CMUX_CLI_BIN.")
 
 
-def run(cli_path: str, *args: str, timeout: float = 5.0) -> tuple[int, str, str]:
-    try:
-        proc = subprocess.run(
-            [cli_path, *args],
-            text=True,
-            capture_output=True,
-            check=False,
-            timeout=timeout,
-        )
-    except subprocess.TimeoutExpired:
-        return 124, "", f"timed out after {timeout:.1f}s"
+def run(cli_path: str, *args: str) -> tuple[int, str, str]:
+    proc = subprocess.run(
+        [cli_path, *args],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
     return proc.returncode, proc.stdout.strip(), proc.stderr.strip()
 
 

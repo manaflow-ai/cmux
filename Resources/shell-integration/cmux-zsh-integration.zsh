@@ -57,102 +57,6 @@ typeset -g _CMUX_PORTS_LAST_RUN=0
 typeset -g _CMUX_CMD_START=0
 typeset -g _CMUX_TTY_NAME=""
 typeset -g _CMUX_TTY_REPORTED=0
-typeset -g _CMUX_GHOSTTY_SEMANTIC_PATCHED=0
-typeset -g _CMUX_WINCH_GUARD_INSTALLED=0
-
-_cmux_ensure_ghostty_preexec_strips_both_marks() {
-    local fn_name="$1"
-    (( $+functions[$fn_name] )) || return 0
-
-    local old_strip new_strip updated
-    old_strip=$'PS1=${PS1//$\'%{\\e]133;A;cl=line\\a%}\'}'
-    new_strip=$'PS1=${PS1//$\'%{\\e]133;A;redraw=last;cl=line\\a%}\'}'
-    updated="${functions[$fn_name]}"
-
-    if [[ "$updated" == *"$new_strip"* && "$updated" != *"$old_strip"* ]]; then
-        updated="${updated/$new_strip/$old_strip
-        $new_strip}"
-        functions[$fn_name]="$updated"
-        _CMUX_GHOSTTY_SEMANTIC_PATCHED=1
-        return 0
-    fi
-    if [[ "$updated" == *"$old_strip"* && "$updated" != *"$new_strip"* ]]; then
-        updated="${updated/$old_strip/$old_strip
-        $new_strip}"
-        functions[$fn_name]="$updated"
-        _CMUX_GHOSTTY_SEMANTIC_PATCHED=1
-    fi
-}
-
-_cmux_patch_ghostty_semantic_redraw() {
-    (( _CMUX_GHOSTTY_SEMANTIC_PATCHED )) && return 0
-
-    local old_frag new_frag
-    old_frag='133;A;cl=line'
-    new_frag='133;A;redraw=last;cl=line'
-
-    # Patch both deferred and live hook definitions, depending on init timing.
-    if (( $+functions[_ghostty_deferred_init] )); then
-        functions[_ghostty_deferred_init]="${functions[_ghostty_deferred_init]//$old_frag/$new_frag}"
-        _CMUX_GHOSTTY_SEMANTIC_PATCHED=1
-    fi
-    if (( $+functions[_ghostty_precmd] )); then
-        functions[_ghostty_precmd]="${functions[_ghostty_precmd]//$old_frag/$new_frag}"
-        _CMUX_GHOSTTY_SEMANTIC_PATCHED=1
-    fi
-    if (( $+functions[_ghostty_preexec] )); then
-        functions[_ghostty_preexec]="${functions[_ghostty_preexec]//$old_frag/$new_frag}"
-        _CMUX_GHOSTTY_SEMANTIC_PATCHED=1
-    fi
-
-    # Keep legacy + redraw-aware strip lines so prompts created before patching
-    # are still cleared by preexec.
-    _cmux_ensure_ghostty_preexec_strips_both_marks _ghostty_deferred_init
-    _cmux_ensure_ghostty_preexec_strips_both_marks _ghostty_preexec
-}
-_cmux_patch_ghostty_semantic_redraw
-
-_cmux_prompt_wrap_guard() {
-    local cmd_start="$1"
-    local pwd="$2"
-    [[ -n "$cmd_start" && "$cmd_start" != 0 ]] || return 0
-
-    local cols="${COLUMNS:-0}"
-    (( cols > 0 )) || return 0
-
-    local budget=$(( cols - 24 ))
-    (( budget < 20 )) && budget=20
-    (( ${#pwd} >= budget )) || return 0
-
-    # Keep a spacer line between command output and a wrapped prompt so
-    # resize-driven prompt redraw cannot overwrite the command tail.
-    builtin print -r -- ""
-}
-
-_cmux_install_winch_guard() {
-    (( _CMUX_WINCH_GUARD_INSTALLED )) && return 0
-
-    # Respect user-defined WINCH handlers (function-based or trap-based).
-    local existing_winch_trap=""
-    existing_winch_trap="$(trap -p WINCH 2>/dev/null || true)"
-    if (( $+functions[TRAPWINCH] )) || [[ -n "$existing_winch_trap" ]]; then
-        _CMUX_WINCH_GUARD_INSTALLED=1
-        return 0
-    fi
-
-    TRAPWINCH() {
-        [[ -n "$CMUX_TAB_ID" ]] || return 0
-        [[ -n "$CMUX_PANEL_ID" ]] || return 0
-
-        # Keep a spacer line so prompt redraw during resize cannot clobber the
-        # tail of command output that was rendered immediately above the prompt.
-        builtin print -r -- ""
-        return 0
-    }
-
-    _CMUX_WINCH_GUARD_INSTALLED=1
-}
-_cmux_install_winch_guard
 
 _cmux_git_resolve_head_path() {
     # Resolve the HEAD file path without invoking git (fast; works for worktrees).
@@ -481,9 +385,6 @@ _cmux_precmd() {
     [[ -n "$CMUX_TAB_ID" ]] || return 0
     [[ -n "$CMUX_PANEL_ID" ]] || return 0
 
-    # Handle cases where Ghostty integration initializes after this file.
-    _cmux_patch_ghostty_semantic_redraw
-
     if [[ -z "$_CMUX_TTY_NAME" ]]; then
         local t
         t="$(tty 2>/dev/null || true)"
@@ -497,8 +398,6 @@ _cmux_precmd() {
     local pwd="$PWD"
     local cmd_start="$_CMUX_CMD_START"
     _CMUX_CMD_START=0
-
-    _cmux_prompt_wrap_guard "$cmd_start" "$pwd"
 
     # Post-wake socket writes can occasionally leave a probe process wedged.
     # If one probe is stale, clear the guard so fresh async probes can resume.

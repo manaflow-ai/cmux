@@ -3,19 +3,6 @@ import Combine
 import WebKit
 import AppKit
 import Bonsplit
-import Network
-
-struct BrowserProxyEndpoint: Equatable {
-    let host: String
-    let port: Int
-}
-
-struct BrowserRemoteWorkspaceStatus: Equatable {
-    let target: String
-    let connectionState: WorkspaceRemoteConnectionState
-    let heartbeatCount: Int
-    let lastHeartbeatAt: Date?
-}
 
 enum GhosttyBackgroundTheme {
     static func clampedOpacity(_ opacity: Double) -> CGFloat {
@@ -1268,14 +1255,6 @@ final class BrowserPortalAnchorView: NSView {
 
 @MainActor
 final class BrowserPanel: Panel, ObservableObject {
-    private static let remoteLoopbackProxyAliasHost = "cmux-loopback.localtest.me"
-    private static let remoteLoopbackHosts: Set<String> = [
-        "localhost",
-        "127.0.0.1",
-        "::1",
-        "0.0.0.0",
-    ]
-
     /// Shared process pool for cookie sharing across all browser panels
     private static let sharedProcessPool = WKProcessPool()
 
@@ -1794,8 +1773,6 @@ final class BrowserPanel: Panel, ObservableObject {
     private var developerToolsRestoreRetryAttempt: Int = 0
     private let developerToolsRestoreRetryDelay: TimeInterval = 0.05
     private let developerToolsRestoreRetryMaxAttempts: Int = 40
-    private var remoteProxyEndpoint: BrowserProxyEndpoint?
-    @Published private(set) var remoteWorkspaceStatus: BrowserRemoteWorkspaceStatus?
     private let developerToolsDetachedOpenGracePeriod: TimeInterval = 0.35
     private var developerToolsDetachedOpenGraceDeadline: Date?
     private var developerToolsTransitionTargetVisible: Bool?
@@ -2038,24 +2015,15 @@ final class BrowserPanel: Panel, ObservableObject {
         return instanceID == webViewInstanceID
     }
 
-    init(
-        workspaceId: UUID,
-        initialURL: URL? = nil,
-        bypassInsecureHTTPHostOnce: String? = nil,
-        proxyEndpoint: BrowserProxyEndpoint? = nil,
-        isRemoteWorkspace: Bool = false
-    ) {
+    init(workspaceId: UUID, initialURL: URL? = nil, bypassInsecureHTTPHostOnce: String? = nil) {
         self.id = UUID()
         self.workspaceId = workspaceId
         self.insecureHTTPBypassHostOnce = BrowserInsecureHTTPSettings.normalizeHost(bypassInsecureHTTPHostOnce ?? "")
-        self.remoteProxyEndpoint = proxyEndpoint
         self.browserThemeMode = BrowserThemeSettings.mode()
 
         let webView = Self.makeWebView()
         self.webView = webView
         self.insecureHTTPAlertFactory = { NSAlert() }
-        let _ = isRemoteWorkspace
-        applyRemoteProxyConfigurationIfAvailable()
 
         // Set up navigation delegate
         let navDelegate = BrowserNavigationDelegate()
@@ -2133,40 +2101,6 @@ final class BrowserPanel: Panel, ObservableObject {
             shouldRenderWebView = true
             navigate(to: url)
         }
-    }
-
-    func setRemoteProxyEndpoint(_ endpoint: BrowserProxyEndpoint?) {
-        guard remoteProxyEndpoint != endpoint else { return }
-        remoteProxyEndpoint = endpoint
-        applyRemoteProxyConfigurationIfAvailable()
-    }
-
-    func setRemoteWorkspaceStatus(_ status: BrowserRemoteWorkspaceStatus?) {
-        guard remoteWorkspaceStatus != status else { return }
-        remoteWorkspaceStatus = status
-    }
-
-    private func applyRemoteProxyConfigurationIfAvailable() {
-        guard #available(macOS 14.0, *) else { return }
-
-        let store = webView.configuration.websiteDataStore
-        guard let endpoint = remoteProxyEndpoint else {
-            store.proxyConfigurations = []
-            return
-        }
-
-        let host = endpoint.host.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !host.isEmpty,
-              endpoint.port > 0 && endpoint.port <= 65535,
-              let nwPort = NWEndpoint.Port(rawValue: UInt16(endpoint.port)) else {
-            store.proxyConfigurations = []
-            return
-        }
-
-        let nwEndpoint = NWEndpoint.hostPort(host: NWEndpoint.Host(host), port: nwPort)
-        let socks = ProxyConfiguration(socksv5Proxy: nwEndpoint)
-        let connect = ProxyConfiguration(httpCONNECTProxy: nwEndpoint)
-        store.proxyConfigurations = [socks, connect]
     }
 
     private func beginDownloadActivity() {
@@ -2665,7 +2599,6 @@ final class BrowserPanel: Panel, ObservableObject {
         if !preserveRestoredSessionHistory {
             abandonRestoredSessionHistoryIfNeeded()
         }
-        let effectiveRequest = remoteProxyPreparedNavigationRequest(from: request)
         // Some installs can end up with a legacy Chrome UA override; keep this pinned.
         webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
         shouldRenderWebView = true
@@ -2673,35 +2606,7 @@ final class BrowserPanel: Panel, ObservableObject {
             BrowserHistoryStore.shared.recordTypedNavigation(url: url)
         }
         navigationDelegate?.lastAttemptedURL = url
-        browserLoadRequest(effectiveRequest, in: webView)
-    }
-
-    private func remoteProxyPreparedNavigationRequest(from request: URLRequest) -> URLRequest {
-        guard remoteProxyEndpoint != nil else { return request }
-        guard let url = request.url else { return request }
-        guard let rewrittenURL = Self.remoteProxyLoopbackAliasURL(for: url) else { return request }
-
-        var rewrittenRequest = request
-        rewrittenRequest.url = rewrittenURL
-#if DEBUG
-        dlog(
-            "browser.remoteProxy.rewrite " +
-            "panel=\(id.uuidString.prefix(5)) " +
-            "from=\(url.absoluteString) " +
-            "to=\(rewrittenURL.absoluteString)"
-        )
-#endif
-        return rewrittenRequest
-    }
-
-    private static func remoteProxyLoopbackAliasURL(for url: URL) -> URL? {
-        guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else { return nil }
-        guard let host = BrowserInsecureHTTPSettings.normalizeHost(url.host ?? "") else { return nil }
-        guard remoteLoopbackHosts.contains(host) else { return nil }
-
-        var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
-        components?.host = remoteLoopbackProxyAliasHost
-        return components?.url
+        browserLoadRequest(request, in: webView)
     }
 
     /// Navigate with smart URL/search detection
@@ -3576,16 +3481,6 @@ extension BrowserPanel {
         applyPageZoom(1.0)
     }
 
-    func currentPageZoomFactor() -> CGFloat {
-        webView.pageZoom
-    }
-
-    @discardableResult
-    func setPageZoomFactor(_ pageZoom: CGFloat) -> Bool {
-        let clamped = max(minPageZoom, min(maxPageZoom, pageZoom))
-        return applyPageZoom(clamped)
-    }
-
     /// Take a snapshot of the web view
     func takeSnapshot(completion: @escaping (NSImage?) -> Void) {
         let config = WKSnapshotConfiguration()
@@ -4398,13 +4293,6 @@ extension BrowserPanel {
         let inspectorSubviews = container.map { Self.debugInspectorSubviewCount(in: $0) } ?? 0
         let containerType = container.map { String(describing: type(of: $0)) } ?? "nil"
         return "webFrame=\(Self.debugRectDescription(webFrame)) webBounds=\(Self.debugRectDescription(webView.bounds)) webWin=\(webView.window?.windowNumber ?? -1) super=\(Self.debugObjectToken(container)) superType=\(containerType) superBounds=\(Self.debugRectDescription(containerBounds)) inspectorHApprox=\(String(format: "%.1f", inspectorHeightApprox)) inspectorInsets=\(String(format: "%.1f", inspectorInsets)) inspectorOverflow=\(String(format: "%.1f", inspectorOverflow)) inspectorSubviews=\(inspectorSubviews)"
-    }
-
-    func hideBrowserPortalView(source: String) {
-        BrowserWindowPortalRegistry.hide(
-            webView: webView,
-            source: source
-        )
     }
 
 }

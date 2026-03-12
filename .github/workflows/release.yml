@@ -8,8 +8,6 @@ on:
 
 permissions:
   contents: write
-  attestations: write
-  id-token: write
 
 env:
   CREATE_DMG_VERSION: 8.0.0
@@ -116,12 +114,6 @@ jobs:
           key: spm-${{ hashFiles('GhosttyTabs.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
           restore-keys: spm-
 
-      - name: Setup Go
-        if: steps.guard_release_assets.outputs.skip_all != 'true'
-        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
-        with:
-          go-version-file: daemon/remote/go.mod
-
       - name: Derive Sparkle public key from private key
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         env:
@@ -141,21 +133,6 @@ jobs:
           xcodebuild -scheme cmux -configuration Release -derivedDataPath build \
             -clonedSourcePackagesDirPath .spm-cache \
             CODE_SIGNING_ALLOWED=NO build
-
-      - name: Build remote daemon release assets and inject manifest
-        if: steps.guard_release_assets.outputs.skip_all != 'true'
-        run: |
-          set -euo pipefail
-          APP_PLIST="build/Build/Products/Release/cmux.app/Contents/Info.plist"
-          APP_VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP_PLIST")
-          ./scripts/build_remote_daemon_release_assets.sh \
-            --version "$APP_VERSION" \
-            --release-tag "$GITHUB_REF_NAME" \
-            --repo "manaflow-ai/cmux" \
-            --output-dir "remote-daemon-assets"
-          MANIFEST_JSON="$(python3 -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1], encoding="utf-8")), separators=(",",":")))' remote-daemon-assets/cmuxd-remote-manifest.json)"
-          plutil -remove CMUXRemoteDaemonManifestJSON "$APP_PLIST" >/dev/null 2>&1 || true
-          plutil -insert CMUXRemoteDaemonManifestJSON -string "$MANIFEST_JSON" "$APP_PLIST"
 
       - name: Run CLI version memory guard regression
         if: steps.guard_release_assets.outputs.skip_all != 'true'
@@ -291,18 +268,6 @@ jobs:
           fi
           ./scripts/sparkle_generate_appcast.sh cmux-macos.dmg "$GITHUB_REF_NAME" appcast.xml
 
-      - name: Attest remote daemon release assets
-        if: steps.guard_release_assets.outputs.skip_all != 'true'
-        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
-        with:
-          subject-path: |
-            remote-daemon-assets/cmuxd-remote-darwin-arm64
-            remote-daemon-assets/cmuxd-remote-darwin-amd64
-            remote-daemon-assets/cmuxd-remote-linux-arm64
-            remote-daemon-assets/cmuxd-remote-linux-amd64
-            remote-daemon-assets/cmuxd-remote-checksums.txt
-            remote-daemon-assets/cmuxd-remote-manifest.json
-
       - name: Upload release asset
         if: steps.guard_release_assets.outputs.skip_upload != 'true'
         uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2
@@ -310,12 +275,6 @@ jobs:
           files: |
             cmux-macos.dmg
             appcast.xml
-            remote-daemon-assets/cmuxd-remote-darwin-arm64
-            remote-daemon-assets/cmuxd-remote-darwin-amd64
-            remote-daemon-assets/cmuxd-remote-linux-arm64
-            remote-daemon-assets/cmuxd-remote-linux-amd64
-            remote-daemon-assets/cmuxd-remote-checksums.txt
-            remote-daemon-assets/cmuxd-remote-manifest.json
           generate_release_notes: true
           overwrite_files: false
 

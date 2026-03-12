@@ -2333,8 +2333,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private let surfaceContext: ghostty_surface_context_e
     private let configTemplate: ghostty_surface_config_s?
     private let workingDirectory: String?
-    private let initialCommand: String?
-    private let initialEnvironmentOverrides: [String: String]
+    private let additionalEnvironment: [String: String]
     let hostedView: GhosttySurfaceScrollView
     private let surfaceView: GhosttyNSView
     private var lastPixelWidth: UInt32 = 0
@@ -2402,8 +2401,6 @@ final class TerminalSurface: Identifiable, ObservableObject {
         context: ghostty_surface_context_e,
         configTemplate: ghostty_surface_config_s?,
         workingDirectory: String? = nil,
-        initialCommand: String? = nil,
-        initialEnvironmentOverrides: [String: String] = [:],
         additionalEnvironment: [String: String] = [:]
     ) {
         self.id = UUID()
@@ -2411,12 +2408,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         self.surfaceContext = context
         self.configTemplate = configTemplate
         self.workingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmedCommand = initialCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
-        self.initialCommand = (trimmedCommand?.isEmpty == false) ? trimmedCommand : nil
-        self.initialEnvironmentOverrides = Self.mergedNormalizedEnvironment(
-            base: additionalEnvironment,
-            overrides: initialEnvironmentOverrides
-        )
+        self.additionalEnvironment = additionalEnvironment
         // Match Ghostty's own SurfaceView: ensure a non-zero initial frame so the backing layer
         // has non-zero bounds and the renderer can initialize without presenting a blank/stretched
         // intermediate frame on the first real resize.
@@ -2432,25 +2424,6 @@ final class TerminalSurface: Identifiable, ObservableObject {
         tabId = newTabId
         attachedView?.tabId = newTabId
         surfaceView.tabId = newTabId
-    }
-
-    private static func mergedNormalizedEnvironment(
-        base: [String: String],
-        overrides: [String: String]
-    ) -> [String: String] {
-        var merged: [String: String] = [:]
-        merged.reserveCapacity(base.count + overrides.count)
-        for (rawKey, value) in base {
-            let key = rawKey.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !key.isEmpty else { continue }
-            merged[key] = value
-        }
-        for (rawKey, value) in overrides {
-            let key = rawKey.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !key.isEmpty else { continue }
-            merged[key] = value
-        }
-        return merged
     }
 
     func isAttached(to view: GhosttyNSView) -> Bool {
@@ -2811,10 +2784,6 @@ final class TerminalSurface: Identifiable, ObservableObject {
         env["CMUX_PANEL_ID"] = id.uuidString
         env["CMUX_TAB_ID"] = tabId.uuidString
         env["CMUX_SOCKET_PATH"] = SocketControlSettings.socketPath()
-        if let bundledCLIPath = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux").path,
-           !bundledCLIPath.isEmpty {
-            env["CMUX_BUNDLED_CLI_PATH"] = bundledCLIPath
-        }
         if let bundleId = Bundle.main.bundleIdentifier, !bundleId.isEmpty {
             env["CMUX_BUNDLE_ID"] = bundleId
         }
@@ -2882,8 +2851,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
             }
         }
 
-        if !initialEnvironmentOverrides.isEmpty {
-            for (key, value) in initialEnvironmentOverrides {
+        if !additionalEnvironment.isEmpty {
+            for (key, value) in additionalEnvironment where !key.isEmpty && !value.isEmpty {
                 env[key] = value
             }
         }
@@ -2911,30 +2880,14 @@ final class TerminalSurface: Identifiable, ObservableObject {
             }
         }
 
-        let createWithCommandAndWorkingDirectory = { [self] in
-            if let initialCommand, !initialCommand.isEmpty {
-                initialCommand.withCString { cCommand in
-                    surfaceConfig.command = cCommand
-                    if let workingDirectory, !workingDirectory.isEmpty {
-                        workingDirectory.withCString { cWorkingDir in
-                            surfaceConfig.working_directory = cWorkingDir
-                            createSurface()
-                        }
-                    } else {
-                        createSurface()
-                    }
-                }
-            } else if let workingDirectory, !workingDirectory.isEmpty {
-                workingDirectory.withCString { cWorkingDir in
-                    surfaceConfig.working_directory = cWorkingDir
-                    createSurface()
-                }
-            } else {
+        if let workingDirectory, !workingDirectory.isEmpty {
+            workingDirectory.withCString { cWorkingDir in
+                surfaceConfig.working_directory = cWorkingDir
                 createSurface()
             }
+        } else {
+            createSurface()
         }
-
-        createWithCommandAndWorkingDirectory()
 
         if surface == nil {
             surfaceCallbackContext?.release()
@@ -3085,7 +3038,6 @@ final class TerminalSurface: Identifiable, ObservableObject {
         dlog("forceRefresh: \(id) reason=\(reason) \(viewState)")
         #endif
         guard let view = attachedView,
-              let surface,
               view.window != nil,
               view.bounds.width > 0,
               view.bounds.height > 0 else {
@@ -5685,7 +5637,6 @@ final class GhosttySurfaceScrollView: NSView {
     private var activeDropZone: DropZone?
     private var pendingDropZone: DropZone?
     private var dropZoneOverlayAnimationGeneration: UInt64 = 0
-    private var pendingAutomaticFirstResponderApply = false
     // Intentionally no focus retry loops: rely on AppKit first-responder and bonsplit selection.
 
     /// Tracks whether keyboard focus should go to the search field or the terminal
@@ -6293,7 +6244,7 @@ final class GhosttySurfaceScrollView: NSView {
 #if DEBUG
             dlog("find.window.didBecomeKey surface=\(self.surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") searchActive=\(searchActive) focusTarget=\(self.searchFocusTarget) firstResponder=\(String(describing: self.window?.firstResponder))")
 #endif
-            self.scheduleAutomaticFirstResponderApply(reason: "didBecomeKey")
+            self.applyFirstResponderIfNeeded()
         })
         windowObservers.append(NotificationCenter.default.addObserver(
             forName: NSWindow.didResignKeyNotification,
@@ -6316,9 +6267,7 @@ final class GhosttySurfaceScrollView: NSView {
 #endif
             }
         })
-        if window.isKeyWindow {
-            scheduleAutomaticFirstResponderApply(reason: "viewDidMoveToWindow")
-        }
+        if window.isKeyWindow { applyFirstResponderIfNeeded() }
     }
 
     func attachSurface(_ terminalSurface: TerminalSurface) {
@@ -6735,7 +6684,7 @@ final class GhosttySurfaceScrollView: NSView {
                 window.makeFirstResponder(nil)
             }
         } else {
-            scheduleAutomaticFirstResponderApply(reason: "setVisibleInUI")
+            applyFirstResponderIfNeeded()
         }
     }
 
@@ -6762,7 +6711,7 @@ final class GhosttySurfaceScrollView: NSView {
         }
 #endif
         if active {
-            scheduleAutomaticFirstResponderApply(reason: "setActive")
+            applyFirstResponderIfNeeded()
         } else {
             resignOwnedFirstResponderIfNeeded(reason: "setActive(false)")
         }
@@ -7122,20 +7071,6 @@ final class GhosttySurfaceScrollView: NSView {
     func isSurfaceViewFirstResponder() -> Bool {
         guard let window, let fr = window.firstResponder as? NSView else { return false }
         return fr === surfaceView || fr.isDescendant(of: surfaceView)
-    }
-
-    private func scheduleAutomaticFirstResponderApply(reason: String) {
-        guard !pendingAutomaticFirstResponderApply else { return }
-        pendingAutomaticFirstResponderApply = true
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            self.pendingAutomaticFirstResponderApply = false
-#if DEBUG
-            let surfaceShort = self.surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil"
-            dlog("find.applyFirstResponder.defer surface=\(surfaceShort) reason=\(reason)")
-#endif
-            self.applyFirstResponderIfNeeded()
-        }
     }
 
     private func reassertTerminalSurfaceFocus(reason: String) {
@@ -7713,13 +7648,33 @@ final class GhosttySurfaceScrollView: NSView {
     /// regions such as scrollbar space) when telling libghostty the terminal size.
     @discardableResult
     private func synchronizeCoreSurface() -> Bool {
-        // Reserving extra overlay-scroller gutter here causes AppKit and libghostty to fight
-        // over terminal columns during split churn. The width can flap by one scrollbar gutter,
-        // which redraws the shell prompt multiple times on Cmd+D. Favor stable columns.
-        let width = max(0, scrollView.contentSize.width)
+        let width = max(0, scrollView.contentSize.width - overlayScrollbarInsetWidth())
         let height = surfaceView.frame.height
         guard width > 0, height > 0 else { return false }
         return surfaceView.pushTargetSurfaceSize(CGSize(width: width, height: height))
+    }
+
+    /// Reserve overlay scrollbar gutter so wrapped text never sits underneath a visible scroller.
+    private func overlayScrollbarInsetWidth() -> CGFloat {
+        guard scrollView.hasVerticalScroller, scrollView.scrollerStyle == .overlay else { return 0 }
+
+        // If AppKit already reserved non-content width in `contentSize`, avoid double-subtraction.
+        let alreadyReserved = max(0, scrollView.bounds.width - scrollView.contentSize.width)
+        if alreadyReserved > 0.5 { return 0 }
+
+        let fallback = NSScroller.scrollerWidth(for: .regular, scrollerStyle: .overlay)
+        guard let verticalScroller = scrollView.verticalScroller else { return fallback }
+
+        let measuredWidth = verticalScroller.frame.width
+        if measuredWidth > 0 {
+            return max(measuredWidth, fallback)
+        }
+
+        let controlSizeWidth = NSScroller.scrollerWidth(
+            for: verticalScroller.controlSize,
+            scrollerStyle: .overlay
+        )
+        return max(controlSizeWidth, fallback)
     }
 
     private func updateNotificationRingPath() {
@@ -8235,12 +8190,6 @@ struct GhosttyTerminalView: NSViewRepresentable {
         }
         let portalExpectedSurfaceId = terminalSurface.id
         let portalExpectedGeneration = terminalSurface.portalBindingGeneration()
-        func portalBindingStillLive() -> Bool {
-            terminalSurface.canAcceptPortalBinding(
-                expectedSurfaceId: portalExpectedSurfaceId,
-                expectedGeneration: portalExpectedGeneration
-            )
-        }
         let forwardedDropZone = isVisibleInUI ? paneDropZone : nil
 #if DEBUG
         if coordinator.lastPaneDropZone != paneDropZone {
@@ -8279,7 +8228,6 @@ struct GhosttyTerminalView: NSViewRepresentable {
                     reason: "didMoveToWindow"
                 ) else { return }
                 guard host.window != nil else { return }
-                guard portalBindingStillLive() else { return }
                 TerminalWindowPortalRegistry.bind(
                     hostedView: hostedView,
                     to: host,
@@ -8303,7 +8251,6 @@ struct GhosttyTerminalView: NSViewRepresentable {
                     bounds: host.bounds,
                     reason: "geometryChanged"
                 ) else { return }
-                guard portalBindingStillLive() else { return }
                 let hostId = ObjectIdentifier(host)
                 if host.window != nil,
                    (coordinator.lastBoundHostId != hostId ||
@@ -8333,7 +8280,6 @@ struct GhosttyTerminalView: NSViewRepresentable {
             }
 
             if host.window != nil, hostOwnsPortalNow {
-                let portalBindingLive = portalBindingStillLive()
                 let hostId = ObjectIdentifier(host)
                 let geometryRevision = host.geometryRevision
                 let portalEntryMissing = !TerminalWindowPortalRegistry.isHostedView(hostedView, boundTo: host)
@@ -8344,7 +8290,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
                     previousDesiredIsVisibleInUI != isVisibleInUI ||
                     previousDesiredShowsUnreadNotificationRing != showsUnreadNotificationRing ||
                     previousDesiredPortalZPriority != portalZPriority
-                if portalBindingLive && shouldBindNow {
+                if shouldBindNow {
 #if DEBUG
                     if portalEntryMissing {
                         dlog(
@@ -8364,11 +8310,11 @@ struct GhosttyTerminalView: NSViewRepresentable {
                     )
                     coordinator.lastBoundHostId = hostId
                     coordinator.lastSynchronizedHostGeometryRevision = geometryRevision
-                } else if portalBindingLive && coordinator.lastSynchronizedHostGeometryRevision != geometryRevision {
+                } else if coordinator.lastSynchronizedHostGeometryRevision != geometryRevision {
                     TerminalWindowPortalRegistry.synchronizeForAnchor(host)
                     coordinator.lastSynchronizedHostGeometryRevision = geometryRevision
                 }
-            } else if hostOwnsPortalNow, portalBindingStillLive() {
+            } else if hostOwnsPortalNow {
                 // Bind is deferred until host moves into a window. Update the
                 // existing portal entry's visibleInUI now so that any portal sync
                 // that runs before the deferred bind completes won't hide the view.
@@ -8398,7 +8344,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
             isBoundToCurrentHost: isBoundToCurrentHost
         )
 
-        if portalBindingStillLive() && shouldApplyImmediateHostedState {
+        if shouldApplyImmediateHostedState {
             hostedView.setVisibleInUI(isVisibleInUI)
             hostedView.setActive(isActive)
         } else {

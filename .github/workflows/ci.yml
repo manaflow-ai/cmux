@@ -28,27 +28,6 @@ jobs:
       - name: Validate GhosttyKit checksum verification
         run: ./tests/test_ci_ghosttykit_checksum_verification.sh
 
-      - name: Validate release asset guard
-        run: node scripts/release_asset_guard.test.js
-
-  remote-daemon-tests:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-
-      - name: Setup Go
-        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
-        with:
-          go-version-file: daemon/remote/go.mod
-
-      - name: Run remote daemon tests
-        working-directory: daemon/remote
-        run: go test ./...
-
-      - name: Validate remote daemon release assets
-        run: ./tests/test_remote_daemon_release_assets.sh
-
   web-typecheck:
     runs-on: ubuntu-latest
     defaults:
