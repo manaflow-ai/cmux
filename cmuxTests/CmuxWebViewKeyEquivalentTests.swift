@@ -9912,6 +9912,10 @@ final class BrowserPanelHostContainerViewTests: XCTestCase {
             inspectorView.evaluatedJavaScript.contains(where: { $0.contains("WI._dockBottom()") }),
             "Narrow pane widths should request bottom-docked DevTools instead of leaving the side-docked inspector in an unstable layout"
         )
+        XCTAssertTrue(
+            inspectorView.evaluatedJavaScript.contains(where: { $0.contains("const allowSideDock = false;") }),
+            "Once a narrow pane proves it cannot safely side-dock DevTools, the inspector frontend should hide and disable left/right dock controls"
+        )
     }
 
     func testBrowserPanelManagedSideDockDoesNotAutoresizeDraggedFrames() {

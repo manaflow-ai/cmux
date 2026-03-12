@@ -3794,6 +3794,8 @@ struct WebViewRepresentable: NSViewRepresentable {
         private var hostedInspectorReapplyWorkItem: DispatchWorkItem?
         private var hostedInspectorDockConfigurationSyncWorkItem: DispatchWorkItem?
         private var adaptiveBottomDockRequestCooldownDeadline: Date?
+        private var recordedHostedInspectorSideDockWidth: CGFloat?
+        private var lastHostedInspectorManualSideDockAllowed: Bool?
         private var lastHostedInspectorLayoutBoundsSize: NSSize?
 #if DEBUG
         private var lastLoggedHostedInspectorFrames: (page: NSRect, inspector: NSRect)?
@@ -3832,6 +3834,103 @@ struct WebViewRepresentable: NSViewRepresentable {
             preferredHostedInspectorWidthFraction = widthFraction
         }
 
+        private func recordHostedInspectorSideDockWidth(_ width: CGFloat) {
+            guard width > 1 else { return }
+            recordedHostedInspectorSideDockWidth = max(Self.minimumHostedInspectorWidth, width)
+        }
+
+        private func shouldAllowHostedInspectorManualSideDock() -> Bool {
+            let containerWidth = max(0, bounds.width)
+            guard containerWidth > 1 else { return true }
+            let baselineWidth = max(
+                Self.minimumHostedInspectorWidth,
+                recordedHostedInspectorSideDockWidth ?? Self.minimumHostedInspectorWidth
+            )
+            return containerWidth - baselineWidth >= Self.minimumHostedInspectorPageWidthForSideDock
+        }
+
+        private func updateHostedInspectorDockControlAvailabilityIfNeeded(reason: String) {
+            guard let hostedInspectorFrontendWebView else {
+                lastHostedInspectorManualSideDockAllowed = nil
+                return
+            }
+
+            let sideDockAllowed = shouldAllowHostedInspectorManualSideDock()
+            guard lastHostedInspectorManualSideDockAllowed != sideDockAllowed else { return }
+            lastHostedInspectorManualSideDockAllowed = sideDockAllowed
+
+            let sideDockAllowedLiteral = sideDockAllowed ? "true" : "false"
+#if DEBUG
+            let recordedWidthDesc = recordedHostedInspectorSideDockWidth.map {
+                String(format: "%.1f", $0)
+            } ?? "nil"
+            dlog(
+                "browser.panel.hostedInspector stage=\(reason).dockControls " +
+                "host=\(Self.debugObjectID(self)) allowSideDock=\(sideDockAllowed ? 1 : 0) " +
+                "recordedWidth=\(recordedWidthDesc) bounds=\(Self.debugRect(bounds))"
+            )
+#endif
+            hostedInspectorFrontendWebView.evaluateJavaScript(
+                """
+                (() => {
+                    if (typeof WI === "undefined")
+                        return null;
+                    const allowSideDock = \(sideDockAllowedLiteral);
+                    if (!WI.__cmuxOriginalUpdateDockNavigationItems && typeof WI._updateDockNavigationItems === "function")
+                        WI.__cmuxOriginalUpdateDockNavigationItems = WI._updateDockNavigationItems;
+                    if (!WI.__cmuxOriginalDockLeft && typeof WI._dockLeft === "function")
+                        WI.__cmuxOriginalDockLeft = WI._dockLeft;
+                    if (!WI.__cmuxOriginalDockRight && typeof WI._dockRight === "function")
+                        WI.__cmuxOriginalDockRight = WI._dockRight;
+                    if (!WI.__cmuxOriginalTogglePreviousDockConfiguration && typeof WI._togglePreviousDockConfiguration === "function")
+                        WI.__cmuxOriginalTogglePreviousDockConfiguration = WI._togglePreviousDockConfiguration;
+                    function callOriginal(fn, event) {
+                        return typeof fn === "function" ? fn.call(WI, event) : null;
+                    }
+                    function updateButton(button, hidden) {
+                        if (!button)
+                            return;
+                        button.hidden = hidden;
+                        if (button.element) {
+                            button.element.style.display = hidden ? "none" : "";
+                            button.element.style.pointerEvents = hidden ? "none" : "";
+                        }
+                    }
+                    function enforceDockControls() {
+                        const disallowSideDock = !WI.__cmuxAllowSideDock;
+                        updateButton(WI._dockLeftTabBarButton, disallowSideDock || WI.dockConfiguration === WI.DockConfiguration.Left);
+                        updateButton(WI._dockRightTabBarButton, disallowSideDock || WI.dockConfiguration === WI.DockConfiguration.Right);
+                    }
+                    WI.__cmuxAllowSideDock = allowSideDock;
+                    WI._dockLeft = function(event) {
+                        if (!WI.__cmuxAllowSideDock)
+                            return callOriginal(WI._dockBottom, event);
+                        return callOriginal(WI.__cmuxOriginalDockLeft, event);
+                    };
+                    WI._dockRight = function(event) {
+                        if (!WI.__cmuxAllowSideDock)
+                            return callOriginal(WI._dockBottom, event);
+                        return callOriginal(WI.__cmuxOriginalDockRight, event);
+                    };
+                    WI._togglePreviousDockConfiguration = function(event) {
+                        const previousSideDock = WI._previousDockConfiguration === WI.DockConfiguration.Left || WI._previousDockConfiguration === WI.DockConfiguration.Right;
+                        if (!WI.__cmuxAllowSideDock && previousSideDock)
+                            return callOriginal(WI._dockBottom, event);
+                        return callOriginal(WI.__cmuxOriginalTogglePreviousDockConfiguration, event);
+                    };
+                    WI._updateDockNavigationItems = function(...args) {
+                        if (typeof WI.__cmuxOriginalUpdateDockNavigationItems === "function")
+                            WI.__cmuxOriginalUpdateDockNavigationItems.apply(WI, args);
+                        enforceDockControls();
+                    };
+                    WI._updateDockNavigationItems();
+                    return WI.__cmuxAllowSideDock;
+                })();
+                """,
+                completionHandler: nil
+            )
+        }
+
         func containsManagedLocalInlineContent(_ view: NSView) -> Bool {
             if let localInlineSlotView,
                view === localInlineSlotView || view.isDescendant(of: localInlineSlotView) {
@@ -3856,6 +3955,8 @@ struct WebViewRepresentable: NSViewRepresentable {
 
         func setHostedInspectorFrontendWebView(_ webView: WKWebView?) {
             hostedInspectorFrontendWebView = webView
+            lastHostedInspectorManualSideDockAllowed = nil
+            updateHostedInspectorDockControlAvailabilityIfNeeded(reason: "setHostedInspectorFrontendWebView")
         }
 
         private var hasStoredHostedInspectorWidthPreference: Bool {
@@ -4224,6 +4325,7 @@ struct WebViewRepresentable: NSViewRepresentable {
             guard let hostedInspectorFrontendWebView else { return false }
 
             adaptiveBottomDockRequestCooldownDeadline = now.addingTimeInterval(Self.adaptiveBottomDockRequestCooldown)
+            updateHostedInspectorDockControlAvailabilityIfNeeded(reason: reason)
 #if DEBUG
             dlog(
                 "browser.panel.hostedInspector stage=\(reason).adaptiveBottomDock " +
@@ -4246,6 +4348,7 @@ struct WebViewRepresentable: NSViewRepresentable {
                   shouldForceHostedInspectorBottomDock(using: hit) else {
                 return false
             }
+            recordHostedInspectorSideDockWidth(hit.inspectorView.frame.width)
             return requestAdaptiveHostedInspectorBottomDock(reason: reason)
         }
 
@@ -4315,6 +4418,7 @@ struct WebViewRepresentable: NSViewRepresentable {
                     }
                 }
             }
+            updateHostedInspectorDockControlAvailabilityIfNeeded(reason: "\(reason).dockConfiguration")
         }
 
         override func viewDidMoveToWindow() {
@@ -4347,6 +4451,7 @@ struct WebViewRepresentable: NSViewRepresentable {
             super.layout()
             _ = promoteHostedInspectorSideDockFromCurrentLayoutIfNeeded()
             if enforceAdaptiveBottomDockIfNeeded(reason: "host.layout") {
+                updateHostedInspectorDockControlAvailabilityIfNeeded(reason: "host.layout")
                 notifyGeometryChangedIfNeeded()
 #if DEBUG
                 debugLogHostedInspectorLayoutIfNeeded(reason: "layout")
@@ -4363,6 +4468,7 @@ struct WebViewRepresentable: NSViewRepresentable {
                     !hasStoredHostedInspectorWidthPreference {
                     captureHostedInspectorPreferredWidthFromCurrentLayout(reason: "host.layout.sameSize")
                 }
+                updateHostedInspectorDockControlAvailabilityIfNeeded(reason: "host.layout.sameSize")
                 notifyGeometryChangedIfNeeded()
 #if DEBUG
                 debugLogHostedInspectorLayoutIfNeeded(reason: "layout")
@@ -4375,6 +4481,7 @@ struct WebViewRepresentable: NSViewRepresentable {
             } else if !hasStoredHostedInspectorWidthPreference {
                 captureHostedInspectorPreferredWidthFromCurrentLayout(reason: "host.layout")
             }
+            updateHostedInspectorDockControlAvailabilityIfNeeded(reason: "host.layout")
             scheduleHostedInspectorDockConfigurationSync(reason: "layout")
             notifyGeometryChangedIfNeeded()
 #if DEBUG
@@ -4845,6 +4952,7 @@ struct WebViewRepresentable: NSViewRepresentable {
 
             let inspectorWidth = max(0, hit.inspectorView.frame.width)
             guard inspectorWidth > 1 else { return }
+            recordHostedInspectorSideDockWidth(inspectorWidth)
             let currentFraction: CGFloat? = {
                 guard hit.containerView.bounds.width > 0 else { return nil }
                 return inspectorWidth / hit.containerView.bounds.width
@@ -4915,6 +5023,7 @@ struct WebViewRepresentable: NSViewRepresentable {
             guard pageChanged || inspectorChanged else {
                 return (pageFrame, inspectorFrame)
             }
+            recordHostedInspectorSideDockWidth(inspectorFrame.width)
 
             isApplyingHostedInspectorLayout = true
             CATransaction.begin()
