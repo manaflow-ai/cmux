@@ -113,24 +113,48 @@ def _wait_text(client: cmux, surface_id: str, token: str, timeout: float = 12.0)
     raise cmuxError(f"Timed out waiting for {token!r} in surface {surface_id}: {last[-1200:]!r}")
 
 
+def _wait_shell_ready(client: cmux, surface_id: str, timeout: float = 20.0) -> None:
+    token = f"__CMUX_SHELL_READY_{secrets.token_hex(6)}__"
+    client.send_surface(surface_id, f"printf '{token}'; echo")
+    client.send_key_surface(surface_id, "enter")
+    _wait_text(client, surface_id, token, timeout=timeout)
+
+
 def _run_remote_shell_command(client: cmux, surface_id: str, command: str, timeout: float = 12.0) -> tuple[int, str, str]:
     token = f"__CMUX_REMOTE_CMD_{secrets.token_hex(6)}__"
+    start_marker = f"{token}:START"
+    status_marker = f"{token}:STATUS"
+    end_marker = f"{token}:END"
     client.send_surface(
         surface_id,
         (
-            f"__cmux_out=$({command} 2>&1); "
+            f"printf '{start_marker}'; echo; "
+            f"{command}; "
             "__cmux_status=$?; "
-            f"printf '{token}:%s:' \"$__cmux_status\"; "
-            "printf '%s' \"$__cmux_out\"; "
-            "printf ':__CMUX_REMOTE_CMD_END__\\n'\n"
+            f"printf '{status_marker}:%s' \"$__cmux_status\"; echo; "
+            f"printf '{end_marker}'; echo"
         ),
     )
-    text = _wait_text(client, surface_id, token, timeout=timeout)
-    pattern = re.compile(re.escape(token) + r":(\d+):(.*?):__CMUX_REMOTE_CMD_END__")
+    client.send_key_surface(surface_id, "enter")
+    deadline = time.time() + timeout
+    text = ""
+    while time.time() < deadline:
+        text = client.read_terminal_text(surface_id)
+        if (
+            text.count(start_marker) >= 2
+            and text.count(status_marker) >= 2
+            and text.count(end_marker) >= 2
+        ):
+            break
+        time.sleep(0.15)
+    pattern = re.compile(
+        re.escape(start_marker) + r"\n(.*?)" + re.escape(status_marker) + r":(\d+)\n" + re.escape(end_marker),
+        re.S,
+    )
     matches = pattern.findall(text)
     if not matches:
         raise cmuxError(f"Missing command result token for {command!r}: {text[-1200:]!r}")
-    status_raw, output = matches[-1]
+    output, status_raw = matches[-1]
     return int(status_raw), output, text
 
 
@@ -150,6 +174,7 @@ def main() -> int:
 
             _wait_remote_ready(client, workspace_id)
             surface_id = _wait_surface_id(client, workspace_id)
+            _wait_shell_ready(client, surface_id)
 
             which_status, which_output, which_text = _run_remote_shell_command(client, surface_id, "command -v cmux")
             _must(which_status == 0, f"`command -v cmux` failed: output={which_output!r} tail={which_text[-1200:]!r}")
@@ -165,6 +190,10 @@ def main() -> int:
                 "Socket not found at 127.0.0.1:" not in ping_text,
                 f"interactive ssh shell still routed cmux to a unix-socket-only binary: {ping_text[-1200:]!r}",
             )
+            _must(
+                "waiting for relay on 127.0.0.1:" not in ping_text and "failed to connect to 127.0.0.1:" not in ping_text,
+                f"`cmux ping` hit a dead ssh relay instead of the local app socket: {ping_text[-1200:]!r}",
+            )
 
             notify_status, notify_output, notify_text = _run_remote_shell_command(
                 client,
@@ -179,6 +208,27 @@ def main() -> int:
                 "Socket not found at 127.0.0.1:" not in notify_text,
                 f"`cmux notify` still failed via wrong cmux binary: {notify_text[-1200:]!r}",
             )
+            _must(
+                "waiting for relay on 127.0.0.1:" not in notify_text and "failed to connect to 127.0.0.1:" not in notify_text,
+                f"`cmux notify` still failed because the ssh relay listener was not running: {notify_text[-1200:]!r}",
+            )
+
+            shell_status, shell_output, shell_text = _run_remote_shell_command(
+                client,
+                surface_id,
+                r'''printf 'TERM=%s\n' "${TERM:-}"; printf 'TERM_PROGRAM=%s\n' "${TERM_PROGRAM:-}"; printf 'TERM_PROGRAM_VERSION=%s\n' "${TERM_PROGRAM_VERSION:-}"; printf 'GHOSTTY_SHELL_FEATURES=%s\n' "${GHOSTTY_SHELL_FEATURES:-}"; bindkey "^A"; bindkey "^K"; bindkey "^[^?"; bindkey "^[b"; bindkey "^[f"''',
+            )
+            _must(shell_status == 0, f"ssh shell env/bindkey probe failed: output={shell_output!r} tail={shell_text[-1200:]!r}")
+            _must("TERM=xterm-ghostty" in shell_output, f"ssh shell lost TERM=xterm-ghostty: {shell_output!r}")
+            _must("TERM_PROGRAM=ghostty" in shell_output, f"ssh shell lost TERM_PROGRAM=ghostty: {shell_output!r}")
+            _must("GHOSTTY_SHELL_FEATURES=" in shell_output, f"ssh shell lost GHOSTTY_SHELL_FEATURES: {shell_output!r}")
+            _must("ssh-env" in shell_output, f"ssh shell missing ssh-env feature: {shell_output!r}")
+            _must("ssh-terminfo" in shell_output, f"ssh shell missing ssh-terminfo feature: {shell_output!r}")
+            _must('"^A" beginning-of-line' in shell_output, f"Ctrl-A binding regressed in ssh shell: {shell_output!r}")
+            _must('"^K" kill-line' in shell_output, f"Ctrl-K binding regressed in ssh shell: {shell_output!r}")
+            _must('"^[^?" backward-kill-word' in shell_output, f"Opt-Backspace binding regressed in ssh shell: {shell_output!r}")
+            _must('"^[b" backward-word' in shell_output, f"Opt-Left binding regressed in ssh shell: {shell_output!r}")
+            _must('"^[f" forward-word' in shell_output, f"Opt-Right binding regressed in ssh shell: {shell_output!r}")
     finally:
         if workspace_ids:
             try:

@@ -113,6 +113,7 @@ def main() -> int:
     workspace_id_strict_override = ""
     workspace_id_case_override = ""
     workspace_id_invalid_proxy_port = ""
+    workspaces_to_close: list[str] = []
     with cmux(SOCKET_PATH) as client:
         try:
             payload = _run_cli_json(
@@ -120,6 +121,8 @@ def main() -> int:
                 ["ssh", "127.0.0.1", "--port", "1", "--name", "ssh-meta-test"],
             )
             workspace_id = str(payload.get("workspace_id") or "")
+            if workspace_id:
+                workspaces_to_close.append(workspace_id)
             workspace_ref = str(payload.get("workspace_ref") or "")
             if not workspace_id and workspace_ref.startswith("workspace:"):
                 listed = client._call("workspace.list", {}) or {}
@@ -272,6 +275,8 @@ def main() -> int:
                 ["ssh", "127.0.0.1", "--port", "1"],
             )
             workspace_id_without_name = str(payload2.get("workspace_id") or "")
+            if workspace_id_without_name:
+                workspaces_to_close.append(workspace_id_without_name)
             ssh_command_without_name = str(payload2.get("ssh_command") or "")
             workspace_ref_without_name = str(payload2.get("workspace_ref") or "")
             if not workspace_id_without_name and workspace_ref_without_name.startswith("workspace:"):
@@ -320,6 +325,8 @@ def main() -> int:
                 ],
             )
             workspace_id_strict_override = str(payload_strict_override.get("workspace_id") or "")
+            if workspace_id_strict_override:
+                workspaces_to_close.append(workspace_id_strict_override)
             workspace_ref_strict_override = str(payload_strict_override.get("workspace_ref") or "")
             if not workspace_id_strict_override and workspace_ref_strict_override.startswith("workspace:"):
                 listed_override = client._call("workspace.list", {}) or {}
@@ -367,6 +374,8 @@ def main() -> int:
                 ],
             )
             workspace_id_case_override = str(payload_case_override.get("workspace_id") or "")
+            if workspace_id_case_override:
+                workspaces_to_close.append(workspace_id_case_override)
             workspace_ref_case_override = str(payload_case_override.get("workspace_ref") or "")
             if not workspace_id_case_override and workspace_ref_case_override.startswith("workspace:"):
                 listed_case_override = client._call("workspace.list", {}) or {}
@@ -460,6 +469,8 @@ def main() -> int:
             )
             workspace_id3 = str(payload3.get("workspace_id") or "")
             if workspace_id3:
+                workspaces_to_close.append(workspace_id3)
+            if workspace_id3:
                 try:
                     client.close_workspace(workspace_id3)
                 except Exception:
@@ -467,6 +478,8 @@ def main() -> int:
 
             invalid_proxy_port_workspace = client._call("workspace.create", {"initial_command": "echo invalid-local-proxy-port"}) or {}
             workspace_id_invalid_proxy_port = str(invalid_proxy_port_workspace.get("workspace_id") or "")
+            if workspace_id_invalid_proxy_port:
+                workspaces_to_close.append(workspace_id_invalid_proxy_port)
             _must(bool(workspace_id_invalid_proxy_port), f"workspace.create missing workspace_id: {invalid_proxy_port_workspace}")
 
             configured_with_string_ports = client._call(
@@ -599,31 +612,14 @@ def main() -> int:
                 client.close_workspace(workspace_id_invalid_proxy_port)
             except Exception:
                 pass
-            workspace_id_invalid_proxy_port = ""
+            else:
+                workspace_id_invalid_proxy_port = ""
         finally:
-            if workspace_id:
+            for workspace_id_to_close in dict.fromkeys(workspaces_to_close):
+                if not workspace_id_to_close:
+                    continue
                 try:
-                    client.close_workspace(workspace_id)
-                except Exception:
-                    pass
-            if workspace_id_without_name:
-                try:
-                    client.close_workspace(workspace_id_without_name)
-                except Exception:
-                    pass
-            if workspace_id_strict_override:
-                try:
-                    client.close_workspace(workspace_id_strict_override)
-                except Exception:
-                    pass
-            if workspace_id_case_override:
-                try:
-                    client.close_workspace(workspace_id_case_override)
-                except Exception:
-                    pass
-            if workspace_id_invalid_proxy_port:
-                try:
-                    client.close_workspace(workspace_id_invalid_proxy_port)
+                    client.close_workspace(workspace_id_to_close)
                 except Exception:
                     pass
 

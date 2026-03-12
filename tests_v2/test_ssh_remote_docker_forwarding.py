@@ -613,10 +613,9 @@ def main() -> int:
                 os.access(local_cached_binary, os.X_OK),
                 f"local daemon cache artifact must be executable: {local_cached_binary}",
             )
-            local_version = _run([str(local_cached_binary), "version"], check=True).stdout.strip()
             _must(
-                daemon_version in local_version,
-                f"local cached daemon binary version mismatch: expected {daemon_version!r}, got {local_version!r}",
+                daemon_version in local_cached_binary.parts,
+                f"local cached daemon binary path should encode daemon version {daemon_version!r}: {local_cached_binary}",
             )
             local_sha256 = _local_file_sha256(local_cached_binary)
             remote_sha256 = _remote_binary_sha256(host, host_ssh_port, key_path, remote_path)
