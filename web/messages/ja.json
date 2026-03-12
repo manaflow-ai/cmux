@@ -68,7 +68,7 @@
     "faqNotificationsQ": "通知はどのように機能しますか？",
     "faqNotificationsA": "プロセスが注意を必要とするとき、cmuxはペインに通知リング、サイドバーに未読バッジ、通知ポップオーバー、macOSデスクトップ通知を表示します。これらは標準的なターミナルエスケープシーケンス（OSC 9/99/777）で自動的に発火するほか、<cliLink>cmux CLI</cliLink>や<hooksLink>Claude Codeフック</hooksLink>で手動トリガーも可能です。",
     "faqShortcutsQ": "キーボードショートカットはカスタマイズできますか？",
-    "faqShortcutsA": "ターミナルのキーバインドはGhosttyの設定ファイル（{configPath}）から読み込まれます。cmux固有のショートカット（ワークスペース、分割、ブラウザ、通知）は設定画面でカスタマイズできます。全一覧は<link>デフォルトショートカット</link>をご覧ください。",
+    "faqShortcutsA": "ターミナルのキーバインドはGhosttyの設定ファイル（<configPath>~/.config/ghostty/config</configPath>）から読み込まれます。cmux固有のショートカット（ワークスペース、分割、ブラウザ、通知）は設定画面でカスタマイズできます。全一覧は<link>デフォルトショートカット</link>をご覧ください。",
     "faqTmuxQ": "tmuxとの違いは？",
     "faqTmuxA": "tmuxはどのターミナル内でも動作するターミナルマルチプレクサです。cmuxはGUI付きのネイティブmacOSアプリで、縦タブ、分割ペイン、組み込みブラウザ、socket APIがすべて内蔵されています。設定ファイルやプレフィックスキーは不要です。",
     "faqFreeQ": "cmuxは無料ですか？",

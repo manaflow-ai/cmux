@@ -68,7 +68,7 @@
     "faqNotificationsQ": "通知是如何工作的？",
     "faqNotificationsA": "当进程需要关注时，cmux 会在面板周围显示通知提醒环、在侧边栏显示未读标记、弹出通知面板，以及发送 macOS 桌面通知。这些通过标准终端转义序列（OSC 9/99/777）自动触发，你也可以通过 <cliLink>cmux CLI</cliLink> 和 <hooksLink>Claude Code hooks</hooksLink> 手动触发。",
     "faqShortcutsQ": "可以自定义快捷键吗？",
-    "faqShortcutsA": "终端键位绑定从你的 Ghostty 配置文件（{configPath}）中读取。cmux 特有的快捷键（工作区、分屏、浏览器、通知）可以在设置中自定义。完整列表请参阅<link>默认快捷键</link>。",
+    "faqShortcutsA": "终端键位绑定从你的 Ghostty 配置文件（<configPath>~/.config/ghostty/config</configPath>）中读取。cmux 特有的快捷键（工作区、分屏、浏览器、通知）可以在设置中自定义。完整列表请参阅<link>默认快捷键</link>。",
     "faqTmuxQ": "和 tmux 相比如何？",
     "faqTmuxA": "tmux 是在任何终端内运行的终端复用器。cmux 是一个带 GUI 的原生 macOS 应用：垂直标签页、分屏面板、内置浏览器和 socket API 全部内置。无需配置文件或前缀键。",
     "faqFreeQ": "cmux 免费吗？",

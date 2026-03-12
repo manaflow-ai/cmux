@@ -68,7 +68,7 @@
     "faqNotificationsQ": "알림은 어떻게 작동하나요?",
     "faqNotificationsA": "프로세스가 주의를 필요로 하면, cmux는 패널 주위에 알림 링, 사이드바에 읽지 않은 배지, 알림 팝오버, macOS 데스크톱 알림을 표시합니다. 표준 터미널 이스케이프 시퀀스(OSC 9/99/777)를 통해 자동으로 작동하며, <cliLink>cmux CLI</cliLink>와 <hooksLink>Claude Code hooks</hooksLink>로 직접 트리거할 수도 있습니다.",
     "faqShortcutsQ": "키보드 단축키를 커스터마이징할 수 있나요?",
-    "faqShortcutsA": "터미널 키 바인딩은 Ghostty 설정 파일({configPath})에서 읽어옵니다. cmux 고유 단축키(워크스페이스, 분할, 브라우저, 알림)는 설정에서 커스터마이징할 수 있습니다. 전체 목록은 <link>기본 단축키</link>를 참고하세요.",
+    "faqShortcutsA": "터미널 키 바인딩은 Ghostty 설정 파일(<configPath>~/.config/ghostty/config</configPath>)에서 읽어옵니다. cmux 고유 단축키(워크스페이스, 분할, 브라우저, 알림)는 설정에서 커스터마이징할 수 있습니다. 전체 목록은 <link>기본 단축키</link>를 참고하세요.",
     "faqTmuxQ": "tmux와 비교하면 어떤가요?",
     "faqTmuxA": "tmux는 모든 터미널 안에서 실행되는 터미널 멀티플렉서입니다. cmux는 GUI를 갖춘 네이티브 macOS 앱으로, 세로 탭, 분할 패널, 내장 브라우저, 소켓 API가 모두 내장되어 있습니다. 설정 파일이나 프리픽스 키가 필요 없습니다.",
     "faqFreeQ": "cmux는 무료인가요?",

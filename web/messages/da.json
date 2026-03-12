@@ -68,7 +68,7 @@
     "faqNotificationsQ": "Hvordan fungerer notifikationer?",
     "faqNotificationsA": "Når en proces har brug for opmærksomhed, viser cmux notifikationsringe omkring paneler, ulæste badges i sidebaren, en notifikations-popover og en macOS-desktopnotifikation. Disse udløses automatisk via standard terminal escape-sekvenser (OSC 9/99/777), eller du kan udløse dem med <cliLink>cmux CLI</cliLink> og <hooksLink>Claude Code hooks</hooksLink>.",
     "faqShortcutsQ": "Kan jeg tilpasse tastaturgenveje?",
-    "faqShortcutsA": "Terminal-tastebindinger læses fra din Ghostty-konfigurationsfil ({configPath}). cmux-specifikke genveje (workspaces, opdelinger, browser, notifikationer) kan tilpasses i Indstillinger. Se <link>standardgenvejene</link> for en komplet liste.",
+    "faqShortcutsA": "Terminal-tastebindinger læses fra din Ghostty-konfigurationsfil (<configPath>~/.config/ghostty/config</configPath>). cmux-specifikke genveje (workspaces, opdelinger, browser, notifikationer) kan tilpasses i Indstillinger. Se <link>standardgenvejene</link> for en komplet liste.",
     "faqTmuxQ": "Hvordan sammenligner det sig med tmux?",
     "faqTmuxA": "tmux er en terminal multiplexer der kører inde i enhver terminal. cmux er en native macOS-app med en GUI: vertikale faner, opdelte paneler, en indbygget browser og en socket API er alle indbygget. Ingen konfigurationsfiler eller præfikstaster nødvendige.",
     "faqFreeQ": "Er cmux gratis?",

@@ -68,7 +68,7 @@
     "faqNotificationsQ": "How do notifications work?",
     "faqNotificationsA": "When a process needs attention, cmux shows notification rings around panes, unread badges in the sidebar, a notification popover, and a macOS desktop notification. These fire automatically via standard terminal escape sequences (OSC 9/99/777), or you can trigger them with the <cliLink>cmux CLI</cliLink> and <hooksLink>Claude Code hooks</hooksLink>.",
     "faqShortcutsQ": "Can I customize keyboard shortcuts?",
-    "faqShortcutsA": "Terminal keybindings are read from your Ghostty config file ({configPath}). cmux-specific shortcuts (workspaces, splits, browser, notifications) can be customized in Settings. See the <link>default shortcuts</link> for a full list.",
+    "faqShortcutsA": "Terminal keybindings are read from your Ghostty config file (<configPath>~/.config/ghostty/config</configPath>). cmux-specific shortcuts (workspaces, splits, browser, notifications) can be customized in Settings. See the <link>default shortcuts</link> for a full list.",
     "faqTmuxQ": "How does it compare to tmux?",
     "faqTmuxA": "tmux is a terminal multiplexer that runs inside any terminal. cmux is a native macOS app with a GUI: vertical tabs, split panes, an embedded browser, and a socket API are all built in. No config files or prefix keys needed.",
     "faqFreeQ": "Is cmux free?",

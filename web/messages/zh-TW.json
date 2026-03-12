@@ -68,7 +68,7 @@
     "faqNotificationsQ": "通知是如何運作的？",
     "faqNotificationsA": "當程序需要注意時，cmux 會在窗格周圍顯示通知環、在側邊欄顯示未讀徽章、顯示通知彈出視窗，以及 macOS 桌面通知。這些通知會透過標準終端機跳脫序列（OSC 9/99/777）自動觸發，你也可以透過 <cliLink>cmux CLI</cliLink> 和 <hooksLink>Claude Code hooks</hooksLink> 手動觸發。",
     "faqShortcutsQ": "可以自訂鍵盤快捷鍵嗎？",
-    "faqShortcutsA": "終端機按鍵綁定從你的 Ghostty 設定檔（{configPath}）讀取。cmux 專屬的快捷鍵（工作區、分割、瀏覽器、通知）可以在「設定」中自訂。請參閱<link>預設快捷鍵</link>以獲取完整列表。",
+    "faqShortcutsA": "終端機按鍵綁定從你的 Ghostty 設定檔（<configPath>~/.config/ghostty/config</configPath>）讀取。cmux 專屬的快捷鍵（工作區、分割、瀏覽器、通知）可以在「設定」中自訂。請參閱<link>預設快捷鍵</link>以獲取完整列表。",
     "faqTmuxQ": "和 tmux 相比如何？",
     "faqTmuxA": "tmux 是一個在任何終端機內執行的終端機多工器。cmux 是一個帶有圖形介面的原生 macOS 應用程式：垂直分頁、分割窗格、內建瀏覽器和 socket API 全部內建。不需要設定檔或前綴鍵。",
     "faqFreeQ": "cmux 是免費的嗎？",

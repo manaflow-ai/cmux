@@ -68,7 +68,7 @@
     "faqNotificationsQ": "Comment fonctionnent les notifications ?",
     "faqNotificationsA": "Quand un processus a besoin d'attention, cmux affiche des anneaux de notification autour des panneaux, des badges non lus dans la barre latérale, un popover de notification et une notification bureau macOS. Ceux-ci se déclenchent automatiquement via les séquences d'échappement standard du terminal (OSC 9/99/777), ou vous pouvez les déclencher avec le <cliLink>CLI cmux</cliLink> et les <hooksLink>hooks Claude Code</hooksLink>.",
     "faqShortcutsQ": "Puis-je personnaliser les raccourcis clavier ?",
-    "faqShortcutsA": "Les raccourcis du terminal sont lus depuis votre fichier de configuration Ghostty ({configPath}). Les raccourcis spécifiques à cmux (espaces de travail, divisions, navigateur, notifications) peuvent être personnalisés dans les Réglages. Voir les <link>raccourcis par défaut</link> pour la liste complète.",
+    "faqShortcutsA": "Les raccourcis du terminal sont lus depuis votre fichier de configuration Ghostty (<configPath>~/.config/ghostty/config</configPath>). Les raccourcis spécifiques à cmux (espaces de travail, divisions, navigateur, notifications) peuvent être personnalisés dans les Réglages. Voir les <link>raccourcis par défaut</link> pour la liste complète.",
     "faqTmuxQ": "Comment se compare-t-il à tmux ?",
     "faqTmuxA": "tmux est un multiplexeur de terminaux qui fonctionne dans n'importe quel terminal. cmux est une application macOS native avec une interface graphique : onglets verticaux, panneaux divisés, navigateur intégré et API socket sont tous intégrés. Pas besoin de fichiers de configuration ou de touches préfixes.",
     "faqFreeQ": "cmux est-il gratuit ?",

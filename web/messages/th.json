@@ -68,7 +68,7 @@
     "faqNotificationsQ": "การแจ้งเตือนทำงานอย่างไร?",
     "faqNotificationsA": "เมื่อโปรเซสต้องการความสนใจ cmux จะแสดงวงแหวนแจ้งเตือนรอบพาเนล, badge ที่ยังไม่ได้อ่านในแถบข้าง, ป็อปโอเวอร์แจ้งเตือน และการแจ้งเตือนบนเดสก์ท็อป macOS สิ่งเหล่านี้ทำงานอัตโนมัติผ่าน terminal escape sequence มาตรฐาน (OSC 9/99/777) หรือคุณสามารถเรียกใช้ผ่าน <cliLink>cmux CLI</cliLink> และ <hooksLink>Claude Code hooks</hooksLink>",
     "faqShortcutsQ": "ปรับแต่งคีย์ลัดได้ไหม?",
-    "faqShortcutsA": "การตั้งค่าคีย์ของเทอร์มินัลอ่านจากไฟล์คอนฟิก Ghostty ({configPath}) คีย์ลัดเฉพาะของ cmux (workspace, แยกหน้าจอ, เบราว์เซอร์, แจ้งเตือน) ปรับแต่งได้ในการตั้งค่า ดู<link>คีย์ลัดเริ่มต้น</link>สำหรับรายการทั้งหมด",
+    "faqShortcutsA": "การตั้งค่าคีย์ของเทอร์มินัลอ่านจากไฟล์คอนฟิก Ghostty (<configPath>~/.config/ghostty/config</configPath>) คีย์ลัดเฉพาะของ cmux (workspace, แยกหน้าจอ, เบราว์เซอร์, แจ้งเตือน) ปรับแต่งได้ในการตั้งค่า ดู<link>คีย์ลัดเริ่มต้น</link>สำหรับรายการทั้งหมด",
     "faqTmuxQ": "เปรียบเทียบกับ tmux อย่างไร?",
     "faqTmuxA": "tmux เป็น terminal multiplexer ที่รันภายในเทอร์มินัลใดก็ได้ cmux เป็นแอป macOS เนทีฟที่มี GUI: แท็บแนวตั้ง, แยกหน้าจอ, เบราว์เซอร์ในตัว และ socket API ทั้งหมดมีมาให้ ไม่ต้องมีไฟล์คอนฟิกหรือ prefix key",
     "faqFreeQ": "cmux ฟรีไหม?",

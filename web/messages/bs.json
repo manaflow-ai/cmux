@@ -32,7 +32,7 @@
     "twitter": "X / Twitter",
     "discord": "Discord",
     "contact": "Kontakt",
-    "copyright": "\u00a9 {year} Manaflow",
+    "copyright": "© {year} Manaflow",
     "language": "Jezik"
   },
   "home": {
@@ -68,7 +68,7 @@
     "faqNotificationsQ": "Kako funkcionišu notifikacije?",
     "faqNotificationsA": "Kada proces treba pažnju, cmux prikazuje notifikacijske prstenove oko panela, bedževe nepročitanih u bočnoj traci, notifikacijski popover i macOS desktop notifikaciju. Ovi se aktiviraju automatski putem standardnih terminalskih escape sekvenci (OSC 9/99/777), ili ih možete pokrenuti pomoću <cliLink>cmux CLI</cliLink> i <hooksLink>Claude Code hooks</hooksLink>.",
     "faqShortcutsQ": "Mogu li prilagoditi prečice na tastaturi?",
-    "faqShortcutsA": "Terminalne prečice se čitaju iz vaše Ghostty konfiguracijske datoteke ({configPath}). cmux-specifične prečice (radni prostori, razdjelnice, preglednik, notifikacije) se mogu prilagoditi u Postavkama. Pogledajte <link>podrazumijevane prečice</link> za kompletnu listu.",
+    "faqShortcutsA": "Terminalne prečice se čitaju iz vaše Ghostty konfiguracijske datoteke (<configPath>~/.config/ghostty/config</configPath>). cmux-specifične prečice (radni prostori, razdjelnice, preglednik, notifikacije) se mogu prilagoditi u Postavkama. Pogledajte <link>podrazumijevane prečice</link> za kompletnu listu.",
     "faqTmuxQ": "Kako se poredi sa tmux-om?",
     "faqTmuxA": "tmux je multiplekser terminala koji radi unutar bilo kojeg terminala. cmux je nativna macOS aplikacija sa GUI-jem: vertikalni tabovi, podijeljeni paneli, ugrađeni preglednik i socket API su svi ugrađeni. Nisu potrebne konfiguracijske datoteke niti prefix tasteri.",
     "faqFreeQ": "Da li je cmux besplatan?",

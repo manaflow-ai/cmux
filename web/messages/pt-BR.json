@@ -68,7 +68,7 @@
     "faqNotificationsQ": "Como funcionam as notificações?",
     "faqNotificationsA": "Quando um processo precisa de atenção, o cmux mostra anéis de notificação ao redor dos painéis, badges de não lido na barra lateral, um popover de notificações e uma notificação no desktop do macOS. Elas disparam automaticamente via sequências de terminal padrão (OSC 9/99/777), ou você pode acioná-las com o <cliLink>CLI do cmux</cliLink> e os <hooksLink>hooks do Claude Code</hooksLink>.",
     "faqShortcutsQ": "Posso personalizar os atalhos de teclado?",
-    "faqShortcutsA": "Os atalhos do terminal são lidos do seu arquivo de configuração do Ghostty ({configPath}). Atalhos específicos do cmux (workspaces, divisões, navegador, notificações) podem ser personalizados nas Configurações. Veja os <link>atalhos padrão</link> para a lista completa.",
+    "faqShortcutsA": "Os atalhos do terminal são lidos do seu arquivo de configuração do Ghostty (<configPath>~/.config/ghostty/config</configPath>). Atalhos específicos do cmux (workspaces, divisões, navegador, notificações) podem ser personalizados nas Configurações. Veja os <link>atalhos padrão</link> para a lista completa.",
     "faqTmuxQ": "Como ele se compara ao tmux?",
     "faqTmuxA": "O tmux é um multiplexador de terminal que roda dentro de qualquer terminal. O cmux é um app macOS nativo com interface gráfica: abas verticais, painéis divididos, navegador integrado e uma API de socket são todos embutidos. Sem arquivos de configuração ou teclas de prefixo necessários.",
     "faqFreeQ": "O cmux é gratuito?",

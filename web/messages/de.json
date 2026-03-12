@@ -68,7 +68,7 @@
     "faqNotificationsQ": "Wie funktionieren Benachrichtigungen?",
     "faqNotificationsA": "Wenn ein Prozess Aufmerksamkeit benötigt, zeigt cmux Benachrichtigungsringe um Bereiche, Ungelesen-Badges in der Seitenleiste, ein Benachrichtigungs-Popover und eine macOS-Desktopbenachrichtigung. Diese werden automatisch über Standard-Terminal-Escape-Sequenzen (OSC 9/99/777) ausgelöst, oder Sie können sie mit der <cliLink>cmux CLI</cliLink> und <hooksLink>Claude Code Hooks</hooksLink> auslösen.",
     "faqShortcutsQ": "Kann ich Tastaturkürzel anpassen?",
-    "faqShortcutsA": "Terminal-Tastenbelegungen werden aus Ihrer Ghostty-Konfigurationsdatei ({configPath}) gelesen. cmux-spezifische Kürzel (Workspaces, Splits, Browser, Benachrichtigungen) können in den Einstellungen angepasst werden. Siehe die <link>Standard-Tastaturkürzel</link> für eine vollständige Liste.",
+    "faqShortcutsA": "Terminal-Tastenbelegungen werden aus Ihrer Ghostty-Konfigurationsdatei (<configPath>~/.config/ghostty/config</configPath>) gelesen. cmux-spezifische Kürzel (Workspaces, Splits, Browser, Benachrichtigungen) können in den Einstellungen angepasst werden. Siehe die <link>Standard-Tastaturkürzel</link> für eine vollständige Liste.",
     "faqTmuxQ": "Wie vergleicht es sich mit tmux?",
     "faqTmuxA": "tmux ist ein Terminal-Multiplexer, der in jedem Terminal läuft. cmux ist eine native macOS-App mit einer grafischen Oberfläche: Vertikale Tabs, geteilte Bereiche, ein eingebetteter Browser und eine Socket-API sind bereits integriert. Keine Konfigurationsdateien oder Präfix-Tasten nötig.",
     "faqFreeQ": "Ist cmux kostenlos?",

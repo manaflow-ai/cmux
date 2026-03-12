@@ -32,7 +32,7 @@
     "twitter": "X / Twitter",
     "discord": "Discord",
     "contact": "Kontakt",
-    "copyright": "\u00a9 {year} Manaflow",
+    "copyright": "© {year} Manaflow",
     "language": "Språk"
   },
   "home": {
@@ -68,7 +68,7 @@
     "faqNotificationsQ": "Hvordan fungerer varsler?",
     "faqNotificationsA": "Når en prosess trenger oppmerksomhet, viser cmux varselsringer rundt paneler, uleste merker i sidefeltet, en varselspopover og et macOS-skrivebordvarsel. Disse utløses automatisk via standard terminal-escape-sekvenser (OSC 9/99/777), eller du kan utløse dem med <cliLink>cmux CLI</cliLink> og <hooksLink>Claude Code hooks</hooksLink>.",
     "faqShortcutsQ": "Kan jeg tilpasse tastatursnarveier?",
-    "faqShortcutsA": "Terminaltastebindinger leses fra Ghostty-konfigurasjonsfilen din ({configPath}). cmux-spesifikke snarveier (arbeidsområder, delinger, nettleser, varsler) kan tilpasses i Innstillinger. Se <link>standardsnarveiene</link> for en komplett liste.",
+    "faqShortcutsA": "Terminaltastebindinger leses fra Ghostty-konfigurasjonsfilen din (<configPath>~/.config/ghostty/config</configPath>). cmux-spesifikke snarveier (arbeidsområder, delinger, nettleser, varsler) kan tilpasses i Innstillinger. Se <link>standardsnarveiene</link> for en komplett liste.",
     "faqTmuxQ": "Hvordan sammenligner det seg med tmux?",
     "faqTmuxA": "tmux er en terminalmultiplekser som kjører inne i en hvilken som helst terminal. cmux er en nativ macOS-app med et GUI: vertikale faner, delte paneler, en innebygd nettleser og et socket-API er alle innebygd. Ingen konfigurasjonsfiler eller prefikstaster nødvendig.",
     "faqFreeQ": "Er cmux gratis?",

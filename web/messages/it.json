@@ -68,7 +68,7 @@
     "faqNotificationsQ": "Come funzionano le notifiche?",
     "faqNotificationsA": "Quando un processo ha bisogno di attenzione, cmux mostra anelli di notifica attorno ai pannelli, badge non letti nella barra laterale, un popover di notifica e una notifica desktop macOS. Si attivano automaticamente tramite le sequenze di escape standard del terminale (OSC 9/99/777), oppure puoi attivarle con il <cliLink>CLI cmux</cliLink> e gli <hooksLink>hook di Claude Code</hooksLink>.",
     "faqShortcutsQ": "Posso personalizzare le scorciatoie da tastiera?",
-    "faqShortcutsA": "Le combinazioni di tasti del terminale sono lette dal file di configurazione Ghostty ({configPath}). Le scorciatoie specifiche di cmux (workspace, divisioni, browser, notifiche) possono essere personalizzate nelle Impostazioni. Vedi le <link>scorciatoie predefinite</link> per l'elenco completo.",
+    "faqShortcutsA": "Le combinazioni di tasti del terminale sono lette dal file di configurazione Ghostty (<configPath>~/.config/ghostty/config</configPath>). Le scorciatoie specifiche di cmux (workspace, divisioni, browser, notifiche) possono essere personalizzate nelle Impostazioni. Vedi le <link>scorciatoie predefinite</link> per l'elenco completo.",
     "faqTmuxQ": "Come si confronta con tmux?",
     "faqTmuxA": "tmux è un multiplexer di terminali che funziona all'interno di qualsiasi terminale. cmux è un'app macOS nativa con interfaccia grafica: tab verticali, pannelli divisi, browser integrato e API socket sono tutti integrati. Nessun file di configurazione o tasti prefisso necessari.",
     "faqFreeQ": "cmux è gratuito?",

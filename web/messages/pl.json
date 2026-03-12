@@ -68,7 +68,7 @@
     "faqNotificationsQ": "Jak działają powiadomienia?",
     "faqNotificationsA": "Gdy proces potrzebuje uwagi, cmux pokazuje pierścienie powiadomień wokół paneli, odznaki nieprzeczytanych na pasku bocznym, okno powiadomień i powiadomienie na pulpicie macOS. Uruchamiają się automatycznie przez standardowe sekwencje ucieczki terminala (OSC 9/99/777), lub możesz je wywołać za pomocą <cliLink>cmux CLI</cliLink> i <hooksLink>hooków Claude Code</hooksLink>.",
     "faqShortcutsQ": "Czy mogę dostosować skróty klawiszowe?",
-    "faqShortcutsA": "Przypisania klawiszy terminala są odczytywane z pliku konfiguracyjnego Ghostty ({configPath}). Skróty specyficzne dla cmux (workspace'y, podziały, przeglądarka, powiadomienia) można dostosować w Ustawieniach. Zobacz <link>domyślne skróty</link> po pełną listę.",
+    "faqShortcutsA": "Przypisania klawiszy terminala są odczytywane z pliku konfiguracyjnego Ghostty (<configPath>~/.config/ghostty/config</configPath>). Skróty specyficzne dla cmux (workspace'y, podziały, przeglądarka, powiadomienia) można dostosować w Ustawieniach. Zobacz <link>domyślne skróty</link> po pełną listę.",
     "faqTmuxQ": "Jak wypada w porównaniu z tmux?",
     "faqTmuxA": "tmux to multiplekser terminala działający w dowolnym terminalu. cmux to natywna aplikacja macOS z GUI: pionowe karty, dzielone panele, wbudowana przeglądarka i socket API są wbudowane. Bez plików konfiguracyjnych i klawiszy prefiksu.",
     "faqFreeQ": "Czy cmux jest darmowy?",
