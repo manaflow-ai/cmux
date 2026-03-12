@@ -37,6 +37,8 @@
   },
   "home": {
     "taglinePrefix": "開源終端，專為 ",
+    "typingCodingAgents": "程式 agent",
+    "typingMultitasking": "多工處理",
     "subtitle": "基於 Ghostty 的原生 macOS 終端應用程式。開源免費。垂直分頁、代理需要注意時的通知環、分割窗格，以及用於自動化的 socket API。",
     "features": "功能",
     "faq": "常見問題",
@@ -139,13 +141,18 @@
         "whyTitle": "為什麼選擇 cmux？",
         "whyP": "現代開發工作流程通常需要同時執行多個代理。Claude Code、Codex 和其他工具各自在自己的終端機中。追蹤哪些需要注意並快速切換，就是 cmux 要解決的問題。",
         "featuresTitle": "主要功能",
-        "featureVerticalTabs": "垂直分頁：在側邊欄中一覽所有終端機",
-        "featureNotifications": "通知環：當代理需要你輸入時，分頁會閃爍",
-        "featureSplitPanes": "分割窗格：每個工作區內支援水平和垂直分割",
-        "featureSocketApi": "Socket API：透過程式控制建立分頁和傳送輸入",
-        "featureGpu": "GPU 加速：由 libghostty 驅動，提供流暢的渲染效果",
         "getStartedTitle": "開始使用",
-        "getStartedP": "透過 Homebrew 安裝 cmux，或從<link>入門指南</link>下載 DMG。"
+        "getStartedP": "透過 Homebrew 安裝 cmux，或從<link>入門指南</link>下載 DMG。",
+        "featureVerticalTabsLabel": "垂直分頁",
+        "featureVerticalTabsDesc": "在側邊欄中一覽所有終端機",
+        "featureNotificationsLabel": "通知環",
+        "featureNotificationsDesc": "當代理需要你輸入時，分頁會閃爍",
+        "featureSplitPanesLabel": "分割窗格",
+        "featureSplitPanesDesc": "每個工作區內支援水平和垂直分割",
+        "featureSocketApiLabel": "Socket API",
+        "featureSocketApiDesc": "透過程式控制建立分頁和傳送輸入",
+        "featureGpuLabel": "GPU 加速",
+        "featureGpuDesc": "由 libghostty 驅動，提供流暢的渲染效果"
       }
     }
   },

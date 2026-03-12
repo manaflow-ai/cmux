@@ -37,6 +37,8 @@
   },
   "home": {
     "taglinePrefix": "The terminal built for ",
+    "typingCodingAgents": "coding agents",
+    "typingMultitasking": "multitasking",
     "subtitle": "Native macOS app built on Ghostty. Vertical tabs, notification rings when agents need attention, split panes, and a socket API for automation.",
     "features": "Features",
     "faq": "FAQ",
@@ -77,6 +79,8 @@
   "community": {
     "title": "Community",
     "description": "Connect with other cmux users and the team behind it.",
+    "metaTitle": "Community — cmux",
+    "metaDescription": "Join the cmux community on Discord, Twitter, GitHub, and more",
     "discord": "Discord",
     "discordAction": "Join our Discord",
     "discordDesc": "Chat with the community, get help, and share feedback",
@@ -95,6 +99,22 @@
   "blog": {
     "title": "Blog",
     "description": "News and updates from the cmux team",
+    "zenOfCmux": {
+      "metaTitle": "The Zen of cmux",
+      "metaDescription": "cmux is a primitive, not a solution. It gives you composable pieces and your workflow is up to you."
+    },
+    "cmdShiftU": {
+      "metaTitle": "Cmd+Shift+U",
+      "metaDescription": "How Cmd+Shift+U navigates between finished agents across workspaces in cmux."
+    },
+    "showHnLaunch": {
+      "metaTitle": "Launching cmux on Show HN",
+      "metaDescription": "cmux launched on Hacker News, hit #2, went viral in Japan, and people started building extensions on the CLI. Here's what happened."
+    },
+    "introducingCmux": {
+      "metaTitle": "Introducing cmux",
+      "metaDescription": "A native macOS terminal built on Ghostty, designed for running multiple AI coding agents side by side."
+    },
     "posts": {
       "cmdShiftU": {
         "title": "Cmd+Shift+U",
@@ -139,11 +159,16 @@
         "whyTitle": "Why cmux?",
         "whyP": "Modern development workflows often involve running several agents at once. Claude Code, Codex, and other tools each in their own terminal. Keeping track of which ones need attention and switching between them quickly is the problem cmux solves.",
         "featuresTitle": "Key features",
-        "featureVerticalTabs": "Vertical tabs: see all your terminals at a glance in a sidebar",
-        "featureNotifications": "Notification rings: tabs flash when an agent needs your input",
-        "featureSplitPanes": "Split panes: horizontal and vertical splits within each workspace",
-        "featureSocketApi": "Socket API: programmatic control for creating tabs and sending input",
-        "featureGpu": "GPU-accelerated: powered by libghostty for smooth rendering",
+        "featureVerticalTabsLabel": "Vertical tabs",
+        "featureVerticalTabsDesc": "see all your terminals at a glance in a sidebar",
+        "featureNotificationsLabel": "Notification rings",
+        "featureNotificationsDesc": "tabs flash when an agent needs your input",
+        "featureSplitPanesLabel": "Split panes",
+        "featureSplitPanesDesc": "horizontal and vertical splits within each workspace",
+        "featureSocketApiLabel": "Socket API",
+        "featureSocketApiDesc": "programmatic control for creating tabs and sending input",
+        "featureGpuLabel": "GPU-accelerated",
+        "featureGpuDesc": "powered by libghostty for smooth rendering",
         "getStartedTitle": "Get started",
         "getStartedP": "Install cmux via Homebrew or download the DMG from the <link>getting started guide</link>."
       }
@@ -152,6 +177,7 @@
   "docs": {
     "gettingStarted": {
       "title": "Getting Started",
+      "metaTitle": "Getting Started",
       "metaDescription": "Install cmux, the native macOS terminal for AI coding agents. Homebrew, DMG download, CLI setup, and auto-updates via Sparkle.",
       "intro": "cmux is a lightweight, native macOS terminal built on Ghostty for managing multiple AI coding agents. It features vertical tabs, a notification panel, and a socket-based control API.",
       "install": "Install",
@@ -183,6 +209,7 @@
     },
     "concepts": {
       "title": "Concepts",
+      "metaTitle": "Concepts",
       "metaDescription": "How cmux organizes terminals: windows, workspaces, panes, and surfaces. The hierarchy behind the sidebar, splits, and socket API.",
       "intro": "cmux organizes your terminals in a four-level hierarchy. Understanding these levels helps when using the socket API, CLI, and keyboard shortcuts.",
       "hierarchy": "Hierarchy",
@@ -234,6 +261,7 @@
     },
     "configuration": {
       "title": "Configuration",
+      "metaTitle": "Configuration",
       "metaDescription": "Configure cmux via Ghostty config files. Font, theme, colors, split pane styling, scrollback, and app settings for automation mode.",
       "intro": "cmux reads configuration from Ghostty config files, giving you familiar options if you're coming from Ghostty.",
       "configLocations": "Config file locations",
@@ -267,6 +295,7 @@
     "keyboardShortcuts": {
       "title": "Keyboard Shortcuts",
       "description": "All keyboard shortcuts available in cmux, grouped by category.",
+      "metaTitle": "Keyboard Shortcuts",
       "metaDescription": "All cmux keyboard shortcuts for workspaces, surfaces, split panes, browser, notifications, find, and window management on macOS.",
       "searchPlaceholder": "Search shortcuts...",
       "searchLabel": "Search keyboard shortcuts",
@@ -326,6 +355,7 @@
     },
     "api": {
       "title": "API Reference",
+      "metaTitle": "API Reference",
       "metaDescription": "cmux CLI and Unix socket API reference. Workspace management, split panes, input control, notifications, sidebar metadata, environment variables, and detection methods.",
       "intro": "cmux provides both a CLI tool and a Unix socket for programmatic control. Every command is available through both interfaces.",
       "socket": "Socket",
@@ -407,6 +437,7 @@
     },
     "notifications": {
       "title": "Notifications",
+      "metaTitle": "Notifications",
       "metaDescription": "Send desktop notifications from AI agents and scripts in cmux. CLI, OSC 99/777 escape sequences, and Claude Code hooks integration.",
       "intro": "cmux supports desktop notifications, allowing AI agents and scripts to alert you when they need attention.",
       "lifecycle": "Lifecycle",
@@ -459,6 +490,7 @@
     },
     "browserAutomation": {
       "title": "Browser Automation",
+      "metaTitle": "Browser Automation",
       "metaDescription": "cmux browser command reference for navigation, DOM interaction, waiting, inspection, JavaScript evaluation, tabs, dialogs, frames, downloads, and browser state.",
       "intro": "The cmux browser command group provides browser automation against cmux browser surfaces. Use it to navigate, interact with DOM elements, inspect page state, evaluate JavaScript, and manage browser session data.",
       "commandIndex": "Command Index",
@@ -498,6 +530,7 @@
     },
     "changelog": {
       "title": "Changelog",
+      "metaTitle": "Changelog",
       "metaDescription": "cmux release notes and version history. New features, bug fixes, and changes for the native macOS terminal."
     },
     "navItems": {
@@ -518,7 +551,9 @@
   },
   "wallOfLove": {
     "title": "Wall of Love",
-    "description": "What people are saying about cmux."
+    "description": "What people are saying about cmux.",
+    "metaTitle": "Wall of Love — cmux",
+    "metaDescription": "What people are saying about cmux, the terminal built for multitasking."
   },
   "testimonials": {
     "mitchellh": "Another day another libghostty-based project, this time a macOS terminal with vertical tabs, better organization/notifications, embedded/scriptable browser specifically targeted towards people who use a ton of terminal-based agentic workflows.",

@@ -1,8 +1,8 @@
-import type { Metadata } from "next";
 import fs from "fs";
 import path from "path";
 import Image from "next/image";
 import { useTranslations } from "next-intl";
+import { getTranslations } from "next-intl/server";
 import { changelogMedia, type VersionMedia } from "./changelog-media";
 
 /** Read PNG dimensions from the IHDR chunk (bytes 16-23). */
@@ -15,11 +15,14 @@ function pngDimensions(filePath: string): { width: number; height: number } {
   };
 }
 
-export const metadata: Metadata = {
-  title: "Changelog",
-  description:
-    "cmux release notes and version history. New features, bug fixes, and changes for the native macOS terminal.",
-};
+export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
+  const { locale } = await params;
+  const t = await getTranslations({ locale, namespace: "docs.changelog" });
+  return {
+    title: t("metaTitle"),
+    description: t("metaDescription"),
+  };
+}
 
 interface ChangelogSection {
   heading: string;

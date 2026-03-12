@@ -37,6 +37,8 @@
   },
   "home": {
     "taglinePrefix": "Terminal napravljen za ",
+    "typingCodingAgents": "agente za kodiranje",
+    "typingMultitasking": "multitasking",
     "subtitle": "Nativna macOS aplikacija izgrađena na Ghostty-ju. Vertikalni tabovi, notifikacijski prstenovi kada agenti trebaju pažnju, podijeljeni paneli i socket API za automatizaciju.",
     "features": "Funkcionalnosti",
     "faq": "Česta pitanja",
@@ -139,13 +141,18 @@
         "whyTitle": "Zašto cmux?",
         "whyP": "Moderni razvojni tokovi rada često uključuju pokretanje nekoliko agenata odjednom. Claude Code, Codex i drugi alati, svaki u svom terminalu. Praćenje koji trebaju pažnju i brzo prebacivanje između njih je problem koji cmux rješava.",
         "featuresTitle": "Ključne funkcionalnosti",
-        "featureVerticalTabs": "Vertikalni tabovi: pogledajte sve terminale na prvi pogled u bočnoj traci",
-        "featureNotifications": "Notifikacijski prstenovi: tabovi bljeskaju kada agent treba vaš unos",
-        "featureSplitPanes": "Podijeljeni paneli: horizontalni i vertikalni razdjelnici unutar svakog radnog prostora",
-        "featureSocketApi": "Socket API: programska kontrola za kreiranje tabova i slanje unosa",
-        "featureGpu": "GPU-ubrzano: pokreće libghostty za glatko renderiranje",
         "getStartedTitle": "Počnite",
-        "getStartedP": "Instalirajte cmux putem Homebrew-a ili preuzmite DMG iz <link>vodiča za početak</link>."
+        "getStartedP": "Instalirajte cmux putem Homebrew-a ili preuzmite DMG iz <link>vodiča za početak</link>.",
+        "featureVerticalTabsLabel": "Vertikalni tabovi",
+        "featureVerticalTabsDesc": "pogledajte sve terminale na prvi pogled u bočnoj traci",
+        "featureNotificationsLabel": "Notifikacijski prstenovi",
+        "featureNotificationsDesc": "tabovi bljeskaju kada agent treba vaš unos",
+        "featureSplitPanesLabel": "Podijeljeni paneli",
+        "featureSplitPanesDesc": "horizontalni i vertikalni razdjelnici unutar svakog radnog prostora",
+        "featureSocketApiLabel": "Socket API",
+        "featureSocketApiDesc": "programska kontrola za kreiranje tabova i slanje unosa",
+        "featureGpuLabel": "GPU-ubrzano",
+        "featureGpuDesc": "pokreće libghostty za glatko renderiranje"
       }
     }
   },

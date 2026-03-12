@@ -37,6 +37,8 @@
   },
   "home": {
     "taglinePrefix": "Il terminale progettato per ",
+    "typingCodingAgents": "agenti di codice",
+    "typingMultitasking": "multitasking",
     "subtitle": "App macOS nativa basata su Ghostty. Tab verticali, notifiche quando gli agenti hanno bisogno di attenzione, pannelli divisi e un'API socket per l'automazione.",
     "features": "Funzionalità",
     "faq": "FAQ",
@@ -139,13 +141,18 @@
         "whyTitle": "Perché cmux?",
         "whyP": "I workflow di sviluppo moderni spesso richiedono l'esecuzione di più agenti contemporaneamente. Claude Code, Codex e altri strumenti, ognuno nel proprio terminale. Tenere traccia di quali hanno bisogno di attenzione e passare rapidamente dall'uno all'altro è il problema che cmux risolve.",
         "featuresTitle": "Funzionalità principali",
-        "featureVerticalTabs": "Tab verticali: vedi tutti i tuoi terminali a colpo d'occhio in una barra laterale",
-        "featureNotifications": "Anelli di notifica: i tab lampeggiano quando un agente ha bisogno del tuo input",
-        "featureSplitPanes": "Pannelli divisi: divisioni orizzontali e verticali all'interno di ogni workspace",
-        "featureSocketApi": "API socket: controllo programmatico per creare tab e inviare input",
-        "featureGpu": "Accelerazione GPU: alimentato da libghostty per un rendering fluido",
         "getStartedTitle": "Per iniziare",
-        "getStartedP": "Installa cmux tramite Homebrew o scarica il DMG dalla <link>guida introduttiva</link>."
+        "getStartedP": "Installa cmux tramite Homebrew o scarica il DMG dalla <link>guida introduttiva</link>.",
+        "featureVerticalTabsLabel": "Tab verticali",
+        "featureVerticalTabsDesc": "vedi tutti i tuoi terminali a colpo d'occhio in una barra laterale",
+        "featureNotificationsLabel": "Anelli di notifica",
+        "featureNotificationsDesc": "i tab lampeggiano quando un agente ha bisogno del tuo input",
+        "featureSplitPanesLabel": "Pannelli divisi",
+        "featureSplitPanesDesc": "divisioni orizzontali e verticali all'interno di ogni workspace",
+        "featureSocketApiLabel": "API socket",
+        "featureSocketApiDesc": "controllo programmatico per creare tab e inviare input",
+        "featureGpuLabel": "Accelerazione GPU",
+        "featureGpuDesc": "alimentato da libghostty per un rendering fluido"
       }
     }
   },

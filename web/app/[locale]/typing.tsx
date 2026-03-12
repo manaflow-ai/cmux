@@ -1,18 +1,23 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useTranslations } from "next-intl";
 import { useDevValues } from "./components/spacing-control";
 
-const phrases = [
-  "coding agents",
-  "multitasking",
-  "Claude Code",
-  "Codex",
-  "OpenCode",
-  "Gemini CLI",
-];
+function usePhrases() {
+  const t = useTranslations("home");
+  return [
+    t("typingCodingAgents"),
+    t("typingMultitasking"),
+    "Claude Code",
+    "Codex",
+    "OpenCode",
+    "Gemini CLI",
+  ];
+}
 
 export function TypingTagline() {
+  const phrases = usePhrases();
   const [phraseIndex, setPhraseIndex] = useState(0);
   const [charIndex, setCharIndex] = useState(0);
   const [deleting, setDeleting] = useState(false);

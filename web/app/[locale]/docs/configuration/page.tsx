@@ -1,13 +1,16 @@
-import type { Metadata } from "next";
 import { useTranslations } from "next-intl";
+import { getTranslations } from "next-intl/server";
 import { CodeBlock } from "../../components/code-block";
 import { Callout } from "../../components/callout";
 
-export const metadata: Metadata = {
-  title: "Configuration",
-  description:
-    "Configure cmux via Ghostty config files. Font, theme, colors, split pane styling, scrollback, and app settings for automation mode.",
-};
+export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
+  const { locale } = await params;
+  const t = await getTranslations({ locale, namespace: "docs.configuration" });
+  return {
+    title: t("metaTitle"),
+    description: t("metaDescription"),
+  };
+}
 
 export default function ConfigurationPage() {
   const t = useTranslations("docs.configuration");

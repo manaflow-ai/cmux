@@ -1,13 +1,16 @@
-import type { Metadata } from "next";
 import { useTranslations, useLocale } from "next-intl";
+import { getTranslations } from "next-intl/server";
 import { SiteHeader } from "../components/site-header";
 import { testimonials, TestimonialCard, getTestimonialTranslation } from "../testimonials";
 
-export const metadata: Metadata = {
-  title: "Wall of Love — cmux",
-  description:
-    "What people are saying about cmux, the terminal built for multitasking.",
-};
+export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
+  const { locale } = await params;
+  const t = await getTranslations({ locale, namespace: "wallOfLove" });
+  return {
+    title: t("metaTitle"),
+    description: t("metaDescription"),
+  };
+}
 
 export default function WallOfLovePage() {
   const t = useTranslations("wallOfLove");

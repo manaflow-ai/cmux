@@ -2,22 +2,16 @@
 
 import { useTranslations } from "next-intl";
 import { Link, usePathname } from "../../../i18n/navigation";
-
-const blogSlugs = [
-  { slug: "cmd-shift-u", key: "cmdShiftU" },
-  { slug: "zen-of-cmux", key: "zenOfCmux" },
-  { slug: "show-hn-launch", key: "showHnLaunch" },
-  { slug: "introducing-cmux", key: "introducingCmux" },
-] as const;
+import { blogPosts } from "./blog-posts";
 
 export function BlogPager() {
   const pathname = usePathname();
   const t = useTranslations("blog.posts");
-  const index = blogSlugs.findIndex(
+  const index = blogPosts.findIndex(
     (post) => `/blog/${post.slug}` === pathname
   );
-  const prev = index > 0 ? blogSlugs[index - 1] : null;
-  const next = index < blogSlugs.length - 1 ? blogSlugs[index + 1] : null;
+  const prev = index > 0 ? blogPosts[index - 1] : null;
+  const next = index < blogPosts.length - 1 ? blogPosts[index + 1] : null;
 
   if (!prev && !next) return null;
 

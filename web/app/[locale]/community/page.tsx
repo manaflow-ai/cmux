@@ -1,11 +1,15 @@
-import type { Metadata } from "next";
 import { useTranslations } from "next-intl";
+import { getTranslations } from "next-intl/server";
 import { SiteHeader } from "../components/site-header";
 
-export const metadata: Metadata = {
-  title: "Community — cmux",
-  description: "Join the cmux community on Discord, Twitter, GitHub, and more",
-};
+export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
+  const { locale } = await params;
+  const t = await getTranslations({ locale, namespace: "community" });
+  return {
+    title: t("metaTitle"),
+    description: t("metaDescription"),
+  };
+}
 
 function CommunityLink({
   href,
@@ -46,7 +50,7 @@ export default function CommunityPage() {
 
   return (
     <div className="min-h-screen">
-      <SiteHeader section={t("title").toLowerCase()} />
+      <SiteHeader section={t("title")} />
       <main className="w-full max-w-6xl mx-auto px-6 py-10">
         <h1 className="text-2xl font-semibold tracking-tight mb-2">
           {t("title")}

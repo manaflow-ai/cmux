@@ -37,6 +37,8 @@
   },
   "home": {
     "taglinePrefix": "Terminalen bygget for ",
+    "typingCodingAgents": "kodeagenter",
+    "typingMultitasking": "multitasking",
     "subtitle": "Nativ macOS-app bygget på Ghostty. Vertikale faner, varselsringer når agenter trenger oppmerksomhet, delte paneler og en socket-API for automatisering.",
     "features": "Funksjoner",
     "faq": "Vanlige spørsmål",
@@ -139,13 +141,18 @@
         "whyTitle": "Hvorfor cmux?",
         "whyP": "Moderne utviklingsarbeidsflyter involverer ofte å kjøre flere agenter samtidig. Claude Code, Codex og andre verktøy, hver i sin egen terminal. Å holde oversikt over hvilke som trenger oppmerksomhet og raskt bytte mellom dem er problemet cmux løser.",
         "featuresTitle": "Nøkkelfunksjoner",
-        "featureVerticalTabs": "Vertikale faner: se alle terminalene dine på et øyeblikk i sidefeltet",
-        "featureNotifications": "Varselsringer: faner blinker når en agent trenger inndata",
-        "featureSplitPanes": "Delte paneler: horisontale og vertikale delinger innenfor hvert arbeidsområde",
-        "featureSocketApi": "Socket-API: programmatisk kontroll for å opprette faner og sende inndata",
-        "featureGpu": "GPU-akselerert: drevet av libghostty for jevn gjengivelse",
         "getStartedTitle": "Kom i gang",
-        "getStartedP": "Installer cmux via Homebrew eller last ned DMG-filen fra <link>kom i gang-guiden</link>."
+        "getStartedP": "Installer cmux via Homebrew eller last ned DMG-filen fra <link>kom i gang-guiden</link>.",
+        "featureVerticalTabsLabel": "Vertikale faner",
+        "featureVerticalTabsDesc": "se alle terminalene dine på et øyeblikk i sidefeltet",
+        "featureNotificationsLabel": "Varselsringer",
+        "featureNotificationsDesc": "faner blinker når en agent trenger inndata",
+        "featureSplitPanesLabel": "Delte paneler",
+        "featureSplitPanesDesc": "horisontale og vertikale delinger innenfor hvert arbeidsområde",
+        "featureSocketApiLabel": "Socket-API",
+        "featureSocketApiDesc": "programmatisk kontroll for å opprette faner og sende inndata",
+        "featureGpuLabel": "GPU-akselerert",
+        "featureGpuDesc": "drevet av libghostty for jevn gjengivelse"
       }
     }
   },

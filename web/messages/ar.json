@@ -37,6 +37,8 @@
   },
   "home": {
     "taglinePrefix": "الطرفية المصممة لـ",
+    "typingCodingAgents": "وكلاء البرمجة",
+    "typingMultitasking": "تعدد المهام",
     "subtitle": "تطبيق macOS أصلي مبني على Ghostty. علامات تبويب عمودية، حلقات إشعار عندما يحتاج الوكلاء انتباهك، ألواح مقسمة، وواجهة برمجة عبر المقابس للأتمتة.",
     "features": "الميزات",
     "faq": "الأسئلة الشائعة",
@@ -139,13 +141,18 @@
         "whyTitle": "لماذا cmux؟",
         "whyP": "سير العمل الحديث في التطوير غالباً يتضمن تشغيل عدة وكلاء في وقت واحد. Claude Code وCodex وأدوات أخرى كل منها في طرفيته الخاصة. تتبع أيها يحتاج انتباهك والتبديل بينها بسرعة هي المشكلة التي يحلها cmux.",
         "featuresTitle": "الميزات الرئيسية",
-        "featureVerticalTabs": "علامات تبويب عمودية: شاهد جميع طرفياتك بنظرة واحدة في الشريط الجانبي",
-        "featureNotifications": "حلقات الإشعارات: تومض علامات التبويب عندما يحتاج وكيل إدخالك",
-        "featureSplitPanes": "ألواح مقسمة: تقسيمات أفقية وعمودية داخل كل مساحة عمل",
-        "featureSocketApi": "واجهة المقابس: تحكم برمجي لإنشاء علامات التبويب وإرسال المدخلات",
-        "featureGpu": "مُسرّع بالـ GPU: مدعوم بـ libghostty لعرض سلس",
         "getStartedTitle": "ابدأ الآن",
-        "getStartedP": "ثبت cmux عبر Homebrew أو حمّل ملف DMG من <link>دليل البدء</link>."
+        "getStartedP": "ثبت cmux عبر Homebrew أو حمّل ملف DMG من <link>دليل البدء</link>.",
+        "featureVerticalTabsLabel": "علامات تبويب عمودية",
+        "featureVerticalTabsDesc": "شاهد جميع طرفياتك بنظرة واحدة في الشريط الجانبي",
+        "featureNotificationsLabel": "حلقات الإشعارات",
+        "featureNotificationsDesc": "تومض علامات التبويب عندما يحتاج وكيل إدخالك",
+        "featureSplitPanesLabel": "ألواح مقسمة",
+        "featureSplitPanesDesc": "تقسيمات أفقية وعمودية داخل كل مساحة عمل",
+        "featureSocketApiLabel": "واجهة المقابس",
+        "featureSocketApiDesc": "تحكم برمجي لإنشاء علامات التبويب وإرسال المدخلات",
+        "featureGpuLabel": "مُسرّع بالـ GPU",
+        "featureGpuDesc": "مدعوم بـ libghostty لعرض سلس"
       }
     }
   },

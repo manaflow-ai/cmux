@@ -37,6 +37,8 @@
   },
   "home": {
     "taglinePrefix": "Le terminal conçu pour ",
+    "typingCodingAgents": "agents de code",
+    "typingMultitasking": "multitâche",
     "subtitle": "Application macOS native basée sur Ghostty. Onglets verticaux, notifications quand les agents ont besoin d'attention, panneaux divisés et une API socket pour l'automatisation.",
     "features": "Fonctionnalités",
     "faq": "FAQ",
@@ -139,13 +141,18 @@
         "whyTitle": "Pourquoi cmux ?",
         "whyP": "Les workflows de développement modernes impliquent souvent l'exécution de plusieurs agents à la fois. Claude Code, Codex et d'autres outils, chacun dans leur propre terminal. Suivre lesquels ont besoin d'attention et basculer rapidement entre eux est le problème que cmux résout.",
         "featuresTitle": "Fonctionnalités clés",
-        "featureVerticalTabs": "Onglets verticaux : voir tous vos terminaux d'un coup d'œil dans une barre latérale",
-        "featureNotifications": "Anneaux de notification : les onglets clignotent quand un agent a besoin de votre attention",
-        "featureSplitPanes": "Panneaux divisés : divisions horizontales et verticales dans chaque espace de travail",
-        "featureSocketApi": "API socket : contrôle programmatique pour créer des onglets et envoyer des entrées",
-        "featureGpu": "Accélération GPU : propulsé par libghostty pour un rendu fluide",
         "getStartedTitle": "Commencer",
-        "getStartedP": "Installez cmux via Homebrew ou téléchargez le DMG depuis le <link>guide de démarrage</link>."
+        "getStartedP": "Installez cmux via Homebrew ou téléchargez le DMG depuis le <link>guide de démarrage</link>.",
+        "featureVerticalTabsLabel": "Onglets verticaux",
+        "featureVerticalTabsDesc": "voir tous vos terminaux d'un coup d'œil dans une barre latérale",
+        "featureNotificationsLabel": "Anneaux de notification",
+        "featureNotificationsDesc": "les onglets clignotent quand un agent a besoin de votre attention",
+        "featureSplitPanesLabel": "Panneaux divisés",
+        "featureSplitPanesDesc": "divisions horizontales et verticales dans chaque espace de travail",
+        "featureSocketApiLabel": "API socket",
+        "featureSocketApiDesc": "contrôle programmatique pour créer des onglets et envoyer des entrées",
+        "featureGpuLabel": "Accélération GPU",
+        "featureGpuDesc": "propulsé par libghostty pour un rendu fluide"
       }
     }
   },

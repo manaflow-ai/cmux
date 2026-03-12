@@ -103,19 +103,16 @@ function HomeContent() {
                   {t("feature.keyboardShortcuts")}
                 </strong>
                 <span className="text-muted">
-                  :{" "}
-                  <a href="/docs/keyboard-shortcuts" className={linkClass}>
-                    {t.rich("feature.keyboardShortcutsDesc", {
-                      link: (chunks) => (
-                        <a
-                          href="/docs/keyboard-shortcuts"
-                          className={linkClass}
-                        >
-                          {chunks}
-                        </a>
-                      ),
-                    })}
-                  </a>
+                  {t.rich("feature.keyboardShortcutsDesc", {
+                    link: (chunks) => (
+                      <a
+                        href="/docs/keyboard-shortcuts"
+                        className={linkClass}
+                      >
+                        {chunks}
+                      </a>
+                    ),
+                  })}
                 </span>
               </span>
             </li>

@@ -1,12 +1,15 @@
-import type { Metadata } from "next";
 import { useTranslations } from "next-intl";
+import { getTranslations } from "next-intl/server";
 import { CodeBlock } from "../../components/code-block";
 
-export const metadata: Metadata = {
-  title: "Browser Automation",
-  description:
-    "cmux browser command reference for navigation, DOM interaction, waiting, inspection, JavaScript evaluation, tabs, dialogs, frames, downloads, and browser state.",
-};
+export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
+  const { locale } = await params;
+  const t = await getTranslations({ locale, namespace: "docs.browserAutomation" });
+  return {
+    title: t("metaTitle"),
+    description: t("metaDescription"),
+  };
+}
 
 export default function BrowserAutomationPage() {
   const t = useTranslations("docs.browserAutomation");

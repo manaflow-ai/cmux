@@ -11,7 +11,10 @@ export function LanguageSwitcher() {
 
   function onChange(e: React.ChangeEvent<HTMLSelectElement>) {
     const newLocale = e.target.value as Locale;
-    router.replace(pathname, { locale: newLocale });
+    const qs = typeof window !== "undefined"
+      ? window.location.search + window.location.hash
+      : "";
+    router.replace(pathname + qs, { locale: newLocale });
   }
 
   return (
@@ -35,7 +38,7 @@ export function LanguageSwitcher() {
       <select
         value={locale}
         onChange={onChange}
-        className="text-xs text-muted bg-transparent border-none cursor-pointer hover:text-foreground transition-colors focus:outline-none"
+        className="text-xs text-muted bg-transparent border-none cursor-pointer hover:text-foreground transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
         aria-label="Language"
       >
         {locales.map((loc) => (

@@ -1,13 +1,16 @@
-import type { Metadata } from "next";
 import { useTranslations } from "next-intl";
+import { getTranslations } from "next-intl/server";
 import { CodeBlock } from "../../components/code-block";
 import { Callout } from "../../components/callout";
 
-export const metadata: Metadata = {
-  title: "Notifications",
-  description:
-    "Send desktop notifications from AI agents and scripts in cmux. CLI, OSC 99/777 escape sequences, and Claude Code hooks integration.",
-};
+export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
+  const { locale } = await params;
+  const t = await getTranslations({ locale, namespace: "docs.notifications" });
+  return {
+    title: t("metaTitle"),
+    description: t("metaDescription"),
+  };
+}
 
 export default function NotificationsPage() {
   const t = useTranslations("docs.notifications");

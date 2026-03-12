@@ -37,6 +37,8 @@
   },
   "home": {
     "taglinePrefix": "다음을 위해 만들어진 터미널: ",
+    "typingCodingAgents": "코딩 에이전트",
+    "typingMultitasking": "멀티태스킹",
     "subtitle": "Ghostty 기반 네이티브 macOS 앱. 세로 탭, 에이전트가 주의를 필요로 할 때 알림 링, 분할 패널, 자동화를 위한 소켓 API를 제공합니다.",
     "features": "기능",
     "faq": "FAQ",
@@ -139,13 +141,18 @@
         "whyTitle": "왜 cmux인가?",
         "whyP": "현대 개발 워크플로는 여러 에이전트를 동시에 실행하는 경우가 많습니다. Claude Code, Codex 등 각 도구가 자체 터미널에서 실행됩니다. 어떤 에이전트가 주의를 필요로 하는지 추적하고 빠르게 전환하는 것이 cmux가 해결하는 문제입니다.",
         "featuresTitle": "주요 기능",
-        "featureVerticalTabs": "세로 탭: 사이드바에서 모든 터미널을 한눈에 확인",
-        "featureNotifications": "알림 링: 에이전트가 입력을 필요로 하면 탭이 깜빡임",
-        "featureSplitPanes": "분할 패널: 각 워크스페이스 내에서 가로 및 세로 분할",
-        "featureSocketApi": "소켓 API: 탭 생성 및 입력 전송을 위한 프로그래밍 방식 제어",
-        "featureGpu": "GPU 가속: libghostty로 부드러운 렌더링",
         "getStartedTitle": "시작하기",
-        "getStartedP": "Homebrew로 cmux를 설치하거나 <link>시작 가이드</link>에서 DMG를 다운로드하세요."
+        "getStartedP": "Homebrew로 cmux를 설치하거나 <link>시작 가이드</link>에서 DMG를 다운로드하세요.",
+        "featureVerticalTabsLabel": "세로 탭",
+        "featureVerticalTabsDesc": "사이드바에서 모든 터미널을 한눈에 확인",
+        "featureNotificationsLabel": "알림 링",
+        "featureNotificationsDesc": "에이전트가 입력을 필요로 하면 탭이 깜빡임",
+        "featureSplitPanesLabel": "분할 패널",
+        "featureSplitPanesDesc": "각 워크스페이스 내에서 가로 및 세로 분할",
+        "featureSocketApiLabel": "소켓 API",
+        "featureSocketApiDesc": "탭 생성 및 입력 전송을 위한 프로그래밍 방식 제어",
+        "featureGpuLabel": "GPU 가속",
+        "featureGpuDesc": "libghostty로 부드러운 렌더링"
       }
     }
   },

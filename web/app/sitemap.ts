@@ -18,7 +18,9 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { path: "/docs/api", lastModified: new Date(), changeFrequency: "monthly" as const, priority: 0.8 },
     { path: "/docs/notifications", lastModified: new Date(), changeFrequency: "monthly" as const, priority: 0.8 },
     { path: "/docs/changelog", lastModified: new Date(), changeFrequency: "weekly" as const, priority: 0.5 },
+    { path: "/docs/browser-automation", lastModified: new Date(), changeFrequency: "monthly" as const, priority: 0.8 },
     { path: "/community", lastModified: new Date(), changeFrequency: "monthly" as const, priority: 0.5 },
+    { path: "/wall-of-love", lastModified: new Date(), changeFrequency: "monthly" as const, priority: 0.5 },
   ];
 
   const entries: MetadataRoute.Sitemap = [];

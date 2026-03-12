@@ -1,14 +1,17 @@
-import type { Metadata } from "next";
 import { useTranslations } from "next-intl";
+import { getTranslations } from "next-intl/server";
 import { CodeBlock } from "../../components/code-block";
 import { Callout } from "../../components/callout";
 import { DownloadButton } from "../../components/download-button";
 
-export const metadata: Metadata = {
-  title: "Getting Started",
-  description:
-    "Install cmux, the native macOS terminal for AI coding agents. Homebrew, DMG download, CLI setup, and auto-updates via Sparkle.",
-};
+export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
+  const { locale } = await params;
+  const t = await getTranslations({ locale, namespace: "docs.gettingStarted" });
+  return {
+    title: t("metaTitle"),
+    description: t("metaDescription"),
+  };
+}
 
 export default function GettingStartedPage() {
   const t = useTranslations("docs.gettingStarted");

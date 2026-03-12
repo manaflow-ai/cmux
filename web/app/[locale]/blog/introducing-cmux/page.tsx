@@ -1,31 +1,33 @@
-import type { Metadata } from "next";
 import { useTranslations } from "next-intl";
+import { getTranslations } from "next-intl/server";
 import { Link } from "../../../../i18n/navigation";
 
-export const metadata: Metadata = {
-  title: "Introducing cmux",
-  description:
-    "A native macOS terminal built on Ghostty, designed for running multiple AI coding agents side by side.",
-  keywords: [
-    "cmux", "terminal", "macOS", "Ghostty", "libghostty",
-    "AI coding agents", "Claude Code", "vertical tabs", "split panes", "socket API",
-  ],
-  openGraph: {
-    title: "Introducing cmux",
-    description:
-      "A native macOS terminal built on Ghostty, designed for running multiple AI coding agents side by side.",
-    type: "article",
-    publishedTime: "2026-02-12T00:00:00Z",
-    url: "https://cmux.dev/blog/introducing-cmux",
-  },
-  twitter: {
-    card: "summary",
-    title: "Introducing cmux",
-    description:
-      "A native macOS terminal built on Ghostty, designed for running multiple AI coding agents side by side.",
-  },
-  alternates: { canonical: "https://cmux.dev/blog/introducing-cmux" },
-};
+export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
+  const { locale } = await params;
+  const t = await getTranslations({ locale, namespace: "blog.introducingCmux" });
+  const url = locale === "en" ? "/blog/introducing-cmux" : `/${locale}/blog/introducing-cmux`;
+  return {
+    title: t("metaTitle"),
+    description: t("metaDescription"),
+    keywords: [
+      "cmux", "terminal", "macOS", "Ghostty", "libghostty",
+      "AI coding agents", "Claude Code", "vertical tabs", "split panes", "socket API",
+    ],
+    openGraph: {
+      title: t("metaTitle"),
+      description: t("metaDescription"),
+      type: "article",
+      publishedTime: "2026-02-12T00:00:00Z",
+      url,
+    },
+    twitter: {
+      card: "summary",
+      title: t("metaTitle"),
+      description: t("metaDescription"),
+    },
+    alternates: { canonical: url },
+  };
+}
 
 export default function IntroducingCmuxPage() {
   const t = useTranslations("blog.posts.introducingCmux");
@@ -52,11 +54,11 @@ export default function IntroducingCmuxPage() {
 
       <h2>{t("featuresTitle")}</h2>
       <ul>
-        <li><strong>Vertical tabs</strong>: {t("featureVerticalTabs").split(": ")[1] || t("featureVerticalTabs")}</li>
-        <li><strong>Notification rings</strong>: {t("featureNotifications").split(": ")[1] || t("featureNotifications")}</li>
-        <li><strong>Split panes</strong>: {t("featureSplitPanes").split(": ")[1] || t("featureSplitPanes")}</li>
-        <li><strong>Socket API</strong>: {t("featureSocketApi").split(": ")[1] || t("featureSocketApi")}</li>
-        <li><strong>GPU-accelerated</strong>: {t("featureGpu").split(": ")[1] || t("featureGpu")}</li>
+        <li><strong>{t("featureVerticalTabsLabel")}</strong>: {t("featureVerticalTabsDesc")}</li>
+        <li><strong>{t("featureNotificationsLabel")}</strong>: {t("featureNotificationsDesc")}</li>
+        <li><strong>{t("featureSplitPanesLabel")}</strong>: {t("featureSplitPanesDesc")}</li>
+        <li><strong>{t("featureSocketApiLabel")}</strong>: {t("featureSocketApiDesc")}</li>
+        <li><strong>{t("featureGpuLabel")}</strong>: {t("featureGpuDesc")}</li>
       </ul>
 
       <h2>{t("getStartedTitle")}</h2>

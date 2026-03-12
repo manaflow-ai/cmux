@@ -1,31 +1,33 @@
-import type { Metadata } from "next";
 import { useTranslations } from "next-intl";
+import { getTranslations } from "next-intl/server";
 import { Link } from "../../../../i18n/navigation";
 
-export const metadata: Metadata = {
-  title: "Cmd+Shift+U",
-  description:
-    "How Cmd+Shift+U navigates between finished agents across workspaces in cmux.",
-  keywords: [
-    "cmux", "terminal", "macOS", "notifications", "AI coding agents",
-    "keyboard shortcuts", "developer tools", "workflow",
-  ],
-  openGraph: {
-    title: "Cmd+Shift+U",
-    description:
-      "How Cmd+Shift+U navigates between finished agents across workspaces in cmux.",
-    type: "article",
-    publishedTime: "2026-03-04T00:00:00Z",
-    url: "https://cmux.dev/blog/cmd-shift-u",
-  },
-  twitter: {
-    card: "summary",
-    title: "Cmd+Shift+U",
-    description:
-      "How Cmd+Shift+U navigates between finished agents across workspaces in cmux.",
-  },
-  alternates: { canonical: "https://cmux.dev/blog/cmd-shift-u" },
-};
+export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
+  const { locale } = await params;
+  const t = await getTranslations({ locale, namespace: "blog.cmdShiftU" });
+  const url = locale === "en" ? "/blog/cmd-shift-u" : `/${locale}/blog/cmd-shift-u`;
+  return {
+    title: t("metaTitle"),
+    description: t("metaDescription"),
+    keywords: [
+      "cmux", "terminal", "macOS", "notifications", "AI coding agents",
+      "keyboard shortcuts", "developer tools", "workflow",
+    ],
+    openGraph: {
+      title: t("metaTitle"),
+      description: t("metaDescription"),
+      type: "article",
+      publishedTime: "2026-03-04T00:00:00Z",
+      url,
+    },
+    twitter: {
+      card: "summary",
+      title: t("metaTitle"),
+      description: t("metaDescription"),
+    },
+    alternates: { canonical: url },
+  };
+}
 
 export default function CmdShiftUPage() {
   const t = useTranslations("blog.posts.cmdShiftU");

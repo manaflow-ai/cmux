@@ -37,6 +37,8 @@
   },
   "home": {
     "taglinePrefix": "เทอร์มินัลที่สร้างมาเพื่อ",
+    "typingCodingAgents": "เอเจนต์เขียนโค้ด",
+    "typingMultitasking": "มัลติทาสกิ้ง",
     "subtitle": "แอป macOS เนทีฟที่สร้างบน Ghostty แท็บแนวตั้ง, วงแหวนแจ้งเตือนเมื่อ agent ต้องการความสนใจ, แยกหน้าจอ และ socket API สำหรับระบบอัตโนมัติ",
     "features": "ฟีเจอร์",
     "faq": "คำถามที่พบบ่อย",
@@ -139,13 +141,18 @@
         "whyTitle": "ทำไมต้อง cmux?",
         "whyP": "Workflow การพัฒนาสมัยใหม่มักต้องรัน agent หลายตัวพร้อมกัน Claude Code, Codex และเครื่องมืออื่นๆ แต่ละตัวในเทอร์มินัลของตัวเอง การติดตามว่าตัวไหนต้องการความสนใจและสลับระหว่างพวกมันอย่างรวดเร็วคือปัญหาที่ cmux แก้ไข",
         "featuresTitle": "ฟีเจอร์หลัก",
-        "featureVerticalTabs": "แท็บแนวตั้ง: ดูเทอร์มินัลทั้งหมดได้ในแถบข้าง",
-        "featureNotifications": "วงแหวนแจ้งเตือน: แท็บกระพริบเมื่อ agent ต้องการ input ของคุณ",
-        "featureSplitPanes": "แยกหน้าจอ: แยกแนวนอนและแนวตั้งภายในแต่ละ workspace",
-        "featureSocketApi": "Socket API: ควบคุมแบบโปรแกรมเพื่อสร้างแท็บและส่ง input",
-        "featureGpu": "เร่งความเร็วด้วย GPU: ขับเคลื่อนด้วย libghostty เพื่อการเรนเดอร์ที่ลื่นไหล",
         "getStartedTitle": "เริ่มต้นใช้งาน",
-        "getStartedP": "ติดตั้ง cmux ผ่าน Homebrew หรือดาวน์โหลด DMG จาก<link>คู่มือเริ่มต้นใช้งาน</link>"
+        "getStartedP": "ติดตั้ง cmux ผ่าน Homebrew หรือดาวน์โหลด DMG จาก<link>คู่มือเริ่มต้นใช้งาน</link>",
+        "featureVerticalTabsLabel": "แท็บแนวตั้ง",
+        "featureVerticalTabsDesc": "ดูเทอร์มินัลทั้งหมดได้ในแถบข้าง",
+        "featureNotificationsLabel": "วงแหวนแจ้งเตือน",
+        "featureNotificationsDesc": "แท็บกระพริบเมื่อ agent ต้องการ input ของคุณ",
+        "featureSplitPanesLabel": "แยกหน้าจอ",
+        "featureSplitPanesDesc": "แยกแนวนอนและแนวตั้งภายในแต่ละ workspace",
+        "featureSocketApiLabel": "Socket API",
+        "featureSocketApiDesc": "ควบคุมแบบโปรแกรมเพื่อสร้างแท็บและส่ง input",
+        "featureGpuLabel": "เร่งความเร็วด้วย GPU",
+        "featureGpuDesc": "ขับเคลื่อนด้วย libghostty เพื่อการเรนเดอร์ที่ลื่นไหล"
       }
     }
   },

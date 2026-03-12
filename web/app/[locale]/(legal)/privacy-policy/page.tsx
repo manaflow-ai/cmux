@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import { useTranslations } from "next-intl";
 import { Link } from "../../../../i18n/navigation";
 
 export const metadata: Metadata = {
@@ -8,10 +7,9 @@ export const metadata: Metadata = {
 };
 
 export default function PrivacyPolicyPage() {
-  const t = useTranslations("legal");
   return (
     <>
-      <h1>{t("privacyPolicy")}</h1>
+      <h1>Privacy Policy</h1>
       <p>Last updated: December 2, 2025</p>
 
       <p>

@@ -37,6 +37,8 @@
   },
   "home": {
     "taglinePrefix": "La terminal diseñada para ",
+    "typingCodingAgents": "agentes de código",
+    "typingMultitasking": "multitarea",
     "subtitle": "App nativa de macOS basada en Ghostty. Pestañas verticales, anillos de notificación cuando los agentes necesitan atención, paneles divididos y una API de socket para automatización.",
     "features": "Características",
     "faq": "FAQ",
@@ -139,13 +141,18 @@
         "whyTitle": "¿Por qué cmux?",
         "whyP": "Los flujos de trabajo de desarrollo modernos a menudo implican ejecutar varios agentes a la vez. Claude Code, Codex y otras herramientas, cada una en su propia terminal. Llevar un seguimiento de cuáles necesitan atención y cambiar entre ellos rápidamente es el problema que cmux resuelve.",
         "featuresTitle": "Características principales",
-        "featureVerticalTabs": "Pestañas verticales: vea todas sus terminales de un vistazo en una barra lateral",
-        "featureNotifications": "Anillos de notificación: las pestañas parpadean cuando un agente necesita su entrada",
-        "featureSplitPanes": "Paneles divididos: divisiones horizontales y verticales dentro de cada workspace",
-        "featureSocketApi": "API de socket: control programático para crear pestañas y enviar entrada",
-        "featureGpu": "Aceleración por GPU: impulsado por libghostty para un renderizado fluido",
         "getStartedTitle": "Comenzar",
-        "getStartedP": "Instale cmux mediante Homebrew o descargue el DMG desde la <link>guía de inicio</link>."
+        "getStartedP": "Instale cmux mediante Homebrew o descargue el DMG desde la <link>guía de inicio</link>.",
+        "featureVerticalTabsLabel": "Pestañas verticales",
+        "featureVerticalTabsDesc": "vea todas sus terminales de un vistazo en una barra lateral",
+        "featureNotificationsLabel": "Anillos de notificación",
+        "featureNotificationsDesc": "las pestañas parpadean cuando un agente necesita su entrada",
+        "featureSplitPanesLabel": "Paneles divididos",
+        "featureSplitPanesDesc": "divisiones horizontales y verticales dentro de cada workspace",
+        "featureSocketApiLabel": "API de socket",
+        "featureSocketApiDesc": "control programático para crear pestañas y enviar entrada",
+        "featureGpuLabel": "Aceleración por GPU",
+        "featureGpuDesc": "impulsado por libghostty para un renderizado fluido"
       }
     }
   },
@@ -533,11 +540,11 @@
     "northprint": "Probe cmux porque se veia bien, y es bueno",
     "indykish": "cmux esta bastante bien.",
     "kataring": "Me cambie a cmux.dev",
-    "scottw": "Ha sido un hallazgo muy util. No puedo recomendarlo suficiente.",
-    "johnblythe": "Lo instale el fin de semana y me encanto. Estuve esperando algo asi.",
-    "bchris91": "Es exactamente lo que queria. Increible trabajo, gracias!",
-    "connorelsea": "Lo llevo usando una semana y es fantastico. Una pestana vertical por cada tarea WIP. Dentro, Claude a un lado y navegador con PR y recursos al otro. Cambiar entre tareas y mantener todo organizado. Combinado con skills para que Claude vigile CI recursivamente, etc. Sinceramente me siento iluminado.",
-    "tonkotsuboy": "A principios de ano cambie de Warp a Ghostty, pero ahora me cambie a cmux. Las pestanas verticales son comodas y agradezco las notificaciones cuando terminan las tareas de Claude Code. Al estar basado en Ghostty, el rendimiento ultrarapido se mantiene. La visualizacion de ramas y las completaciones que configure en Ghostty siguen funcionando."
+    "scottw": "Ha sido un hallazgo muy útil. No puedo recomendarlo suficiente.",
+    "johnblythe": "Lo instalé el fin de semana y me encantó. Estuve esperando algo así.",
+    "bchris91": "Es exactamente lo que quería. ¡Increíble trabajo, gracias!",
+    "connorelsea": "Lo llevo usando una semana y es fantástico. Una pestaña vertical por cada tarea WIP. Dentro, Claude a un lado y navegador con PR y recursos al otro. Cambiar entre tareas y mantener todo organizado. Combinado con skills para que Claude vigile CI recursivamente, etc. Sinceramente me siento iluminado.",
+    "tonkotsuboy": "A principios de año cambié de Warp a Ghostty, pero ahora me cambié a cmux. Las pestañas verticales son cómodas y agradezco las notificaciones cuando terminan las tareas de Claude Code. Al estar basado en Ghostty, el rendimiento ultrarrápido se mantiene. La visualización de ramas y las completaciones que configuré en Ghostty siguen funcionando."
   },
   "languageSwitcher": {
     "label": "Idioma"

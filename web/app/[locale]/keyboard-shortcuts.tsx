@@ -167,6 +167,8 @@ export function KeyboardShortcuts() {
   const [query, setQuery] = useState("");
   const t = useTranslations("docs.keyboardShortcuts");
 
+  const trimmedQuery = query.trim();
+
   const filtered = useMemo(() => {
     const q = normalize(query);
     if (!q) return CATEGORIES;
@@ -210,7 +212,7 @@ export function KeyboardShortcuts() {
       </div>
 
       {/* Category jump links */}
-      {!query && (
+      {!trimmedQuery && (
         <nav className="flex flex-wrap items-center gap-y-2 mb-10">
           {CATEGORIES.map((cat, idx) => (
             <span key={cat.id} className="inline-flex items-center">

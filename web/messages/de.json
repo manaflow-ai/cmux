@@ -37,6 +37,8 @@
   },
   "home": {
     "taglinePrefix": "Das Terminal für ",
+    "typingCodingAgents": "Coding-Agenten",
+    "typingMultitasking": "Multitasking",
     "subtitle": "Native macOS-App auf Basis von Ghostty. Vertikale Tabs, Benachrichtigungsringe wenn Agenten Aufmerksamkeit benötigen, geteilte Bereiche und eine Socket-API für Automatisierung.",
     "features": "Funktionen",
     "faq": "FAQ",
@@ -139,13 +141,18 @@
         "whyTitle": "Warum cmux?",
         "whyP": "Moderne Entwicklungsworkflows beinhalten oft das gleichzeitige Ausführen mehrerer Agenten. Claude Code, Codex und andere Werkzeuge, jeweils in ihrem eigenen Terminal. Den Überblick zu behalten, welche Aufmerksamkeit benötigen, und schnell zwischen ihnen zu wechseln, ist das Problem, das cmux löst.",
         "featuresTitle": "Hauptfunktionen",
-        "featureVerticalTabs": "Vertikale Tabs: Sehen Sie alle Ihre Terminals auf einen Blick in einer Seitenleiste",
-        "featureNotifications": "Benachrichtigungsringe: Tabs blinken, wenn ein Agent Ihre Eingabe benötigt",
-        "featureSplitPanes": "Geteilte Bereiche: Horizontale und vertikale Teilungen innerhalb jedes Workspace",
-        "featureSocketApi": "Socket-API: Programmatische Steuerung zum Erstellen von Tabs und Senden von Eingaben",
-        "featureGpu": "GPU-beschleunigt: Angetrieben von libghostty für flüssiges Rendering",
         "getStartedTitle": "Erste Schritte",
-        "getStartedP": "Installieren Sie cmux über Homebrew oder laden Sie die DMG aus der <link>Erste-Schritte-Anleitung</link> herunter."
+        "getStartedP": "Installieren Sie cmux über Homebrew oder laden Sie die DMG aus der <link>Erste-Schritte-Anleitung</link> herunter.",
+        "featureVerticalTabsLabel": "Vertikale Tabs",
+        "featureVerticalTabsDesc": "Sehen Sie alle Ihre Terminals auf einen Blick in einer Seitenleiste",
+        "featureNotificationsLabel": "Benachrichtigungsringe",
+        "featureNotificationsDesc": "Tabs blinken, wenn ein Agent Ihre Eingabe benötigt",
+        "featureSplitPanesLabel": "Geteilte Bereiche",
+        "featureSplitPanesDesc": "Horizontale und vertikale Teilungen innerhalb jedes Workspace",
+        "featureSocketApiLabel": "Socket-API",
+        "featureSocketApiDesc": "Programmatische Steuerung zum Erstellen von Tabs und Senden von Eingaben",
+        "featureGpuLabel": "GPU-beschleunigt",
+        "featureGpuDesc": "Angetrieben von libghostty für flüssiges Rendering"
       }
     }
   },

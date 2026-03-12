@@ -37,6 +37,8 @@
   },
   "home": {
     "taglinePrefix": "O terminal feito para ",
+    "typingCodingAgents": "agentes de código",
+    "typingMultitasking": "multitarefa",
     "subtitle": "App nativo para macOS construído sobre o Ghostty. Abas verticais, anéis de notificação quando agentes precisam de atenção, painéis divididos e uma API de socket para automação.",
     "features": "Recursos",
     "faq": "Perguntas Frequentes",
@@ -139,13 +141,18 @@
         "whyTitle": "Por que cmux?",
         "whyP": "Fluxos de trabalho modernos de desenvolvimento frequentemente envolvem rodar vários agentes ao mesmo tempo. Claude Code, Codex e outras ferramentas, cada uma em seu próprio terminal. Acompanhar quais precisam de atenção e alternar entre elas rapidamente é o problema que o cmux resolve.",
         "featuresTitle": "Principais recursos",
-        "featureVerticalTabs": "Abas verticais: veja todos os seus terminais de relance na barra lateral",
-        "featureNotifications": "Anéis de notificação: abas piscam quando um agente precisa da sua atenção",
-        "featureSplitPanes": "Painéis divididos: divisões horizontais e verticais dentro de cada workspace",
-        "featureSocketApi": "API de socket: controle programático para criar abas e enviar entrada",
-        "featureGpu": "Acelerado por GPU: alimentado pelo libghostty para renderização suave",
         "getStartedTitle": "Comece agora",
-        "getStartedP": "Instale o cmux via Homebrew ou baixe o DMG do <link>guia de início</link>."
+        "getStartedP": "Instale o cmux via Homebrew ou baixe o DMG do <link>guia de início</link>.",
+        "featureVerticalTabsLabel": "Abas verticais",
+        "featureVerticalTabsDesc": "veja todos os seus terminais de relance na barra lateral",
+        "featureNotificationsLabel": "Anéis de notificação",
+        "featureNotificationsDesc": "abas piscam quando um agente precisa da sua atenção",
+        "featureSplitPanesLabel": "Painéis divididos",
+        "featureSplitPanesDesc": "divisões horizontais e verticais dentro de cada workspace",
+        "featureSocketApiLabel": "API de socket",
+        "featureSocketApiDesc": "controle programático para criar abas e enviar entrada",
+        "featureGpuLabel": "Acelerado por GPU",
+        "featureGpuDesc": "alimentado pelo libghostty para renderização suave"
       }
     }
   },

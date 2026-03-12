@@ -37,6 +37,8 @@
   },
   "home": {
     "taglinePrefix": "Terminal stworzony dla ",
+    "typingCodingAgents": "agentów kodowania",
+    "typingMultitasking": "multitaskingu",
     "subtitle": "Natywna aplikacja macOS zbudowana na Ghostty. Pionowe karty, pierścienie powiadomień gdy agenci potrzebują uwagi, dzielone panele i socket API do automatyzacji.",
     "features": "Funkcje",
     "faq": "FAQ",
@@ -139,13 +141,18 @@
         "whyTitle": "Dlaczego cmux?",
         "whyP": "Nowoczesne workflow'y programistyczne często wymagają uruchamiania kilku agentów naraz. Claude Code, Codex i inne narzędzia, każde w swoim terminalu. Śledzenie które potrzebują uwagi i szybkie przełączanie między nimi to problem który cmux rozwiązuje.",
         "featuresTitle": "Kluczowe funkcje",
-        "featureVerticalTabs": "Pionowe karty: zobacz wszystkie terminale na pierwszy rzut oka w pasku bocznym",
-        "featureNotifications": "Pierścienie powiadomień: karty migają gdy agent potrzebuje Twojego wejścia",
-        "featureSplitPanes": "Dzielone panele: poziome i pionowe podziały w każdym workspace",
-        "featureSocketApi": "Socket API: programowa kontrola do tworzenia kart i wysyłania danych wejściowych",
-        "featureGpu": "Akceleracja GPU: napędzany przez libghostty dla płynnego renderowania",
         "getStartedTitle": "Rozpocznij",
-        "getStartedP": "Zainstaluj cmux przez Homebrew lub pobierz DMG z <link>przewodnika szybkiego startu</link>."
+        "getStartedP": "Zainstaluj cmux przez Homebrew lub pobierz DMG z <link>przewodnika szybkiego startu</link>.",
+        "featureVerticalTabsLabel": "Pionowe karty",
+        "featureVerticalTabsDesc": "zobacz wszystkie terminale na pierwszy rzut oka w pasku bocznym",
+        "featureNotificationsLabel": "Pierścienie powiadomień",
+        "featureNotificationsDesc": "karty migają gdy agent potrzebuje Twojego wejścia",
+        "featureSplitPanesLabel": "Dzielone panele",
+        "featureSplitPanesDesc": "poziome i pionowe podziały w każdym workspace",
+        "featureSocketApiLabel": "Socket API",
+        "featureSocketApiDesc": "programowa kontrola do tworzenia kart i wysyłania danych wejściowych",
+        "featureGpuLabel": "Akceleracja GPU",
+        "featureGpuDesc": "napędzany przez libghostty dla płynnego renderowania"
       }
     }
   },

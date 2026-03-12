@@ -37,6 +37,8 @@
   },
   "home": {
     "taglinePrefix": "Şunun için tasarlanmış terminal: ",
+    "typingCodingAgents": "kodlama ajanları",
+    "typingMultitasking": "çoklu görev",
     "subtitle": "Ghostty üzerine kurulu yerel macOS uygulaması. Dikey sekmeler, ajanlar dikkat istediğinde bildirim halkaları, bölünmüş paneller ve otomasyon için socket API.",
     "features": "Özellikler",
     "faq": "SSS",
@@ -139,13 +141,18 @@
         "whyTitle": "Neden cmux?",
         "whyP": "Modern geliştirme iş akışları genellikle aynı anda birkaç ajan çalıştırmayı içerir. Claude Code, Codex ve diğer araçlar, her biri kendi terminalinde. Hangilerinin dikkat istediğini takip etmek ve aralarında hızla geçiş yapmak cmux'un çözdüğü sorundur.",
         "featuresTitle": "Temel özellikler",
-        "featureVerticalTabs": "Dikey sekmeler: kenar çubuğunda tüm terminallerinizi bir bakışta görün",
-        "featureNotifications": "Bildirim halkaları: bir ajan girdi istediğinde sekmeler yanıp söner",
-        "featureSplitPanes": "Bölünmüş paneller: her çalışma alanı içinde yatay ve dikey bölmeler",
-        "featureSocketApi": "Socket API: sekmeler oluşturmak ve girdi göndermek için programatik kontrol",
-        "featureGpu": "GPU hızlandırmalı: akıcı işleme için libghostty tarafından desteklenir",
         "getStartedTitle": "Başlayın",
-        "getStartedP": "cmux'u Homebrew ile kurun veya <link>başlangıç kılavuzundan</link> DMG'yi indirin."
+        "getStartedP": "cmux'u Homebrew ile kurun veya <link>başlangıç kılavuzundan</link> DMG'yi indirin.",
+        "featureVerticalTabsLabel": "Dikey sekmeler",
+        "featureVerticalTabsDesc": "kenar çubuğunda tüm terminallerinizi bir bakışta görün",
+        "featureNotificationsLabel": "Bildirim halkaları",
+        "featureNotificationsDesc": "bir ajan girdi istediğinde sekmeler yanıp söner",
+        "featureSplitPanesLabel": "Bölünmüş paneller",
+        "featureSplitPanesDesc": "her çalışma alanı içinde yatay ve dikey bölmeler",
+        "featureSocketApiLabel": "Socket API",
+        "featureSocketApiDesc": "sekmeler oluşturmak ve girdi göndermek için programatik kontrol",
+        "featureGpuLabel": "GPU hızlandırmalı",
+        "featureGpuDesc": "akıcı işleme için libghostty tarafından desteklenir"
       }
     }
   },

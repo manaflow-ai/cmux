@@ -1,35 +1,37 @@
-import type { Metadata } from "next";
 import Image from "next/image";
 import { useTranslations } from "next-intl";
+import { getTranslations } from "next-intl/server";
 import { Link } from "../../../../i18n/navigation";
 import { Tweet } from "react-tweet";
 import starHistory from "./star-history.png";
 
-export const metadata: Metadata = {
-  title: "Launching cmux on Show HN",
-  description:
-    "cmux launched on Hacker News, hit #2, went viral in Japan, and people started building extensions on the CLI. Here's what happened.",
-  keywords: [
-    "cmux", "Show HN", "Hacker News", "terminal", "macOS", "Ghostty",
-    "libghostty", "AI coding agents", "Claude Code", "Codex", "launch",
-    "vertical tabs", "notification rings",
-  ],
-  openGraph: {
-    title: "Launching cmux on Show HN",
-    description:
-      "cmux launched on Hacker News, hit #2, went viral in Japan, and people started building extensions on the CLI.",
-    type: "article",
-    publishedTime: "2026-02-21T00:00:00Z",
-    url: "https://cmux.dev/blog/show-hn-launch",
-  },
-  twitter: {
-    card: "summary",
-    title: "Launching cmux on Show HN",
-    description:
-      "cmux launched on Hacker News, hit #2, went viral in Japan, and people started building extensions on the CLI.",
-  },
-  alternates: { canonical: "https://cmux.dev/blog/show-hn-launch" },
-};
+export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
+  const { locale } = await params;
+  const t = await getTranslations({ locale, namespace: "blog.showHnLaunch" });
+  const url = locale === "en" ? "/blog/show-hn-launch" : `/${locale}/blog/show-hn-launch`;
+  return {
+    title: t("metaTitle"),
+    description: t("metaDescription"),
+    keywords: [
+      "cmux", "Show HN", "Hacker News", "terminal", "macOS", "Ghostty",
+      "libghostty", "AI coding agents", "Claude Code", "Codex", "launch",
+      "vertical tabs", "notification rings",
+    ],
+    openGraph: {
+      title: t("metaTitle"),
+      description: t("metaDescription"),
+      type: "article",
+      publishedTime: "2026-02-21T00:00:00Z",
+      url,
+    },
+    twitter: {
+      card: "summary",
+      title: t("metaTitle"),
+      description: t("metaDescription"),
+    },
+    alternates: { canonical: url },
+  };
+}
 
 export default function ShowHNLaunchPage() {
   const t = useTranslations("blog.posts.showHnLaunch");

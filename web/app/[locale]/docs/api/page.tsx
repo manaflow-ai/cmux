@@ -1,13 +1,16 @@
-import type { Metadata } from "next";
 import { useTranslations } from "next-intl";
+import { getTranslations } from "next-intl/server";
 import { CodeBlock } from "../../components/code-block";
 import { Callout } from "../../components/callout";
 
-export const metadata: Metadata = {
-  title: "API Reference",
-  description:
-    "cmux CLI and Unix socket API reference. Workspace management, split panes, input control, notifications, sidebar metadata (status, progress, logs), environment variables, and detection methods.",
-};
+export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
+  const { locale } = await params;
+  const t = await getTranslations({ locale, namespace: "docs.api" });
+  return {
+    title: t("metaTitle"),
+    description: t("metaDescription"),
+  };
+}
 
 function Cmd({
   name,

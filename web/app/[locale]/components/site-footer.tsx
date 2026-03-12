@@ -1,6 +1,4 @@
-"use client";
-
-import { useTranslations } from "next-intl";
+import { getTranslations } from "next-intl/server";
 import { Link } from "../../../i18n/navigation";
 import { LanguageSwitcher } from "./language-switcher";
 
@@ -8,8 +6,8 @@ function isExternal(href: string) {
   return href.startsWith("http") || href.startsWith("mailto:");
 }
 
-export function SiteFooter() {
-  const t = useTranslations("footer");
+export async function SiteFooter() {
+  const t = await getTranslations("footer");
   const year = new Date().getFullYear();
 
   const columns = [

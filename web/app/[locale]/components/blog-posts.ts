@@ -1,6 +1,7 @@
 export const blogPosts = [
   {
     slug: "cmd-shift-u",
+    key: "cmdShiftU",
     title: "Cmd+Shift+U",
     date: "2026-03-04",
     summary:
@@ -8,6 +9,7 @@ export const blogPosts = [
   },
   {
     slug: "zen-of-cmux",
+    key: "zenOfCmux",
     title: "The Zen of cmux",
     date: "2026-02-27",
     summary:
@@ -15,6 +17,7 @@ export const blogPosts = [
   },
   {
     slug: "show-hn-launch",
+    key: "showHnLaunch",
     title: "Launching cmux on Show HN",
     date: "2026-02-21",
     summary:
@@ -22,6 +25,7 @@ export const blogPosts = [
   },
   {
     slug: "introducing-cmux",
+    key: "introducingCmux",
     title: "Introducing cmux",
     date: "2026-02-12",
     summary:
