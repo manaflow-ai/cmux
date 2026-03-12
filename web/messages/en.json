@@ -503,6 +503,10 @@
     "termsOfService": "Terms of Service",
     "eula": "EULA"
   },
+  "wallOfLove": {
+    "title": "Wall of Love",
+    "description": "What people are saying about cmux."
+  },
   "languageSwitcher": {
     "label": "Language"
   }
