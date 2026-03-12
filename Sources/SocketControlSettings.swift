@@ -39,7 +39,7 @@ enum SocketControlMode: String, CaseIterable, Identifiable {
         case .automation:
             return String(localized: "socketControl.automation.description", defaultValue: "Allow external local automation clients from this macOS user (no ancestry check).")
         case .password:
-            return String(localized: "socketControl.password.description", defaultValue: "Require socket authentication with a password stored in a local file.")
+            return String(localized: "socketControl.password.description", defaultValue: "Require socket authentication with a password stored in Keychain.")
         case .allowAll:
             return String(localized: "socketControl.allowAll.description", defaultValue: "Allow any local process and user to connect with no auth. Unsafe.")
         }
@@ -184,13 +184,16 @@ enum SocketControlPasswordStore {
         }
 
         // One-time migration: move old plaintext file into Keychain.
+        // Only delete the file if the Keychain save succeeds so a failed save
+        // retries on the next launch rather than losing the credential.
         if let oldFileURL = defaultPasswordFileURL(),
            FileManager.default.fileExists(atPath: oldFileURL.path),
            let data = try? Data(contentsOf: oldFileURL),
            let filePassword = String(data: data, encoding: .utf8),
            let migrated = normalized(filePassword) {
-            try? savePasswordToKeychain(migrated)
-            try? FileManager.default.removeItem(at: oldFileURL)
+            if (try? savePasswordToKeychain(migrated)) != nil {
+                try? FileManager.default.removeItem(at: oldFileURL)
+            }
             return migrated
         }
 
@@ -245,7 +248,7 @@ enum SocketControlPasswordStore {
         }
 
         // Production: Keychain.
-        deletePasswordFromKeychain()
+        try deletePasswordFromKeychain()
 
         if let oldFileURL = defaultPasswordFileURL(),
            FileManager.default.fileExists(atPath: oldFileURL.path) {
@@ -326,8 +329,7 @@ enum SocketControlPasswordStore {
 #endif
     }
 
-    @discardableResult
-    private static func deletePasswordFromKeychain() -> Bool {
+    private static func deletePasswordFromKeychain() throws {
 #if canImport(Security)
         let query: [CFString: Any] = [
             kSecClass: kSecClassGenericPassword,
@@ -335,9 +337,13 @@ enum SocketControlPasswordStore {
             kSecAttrAccount: keychainAccount,
         ]
         let status = SecItemDelete(query as CFDictionary)
-        return status == errSecSuccess || status == errSecItemNotFound
-#else
-        return false
+        guard status == errSecSuccess || status == errSecItemNotFound else {
+            throw NSError(
+                domain: NSOSStatusErrorDomain,
+                code: Int(status),
+                userInfo: [NSLocalizedDescriptionKey: String(localized: "socketControl.error.keychainDelete", defaultValue: "Unable to remove socket password from Keychain.")]
+            )
+        }
 #endif
     }
 
