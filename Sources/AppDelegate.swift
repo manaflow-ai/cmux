@@ -1311,7 +1311,8 @@ struct CmuxCLIPathInstaller {
         // no longer win the race to place a symlink at the destination between
         // removal and creation. `mv` on the same filesystem uses rename(2)
         // which is atomic even under admin privileges.
-        let tmpPath = destinationPath + ".cmux-install-tmp"
+        let tmpSuffix = UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(12).lowercased()
+        let tmpPath = destinationPath + ".tmp-\(tmpSuffix)"
         let command = "/bin/mkdir -p \(shellQuoted(parentPath)) && " +
             "/bin/rm -f \(shellQuoted(tmpPath)) && " +
             "/bin/ln -s \(shellQuoted(sourceURL.path)) \(shellQuoted(tmpPath)) && " +
