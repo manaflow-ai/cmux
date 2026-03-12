@@ -7799,6 +7799,13 @@ struct CMUXCLI {
         return nil
     }
 
+    private func projectName(fromCWD cwd: String?) -> String? {
+        guard let cwd = cwd, !cwd.isEmpty else { return nil }
+        let path = NSString(string: cwd).expandingTildeInPath
+        let tail = URL(fileURLWithPath: path).lastPathComponent
+        return tail.isEmpty ? path : tail
+    }
+
     private func summarizeClaudeHookStop(
         parsedInput: ClaudeHookParsedInput,
         sessionRecord: ClaudeHookSessionRecord?
@@ -7806,12 +7813,7 @@ struct CMUXCLI {
         let cwd = parsedInput.cwd ?? sessionRecord?.cwd
         let transcriptPath = parsedInput.transcriptPath
 
-        let projectName: String? = {
-            guard let cwd = cwd, !cwd.isEmpty else { return nil }
-            let path = NSString(string: cwd).expandingTildeInPath
-            let tail = URL(fileURLWithPath: path).lastPathComponent
-            return tail.isEmpty ? path : tail
-        }()
+        let projectName = projectName(fromCWD: cwd)
 
         // Try reading the transcript JSONL for a richer summary.
         let transcript = transcriptPath.flatMap { readTranscriptSummary(path: $0) }
@@ -7904,12 +7906,7 @@ struct CMUXCLI {
         }
 
         let cwd = extractClaudeHookCWD(from: object)
-        let projectName: String? = {
-            guard let cwd = cwd, !cwd.isEmpty else { return nil }
-            let path = NSString(string: cwd).expandingTildeInPath
-            let tail = URL(fileURLWithPath: path).lastPathComponent
-            return tail.isEmpty ? path : tail
-        }()
+        let projectName = projectName(fromCWD: cwd)
 
         let nested = (object["notification"] as? [String: Any]) ?? (object["data"] as? [String: Any]) ?? [:]
         let signalParts = [
@@ -7941,7 +7938,7 @@ struct CMUXCLI {
 
     private func classifyClaudeNotification(signal: String, message: String, projectName: String?) -> (subtitle: String, body: String) {
         let lower = "\(signal) \(message)".lowercased()
-        let suffix = projectName.map { " in \($0)" } ?? ""
+        let suffix = projectName.flatMap { $0.isEmpty ? nil : $0 }.map { " in \($0)" } ?? ""
         if lower.contains("permission") || lower.contains("approve") || lower.contains("approval") {
             let body = message.isEmpty ? "Approval needed" : message
             return ("Permission\(suffix)", body)
