@@ -192,7 +192,7 @@ function HomeContent() {
               <p className="font-medium mb-1">{t("faqShortcutsQ")}</p>
               <p className="text-muted">
                 {t.rich("faqShortcutsA", {
-                  configPath: () => (
+                  configPath: (
                     <code className="text-xs bg-code-bg px-1.5 py-0.5 rounded">
                       ~/.config/ghostty/config
                     </code>
