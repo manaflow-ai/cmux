@@ -4451,7 +4451,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             alertWindow.defaultButtonCell = closeButton.cell as? NSButtonCell
             alertWindow.initialFirstResponder = closeButton
             DispatchQueue.main.async {
-                alertWindow.makeKeyAndOrderFront(nil)
                 _ = alertWindow.makeFirstResponder(closeButton)
             }
         }
