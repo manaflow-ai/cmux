@@ -75,7 +75,7 @@ export default function ApiPage() {
 {"id":"req-1","ok":true,"result":{"workspaces":[...]}}`}</CodeBlock>
       <Callout>
         {t.rich("socketCallout", {
-          legacy: () => <code>{`{"command":"..."}`}</code>,
+          legacy: (chunks) => <code>{chunks}</code>,
         })}
       </Callout>
 

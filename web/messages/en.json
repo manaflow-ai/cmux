@@ -32,7 +32,7 @@
     "twitter": "X / Twitter",
     "discord": "Discord",
     "contact": "Contact",
-    "copyright": "\u00a9 {year} Manaflow",
+    "copyright": "© {year} Manaflow",
     "language": "Language"
   },
   "home": {
@@ -335,7 +335,7 @@
       "debug": "Debug",
       "taggedDebug": "Tagged debug build",
       "socketOverride": "Override with the CMUX_SOCKET_PATH environment variable. Send one newline-terminated JSON request per call:",
-      "socketCallout": "JSON socket requests must use method and params. Legacy v1 JSON payloads such as {legacy} are not supported.",
+      "socketCallout": "JSON socket requests must use method and params. Legacy v1 JSON payloads such as <legacy>{\"command\":\"...\"}</legacy> are not supported.",
       "accessModes": "Access modes",
       "modeHeader": "Mode",
       "descriptionHeader": "Description",
@@ -420,7 +420,7 @@
       "suppressItem2": "The specific workspace sending the notification is active",
       "suppressItem3": "The notification panel is open",
       "notificationPanel": "Notification panel",
-      "notificationPanelDesc": "Press {openShortcut} to open the notification panel. Click a notification to jump to that workspace. Press {jumpShortcut} to jump directly to the workspace with the most recent unread notification.",
+      "notificationPanelDesc": "Press <openShortcut>⌘⇧I</openShortcut> to open the notification panel. Click a notification to jump to that workspace. Press <jumpShortcut>⌘⇧U</jumpShortcut> to jump directly to the workspace with the most recent unread notification.",
       "customCommand": "Custom command",
       "customCommandDesc": "Run a shell command every time a notification is scheduled. Set it in Settings > App > Notification Command. The command runs via /bin/sh -c with these environment variables:",
       "customCommandNote": "The command runs independently of the system sound picker. Set the picker to \"None\" to use only the custom command, or keep both for a system sound plus a custom action.",

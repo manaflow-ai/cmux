@@ -36,8 +36,8 @@ export default function NotificationsPage() {
       <h3>{t("notificationPanel")}</h3>
       <p>
         {t.rich("notificationPanelDesc", {
-          openShortcut: () => <code>⌘⇧I</code>,
-          jumpShortcut: () => <code>⌘⇧U</code>,
+          openShortcut: (chunks) => <code>{chunks}</code>,
+          jumpShortcut: (chunks) => <code>{chunks}</code>,
         })}
       </p>
 
