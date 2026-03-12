@@ -6716,6 +6716,22 @@ final class GhosttySurfaceScrollView: NSView {
         )
     }
 
+    struct DebugDropZoneOverlayState {
+        let isHidden: Bool
+        let frame: CGRect
+        let isAttachedToHostedView: Bool
+        let isAttachedToParentContainer: Bool
+    }
+
+    func debugDropZoneOverlayState() -> DebugDropZoneOverlayState {
+        DebugDropZoneOverlayState(
+            isHidden: dropZoneOverlayView.isHidden,
+            frame: dropZoneOverlayView.frame,
+            isAttachedToHostedView: dropZoneOverlayView.superview === self,
+            isAttachedToParentContainer: dropZoneOverlayView.superview === superview
+        )
+    }
+
     func debugHasSearchOverlay() -> Bool {
         guard let overlay = searchOverlayHostingView else { return false }
         return overlay.superview === self && !overlay.isHidden
