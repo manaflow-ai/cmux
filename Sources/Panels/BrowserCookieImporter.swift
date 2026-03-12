@@ -27,16 +27,22 @@ enum BrowserCookieImporter {
 
     // MARK: - Public API
 
+    struct ParseResult {
+        let cookies: [HTTPCookie]
+        let skipped: Int
+    }
+
     /// Parse cookies from a file's raw data. Tries JSON first, then Netscape text.
-    static func parseCookies(from data: Data) throws -> [HTTPCookie] {
-        if let cookies = parseAsJSON(data), !cookies.isEmpty {
-            return cookies
+    /// Returns both the valid cookies and a count of entries that could not be parsed.
+    static func parseCookies(from data: Data) throws -> ParseResult {
+        if let result = parseAsJSON(data), !result.cookies.isEmpty || result.skipped > 0 {
+            return result
         }
         let text = String(data: data, encoding: .utf8)
             ?? String(data: data, encoding: .isoLatin1)
             ?? ""
-        let cookies = parseNetscapeFormat(text)
-        if !cookies.isEmpty { return cookies }
+        let result = parseNetscapeFormat(text)
+        if !result.cookies.isEmpty || result.skipped > 0 { return result }
         throw ParseError.unrecognizedFormat
     }
 
@@ -44,23 +50,27 @@ enum BrowserCookieImporter {
     static func importCookies(
         _ cookies: [HTTPCookie],
         into store: WKHTTPCookieStore,
+        skipped: Int = 0,
         completion: @escaping (ImportResult) -> Void
     ) {
         guard !cookies.isEmpty else {
-            DispatchQueue.main.async { completion(ImportResult(imported: 0, skipped: 0)) }
+            DispatchQueue.main.async { completion(ImportResult(imported: 0, skipped: skipped)) }
             return
         }
         let group = DispatchGroup()
+        let lock = NSLock()
         var imported = 0
         for cookie in cookies {
             group.enter()
             store.setCookie(cookie) {
+                lock.lock()
                 imported += 1
+                lock.unlock()
                 group.leave()
             }
         }
         group.notify(queue: .main) {
-            completion(ImportResult(imported: imported, skipped: cookies.count - imported))
+            completion(ImportResult(imported: imported, skipped: skipped))
         }
     }
 
@@ -68,11 +78,20 @@ enum BrowserCookieImporter {
 
     /// Cookie-Editor format: JSON array of objects with name, value, domain, path,
     /// secure, httpOnly, expirationDate, sameSite fields.
-    private static func parseAsJSON(_ data: Data) -> [HTTPCookie]? {
+    private static func parseAsJSON(_ data: Data) -> ParseResult? {
         guard let array = (try? JSONSerialization.jsonObject(with: data)) as? [[String: Any]] else {
             return nil
         }
-        return array.compactMap { cookieFromJSONObject($0) }
+        var cookies: [HTTPCookie] = []
+        var skipped = 0
+        for obj in array {
+            if let cookie = cookieFromJSONObject(obj) {
+                cookies.append(cookie)
+            } else {
+                skipped += 1
+            }
+        }
+        return ParseResult(cookies: cookies, skipped: skipped)
     }
 
     private static func cookieFromJSONObject(_ raw: [String: Any]) -> HTTPCookie? {
@@ -99,6 +118,11 @@ enum BrowserCookieImporter {
             props[.expires] = Date(timeIntervalSince1970: ts)
         } else if let ts = expiryRaw as? Int {
             props[.expires] = Date(timeIntervalSince1970: TimeInterval(ts))
+        } else if let str = expiryRaw as? String {
+            // Some exporters encode the date as an ISO 8601 string.
+            if let date = ISO8601DateFormatter().date(from: str) {
+                props[.expires] = date
+            }
         }
 
         if let sameSite = raw["sameSite"] as? String {
@@ -120,19 +144,29 @@ enum BrowserCookieImporter {
     /// Classic Netscape/Mozilla cookie file format (used by curl, wget, etc.).
     /// Non-comment lines contain 7 tab-separated fields:
     ///   domain  includeSubdomains  path  secureFlag  expiry  name  value
-    private static func parseNetscapeFormat(_ text: String) -> [HTTPCookie] {
+    ///
+    /// Lines prefixed with `#HttpOnly_` are HttpOnly cookies, not comments.
+    /// The prefix is stripped from the domain field before parsing.
+    private static func parseNetscapeFormat(_ text: String) -> ParseResult {
+        let httpOnlyPrefix = "#HttpOnly_"
         var cookies: [HTTPCookie] = []
+        var skipped = 0
         for line in text.components(separatedBy: .newlines) {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
-            guard !trimmed.isEmpty, !trimmed.hasPrefix("#") else { continue }
-            let fields = trimmed.components(separatedBy: "\t")
-            guard fields.count >= 7 else { continue }
+            guard !trimmed.isEmpty else { continue }
+            // Lines starting with # are comments, EXCEPT for #HttpOnly_ which
+            // encodes the HttpOnly flag as a domain prefix in the Netscape format.
+            let isHttpOnly = trimmed.hasPrefix(httpOnlyPrefix)
+            if trimmed.hasPrefix("#") && !isHttpOnly { continue }
+            let content = isHttpOnly ? String(trimmed.dropFirst(httpOnlyPrefix.count)) : trimmed
+            let fields = content.components(separatedBy: "\t")
+            guard fields.count >= 7 else { skipped += 1; continue }
             let domain  = fields[0]
             let path    = fields[2]
             let secure  = fields[3].uppercased() == "TRUE"
             let name    = fields[5]
             let value   = fields[6]
-            guard !name.isEmpty else { continue }
+            guard !name.isEmpty else { skipped += 1; continue }
             var props: [HTTPCookiePropertyKey: Any] = [
                 .name: name,
                 .value: value,
@@ -140,13 +174,16 @@ enum BrowserCookieImporter {
                 .path: path,
             ]
             if secure { props[.secure] = "TRUE" }
+            if isHttpOnly { props[.comment] = "HttpOnly" }
             if let ts = TimeInterval(fields[4]), ts > 0 {
                 props[.expires] = Date(timeIntervalSince1970: ts)
             }
             if let cookie = HTTPCookie(properties: props) {
                 cookies.append(cookie)
+            } else {
+                skipped += 1
             }
         }
-        return cookies
+        return ParseResult(cookies: cookies, skipped: skipped)
     }
 }
