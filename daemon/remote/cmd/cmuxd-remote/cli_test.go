@@ -16,6 +16,33 @@ import (
 	"time"
 )
 
+func captureStdout(t *testing.T, fn func()) string {
+	t.Helper()
+	original := os.Stdout
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe stdout: %v", err)
+	}
+	os.Stdout = writer
+	defer func() {
+		os.Stdout = original
+	}()
+
+	fn()
+
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close stdout writer: %v", err)
+	}
+	output, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatalf("read stdout: %v", err)
+	}
+	if err := reader.Close(); err != nil {
+		t.Fatalf("close stdout reader: %v", err)
+	}
+	return string(output)
+}
+
 // startMockSocket creates a Unix socket that accepts one connection,
 // reads a line, and responds with the given canned response.
 func startMockSocket(t *testing.T, response string) string {
@@ -86,6 +113,46 @@ func startMockV2Socket(t *testing.T) string {
 	}()
 
 	return sockPath
+}
+
+func startMockV2TCPSocketWithResult(t *testing.T, result any) string {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to listen on TCP: %v", err)
+	}
+	t.Cleanup(func() { ln.Close() })
+
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func(conn net.Conn) {
+				defer conn.Close()
+				buf := make([]byte, 4096)
+				n, _ := conn.Read(buf)
+				if n == 0 {
+					return
+				}
+				var req map[string]any
+				if err := json.Unmarshal(buf[:n], &req); err != nil {
+					_, _ = conn.Write([]byte(`{"ok":false,"error":{"code":"parse","message":"bad json"}}` + "\n"))
+					return
+				}
+				resp := map[string]any{
+					"id":     req["id"],
+					"ok":     true,
+					"result": result,
+				}
+				payload, _ := json.Marshal(resp)
+				_, _ = conn.Write(append(payload, '\n'))
+			}(conn)
+		}
+	}()
+
+	return ln.Addr().String()
 }
 
 // startMockTCPSocket creates a TCP listener that responds with a canned response.
@@ -388,6 +455,32 @@ func TestCLIListWorkspacesV2(t *testing.T) {
 	code := runCLI([]string{"--socket", sockPath, "--json", "list-workspaces"})
 	if code != 0 {
 		t.Fatalf("list-workspaces should return 0, got %d", code)
+	}
+}
+
+func TestCLIListWorkspacesV2DefaultOutputShowsResult(t *testing.T) {
+	sockPath := startMockV2TCPSocketWithResult(t, map[string]any{"method": "workspace.list", "params": map[string]any{}})
+	output := captureStdout(t, func() {
+		code := runCLI([]string{"--socket", sockPath, "list-workspaces"})
+		if code != 0 {
+			t.Fatalf("list-workspaces should return 0, got %d", code)
+		}
+	})
+	if !strings.Contains(output, "\"method\": \"workspace.list\"") {
+		t.Fatalf("expected default output to include result payload, got %q", output)
+	}
+}
+
+func TestCLINotifyDefaultOutputPrintsOKForEmptyResult(t *testing.T) {
+	sockPath := startMockV2TCPSocketWithResult(t, map[string]any{})
+	output := captureStdout(t, func() {
+		code := runCLI([]string{"--socket", sockPath, "notify", "--body", "hi"})
+		if code != 0 {
+			t.Fatalf("notify should return 0, got %d", code)
+		}
+	})
+	if strings.TrimSpace(output) != "OK" {
+		t.Fatalf("expected empty-result command to print OK, got %q", output)
 	}
 }
 

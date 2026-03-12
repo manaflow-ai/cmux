@@ -10477,20 +10477,59 @@ private struct TabItemView: View, Equatable {
     }
 
     private var remoteStateHelpText: String {
-        let target = tab.remoteDisplayTarget ?? "remote host"
+        let target = tab.remoteDisplayTarget ?? String(
+            localized: "sidebar.remote.help.targetFallback",
+            defaultValue: "remote host"
+        )
         let detail = tab.remoteConnectionDetail?.trimmingCharacters(in: .whitespacesAndNewlines)
         switch tab.remoteConnectionState {
         case .connected:
-            return "SSH connected to \(target)"
+            return String(
+                format: String(
+                    localized: "sidebar.remote.help.connected",
+                    defaultValue: "SSH connected to %@"
+                ),
+                locale: .current,
+                target
+            )
         case .connecting:
-            return "SSH connecting to \(target)"
+            return String(
+                format: String(
+                    localized: "sidebar.remote.help.connecting",
+                    defaultValue: "SSH connecting to %@"
+                ),
+                locale: .current,
+                target
+            )
         case .error:
             if let detail, !detail.isEmpty {
-                return "SSH error for \(target): \(detail)"
+                return String(
+                    format: String(
+                        localized: "sidebar.remote.help.errorWithDetail",
+                        defaultValue: "SSH error for %@: %@"
+                    ),
+                    locale: .current,
+                    target,
+                    detail
+                )
             }
-            return "SSH error for \(target)"
+            return String(
+                format: String(
+                    localized: "sidebar.remote.help.error",
+                    defaultValue: "SSH error for %@"
+                ),
+                locale: .current,
+                target
+            )
         case .disconnected:
-            return "SSH disconnected from \(target)"
+            return String(
+                format: String(
+                    localized: "sidebar.remote.help.disconnected",
+                    defaultValue: "SSH disconnected from %@"
+                ),
+                locale: .current,
+                target
+            )
         }
     }
     private func moveWorkspaces(_ workspaceIds: [UUID], toWindow windowId: UUID) {

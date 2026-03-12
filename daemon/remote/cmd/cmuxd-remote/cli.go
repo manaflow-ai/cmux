@@ -226,7 +226,7 @@ func execV2(socketPath string, spec *commandSpec, args []string, jsonOutput bool
 	if jsonOutput {
 		fmt.Println(resp)
 	} else {
-		fmt.Println("OK")
+		fmt.Println(defaultRelayOutput(resp))
 	}
 	return 0
 }
@@ -308,9 +308,50 @@ func runBrowserRelay(socketPath string, args []string, jsonOutput bool, refreshA
 	if jsonOutput {
 		fmt.Println(resp)
 	} else {
-		fmt.Println("OK")
+		fmt.Println(defaultRelayOutput(resp))
 	}
 	return 0
+}
+
+func defaultRelayOutput(resp string) string {
+	var result any
+	if err := json.Unmarshal([]byte(resp), &result); err != nil {
+		trimmed := strings.TrimSpace(resp)
+		if trimmed == "" {
+			return "OK"
+		}
+		return trimmed
+	}
+
+	if relayResultIsEmpty(result) {
+		return "OK"
+	}
+
+	switch typed := result.(type) {
+	case string:
+		return typed
+	default:
+		encoded, err := json.MarshalIndent(typed, "", "  ")
+		if err != nil {
+			return "OK"
+		}
+		return string(encoded)
+	}
+}
+
+func relayResultIsEmpty(result any) bool {
+	switch typed := result.(type) {
+	case nil:
+		return true
+	case map[string]any:
+		return len(typed) == 0
+	case []any:
+		return len(typed) == 0
+	case string:
+		return typed == ""
+	default:
+		return false
+	}
 }
 
 // flagToParamKey maps a CLI flag name to its JSON-RPC param key.

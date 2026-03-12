@@ -19,22 +19,31 @@ enum NewWorkspacePlacement: String, CaseIterable, Identifiable {
     var displayName: String {
         switch self {
         case .top:
-            return "Top"
+            return String(localized: "workspace.placement.top", defaultValue: "Top")
         case .afterCurrent:
-            return "After current"
+            return String(localized: "workspace.placement.afterCurrent", defaultValue: "After current")
         case .end:
-            return "End"
+            return String(localized: "workspace.placement.end", defaultValue: "End")
         }
     }
 
     var description: String {
         switch self {
         case .top:
-            return "Insert new workspaces at the top of the list."
+            return String(
+                localized: "workspace.placement.top.description",
+                defaultValue: "Insert new workspaces at the top of the list."
+            )
         case .afterCurrent:
-            return "Insert new workspaces directly after the active workspace."
+            return String(
+                localized: "workspace.placement.afterCurrent.description",
+                defaultValue: "Insert new workspaces directly after the active workspace."
+            )
         case .end:
-            return "Append new workspaces to the bottom of the list."
+            return String(
+                localized: "workspace.placement.end.description",
+                defaultValue: "Append new workspaces to the bottom of the list."
+            )
         }
     }
 }
@@ -732,7 +741,7 @@ class TabManager: ObservableObject {
     }
 
     var isFindVisible: Bool {
-        selectedTerminalPanel?.searchState != nil
+        selectedTerminalPanel?.searchState != nil || focusedBrowserPanel?.searchState != nil
     }
 
     var canUseSelectionForFind: Bool {
@@ -740,13 +749,17 @@ class TabManager: ObservableObject {
     }
 
     func startSearch() {
-        guard let panel = selectedTerminalPanel else { return }
-        if panel.searchState == nil {
-            panel.searchState = TerminalSurface.SearchState()
+        if let panel = selectedTerminalPanel {
+            if panel.searchState == nil {
+                panel.searchState = TerminalSurface.SearchState()
+            }
+            NSLog("Find: startSearch workspace=%@ panel=%@", panel.workspaceId.uuidString, panel.id.uuidString)
+            NotificationCenter.default.post(name: .ghosttySearchFocus, object: panel.surface)
+            _ = panel.performBindingAction("start_search")
+            return
         }
-        NSLog("Find: startSearch workspace=%@ panel=%@", panel.workspaceId.uuidString, panel.id.uuidString)
-        NotificationCenter.default.post(name: .ghosttySearchFocus, object: panel.surface)
-        _ = panel.performBindingAction("start_search")
+
+        focusedBrowserPanel?.startFind()
     }
 
     func searchSelection() {
@@ -760,11 +773,21 @@ class TabManager: ObservableObject {
     }
 
     func findNext() {
-        _ = selectedTerminalPanel?.performBindingAction("search:next")
+        if let panel = selectedTerminalPanel {
+            _ = panel.performBindingAction("search:next")
+            return
+        }
+
+        focusedBrowserPanel?.findNext()
     }
 
     func findPrevious() {
-        _ = selectedTerminalPanel?.performBindingAction("search:previous")
+        if let panel = selectedTerminalPanel {
+            _ = panel.performBindingAction("search:previous")
+            return
+        }
+
+        focusedBrowserPanel?.findPrevious()
     }
 
     @discardableResult
@@ -774,7 +797,12 @@ class TabManager: ObservableObject {
     }
 
     func hideFind() {
-        selectedTerminalPanel?.searchState = nil
+        if let panel = selectedTerminalPanel {
+            panel.searchState = nil
+            return
+        }
+
+        focusedBrowserPanel?.hideFind()
     }
 
     @discardableResult
@@ -1234,6 +1262,7 @@ class TabManager: ObservableObject {
         sentryBreadcrumb("workspace.close", data: ["tabCount": tabs.count - 1])
 
         AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: workspace.id)
+        workspace.teardownAllPanels()
         workspace.teardownRemoteConnection()
         unwireClosedBrowserTracking(for: workspace)
 
