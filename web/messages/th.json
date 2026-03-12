@@ -1,4 +1,9 @@
 {
+  "meta": {
+    "title": "cmux — เทอร์มินัลที่สร้างมาเพื่อมัลติทาสกิ้ง",
+    "description": "เทอร์มินัล macOS ดั้งเดิมที่สร้างบน Ghostty รองรับ Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider และเครื่องมือ CLI ใดก็ได้ แท็บแนวตั้ง วงแหวนการแจ้งเตือน แผงแบ่ง และ socket API",
+    "ogDescription": "เทอร์มินัล macOS ดั้งเดิมสำหรับเอเจนต์เขียนโค้ด AI รองรับ Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider และเครื่องมือ CLI ใดก็ได้"
+  },
   "common": {
     "downloadForMac": "ดาวน์โหลดสำหรับ Mac",
     "viewOnGitHub": "ดูบน GitHub",
@@ -92,10 +97,15 @@
     "youtubeDesc": "สาธิต บทเรียน และ walkthrough",
     "linkedin": "LinkedIn",
     "linkedinAction": "ติดตามเรา",
-    "linkedinDesc": "ข่าวบริษัทและอัปเดตด้านวิศวกรรม"
+    "linkedinDesc": "ข่าวบริษัทและอัปเดตด้านวิศวกรรม",
+    "metaTitle": "ชุมชน — cmux",
+    "metaDescription": "เข้าร่วมชุมชน cmux บน Discord, Twitter, GitHub และอื่นๆ"
   },
   "blog": {
     "title": "บล็อก",
+    "layoutTitle": "cmux blog",
+    "metaTitle": "บล็อก",
+    "metaDescription": "ข่าวสารและอัปเดตจากทีม cmux",
     "description": "ข่าวสารและอัปเดตจากทีม cmux",
     "posts": {
       "cmdShiftU": {
@@ -154,9 +164,26 @@
         "featureGpuLabel": "เร่งความเร็วด้วย GPU",
         "featureGpuDesc": "ขับเคลื่อนด้วย libghostty เพื่อการเรนเดอร์ที่ลื่นไหล"
       }
+    },
+    "zenOfCmux": {
+      "metaTitle": "เซนของ cmux",
+      "metaDescription": "cmux เป็นพื้นฐาน ไม่ใช่โซลูชัน ให้ชิ้นส่วนที่ประกอบได้และเวิร์กโฟลว์ขึ้นอยู่กับคุณ"
+    },
+    "cmdShiftU": {
+      "metaTitle": "Cmd+Shift+U",
+      "metaDescription": "ทางลัดคีย์บอร์ดใหม่ที่เปลี่ยนวิธีการโต้ตอบกับ cmux"
+    },
+    "showHnLaunch": {
+      "metaTitle": "เปิดตัว cmux บน Show HN",
+      "metaDescription": "เรื่องราวการเปิดตัว cmux บน Hacker News"
+    },
+    "introducingCmux": {
+      "metaTitle": "แนะนำ cmux",
+      "metaDescription": "ทำไมเราถึงสร้าง cmux เทอร์มินัลใหม่สำหรับ macOS"
     }
   },
   "docs": {
+    "layoutTitle": "cmux docs",
     "gettingStarted": {
       "title": "เริ่มต้นใช้งาน",
       "metaDescription": "ติดตั้ง cmux เทอร์มินัล macOS เนทีฟสำหรับ AI coding agent ดาวน์โหลด Homebrew, DMG, ตั้งค่า CLI และอัปเดตอัตโนมัติผ่าน Sparkle",

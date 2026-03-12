@@ -1,4 +1,9 @@
 {
+  "meta": {
+    "title": "cmux — Terminal stworzony do wielozadaniowości",
+    "description": "Natywny terminal macOS oparty na Ghostty. Działa z Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider i dowolnym narzędziem CLI. Pionowe karty, pierścienie powiadomień, podzielone panele i API gniazd.",
+    "ogDescription": "Natywny terminal macOS dla agentów kodowania AI. Działa z Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider i dowolnym narzędziem CLI."
+  },
   "common": {
     "downloadForMac": "Pobierz na Mac",
     "viewOnGitHub": "Zobacz na GitHub",
@@ -92,10 +97,15 @@
     "youtubeDesc": "Dema, poradniki i przewodniki",
     "linkedin": "LinkedIn",
     "linkedinAction": "Obserwuj nas",
-    "linkedinDesc": "Wiadomości firmowe i aktualizacje techniczne"
+    "linkedinDesc": "Wiadomości firmowe i aktualizacje techniczne",
+    "metaTitle": "Społeczność — cmux",
+    "metaDescription": "Dołącz do społeczności cmux na Discordzie, Twitterze, GitHubie i nie tylko"
   },
   "blog": {
     "title": "Blog",
+    "layoutTitle": "cmux blog",
+    "metaTitle": "Blog",
+    "metaDescription": "Wiadomości i aktualizacje od zespołu cmux",
     "description": "Wiadomości i aktualizacje od zespołu cmux",
     "posts": {
       "cmdShiftU": {
@@ -154,9 +164,26 @@
         "featureGpuLabel": "Akceleracja GPU",
         "featureGpuDesc": "napędzany przez libghostty dla płynnego renderowania"
       }
+    },
+    "zenOfCmux": {
+      "metaTitle": "Zen cmux",
+      "metaDescription": "cmux to prymityw, nie rozwiązanie. Daje ci komponowalne elementy, a przepływ pracy zależy od ciebie."
+    },
+    "cmdShiftU": {
+      "metaTitle": "Cmd+Shift+U",
+      "metaDescription": "Nowy skrót klawiszowy, który zmienia sposób interakcji z cmux."
+    },
+    "showHnLaunch": {
+      "metaTitle": "Premiera cmux na Show HN",
+      "metaDescription": "Historia premiery cmux na Hacker News."
+    },
+    "introducingCmux": {
+      "metaTitle": "Przedstawiamy cmux",
+      "metaDescription": "Dlaczego zbudowaliśmy cmux, nowy terminal dla macOS."
     }
   },
   "docs": {
+    "layoutTitle": "cmux docs",
     "gettingStarted": {
       "title": "Szybki start",
       "metaDescription": "Zainstaluj cmux, natywny terminal macOS dla agentów kodowania AI. Homebrew, pobieranie DMG, konfiguracja CLI i automatyczne aktualizacje przez Sparkle.",

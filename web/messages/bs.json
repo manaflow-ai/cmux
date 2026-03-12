@@ -1,4 +1,9 @@
 {
+  "meta": {
+    "title": "cmux — Terminal napravljen za multitasking",
+    "description": "Nativni macOS terminal izgrađen na Ghostty. Radi s Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider i bilo kojim CLI alatom. Vertikalni tabovi, notifikacijski prstenovi, podijeljeni paneli i socket API.",
+    "ogDescription": "Nativni macOS terminal za AI agente za kodiranje. Radi s Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider i bilo kojim CLI alatom."
+  },
   "common": {
     "downloadForMac": "Preuzmi za Mac",
     "viewOnGitHub": "Pogledaj na GitHub-u",
@@ -92,10 +97,15 @@
     "youtubeDesc": "Demonstracije, tutorijali i vodiči",
     "linkedin": "LinkedIn",
     "linkedinAction": "Pratite nas",
-    "linkedinDesc": "Vijesti o kompaniji i inženjerska ažuriranja"
+    "linkedinDesc": "Vijesti o kompaniji i inženjerska ažuriranja",
+    "metaTitle": "Zajednica — cmux",
+    "metaDescription": "Pridružite se cmux zajednici na Discordu, Twitteru, GitHubu i više"
   },
   "blog": {
     "title": "Blog",
+    "layoutTitle": "cmux blog",
+    "metaTitle": "Blog",
+    "metaDescription": "Vijesti i ažuriranja od tima cmux",
     "description": "Vijesti i ažuriranja od cmux tima",
     "posts": {
       "cmdShiftU": {
@@ -154,9 +164,26 @@
         "featureGpuLabel": "GPU-ubrzano",
         "featureGpuDesc": "pokreće libghostty za glatko renderiranje"
       }
+    },
+    "zenOfCmux": {
+      "metaTitle": "Zen cmux-a",
+      "metaDescription": "cmux je primitiv, ne rješenje. Daje vam komposabilne dijelove i vaš radni tok je na vama."
+    },
+    "cmdShiftU": {
+      "metaTitle": "Cmd+Shift+U",
+      "metaDescription": "Nova prečica na tastaturi koja mijenja način interakcije s cmux-om."
+    },
+    "showHnLaunch": {
+      "metaTitle": "Lansiranje cmux-a na Show HN",
+      "metaDescription": "Priča o lansiranju cmux-a na Hacker News."
+    },
+    "introducingCmux": {
+      "metaTitle": "Predstavljamo cmux",
+      "metaDescription": "Zašto smo napravili cmux, novi terminal za macOS."
     }
   },
   "docs": {
+    "layoutTitle": "cmux docs",
     "gettingStarted": {
       "title": "Početak rada",
       "metaDescription": "Instalirajte cmux, nativni macOS terminal za AI coding agente. Homebrew, DMG preuzimanje, CLI podešavanje i automatska ažuriranja putem Sparkle-a.",

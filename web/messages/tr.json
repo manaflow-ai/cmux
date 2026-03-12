@@ -1,4 +1,9 @@
 {
+  "meta": {
+    "title": "cmux — Çoklu görev için tasarlanmış terminal",
+    "description": "Ghostty üzerine kurulu yerel macOS terminali. Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider ve herhangi bir CLI aracıyla çalışır. Dikey sekmeler, bildirim halkaları, bölünmüş paneller ve bir soket API.",
+    "ogDescription": "AI kodlama ajanları için yerel macOS terminali. Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider ve herhangi bir CLI aracıyla çalışır."
+  },
   "common": {
     "downloadForMac": "Mac için İndir",
     "viewOnGitHub": "GitHub'da Görüntüle",
@@ -92,10 +97,15 @@
     "youtubeDesc": "Demolar, öğreticiler ve incelemeler",
     "linkedin": "LinkedIn",
     "linkedinAction": "Bizi takip edin",
-    "linkedinDesc": "Şirket haberleri ve mühendislik güncellemeleri"
+    "linkedinDesc": "Şirket haberleri ve mühendislik güncellemeleri",
+    "metaTitle": "Topluluk — cmux",
+    "metaDescription": "Discord, Twitter, GitHub ve daha fazlasında cmux topluluğuna katılın"
   },
   "blog": {
     "title": "Blog",
+    "layoutTitle": "cmux blog",
+    "metaTitle": "Blog",
+    "metaDescription": "cmux ekibinden haberler ve güncellemeler",
     "description": "cmux ekibinden haberler ve güncellemeler",
     "posts": {
       "cmdShiftU": {
@@ -154,9 +164,26 @@
         "featureGpuLabel": "GPU hızlandırmalı",
         "featureGpuDesc": "akıcı işleme için libghostty tarafından desteklenir"
       }
+    },
+    "zenOfCmux": {
+      "metaTitle": "cmux'un Zeni",
+      "metaDescription": "cmux bir çözüm değil, bir ilkeldir. Size birleştirilebilir parçalar verir ve iş akışınız size bağlıdır."
+    },
+    "cmdShiftU": {
+      "metaTitle": "Cmd+Shift+U",
+      "metaDescription": "cmux ile etkileşim şeklinizi değiştiren yeni klavye kısayolu."
+    },
+    "showHnLaunch": {
+      "metaTitle": "cmux Show HN'de",
+      "metaDescription": "cmux'un Hacker News'da lansmanının hikayesi."
+    },
+    "introducingCmux": {
+      "metaTitle": "cmux'u tanıtıyoruz",
+      "metaDescription": "macOS için yeni bir terminal olan cmux'u neden geliştirdik."
     }
   },
   "docs": {
+    "layoutTitle": "cmux docs",
     "gettingStarted": {
       "title": "Başlarken",
       "metaDescription": "AI kodlama ajanları için yerel macOS terminali cmux'u kurun. Homebrew, DMG indirme, CLI kurulumu ve Sparkle ile otomatik güncellemeler.",

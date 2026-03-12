@@ -1,4 +1,9 @@
 {
+  "meta": {
+    "title": "cmux — La terminal diseñada para multitarea",
+    "description": "Terminal nativa de macOS basada en Ghostty. Funciona con Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider y cualquier herramienta CLI. Pestañas verticales, anillos de notificación, paneles divididos y una API de socket.",
+    "ogDescription": "Terminal nativa de macOS para agentes de código IA. Funciona con Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider y cualquier herramienta CLI."
+  },
   "common": {
     "downloadForMac": "Descargar para Mac",
     "viewOnGitHub": "Ver en GitHub",
@@ -92,10 +97,15 @@
     "youtubeDesc": "Demos, tutoriales y guías paso a paso",
     "linkedin": "LinkedIn",
     "linkedinAction": "Síganos",
-    "linkedinDesc": "Noticias de la empresa y actualizaciones de ingeniería"
+    "linkedinDesc": "Noticias de la empresa y actualizaciones de ingeniería",
+    "metaTitle": "Comunidad — cmux",
+    "metaDescription": "Únete a la comunidad de cmux en Discord, Twitter, GitHub y más"
   },
   "blog": {
     "title": "Blog",
+    "layoutTitle": "cmux blog",
+    "metaTitle": "Blog",
+    "metaDescription": "Noticias y novedades del equipo de cmux",
     "description": "Noticias y actualizaciones del equipo de cmux",
     "posts": {
       "cmdShiftU": {
@@ -154,9 +164,26 @@
         "featureGpuLabel": "Aceleración por GPU",
         "featureGpuDesc": "impulsado por libghostty para un renderizado fluido"
       }
+    },
+    "zenOfCmux": {
+      "metaTitle": "El Zen de cmux",
+      "metaDescription": "cmux es una primitiva, no una solución. Te da piezas componibles y tu flujo de trabajo depende de ti."
+    },
+    "cmdShiftU": {
+      "metaTitle": "Cmd+Shift+U",
+      "metaDescription": "El nuevo atajo de teclado que cambia cómo interactúas con cmux."
+    },
+    "showHnLaunch": {
+      "metaTitle": "Lanzamiento de cmux en Show HN",
+      "metaDescription": "La historia del lanzamiento de cmux en Hacker News."
+    },
+    "introducingCmux": {
+      "metaTitle": "Presentamos cmux",
+      "metaDescription": "Por qué construimos cmux, una nueva terminal para macOS."
     }
   },
   "docs": {
+    "layoutTitle": "cmux docs",
     "gettingStarted": {
       "title": "Primeros pasos",
       "metaDescription": "Instale cmux, la terminal nativa de macOS para agentes de programación con IA. Homebrew, descarga DMG, configuración de CLI y actualizaciones automáticas vía Sparkle.",

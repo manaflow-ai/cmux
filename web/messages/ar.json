@@ -1,4 +1,9 @@
 {
+  "meta": {
+    "title": "cmux — المحطة الطرفية المصممة لتعدد المهام",
+    "description": "محطة طرفية أصلية لنظام macOS مبنية على Ghostty. تعمل مع Claude Code وCodex وOpenCode وGemini CLI وKiro وAider وأي أداة CLI. علامات تبويب عمودية، حلقات إشعارات، أجزاء مقسمة، وواجهة برمجة مقابس.",
+    "ogDescription": "محطة طرفية أصلية لنظام macOS لوكلاء البرمجة بالذكاء الاصطناعي. تعمل مع Claude Code وCodex وOpenCode وGemini CLI وKiro وAider وأي أداة CLI."
+  },
   "common": {
     "downloadForMac": "تحميل لنظام Mac",
     "viewOnGitHub": "عرض على GitHub",
@@ -92,10 +97,15 @@
     "youtubeDesc": "عروض توضيحية ودروس وشروحات",
     "linkedin": "LinkedIn",
     "linkedinAction": "تابعنا",
-    "linkedinDesc": "أخبار الشركة وتحديثات هندسية"
+    "linkedinDesc": "أخبار الشركة وتحديثات هندسية",
+    "metaTitle": "المجتمع — cmux",
+    "metaDescription": "انضم إلى مجتمع cmux على Discord وTwitter وGitHub والمزيد"
   },
   "blog": {
     "title": "المدونة",
+    "layoutTitle": "cmux blog",
+    "metaTitle": "المدونة",
+    "metaDescription": "أخبار وتحديثات من فريق cmux",
     "description": "أخبار وتحديثات من فريق cmux",
     "posts": {
       "cmdShiftU": {
@@ -154,9 +164,26 @@
         "featureGpuLabel": "مُسرّع بالـ GPU",
         "featureGpuDesc": "مدعوم بـ libghostty لعرض سلس"
       }
+    },
+    "zenOfCmux": {
+      "metaTitle": "فلسفة cmux",
+      "metaDescription": "cmux أداة أساسية وليست حلاً. تمنحك قطعاً قابلة للتركيب وسير العمل متروك لك."
+    },
+    "cmdShiftU": {
+      "metaTitle": "Cmd+Shift+U",
+      "metaDescription": "اختصار لوحة المفاتيح الجديد الذي يغير طريقة تفاعلك مع cmux."
+    },
+    "showHnLaunch": {
+      "metaTitle": "إطلاق cmux على Show HN",
+      "metaDescription": "قصة إطلاق cmux على Hacker News."
+    },
+    "introducingCmux": {
+      "metaTitle": "تقديم cmux",
+      "metaDescription": "لماذا بنينا cmux، محطة طرفية جديدة لنظام macOS."
     }
   },
   "docs": {
+    "layoutTitle": "cmux docs",
     "gettingStarted": {
       "title": "البدء",
       "metaDescription": "ثبت cmux، طرفية macOS الأصلية لوكلاء البرمجة بالذكاء الاصطناعي. Homebrew، تحميل DMG، إعداد واجهة الأوامر، والتحديثات التلقائية عبر Sparkle.",

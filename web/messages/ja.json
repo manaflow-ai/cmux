@@ -1,4 +1,9 @@
 {
+  "meta": {
+    "title": "cmux — マルチタスクのために作られたターミナル",
+    "description": "Ghosttyベースのネイティブ macOS ターミナル。Claude Code、Codex、OpenCode、Gemini CLI、Kiro、Aider、あらゆるCLIツールに対応。垂直タブ、通知リング、分割ペイン、ソケットAPI搭載。",
+    "ogDescription": "AIコーディングエージェント向けネイティブ macOS ターミナル。Claude Code、Codex、OpenCode、Gemini CLI、Kiro、Aider、あらゆるCLIツールに対応。"
+  },
   "common": {
     "downloadForMac": "Mac版をダウンロード",
     "viewOnGitHub": "GitHubで見る",
@@ -92,10 +97,15 @@
     "youtubeDesc": "デモ、チュートリアル、ウォークスルー",
     "linkedin": "LinkedIn",
     "linkedinAction": "フォローする",
-    "linkedinDesc": "企業ニュースとエンジニアリングの最新情報"
+    "linkedinDesc": "企業ニュースとエンジニアリングの最新情報",
+    "metaTitle": "コミュニティ — cmux",
+    "metaDescription": "Discord、Twitter、GitHubなどでcmuxコミュニティに参加"
   },
   "blog": {
     "title": "ブログ",
+    "layoutTitle": "cmux blog",
+    "metaTitle": "ブログ",
+    "metaDescription": "cmuxチームからのニュースとアップデート",
     "description": "cmuxチームからのニュースとアップデート",
     "posts": {
       "cmdShiftU": {
@@ -154,9 +164,26 @@
         "getStartedTitle": "はじめに",
         "getStartedP": "Homebrewでインストールするか、<link>はじめにガイド</link>からDMGをダウンロードしてください。"
       }
+    },
+    "zenOfCmux": {
+      "metaTitle": "cmuxの禅",
+      "metaDescription": "cmuxはソリューションではなくプリミティブ。組み合わせ可能なパーツを提供し、ワークフローはあなた次第。"
+    },
+    "cmdShiftU": {
+      "metaTitle": "Cmd+Shift+U",
+      "metaDescription": "cmuxとの操作方法を変える新しいキーボードショートカット。"
+    },
+    "showHnLaunch": {
+      "metaTitle": "Show HNでcmuxをローンチ",
+      "metaDescription": "Hacker Newsでcmuxをローンチした話。"
+    },
+    "introducingCmux": {
+      "metaTitle": "cmuxのご紹介",
+      "metaDescription": "macOS向け新ターミナル、cmuxを作った理由。"
     }
   },
   "docs": {
+    "layoutTitle": "cmux docs",
     "gettingStarted": {
       "title": "はじめに",
       "metaDescription": "AIコーディングエージェント向けネイティブmacOSターミナル、cmuxのインストール方法。Homebrew、DMGダウンロード、CLIセットアップ、Sparkle経由の自動更新。",

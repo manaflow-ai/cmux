@@ -1,4 +1,9 @@
 {
+  "meta": {
+    "title": "cmux — 멀티태스킹을 위해 만든 터미널",
+    "description": "Ghostty 기반 네이티브 macOS 터미널. Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider 등 모든 CLI 도구와 호환. 세로 탭, 알림 링, 분할 패널, 소켓 API 지원.",
+    "ogDescription": "AI 코딩 에이전트를 위한 네이티브 macOS 터미널. Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider 등 모든 CLI 도구와 호환."
+  },
   "common": {
     "downloadForMac": "Mac용 다운로드",
     "viewOnGitHub": "GitHub에서 보기",
@@ -92,10 +97,15 @@
     "youtubeDesc": "데모, 튜토리얼, 워크스루",
     "linkedin": "LinkedIn",
     "linkedinAction": "팔로우하기",
-    "linkedinDesc": "회사 소식 및 엔지니어링 업데이트"
+    "linkedinDesc": "회사 소식 및 엔지니어링 업데이트",
+    "metaTitle": "커뮤니티 — cmux",
+    "metaDescription": "Discord, Twitter, GitHub 등에서 cmux 커뮤니티에 참여하세요"
   },
   "blog": {
     "title": "블로그",
+    "layoutTitle": "cmux blog",
+    "metaTitle": "블로그",
+    "metaDescription": "cmux 팀의 뉴스와 업데이트",
     "description": "cmux 팀의 뉴스와 업데이트",
     "posts": {
       "cmdShiftU": {
@@ -154,9 +164,26 @@
         "featureGpuLabel": "GPU 가속",
         "featureGpuDesc": "libghostty로 부드러운 렌더링"
       }
+    },
+    "zenOfCmux": {
+      "metaTitle": "cmux의 선",
+      "metaDescription": "cmux는 솔루션이 아닌 프리미티브입니다. 조합 가능한 조각을 제공하며 워크플로는 여러분에게 달려 있습니다."
+    },
+    "cmdShiftU": {
+      "metaTitle": "Cmd+Shift+U",
+      "metaDescription": "cmux와의 상호작용을 바꾸는 새로운 키보드 단축키."
+    },
+    "showHnLaunch": {
+      "metaTitle": "Show HN에서 cmux 출시",
+      "metaDescription": "Hacker News에서 cmux를 출시한 이야기."
+    },
+    "introducingCmux": {
+      "metaTitle": "cmux를 소개합니다",
+      "metaDescription": "macOS용 새 터미널 cmux를 만든 이유."
     }
   },
   "docs": {
+    "layoutTitle": "cmux docs",
     "gettingStarted": {
       "title": "시작하기",
       "metaDescription": "AI 코딩 에이전트를 위한 네이티브 macOS 터미널 cmux를 설치하세요. Homebrew, DMG 다운로드, CLI 설정, Sparkle을 통한 자동 업데이트.",

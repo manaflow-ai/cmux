@@ -1,4 +1,9 @@
 {
+  "meta": {
+    "title": "cmux — Terminalen bygget til multitasking",
+    "description": "Nativ macOS-terminal bygget på Ghostty. Fungerer med Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider og ethvert CLI-værktøj. Lodrette faner, notifikationsringe, delte paneler og en socket-API.",
+    "ogDescription": "Nativ macOS-terminal til AI-kodningsagenter. Fungerer med Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider og ethvert CLI-værktøj."
+  },
   "common": {
     "downloadForMac": "Download til Mac",
     "viewOnGitHub": "Se på GitHub",
@@ -92,10 +97,15 @@
     "youtubeDesc": "Demoer, vejledninger og gennemgange",
     "linkedin": "LinkedIn",
     "linkedinAction": "Følg os",
-    "linkedinDesc": "Virksomhedsnyheder og tekniske opdateringer"
+    "linkedinDesc": "Virksomhedsnyheder og tekniske opdateringer",
+    "metaTitle": "Fællesskab — cmux",
+    "metaDescription": "Bliv en del af cmux-fællesskabet på Discord, Twitter, GitHub og mere"
   },
   "blog": {
     "title": "Blog",
+    "layoutTitle": "cmux blog",
+    "metaTitle": "Blog",
+    "metaDescription": "Nyheder og opdateringer fra cmux-teamet",
     "description": "Nyheder og opdateringer fra cmux-teamet",
     "posts": {
       "cmdShiftU": {
@@ -154,9 +164,26 @@
         "featureGpuLabel": "GPU-accelereret",
         "featureGpuDesc": "drevet af libghostty for jævn rendering"
       }
+    },
+    "zenOfCmux": {
+      "metaTitle": "Zen i cmux",
+      "metaDescription": "cmux er en primitiv, ikke en løsning. Det giver dig sammensættelige dele, og dit workflow er op til dig."
+    },
+    "cmdShiftU": {
+      "metaTitle": "Cmd+Shift+U",
+      "metaDescription": "Den nye tastaturgenvej, der ændrer din interaktion med cmux."
+    },
+    "showHnLaunch": {
+      "metaTitle": "Lancering af cmux på Show HN",
+      "metaDescription": "Historien om lanceringen af cmux på Hacker News."
+    },
+    "introducingCmux": {
+      "metaTitle": "Vi præsenterer cmux",
+      "metaDescription": "Hvorfor vi byggede cmux, en ny terminal til macOS."
     }
   },
   "docs": {
+    "layoutTitle": "cmux docs",
     "gettingStarted": {
       "title": "Kom i gang",
       "metaDescription": "Installér cmux, den native macOS-terminal til AI-kodningsagenter. Homebrew, DMG-download, CLI-opsætning og automatiske opdateringer via Sparkle.",

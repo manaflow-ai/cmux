@@ -1,4 +1,9 @@
 {
+  "meta": {
+    "title": "cmux — 专为多任务打造的终端",
+    "description": "基于 Ghostty 的原生 macOS 终端。支持 Claude Code、Codex、OpenCode、Gemini CLI、Kiro、Aider 及任何 CLI 工具。垂直标签页、通知环、分割面板和 socket API。",
+    "ogDescription": "面向 AI 编程 agent 的原生 macOS 终端。支持 Claude Code、Codex、OpenCode、Gemini CLI、Kiro、Aider 及任何 CLI 工具。"
+  },
   "common": {
     "downloadForMac": "下载 Mac 版",
     "viewOnGitHub": "在 GitHub 上查看",
@@ -92,10 +97,15 @@
     "youtubeDesc": "演示、教程和使用指南",
     "linkedin": "LinkedIn",
     "linkedinAction": "关注我们",
-    "linkedinDesc": "公司动态和工程更新"
+    "linkedinDesc": "公司动态和工程更新",
+    "metaTitle": "社区 — cmux",
+    "metaDescription": "在 Discord、Twitter、GitHub 等平台加入 cmux 社区"
   },
   "blog": {
     "title": "博客",
+    "layoutTitle": "cmux blog",
+    "metaTitle": "博客",
+    "metaDescription": "cmux 团队的新闻和更新",
     "description": "来自 cmux 团队的新闻和更新",
     "posts": {
       "cmdShiftU": {
@@ -154,9 +164,26 @@
         "featureGpuLabel": "GPU 加速",
         "featureGpuDesc": "由 libghostty 驱动，渲染流畅"
       }
+    },
+    "zenOfCmux": {
+      "metaTitle": "cmux 之禅",
+      "metaDescription": "cmux 是原语而非解决方案。它提供可组合的部件，工作流由你决定。"
+    },
+    "cmdShiftU": {
+      "metaTitle": "Cmd+Shift+U",
+      "metaDescription": "改变你与 cmux 交互方式的新键盘快捷键。"
+    },
+    "showHnLaunch": {
+      "metaTitle": "在 Show HN 上发布 cmux",
+      "metaDescription": "在 Hacker News 上发布 cmux 的故事。"
+    },
+    "introducingCmux": {
+      "metaTitle": "cmux 介绍",
+      "metaDescription": "我们为什么要做 cmux，一个全新的 macOS 终端。"
     }
   },
   "docs": {
+    "layoutTitle": "cmux docs",
     "gettingStarted": {
       "title": "入门指南",
       "metaDescription": "安装 cmux，专为 AI coding agent 打造的原生 macOS 终端。支持 Homebrew、DMG 下载、CLI 设置和 Sparkle 自动更新。",
