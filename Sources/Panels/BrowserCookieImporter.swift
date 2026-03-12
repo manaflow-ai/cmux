@@ -57,20 +57,18 @@ enum BrowserCookieImporter {
             DispatchQueue.main.async { completion(ImportResult(imported: 0, skipped: skipped)) }
             return
         }
+        // WKHTTPCookieStore.setCookie always calls its completion handler — it
+        // provides no success/failure signal — so every cookie we submit counts
+        // as imported. Track the total before entering any callbacks to avoid
+        // any risk of unsynchronized mutation.
+        let total = cookies.count
         let group = DispatchGroup()
-        let lock = NSLock()
-        var imported = 0
         for cookie in cookies {
             group.enter()
-            store.setCookie(cookie) {
-                lock.lock()
-                imported += 1
-                lock.unlock()
-                group.leave()
-            }
+            store.setCookie(cookie) { group.leave() }
         }
         group.notify(queue: .main) {
-            completion(ImportResult(imported: imported, skipped: skipped))
+            completion(ImportResult(imported: total, skipped: skipped))
         }
     }
 
