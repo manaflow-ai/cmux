@@ -5648,8 +5648,12 @@ final class GhosttySurfaceScrollView: NSView {
     private var lastDropZoneOverlayLogSignature: String?
     private var lastDragGeometryLogSignature: String?
     private var dragLayoutLogSequence: UInt64 = 0
+    /// Surface UUID captured at init time so deinit cleanup is unconditional
+    /// (the weak `terminalSurface` ref may already be nil by then).
+    private let debugStoredSurfaceId: UUID?
     private static let tabTransferPasteboardType = NSPasteboard.PasteboardType("com.splittabbar.tabtransfer")
     private static let sidebarTabReorderPasteboardType = NSPasteboard.PasteboardType("com.cmux.sidebar-tab-reorder")
+    private static var debugDictLock = os_unfair_lock()
     private static var flashCounts: [UUID: Int] = [:]
     private static var drawCounts: [UUID: Int] = [:]
     private static var lastDrawTimes: [UUID: CFTimeInterval] = [:]
@@ -5659,27 +5663,39 @@ final class GhosttySurfaceScrollView: NSView {
     private static var lastContentsKeys: [UUID: String] = [:]
 
     static func flashCount(for surfaceId: UUID) -> Int {
-        flashCounts[surfaceId, default: 0]
+        os_unfair_lock_lock(&debugDictLock)
+        defer { os_unfair_lock_unlock(&debugDictLock) }
+        return flashCounts[surfaceId, default: 0]
     }
 
     static func resetFlashCounts() {
+        os_unfair_lock_lock(&debugDictLock)
+        defer { os_unfair_lock_unlock(&debugDictLock) }
         flashCounts.removeAll()
     }
 
     private static func recordFlash(for surfaceId: UUID) {
+        os_unfair_lock_lock(&debugDictLock)
+        defer { os_unfair_lock_unlock(&debugDictLock) }
         flashCounts[surfaceId, default: 0] += 1
     }
 
     static func drawStats(for surfaceId: UUID) -> (count: Int, last: CFTimeInterval) {
-        (drawCounts[surfaceId, default: 0], lastDrawTimes[surfaceId, default: 0])
+        os_unfair_lock_lock(&debugDictLock)
+        defer { os_unfair_lock_unlock(&debugDictLock) }
+        return (drawCounts[surfaceId, default: 0], lastDrawTimes[surfaceId, default: 0])
     }
 
     static func resetDrawStats() {
+        os_unfair_lock_lock(&debugDictLock)
+        defer { os_unfair_lock_unlock(&debugDictLock) }
         drawCounts.removeAll()
         lastDrawTimes.removeAll()
     }
 
     static func recordSurfaceDraw(_ surfaceId: UUID) {
+        os_unfair_lock_lock(&debugDictLock)
+        defer { os_unfair_lock_unlock(&debugDictLock) }
         drawCounts[surfaceId, default: 0] += 1
         lastDrawTimes[surfaceId] = CACurrentMediaTime()
     }
@@ -5711,6 +5727,8 @@ final class GhosttySurfaceScrollView: NSView {
 
     private static func updatePresentStats(surfaceId: UUID, layer: CALayer?) -> (count: Int, last: CFTimeInterval, key: String) {
         let key = contentsKey(for: layer)
+        os_unfair_lock_lock(&debugDictLock)
+        defer { os_unfair_lock_unlock(&debugDictLock) }
         if lastContentsKeys[surfaceId] != key {
             presentCounts[surfaceId, default: 0] += 1
             lastPresentTimes[surfaceId] = CACurrentMediaTime()
@@ -5721,12 +5739,16 @@ final class GhosttySurfaceScrollView: NSView {
 
     private func recordDropOverlayShowAnimation() {
         guard let surfaceId = surfaceView.terminalSurface?.id else { return }
+        os_unfair_lock_lock(&Self.debugDictLock)
+        defer { os_unfair_lock_unlock(&Self.debugDictLock) }
         Self.dropOverlayShowCounts[surfaceId, default: 0] += 1
     }
 
     /// Remove all debug counters associated with a specific surface to prevent
     /// unbounded growth of the static dictionaries over long-running sessions.
     static func removeDebugCounters(for surfaceId: UUID) {
+        os_unfair_lock_lock(&debugDictLock)
+        defer { os_unfair_lock_unlock(&debugDictLock) }
         flashCounts.removeValue(forKey: surfaceId)
         drawCounts.removeValue(forKey: surfaceId)
         lastDrawTimes.removeValue(forKey: surfaceId)
@@ -5741,7 +5763,11 @@ final class GhosttySurfaceScrollView: NSView {
             return (0, 0, bounds.size)
         }
 
-        let before = Self.dropOverlayShowCounts[surfaceId, default: 0]
+        let before: Int = {
+            os_unfair_lock_lock(&Self.debugDictLock)
+            defer { os_unfair_lock_unlock(&Self.debugDictLock) }
+            return Self.dropOverlayShowCounts[surfaceId, default: 0]
+        }()
 
         // Reset to a hidden baseline so each probe exercises an initial-show transition.
         dropZoneOverlayAnimationGeneration &+= 1
@@ -5758,7 +5784,11 @@ final class GhosttySurfaceScrollView: NSView {
             setDropZoneOverlay(zone: .left)
         }
 
-        let after = Self.dropOverlayShowCounts[surfaceId, default: 0]
+        let after: Int = {
+            os_unfair_lock_lock(&Self.debugDictLock)
+            defer { os_unfair_lock_unlock(&Self.debugDictLock) }
+            return Self.dropOverlayShowCounts[surfaceId, default: 0]
+        }()
         setDropZoneOverlay(zone: nil)
         return (before, after, bounds.size)
     }
@@ -5796,6 +5826,9 @@ final class GhosttySurfaceScrollView: NSView {
 
     init(surfaceView: GhosttyNSView) {
         self.surfaceView = surfaceView
+#if DEBUG
+        self.debugStoredSurfaceId = surfaceView.terminalSurface?.id
+#endif
         backgroundView = NSView(frame: .zero)
         scrollView = GhosttyScrollView()
         inactiveOverlayView = GhosttyFlashOverlayView(frame: .zero)
@@ -6008,7 +6041,7 @@ final class GhosttySurfaceScrollView: NSView {
 
     deinit {
 #if DEBUG
-        let surfaceId = debugSurfaceId
+        let surfaceId = debugStoredSurfaceId
         dlog(
             "surface.hosted.deinit surface=\(surfaceId?.uuidString.prefix(5) ?? "nil") " +
             "inWindow=\(window != nil ? 1 : 0) hasSuperview=\(superview != nil ? 1 : 0) " +
