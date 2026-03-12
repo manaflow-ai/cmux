@@ -718,6 +718,9 @@ final class WorkspaceRemoteDaemonPendingCallRegistry {
             queue.sync {
                 pendingCalls.removeValue(forKey: call.id)
             }
+            // A response can win the race immediately before timeout cleanup removes the call.
+            // Drain any late signal so DispatchSemaphore is not deallocated with a positive count.
+            _ = call.semaphore.wait(timeout: .now())
             return .timedOut
         }
 
