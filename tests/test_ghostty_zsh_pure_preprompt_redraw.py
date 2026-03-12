@@ -99,7 +99,8 @@ def _capture_session(*, use_ghostty: bool, wrapper_dir: Path, resources_dir: Pat
         env = dict(os.environ)
         env["HOME"] = str(home)
         env["TERM"] = "xterm-256color"
-        env["PATH"] = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+        env.pop("GHOSTTY_SHELL_FEATURES", None)
+        env.pop("GHOSTTY_BIN_DIR", None)
         if use_ghostty:
             env["ZDOTDIR"] = str(wrapper_dir)
             env["GHOSTTY_ZSH_ZDOTDIR"] = str(home)

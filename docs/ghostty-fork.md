@@ -71,7 +71,16 @@ section 3 copy-mode commit, even though the section 4 resize commits were applie
   - Emits one `OSC 133;A` fresh-prompt mark for real prompt transitions.
   - Uses `OSC 133;P` markers for prompt redraws so async zsh themes do not look like extra prompt lines.
 
-The fork branch HEAD is now the section 5 zsh redraw commit.
+### 6) zsh Pure-style multiline prompt redraws
+
+- Commit: `0cf559581` (zsh: fix Pure-style multiline prompt redraws)
+- Files:
+  - `src/shell-integration/zsh/ghostty-integration`
+- Summary:
+  - Handles multiline prompts that use `\n%{\r%}` to return to column 0 before the visible prompt line.
+  - Places the continuation marker after Pure's hidden carriage return so async redraws do not leave stale preprompt lines behind.
+
+The fork branch HEAD is now the section 6 zsh redraw commit.
 
 ## Upstreamed fork changes
 
@@ -93,6 +102,7 @@ These files change frequently upstream; be careful when rebasing the fork:
 
 - `src/shell-integration/zsh/ghostty-integration`
   - Prompt marker handling is easy to regress when upstream adjusts zsh redraw behavior. Keep the
-    `OSC 133;A` vs `OSC 133;P` split intact for redraw-heavy themes.
+    `OSC 133;A` vs `OSC 133;P` split intact for redraw-heavy themes, and preserve the special
+    handling for Pure-style `\n%{\r%}` prompt newlines.
 
 If you resolve a conflict, update this doc with what changed.
