@@ -3038,6 +3038,93 @@ enum TelemetrySettings {
     static let enabledForCurrentLaunch = isEnabled()
 }
 
+/// Returns true when `query` matches any of the provided `terms`.
+/// An empty query always returns true (show all). Matching is case-insensitive substring search.
+func settingsSectionMatches(query: String, terms: [String]) -> Bool {
+    guard !query.isEmpty else { return true }
+    let q = query.trimmingCharacters(in: .whitespaces).lowercased()
+    return terms.contains { $0.lowercased().contains(q) }
+}
+
+/// The six sections of the Settings window and the localized terms that describe them.
+/// Terms mirror the exact labels shown in the UI so search works in every supported language.
+enum SettingsSection: CaseIterable {
+    case app, workspaceColors, automation, browser, keyboardShortcuts, reset
+
+    var searchTerms: [String] {
+        switch self {
+        case .app:
+            return [
+                String(localized: "settings.section.app", defaultValue: "App"),
+                String(localized: "settings.app.theme", defaultValue: "Theme"),
+                String(localized: "settings.app.language", defaultValue: "Language"),
+                String(localized: "settings.app.appIcon", defaultValue: "App Icon"),
+                String(localized: "settings.app.newWorkspacePlacement", defaultValue: "New Workspace Placement"),
+                String(localized: "settings.app.reorderOnNotification", defaultValue: "Reorder on Notification"),
+                String(localized: "settings.app.dockBadge", defaultValue: "Dock Badge"),
+                String(localized: "settings.notifications.sound.title", defaultValue: "Notification Sound"),
+                String(localized: "settings.app.telemetry", defaultValue: "Send anonymous telemetry"),
+                String(localized: "settings.app.warnBeforeQuit", defaultValue: "Warn Before Quit"),
+                String(localized: "settings.app.renameSelectsName", defaultValue: "Rename Selects Existing Name"),
+                String(localized: "settings.app.sidebarBranchLayout", defaultValue: "Sidebar Branch Layout"),
+                String(localized: "settings.app.showBranchDirectory", defaultValue: "Show Branch + Directory in Sidebar"),
+                String(localized: "settings.app.showPullRequests", defaultValue: "Show Pull Requests in Sidebar"),
+                String(localized: "settings.app.openSidebarPRLinks", defaultValue: "Open Sidebar PR Links in cmux Browser"),
+                String(localized: "settings.app.showPorts", defaultValue: "Show Listening Ports in Sidebar"),
+                String(localized: "settings.app.showLog", defaultValue: "Show Latest Log in Sidebar"),
+                String(localized: "settings.app.showProgress", defaultValue: "Show Progress in Sidebar"),
+                String(localized: "settings.app.showMetadata", defaultValue: "Show Custom Metadata in Sidebar"),
+                "Desktop Notifications",
+                "Notification Command",
+                String(localized: "settings.app.closeWorkspaceOnLastSurfaceShortcut", defaultValue: "Closing Last Surface Closes Workspace"),
+                String(localized: "settings.app.showInMenuBar", defaultValue: "Show in Menu Bar"),
+                String(localized: "settings.notifications.paneRing.title", defaultValue: "Unread Pane Ring"),
+                String(localized: "settings.notifications.paneFlash.title", defaultValue: "Pane Flash"),
+                String(localized: "settings.app.hideAllSidebarDetails", defaultValue: "Hide All Sidebar Details"),
+                String(localized: "settings.app.showNotificationMessage", defaultValue: "Show Notification Message in Sidebar"),
+            ]
+        case .workspaceColors:
+            return [
+                String(localized: "settings.section.workspaceColors", defaultValue: "Workspace Colors"),
+                String(localized: "settings.workspaceColors.indicator", defaultValue: "Workspace Color Indicator"),
+                String(localized: "settings.workspaceColors.resetPalette", defaultValue: "Reset Palette"),
+            ]
+        case .automation:
+            return [
+                String(localized: "settings.section.automation", defaultValue: "Automation"),
+                String(localized: "settings.automation.socketMode", defaultValue: "Socket Control Mode"),
+                String(localized: "settings.automation.socketPassword", defaultValue: "Socket Password"),
+                String(localized: "settings.automation.claudeCode", defaultValue: "Claude Code Integration"),
+                String(localized: "settings.automation.portBase", defaultValue: "Port Base"),
+                String(localized: "settings.automation.portRange", defaultValue: "Port Range Size"),
+            ]
+        case .browser:
+            return [
+                String(localized: "settings.section.browser", defaultValue: "Browser"),
+                String(localized: "settings.browser.searchEngine", defaultValue: "Default Search Engine"),
+                String(localized: "settings.browser.searchSuggestions", defaultValue: "Show Search Suggestions"),
+                String(localized: "settings.browser.theme", defaultValue: "Browser Theme"),
+                String(localized: "settings.browser.openTerminalLinks", defaultValue: "Open Terminal Links in cmux Browser"),
+                String(localized: "settings.browser.interceptOpen", defaultValue: "Intercept open http(s) in Terminal"),
+                String(localized: "settings.browser.hostWhitelist", defaultValue: "Hosts to Open in Embedded Browser"),
+                String(localized: "settings.browser.externalPatterns", defaultValue: "URLs to Always Open Externally"),
+                String(localized: "settings.browser.httpAllowlist", defaultValue: "HTTP Hosts Allowed in Embedded Browser"),
+                String(localized: "settings.browser.history", defaultValue: "Browsing History"),
+            ]
+        case .keyboardShortcuts:
+            return [
+                String(localized: "settings.section.keyboardShortcuts", defaultValue: "Keyboard Shortcuts"),
+                String(localized: "settings.shortcuts.showHints", defaultValue: "Show Cmd/Ctrl-Hold Shortcut Hints"),
+            ] + KeyboardShortcutSettings.Action.allCases.map { $0.label }
+        case .reset:
+            return [
+                String(localized: "settings.section.reset", defaultValue: "Reset"),
+                String(localized: "settings.reset.resetAll", defaultValue: "Reset All Settings"),
+            ]
+        }
+    }
+}
+
 struct SettingsView: View {
     private let contentTopInset: CGFloat = 8
     private let pickerColumnWidth: CGFloat = 196
@@ -3119,6 +3206,9 @@ struct SettingsView: View {
     @State private var isResettingSettings = false
     @State private var workspaceTabDefaultEntries = WorkspaceTabColorSettings.defaultPaletteWithOverrides()
     @State private var workspaceTabCustomColors = WorkspaceTabColorSettings.customColors()
+    @State private var searchQuery = ""
+    @State private var debouncedSearchQuery = ""
+    @State private var searchDebounceTask: Task<Void, Never>?
 
     private var selectedWorkspacePlacement: NewWorkspacePlacement {
         NewWorkspacePlacement(rawValue: newWorkspacePlacement) ?? WorkspacePlacementSettings.defaultPlacement
@@ -3271,6 +3361,10 @@ struct SettingsView: View {
         guard let baseline = topBlurBaselineOffset else { return 0 }
         let reveal = (baseline - offset) / 24
         return Double(min(max(reveal, 0), 1))
+    }
+
+    private func sectionVisible(_ section: SettingsSection) -> Bool {
+        settingsSectionMatches(query: debouncedSearchQuery, terms: section.searchTerms)
     }
 
     private func previewNotificationSound() {
@@ -3435,418 +3529,425 @@ struct SettingsView: View {
         }
     }
 
+    @ViewBuilder private var appSectionContent: some View {
+        SettingsSectionHeader(title: String(localized: "settings.section.app", defaultValue: "App"))
+        SettingsCard {
+            SettingsCardRow(
+                String(localized: "settings.app.language", defaultValue: "Language"),
+                subtitle: appLanguage != LanguageSettings.languageAtLaunch.rawValue
+                    ? String(localized: "settings.app.language.restartSubtitle", defaultValue: "Restart cmux to apply")
+                    : nil,
+                controlWidth: pickerColumnWidth
+            ) {
+                Picker("", selection: $appLanguage) {
+                    ForEach(AppLanguage.allCases) { lang in
+                        Text(lang.displayName).tag(lang.rawValue)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .onChange(of: appLanguage) { newValue in
+                    guard !isResettingSettings else { return }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [self] in
+                        // Re-check current value to handle rapid changes
+                        let current = appLanguage
+                        if let lang = AppLanguage(rawValue: current) {
+                            LanguageSettings.apply(lang)
+                        }
+                        if current != LanguageSettings.languageAtLaunch.rawValue {
+                            showLanguageRestartAlert = true
+                        }
+                    }
+                }
+            }
+
+            SettingsCardDivider()
+
+            ThemePickerRow(
+                selectedMode: appearanceMode,
+                onSelect: { mode in
+                    appearanceMode = mode.rawValue
+                }
+            )
+
+            SettingsCardDivider()
+
+            AppIconPickerRow(
+                selectedMode: appIconMode,
+                onSelect: { mode in
+                    appIconMode = mode.rawValue
+                    AppIconSettings.applyIcon(mode)
+                }
+            )
+
+            SettingsCardDivider()
+
+            SettingsPickerRow(
+                String(localized: "settings.app.newWorkspacePlacement", defaultValue: "New Workspace Placement"),
+                subtitle: selectedWorkspacePlacement.description,
+                controlWidth: pickerColumnWidth,
+                selection: $newWorkspacePlacement
+            ) {
+                ForEach(NewWorkspacePlacement.allCases) { placement in
+                    Text(placement.displayName).tag(placement.rawValue)
+                }
+            }
+
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                String(localized: "settings.app.closeWorkspaceOnLastSurfaceShortcut", defaultValue: "Closing Last Surface Closes Workspace"),
+                subtitle: closeWorkspaceOnLastSurfaceShortcutSubtitle
+            ) {
+                Toggle("", isOn: $closeWorkspaceOnLastSurfaceShortcut)
+                    .labelsHidden()
+                    .controlSize(.small)
+            }
+
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                String(localized: "settings.app.reorderOnNotification", defaultValue: "Reorder on Notification"),
+                subtitle: String(localized: "settings.app.reorderOnNotification.subtitle", defaultValue: "Move workspaces to the top when they receive a notification. Disable for stable shortcut positions.")
+            ) {
+                Toggle("", isOn: $workspaceAutoReorder)
+                    .labelsHidden()
+                    .controlSize(.small)
+            }
+
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                String(localized: "settings.app.dockBadge", defaultValue: "Dock Badge"),
+                subtitle: String(localized: "settings.app.dockBadge.subtitle", defaultValue: "Show unread count on app icon (Dock and Cmd+Tab).")
+            ) {
+                Toggle("", isOn: $notificationDockBadgeEnabled)
+                    .labelsHidden()
+                    .controlSize(.small)
+            }
+
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                String(localized: "settings.app.showInMenuBar", defaultValue: "Show in Menu Bar"),
+                subtitle: String(localized: "settings.app.showInMenuBar.subtitle", defaultValue: "Keep cmux in the menu bar for unread notifications and quick actions.")
+            ) {
+                Toggle("", isOn: $showMenuBarExtra)
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .accessibilityLabel(
+                        String(localized: "settings.app.showInMenuBar", defaultValue: "Show in Menu Bar")
+                    )
+            }
+
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                String(localized: "settings.notifications.paneRing.title", defaultValue: "Unread Pane Ring"),
+                subtitle: String(localized: "settings.notifications.paneRing.subtitle", defaultValue: "Show a blue ring around panes with unread notifications.")
+            ) {
+                Toggle("", isOn: $notificationPaneRingEnabled)
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .accessibilityLabel(
+                        String(localized: "settings.notifications.paneRing.title", defaultValue: "Unread Pane Ring")
+                    )
+            }
+
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                String(localized: "settings.notifications.paneFlash.title", defaultValue: "Pane Flash"),
+                subtitle: String(localized: "settings.notifications.paneFlash.subtitle", defaultValue: "Briefly flash a blue outline when cmux highlights a pane.")
+            ) {
+                Toggle("", isOn: $notificationPaneFlashEnabled)
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .accessibilityLabel(
+                        String(localized: "settings.notifications.paneFlash.title", defaultValue: "Pane Flash")
+                    )
+            }
+
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                "Desktop Notifications",
+                subtitle: notificationPermissionSubtitle
+            ) {
+                HStack(spacing: 6) {
+                    Text(notificationPermissionStatusText)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(notificationPermissionStatusColor)
+                        .frame(width: 98, alignment: .trailing)
+
+                    Button(notificationPermissionActionTitle) {
+                        handleNotificationPermissionAction()
+                    }
+                    .controlSize(.small)
+
+                    Button("Send Test") {
+                        notificationStore.sendSettingsTestNotification()
+                    }
+                    .controlSize(.small)
+                }
+            }
+
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                String(localized: "settings.notifications.sound.title", defaultValue: "Notification Sound"),
+                subtitle: String(localized: "settings.notifications.sound.subtitle", defaultValue: "Sound played when a notification arrives."),
+                controlWidth: notificationSoundControlWidth
+            ) {
+                VStack(alignment: .trailing, spacing: 6) {
+                    HStack(spacing: 6) {
+                        Picker("", selection: $notificationSound) {
+                            ForEach(NotificationSoundSettings.systemSounds, id: \.value) { sound in
+                                Text(sound.label).tag(sound.value)
+                            }
+                        }
+                        .labelsHidden()
+                        Button {
+                            previewNotificationSound()
+                        } label: {
+                            Image(systemName: "play.fill")
+                                .font(.system(size: 9))
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .disabled(!canPreviewNotificationSound)
+                    }
+
+                    if notificationSound == NotificationSoundSettings.customFileValue {
+                        HStack(spacing: 6) {
+                            Text(notificationSoundCustomFileDisplayName)
+                                .font(.system(size: 11))
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                                .frame(width: 170, alignment: .trailing)
+                            Button(
+                                String(
+                                    localized: "settings.notifications.sound.custom.choose.button",
+                                    defaultValue: "Choose..."
+                                )
+                            ) {
+                                chooseNotificationSoundFile()
+                            }
+                            .controlSize(.small)
+                            Button(
+                                String(
+                                    localized: "settings.notifications.sound.custom.clear.button",
+                                    defaultValue: "Clear"
+                                )
+                            ) {
+                                notificationSoundCustomFilePath = NotificationSoundSettings.defaultCustomFilePath
+                                refreshNotificationCustomSoundStatus()
+                            }
+                            .controlSize(.small)
+                            .disabled(!hasCustomNotificationSoundFilePath)
+                        }
+                        if let notificationCustomSoundStatusMessage {
+                            Text(notificationCustomSoundStatusMessage)
+                                .font(.system(size: 11))
+                                .foregroundStyle(notificationCustomSoundStatusIsError ? Color.red : Color.secondary)
+                                .lineLimit(2)
+                                .multilineTextAlignment(.trailing)
+                                .frame(width: 260, alignment: .trailing)
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .trailing)
+            }
+
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                "Notification Command",
+                subtitle: "Run a shell command when a notification arrives. $CMUX_NOTIFICATION_TITLE, $CMUX_NOTIFICATION_SUBTITLE, $CMUX_NOTIFICATION_BODY are set."
+            ) {
+                TextField("say \"done\"", text: $notificationCustomCommand)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 200)
+            }
+
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                String(localized: "settings.app.telemetry", defaultValue: "Send anonymous telemetry"),
+                subtitle: sendAnonymousTelemetry != telemetryValueAtLaunch
+                    ? String(localized: "settings.app.telemetry.subtitleChanged", defaultValue: "Change takes effect on next launch.")
+                    : String(localized: "settings.app.telemetry.subtitle", defaultValue: "Share anonymized crash and usage data to help improve cmux.")
+            ) {
+                Toggle("", isOn: $sendAnonymousTelemetry)
+                    .labelsHidden()
+                    .controlSize(.small)
+            }
+
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                String(localized: "settings.app.warnBeforeQuit", defaultValue: "Warn Before Quit"),
+                subtitle: warnBeforeQuitShortcut
+                    ? String(localized: "settings.app.warnBeforeQuit.subtitleOn", defaultValue: "Show a confirmation before quitting with Cmd+Q.")
+                    : String(localized: "settings.app.warnBeforeQuit.subtitleOff", defaultValue: "Cmd+Q quits immediately without confirmation.")
+            ) {
+                Toggle("", isOn: $warnBeforeQuitShortcut)
+                    .labelsHidden()
+                    .controlSize(.small)
+            }
+
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                String(localized: "settings.app.renameSelectsName", defaultValue: "Rename Selects Existing Name"),
+                subtitle: commandPaletteRenameSelectAllOnFocus
+                    ? String(localized: "settings.app.renameSelectsName.subtitleOn", defaultValue: "Command Palette rename starts with all text selected.")
+                    : String(localized: "settings.app.renameSelectsName.subtitleOff", defaultValue: "Command Palette rename keeps the caret at the end.")
+            ) {
+                Toggle("", isOn: $commandPaletteRenameSelectAllOnFocus)
+                    .labelsHidden()
+                    .controlSize(.small)
+            }
+
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                String(localized: "settings.app.hideAllSidebarDetails", defaultValue: "Hide All Sidebar Details"),
+                subtitle: sidebarHideAllDetails
+                    ? String(localized: "settings.app.hideAllSidebarDetails.subtitleOn", defaultValue: "Show only the workspace title row. Overrides the detail toggles below.")
+                    : String(localized: "settings.app.hideAllSidebarDetails.subtitleOff", defaultValue: "Show secondary workspace details as controlled by the toggles below.")
+            ) {
+                Toggle("", isOn: $sidebarHideAllDetails)
+                    .labelsHidden()
+                    .controlSize(.small)
+            }
+
+            SettingsCardDivider()
+
+            SettingsPickerRow(
+                String(localized: "settings.app.sidebarBranchLayout", defaultValue: "Sidebar Branch Layout"),
+                subtitle: sidebarBranchVerticalLayout
+                    ? String(localized: "settings.app.sidebarBranchLayout.subtitleVertical", defaultValue: "Vertical: each branch appears on its own line.")
+                    : String(localized: "settings.app.sidebarBranchLayout.subtitleInline", defaultValue: "Inline: all branches share one line."),
+                controlWidth: pickerColumnWidth,
+                selection: $sidebarBranchVerticalLayout
+            ) {
+                Text(String(localized: "settings.app.sidebarBranchLayout.vertical", defaultValue: "Vertical")).tag(true)
+                Text(String(localized: "settings.app.sidebarBranchLayout.inline", defaultValue: "Inline")).tag(false)
+            }
+            .disabled(sidebarHideAllDetails)
+
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                String(localized: "settings.app.showNotificationMessage", defaultValue: "Show Notification Message in Sidebar"),
+                subtitle: String(localized: "settings.app.showNotificationMessage.subtitle", defaultValue: "Display the latest notification message below the workspace title.")
+            ) {
+                Toggle("", isOn: $sidebarShowNotificationMessage)
+                    .labelsHidden()
+                    .controlSize(.small)
+            }
+            .disabled(sidebarHideAllDetails)
+
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                String(localized: "settings.app.showBranchDirectory", defaultValue: "Show Branch + Directory in Sidebar"),
+                subtitle: String(localized: "settings.app.showBranchDirectory.subtitle", defaultValue: "Display the built-in git branch and working-directory row.")
+            ) {
+                Toggle("", isOn: $sidebarShowBranchDirectory)
+                    .labelsHidden()
+                    .controlSize(.small)
+            }
+            .disabled(sidebarHideAllDetails)
+
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                String(localized: "settings.app.showPullRequests", defaultValue: "Show Pull Requests in Sidebar"),
+                subtitle: String(localized: "settings.app.showPullRequests.subtitle", defaultValue: "Display review items (PR/MR/etc.) with status, number, and clickable link.")
+            ) {
+                Toggle("", isOn: $sidebarShowPullRequest)
+                    .labelsHidden()
+                    .controlSize(.small)
+            }
+            .disabled(sidebarHideAllDetails)
+
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                String(localized: "settings.app.openSidebarPRLinks", defaultValue: "Open Sidebar PR Links in cmux Browser"),
+                subtitle: openSidebarPullRequestLinksInCmuxBrowser
+                    ? String(localized: "settings.app.openSidebarPRLinks.subtitleOn", defaultValue: "Clicks open inside cmux browser.")
+                    : String(localized: "settings.app.openSidebarPRLinks.subtitleOff", defaultValue: "Clicks open in your default browser.")
+            ) {
+                Toggle("", isOn: $openSidebarPullRequestLinksInCmuxBrowser)
+                    .labelsHidden()
+                    .controlSize(.small)
+            }
+            .disabled(sidebarHideAllDetails)
+
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                String(localized: "settings.app.showPorts", defaultValue: "Show Listening Ports in Sidebar"),
+                subtitle: String(localized: "settings.app.showPorts.subtitle", defaultValue: "Display detected listening ports for the active workspace.")
+            ) {
+                Toggle("", isOn: $sidebarShowPorts)
+                    .labelsHidden()
+                    .controlSize(.small)
+            }
+            .disabled(sidebarHideAllDetails)
+
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                String(localized: "settings.app.showLog", defaultValue: "Show Latest Log in Sidebar"),
+                subtitle: String(localized: "settings.app.showLog.subtitle", defaultValue: "Display the latest imperative log/status message.")
+            ) {
+                Toggle("", isOn: $sidebarShowLog)
+                    .labelsHidden()
+                    .controlSize(.small)
+            }
+            .disabled(sidebarHideAllDetails)
+
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                String(localized: "settings.app.showProgress", defaultValue: "Show Progress in Sidebar"),
+                subtitle: String(localized: "settings.app.showProgress.subtitle", defaultValue: "Display the built-in progress bar from set_progress.")
+            ) {
+                Toggle("", isOn: $sidebarShowProgress)
+                    .labelsHidden()
+                    .controlSize(.small)
+            }
+            .disabled(sidebarHideAllDetails)
+
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                String(localized: "settings.app.showMetadata", defaultValue: "Show Custom Metadata in Sidebar"),
+                subtitle: String(localized: "settings.app.showMetadata.subtitle", defaultValue: "Display custom metadata from report_meta/set_status and report_meta_block.")
+            ) {
+                Toggle("", isOn: $sidebarShowMetadata)
+                    .labelsHidden()
+                    .controlSize(.small)
+            }
+            .disabled(sidebarHideAllDetails)
+        }
+    }
+
     var body: some View {
         ScrollViewReader { proxy in
             ZStack(alignment: .top) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
-                    SettingsSectionHeader(title: String(localized: "settings.section.app", defaultValue: "App"))
-                    SettingsCard {
-                        SettingsCardRow(
-                            String(localized: "settings.app.language", defaultValue: "Language"),
-                            subtitle: appLanguage != LanguageSettings.languageAtLaunch.rawValue
-                                ? String(localized: "settings.app.language.restartSubtitle", defaultValue: "Restart cmux to apply")
-                                : nil,
-                            controlWidth: pickerColumnWidth
-                        ) {
-                            Picker("", selection: $appLanguage) {
-                                ForEach(AppLanguage.allCases) { lang in
-                                    Text(lang.displayName).tag(lang.rawValue)
-                                }
-                            }
-                            .labelsHidden()
-                            .pickerStyle(.menu)
-                            .onChange(of: appLanguage) { newValue in
-                                guard !isResettingSettings else { return }
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [self] in
-                                    // Re-check current value to handle rapid changes
-                                    let current = appLanguage
-                                    if let lang = AppLanguage(rawValue: current) {
-                                        LanguageSettings.apply(lang)
-                                    }
-                                    if current != LanguageSettings.languageAtLaunch.rawValue {
-                                        showLanguageRestartAlert = true
-                                    }
-                                }
-                            }
-                        }
-
-                        SettingsCardDivider()
-
-                        ThemePickerRow(
-                            selectedMode: appearanceMode,
-                            onSelect: { mode in
-                                appearanceMode = mode.rawValue
-                            }
-                        )
-
-                        SettingsCardDivider()
-
-                        AppIconPickerRow(
-                            selectedMode: appIconMode,
-                            onSelect: { mode in
-                                appIconMode = mode.rawValue
-                                AppIconSettings.applyIcon(mode)
-                            }
-                        )
-
-                        SettingsCardDivider()
-
-                        SettingsPickerRow(
-                            String(localized: "settings.app.newWorkspacePlacement", defaultValue: "New Workspace Placement"),
-                            subtitle: selectedWorkspacePlacement.description,
-                            controlWidth: pickerColumnWidth,
-                            selection: $newWorkspacePlacement
-                        ) {
-                            ForEach(NewWorkspacePlacement.allCases) { placement in
-                                Text(placement.displayName).tag(placement.rawValue)
-                            }
-                        }
-
-                        SettingsCardDivider()
-
-                        SettingsCardRow(
-                            String(localized: "settings.app.closeWorkspaceOnLastSurfaceShortcut", defaultValue: "Closing Last Surface Closes Workspace"),
-                            subtitle: closeWorkspaceOnLastSurfaceShortcutSubtitle
-                        ) {
-                            Toggle("", isOn: $closeWorkspaceOnLastSurfaceShortcut)
-                                .labelsHidden()
-                                .controlSize(.small)
-                        }
-
-                        SettingsCardDivider()
-
-                        SettingsCardRow(
-                            String(localized: "settings.app.reorderOnNotification", defaultValue: "Reorder on Notification"),
-                            subtitle: String(localized: "settings.app.reorderOnNotification.subtitle", defaultValue: "Move workspaces to the top when they receive a notification. Disable for stable shortcut positions.")
-                        ) {
-                            Toggle("", isOn: $workspaceAutoReorder)
-                                .labelsHidden()
-                                .controlSize(.small)
-                        }
-
-                        SettingsCardDivider()
-
-                        SettingsCardRow(
-                            String(localized: "settings.app.dockBadge", defaultValue: "Dock Badge"),
-                            subtitle: String(localized: "settings.app.dockBadge.subtitle", defaultValue: "Show unread count on app icon (Dock and Cmd+Tab).")
-                        ) {
-                            Toggle("", isOn: $notificationDockBadgeEnabled)
-                                .labelsHidden()
-                                .controlSize(.small)
-                        }
-
-                        SettingsCardDivider()
-
-                        SettingsCardRow(
-                            String(localized: "settings.app.showInMenuBar", defaultValue: "Show in Menu Bar"),
-                            subtitle: String(localized: "settings.app.showInMenuBar.subtitle", defaultValue: "Keep cmux in the menu bar for unread notifications and quick actions.")
-                        ) {
-                            Toggle("", isOn: $showMenuBarExtra)
-                                .labelsHidden()
-                                .controlSize(.small)
-                                .accessibilityLabel(
-                                    String(localized: "settings.app.showInMenuBar", defaultValue: "Show in Menu Bar")
-                                )
-                        }
-
-                        SettingsCardDivider()
-
-                        SettingsCardRow(
-                            String(localized: "settings.notifications.paneRing.title", defaultValue: "Unread Pane Ring"),
-                            subtitle: String(localized: "settings.notifications.paneRing.subtitle", defaultValue: "Show a blue ring around panes with unread notifications.")
-                        ) {
-                            Toggle("", isOn: $notificationPaneRingEnabled)
-                                .labelsHidden()
-                                .controlSize(.small)
-                                .accessibilityLabel(
-                                    String(localized: "settings.notifications.paneRing.title", defaultValue: "Unread Pane Ring")
-                                )
-                        }
-
-                        SettingsCardDivider()
-
-                        SettingsCardRow(
-                            String(localized: "settings.notifications.paneFlash.title", defaultValue: "Pane Flash"),
-                            subtitle: String(localized: "settings.notifications.paneFlash.subtitle", defaultValue: "Briefly flash a blue outline when cmux highlights a pane.")
-                        ) {
-                            Toggle("", isOn: $notificationPaneFlashEnabled)
-                                .labelsHidden()
-                                .controlSize(.small)
-                                .accessibilityLabel(
-                                    String(localized: "settings.notifications.paneFlash.title", defaultValue: "Pane Flash")
-                                )
-                        }
-
-                        SettingsCardDivider()
-
-                        SettingsCardRow(
-                            "Desktop Notifications",
-                            subtitle: notificationPermissionSubtitle
-                        ) {
-                            HStack(spacing: 6) {
-                                Text(notificationPermissionStatusText)
-                                    .font(.system(size: 11, weight: .semibold))
-                                    .foregroundStyle(notificationPermissionStatusColor)
-                                    .frame(width: 98, alignment: .trailing)
-
-                                Button(notificationPermissionActionTitle) {
-                                    handleNotificationPermissionAction()
-                                }
-                                .controlSize(.small)
-
-                                Button("Send Test") {
-                                    notificationStore.sendSettingsTestNotification()
-                                }
-                                .controlSize(.small)
-                            }
-                        }
-
-                        SettingsCardDivider()
-
-                        SettingsCardRow(
-                            String(localized: "settings.notifications.sound.title", defaultValue: "Notification Sound"),
-                            subtitle: String(localized: "settings.notifications.sound.subtitle", defaultValue: "Sound played when a notification arrives."),
-                            controlWidth: notificationSoundControlWidth
-                        ) {
-                            VStack(alignment: .trailing, spacing: 6) {
-                                HStack(spacing: 6) {
-                                    Picker("", selection: $notificationSound) {
-                                        ForEach(NotificationSoundSettings.systemSounds, id: \.value) { sound in
-                                            Text(sound.label).tag(sound.value)
-                                        }
-                                    }
-                                    .labelsHidden()
-                                    Button {
-                                        previewNotificationSound()
-                                    } label: {
-                                        Image(systemName: "play.fill")
-                                            .font(.system(size: 9))
-                                    }
-                                    .buttonStyle(.bordered)
-                                    .controlSize(.small)
-                                    .disabled(!canPreviewNotificationSound)
-                                }
-
-                                if notificationSound == NotificationSoundSettings.customFileValue {
-                                    HStack(spacing: 6) {
-                                        Text(notificationSoundCustomFileDisplayName)
-                                            .font(.system(size: 11))
-                                            .foregroundStyle(.secondary)
-                                            .lineLimit(1)
-                                            .truncationMode(.middle)
-                                            .frame(width: 170, alignment: .trailing)
-                                        Button(
-                                            String(
-                                                localized: "settings.notifications.sound.custom.choose.button",
-                                                defaultValue: "Choose..."
-                                            )
-                                        ) {
-                                            chooseNotificationSoundFile()
-                                        }
-                                        .controlSize(.small)
-                                        Button(
-                                            String(
-                                                localized: "settings.notifications.sound.custom.clear.button",
-                                                defaultValue: "Clear"
-                                            )
-                                        ) {
-                                            notificationSoundCustomFilePath = NotificationSoundSettings.defaultCustomFilePath
-                                            refreshNotificationCustomSoundStatus()
-                                        }
-                                        .controlSize(.small)
-                                        .disabled(!hasCustomNotificationSoundFilePath)
-                                    }
-                                    if let notificationCustomSoundStatusMessage {
-                                        Text(notificationCustomSoundStatusMessage)
-                                            .font(.system(size: 11))
-                                            .foregroundStyle(notificationCustomSoundStatusIsError ? Color.red : Color.secondary)
-                                            .lineLimit(2)
-                                            .multilineTextAlignment(.trailing)
-                                            .frame(width: 260, alignment: .trailing)
-                                    }
-                                }
-                            }
-                            .frame(maxWidth: .infinity, alignment: .trailing)
-                        }
-
-                        SettingsCardDivider()
-
-                        SettingsCardRow(
-                            "Notification Command",
-                            subtitle: "Run a shell command when a notification arrives. $CMUX_NOTIFICATION_TITLE, $CMUX_NOTIFICATION_SUBTITLE, $CMUX_NOTIFICATION_BODY are set."
-                        ) {
-                            TextField("say \"done\"", text: $notificationCustomCommand)
-                                .textFieldStyle(.roundedBorder)
-                                .frame(width: 200)
-                        }
-
-                        SettingsCardDivider()
-
-                        SettingsCardRow(
-                            String(localized: "settings.app.telemetry", defaultValue: "Send anonymous telemetry"),
-                            subtitle: sendAnonymousTelemetry != telemetryValueAtLaunch
-                                ? String(localized: "settings.app.telemetry.subtitleChanged", defaultValue: "Change takes effect on next launch.")
-                                : String(localized: "settings.app.telemetry.subtitle", defaultValue: "Share anonymized crash and usage data to help improve cmux.")
-                        ) {
-                            Toggle("", isOn: $sendAnonymousTelemetry)
-                                .labelsHidden()
-                                .controlSize(.small)
-                        }
-
-                        SettingsCardDivider()
-
-                        SettingsCardRow(
-                            String(localized: "settings.app.warnBeforeQuit", defaultValue: "Warn Before Quit"),
-                            subtitle: warnBeforeQuitShortcut
-                                ? String(localized: "settings.app.warnBeforeQuit.subtitleOn", defaultValue: "Show a confirmation before quitting with Cmd+Q.")
-                                : String(localized: "settings.app.warnBeforeQuit.subtitleOff", defaultValue: "Cmd+Q quits immediately without confirmation.")
-                        ) {
-                            Toggle("", isOn: $warnBeforeQuitShortcut)
-                                .labelsHidden()
-                                .controlSize(.small)
-                        }
-
-                        SettingsCardDivider()
-
-                        SettingsCardRow(
-                            String(localized: "settings.app.renameSelectsName", defaultValue: "Rename Selects Existing Name"),
-                            subtitle: commandPaletteRenameSelectAllOnFocus
-                                ? String(localized: "settings.app.renameSelectsName.subtitleOn", defaultValue: "Command Palette rename starts with all text selected.")
-                                : String(localized: "settings.app.renameSelectsName.subtitleOff", defaultValue: "Command Palette rename keeps the caret at the end.")
-                        ) {
-                            Toggle("", isOn: $commandPaletteRenameSelectAllOnFocus)
-                                .labelsHidden()
-                                .controlSize(.small)
-                        }
-
-                        SettingsCardDivider()
-
-                        SettingsCardRow(
-                            String(localized: "settings.app.hideAllSidebarDetails", defaultValue: "Hide All Sidebar Details"),
-                            subtitle: sidebarHideAllDetails
-                                ? String(localized: "settings.app.hideAllSidebarDetails.subtitleOn", defaultValue: "Show only the workspace title row. Overrides the detail toggles below.")
-                                : String(localized: "settings.app.hideAllSidebarDetails.subtitleOff", defaultValue: "Show secondary workspace details as controlled by the toggles below.")
-                        ) {
-                            Toggle("", isOn: $sidebarHideAllDetails)
-                                .labelsHidden()
-                                .controlSize(.small)
-                        }
-
-                        SettingsCardDivider()
-
-                        SettingsPickerRow(
-                            String(localized: "settings.app.sidebarBranchLayout", defaultValue: "Sidebar Branch Layout"),
-                            subtitle: sidebarBranchVerticalLayout
-                                ? String(localized: "settings.app.sidebarBranchLayout.subtitleVertical", defaultValue: "Vertical: each branch appears on its own line.")
-                                : String(localized: "settings.app.sidebarBranchLayout.subtitleInline", defaultValue: "Inline: all branches share one line."),
-                            controlWidth: pickerColumnWidth,
-                            selection: $sidebarBranchVerticalLayout
-                        ) {
-                            Text(String(localized: "settings.app.sidebarBranchLayout.vertical", defaultValue: "Vertical")).tag(true)
-                            Text(String(localized: "settings.app.sidebarBranchLayout.inline", defaultValue: "Inline")).tag(false)
-                        }
-                        .disabled(sidebarHideAllDetails)
-
-                        SettingsCardDivider()
-
-                        SettingsCardRow(
-                            String(localized: "settings.app.showNotificationMessage", defaultValue: "Show Notification Message in Sidebar"),
-                            subtitle: String(localized: "settings.app.showNotificationMessage.subtitle", defaultValue: "Display the latest notification message below the workspace title.")
-                        ) {
-                            Toggle("", isOn: $sidebarShowNotificationMessage)
-                                .labelsHidden()
-                                .controlSize(.small)
-                        }
-                        .disabled(sidebarHideAllDetails)
-
-                        SettingsCardDivider()
-
-                        SettingsCardRow(
-                            String(localized: "settings.app.showBranchDirectory", defaultValue: "Show Branch + Directory in Sidebar"),
-                            subtitle: String(localized: "settings.app.showBranchDirectory.subtitle", defaultValue: "Display the built-in git branch and working-directory row.")
-                        ) {
-                            Toggle("", isOn: $sidebarShowBranchDirectory)
-                                .labelsHidden()
-                                .controlSize(.small)
-                        }
-                        .disabled(sidebarHideAllDetails)
-
-                        SettingsCardDivider()
-
-                        SettingsCardRow(
-                            String(localized: "settings.app.showPullRequests", defaultValue: "Show Pull Requests in Sidebar"),
-                            subtitle: String(localized: "settings.app.showPullRequests.subtitle", defaultValue: "Display review items (PR/MR/etc.) with status, number, and clickable link.")
-                        ) {
-                            Toggle("", isOn: $sidebarShowPullRequest)
-                                .labelsHidden()
-                                .controlSize(.small)
-                        }
-                        .disabled(sidebarHideAllDetails)
-
-                        SettingsCardDivider()
-
-                        SettingsCardRow(
-                            String(localized: "settings.app.openSidebarPRLinks", defaultValue: "Open Sidebar PR Links in cmux Browser"),
-                            subtitle: openSidebarPullRequestLinksInCmuxBrowser
-                                ? String(localized: "settings.app.openSidebarPRLinks.subtitleOn", defaultValue: "Clicks open inside cmux browser.")
-                                : String(localized: "settings.app.openSidebarPRLinks.subtitleOff", defaultValue: "Clicks open in your default browser.")
-                        ) {
-                            Toggle("", isOn: $openSidebarPullRequestLinksInCmuxBrowser)
-                                .labelsHidden()
-                                .controlSize(.small)
-                        }
-                        .disabled(sidebarHideAllDetails)
-
-                        SettingsCardDivider()
-
-                        SettingsCardRow(
-                            String(localized: "settings.app.showPorts", defaultValue: "Show Listening Ports in Sidebar"),
-                            subtitle: String(localized: "settings.app.showPorts.subtitle", defaultValue: "Display detected listening ports for the active workspace.")
-                        ) {
-                            Toggle("", isOn: $sidebarShowPorts)
-                                .labelsHidden()
-                                .controlSize(.small)
-                        }
-                        .disabled(sidebarHideAllDetails)
-
-                        SettingsCardDivider()
-
-                        SettingsCardRow(
-                            String(localized: "settings.app.showLog", defaultValue: "Show Latest Log in Sidebar"),
-                            subtitle: String(localized: "settings.app.showLog.subtitle", defaultValue: "Display the latest imperative log/status message.")
-                        ) {
-                            Toggle("", isOn: $sidebarShowLog)
-                                .labelsHidden()
-                                .controlSize(.small)
-                        }
-                        .disabled(sidebarHideAllDetails)
-
-                        SettingsCardDivider()
-
-                        SettingsCardRow(
-                            String(localized: "settings.app.showProgress", defaultValue: "Show Progress in Sidebar"),
-                            subtitle: String(localized: "settings.app.showProgress.subtitle", defaultValue: "Display the built-in progress bar from set_progress.")
-                        ) {
-                            Toggle("", isOn: $sidebarShowProgress)
-                                .labelsHidden()
-                                .controlSize(.small)
-                        }
-                        .disabled(sidebarHideAllDetails)
-
-                        SettingsCardDivider()
-
-                        SettingsCardRow(
-                            String(localized: "settings.app.showMetadata", defaultValue: "Show Custom Metadata in Sidebar"),
-                            subtitle: String(localized: "settings.app.showMetadata.subtitle", defaultValue: "Display custom metadata from report_meta/set_status and report_meta_block.")
-                        ) {
-                            Toggle("", isOn: $sidebarShowMetadata)
-                                .labelsHidden()
-                                .controlSize(.small)
-                        }
-                        .disabled(sidebarHideAllDetails)
+                    if sectionVisible(.app) {
+                        appSectionContent
                     }
 
+                    if sectionVisible(.workspaceColors) {
                     SettingsSectionHeader(title: String(localized: "settings.section.workspaceColors", defaultValue: "Workspace Colors"))
                     SettingsCard {
                         SettingsPickerRow(
@@ -3934,7 +4035,9 @@ struct SettingsView: View {
                             .controlSize(.small)
                         }
                     }
+                    } // end workspace colors section
 
+                    if sectionVisible(.automation) {
                     SettingsSectionHeader(title: String(localized: "settings.section.automation", defaultValue: "Automation"))
                     SettingsCard {
                         SettingsPickerRow(
@@ -4035,7 +4138,9 @@ struct SettingsView: View {
 
                         SettingsCardNote(String(localized: "settings.automation.port.note", defaultValue: "Each workspace gets CMUX_PORT and CMUX_PORT_END env vars with a dedicated port range. New terminals inherit these values."))
                     }
+                    } // end automation section
 
+                    if sectionVisible(.browser) {
                     SettingsSectionHeader(title: String(localized: "settings.section.browser", defaultValue: "Browser"))
                     SettingsCard {
                         SettingsPickerRow(
@@ -4220,7 +4325,9 @@ struct SettingsView: View {
                             .disabled(browserHistoryEntryCount == 0)
                         }
                     }
+                    } // end browser section
 
+                    if sectionVisible(.keyboardShortcuts) {
                     SettingsSectionHeader(title: String(localized: "settings.section.keyboardShortcuts", defaultValue: "Keyboard Shortcuts"))
                         .id(SettingsNavigationTarget.keyboardShortcuts)
                         .accessibilityIdentifier("SettingsKeyboardShortcutsSection")
@@ -4255,7 +4362,9 @@ struct SettingsView: View {
                         .foregroundColor(.secondary)
                         .padding(.leading, 2)
                         .accessibilityIdentifier("ShortcutRecordingHint")
+                    } // end keyboard shortcuts section
 
+                    if sectionVisible(.reset) {
                     SettingsSectionHeader(title: String(localized: "settings.section.reset", defaultValue: "Reset"))
                     SettingsCard {
                         HStack {
@@ -4269,6 +4378,21 @@ struct SettingsView: View {
                         }
                         .padding(.horizontal, 14)
                         .padding(.vertical, 10)
+                    }
+                    } // end reset section
+
+                    if !debouncedSearchQuery.isEmpty
+                        && !sectionVisible(.app)
+                        && !sectionVisible(.workspaceColors)
+                        && !sectionVisible(.automation)
+                        && !sectionVisible(.browser)
+                        && !sectionVisible(.keyboardShortcuts)
+                        && !sectionVisible(.reset) {
+                        Text(String(localized: "settings.search.noResults", defaultValue: "No settings matched \"\(searchQuery)\"."))
+                            .foregroundColor(.secondary)
+                            .font(.system(size: 13))
+                            .frame(maxWidth: .infinity, alignment: .center)
+                            .padding(.top, 24)
                     }
                 }
                 .padding(.horizontal, 20)
@@ -4309,6 +4433,7 @@ struct SettingsView: View {
                         )
                     )
                     .opacity(0.52)
+                    .allowsHitTesting(false)
 
                 AboutVisualEffectBackground(material: .underWindowBackground, blendingMode: .withinWindow)
                     .mask(
@@ -4324,14 +4449,22 @@ struct SettingsView: View {
                         )
                     )
                     .opacity(0.14 + (topBlurOpacity * 0.86))
+                    .allowsHitTesting(false)
 
-                HStack {
+                HStack(alignment: .center) {
                     Text(String(localized: "settings.title", defaultValue: "Settings"))
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundColor(.primary.opacity(0.92))
-                    Spacer(minLength: 0)
+                    Spacer(minLength: 8)
+                    TextField(
+                        String(localized: "settings.search.placeholder", defaultValue: "Search…"),
+                        text: $searchQuery
+                    )
+                    .textFieldStyle(.roundedBorder)
+                    .frame(maxWidth: 180)
                 }
                 .padding(.leading, settingsTitleLeadingInset)
+                .padding(.trailing, 16)
                 .padding(.top, 12)
             }
                 .frame(height: 62)
@@ -4343,7 +4476,6 @@ struct SettingsView: View {
                         .frame(height: 1),
                     alignment: .bottom
                 )
-                .allowsHitTesting(false)
         }
         .background(Color(nsColor: .windowBackgroundColor).ignoresSafeArea())
         .toggleStyle(.switch)
@@ -4355,6 +4487,14 @@ struct SettingsView: View {
             browserInsecureHTTPAllowlistDraft = browserInsecureHTTPAllowlist
             reloadWorkspaceTabColorSettings()
             refreshNotificationCustomSoundStatus()
+        }
+        .onChange(of: searchQuery) { _, newValue in
+            searchDebounceTask?.cancel()
+            searchDebounceTask = Task {
+                try? await Task.sleep(for: .milliseconds(200))
+                guard !Task.isCancelled else { return }
+                debouncedSearchQuery = newValue
+            }
         }
         .onChange(of: notificationSound) { _, _ in
             refreshNotificationCustomSoundStatus()
