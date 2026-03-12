@@ -166,6 +166,21 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
         )
         XCTAssertTrue(titlebarControlsShouldApplyLayout(previous: baseline, next: changed))
     }
+
+    func testShortcutHintVerticalOffsetKeepsPillInsideButtonLane() {
+        for style in TitlebarControlsStyle.allCases {
+            let config = style.config
+            let hintHeight = titlebarShortcutHintHeight(for: config)
+            let verticalOffset = titlebarShortcutHintVerticalOffset(for: config)
+
+            XCTAssertGreaterThanOrEqual(verticalOffset, 0, "Expected non-negative hint offset for style \(style)")
+            XCTAssertLessThanOrEqual(
+                verticalOffset + hintHeight,
+                config.buttonSize,
+                "Expected hint pill to fit within the titlebar button lane for style \(style)"
+            )
+        }
+    }
 }
 
 final class TitlebarControlsHoverPolicyTests: XCTestCase {
