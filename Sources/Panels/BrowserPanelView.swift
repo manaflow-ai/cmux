@@ -3716,6 +3716,12 @@ struct WebViewRepresentable: NSViewRepresentable {
     final class HostContainerView: NSView {
         private final class HostedInspectorSideDockContainerView: NSView {
             override var isOpaque: Bool { false }
+
+            override func resizeSubviews(withOldSize oldSize: NSSize) {
+                // Managed side-docked DevTools use explicit frame updates from the host.
+                // Letting AppKit autoresize the WK siblings here makes them snap back to
+                // stale widths while the divider drag or pane resize is in flight.
+            }
         }
 
         var onDidMoveToWindow: (() -> Void)?
@@ -3760,7 +3766,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         }
 
         private static let hostedInspectorDividerHitExpansion: CGFloat = 10
-        private static let minimumHostedInspectorWidth: CGFloat = 1
+        private static let minimumHostedInspectorWidth: CGFloat = 120
         private var trackingArea: NSTrackingArea?
         private var activeDividerCursorKind: DividerCursorKind?
         private var hostedInspectorDividerDrag: HostedInspectorDividerDragState?
@@ -4116,6 +4122,21 @@ struct WebViewRepresentable: NSViewRepresentable {
             layoutHostedInspectorSideDockIfNeeded(reason: "sideDock.activate")
         }
 
+        @discardableResult
+        func promoteHostedInspectorSideDockFromCurrentLayoutIfNeeded() -> Bool {
+            guard !isHostedInspectorSideDockActive(),
+                  let slotView = localInlineSlotView,
+                  let hit = hostedInspectorDividerCandidateUsingKnownWebViews(in: slotView) else {
+                return false
+            }
+
+            // The inspector frontend sometimes reports its dock configuration a tick
+            // late after local-inline reattach. Promote the visible left/right split
+            // immediately so drag routing stays symmetric on both dock sides.
+            activateHostedInspectorSideDockIfNeeded(using: hit)
+            return isHostedInspectorSideDockActive()
+        }
+
         private func deactivateHostedInspectorSideDockIfNeeded(reparentTo slotView: WindowBrowserSlotView?) {
             guard let slotView,
                   let pageView = hostedInspectorSideDockPageView,
@@ -4151,6 +4172,7 @@ struct WebViewRepresentable: NSViewRepresentable {
                     inspectorView: inspectorView,
                     dockSide: dockSide
                 ),
+                minimumInspectorWidth: Self.minimumHostedInspectorWidth,
                 reason: reason
             )
         }
@@ -4236,11 +4258,15 @@ struct WebViewRepresentable: NSViewRepresentable {
 
         override func layout() {
             super.layout()
+            _ = promoteHostedInspectorSideDockFromCurrentLayoutIfNeeded()
             if let previousSize = lastHostedInspectorLayoutBoundsSize,
                Self.sizeApproximatelyEqual(previousSize, bounds.size, epsilon: 0.5) {
-                if isHostedInspectorSideDockActive() {
-                    layoutHostedInspectorSideDockIfNeeded(reason: "host.layout.sideDock.sameSize")
-                } else if !isHostedInspectorDividerDragActive && !hasStoredHostedInspectorWidthPreference {
+                // Origin-only frame churn is common while the surrounding split layout
+                // settles. Reapplying the side-docked inspector at the same size fights
+                // WebKit's own dock layout and shows up as visible flicker.
+                if !isHostedInspectorSideDockActive() &&
+                    !isHostedInspectorDividerDragActive &&
+                    !hasStoredHostedInspectorWidthPreference {
                     captureHostedInspectorPreferredWidthFromCurrentLayout(reason: "host.layout.sameSize")
                 }
                 notifyGeometryChangedIfNeeded()
@@ -4264,9 +4290,6 @@ struct WebViewRepresentable: NSViewRepresentable {
 
         override func setFrameOrigin(_ newOrigin: NSPoint) {
             super.setFrameOrigin(newOrigin)
-            if isHostedInspectorSideDockActive() {
-                layoutHostedInspectorSideDockIfNeeded(reason: "setFrameOrigin.sideDock")
-            }
             window?.invalidateCursorRects(for: self)
             notifyGeometryChangedIfNeeded()
 #if DEBUG
@@ -4276,9 +4299,6 @@ struct WebViewRepresentable: NSViewRepresentable {
 
         override func setFrameSize(_ newSize: NSSize) {
             super.setFrameSize(newSize)
-            if isHostedInspectorSideDockActive() {
-                layoutHostedInspectorSideDockIfNeeded(reason: "setFrameSize.sideDock")
-            }
             window?.invalidateCursorRects(for: self)
             notifyGeometryChangedIfNeeded()
 #if DEBUG
@@ -4419,6 +4439,7 @@ struct WebViewRepresentable: NSViewRepresentable {
                     inspectorView: dragState.inspectorView,
                     dockSide: dragState.dockSide
                 ),
+                minimumInspectorWidth: Self.minimumHostedInspectorWidth,
                 reason: "drag"
             )
 #if DEBUG
@@ -4698,6 +4719,7 @@ struct WebViewRepresentable: NSViewRepresentable {
             let workItem = DispatchWorkItem { [weak self] in
                 guard let self else { return }
                 self.hostedInspectorReapplyWorkItem = nil
+                _ = self.promoteHostedInspectorSideDockFromCurrentLayoutIfNeeded()
                 if self.isHostedInspectorSideDockActive() {
                     self.reapplyHostedInspectorDividerToStoredWidthIfNeeded(reason: reason)
                 } else if !self.hasStoredHostedInspectorWidthPreference {
@@ -4766,13 +4788,19 @@ struct WebViewRepresentable: NSViewRepresentable {
             }
             let currentInspectorWidth = max(0, hit.inspectorView.frame.width)
             guard abs(currentInspectorWidth - preferredWidth) > 0.5 else { return }
-            _ = applyHostedInspectorDividerWidth(preferredWidth, to: hit, reason: reason)
+            _ = applyHostedInspectorDividerWidth(
+                preferredWidth,
+                to: hit,
+                minimumInspectorWidth: Self.minimumHostedInspectorWidth,
+                reason: reason
+            )
         }
 
         @discardableResult
         private func applyHostedInspectorDividerWidth(
             _ preferredWidth: CGFloat,
             to hit: HostedInspectorDividerHit,
+            minimumInspectorWidth: CGFloat,
             reason: String
         ) -> (pageFrame: NSRect, inspectorFrame: NSRect) {
             let containerBounds = hit.containerView.bounds
@@ -4781,7 +4809,7 @@ struct WebViewRepresentable: NSViewRepresentable {
                 in: containerBounds,
                 pageFrame: hit.pageView.frame,
                 inspectorFrame: hit.inspectorView.frame,
-                minimumInspectorWidth: 0
+                minimumInspectorWidth: minimumInspectorWidth
             )
             let pageFrame = nextFrames.pageFrame
             let inspectorFrame = nextFrames.inspectorFrame
