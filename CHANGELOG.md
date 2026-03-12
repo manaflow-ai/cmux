@@ -2,7 +2,7 @@
 
 All notable changes to cmux are documented here.
 
-## [0.62.0] - 2026-03-07
+## [0.62.0] - 2026-03-12
 
 ### Added
 - Markdown viewer panel with live file watching ([#883](https://github.com/manaflow-ai/cmux/pull/883))
@@ -30,6 +30,12 @@ All notable changes to cmux are documented here.
 - External URL bypass rules for the embedded browser ([#768](https://github.com/manaflow-ai/cmux/pull/768))
 - Telemetry opt-out setting ([#610](https://github.com/manaflow-ai/cmux/pull/610))
 - Browser automation docs page ([#622](https://github.com/manaflow-ai/cmux/pull/622))
+- Vim mode indicator badge on terminal panes ([#1092](https://github.com/manaflow-ai/cmux/pull/1092))
+- Sidebar workspace color in CLI sidebar_state output ([#1101](https://github.com/manaflow-ai/cmux/pull/1101))
+- Prompt before closing window with Cmd+Ctrl+W ([#1219](https://github.com/manaflow-ai/cmux/pull/1219))
+- Jump to Latest button in notifications popover ([#1167](https://github.com/manaflow-ai/cmux/pull/1167))
+- Khmer localization ([#1198](https://github.com/manaflow-ai/cmux/pull/1198))
+- cmux claude-teams launcher ([#1179](https://github.com/manaflow-ai/cmux/pull/1179))
 
 ### Changed
 - Command palette search is now async and decoupled from typing for reduced lag
@@ -41,6 +47,9 @@ All notable changes to cmux are documented here.
 - Feedback recipient changed to `feedback@manaflow.com` ([#1007](https://github.com/manaflow-ai/cmux/pull/1007))
 - Regenerated app icons from Icon Composer ([#1005](https://github.com/manaflow-ai/cmux/pull/1005))
 - Moved update logs into the Debug menu ([#1008](https://github.com/manaflow-ai/cmux/pull/1008))
+- Updated Ghostty to v1.3.0 ([#1142](https://github.com/manaflow-ai/cmux/pull/1142))
+- Welcome screen colors adapted for light mode ([#1214](https://github.com/manaflow-ai/cmux/pull/1214))
+- Notification sound picker width constrained ([#1168](https://github.com/manaflow-ai/cmux/pull/1168))
 
 ### Fixed
 - Frozen blank launch from session restore race condition ([#399](https://github.com/manaflow-ai/cmux/issues/399), [#565](https://github.com/manaflow-ai/cmux/pull/565))
@@ -75,14 +84,37 @@ All notable changes to cmux are documented here.
 - Voice dictation text insertion ([#857](https://github.com/manaflow-ai/cmux/pull/857))
 - Browser panel lifecycle after WebContent process termination ([#892](https://github.com/manaflow-ai/cmux/pull/892))
 - Typing lag reduction by hiding invisible views from the accessibility tree ([#862](https://github.com/manaflow-ai/cmux/pull/862))
+- CJK font fallback preventing decorative font rendering for CJK characters ([#1017](https://github.com/manaflow-ai/cmux/pull/1017))
+- Inline VS Code serve-web token exposure via argv ([#1033](https://github.com/manaflow-ai/cmux/pull/1033))
+- Browser pane portal anchor sizing ([#1094](https://github.com/manaflow-ai/cmux/pull/1094))
+- Pinned workspace notification reordering ([#1116](https://github.com/manaflow-ai/cmux/pull/1116))
+- cmux --version memory blowup ([#1121](https://github.com/manaflow-ai/cmux/pull/1121))
+- Notification ring dismissal on direct terminal clicks ([#1126](https://github.com/manaflow-ai/cmux/pull/1126))
+- Browser portal visibility when terminal tab is active ([#1130](https://github.com/manaflow-ai/cmux/pull/1130))
+- Browser panes reloading when switching workspaces ([#1136](https://github.com/manaflow-ai/cmux/pull/1136))
+- Sidebar PR badge detection ([#1139](https://github.com/manaflow-ai/cmux/pull/1139))
+- Browser address bar disappearing during pane zoom ([#1145](https://github.com/manaflow-ai/cmux/pull/1145))
+- Ghost terminal surface focus after split close ([#1148](https://github.com/manaflow-ai/cmux/pull/1148))
+- Browser DevTools resize loop and layout stability ([#1170](https://github.com/manaflow-ai/cmux/pull/1170), [#1173](https://github.com/manaflow-ai/cmux/pull/1173), [#1189](https://github.com/manaflow-ai/cmux/pull/1189))
+- Typing lag from sidebar re-evaluation and hitTest overhead ([#1204](https://github.com/manaflow-ai/cmux/issues/1204))
+- Browser pane stale content after drag splits ([#1215](https://github.com/manaflow-ai/cmux/pull/1215))
+- Terminal drop overlay misplacement during drag hover ([#1213](https://github.com/manaflow-ai/cmux/pull/1213))
+- Hidden browser slot inspector focus crash ([#1211](https://github.com/manaflow-ai/cmux/pull/1211))
+- Browser devtools hide fallback ([#1220](https://github.com/manaflow-ai/cmux/pull/1220))
+- Browser portal refresh on geometry churn ([#1224](https://github.com/manaflow-ai/cmux/pull/1224))
+- Browser tab switch triggering unnecessary reload ([#1228](https://github.com/manaflow-ai/cmux/pull/1228))
+- Devtools side dock guard for attached devtools ([#1230](https://github.com/manaflow-ai/cmux/pull/1230))
 
-### Thanks to 21 contributors!
+### Thanks to 24 contributors!
+- [@0xble](https://github.com/0xble)
 - [@afxjzs](https://github.com/afxjzs)
 - [@AI-per](https://github.com/AI-per)
 - [@atani](https://github.com/atani)
+- [@atmigtnca](https://github.com/atmigtnca)
 - [@austinywang](https://github.com/austinywang)
 - [@cheulyop](https://github.com/cheulyop)
 - [@ConnorCallison](https://github.com/ConnorCallison)
+- [@gonzaloserrano](https://github.com/gonzaloserrano)
 - [@harukitosa](https://github.com/harukitosa)
 - [@homanp](https://github.com/homanp)
 - [@JLeeChan](https://github.com/JLeeChan)
