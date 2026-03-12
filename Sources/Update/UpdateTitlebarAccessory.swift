@@ -198,7 +198,7 @@ func titlebarShortcutHintHeight(for config: TitlebarControlsStyleConfig) -> CGFl
 }
 
 func titlebarShortcutHintVerticalOffset(for config: TitlebarControlsStyleConfig) -> CGFloat {
-    max(8, config.buttonSize * 0.4) + 1
+    max(0, floor(config.buttonSize - titlebarShortcutHintHeight(for: config)))
 }
 
 struct TitlebarControlButton<Content: View>: View {
