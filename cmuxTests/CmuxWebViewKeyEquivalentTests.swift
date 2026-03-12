@@ -9421,9 +9421,9 @@ final class BrowserPanelHostContainerViewTests: XCTestCase {
     private final class TrackingInspectorFrontendWebView: WKWebView {
         private(set) var evaluatedJavaScript: [String] = []
 
-        override func evaluateJavaScript(
+        @MainActor override func evaluateJavaScript(
             _ javaScriptString: String,
-            completionHandler: ((Any?, Error?) -> Void)? = nil
+            completionHandler: (@MainActor @Sendable (Any?, (any Error)?) -> Void)? = nil
         ) {
             evaluatedJavaScript.append(javaScriptString)
             completionHandler?(nil, nil)
