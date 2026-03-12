@@ -130,13 +130,13 @@ struct WorkspaceRemoteDaemonManifest: Decodable, Equatable {
 }
 
 extension Workspace {
-    static let remoteDaemonManifestInfoKey = WorkspaceRemoteSessionController.remoteDaemonManifestInfoKey
+    nonisolated static let remoteDaemonManifestInfoKey = WorkspaceRemoteSessionController.remoteDaemonManifestInfoKey
 
-    static func remoteDaemonManifest(from infoDictionary: [String: Any]?) -> WorkspaceRemoteDaemonManifest? {
+    nonisolated static func remoteDaemonManifest(from infoDictionary: [String: Any]?) -> WorkspaceRemoteDaemonManifest? {
         WorkspaceRemoteSessionController.remoteDaemonManifest(from: infoDictionary)
     }
 
-    static func remoteDaemonCachedBinaryURL(
+    nonisolated static func remoteDaemonCachedBinaryURL(
         version: String,
         goOS: String,
         goArch: String,
