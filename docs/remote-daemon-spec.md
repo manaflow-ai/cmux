@@ -1,6 +1,6 @@
 # Remote SSH Living Spec
 
-Last updated: February 23, 2026
+Last updated: March 12, 2026
 Tracking issue: https://github.com/manaflow-ai/cmux/issues/151
 Primary PR: https://github.com/manaflow-ai/cmux/pull/239
 CLI relay PR: https://github.com/manaflow-ai/cmux/pull/374
@@ -30,7 +30,7 @@ This is a **living implementation spec** (also called an **execution spec**): a 
 - `DONE` socket API includes `workspace.remote.reconnect`.
 
 ### 3.2 Bootstrap + Daemon
-- `DONE` local app probes remote platform, builds/uploads `cmuxd-remote`, and runs `serve --stdio`.
+- `DONE` local app probes remote platform, verifies a release-pinned `cmuxd-remote` artifact by embedded manifest SHA-256, uploads it when missing, and runs `serve --stdio`.
 - `DONE` daemon `hello` handshake is enforced.
 - `DONE` daemon now exposes proxy stream RPC (`proxy.open`, `proxy.close`, `proxy.write`, `proxy.read`).
 - `DONE` local proxy broker now tunnels SOCKS5/CONNECT traffic over daemon stream RPC instead of `ssh -D`.
@@ -44,15 +44,21 @@ This is a **living implementation spec** (also called an **execution spec**): a 
 ### 3.5 CLI Relay (Running cmux Commands From Remote)
 - `DONE` `cmuxd-remote` includes a table-driven CLI relay (`cli` subcommand) that maps CLI args to v1 text or v2 JSON-RPC messages.
 - `DONE` busybox-style argv[0] detection: when invoked as `cmux` via wrapper/symlink, auto-dispatches to CLI relay.
-- `DONE` background `ssh -N -R 127.0.0.1:PORT:/local/cmux.sock` process reverse-forwards a TCP port to the local cmux socket. Uses TCP instead of Unix socket forwarding because many servers have `AllowStreamLocalForwarding` disabled.
+- `DONE` background `ssh -N -R 127.0.0.1:PORT:127.0.0.1:LOCAL_RELAY_PORT` process reverse-forwards a TCP port to a dedicated authenticated local relay server. Uses TCP instead of Unix socket forwarding because many servers have `AllowStreamLocalForwarding` disabled.
 - `DONE` relay process uses `ControlPath=none` (avoids ControlMaster multiplexing and inherited `RemoteForward` directives) and `ExitOnForwardFailure=no` (inherited forwards from user ssh config failing should not kill the relay).
 - `DONE` relay address written to `~/.cmux/socket_addr` on the remote with a 3s delay after the relay process starts, giving SSH time to establish the `-R` forward.
 - `DONE` Go CLI re-reads `~/.cmux/socket_addr` on each TCP retry to pick up updated relay ports when multiple workspaces overwrite the file.
 - `DONE` `cmux ssh` startup exports session-local `CMUX_SOCKET_PATH=127.0.0.1:<relay_port>` so parallel sessions pin to their own relay instead of racing on shared socket_addr.
 - `DONE` relay startup writes `~/.cmux/relay/<relay_port>.daemon_path`; remote `cmux` wrapper uses this to select the right daemon binary per session, including mixed local cmux versions.
+- `DONE` relay startup writes `~/.cmux/relay/<relay_port>.auth` with a relay ID and token; the local relay requires HMAC-SHA256 challenge-response before forwarding any command to the real local socket.
 - `DONE` ephemeral port range (49152-65535) filtered from probe results to exclude relay ports from other workspaces.
 - `DONE` multi-workspace port conflict detection uses TCP connect check (`isLoopbackPortReachable`) so ports already forwarded by another workspace are silently skipped instead of flagged as conflicts.
 - `DONE` orphaned relay SSH processes from previous app sessions are cleaned up before starting a new relay.
+
+### 3.6 Artifact Trust
+- `DONE` release and nightly workflows publish `cmuxd-remote` assets for `darwin/linux × arm64/amd64`.
+- `DONE` release and nightly apps embed a compact `CMUXRemoteDaemonManifestJSON` in `Info.plist` with exact asset URLs and SHA-256 digests.
+- `DONE` `cmux remote-daemon-status` exposes the current manifest entry, local cache verification state, release download command, and GitHub attestation verification command.
 
 ### 3.3 Error Surfacing
 - `DONE` remote errors are surfaced in sidebar status + logs + notifications.

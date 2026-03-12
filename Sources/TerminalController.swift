@@ -3340,10 +3340,29 @@ class TerminalController {
         let identityFile = v2RawString(params, "identity_file")?.trimmingCharacters(in: .whitespacesAndNewlines)
         let sshOptions = v2StringArray(params, "ssh_options") ?? []
         let autoConnect = v2Bool(params, "auto_connect") ?? true
-        let relayPort = v2Int(params, "relay_port")
+        var relayPort: Int?
+        if v2HasNonNullParam(params, "relay_port") {
+            guard let parsedRelayPort = v2StrictInt(params, "relay_port"),
+                  parsedRelayPort > 0,
+                  parsedRelayPort <= 65535 else {
+                return .err(code: "invalid_params", message: "relay_port must be 1-65535", data: nil)
+            }
+            relayPort = parsedRelayPort
+        }
+        let relayID = v2RawString(params, "relay_id")?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let relayToken = v2RawString(params, "relay_token")?.trimmingCharacters(in: .whitespacesAndNewlines)
         let localSocketPath = v2RawString(params, "local_socket_path")
         let terminalStartupCommand = v2RawString(params, "terminal_startup_command")?
             .trimmingCharacters(in: .whitespacesAndNewlines)
+        if relayPort != nil {
+            guard let relayID, !relayID.isEmpty else {
+                return .err(code: "invalid_params", message: "relay_id is required when relay_port is set", data: nil)
+            }
+            guard let relayToken,
+                  relayToken.range(of: "^[0-9a-f]{64}$", options: .regularExpression) != nil else {
+                return .err(code: "invalid_params", message: "relay_token must be 64 lowercase hex characters when relay_port is set", data: nil)
+            }
+        }
 
 #if DEBUG
         dlog(
@@ -3373,6 +3392,8 @@ class TerminalController {
                 sshOptions: sshOptions,
                 localProxyPort: localProxyPort,
                 relayPort: relayPort,
+                relayID: relayID?.isEmpty == true ? nil : relayID,
+                relayToken: relayToken?.isEmpty == true ? nil : relayToken,
                 localSocketPath: localSocketPath,
                 terminalStartupCommand: terminalStartupCommand?.isEmpty == true ? nil : terminalStartupCommand
             )
@@ -3516,8 +3537,9 @@ class TerminalController {
         guard let surfaceId = v2UUID(params, "surface_id") else {
             return .err(code: "invalid_params", message: "Missing or invalid surface_id", data: nil)
         }
-        guard let relayPort = v2Int(params, "relay_port"),
-              relayPort > 0 else {
+        guard let relayPort = v2StrictInt(params, "relay_port"),
+              relayPort > 0,
+              relayPort <= 65535 else {
             return .err(code: "invalid_params", message: "Missing or invalid relay_port", data: nil)
         }
 

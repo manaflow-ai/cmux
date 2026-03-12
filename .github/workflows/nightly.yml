@@ -20,6 +20,8 @@ concurrency:
 
 permissions:
   contents: write
+  attestations: write
+  id-token: write
 
 env:
   CREATE_DMG_VERSION: 8.0.0
@@ -142,6 +144,11 @@ jobs:
           key: spm-${{ hashFiles('GhosttyTabs.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
           restore-keys: spm-
 
+      - name: Setup Go
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        with:
+          go-version-file: daemon/remote/go.mod
+
       - name: Derive Sparkle public key from private key
         env:
           SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
@@ -233,6 +240,7 @@ jobs:
             NIGHTLY_BUILD="${NIGHTLY_DATE}000000"
           fi
           echo "NIGHTLY_BUILD=${NIGHTLY_BUILD}" >> "$GITHUB_ENV"
+          echo "NIGHTLY_REMOTE_DAEMON_VERSION=${BASE_MARKETING}-nightly.${NIGHTLY_DATE}" >> "$GITHUB_ENV"
 
           ARM_DMG_IMMUTABLE="cmux-nightly-macos-${NIGHTLY_BUILD}.dmg"
           UNIVERSAL_DMG_IMMUTABLE="cmux-nightly-universal-macos-${NIGHTLY_BUILD}.dmg"
@@ -276,6 +284,24 @@ jobs:
           echo "Nightly arm64 immutable DMG: ${ARM_DMG_IMMUTABLE}"
           echo "Nightly universal immutable DMG: ${UNIVERSAL_DMG_IMMUTABLE}"
           echo "Commit SHA: ${SHORT_SHA}"
+
+      - name: Build remote daemon nightly assets and inject manifest
+        if: needs.decide.outputs.should_publish != 'true' || steps.current_head.outputs.still_current == 'true'
+        run: |
+          set -euo pipefail
+          ./scripts/build_remote_daemon_release_assets.sh \
+            --version "$NIGHTLY_REMOTE_DAEMON_VERSION" \
+            --release-tag "nightly" \
+            --repo "manaflow-ai/cmux" \
+            --output-dir "remote-daemon-assets"
+          MANIFEST_JSON="$(python3 -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1], encoding="utf-8")), separators=(",",":")))' remote-daemon-assets/cmuxd-remote-manifest.json)"
+          for APP_PLIST in \
+            "build-arm/Build/Products/Release/cmux NIGHTLY.app/Contents/Info.plist" \
+            "build-universal/Build/Products/Release/cmux NIGHTLY.app/Contents/Info.plist"
+          do
+            plutil -remove CMUXRemoteDaemonManifestJSON "$APP_PLIST" >/dev/null 2>&1 || true
+            plutil -insert CMUXRemoteDaemonManifestJSON -string "$MANIFEST_JSON" "$APP_PLIST"
+          done
 
       - name: Import signing cert
         if: needs.decide.outputs.should_publish != 'true' || steps.current_head.outputs.still_current == 'true'
@@ -420,6 +446,18 @@ jobs:
           ./scripts/sparkle_generate_appcast.sh "$NIGHTLY_DMG_IMMUTABLE" nightly appcast.xml
           ./scripts/sparkle_generate_appcast.sh "$NIGHTLY_UNIVERSAL_DMG_IMMUTABLE" nightly appcast-universal.xml
 
+      - name: Attest remote daemon nightly assets
+        if: needs.decide.outputs.should_publish != 'true' || steps.current_head.outputs.still_current == 'true'
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        with:
+          subject-path: |
+            remote-daemon-assets/cmuxd-remote-darwin-arm64
+            remote-daemon-assets/cmuxd-remote-darwin-amd64
+            remote-daemon-assets/cmuxd-remote-linux-arm64
+            remote-daemon-assets/cmuxd-remote-linux-amd64
+            remote-daemon-assets/cmuxd-remote-checksums.txt
+            remote-daemon-assets/cmuxd-remote-manifest.json
+
       - name: Upload branch nightly artifacts
         if: needs.decide.outputs.should_publish != 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -430,6 +468,12 @@ jobs:
             cmux-nightly-universal-macos*.dmg
             appcast.xml
             appcast-universal.xml
+            remote-daemon-assets/cmuxd-remote-darwin-arm64
+            remote-daemon-assets/cmuxd-remote-darwin-amd64
+            remote-daemon-assets/cmuxd-remote-linux-arm64
+            remote-daemon-assets/cmuxd-remote-linux-amd64
+            remote-daemon-assets/cmuxd-remote-checksums.txt
+            remote-daemon-assets/cmuxd-remote-manifest.json
           if-no-files-found: error
 
       - name: Move nightly tag to built commit
@@ -465,6 +509,12 @@ jobs:
             cmux-nightly-universal-macos.dmg
             appcast.xml
             appcast-universal.xml
+            remote-daemon-assets/cmuxd-remote-darwin-arm64
+            remote-daemon-assets/cmuxd-remote-darwin-amd64
+            remote-daemon-assets/cmuxd-remote-linux-arm64
+            remote-daemon-assets/cmuxd-remote-linux-amd64
+            remote-daemon-assets/cmuxd-remote-checksums.txt
+            remote-daemon-assets/cmuxd-remote-manifest.json
           overwrite_files: true
 
       - name: Cleanup keychain

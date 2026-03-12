@@ -3,6 +3,7 @@ import SwiftUI
 import AppKit
 import Bonsplit
 import Combine
+import CryptoKit
 import Darwin
 import Network
 import CoreText
@@ -104,6 +105,28 @@ enum SidebarMetadataFormat: String {
 private struct SessionPaneRestoreEntry {
     let paneId: PaneID
     let snapshot: SessionPaneLayoutSnapshot
+}
+
+struct WorkspaceRemoteDaemonManifest: Decodable, Equatable {
+    struct Entry: Decodable, Equatable {
+        let goOS: String
+        let goArch: String
+        let assetName: String
+        let downloadURL: String
+        let sha256: String
+    }
+
+    let schemaVersion: Int
+    let appVersion: String
+    let releaseTag: String
+    let releaseURL: String
+    let checksumsAssetName: String
+    let checksumsURL: String
+    let entries: [Entry]
+
+    func entry(goOS: String, goArch: String) -> Entry? {
+        entries.first { $0.goOS == goOS && $0.goArch == goArch }
+    }
 }
 
 extension Workspace {
@@ -933,10 +956,12 @@ private final class WorkspaceRemoteDaemonRPCClient {
     }
 
     private func stop(suppressTerminationCallback: Bool) {
-        let captured: (Process?, FileHandle?, FileHandle?, FileHandle?) = stateQueue.sync {
+        let captured: (Process?, FileHandle?, FileHandle?, FileHandle?, Bool, String) = stateQueue.sync {
+            let detail = Self.bestErrorLine(stderr: stderrBuffer) ?? "daemon transport stopped"
+            let shouldNotify = !suppressTerminationCallback && !isClosed
             shouldReportTermination = !suppressTerminationCallback
             if isClosed {
-                return (nil, nil, nil, nil)
+                return (nil, nil, nil, nil, false, detail)
             }
 
             isClosed = true
@@ -950,7 +975,7 @@ private final class WorkspaceRemoteDaemonRPCClient {
             stdinHandle = nil
             stdoutHandle = nil
             stderrHandle = nil
-            return (capturedProcess, capturedStdin, capturedStdout, capturedStderr)
+            return (capturedProcess, capturedStdin, capturedStdout, capturedStderr, shouldNotify, detail)
         }
 
         captured.2?.readabilityHandler = nil
@@ -960,6 +985,9 @@ private final class WorkspaceRemoteDaemonRPCClient {
         try? captured.3?.close()
         if let process = captured.0, process.isRunning {
             process.terminate()
+        }
+        if captured.4 {
+            onUnexpectedTermination(captured.5)
         }
     }
 
@@ -1924,6 +1952,443 @@ private final class WorkspaceRemoteProxyBroker {
     }
 }
 
+private final class WorkspaceRemoteCLIRelayServer {
+    private final class Session {
+        private enum Phase {
+            case awaitingAuth
+            case awaitingCommand
+            case forwarding
+            case closed
+        }
+
+        private let connection: NWConnection
+        private let localSocketPath: String
+        private let relayID: String
+        private let relayToken: Data
+        private let queue: DispatchQueue
+        private let onClose: () -> Void
+        private let challengeProtocol = "cmux-relay-auth"
+        private let challengeVersion = 1
+        private let minimumFailureDelay: TimeInterval = 0.05
+        private let maximumFrameBytes = 16 * 1024
+
+        private var buffer = Data()
+        private var phase: Phase = .awaitingAuth
+        private var challengeNonce = ""
+        private var challengeSentAt = Date()
+        private var isClosed = false
+
+        init(
+            connection: NWConnection,
+            localSocketPath: String,
+            relayID: String,
+            relayToken: Data,
+            queue: DispatchQueue,
+            onClose: @escaping () -> Void
+        ) {
+            self.connection = connection
+            self.localSocketPath = localSocketPath
+            self.relayID = relayID
+            self.relayToken = relayToken
+            self.queue = queue
+            self.onClose = onClose
+        }
+
+        func start() {
+            connection.stateUpdateHandler = { [weak self] state in
+                self?.queue.async {
+                    self?.handleState(state)
+                }
+            }
+            connection.start(queue: queue)
+        }
+
+        func stop() {
+            close()
+        }
+
+        private func handleState(_ state: NWConnection.State) {
+            guard !isClosed else { return }
+            switch state {
+            case .ready:
+                sendChallenge()
+                receive()
+            case .failed, .cancelled:
+                close()
+            default:
+                break
+            }
+        }
+
+        private func sendChallenge() {
+            challengeSentAt = Date()
+            challengeNonce = Self.randomHex(byteCount: 16)
+            let challenge: [String: Any] = [
+                "protocol": challengeProtocol,
+                "version": challengeVersion,
+                "relay_id": relayID,
+                "nonce": challengeNonce,
+            ]
+            sendJSONLine(challenge) { _ in }
+        }
+
+        private func receive() {
+            guard !isClosed else { return }
+            connection.receive(minimumIncompleteLength: 1, maximumLength: maximumFrameBytes) { [weak self] data, _, isComplete, error in
+                guard let self else { return }
+                self.queue.async {
+                    if error != nil {
+                        self.close()
+                        return
+                    }
+                    if let data, !data.isEmpty {
+                        self.buffer.append(data)
+                        if self.buffer.count > self.maximumFrameBytes {
+                            self.sendFailureAndClose()
+                            return
+                        }
+                        self.processBufferedLines()
+                    }
+                    if isComplete {
+                        self.close()
+                        return
+                    }
+                    if !self.isClosed {
+                        self.receive()
+                    }
+                }
+            }
+        }
+
+        private func processBufferedLines() {
+            while let newlineIndex = buffer.firstIndex(of: 0x0A), !isClosed {
+                let lineData = buffer.prefix(upTo: newlineIndex)
+                buffer.removeSubrange(...newlineIndex)
+                let line = String(data: lineData, encoding: .utf8)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                switch phase {
+                case .awaitingAuth:
+                    handleAuthLine(line)
+                case .awaitingCommand:
+                    handleCommandLine(Data(lineData) + Data([0x0A]))
+                case .forwarding, .closed:
+                    return
+                }
+            }
+        }
+
+        private func handleAuthLine(_ line: String) {
+            guard let data = line.data(using: .utf8),
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let receivedRelayID = object["relay_id"] as? String,
+                  receivedRelayID == relayID,
+                  let macHex = object["mac"] as? String,
+                  let receivedMAC = Self.hexData(from: macHex)
+            else {
+                sendFailureAndClose()
+                return
+            }
+
+            let message = Self.authMessage(relayID: relayID, nonce: challengeNonce, version: challengeVersion)
+            let expectedMAC = Self.authMAC(token: relayToken, message: message)
+            guard Self.constantTimeEqual(receivedMAC, expectedMAC) else {
+                sendFailureAndClose()
+                return
+            }
+
+            phase = .awaitingCommand
+            sendJSONLine(["ok": true]) { [weak self] _ in
+                self?.queue.async {
+                    self?.processBufferedLines()
+                }
+            }
+        }
+
+        private func handleCommandLine(_ commandLine: Data) {
+            guard !commandLine.isEmpty else {
+                sendFailureAndClose()
+                return
+            }
+            phase = .forwarding
+            DispatchQueue.global(qos: .utility).async { [localSocketPath, commandLine, queue] in
+                let result = Result { try Self.roundTripUnixSocket(socketPath: localSocketPath, request: commandLine) }
+                queue.async { [weak self] in
+                    guard let self else { return }
+                    switch result {
+                    case .success(let response):
+                        self.connection.send(content: response, completion: .contentProcessed { [weak self] _ in
+                            self?.queue.async {
+                                self?.close()
+                            }
+                        })
+                    case .failure:
+                        self.sendFailureAndClose()
+                    }
+                }
+            }
+        }
+
+        private func sendFailureAndClose() {
+            let elapsed = Date().timeIntervalSince(challengeSentAt)
+            let delay = max(0, minimumFailureDelay - elapsed)
+            phase = .closed
+            queue.asyncAfter(deadline: .now() + delay) { [weak self] in
+                self?.sendJSONLine(["ok": false]) { [weak self] _ in
+                    self?.queue.async {
+                        self?.close()
+                    }
+                }
+            }
+        }
+
+        private func sendJSONLine(_ object: [String: Any], completion: @escaping (NWError?) -> Void) {
+            guard !isClosed else {
+                completion(nil)
+                return
+            }
+            guard let payload = try? JSONSerialization.data(withJSONObject: object) else {
+                completion(nil)
+                return
+            }
+            connection.send(content: payload + Data([0x0A]), completion: .contentProcessed(completion))
+        }
+
+        private func close() {
+            guard !isClosed else { return }
+            isClosed = true
+            phase = .closed
+            connection.stateUpdateHandler = nil
+            connection.cancel()
+            onClose()
+        }
+
+        private static func authMessage(relayID: String, nonce: String, version: Int) -> Data {
+            Data("relay_id=\(relayID)\nnonce=\(nonce)\nversion=\(version)".utf8)
+        }
+
+        private static func authMAC(token: Data, message: Data) -> Data {
+            let key = SymmetricKey(data: token)
+            let code = HMAC<SHA256>.authenticationCode(for: message, using: key)
+            return Data(code)
+        }
+
+        private static func constantTimeEqual(_ lhs: Data, _ rhs: Data) -> Bool {
+            guard lhs.count == rhs.count else { return false }
+            var diff: UInt8 = 0
+            for index in lhs.indices {
+                diff |= lhs[index] ^ rhs[index]
+            }
+            return diff == 0
+        }
+
+        fileprivate static func hexData(from string: String) -> Data? {
+            let normalized = string.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard normalized.count.isMultiple(of: 2), !normalized.isEmpty else { return nil }
+            var data = Data(capacity: normalized.count / 2)
+            var cursor = normalized.startIndex
+            while cursor < normalized.endIndex {
+                let next = normalized.index(cursor, offsetBy: 2)
+                guard let byte = UInt8(normalized[cursor..<next], radix: 16) else { return nil }
+                data.append(byte)
+                cursor = next
+            }
+            return data
+        }
+
+        private static func randomHex(byteCount: Int) -> String {
+            var bytes = [UInt8](repeating: 0, count: byteCount)
+            _ = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
+            return bytes.map { String(format: "%02x", $0) }.joined()
+        }
+
+        private static func roundTripUnixSocket(socketPath: String, request: Data) throws -> Data {
+            let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+            guard fd >= 0 else {
+                throw NSError(domain: "cmux.remote.relay", code: 1, userInfo: [
+                    NSLocalizedDescriptionKey: "failed to create local relay socket",
+                ])
+            }
+            defer { Darwin.close(fd) }
+
+            var timeout = timeval(tv_sec: 15, tv_usec: 0)
+            withUnsafePointer(to: &timeout) { pointer in
+                _ = setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, pointer, socklen_t(MemoryLayout<timeval>.size))
+                _ = setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, pointer, socklen_t(MemoryLayout<timeval>.size))
+            }
+
+            var address = sockaddr_un()
+            address.sun_family = sa_family_t(AF_UNIX)
+            let pathBytes = Array(socketPath.utf8CString)
+            guard pathBytes.count <= MemoryLayout.size(ofValue: address.sun_path) else {
+                throw NSError(domain: "cmux.remote.relay", code: 2, userInfo: [
+                    NSLocalizedDescriptionKey: "local relay socket path is too long",
+                ])
+            }
+            let sunPathOffset = MemoryLayout<sockaddr_un>.offset(of: \.sun_path) ?? 0
+            withUnsafeMutableBytes(of: &address) { rawBuffer in
+                let destination = rawBuffer.baseAddress!.advanced(by: sunPathOffset)
+                pathBytes.withUnsafeBytes { pathBuffer in
+                    destination.copyMemory(from: pathBuffer.baseAddress!, byteCount: pathBytes.count)
+                }
+            }
+
+            let addressLength = socklen_t(MemoryLayout.size(ofValue: address.sun_family) + pathBytes.count)
+            let connectResult = withUnsafePointer(to: &address) {
+                $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                    Darwin.connect(fd, $0, addressLength)
+                }
+            }
+            guard connectResult == 0 else {
+                throw NSError(domain: "cmux.remote.relay", code: 3, userInfo: [
+                    NSLocalizedDescriptionKey: "failed to connect to local cmux socket",
+                ])
+            }
+
+            try request.withUnsafeBytes { rawBuffer in
+                guard let baseAddress = rawBuffer.bindMemory(to: UInt8.self).baseAddress else { return }
+                var bytesRemaining = rawBuffer.count
+                var pointer = baseAddress
+                while bytesRemaining > 0 {
+                    let written = Darwin.write(fd, pointer, bytesRemaining)
+                    if written <= 0 {
+                        throw NSError(domain: "cmux.remote.relay", code: 4, userInfo: [
+                            NSLocalizedDescriptionKey: "failed to write relay request",
+                        ])
+                    }
+                    bytesRemaining -= written
+                    pointer = pointer.advanced(by: written)
+                }
+            }
+            _ = shutdown(fd, SHUT_WR)
+
+            var response = Data()
+            var scratch = [UInt8](repeating: 0, count: 4096)
+            while true {
+                let count = Darwin.read(fd, &scratch, scratch.count)
+                if count > 0 {
+                    response.append(scratch, count: count)
+                    continue
+                }
+                if count == 0 {
+                    break
+                }
+
+                if errno == EAGAIN || errno == EWOULDBLOCK {
+                    if !response.isEmpty {
+                        break
+                    }
+                    throw NSError(domain: "cmux.remote.relay", code: 5, userInfo: [
+                        NSLocalizedDescriptionKey: "timed out waiting for local cmux response",
+                    ])
+                }
+                throw NSError(domain: "cmux.remote.relay", code: 6, userInfo: [
+                    NSLocalizedDescriptionKey: "failed to read local cmux response",
+                ])
+            }
+            return response
+        }
+    }
+
+    private let localSocketPath: String
+    private let relayID: String
+    private let relayToken: Data
+    private let queue = DispatchQueue(label: "com.cmux.remote-ssh.cli-relay.\(UUID().uuidString)", qos: .utility)
+
+    private var listener: NWListener?
+    private var sessions: [UUID: Session] = [:]
+    private var isStopped = false
+    private(set) var localPort: Int?
+
+    init(localSocketPath: String, relayID: String, relayTokenHex: String) throws {
+        guard let relayToken = Session.hexData(from: relayTokenHex), !relayToken.isEmpty else {
+            throw NSError(domain: "cmux.remote.relay", code: 7, userInfo: [
+                NSLocalizedDescriptionKey: "invalid relay token",
+            ])
+        }
+        self.localSocketPath = localSocketPath
+        self.relayID = relayID
+        self.relayToken = relayToken
+    }
+
+    func start() throws -> Int {
+        var capturedError: Error?
+        var boundPort: Int = 0
+        queue.sync {
+            do {
+                if let localPort {
+                    boundPort = localPort
+                    return
+                }
+                let listener = try Self.makeLoopbackListener()
+                listener.newConnectionHandler = { [weak self] connection in
+                    self?.queue.async {
+                        self?.acceptConnectionLocked(connection)
+                    }
+                }
+                listener.stateUpdateHandler = { _ in }
+                listener.start(queue: queue)
+                guard let tcpPort = listener.port?.rawValue else {
+                    throw NSError(domain: "cmux.remote.relay", code: 8, userInfo: [
+                        NSLocalizedDescriptionKey: "failed to bind local relay listener",
+                    ])
+                }
+                self.listener = listener
+                self.localPort = Int(tcpPort)
+                boundPort = Int(tcpPort)
+            } catch {
+                capturedError = error
+            }
+        }
+        if let capturedError {
+            throw capturedError
+        }
+        return boundPort
+    }
+
+    func stop() {
+        queue.sync {
+            guard !isStopped else { return }
+            isStopped = true
+            listener?.newConnectionHandler = nil
+            listener?.stateUpdateHandler = nil
+            listener?.cancel()
+            listener = nil
+            localPort = nil
+            let activeSessions = sessions.values
+            sessions.removeAll()
+            for session in activeSessions {
+                session.stop()
+            }
+        }
+    }
+
+    private func acceptConnectionLocked(_ connection: NWConnection) {
+        guard !isStopped else {
+            connection.cancel()
+            return
+        }
+        let sessionID = UUID()
+        let session = Session(
+            connection: connection,
+            localSocketPath: localSocketPath,
+            relayID: relayID,
+            relayToken: relayToken,
+            queue: queue
+        ) { [weak self] in
+            self?.sessions.removeValue(forKey: sessionID)
+        }
+        sessions[sessionID] = session
+        session.start()
+    }
+
+    private static func makeLoopbackListener() throws -> NWListener {
+        let parameters = NWParameters.tcp
+        parameters.allowLocalEndpointReuse = true
+        parameters.requiredLocalEndpoint = .hostPort(host: NWEndpoint.Host("127.0.0.1"), port: .any)
+        return try NWListener(using: parameters)
+    }
+}
+
 private final class WorkspaceRemoteSessionController {
     private struct CommandResult {
         let status: Int32
@@ -1956,6 +2421,7 @@ private final class WorkspaceRemoteSessionController {
     private var daemonBootstrapVersion: String?
     private var daemonRemotePath: String?
     private var reverseRelayProcess: Process?
+    private var cliRelayServer: WorkspaceRemoteCLIRelayServer?
     private var reverseRelayStderrPipe: Pipe?
     private var reverseRelayRestartWorkItem: DispatchWorkItem?
     private var reverseRelayStderrBuffer = ""
@@ -2090,13 +2556,16 @@ private final class WorkspaceRemoteSessionController {
 
     private func prepareRemoteCLISessionLocked(remotePath: String) {
         createRemoteCLISymlinkLocked(daemonRemotePath: remotePath)
-        writeRemoteRelayDaemonPathLocked(remotePath: remotePath)
     }
 
     private func startReverseRelayLocked(remotePath: String) {
         guard !isStopping else { return }
         guard daemonReady else { return }
         guard let relayPort = configuration.relayPort, relayPort > 0,
+              let relayID = configuration.relayID?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !relayID.isEmpty,
+              let relayToken = configuration.relayToken?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !relayToken.isEmpty,
               let localSocketPath = configuration.localSocketPath?
                 .trimmingCharacters(in: .whitespacesAndNewlines),
               !localSocketPath.isEmpty else {
@@ -2106,50 +2575,53 @@ private final class WorkspaceRemoteSessionController {
 
         reverseRelayRestartWorkItem?.cancel()
         reverseRelayRestartWorkItem = nil
-        Self.killOrphanedRelayProcesses(
-            relayPort: relayPort,
-            socketPath: localSocketPath,
-            destination: configuration.destination
-        )
+        do {
+            let relayServer = try ensureCLIRelayServerLocked(
+                localSocketPath: localSocketPath,
+                relayID: relayID,
+                relayToken: relayToken
+            )
+            let localRelayPort = try relayServer.start()
+            Self.killOrphanedRelayProcesses(relayPort: relayPort, destination: configuration.destination)
 
-        let process = Process()
-        let stderrPipe = Pipe()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
-        process.arguments = reverseRelayArguments(relayPort: relayPort, localSocketPath: localSocketPath)
-        process.standardInput = FileHandle.nullDevice
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = stderrPipe
+            let process = Process()
+            let stderrPipe = Pipe()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
+            process.arguments = reverseRelayArguments(relayPort: relayPort, localRelayPort: localRelayPort)
+            process.standardInput = FileHandle.nullDevice
+            process.standardOutput = FileHandle.nullDevice
+            process.standardError = stderrPipe
 
-        stderrPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
-            let data = handle.availableData
-            guard !data.isEmpty else {
-                handle.readabilityHandler = nil
-                return
-            }
-            self?.queue.async {
-                guard let self else { return }
-                if let chunk = String(data: data, encoding: .utf8), !chunk.isEmpty {
-                    self.reverseRelayStderrBuffer.append(chunk)
-                    if self.reverseRelayStderrBuffer.count > 8192 {
-                        self.reverseRelayStderrBuffer.removeFirst(self.reverseRelayStderrBuffer.count - 8192)
+            stderrPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
+                let data = handle.availableData
+                guard !data.isEmpty else {
+                    handle.readabilityHandler = nil
+                    return
+                }
+                self?.queue.async {
+                    guard let self else { return }
+                    if let chunk = String(data: data, encoding: .utf8), !chunk.isEmpty {
+                        self.reverseRelayStderrBuffer.append(chunk)
+                        if self.reverseRelayStderrBuffer.count > 8192 {
+                            self.reverseRelayStderrBuffer.removeFirst(self.reverseRelayStderrBuffer.count - 8192)
+                        }
                     }
                 }
             }
-        }
 
-        process.terminationHandler = { [weak self] terminated in
-            self?.queue.async {
-                self?.handleReverseRelayTerminationLocked(process: terminated)
+            process.terminationHandler = { [weak self] terminated in
+                self?.queue.async {
+                    self?.handleReverseRelayTerminationLocked(process: terminated)
+                }
             }
-        }
 
-        do {
             try process.run()
             reverseRelayProcess = process
+            cliRelayServer = relayServer
             reverseRelayStderrPipe = stderrPipe
             reverseRelayStderrBuffer = ""
             debugLog(
-                "remote.relay.start relayPort=\(relayPort) localSocket=\(localSocketPath) " +
+                "remote.relay.start relayPort=\(relayPort) localRelayPort=\(localRelayPort) " +
                 "target=\(configuration.displayTarget)"
             )
 
@@ -2157,14 +2629,24 @@ private final class WorkspaceRemoteSessionController {
                 guard let self else { return }
                 guard !self.isStopping else { return }
                 guard self.reverseRelayProcess === process, process.isRunning else { return }
-                self.writeRemoteSocketAddrLocked(relayPort: relayPort)
                 self.writeRemoteRelayDaemonPathLocked(remotePath: remotePath)
+                do {
+                    try self.writeRemoteRelayAuthLocked(relayPort: relayPort, relayID: relayID, relayToken: relayToken)
+                } catch {
+                    self.debugLog("remote.relay.auth.error \(error.localizedDescription)")
+                    self.stopReverseRelayLocked()
+                    self.scheduleReverseRelayRestartLocked(remotePath: remotePath, delay: 2.0)
+                    return
+                }
+                self.writeRemoteSocketAddrLocked(relayPort: relayPort)
             }
         } catch {
             debugLog(
-                "remote.relay.startFailed relayPort=\(relayPort) localSocket=\(localSocketPath) " +
+                "remote.relay.startFailed relayPort=\(relayPort) " +
                 "error=\(error.localizedDescription)"
             )
+            cliRelayServer?.stop()
+            cliRelayServer = nil
             scheduleReverseRelayRestartLocked(remotePath: remotePath, delay: 2.0)
         }
     }
@@ -2209,6 +2691,9 @@ private final class WorkspaceRemoteSessionController {
         reverseRelayProcess = nil
         reverseRelayStderrPipe = nil
         reverseRelayStderrBuffer = ""
+        cliRelayServer?.stop()
+        cliRelayServer = nil
+        removeRemoteRelayMetadataLocked()
     }
 
     private func handleProxyBrokerUpdateLocked(_ update: WorkspaceRemoteProxyBroker.Update) {
@@ -2390,7 +2875,7 @@ private final class WorkspaceRemoteSessionController {
         }
     }
 
-    private func reverseRelayArguments(relayPort: Int, localSocketPath: String) -> [String] {
+    private func reverseRelayArguments(relayPort: Int, localRelayPort: Int) -> [String] {
         // `-o ControlPath=none` is not enough on macOS OpenSSH, the client can still
         // attach to an existing master and exit immediately with its status.
         // `-S none` forces a standalone transport for the reverse relay.
@@ -2399,11 +2884,14 @@ private final class WorkspaceRemoteSessionController {
         args += [
             "-o", "ExitOnForwardFailure=no",
             "-o", "RequestTTY=no",
-            "-R", "127.0.0.1:\(relayPort):\(localSocketPath)",
+            "-R", "127.0.0.1:\(relayPort):127.0.0.1:\(localRelayPort)",
             configuration.destination,
         ]
         return args
     }
+
+    private static let remotePlatformProbeOSMarker = "__CMUX_REMOTE_OS__="
+    private static let remotePlatformProbeArchMarker = "__CMUX_REMOTE_ARCH__="
 
     private func sshCommonArguments(batchMode: Bool) -> [String] {
         let effectiveSSHOptions: [String] = {
@@ -2533,33 +3021,29 @@ private final class WorkspaceRemoteSessionController {
         let captureQueue = DispatchQueue(label: "cmux.remote.process.capture")
         var stdoutData = Data()
         var stderrData = Data()
-
-        stdoutHandle.readabilityHandler = { handle in
-            let data = handle.availableData
+        let captureGroup = DispatchGroup()
+        captureGroup.enter()
+        DispatchQueue.global(qos: .utility).async {
+            let data = stdoutHandle.readDataToEndOfFile()
             captureQueue.sync {
-                if data.isEmpty {
-                    handle.readabilityHandler = nil
-                } else {
-                    stdoutData.append(data)
-                }
+                stdoutData = data
             }
+            captureGroup.leave()
         }
-        stderrHandle.readabilityHandler = { handle in
-            let data = handle.availableData
+        captureGroup.enter()
+        DispatchQueue.global(qos: .utility).async {
+            let data = stderrHandle.readDataToEndOfFile()
             captureQueue.sync {
-                if data.isEmpty {
-                    handle.readabilityHandler = nil
-                } else {
-                    stderrData.append(data)
-                }
+                stderrData = data
             }
+            captureGroup.leave()
         }
 
         do {
             try process.run()
         } catch {
-            stdoutHandle.readabilityHandler = nil
-            stderrHandle.readabilityHandler = nil
+            try? stdoutPipe.fileHandleForWriting.close()
+            try? stderrPipe.fileHandleForWriting.close()
             debugLog(
                 "remote.proc.launchFailed exec=\(URL(fileURLWithPath: executable).lastPathComponent) " +
                 "error=\(error.localizedDescription)"
@@ -2568,6 +3052,8 @@ private final class WorkspaceRemoteSessionController {
                 NSLocalizedDescriptionKey: "Failed to launch \(URL(fileURLWithPath: executable).lastPathComponent): \(error.localizedDescription)",
             ])
         }
+        try? stdoutPipe.fileHandleForWriting.close()
+        try? stderrPipe.fileHandleForWriting.close()
 
         if let stdin, let pipe = process.standardInput as? Pipe {
             pipe.fileHandleForWriting.write(stdin)
@@ -2597,12 +3083,7 @@ private final class WorkspaceRemoteSessionController {
             ])
         }
 
-        stdoutHandle.readabilityHandler = nil
-        stderrHandle.readabilityHandler = nil
-        captureQueue.sync {
-            stdoutData.append(stdoutHandle.readDataToEndOfFile())
-            stderrData.append(stderrHandle.readDataToEndOfFile())
-        }
+        _ = captureGroup.wait(timeout: .now() + 2.0)
         try? stdoutHandle.close()
         try? stderrHandle.close()
         let stdout = String(data: stdoutData, encoding: .utf8) ?? ""
@@ -2669,6 +3150,19 @@ private final class WorkspaceRemoteSessionController {
         }
     }
 
+    private func ensureCLIRelayServerLocked(localSocketPath: String, relayID: String, relayToken: String) throws -> WorkspaceRemoteCLIRelayServer {
+        if let cliRelayServer {
+            return cliRelayServer
+        }
+        let relayServer = try WorkspaceRemoteCLIRelayServer(
+            localSocketPath: localSocketPath,
+            relayID: relayID,
+            relayTokenHex: relayToken
+        )
+        cliRelayServer = relayServer
+        return relayServer
+    }
+
     private func writeRemoteSocketAddrLocked(relayPort: Int) {
         let script = """
         mkdir -p "$HOME/.cmux"
@@ -2709,8 +3203,47 @@ private final class WorkspaceRemoteSessionController {
         }
     }
 
+    private func writeRemoteRelayAuthLocked(relayPort: Int, relayID: String, relayToken: String) throws {
+        let authPayload = """
+        {"relay_id":"\(relayID)","relay_token":"\(relayToken)"}
+        """
+        let script = """
+        umask 077
+        mkdir -p "$HOME/.cmux/relay"
+        chmod 700 "$HOME/.cmux/relay"
+        cat > "$HOME/.cmux/relay/\(relayPort).auth" <<'CMUXRELAYAUTH'
+        \(authPayload)
+        CMUXRELAYAUTH
+        chmod 600 "$HOME/.cmux/relay/\(relayPort).auth"
+        """
+        let command = "sh -c \(Self.shellSingleQuoted(script))"
+        let result = try sshExec(arguments: sshCommonArguments(batchMode: true) + [configuration.destination, command], timeout: 8)
+        guard result.status == 0 else {
+            let detail = Self.bestErrorLine(stderr: result.stderr, stdout: result.stdout) ?? "ssh exited \(result.status)"
+            throw NSError(domain: "cmux.remote.relay", code: 70, userInfo: [
+                NSLocalizedDescriptionKey: "failed to install remote relay auth: \(detail)",
+            ])
+        }
+    }
+
+    private func removeRemoteRelayMetadataLocked() {
+        guard let relayPort = configuration.relayPort, relayPort > 0 else { return }
+        let script = """
+        rm -f "$HOME/.cmux/relay/\(relayPort).auth" "$HOME/.cmux/relay/\(relayPort).daemon_path"
+        """
+        let command = "sh -c \(Self.shellSingleQuoted(script))"
+        do {
+            _ = try sshExec(arguments: sshCommonArguments(batchMode: true) + [configuration.destination, command], timeout: 8)
+        } catch {
+            debugLog("remote.relay.cleanup.error \(error.localizedDescription)")
+        }
+    }
+
     private func resolveRemotePlatformLocked() throws -> RemotePlatform {
-        let script = "uname -s; uname -m"
+        let script = """
+        printf '%s%s\\n' '\(Self.remotePlatformProbeOSMarker)' "$(uname -s)"
+        printf '%s%s\\n' '\(Self.remotePlatformProbeArchMarker)' "$(uname -m)"
+        """
         let command = "sh -c \(Self.shellSingleQuoted(script))"
         let result = try sshExec(arguments: sshCommonArguments(batchMode: true) + [configuration.destination, command], timeout: 20)
         guard result.status == 0 else {
@@ -2721,19 +3254,23 @@ private final class WorkspaceRemoteSessionController {
         }
 
         let lines = result.stdout
-            .split(separator: "\n")
+            .split(separator: "\n", omittingEmptySubsequences: false)
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
-        guard lines.count >= 2 else {
+        let unameOS = lines.first { $0.hasPrefix(Self.remotePlatformProbeOSMarker) }
+            .map { String($0.dropFirst(Self.remotePlatformProbeOSMarker.count)) }
+        let unameArch = lines.first { $0.hasPrefix(Self.remotePlatformProbeArchMarker) }
+            .map { String($0.dropFirst(Self.remotePlatformProbeArchMarker.count)) }
+        guard let unameOS, let unameArch else {
             throw NSError(domain: "cmux.remote.daemon", code: 11, userInfo: [
                 NSLocalizedDescriptionKey: "remote platform probe returned invalid output",
             ])
         }
 
-        guard let goOS = Self.mapUnameOS(lines[0]),
-              let goArch = Self.mapUnameArch(lines[1]) else {
+        guard let goOS = Self.mapUnameOS(unameOS),
+              let goArch = Self.mapUnameArch(unameArch) else {
             throw NSError(domain: "cmux.remote.daemon", code: 12, userInfo: [
-                NSLocalizedDescriptionKey: "unsupported remote platform \(lines[0])/\(lines[1])",
+                NSLocalizedDescriptionKey: "unsupported remote platform \(unameOS)/\(unameArch)",
             ])
         }
 
@@ -2748,15 +3285,170 @@ private final class WorkspaceRemoteSessionController {
         return result.stdout.trimmingCharacters(in: .whitespacesAndNewlines) == "yes"
     }
 
+    static let remoteDaemonManifestInfoKey = "CMUXRemoteDaemonManifestJSON"
+
+    static func remoteDaemonManifest(from infoDictionary: [String: Any]?) -> WorkspaceRemoteDaemonManifest? {
+        guard let rawManifest = infoDictionary?[remoteDaemonManifestInfoKey] as? String else { return nil }
+        let trimmed = rawManifest.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        guard let data = trimmed.data(using: .utf8) else { return nil }
+        return try? JSONDecoder().decode(WorkspaceRemoteDaemonManifest.self, from: data)
+    }
+
+    private static func remoteDaemonManifest() -> WorkspaceRemoteDaemonManifest? {
+        remoteDaemonManifest(from: Bundle.main.infoDictionary)
+    }
+
+    private static func remoteDaemonCacheRoot(fileManager: FileManager = .default) throws -> URL {
+        let appSupportRoot = try fileManager.url(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask,
+            appropriateFor: nil,
+            create: true
+        )
+        let cacheRoot = appSupportRoot
+            .appendingPathComponent("cmux", isDirectory: true)
+            .appendingPathComponent("remote-daemons", isDirectory: true)
+        try fileManager.createDirectory(at: cacheRoot, withIntermediateDirectories: true)
+        return cacheRoot
+    }
+
+    static func remoteDaemonCachedBinaryURL(
+        version: String,
+        goOS: String,
+        goArch: String,
+        fileManager: FileManager = .default
+    ) throws -> URL {
+        try remoteDaemonCacheRoot(fileManager: fileManager)
+            .appendingPathComponent(version, isDirectory: true)
+            .appendingPathComponent("\(goOS)-\(goArch)", isDirectory: true)
+            .appendingPathComponent("cmuxd-remote", isDirectory: false)
+    }
+
+    private static func sha256Hex(forFile url: URL) throws -> String {
+        let data = try Data(contentsOf: url)
+        let digest = SHA256.hash(data: data)
+        return digest.map { String(format: "%02x", $0) }.joined()
+    }
+
+    private static func allowLocalDaemonBuildFallback(environment: [String: String] = ProcessInfo.processInfo.environment) -> Bool {
+        environment["CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD"] == "1"
+    }
+
+    private static func explicitRemoteDaemonBinaryURL(environment: [String: String] = ProcessInfo.processInfo.environment) -> URL? {
+        guard allowLocalDaemonBuildFallback(environment: environment) else { return nil }
+        guard let path = environment["CMUX_REMOTE_DAEMON_BINARY"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !path.isEmpty else {
+            return nil
+        }
+        return URL(fileURLWithPath: path, isDirectory: false).standardizedFileURL
+    }
+
+    private static func versionedRemoteDaemonBuildURL(goOS: String, goArch: String, version: String) -> URL {
+        URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+            .appendingPathComponent("cmux-remote-daemon-build", isDirectory: true)
+            .appendingPathComponent(version, isDirectory: true)
+            .appendingPathComponent("\(goOS)-\(goArch)", isDirectory: true)
+            .appendingPathComponent("cmuxd-remote", isDirectory: false)
+    }
+
+    private func downloadRemoteDaemonBinaryLocked(entry: WorkspaceRemoteDaemonManifest.Entry, version: String) throws -> URL {
+        guard let url = URL(string: entry.downloadURL) else {
+            throw NSError(domain: "cmux.remote.daemon", code: 25, userInfo: [
+                NSLocalizedDescriptionKey: "remote daemon manifest has an invalid download URL",
+            ])
+        }
+
+        let cacheURL = try Self.remoteDaemonCachedBinaryURL(version: version, goOS: entry.goOS, goArch: entry.goArch)
+        let fileManager = FileManager.default
+        try fileManager.createDirectory(at: cacheURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+
+        let request = NSMutableURLRequest(url: url)
+        request.timeoutInterval = 60
+        request.setValue("cmux/\(version)", forHTTPHeaderField: "User-Agent")
+        let session = URLSession(configuration: .ephemeral)
+
+        let semaphore = DispatchSemaphore(value: 0)
+        var downloadedURL: URL?
+        var downloadError: Error?
+        session.downloadTask(with: request as URLRequest) { localURL, response, error in
+            defer { semaphore.signal() }
+            if let error {
+                downloadError = error
+                return
+            }
+            if let httpResponse = response as? HTTPURLResponse,
+               !(200...299).contains(httpResponse.statusCode) {
+                downloadError = NSError(domain: "cmux.remote.daemon", code: 26, userInfo: [
+                    NSLocalizedDescriptionKey: "remote daemon download failed with HTTP \(httpResponse.statusCode)",
+                ])
+                return
+            }
+            downloadedURL = localURL
+        }.resume()
+        _ = semaphore.wait(timeout: .now() + 75.0)
+        session.finishTasksAndInvalidate()
+
+        if let downloadError {
+            throw downloadError
+        }
+        guard let downloadedURL else {
+            throw NSError(domain: "cmux.remote.daemon", code: 27, userInfo: [
+                NSLocalizedDescriptionKey: "remote daemon download did not produce a file",
+            ])
+        }
+
+        let downloadedSHA = try Self.sha256Hex(forFile: downloadedURL)
+        guard downloadedSHA == entry.sha256.lowercased() else {
+            throw NSError(domain: "cmux.remote.daemon", code: 28, userInfo: [
+                NSLocalizedDescriptionKey: "remote daemon checksum mismatch for \(entry.assetName)",
+            ])
+        }
+
+        let tempURL = cacheURL.deletingLastPathComponent()
+            .appendingPathComponent(".\(cacheURL.lastPathComponent).tmp-\(UUID().uuidString)")
+        try? fileManager.removeItem(at: tempURL)
+        try fileManager.moveItem(at: downloadedURL, to: tempURL)
+        try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: tempURL.path)
+        try? fileManager.removeItem(at: cacheURL)
+        try fileManager.moveItem(at: tempURL, to: cacheURL)
+        return cacheURL
+    }
+
     private func buildLocalDaemonBinary(goOS: String, goArch: String, version: String) throws -> URL {
-        if let bundledBinary = Self.findBundledDaemonBinary(goOS: goOS, goArch: goArch, version: version) {
-            debugLog("remote.build.bundled path=\(bundledBinary.path)")
-            return bundledBinary
+        if let explicitBinary = Self.explicitRemoteDaemonBinaryURL(),
+           FileManager.default.isExecutableFile(atPath: explicitBinary.path) {
+            debugLog("remote.build.explicit path=\(explicitBinary.path)")
+            return explicitBinary
+        }
+
+        if let manifest = Self.remoteDaemonManifest(),
+           manifest.appVersion == version,
+           let entry = manifest.entry(goOS: goOS, goArch: goArch) {
+            let cacheURL = try Self.remoteDaemonCachedBinaryURL(version: manifest.appVersion, goOS: goOS, goArch: goArch)
+            if FileManager.default.fileExists(atPath: cacheURL.path) {
+                let cachedSHA = try Self.sha256Hex(forFile: cacheURL)
+                if cachedSHA == entry.sha256.lowercased(),
+                   FileManager.default.isExecutableFile(atPath: cacheURL.path) {
+                    debugLog("remote.build.cached path=\(cacheURL.path)")
+                    return cacheURL
+                }
+                try? FileManager.default.removeItem(at: cacheURL)
+            }
+            let downloadedURL = try downloadRemoteDaemonBinaryLocked(entry: entry, version: manifest.appVersion)
+            debugLog("remote.build.downloaded path=\(downloadedURL.path)")
+            return downloadedURL
+        }
+
+        guard Self.allowLocalDaemonBuildFallback() else {
+            throw NSError(domain: "cmux.remote.daemon", code: 20, userInfo: [
+                NSLocalizedDescriptionKey: "this build does not include a verified cmuxd-remote manifest for \(goOS)-\(goArch). Use a release/nightly build, or set CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD=1 for a dev-only fallback.",
+            ])
         }
 
         guard let repoRoot = Self.findRepoRoot() else {
             throw NSError(domain: "cmux.remote.daemon", code: 20, userInfo: [
-                NSLocalizedDescriptionKey: "cannot locate cmux repo root for daemon build and no bundled cmuxd-remote binary was found",
+                NSLocalizedDescriptionKey: "cannot locate cmux repo root for dev-only cmuxd-remote build fallback",
             ])
         }
         let daemonRoot = repoRoot.appendingPathComponent("daemon/remote", isDirectory: true)
@@ -2768,16 +3460,12 @@ private final class WorkspaceRemoteSessionController {
         }
         guard let goBinary = Self.which("go") else {
             throw NSError(domain: "cmux.remote.daemon", code: 22, userInfo: [
-                NSLocalizedDescriptionKey: "go is required to build cmuxd-remote when no bundled binary is available",
+                NSLocalizedDescriptionKey: "go is required for the dev-only cmuxd-remote build fallback",
             ])
         }
 
-        let cacheRoot = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
-            .appendingPathComponent("cmux-remote-daemon-build", isDirectory: true)
-            .appendingPathComponent(version, isDirectory: true)
-            .appendingPathComponent("\(goOS)-\(goArch)", isDirectory: true)
-        try FileManager.default.createDirectory(at: cacheRoot, withIntermediateDirectories: true)
-        let output = cacheRoot.appendingPathComponent("cmuxd-remote", isDirectory: false)
+        let output = Self.versionedRemoteDaemonBuildURL(goOS: goOS, goArch: goArch, version: version)
+        try FileManager.default.createDirectory(at: output.deletingLastPathComponent(), withIntermediateDirectories: true)
 
         var env = ProcessInfo.processInfo.environment
         env["GOOS"] = goOS
@@ -2805,27 +3493,6 @@ private final class WorkspaceRemoteSessionController {
         }
         debugLog("remote.build.output path=\(output.path)")
         return output
-    }
-
-    private static func findBundledDaemonBinary(goOS: String, goArch: String, version: String) -> URL? {
-        let fm = FileManager.default
-        var candidates: [URL] = []
-        let env = ProcessInfo.processInfo.environment
-        if let explicit = env["CMUX_REMOTE_DAEMON_BINARY"]?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !explicit.isEmpty {
-            candidates.append(URL(fileURLWithPath: explicit, isDirectory: false))
-        }
-        if let resourceRoot = Bundle.main.resourceURL {
-            candidates.append(resourceRoot.appendingPathComponent("bin/cmuxd-remote-\(goOS)-\(goArch)", isDirectory: false))
-            candidates.append(resourceRoot.appendingPathComponent("bin/cmuxd-remote", isDirectory: false))
-            candidates.append(resourceRoot.appendingPathComponent("cmuxd-remote/\(goOS)-\(goArch)/cmuxd-remote", isDirectory: false))
-            candidates.append(resourceRoot.appendingPathComponent("cmuxd-remote/\(version)/\(goOS)-\(goArch)/cmuxd-remote", isDirectory: false))
-        }
-
-        for candidate in candidates.map(\.standardizedFileURL) where fm.isExecutableFile(atPath: candidate.path) {
-            return candidate
-        }
-        return nil
     }
 
     private func uploadRemoteDaemonBinaryLocked(localBinary: URL, remotePath: String) throws {
@@ -3024,10 +3691,10 @@ private final class WorkspaceRemoteSessionController {
         ".cmux/bin/cmuxd-remote/\(version)/\(goOS)-\(goArch)/cmuxd-remote"
     }
 
-    private static func killOrphanedRelayProcesses(relayPort: Int, socketPath: String, destination: String) {
+    private static func killOrphanedRelayProcesses(relayPort: Int, destination: String) {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/pkill")
-        process.arguments = ["-f", "ssh.*-R.*127\\.0\\.0\\.1:\(relayPort):\(socketPath).*\(destination)"]
+        process.arguments = ["-f", "ssh.*-R.*127\\.0\\.0\\.1:\(relayPort):127\\.0\\.0\\.1:[0-9]+.*\(destination)"]
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
         do {
@@ -3203,6 +3870,8 @@ struct WorkspaceRemoteConfiguration: Equatable {
     let sshOptions: [String]
     let localProxyPort: Int?
     let relayPort: Int?
+    let relayID: String?
+    let relayToken: String?
     let localSocketPath: String?
     let terminalStartupCommand: String?
 

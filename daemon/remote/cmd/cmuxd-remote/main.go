@@ -9,6 +9,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"os"
 	"path/filepath"
@@ -1017,6 +1018,9 @@ func getIntParam(params map[string]any, key string) (int, bool) {
 	case uint64:
 		return int(value), true
 	case float64:
+		if math.Trunc(value) != value {
+			return 0, false
+		}
 		return int(value), true
 	case json.Number:
 		n, err := value.Int64()
