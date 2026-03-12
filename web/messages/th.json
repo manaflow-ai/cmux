@@ -213,7 +213,8 @@
       "sessionCallout": "cmux ยังไม่กู้คืนสถานะโปรเซสที่กำลังทำงาน เซสชันแอปเทอร์มินัลที่ใช้งานอยู่เช่น Claude Code, tmux และ vim จะไม่ถูกกู้คืนหลังรีสตาร์ทแอป",
       "requirements": "ความต้องการ",
       "reqItem1": "macOS 14.0 หรือใหม่กว่า",
-      "reqItem2": "Apple Silicon หรือ Intel Mac"
+      "reqItem2": "Apple Silicon หรือ Intel Mac",
+      "metaTitle": "เริ่มต้นใช้งาน"
     },
     "concepts": {
       "title": "แนวคิด",
@@ -264,7 +265,8 @@
       "terminalOrBrowser": "เทอร์มินัลหรือเบราว์เซอร์",
       "automatic": "อัตโนมัติ",
       "paneIdSocket": "Pane ID (socket API)",
-      "panelIdInternal": "Panel ID (ภายใน)"
+      "panelIdInternal": "Panel ID (ภายใน)",
+      "metaTitle": "แนวคิด"
     },
     "configuration": {
       "title": "การตั้งค่า",
@@ -296,7 +298,8 @@
       "browserLinkDesc": "ใน Settings > Browser cmux มีรายการ host สองรายการที่มีจุดประสงค์ต่างกัน:",
       "browserHostsEmbed": "Hosts to Open in Embedded Browser: ใช้กับลิงก์ที่คลิกจากเอาต์พุตเทอร์มินัล Host ในรายการนี้เปิดใน cmux ส่วน host อื่นเปิดในเบราว์เซอร์เริ่มต้นของคุณ รองรับ host เดี่ยวหรือ wildcard ต่อบรรทัด (เช่น: example.com, *.internal.example)",
       "browserHostsHttp": "HTTP Hosts Allowed in Embedded Browser: ใช้เฉพาะกับ URL แบบ HTTP (ไม่ใช่ HTTPS) Host ในรายการนี้เปิดใน cmux ได้โดยไม่มีข้อความเตือน ค่าเริ่มต้นรวม localhost, 127.0.0.1, ::1, 0.0.0.0 และ *.localtest.me",
-      "exampleConfig": "ตัวอย่างคอนฟิก"
+      "exampleConfig": "ตัวอย่างคอนฟิก",
+      "metaTitle": "การตั้งค่า"
     },
     "keyboardShortcuts": {
       "title": "คีย์ลัด",
@@ -356,7 +359,8 @@
         "wn-settings": "การตั้งค่า",
         "wn-reload": "โหลดการตั้งค่าใหม่",
         "wn-quit": "ออก"
-      }
+      },
+      "metaTitle": "ทางลัดคีย์บอร์ด"
     },
     "api": {
       "title": "เอกสาร API",
@@ -437,7 +441,8 @@
       "examples": "ตัวอย่าง",
       "pythonClient": "Python client",
       "shellScript": "Shell script",
-      "buildScriptNotification": "Build script พร้อมแจ้งเตือน"
+      "buildScriptNotification": "Build script พร้อมแจ้งเตือน",
+      "metaTitle": "เอกสาร API"
     },
     "notifications": {
       "title": "การแจ้งเตือน",
@@ -489,7 +494,8 @@
       "python": "Python",
       "nodejs": "Node.js",
       "tmuxPassthrough": "tmux passthrough",
-      "tmuxDesc": "ถ้าใช้ tmux ภายใน cmux ให้เปิด passthrough:"
+      "tmuxDesc": "ถ้าใช้ tmux ภายใน cmux ให้เปิด passthrough:",
+      "metaTitle": "การแจ้งเตือน"
     },
     "browserAutomation": {
       "title": "Browser Automation",
@@ -528,11 +534,13 @@
       "patternNavigate": "Navigate, wait, inspect",
       "patternForm": "กรอกฟอร์มและยืนยันข้อความสำเร็จ",
       "patternDebug": "จับ debug artifact เมื่อล้มเหลว",
-      "patternSession": "บันทึกและกู้คืนเซสชันเบราว์เซอร์"
+      "patternSession": "บันทึกและกู้คืนเซสชันเบราว์เซอร์",
+      "metaTitle": "ระบบอัตโนมัติของเบราว์เซอร์"
     },
     "changelog": {
       "title": "Changelog",
-      "metaDescription": "บันทึกการอัปเดต cmux และประวัติเวอร์ชัน ฟีเจอร์ใหม่, แก้ไขบั๊ก และการเปลี่ยนแปลงสำหรับเทอร์มินัล macOS เนทีฟ"
+      "metaDescription": "บันทึกการอัปเดต cmux และประวัติเวอร์ชัน ฟีเจอร์ใหม่, แก้ไขบั๊ก และการเปลี่ยนแปลงสำหรับเทอร์มินัล macOS เนทีฟ",
+      "metaTitle": "บันทึกการเปลี่ยนแปลง"
     },
     "navItems": {
       "gettingStarted": "เริ่มต้นใช้งาน",

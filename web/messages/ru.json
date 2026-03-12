@@ -213,7 +213,8 @@
       "sessionCallout": "cmux пока не восстанавливает состояние живых процессов. Активные сессии терминальных приложений, таких как Claude Code, tmux и vim, не возобновляются после перезапуска приложения.",
       "requirements": "Требования",
       "reqItem1": "macOS 14.0 или новее",
-      "reqItem2": "Apple Silicon или Intel Mac"
+      "reqItem2": "Apple Silicon или Intel Mac",
+      "metaTitle": "Начало работы"
     },
     "concepts": {
       "title": "Концепции",
@@ -264,7 +265,8 @@
       "terminalOrBrowser": "Терминал или браузер",
       "automatic": "Автоматически",
       "paneIdSocket": "ID панели (socket API)",
-      "panelIdInternal": "ID панели (внутренний)"
+      "panelIdInternal": "ID панели (внутренний)",
+      "metaTitle": "Концепции"
     },
     "configuration": {
       "title": "Конфигурация",
@@ -296,7 +298,8 @@
       "browserLinkDesc": "В Настройки > Браузер, cmux предоставляет два списка хостов с разными целями:",
       "browserHostsEmbed": "Хосты для открытия во встроенном браузере: применяется к ссылкам, нажатым в выводе терминала. Хосты из этого списка открываются в cmux; остальные хосты открываются в твоём браузере по умолчанию. Поддерживает один хост или wildcard на строку (например: example.com, *.internal.example).",
       "browserHostsHttp": "HTTP-хосты, разрешённые во встроенном браузере: применяется только к HTTP (не HTTPS) URL-ам. Хосты из этого списка могут открываться в cmux без предупреждения. По умолчанию включают localhost, 127.0.0.1, ::1, 0.0.0.0 и *.localtest.me.",
-      "exampleConfig": "Пример конфигурации"
+      "exampleConfig": "Пример конфигурации",
+      "metaTitle": "Конфигурация"
     },
     "keyboardShortcuts": {
       "title": "Горячие клавиши",
@@ -356,7 +359,8 @@
         "wn-settings": "Настройки",
         "wn-reload": "Перезагрузить конфигурацию",
         "wn-quit": "Выход"
-      }
+      },
+      "metaTitle": "Горячие клавиши"
     },
     "api": {
       "title": "Справочник API",
@@ -437,7 +441,8 @@
       "examples": "Примеры",
       "pythonClient": "Python-клиент",
       "shellScript": "Shell-скрипт",
-      "buildScriptNotification": "Скрипт сборки с уведомлением"
+      "buildScriptNotification": "Скрипт сборки с уведомлением",
+      "metaTitle": "Справочник API"
     },
     "notifications": {
       "title": "Уведомления",
@@ -489,7 +494,8 @@
       "python": "Python",
       "nodejs": "Node.js",
       "tmuxPassthrough": "tmux passthrough",
-      "tmuxDesc": "Если используешь tmux внутри cmux, включи passthrough:"
+      "tmuxDesc": "Если используешь tmux внутри cmux, включи passthrough:",
+      "metaTitle": "Уведомления"
     },
     "browserAutomation": {
       "title": "Автоматизация браузера",
@@ -528,11 +534,13 @@
       "patternNavigate": "Навигация, ожидание, инспекция",
       "patternForm": "Заполнение формы и проверка текста успеха",
       "patternDebug": "Захват debug-артефактов при ошибке",
-      "patternSession": "Сохранение и восстановление сессии браузера"
+      "patternSession": "Сохранение и восстановление сессии браузера",
+      "metaTitle": "Автоматизация браузера"
     },
     "changelog": {
       "title": "История изменений",
-      "metaDescription": "Заметки о релизах cmux и история версий. Новые функции, исправления ошибок и изменения для нативного macOS-терминала."
+      "metaDescription": "Заметки о релизах cmux и история версий. Новые функции, исправления ошибок и изменения для нативного macOS-терминала.",
+      "metaTitle": "Журнал изменений"
     },
     "navItems": {
       "gettingStarted": "Начало работы",

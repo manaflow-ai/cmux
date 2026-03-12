@@ -213,7 +213,8 @@
       "sessionCallout": "cmux 尚不支援還原即時程序狀態。活躍的終端機應用程式工作階段（如 Claude Code、tmux 和 vim）在應用程式重啟後不會恢復。",
       "requirements": "系統需求",
       "reqItem1": "macOS 14.0 或更新版本",
-      "reqItem2": "Apple Silicon 或 Intel Mac"
+      "reqItem2": "Apple Silicon 或 Intel Mac",
+      "metaTitle": "快速開始"
     },
     "concepts": {
       "title": "概念",
@@ -264,7 +265,8 @@
       "terminalOrBrowser": "終端機或瀏覽器",
       "automatic": "自動",
       "paneIdSocket": "窗格 ID（socket API）",
-      "panelIdInternal": "面板 ID（內部）"
+      "panelIdInternal": "面板 ID（內部）",
+      "metaTitle": "概念"
     },
     "configuration": {
       "title": "設定",
@@ -296,7 +298,8 @@
       "browserLinkDesc": "在「設定 > 瀏覽器」中，cmux 提供兩個不同用途的主機列表：",
       "browserHostsEmbed": "在內建瀏覽器中開啟的主機：適用於從終端機輸出點擊的連結。此列表中的主機會在 cmux 中開啟；其他主機會在你的預設瀏覽器中開啟。支援每行一個主機或萬用字元（例如：example.com、*.internal.example）。",
       "browserHostsHttp": "內建瀏覽器中允許的 HTTP 主機：僅適用於 HTTP（非 HTTPS）URL。此列表中的主機可以在 cmux 中開啟而不會出現警告提示。預設包含 localhost、127.0.0.1、::1、0.0.0.0 和 *.localtest.me。",
-      "exampleConfig": "範例設定"
+      "exampleConfig": "範例設定",
+      "metaTitle": "設定"
     },
     "keyboardShortcuts": {
       "title": "鍵盤快捷鍵",
@@ -356,7 +359,8 @@
         "wn-settings": "設定",
         "wn-reload": "重新載入設定",
         "wn-quit": "結束"
-      }
+      },
+      "metaTitle": "鍵盤快捷鍵"
     },
     "api": {
       "title": "API 參考",
@@ -437,7 +441,8 @@
       "examples": "範例",
       "pythonClient": "Python 用戶端",
       "shellScript": "Shell 腳本",
-      "buildScriptNotification": "帶有通知的建構腳本"
+      "buildScriptNotification": "帶有通知的建構腳本",
+      "metaTitle": "API 參考"
     },
     "notifications": {
       "title": "通知",
@@ -489,7 +494,8 @@
       "python": "Python",
       "nodejs": "Node.js",
       "tmuxPassthrough": "tmux 透傳",
-      "tmuxDesc": "如果在 cmux 內使用 tmux，請啟用透傳："
+      "tmuxDesc": "如果在 cmux 內使用 tmux，請啟用透傳：",
+      "metaTitle": "通知"
     },
     "browserAutomation": {
       "title": "瀏覽器自動化",
@@ -528,11 +534,13 @@
       "patternNavigate": "導覽、等待、檢查",
       "patternForm": "填寫表單並驗證成功文字",
       "patternDebug": "失敗時擷取除錯資訊",
-      "patternSession": "保存和還原瀏覽器工作階段"
+      "patternSession": "保存和還原瀏覽器工作階段",
+      "metaTitle": "瀏覽器自動化"
     },
     "changelog": {
       "title": "更新日誌",
-      "metaDescription": "cmux 版本說明和版本歷史。原生 macOS 終端機的新功能、錯誤修復和變更。"
+      "metaDescription": "cmux 版本說明和版本歷史。原生 macOS 終端機的新功能、錯誤修復和變更。",
+      "metaTitle": "更新日誌"
     },
     "navItems": {
       "gettingStarted": "入門指南",

@@ -213,7 +213,8 @@
       "sessionCallout": "cmux មិនទាន់ស្ដារស្ថានភាពដំណើរការផ្ទាល់ទេ។ វគ្គកម្មវិធីទែមីណលដែលកំពុងដំណើរការដូចជា Claude Code, tmux, និង vim មិនត្រូវបានបន្តបន្ទាប់ពីចាប់ផ្ដើមកម្មវិធីឡើងវិញទេ។",
       "requirements": "តម្រូវការ",
       "reqItem1": "macOS 14.0 ឬក្រោយ",
-      "reqItem2": "Mac Apple Silicon ឬ Intel"
+      "reqItem2": "Mac Apple Silicon ឬ Intel",
+      "metaTitle": "ចាប់ផ្តើម"
     },
     "concepts": {
       "title": "គោលគំនិត",
@@ -264,7 +265,8 @@
       "terminalOrBrowser": "ទែមីណល ឬកម្មវិធីរុករក",
       "automatic": "ស្វ័យប្រវត្តិ",
       "paneIdSocket": "Pane ID (socket API)",
-      "panelIdInternal": "Panel ID (ខាងក្នុង)"
+      "panelIdInternal": "Panel ID (ខាងក្នុង)",
+      "metaTitle": "គំនិត"
     },
     "configuration": {
       "title": "កំណត់រចនាសម្ព័ន្ធ",
@@ -296,7 +298,8 @@
       "browserLinkDesc": "នៅក្នុងការកំណត់ > កម្មវិធីរុករក, cmux បង្ហាញបញ្ជី host ពីរជាមួយគោលបំណងផ្សេងគ្នា:",
       "browserHostsEmbed": "Host ដែលត្រូវបើកក្នុងកម្មវិធីរុករកដែលបង្កប់: អនុវត្តចំពោះតំណដែលចុចពីលទ្ធផលទែមីណល។ Host ក្នុងបញ្ជីនេះបើកក្នុង cmux; host ផ្សេងទៀតបើកក្នុងកម្មវិធីរុករកលំនាំដើមរបស់អ្នក។ គាំទ្រ host មួយ ឬ wildcard ក្នុងមួយជួរ (ឧទាហរណ៍: example.com, *.internal.example)។",
       "browserHostsHttp": "HTTP Host ដែលអនុញ្ញាតក្នុងកម្មវិធីរុករកដែលបង្កប់: អនុវត្តតែចំពោះ HTTP (មិនមែន HTTPS) URL។ Host ក្នុងបញ្ជីនេះអាចបើកក្នុង cmux ដោយមិនមានការព្រមានទេ។ លំនាំដើមរួមមាន localhost, 127.0.0.1, ::1, 0.0.0.0, និង *.localtest.me។",
-      "exampleConfig": "ឧទាហរណ៍កំណត់រចនាសម្ព័ន្ធ"
+      "exampleConfig": "ឧទាហរណ៍កំណត់រចនាសម្ព័ន្ធ",
+      "metaTitle": "ការកំណត់រចនាសម្ព័ន្ធ"
     },
     "keyboardShortcuts": {
       "title": "ផ្លូវកាត់ក្ដារចុច",
@@ -356,7 +359,8 @@
         "wn-settings": "ការកំណត់",
         "wn-reload": "ផ្ទុកកំណត់រចនាសម្ព័ន្ធឡើងវិញ",
         "wn-quit": "ចាកចេញ"
-      }
+      },
+      "metaTitle": "ផ្លូវកាត់ក្តារចុច"
     },
     "api": {
       "title": "ឯកសារយោង API",
@@ -437,7 +441,8 @@
       "examples": "ឧទាហរណ៍",
       "pythonClient": "Python client",
       "shellScript": "Shell script",
-      "buildScriptNotification": "Build script ជាមួយជូនដំណឹង"
+      "buildScriptNotification": "Build script ជាមួយជូនដំណឹង",
+      "metaTitle": "ឯកសារ API"
     },
     "notifications": {
       "title": "ជូនដំណឹង",
@@ -489,7 +494,8 @@
       "python": "Python",
       "nodejs": "Node.js",
       "tmuxPassthrough": "tmux passthrough",
-      "tmuxDesc": "ប្រសិនបើប្រើ tmux ក្នុង cmux, បើក passthrough:"
+      "tmuxDesc": "ប្រសិនបើប្រើ tmux ក្នុង cmux, បើក passthrough:",
+      "metaTitle": "ការជូនដំណឹង"
     },
     "browserAutomation": {
       "title": "ស្វ័យប្រវត្តិកម្មកម្មវិធីរុករក",
@@ -528,11 +534,13 @@
       "patternNavigate": "រុករក, រង់ចាំ, ពិនិត្យ",
       "patternForm": "បំពេញទម្រង់និងផ្ទៀងផ្ទាត់អត្ថបទជោគជ័យ",
       "patternDebug": "ចាប់យកវត្ថុ debug នៅពេលបរាជ័យ",
-      "patternSession": "រក្សាទុកនិងស្ដារវគ្គកម្មវិធីរុករក"
+      "patternSession": "រក្សាទុកនិងស្ដារវគ្គកម្មវិធីរុករក",
+      "metaTitle": "ស្វ័យប្រវត្តិកម្មកម្មវិធីរុករក"
     },
     "changelog": {
       "title": "កំណត់ត្រាផ្លាស់ប្ដូរ",
-      "metaDescription": "កំណត់ត្រាការចេញផ្សាយ cmux និងប្រវត្តិកំណែ។ មុខងារថ្មី, ការជួសជុលកំហុស, និងការផ្លាស់ប្ដូរសម្រាប់ទែមីណល macOS ដើម។"
+      "metaDescription": "កំណត់ត្រាការចេញផ្សាយ cmux និងប្រវត្តិកំណែ។ មុខងារថ្មី, ការជួសជុលកំហុស, និងការផ្លាស់ប្ដូរសម្រាប់ទែមីណល macOS ដើម។",
+      "metaTitle": "កំណត់ហេតុផ្លាស់ប្ដូរ"
     },
     "navItems": {
       "gettingStarted": "ចាប់ផ្ដើម",

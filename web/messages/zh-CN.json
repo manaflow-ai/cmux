@@ -213,7 +213,8 @@
       "sessionCallout": "cmux 暂不支持恢复实时进程状态。活跃的终端应用会话（如 Claude Code、tmux、vim）在应用重启后不会恢复。",
       "requirements": "系统要求",
       "reqItem1": "macOS 14.0 或更高版本",
-      "reqItem2": "Apple Silicon 或 Intel Mac"
+      "reqItem2": "Apple Silicon 或 Intel Mac",
+      "metaTitle": "快速开始"
     },
     "concepts": {
       "title": "核心概念",
@@ -264,7 +265,8 @@
       "terminalOrBrowser": "终端或浏览器",
       "automatic": "自动",
       "paneIdSocket": "Pane ID（socket API）",
-      "panelIdInternal": "Panel ID（内部）"
+      "panelIdInternal": "Panel ID（内部）",
+      "metaTitle": "概念"
     },
     "configuration": {
       "title": "配置",
@@ -296,7 +298,8 @@
       "browserLinkDesc": "在 Settings > Browser 中，cmux 提供两个用途不同的主机列表：",
       "browserHostsEmbed": "在内嵌浏览器中打开的主机：适用于从终端输出点击的链接。此列表中的主机在 cmux 中打开；其他主机在默认浏览器中打开。支持单个主机或通配符，每行一个（例如：example.com、*.internal.example）。",
       "browserHostsHttp": "内嵌浏览器允许的 HTTP 主机：仅适用于 HTTP（非 HTTPS）URL。此列表中的主机可以在 cmux 中打开而不显示警告提示。默认包括 localhost、127.0.0.1、::1、0.0.0.0 和 *.localtest.me。",
-      "exampleConfig": "配置示例"
+      "exampleConfig": "配置示例",
+      "metaTitle": "配置"
     },
     "keyboardShortcuts": {
       "title": "快捷键",
@@ -356,7 +359,8 @@
         "wn-settings": "设置",
         "wn-reload": "重新加载配置",
         "wn-quit": "退出"
-      }
+      },
+      "metaTitle": "键盘快捷键"
     },
     "api": {
       "title": "API 参考",
@@ -437,7 +441,8 @@
       "examples": "示例",
       "pythonClient": "Python 客户端",
       "shellScript": "Shell 脚本",
-      "buildScriptNotification": "带通知的构建脚本"
+      "buildScriptNotification": "带通知的构建脚本",
+      "metaTitle": "API 参考"
     },
     "notifications": {
       "title": "通知",
@@ -489,7 +494,8 @@
       "python": "Python",
       "nodejs": "Node.js",
       "tmuxPassthrough": "tmux 透传",
-      "tmuxDesc": "如果在 cmux 内使用 tmux，启用透传："
+      "tmuxDesc": "如果在 cmux 内使用 tmux，启用透传：",
+      "metaTitle": "通知"
     },
     "browserAutomation": {
       "title": "浏览器自动化",
@@ -528,11 +534,13 @@
       "patternNavigate": "导航、等待、检查",
       "patternForm": "填写表单并验证成功文本",
       "patternDebug": "失败时捕获调试信息",
-      "patternSession": "持久化和恢复浏览器会话"
+      "patternSession": "持久化和恢复浏览器会话",
+      "metaTitle": "浏览器自动化"
     },
     "changelog": {
       "title": "更新日志",
-      "metaDescription": "cmux 发布说明和版本历史。原生 macOS 终端的新功能、问题修复和变更记录。"
+      "metaDescription": "cmux 发布说明和版本历史。原生 macOS 终端的新功能、问题修复和变更记录。",
+      "metaTitle": "更新日志"
     },
     "navItems": {
       "gettingStarted": "入门指南",

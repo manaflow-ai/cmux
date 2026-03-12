@@ -213,7 +213,8 @@
       "sessionCallout": "cmux henüz canlı süreç durumunu geri yüklemiyor. Claude Code, tmux ve vim gibi aktif terminal uygulama oturumları, uygulama yeniden başlatıldıktan sonra devam ettirilmez.",
       "requirements": "Gereksinimler",
       "reqItem1": "macOS 14.0 veya üstü",
-      "reqItem2": "Apple Silicon veya Intel Mac"
+      "reqItem2": "Apple Silicon veya Intel Mac",
+      "metaTitle": "Başlarken"
     },
     "concepts": {
       "title": "Kavramlar",
@@ -264,7 +265,8 @@
       "terminalOrBrowser": "Terminal veya tarayıcı",
       "automatic": "Otomatik",
       "paneIdSocket": "Panel ID (socket API)",
-      "panelIdInternal": "Panel ID (dahili)"
+      "panelIdInternal": "Panel ID (dahili)",
+      "metaTitle": "Kavramlar"
     },
     "configuration": {
       "title": "Yapılandırma",
@@ -296,7 +298,8 @@
       "browserLinkDesc": "Ayarlar > Tarayıcı'da cmux, farklı amaçlara sahip iki ana bilgisayar listesi sunar:",
       "browserHostsEmbed": "Gömülü Tarayıcıda Açılacak Ana Bilgisayarlar: terminal çıktısından tıklanan bağlantılara uygulanır. Bu listedeki ana bilgisayarlar cmux'ta açılır; diğer ana bilgisayarlar varsayılan tarayıcınızda açılır. Satır başına bir ana bilgisayar veya joker karakter destekler (örneğin: example.com, *.internal.example).",
       "browserHostsHttp": "Gömülü Tarayıcıda İzin Verilen HTTP Ana Bilgisayarları: yalnızca HTTP (HTTPS olmayan) URL'lere uygulanır. Bu listedeki ana bilgisayarlar cmux'ta uyarı istemeden açılabilir. Varsayılanlar localhost, 127.0.0.1, ::1, 0.0.0.0 ve *.localtest.me'yi içerir.",
-      "exampleConfig": "Örnek yapılandırma"
+      "exampleConfig": "Örnek yapılandırma",
+      "metaTitle": "Yapılandırma"
     },
     "keyboardShortcuts": {
       "title": "Klavye Kısayolları",
@@ -356,7 +359,8 @@
         "wn-settings": "Ayarlar",
         "wn-reload": "Yapılandırmayı yeniden yükle",
         "wn-quit": "Çık"
-      }
+      },
+      "metaTitle": "Klavye kısayolları"
     },
     "api": {
       "title": "API Referansı",
@@ -437,7 +441,8 @@
       "examples": "Örnekler",
       "pythonClient": "Python istemcisi",
       "shellScript": "Shell betiği",
-      "buildScriptNotification": "Bildirimli build betiği"
+      "buildScriptNotification": "Bildirimli build betiği",
+      "metaTitle": "API referansı"
     },
     "notifications": {
       "title": "Bildirimler",
@@ -489,7 +494,8 @@
       "python": "Python",
       "nodejs": "Node.js",
       "tmuxPassthrough": "tmux passthrough",
-      "tmuxDesc": "cmux içinde tmux kullanıyorsanız, passthrough'u etkinleştirin:"
+      "tmuxDesc": "cmux içinde tmux kullanıyorsanız, passthrough'u etkinleştirin:",
+      "metaTitle": "Bildirimler"
     },
     "browserAutomation": {
       "title": "Tarayıcı Otomasyonu",
@@ -528,11 +534,13 @@
       "patternNavigate": "Gezin, bekle, incele",
       "patternForm": "Bir formu doldurun ve başarı metnini doğrulayın",
       "patternDebug": "Başarısızlıkta debug artefaktlarını yakalayın",
-      "patternSession": "Tarayıcı oturumunu kaydet ve geri yükle"
+      "patternSession": "Tarayıcı oturumunu kaydet ve geri yükle",
+      "metaTitle": "Tarayıcı otomasyonu"
     },
     "changelog": {
       "title": "Değişiklik Günlüğü",
-      "metaDescription": "cmux sürüm notları ve sürüm geçmişi. Yerel macOS terminali için yeni özellikler, hata düzeltmeleri ve değişiklikler."
+      "metaDescription": "cmux sürüm notları ve sürüm geçmişi. Yerel macOS terminali için yeni özellikler, hata düzeltmeleri ve değişiklikler.",
+      "metaTitle": "Değişiklik günlüğü"
     },
     "navItems": {
       "gettingStarted": "Başlarken",

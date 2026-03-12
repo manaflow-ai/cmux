@@ -213,7 +213,8 @@
       "sessionCallout": "cmux genopretter endnu ikke live procestilstand. Aktive terminalsessioner som Claude Code, tmux og vim genoptages ikke efter app-genstart.",
       "requirements": "Krav",
       "reqItem1": "macOS 14.0 eller nyere",
-      "reqItem2": "Apple Silicon eller Intel Mac"
+      "reqItem2": "Apple Silicon eller Intel Mac",
+      "metaTitle": "Kom i gang"
     },
     "concepts": {
       "title": "Koncepter",
@@ -264,7 +265,8 @@
       "terminalOrBrowser": "Terminal eller browser",
       "automatic": "Automatisk",
       "paneIdSocket": "Panel-ID (socket API)",
-      "panelIdInternal": "Panel-ID (internt)"
+      "panelIdInternal": "Panel-ID (internt)",
+      "metaTitle": "Koncepter"
     },
     "configuration": {
       "title": "Konfiguration",
@@ -296,7 +298,8 @@
       "browserLinkDesc": "Under Indstillinger > Browser eksponerer cmux to værtslister med forskellige formål:",
       "browserHostsEmbed": "Værter til åbning i indbygget browser: gælder for links klikket fra terminaloutput. Værter på denne liste åbnes i cmux; andre værter åbnes i din standardbrowser. Understøtter én vært eller wildcard per linje (for eksempel: example.com, *.internal.example).",
       "browserHostsHttp": "HTTP-værter tilladt i indbygget browser: gælder kun for HTTP (ikke-HTTPS) URL'er. Værter på denne liste kan åbnes i cmux uden en advarsel. Standard inkluderer localhost, 127.0.0.1, ::1, 0.0.0.0 og *.localtest.me.",
-      "exampleConfig": "Eksempelkonfiguration"
+      "exampleConfig": "Eksempelkonfiguration",
+      "metaTitle": "Konfiguration"
     },
     "keyboardShortcuts": {
       "title": "Tastaturgenveje",
@@ -356,7 +359,8 @@
         "wn-settings": "Indstillinger",
         "wn-reload": "Genindlæs konfiguration",
         "wn-quit": "Afslut"
-      }
+      },
+      "metaTitle": "Tastaturgenveje"
     },
     "api": {
       "title": "API-reference",
@@ -437,7 +441,8 @@
       "examples": "Eksempler",
       "pythonClient": "Python-klient",
       "shellScript": "Shell-script",
-      "buildScriptNotification": "Build-script med notifikation"
+      "buildScriptNotification": "Build-script med notifikation",
+      "metaTitle": "API-reference"
     },
     "notifications": {
       "title": "Notifikationer",
@@ -489,7 +494,8 @@
       "python": "Python",
       "nodejs": "Node.js",
       "tmuxPassthrough": "tmux passthrough",
-      "tmuxDesc": "Hvis du bruger tmux inde i cmux, aktivér passthrough:"
+      "tmuxDesc": "Hvis du bruger tmux inde i cmux, aktivér passthrough:",
+      "metaTitle": "Notifikationer"
     },
     "browserAutomation": {
       "title": "Browserautomatisering",
@@ -528,11 +534,13 @@
       "patternNavigate": "Navigér, vent, inspicér",
       "patternForm": "Udfyld en formular og verificér succestekst",
       "patternDebug": "Indfang debug-artefakter ved fejl",
-      "patternSession": "Gem og gendan browsersession"
+      "patternSession": "Gem og gendan browsersession",
+      "metaTitle": "Browserautomatisering"
     },
     "changelog": {
       "title": "Ændringslog",
-      "metaDescription": "cmux udgivelsesnoter og versionshistorik. Nye funktioner, fejlrettelser og ændringer for den native macOS-terminal."
+      "metaDescription": "cmux udgivelsesnoter og versionshistorik. Nye funktioner, fejlrettelser og ændringer for den native macOS-terminal.",
+      "metaTitle": "Ændringslog"
     },
     "navItems": {
       "gettingStarted": "Kom i gang",

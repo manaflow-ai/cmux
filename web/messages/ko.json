@@ -213,7 +213,8 @@
       "sessionCallout": "cmux는 아직 라이브 프로세스 상태를 복원하지 않습니다. Claude Code, tmux, vim 등의 활성 터미널 앱 세션은 앱 재시작 후 복원되지 않습니다.",
       "requirements": "요구 사항",
       "reqItem1": "macOS 14.0 이상",
-      "reqItem2": "Apple Silicon 또는 Intel Mac"
+      "reqItem2": "Apple Silicon 또는 Intel Mac",
+      "metaTitle": "시작하기"
     },
     "concepts": {
       "title": "개념",
@@ -264,7 +265,8 @@
       "terminalOrBrowser": "터미널 또는 브라우저",
       "automatic": "자동",
       "paneIdSocket": "패널 ID (소켓 API)",
-      "panelIdInternal": "패널 ID (내부)"
+      "panelIdInternal": "패널 ID (내부)",
+      "metaTitle": "개념"
     },
     "configuration": {
       "title": "설정",
@@ -296,7 +298,8 @@
       "browserLinkDesc": "설정 > 브라우저에서 cmux는 서로 다른 목적의 두 가지 호스트 목록을 제공합니다:",
       "browserHostsEmbed": "내장 브라우저에서 열 호스트: 터미널 출력에서 클릭한 링크에 적용됩니다. 이 목록의 호스트는 cmux에서 열리고, 다른 호스트는 기본 브라우저에서 열립니다. 줄당 하나의 호스트 또는 와일드카드를 지원합니다(예: example.com, *.internal.example).",
       "browserHostsHttp": "내장 브라우저에서 허용되는 HTTP 호스트: HTTP(비 HTTPS) URL에만 적용됩니다. 이 목록의 호스트는 경고 프롬프트 없이 cmux에서 열 수 있습니다. 기본값에는 localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me가 포함됩니다.",
-      "exampleConfig": "예시 설정"
+      "exampleConfig": "예시 설정",
+      "metaTitle": "설정"
     },
     "keyboardShortcuts": {
       "title": "키보드 단축키",
@@ -356,7 +359,8 @@
         "wn-settings": "설정",
         "wn-reload": "설정 새로고침",
         "wn-quit": "종료"
-      }
+      },
+      "metaTitle": "키보드 단축키"
     },
     "api": {
       "title": "API 레퍼런스",
@@ -437,7 +441,8 @@
       "examples": "예시",
       "pythonClient": "Python 클라이언트",
       "shellScript": "셸 스크립트",
-      "buildScriptNotification": "알림이 포함된 빌드 스크립트"
+      "buildScriptNotification": "알림이 포함된 빌드 스크립트",
+      "metaTitle": "API 레퍼런스"
     },
     "notifications": {
       "title": "알림",
@@ -489,7 +494,8 @@
       "python": "Python",
       "nodejs": "Node.js",
       "tmuxPassthrough": "tmux 패스스루",
-      "tmuxDesc": "cmux 내에서 tmux를 사용하는 경우 패스스루를 활성화하세요:"
+      "tmuxDesc": "cmux 내에서 tmux를 사용하는 경우 패스스루를 활성화하세요:",
+      "metaTitle": "알림"
     },
     "browserAutomation": {
       "title": "브라우저 자동화",
@@ -528,11 +534,13 @@
       "patternNavigate": "내비게이션, 대기, 검사",
       "patternForm": "폼 작성 및 성공 텍스트 확인",
       "patternDebug": "실패 시 디버그 아티팩트 캡처",
-      "patternSession": "브라우저 세션 저장 및 복원"
+      "patternSession": "브라우저 세션 저장 및 복원",
+      "metaTitle": "브라우저 자동화"
     },
     "changelog": {
       "title": "변경 로그",
-      "metaDescription": "cmux 릴리스 노트 및 버전 히스토리. 네이티브 macOS 터미널의 새로운 기능, 버그 수정, 변경 사항."
+      "metaDescription": "cmux 릴리스 노트 및 버전 히스토리. 네이티브 macOS 터미널의 새로운 기능, 버그 수정, 변경 사항.",
+      "metaTitle": "변경 내역"
     },
     "navItems": {
       "gettingStarted": "시작하기",

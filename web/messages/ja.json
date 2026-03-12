@@ -213,7 +213,8 @@
       "sessionCallout": "cmuxはライブプロセスの状態はまだ復元しません。Claude Code、tmux、vimなどのアクティブなターミナルアプリセッションは、アプリの再起動後に再開されません。",
       "requirements": "動作要件",
       "reqItem1": "macOS 14.0以降",
-      "reqItem2": "Apple SiliconまたはIntel Mac"
+      "reqItem2": "Apple SiliconまたはIntel Mac",
+      "metaTitle": "はじめに"
     },
     "concepts": {
       "title": "コンセプト",
@@ -264,7 +265,8 @@
       "terminalOrBrowser": "ターミナルまたはブラウザ",
       "automatic": "自動",
       "paneIdSocket": "ペインID（socket API）",
-      "panelIdInternal": "パネルID（内部）"
+      "panelIdInternal": "パネルID（内部）",
+      "metaTitle": "コンセプト"
     },
     "configuration": {
       "title": "設定",
@@ -296,7 +298,8 @@
       "browserLinkDesc": "設定 > ブラウザで、cmuxは異なる目的の2つのホストリストを提供します：",
       "browserHostsEmbed": "組み込みブラウザで開くホスト：ターミナル出力からクリックしたリンクに適用されます。このリストのホストはcmuxで開き、それ以外はデフォルトブラウザで開きます。1行に1つのホストまたはワイルドカードを指定できます（例：example.com、*.internal.example）。",
       "browserHostsHttp": "組み込みブラウザで許可するHTTPホスト：HTTP（非HTTPS）URLのみに適用されます。このリストのホストは警告プロンプトなしでcmuxで開けます。デフォルトはlocalhost、127.0.0.1、::1、0.0.0.0、*.localtest.meです。",
-      "exampleConfig": "設定例"
+      "exampleConfig": "設定例",
+      "metaTitle": "設定"
     },
     "keyboardShortcuts": {
       "title": "キーボードショートカット",
@@ -356,7 +359,8 @@
         "wn-settings": "設定",
         "wn-reload": "設定を再読み込み",
         "wn-quit": "終了"
-      }
+      },
+      "metaTitle": "キーボードショートカット"
     },
     "api": {
       "title": "APIリファレンス",
@@ -437,7 +441,8 @@
       "examples": "使用例",
       "pythonClient": "Pythonクライアント",
       "shellScript": "シェルスクリプト",
-      "buildScriptNotification": "通知付きビルドスクリプト"
+      "buildScriptNotification": "通知付きビルドスクリプト",
+      "metaTitle": "APIリファレンス"
     },
     "notifications": {
       "title": "通知",
@@ -489,7 +494,8 @@
       "python": "Python",
       "nodejs": "Node.js",
       "tmuxPassthrough": "tmuxパススルー",
-      "tmuxDesc": "cmux内でtmuxを使用する場合、パススルーを有効にしてください："
+      "tmuxDesc": "cmux内でtmuxを使用する場合、パススルーを有効にしてください：",
+      "metaTitle": "通知"
     },
     "browserAutomation": {
       "title": "ブラウザ自動化",
@@ -528,11 +534,13 @@
       "patternNavigate": "ナビゲート、待機、インスペクト",
       "patternForm": "フォーム入力と成功テキストの確認",
       "patternDebug": "失敗時のデバッグアーティファクトの取得",
-      "patternSession": "ブラウザセッションの保存と復元"
+      "patternSession": "ブラウザセッションの保存と復元",
+      "metaTitle": "ブラウザ自動化"
     },
     "changelog": {
       "title": "変更履歴",
-      "metaDescription": "cmuxのリリースノートとバージョン履歴。ネイティブmacOSターミナルの新機能、バグ修正、変更点。"
+      "metaDescription": "cmuxのリリースノートとバージョン履歴。ネイティブmacOSターミナルの新機能、バグ修正、変更点。",
+      "metaTitle": "変更履歴"
     },
     "navItems": {
       "gettingStarted": "はじめに",

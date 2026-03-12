@@ -213,7 +213,8 @@
       "sessionCallout": "cmux لا يستعيد حالة العمليات الحية بعد. جلسات تطبيقات الطرفية النشطة مثل Claude Code وtmux وvim لا تُستأنف بعد إعادة تشغيل التطبيق.",
       "requirements": "المتطلبات",
       "reqItem1": "macOS 14.0 أو أحدث",
-      "reqItem2": "Mac بمعالج Apple Silicon أو Intel"
+      "reqItem2": "Mac بمعالج Apple Silicon أو Intel",
+      "metaTitle": "البدء"
     },
     "concepts": {
       "title": "المفاهيم",
@@ -264,7 +265,8 @@
       "terminalOrBrowser": "طرفية أو متصفح",
       "automatic": "تلقائي",
       "paneIdSocket": "معرف اللوح (واجهة المقابس)",
-      "panelIdInternal": "معرف اللوحة (داخلي)"
+      "panelIdInternal": "معرف اللوحة (داخلي)",
+      "metaTitle": "المفاهيم"
     },
     "configuration": {
       "title": "الإعدادات",
@@ -296,7 +298,8 @@
       "browserLinkDesc": "في الإعدادات > المتصفح، يوفر cmux قائمتين من المضيفين بأغراض مختلفة:",
       "browserHostsEmbed": "المضيفون لفتحهم في المتصفح المدمج: ينطبق على الروابط المنقورة من مخرجات الطرفية. المضيفون في هذه القائمة يُفتحون في cmux؛ المضيفون الآخرون يُفتحون في متصفحك الافتراضي. يدعم مضيفاً واحداً أو حرف بدل لكل سطر (مثال: example.com، *.internal.example).",
       "browserHostsHttp": "مضيفو HTTP المسموح بهم في المتصفح المدمج: ينطبق فقط على روابط HTTP (غير HTTPS). المضيفون في هذه القائمة يمكنهم الفتح في cmux بدون تحذير. الافتراضيات تشمل localhost و127.0.0.1 و::1 و0.0.0.0 و*.localtest.me.",
-      "exampleConfig": "مثال على الإعدادات"
+      "exampleConfig": "مثال على الإعدادات",
+      "metaTitle": "الإعدادات"
     },
     "keyboardShortcuts": {
       "title": "اختصارات لوحة المفاتيح",
@@ -356,7 +359,8 @@
         "wn-settings": "الإعدادات",
         "wn-reload": "إعادة تحميل الإعدادات",
         "wn-quit": "إنهاء"
-      }
+      },
+      "metaTitle": "اختصارات لوحة المفاتيح"
     },
     "api": {
       "title": "مرجع الواجهة البرمجية",
@@ -437,7 +441,8 @@
       "examples": "أمثلة",
       "pythonClient": "عميل Python",
       "shellScript": "نص Shell",
-      "buildScriptNotification": "نص بناء مع إشعار"
+      "buildScriptNotification": "نص بناء مع إشعار",
+      "metaTitle": "مرجع API"
     },
     "notifications": {
       "title": "الإشعارات",
@@ -489,7 +494,8 @@
       "python": "Python",
       "nodejs": "Node.js",
       "tmuxPassthrough": "تمرير tmux",
-      "tmuxDesc": "إذا كنت تستخدم tmux داخل cmux، فعّل التمرير:"
+      "tmuxDesc": "إذا كنت تستخدم tmux داخل cmux، فعّل التمرير:",
+      "metaTitle": "الإشعارات"
     },
     "browserAutomation": {
       "title": "أتمتة المتصفح",
@@ -528,11 +534,13 @@
       "patternNavigate": "تنقل وانتظر وافحص",
       "patternForm": "ملء نموذج والتحقق من نص النجاح",
       "patternDebug": "التقاط مواد التصحيح عند الفشل",
-      "patternSession": "حفظ واستعادة جلسة المتصفح"
+      "patternSession": "حفظ واستعادة جلسة المتصفح",
+      "metaTitle": "أتمتة المتصفح"
     },
     "changelog": {
       "title": "سجل التغييرات",
-      "metaDescription": "ملاحظات إصدار cmux وسجل الإصدارات. الميزات الجديدة وإصلاحات الأخطاء والتغييرات لطرفية macOS الأصلية."
+      "metaDescription": "ملاحظات إصدار cmux وسجل الإصدارات. الميزات الجديدة وإصلاحات الأخطاء والتغييرات لطرفية macOS الأصلية.",
+      "metaTitle": "سجل التغييرات"
     },
     "navItems": {
       "gettingStarted": "البدء",

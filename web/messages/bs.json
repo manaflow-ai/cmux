@@ -213,7 +213,8 @@
       "sessionCallout": "cmux još ne obnavlja stanje živih procesa. Aktivne sesije terminalnih aplikacija kao što su Claude Code, tmux i vim se ne nastavljaju nakon ponovnog pokretanja aplikacije.",
       "requirements": "Zahtjevi",
       "reqItem1": "macOS 14.0 ili noviji",
-      "reqItem2": "Apple Silicon ili Intel Mac"
+      "reqItem2": "Apple Silicon ili Intel Mac",
+      "metaTitle": "Početak"
     },
     "concepts": {
       "title": "Koncepti",
@@ -264,7 +265,8 @@
       "terminalOrBrowser": "Terminal ili preglednik",
       "automatic": "Automatski",
       "paneIdSocket": "ID panela (socket API)",
-      "panelIdInternal": "ID panela (interno)"
+      "panelIdInternal": "ID panela (interno)",
+      "metaTitle": "Koncepti"
     },
     "configuration": {
       "title": "Konfiguracija",
@@ -296,7 +298,8 @@
       "browserLinkDesc": "U Postavke > Preglednik, cmux izlaže dvije liste hostova sa različitim namjenama:",
       "browserHostsEmbed": "Hostovi za otvaranje u ugrađenom pregledniku: primjenjuje se na linkove kliknute iz terminalskog izlaza. Hostovi na ovoj listi se otvaraju u cmux-u; ostali hostovi se otvaraju u vašem podrazumijevanom pregledniku. Podržava jedan host ili wildcard po liniji (na primjer: example.com, *.internal.example).",
       "browserHostsHttp": "HTTP hostovi dozvoljeni u ugrađenom pregledniku: primjenjuje se samo na HTTP (ne-HTTPS) URL-ove. Hostovi na ovoj listi se mogu otvoriti u cmux-u bez upozorenja. Podrazumijevane vrijednosti uključuju localhost, 127.0.0.1, ::1, 0.0.0.0 i *.localtest.me.",
-      "exampleConfig": "Primjer konfiguracije"
+      "exampleConfig": "Primjer konfiguracije",
+      "metaTitle": "Konfiguracija"
     },
     "keyboardShortcuts": {
       "title": "Prečice na tastaturi",
@@ -356,7 +359,8 @@
         "wn-settings": "Postavke",
         "wn-reload": "Ponovo učitaj konfiguraciju",
         "wn-quit": "Izađi"
-      }
+      },
+      "metaTitle": "Prečice na tastaturi"
     },
     "api": {
       "title": "API Referenca",
@@ -437,7 +441,8 @@
       "examples": "Primjeri",
       "pythonClient": "Python klijent",
       "shellScript": "Shell skripta",
-      "buildScriptNotification": "Build skripta sa notifikacijom"
+      "buildScriptNotification": "Build skripta sa notifikacijom",
+      "metaTitle": "API referenca"
     },
     "notifications": {
       "title": "Notifikacije",
@@ -489,7 +494,8 @@
       "python": "Python",
       "nodejs": "Node.js",
       "tmuxPassthrough": "tmux passthrough",
-      "tmuxDesc": "Ako koristite tmux unutar cmux-a, omogućite passthrough:"
+      "tmuxDesc": "Ako koristite tmux unutar cmux-a, omogućite passthrough:",
+      "metaTitle": "Notifikacije"
     },
     "browserAutomation": {
       "title": "Automatizacija preglednika",
@@ -528,11 +534,13 @@
       "patternNavigate": "Navigiraj, čekaj, pregledaj",
       "patternForm": "Popuni formu i provjeri tekst uspjeha",
       "patternDebug": "Uhvati debug artefakte pri neuspjehu",
-      "patternSession": "Sačuvaj i obnovi sesiju preglednika"
+      "patternSession": "Sačuvaj i obnovi sesiju preglednika",
+      "metaTitle": "Automatizacija preglednika"
     },
     "changelog": {
       "title": "Zapisnik promjena",
-      "metaDescription": "cmux bilješke o izdanjima i historija verzija. Nove funkcionalnosti, ispravke grešaka i promjene za nativni macOS terminal."
+      "metaDescription": "cmux bilješke o izdanjima i historija verzija. Nove funkcionalnosti, ispravke grešaka i promjene za nativni macOS terminal.",
+      "metaTitle": "Dnevnik promjena"
     },
     "navItems": {
       "gettingStarted": "Početak rada",

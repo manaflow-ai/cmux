@@ -213,7 +213,8 @@
       "sessionCallout": "O cmux ainda não restaura o estado de processos em execução. Sessões ativas de aplicativos de terminal como Claude Code, tmux e vim não são retomadas após reinício do app.",
       "requirements": "Requisitos",
       "reqItem1": "macOS 14.0 ou posterior",
-      "reqItem2": "Mac com Apple Silicon ou Intel"
+      "reqItem2": "Mac com Apple Silicon ou Intel",
+      "metaTitle": "Primeiros passos"
     },
     "concepts": {
       "title": "Conceitos",
@@ -264,7 +265,8 @@
       "terminalOrBrowser": "Terminal ou navegador",
       "automatic": "Automático",
       "paneIdSocket": "ID do painel (API de socket)",
-      "panelIdInternal": "ID do panel (interno)"
+      "panelIdInternal": "ID do panel (interno)",
+      "metaTitle": "Conceitos"
     },
     "configuration": {
       "title": "Configuração",
@@ -296,7 +298,8 @@
       "browserLinkDesc": "Em Configurações > Navegador, o cmux expõe duas listas de hosts com propósitos diferentes:",
       "browserHostsEmbed": "Hosts para abrir no navegador integrado: aplica-se a links clicados na saída do terminal. Hosts nesta lista abrem no cmux; outros hosts abrem no seu navegador padrão. Suporta um host ou wildcard por linha (por exemplo: example.com, *.internal.example).",
       "browserHostsHttp": "Hosts HTTP permitidos no navegador integrado: aplica-se apenas a URLs HTTP (não HTTPS). Hosts nesta lista podem abrir no cmux sem aviso. Os padrões incluem localhost, 127.0.0.1, ::1, 0.0.0.0 e *.localtest.me.",
-      "exampleConfig": "Exemplo de configuração"
+      "exampleConfig": "Exemplo de configuração",
+      "metaTitle": "Configuração"
     },
     "keyboardShortcuts": {
       "title": "Atalhos de Teclado",
@@ -356,7 +359,8 @@
         "wn-settings": "Configurações",
         "wn-reload": "Recarregar configuração",
         "wn-quit": "Sair"
-      }
+      },
+      "metaTitle": "Atalhos de teclado"
     },
     "api": {
       "title": "Referência da API",
@@ -437,7 +441,8 @@
       "examples": "Exemplos",
       "pythonClient": "Cliente Python",
       "shellScript": "Script shell",
-      "buildScriptNotification": "Script de build com notificação"
+      "buildScriptNotification": "Script de build com notificação",
+      "metaTitle": "Referência da API"
     },
     "notifications": {
       "title": "Notificações",
@@ -489,7 +494,8 @@
       "python": "Python",
       "nodejs": "Node.js",
       "tmuxPassthrough": "Passthrough do tmux",
-      "tmuxDesc": "Se estiver usando tmux dentro do cmux, ative o passthrough:"
+      "tmuxDesc": "Se estiver usando tmux dentro do cmux, ative o passthrough:",
+      "metaTitle": "Notificações"
     },
     "browserAutomation": {
       "title": "Automação do Navegador",
@@ -528,11 +534,13 @@
       "patternNavigate": "Navegar, esperar, inspecionar",
       "patternForm": "Preencher um formulário e verificar texto de sucesso",
       "patternDebug": "Capturar artefatos de debug em falha",
-      "patternSession": "Persistir e restaurar sessão do navegador"
+      "patternSession": "Persistir e restaurar sessão do navegador",
+      "metaTitle": "Automação do navegador"
     },
     "changelog": {
       "title": "Changelog",
-      "metaDescription": "Notas de lançamento e histórico de versões do cmux. Novos recursos, correções de bugs e mudanças para o terminal macOS nativo."
+      "metaDescription": "Notas de lançamento e histórico de versões do cmux. Novos recursos, correções de bugs e mudanças para o terminal macOS nativo.",
+      "metaTitle": "Registro de alterações"
     },
     "navItems": {
       "gettingStarted": "Primeiros Passos",
