@@ -4370,6 +4370,7 @@ class TerminalController {
         }
 
         var includeScrollback = v2Bool(params, "scrollback") ?? false
+        let preserveANSI = v2Bool(params, "ansi") ?? false
         let lineLimit = v2Int(params, "lines")
         if let lineLimit, lineLimit <= 0 {
             return .err(code: "invalid_params", message: "lines must be greater than 0", data: nil)
@@ -4398,7 +4399,8 @@ class TerminalController {
             let response = readTerminalTextBase64(
                 terminalPanel: terminalPanel,
                 includeScrollback: includeScrollback,
-                lineLimit: lineLimit
+                lineLimit: lineLimit,
+                preserveANSI: preserveANSI
             )
             guard response.hasPrefix("OK ") else {
                 result = .err(code: "internal_error", message: response, data: nil)
@@ -4426,7 +4428,24 @@ class TerminalController {
         return result
     }
 
-    private func readTerminalTextBase64(terminalPanel: TerminalPanel, includeScrollback: Bool = false, lineLimit: Int? = nil) -> String {
+    private func readTerminalTextBase64(
+        terminalPanel: TerminalPanel,
+        includeScrollback: Bool = false,
+        lineLimit: Int? = nil,
+        preserveANSI: Bool = false
+    ) -> String {
+        if preserveANSI {
+            guard let output = readTerminalTextFromVTExport(
+                terminalPanel: terminalPanel,
+                includeScrollback: includeScrollback,
+                lineLimit: lineLimit
+            ) else {
+                return "ERROR: Failed to read terminal text"
+            }
+            let base64 = output.data(using: .utf8)?.base64EncodedString() ?? ""
+            return "OK \(base64)"
+        }
+
         guard let surface = terminalPanel.surface.surface else { return "ERROR: Terminal surface not found" }
 
         let pointTag: ghostty_point_tag_e = includeScrollback ? GHOSTTY_POINT_SCREEN : GHOSTTY_POINT_VIEWPORT
@@ -4548,8 +4567,9 @@ class TerminalController {
         return pasteboard.string(forType: NSPasteboard.PasteboardType("public.utf8-plain-text"))
     }
 
-    private func readTerminalTextFromVTExportForSnapshot(
+    private func readTerminalTextFromVTExport(
         terminalPanel: TerminalPanel,
+        includeScrollback: Bool,
         lineLimit: Int?
     ) -> String? {
         // read_text strips style state; VT export keeps ANSI escape sequences.
@@ -4560,7 +4580,8 @@ class TerminalController {
         }
 
         let initialChangeCount = pasteboard.changeCount
-        guard terminalPanel.performBindingAction("write_screen_file:copy,vt") else {
+        let action = includeScrollback ? "write_screen_file:copy,vt" : "write_viewport_file:copy,vt"
+        guard terminalPanel.performBindingAction(action) else {
             return nil
         }
         guard pasteboard.changeCount != initialChangeCount else {
@@ -4596,8 +4617,9 @@ class TerminalController {
         lineLimit: Int? = nil
     ) -> String? {
         if includeScrollback,
-           let vtOutput = readTerminalTextFromVTExportForSnapshot(
+           let vtOutput = readTerminalTextFromVTExport(
                terminalPanel: terminalPanel,
+               includeScrollback: true,
                lineLimit: lineLimit
            ) {
             return vtOutput
@@ -9521,6 +9543,7 @@ class TerminalController {
         let surfaceArg: String
         let includeScrollback: Bool
         let lineLimit: Int?
+        let preserveANSI: Bool
     }
 
     private struct ReadScreenParseError: Error {
@@ -9534,6 +9557,7 @@ class TerminalController {
         var surfaceArg: String?
         var includeScrollback = false
         var lineLimit: Int?
+        var preserveANSI = false
         var idx = 0
 
         while idx < tokens.count {
@@ -9549,9 +9573,12 @@ class TerminalController {
                 lineLimit = parsed
                 includeScrollback = true
                 idx += 2
+            case "--ansi":
+                preserveANSI = true
+                idx += 1
             default:
                 guard surfaceArg == nil else {
-                    return .failure(ReadScreenParseError(message: "ERROR: Usage: read_screen [id|idx] [--scrollback] [--lines <n>]"))
+                    return .failure(ReadScreenParseError(message: "ERROR: Usage: read_screen [id|idx] [--scrollback] [--lines <n>] [--ansi]"))
                 }
                 surfaceArg = token
                 idx += 1
@@ -9562,7 +9589,8 @@ class TerminalController {
             ReadScreenOptions(
                 surfaceArg: surfaceArg ?? "",
                 includeScrollback: includeScrollback,
-                lineLimit: lineLimit
+                lineLimit: lineLimit,
+                preserveANSI: preserveANSI
             )
         )
     }
@@ -9574,7 +9602,12 @@ class TerminalController {
         return lines.suffix(maxLines).joined(separator: "\n")
     }
 
-    private func readTerminalTextBase64(surfaceArg: String, includeScrollback: Bool = false, lineLimit: Int? = nil) -> String {
+    private func readTerminalTextBase64(
+        surfaceArg: String,
+        includeScrollback: Bool = false,
+        lineLimit: Int? = nil,
+        preserveANSI: Bool = false
+    ) -> String {
         guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
 
         let trimmedSurfaceArg = surfaceArg.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -9601,7 +9634,8 @@ class TerminalController {
             result = readTerminalTextBase64(
                 terminalPanel: terminalPanel,
                 includeScrollback: includeScrollback,
-                lineLimit: lineLimit
+                lineLimit: lineLimit,
+                preserveANSI: preserveANSI
             )
         }
         return result
@@ -9619,7 +9653,8 @@ class TerminalController {
         let response = readTerminalTextBase64(
             surfaceArg: options.surfaceArg,
             includeScrollback: options.includeScrollback,
-            lineLimit: options.lineLimit
+            lineLimit: options.lineLimit,
+            preserveANSI: options.preserveANSI
         )
         guard response.hasPrefix("OK ") else { return response }
 
@@ -9667,7 +9702,7 @@ class TerminalController {
           send_key <key>                  - Send special key (ctrl-c, ctrl-d, enter, tab, escape)
           send_surface <id|idx> <text>    - Send text to a specific terminal
           send_key_surface <id|idx> <key> - Send special key to a specific terminal
-          read_screen [id|idx] [--scrollback] [--lines N] - Read terminal text (plain text)
+          read_screen [id|idx] [--scrollback] [--lines N] [--ansi] - Read terminal text
 
         Notification commands:
           notify <title>|<subtitle>|<body>   - Notify focused panel

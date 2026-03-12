@@ -62,6 +62,17 @@ section 3 copy-mode commit, even though the section 4 resize commits were applie
   - Replays the last rendered frame during resize and keeps its geometry anchored correctly.
   - Reduces transient blank or scaled frames while a macOS window is being resized.
 
+### 5) Viewport VT export action for ANSI screen reads
+
+- Commit: `ea3d1ba3e` (Add viewport VT export action)
+- Files:
+  - `src/Surface.zig`
+  - `src/input/Binding.zig`
+  - `src/input/command.zig`
+- Summary:
+  - Adds a `write_viewport_file` binding action alongside the existing screen/scrollback exports.
+  - Lets cmux export just the visible viewport with ANSI escape sequences preserved, which is required for `read-screen --ansi` and `capture-pane --ansi` parity.
+
 ## Upstreamed fork changes
 
 ### cursor-click-to-move respects OSC 133 click-to-move
@@ -79,5 +90,18 @@ These files change frequently upstream; be careful when rebasing the fork:
 
 - `src/terminal/osc.zig`
   - OSC dispatch logic moves often. Re-check the integration points for the OSC 99 parser.
+
+- `src/Surface.zig`
+  - Keep the viewport export wired next to the existing screen/history/selection cases.
+  - Preserve `selectCursorCell` and `clearSelection` while rebasing the selection C API.
+
+- `src/apprt/embedded.zig`
+  - Keep the `ghostty_surface_select_cursor_cell` and `ghostty_surface_clear_selection` exports aligned with the corresponding `Surface` methods.
+
+- `src/input/Binding.zig`
+  - `Action` ordering matters for exhaustive switches elsewhere. Preserve the `write_viewport_file` case near the other write-screen actions.
+
+- `src/input/command.zig`
+  - If upstream changes command-palette metadata for write-screen actions, mirror those updates for `write_viewport_file` too.
 
 If you resolve a conflict, update this doc with what changed.
