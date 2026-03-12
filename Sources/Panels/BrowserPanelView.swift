@@ -236,6 +236,10 @@ struct BrowserPanelView: View {
     @State private var pendingAddressBarFocusRetryRequestId: UUID?
     @State private var pendingAddressBarFocusRetryGeneration: UInt64 = 0
     @State private var isBrowserThemeMenuPresented = false
+    @State private var cookieImportFilePickerShown = false
+    @State private var cookieImportAlertShown = false
+    @State private var cookieImportAlertTitle = ""
+    @State private var cookieImportAlertMessage = ""
     @State private var ghosttyBackgroundGeneration: Int = 0
     // Keep this below half of the compact omnibar height so it reads as a squircle,
     // not a capsule.
@@ -565,6 +569,7 @@ struct BrowserPanelView: View {
                 .accessibilityLabel("Browser omnibar")
 
             if !panel.isShowingNewTabPage {
+                cookieImportButton
                 browserThemeModeButton
                 developerToolsButton
             }
@@ -5775,6 +5780,68 @@ struct WebViewRepresentable: NSViewRepresentable {
         BrowserWindowPortalRegistry.updateDropZoneOverlay(for: webView, zone: nil)
         coordinator.lastPortalHostId = nil
         coordinator.lastSynchronizedHostGeometryRevision = 0
+    }
+
+    // MARK: - Cookie Import
+
+    private var cookieImportButton: some View {
+        Button(action: { cookieImportFilePickerShown = true }) {
+            Image(systemName: "square.and.arrow.down")
+                .symbolRenderingMode(.monochrome)
+                .cmuxFlatSymbolColorRendering()
+                .font(.system(size: devToolsButtonIconSize, weight: .medium))
+                .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
+        }
+        .buttonStyle(OmnibarAddressButtonStyle())
+        .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
+        .safeHelp(String(localized: "browser.importCookies.help", defaultValue: "Import Cookies"))
+        .accessibilityIdentifier("BrowserImportCookiesButton")
+        .fileImporter(
+            isPresented: $cookieImportFilePickerShown,
+            allowedContentTypes: [.json, .plainText],
+            allowsMultipleSelection: false
+        ) { result in
+            handleCookieImportFile(result)
+        }
+        .alert(cookieImportAlertTitle, isPresented: $cookieImportAlertShown) {
+            Button(String(localized: "browser.cookieImport.ok", defaultValue: "OK")) {}
+        } message: {
+            Text(cookieImportAlertMessage)
+        }
+    }
+
+    private func handleCookieImportFile(_ result: Result<[URL], Error>) {
+        func showError(_ message: String) {
+            cookieImportAlertTitle = String(localized: "browser.cookieImport.error.title", defaultValue: "Import Failed")
+            cookieImportAlertMessage = message
+            cookieImportAlertShown = true
+        }
+        switch result {
+        case .failure(let error):
+            showError(error.localizedDescription)
+        case .success(let urls):
+            guard let url = urls.first else { return }
+            guard url.startAccessingSecurityScopedResource() else {
+                showError(String(localized: "browser.cookieImport.error.noPermission", defaultValue: "Permission denied reading the selected file."))
+                return
+            }
+            defer { url.stopAccessingSecurityScopedResource() }
+            do {
+                let data = try Data(contentsOf: url)
+                let cookies = try BrowserCookieImporter.parseCookies(from: data)
+                let store = panel.webView.configuration.websiteDataStore.httpCookieStore
+                BrowserCookieImporter.importCookies(cookies, into: store) { importResult in
+                    cookieImportAlertTitle = String(localized: "browser.cookieImport.success.title", defaultValue: "Cookies Imported")
+                    let n = importResult.imported
+                    cookieImportAlertMessage = n == 1
+                        ? String(localized: "browser.cookieImport.success.one", defaultValue: "1 cookie imported successfully.")
+                        : String(format: String(localized: "browser.cookieImport.success.many", defaultValue: "%d cookies imported successfully."), n)
+                    cookieImportAlertShown = true
+                }
+            } catch {
+                showError(error.localizedDescription)
+            }
+        }
     }
 
     private func currentPaneDropContext() -> BrowserPaneDropContext? {
