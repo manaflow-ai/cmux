@@ -74,7 +74,6 @@ enum SocketControlPasswordStore {
     private static var lazyKeychainFallbackCache = LazyKeychainFallbackCache()
 
     static func configuredPassword(
-        environment: [String: String] = ProcessInfo.processInfo.environment,
         fileURL: URL? = nil,
         allowLazyKeychainFallback: Bool = false,
         loadKeychainPassword: () -> String? = { loadLegacyPasswordFromKeychain() }
@@ -100,13 +99,11 @@ enum SocketControlPasswordStore {
     }
 
     static func hasConfiguredPassword(
-        environment: [String: String] = ProcessInfo.processInfo.environment,
         fileURL: URL? = nil,
         allowLazyKeychainFallback: Bool = false,
         loadKeychainPassword: () -> String? = { loadLegacyPasswordFromKeychain() }
     ) -> Bool {
         guard let configured = configuredPassword(
-            environment: environment,
             fileURL: fileURL,
             allowLazyKeychainFallback: allowLazyKeychainFallback,
             loadKeychainPassword: loadKeychainPassword
@@ -116,13 +113,11 @@ enum SocketControlPasswordStore {
 
     static func verify(
         password candidate: String,
-        environment: [String: String] = ProcessInfo.processInfo.environment,
         fileURL: URL? = nil,
         allowLazyKeychainFallback: Bool = false,
         loadKeychainPassword: () -> String? = { loadLegacyPasswordFromKeychain() }
     ) -> Bool {
         guard let expected = configuredPassword(
-            environment: environment,
             fileURL: fileURL,
             allowLazyKeychainFallback: allowLazyKeychainFallback,
             loadKeychainPassword: loadKeychainPassword
