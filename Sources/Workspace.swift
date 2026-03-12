@@ -933,6 +933,7 @@ final class Workspace: Identifiable, ObservableObject {
 
     /// When true, suppresses auto-creation in didSplitPane (programmatic splits handle their own panels)
     private var isProgrammaticSplit = false
+    private var debugStressPreloadSelectionDepth = 0
 
     /// Last terminal panel used as an inheritance source (typically last focused terminal).
     private var lastTerminalConfigInheritancePanelId: UUID?
@@ -966,6 +967,10 @@ final class Workspace: Identifiable, ObservableObject {
             return nil
         }
         return panel
+    }
+
+    func effectiveSelectedPanelId(inPane paneId: PaneID) -> UUID? {
+        bonsplitController.selectedTab(inPane: paneId).flatMap { panelIdFromSurfaceId($0.id) }
     }
 
     enum FocusPanelTrigger {
@@ -1491,6 +1496,36 @@ final class Workspace: Identifiable, ObservableObject {
         for terminalPanel in panels.values.compactMap({ $0 as? TerminalPanel }) {
             terminalPanel.surface.requestBackgroundSurfaceStartIfNeeded()
         }
+    }
+
+    @discardableResult
+    func preloadTerminalPanelForDebugStress(
+        tabId: TabID,
+        inPane paneId: PaneID
+    ) -> TerminalPanel? {
+        guard let panelId = panelIdFromSurfaceId(tabId),
+              let terminalPanel = panels[panelId] as? TerminalPanel else {
+            return nil
+        }
+
+        debugStressPreloadSelectionDepth += 1
+        defer { debugStressPreloadSelectionDepth -= 1 }
+        let isVisibleSelection =
+            bonsplitController.focusedPaneId == paneId &&
+            bonsplitController.selectedTab(inPane: paneId)?.id == tabId &&
+            terminalPanel.hostedView.window != nil &&
+            terminalPanel.hostedView.superview != nil
+
+        if isVisibleSelection {
+            terminalPanel.requestViewReattach()
+            scheduleTerminalGeometryReconcile()
+        }
+        terminalPanel.surface.requestBackgroundSurfaceStartIfNeeded()
+        return terminalPanel
+    }
+
+    func scheduleDebugStressTerminalGeometryReconcile() {
+        scheduleTerminalGeometryReconcile()
     }
 
     func hasLoadedTerminalSurface() -> Bool {
@@ -4132,23 +4167,37 @@ extension Workspace: BonsplitDelegate {
             return
         }
 
-        // Focus the selected panel
-        guard let panelId = panelIdFromSurfaceId(selectedTabId),
-              let panel = panels[panelId] else {
+        // Focus the selected panel, but keep the previously focused terminal active while a
+        // newly created split terminal is still unattached.
+        guard let selectedPanelId = panelIdFromSurfaceId(selectedTabId) else {
+            return
+        }
+        let effectiveFocusedPanelId = effectiveSelectedPanelId(inPane: focusedPane) ?? selectedPanelId
+        guard let panel = panels[effectiveFocusedPanelId] else {
+            return
+        }
+
+        if debugStressPreloadSelectionDepth > 0 {
+            if let terminalPanel = panel as? TerminalPanel {
+                terminalPanel.requestViewReattach()
+                scheduleTerminalGeometryReconcile()
+                terminalPanel.surface.requestBackgroundSurfaceStartIfNeeded()
+            }
             return
         }
 
         if shouldTreatCurrentEventAsExplicitFocusIntent() {
-            markExplicitFocusIntent(on: panelId)
+            markExplicitFocusIntent(on: effectiveFocusedPanelId)
         }
         let activationIntent = focusIntent ?? panel.preferredFocusIntentForActivation()
         panel.prepareFocusIntentForActivation(activationIntent)
+        let panelId = effectiveFocusedPanelId
 
-        syncPinnedStateForTab(selectedTabId, panelId: panelId)
-        syncUnreadBadgeStateForPanel(panelId)
+        syncPinnedStateForTab(selectedTabId, panelId: selectedPanelId)
+        syncUnreadBadgeStateForPanel(selectedPanelId)
 
         // Unfocus all other panels
-        for (id, p) in panels where id != panelId {
+        for (id, p) in panels where id != effectiveFocusedPanelId {
             p.unfocus()
         }
 

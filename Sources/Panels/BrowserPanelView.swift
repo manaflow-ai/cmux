@@ -1288,6 +1288,17 @@ struct BrowserPanelView: View {
     }
 
     private func refreshSuggestions() {
+#if DEBUG
+        let typingTimingStart = CmuxTypingTiming.start()
+        defer {
+            let trimmedQuery = omnibarState.buffer.trimmingCharacters(in: .whitespacesAndNewlines)
+            CmuxTypingTiming.logDuration(
+                path: "browser.omnibar.refreshSuggestions",
+                startedAt: typingTimingStart,
+                extra: "focused=\(addressBarFocused ? 1 : 0) queryLen=\(trimmedQuery.utf8.count) suggestionCount=\(omnibarState.suggestions.count)"
+            )
+        }
+#endif
         suggestionTask?.cancel()
         suggestionTask = nil
         isLoadingRemoteSuggestions = false
@@ -2702,6 +2713,18 @@ private final class OmnibarNativeTextField: NSTextField {
     }
 
     override func keyDown(with event: NSEvent) {
+#if DEBUG
+        let typingTimingStart = CmuxTypingTiming.start()
+        var route = "super"
+        defer {
+            CmuxTypingTiming.logDuration(
+                path: "browser.omnibar.keyDown",
+                startedAt: typingTimingStart,
+                event: event,
+                extra: "route=\(route)"
+            )
+        }
+#endif
         // Reset shift-click anchor on any keyboard input so that a subsequent
         // Shift+click uses the post-keyboard selection as its anchor, not a
         // stale value from a prior mouse interaction.
@@ -2711,20 +2734,46 @@ private final class OmnibarNativeTextField: NSTextField {
             return
         }
         if onHandleKeyEvent?(event, currentEditor() as? NSTextView) == true {
+#if DEBUG
+            route = "custom"
+#endif
             return
         }
         super.keyDown(with: event)
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
+#if DEBUG
+        let typingTimingStart = CmuxTypingTiming.start()
+        var handled = false
+        defer {
+            CmuxTypingTiming.logDuration(
+                path: "browser.omnibar.performKeyEquivalent",
+                startedAt: typingTimingStart,
+                event: event,
+                extra: "handled=\(handled ? 1 : 0)"
+            )
+        }
+#endif
         shiftClickAnchor = nil
         if (currentEditor() as? NSTextView)?.hasMarkedText() == true {
-            return super.performKeyEquivalent(with: event)
+            let result = super.performKeyEquivalent(with: event)
+#if DEBUG
+            handled = result
+#endif
+            return result
         }
         if onHandleKeyEvent?(event, currentEditor() as? NSTextView) == true {
+#if DEBUG
+            handled = true
+#endif
             return true
         }
-        return super.performKeyEquivalent(with: event)
+        let result = super.performKeyEquivalent(with: event)
+#if DEBUG
+        handled = result
+#endif
+        return result
     }
 }
 
@@ -2947,6 +2996,17 @@ private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
         }
 
         func controlTextDidChange(_ obj: Notification) {
+#if DEBUG
+            let typingTimingStart = CmuxTypingTiming.start()
+            defer {
+                CmuxTypingTiming.logDuration(
+                    path: "browser.omnibar.controlTextDidChange",
+                    startedAt: typingTimingStart,
+                    event: NSApp.currentEvent,
+                    extra: "programmatic=\(isProgrammaticMutation ? 1 : 0)"
+                )
+            }
+#endif
             guard !isProgrammaticMutation else { return }
             guard let field = obj.object as? NSTextField else { return }
             let editor = field.currentEditor() as? NSTextView
@@ -2960,36 +3020,69 @@ private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
         }
 
         func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+#if DEBUG
+            let typingTimingStart = CmuxTypingTiming.start()
+            var handled = false
+            defer {
+                CmuxTypingTiming.logDuration(
+                    path: "browser.omnibar.doCommandBy",
+                    startedAt: typingTimingStart,
+                    event: NSApp.currentEvent,
+                    extra: "handled=\(handled ? 1 : 0) selector=\(NSStringFromSelector(commandSelector))"
+                )
+            }
+#endif
             switch commandSelector {
             case #selector(NSResponder.moveDown(_:)):
                 parent.onMoveSelection(+1)
+#if DEBUG
+                handled = true
+#endif
                 return true
             case #selector(NSResponder.moveUp(_:)):
                 parent.onMoveSelection(-1)
+#if DEBUG
+                handled = true
+#endif
                 return true
             case #selector(NSResponder.insertNewline(_:)):
                 let currentFlags = NSApp.currentEvent?.modifierFlags ?? []
                 guard browserOmnibarShouldSubmitOnReturn(flags: currentFlags) else { return false }
                 parent.onSubmit()
+#if DEBUG
+                handled = true
+#endif
                 return true
             case #selector(NSResponder.cancelOperation(_:)):
                 parent.onEscape()
+#if DEBUG
+                handled = true
+#endif
                 return true
             case #selector(NSResponder.moveRight(_:)), #selector(NSResponder.moveToEndOfLine(_:)):
                 if parent.inlineCompletion != nil {
                     parent.onAcceptInlineCompletion()
+#if DEBUG
+                    handled = true
+#endif
                     return true
                 }
                 return false
             case #selector(NSResponder.insertTab(_:)):
                 if parent.inlineCompletion != nil {
                     parent.onAcceptInlineCompletion()
+#if DEBUG
+                    handled = true
+#endif
                     return true
                 }
                 return false
             case #selector(NSResponder.deleteBackward(_:)):
                 if suffixSelectionMatchesInline(textView, inline: parent.inlineCompletion) {
                     parent.onDeleteBackwardWithInlineSelection()
+#if DEBUG
+                    handled = true
+#endif
                     return true
                 }
                 return false
@@ -3057,6 +3150,18 @@ private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
     }
 
         func handleKeyEvent(_ event: NSEvent, editor: NSTextView?) -> Bool {
+#if DEBUG
+            let typingTimingStart = CmuxTypingTiming.start()
+            var handled = false
+            defer {
+                CmuxTypingTiming.logDuration(
+                    path: "browser.omnibar.handleKeyEvent",
+                    startedAt: typingTimingStart,
+                    event: event,
+                    extra: "handled=\(handled ? 1 : 0)"
+                )
+            }
+#endif
             let keyCode = event.keyCode
             let modifiers = event.modifierFlags.intersection([.command, .control, .shift, .option, .function])
             let lowered = event.charactersIgnoringModifiers?.lowercased() ?? ""
@@ -3065,16 +3170,25 @@ private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
             // Cmd/Ctrl+N and Cmd/Ctrl+P should repeat while held.
             if hasCommandOrControl, lowered == "n" {
                 parent.onMoveSelection(+1)
+#if DEBUG
+                handled = true
+#endif
                 return true
             }
             if hasCommandOrControl, lowered == "p" {
                 parent.onMoveSelection(-1)
+#if DEBUG
+                handled = true
+#endif
                 return true
             }
 
             // Shift+Delete removes the selected history suggestion when possible.
             if modifiers.contains(.shift), (keyCode == 51 || keyCode == 117) {
                 parent.onDeleteSelectedSuggestion()
+#if DEBUG
+                handled = true
+#endif
                 return true
             }
 
@@ -3082,30 +3196,51 @@ private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
             case 36, 76: // Return / keypad Enter
                 guard browserOmnibarShouldSubmitOnReturn(flags: event.modifierFlags) else { return false }
                 parent.onSubmit()
+#if DEBUG
+                handled = true
+#endif
                 return true
             case 53: // Escape
                 parent.onEscape()
+#if DEBUG
+                handled = true
+#endif
                 return true
             case 125: // Down
                 parent.onMoveSelection(+1)
+#if DEBUG
+                handled = true
+#endif
                 return true
             case 126: // Up
                 parent.onMoveSelection(-1)
+#if DEBUG
+                handled = true
+#endif
                 return true
             case 124, 119: // Right arrow / End
                 if parent.inlineCompletion != nil {
                     parent.onAcceptInlineCompletion()
+#if DEBUG
+                    handled = true
+#endif
                     return true
                 }
             case 48: // Tab
                 if parent.inlineCompletion != nil {
                     parent.onAcceptInlineCompletion()
+#if DEBUG
+                    handled = true
+#endif
                     return true
                 }
             case 51: // Backspace
                 if let inline = parent.inlineCompletion,
                    (suffixSelectionMatchesInline(editor, inline: inline) || selectionIsTypedPrefixBoundary(editor, inline: inline)) {
                     parent.onDeleteBackwardWithInlineSelection()
+#if DEBUG
+                    handled = true
+#endif
                     return true
                 }
             default:

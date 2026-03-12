@@ -3031,16 +3031,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
             viewState = "NO_ATTACHED_VIEW hasSurface=\(hasSurface)"
         }
         #if DEBUG
-        let ts = ISO8601DateFormatter().string(from: Date())
-        let line = "[\(ts)] forceRefresh: \(id) reason=\(reason) \(viewState)\n"
-        let logPath = "/tmp/cmux-refresh-debug.log"
-        if let handle = FileHandle(forWritingAtPath: logPath) {
-            handle.seekToEndOfFile()
-            handle.write(line.data(using: .utf8)!)
-            handle.closeFile()
-        } else {
-            FileManager.default.createFile(atPath: logPath, contents: line.data(using: .utf8))
-        }
+        dlog("forceRefresh: \(id) reason=\(reason) \(viewState)")
         #endif
         guard let view = attachedView,
               view.window != nil,
@@ -4302,10 +4293,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #if DEBUG
     private func recordKeyLatency(path: String, event: NSEvent) {
         guard Self.keyLatencyProbeEnabled else { return }
-        guard event.timestamp > 0 else { return }
-        let delayMs = max(0, (CACurrentMediaTime() - event.timestamp) * 1000)
-        let delayText = String(format: "%.2f", delayMs)
-        dlog("key.latency path=\(path) ms=\(delayText) keyCode=\(event.keyCode) mods=\(event.modifierFlags.rawValue) repeat=\(event.isARepeat ? 1 : 0)")
+        CmuxTypingTiming.logEventDelay(path: path, event: event)
     }
 #endif
 
@@ -4322,6 +4310,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
+#if DEBUG
+        let typingTimingStart = CmuxTypingTiming.start()
+        defer {
+            CmuxTypingTiming.logDuration(
+                path: "terminal.performKeyEquivalent",
+                startedAt: typingTimingStart,
+                event: event
+            )
+        }
+#endif
         guard event.type == .keyDown else { return false }
         guard let fr = window?.firstResponder as? NSView,
               fr === self || fr.isDescendant(of: self) else { return false }
@@ -4443,15 +4441,59 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func keyDown(with event: NSEvent) {
+#if DEBUG
+        let typingTimingStart = CmuxTypingTiming.start()
+        let phaseTotalStart = ProcessInfo.processInfo.systemUptime
+        var ensureSurfaceMs: Double = 0
+        var dismissNotificationMs: Double = 0
+        var keyboardCopyModeMs: Double = 0
+        var interpretMs: Double = 0
+        var syncPreeditMs: Double = 0
+        var ghosttySendMs: Double = 0
+        var refreshMs: Double = 0
+        defer {
+            let totalMs = (ProcessInfo.processInfo.systemUptime - phaseTotalStart) * 1000.0
+            CmuxTypingTiming.logBreakdown(
+                path: "terminal.keyDown.phase",
+                totalMs: totalMs,
+                event: event,
+                thresholdMs: 1.0,
+                parts: [
+                    ("ensureSurfaceMs", ensureSurfaceMs),
+                    ("dismissNotificationMs", dismissNotificationMs),
+                    ("keyboardCopyModeMs", keyboardCopyModeMs),
+                    ("interpretMs", interpretMs),
+                    ("syncPreeditMs", syncPreeditMs),
+                    ("ghosttySendMs", ghosttySendMs),
+                    ("refreshMs", refreshMs),
+                ],
+                extra: "marked=\(hasMarkedText() ? 1 : 0)"
+            )
+            CmuxTypingTiming.logDuration(path: "terminal.keyDown", startedAt: typingTimingStart, event: event)
+        }
+        let ensureSurfaceStart = ProcessInfo.processInfo.systemUptime
+#endif
         guard let surface = ensureSurfaceReadyForInput() else {
+#if DEBUG
+            ensureSurfaceMs = (ProcessInfo.processInfo.systemUptime - ensureSurfaceStart) * 1000.0
+#endif
             super.keyDown(with: event)
             return
         }
+#if DEBUG
+        ensureSurfaceMs = (ProcessInfo.processInfo.systemUptime - ensureSurfaceStart) * 1000.0
+#endif
         if let terminalSurface {
+#if DEBUG
+            let dismissNotificationStart = ProcessInfo.processInfo.systemUptime
+#endif
             AppDelegate.shared?.tabManager?.dismissNotificationOnDirectInteraction(
                 tabId: terminalSurface.tabId,
                 surfaceId: terminalSurface.id
             )
+#if DEBUG
+            dismissNotificationMs = (ProcessInfo.processInfo.systemUptime - dismissNotificationStart) * 1000.0
+#endif
         }
         if event.keyCode != 53 {
             endFindEscapeSuppression()
@@ -4459,10 +4501,19 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if shouldConsumeSuppressedFindEscape(event) {
             return
         }
+#if DEBUG
+        let keyboardCopyModeStart = ProcessInfo.processInfo.systemUptime
+#endif
         if handleKeyboardCopyModeIfNeeded(event, surface: surface) {
+#if DEBUG
+            keyboardCopyModeMs = (ProcessInfo.processInfo.systemUptime - keyboardCopyModeStart) * 1000.0
+#endif
             keyboardCopyModeConsumedKeyUps.insert(event.keyCode)
             return
         }
+#if DEBUG
+        keyboardCopyModeMs = (ProcessInfo.processInfo.systemUptime - keyboardCopyModeStart) * 1000.0
+#endif
 #if DEBUG
         recordKeyLatency(path: "keyDown", event: event)
 #endif
@@ -4500,12 +4551,36 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             let handled: Bool
             if text.isEmpty {
                 keyEvent.text = nil
+                #if DEBUG
+                let ghosttySendStart = ProcessInfo.processInfo.systemUptime
+                handled = sendTimedGhosttyKey(
+                    surface,
+                    keyEvent,
+                    path: "terminal.keyDown.ctrlGhosttySend",
+                    event: event
+                )
+                ghosttySendMs = (ProcessInfo.processInfo.systemUptime - ghosttySendStart) * 1000.0
+                #else
                 handled = ghostty_surface_key(surface, keyEvent)
+                #endif
             } else {
+                #if DEBUG
+                let sendTimingStart = CmuxTypingTiming.start()
+                let ghosttySendStart = ProcessInfo.processInfo.systemUptime
+                #endif
                 handled = text.withCString { ptr in
                     keyEvent.text = ptr
                     return ghostty_surface_key(surface, keyEvent)
                 }
+                #if DEBUG
+                ghosttySendMs = (ProcessInfo.processInfo.systemUptime - ghosttySendStart) * 1000.0
+                CmuxTypingTiming.logDuration(
+                    path: "terminal.keyDown.ctrlGhosttySend",
+                    startedAt: sendTimingStart,
+                    event: event,
+                    extra: "handled=\(handled ? 1 : 0)"
+                )
+                #endif
             }
 #if DEBUG
             dlog(
@@ -4582,18 +4657,42 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
 
         // Let the input system handle the event (for IME, dead keys, etc.)
+#if DEBUG
+        let interpretTimingStart = CmuxTypingTiming.start()
+        let interpretPhaseStart = ProcessInfo.processInfo.systemUptime
+#endif
         interpretKeyEvents([translationEvent])
+#if DEBUG
+        interpretMs = (ProcessInfo.processInfo.systemUptime - interpretPhaseStart) * 1000.0
+        CmuxTypingTiming.logDuration(
+            path: "terminal.keyDown.interpretKeyEvents",
+            startedAt: interpretTimingStart,
+            event: event
+        )
+#endif
 
         // If the keyboard layout changed, an input method grabbed the event.
         // Sync preedit and return without sending the key to Ghostty.
         if !markedTextBefore, let kbBefore = keyboardIdBefore, kbBefore != KeyboardLayout.id {
+#if DEBUG
+            let syncPreeditStart = ProcessInfo.processInfo.systemUptime
+#endif
             syncPreedit(clearIfNeeded: markedTextBefore)
+#if DEBUG
+            syncPreeditMs = (ProcessInfo.processInfo.systemUptime - syncPreeditStart) * 1000.0
+#endif
             return
         }
 
         // Sync the preedit state with Ghostty so it can render the IME
         // composition overlay (e.g. for Korean, Japanese, Chinese input).
+#if DEBUG
+        let syncPreeditStart = ProcessInfo.processInfo.systemUptime
+#endif
         syncPreedit(clearIfNeeded: markedTextBefore)
+#if DEBUG
+        syncPreeditMs = (ProcessInfo.processInfo.systemUptime - syncPreeditStart) * 1000.0
+#endif
 
         // Build the key event
         var keyEvent = ghostty_input_key_s()
@@ -4623,13 +4722,37 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             for text in accumulatedText {
                 if shouldSendText(text) {
                     shouldRefreshAfterTextInput = true
+#if DEBUG
+                    let sendTimingStart = CmuxTypingTiming.start()
+                    let ghosttySendStart = ProcessInfo.processInfo.systemUptime
+#endif
                     text.withCString { ptr in
                         keyEvent.text = ptr
                         _ = ghostty_surface_key(surface, keyEvent)
                     }
+#if DEBUG
+                    ghosttySendMs += (ProcessInfo.processInfo.systemUptime - ghosttySendStart) * 1000.0
+                    CmuxTypingTiming.logDuration(
+                        path: "terminal.keyDown.accumulatedGhosttySend",
+                        startedAt: sendTimingStart,
+                        event: event,
+                        extra: "textBytes=\(text.utf8.count)"
+                    )
+#endif
                 } else {
                     keyEvent.text = nil
+                    #if DEBUG
+                    let ghosttySendStart = ProcessInfo.processInfo.systemUptime
+                    _ = sendTimedGhosttyKey(
+                        surface,
+                        keyEvent,
+                        path: "terminal.keyDown.accumulatedGhosttySend",
+                        event: event
+                    )
+                    ghosttySendMs += (ProcessInfo.processInfo.systemUptime - ghosttySendStart) * 1000.0
+                    #else
                     _ = ghostty_surface_key(surface, keyEvent)
+                    #endif
                 }
             }
         } else {
@@ -4644,22 +4767,63 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             if let text = textForKeyEvent(translationEvent) {
                 if shouldSendText(text), !suppressShiftSpaceFallbackText {
                     shouldRefreshAfterTextInput = true
+#if DEBUG
+                    let sendTimingStart = CmuxTypingTiming.start()
+                    let ghosttySendStart = ProcessInfo.processInfo.systemUptime
+#endif
                     text.withCString { ptr in
                         keyEvent.text = ptr
                         _ = ghostty_surface_key(surface, keyEvent)
                     }
+#if DEBUG
+                    ghosttySendMs += (ProcessInfo.processInfo.systemUptime - ghosttySendStart) * 1000.0
+                    CmuxTypingTiming.logDuration(
+                        path: "terminal.keyDown.ghosttySend",
+                        startedAt: sendTimingStart,
+                        event: event,
+                        extra: "textBytes=\(text.utf8.count)"
+                    )
+#endif
                 } else {
                     keyEvent.text = nil
+                    #if DEBUG
+                    let ghosttySendStart = ProcessInfo.processInfo.systemUptime
+                    _ = sendTimedGhosttyKey(
+                        surface,
+                        keyEvent,
+                        path: "terminal.keyDown.ghosttySend",
+                        event: event
+                    )
+                    ghosttySendMs += (ProcessInfo.processInfo.systemUptime - ghosttySendStart) * 1000.0
+                    #else
                     _ = ghostty_surface_key(surface, keyEvent)
+                    #endif
                 }
             } else {
                 keyEvent.text = nil
+                #if DEBUG
+                let ghosttySendStart = ProcessInfo.processInfo.systemUptime
+                _ = sendTimedGhosttyKey(
+                    surface,
+                    keyEvent,
+                    path: "terminal.keyDown.ghosttySend",
+                    event: event
+                )
+                ghosttySendMs += (ProcessInfo.processInfo.systemUptime - ghosttySendStart) * 1000.0
+                #else
                 _ = ghostty_surface_key(surface, keyEvent)
+                #endif
             }
         }
 
         if shouldRefreshAfterTextInput {
+#if DEBUG
+            let refreshStart = ProcessInfo.processInfo.systemUptime
+#endif
             terminalSurface?.forceRefresh(reason: "keyDown.textInput")
+#if DEBUG
+            refreshMs = (ProcessInfo.processInfo.systemUptime - refreshStart) * 1000.0
+#endif
         }
 
         // Rendering is driven by Ghostty's wakeups/renderer.
@@ -4672,6 +4836,29 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #endif
         return ghostty_surface_key(surface, keyEvent)
     }
+
+#if DEBUG
+    @discardableResult
+    private func sendTimedGhosttyKey(
+        _ surface: ghostty_surface_t,
+        _ keyEvent: ghostty_input_key_s,
+        path: String,
+        event: NSEvent? = nil,
+        extra: String? = nil
+    ) -> Bool {
+        let timingStart = CmuxTypingTiming.start()
+        let handled = sendGhosttyKey(surface, keyEvent)
+        let baseExtra = "handled=\(handled ? 1 : 0)"
+        let mergedExtra: String
+        if let extra, !extra.isEmpty {
+            mergedExtra = "\(baseExtra) \(extra)"
+        } else {
+            mergedExtra = baseExtra
+        }
+        CmuxTypingTiming.logDuration(path: path, startedAt: timingStart, event: event, extra: mergedExtra)
+        return handled
+    }
+#endif
 
     override func keyUp(with event: NSEvent) {
         guard let surface = ensureSurfaceReadyForInput() else {
@@ -7454,6 +7641,9 @@ extension GhosttyNSView: NSTextInputClient {
     fileprivate func sendTextToSurface(_ chars: String) {
         guard let surface = surface else { return }
 #if DEBUG
+        let typingTimingStart = CmuxTypingTiming.start()
+#endif
+#if DEBUG
         cmuxWriteChildExitProbe(
             [
                 "probeInsertTextCharsHex": cmuxScalarHex(chars),
@@ -7472,6 +7662,13 @@ extension GhosttyNSView: NSTextInputClient {
             keyEvent.composing = false
             _ = ghostty_surface_key(surface, keyEvent)
         }
+#if DEBUG
+        CmuxTypingTiming.logDuration(
+            path: "terminal.sendTextToSurface",
+            startedAt: typingTimingStart,
+            extra: "textBytes=\(chars.utf8.count)"
+        )
+#endif
     }
 
     func hasMarkedText() -> Bool {
@@ -7488,6 +7685,16 @@ extension GhosttyNSView: NSTextInputClient {
     }
 
     func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
+#if DEBUG
+        let typingTimingStart = CmuxTypingTiming.start()
+        defer {
+            CmuxTypingTiming.logDuration(
+                path: "terminal.setMarkedText",
+                startedAt: typingTimingStart,
+                extra: "markedLength=\(markedText.length)"
+            )
+        }
+#endif
         switch string {
         case let v as NSAttributedString:
             markedText = NSMutableAttributedString(attributedString: v)
@@ -7506,6 +7713,17 @@ extension GhosttyNSView: NSTextInputClient {
     }
 
     func unmarkText() {
+#if DEBUG
+        let hadMarkedText = markedText.length > 0
+        let typingTimingStart = CmuxTypingTiming.start()
+        defer {
+            CmuxTypingTiming.logDuration(
+                path: "terminal.unmarkText",
+                startedAt: typingTimingStart,
+                extra: "hadMarkedText=\(hadMarkedText ? 1 : 0)"
+            )
+        }
+#endif
         if markedText.length > 0 {
             markedText.mutableString.setString("")
             syncPreedit()
@@ -7516,6 +7734,16 @@ extension GhosttyNSView: NSTextInputClient {
     /// This tells Ghostty about IME composition text so it can render the
     /// preedit overlay (e.g. for Korean, Japanese, Chinese input).
     private func syncPreedit(clearIfNeeded: Bool = true) {
+#if DEBUG
+        let typingTimingStart = CmuxTypingTiming.start()
+        defer {
+            CmuxTypingTiming.logDuration(
+                path: "terminal.syncPreedit",
+                startedAt: typingTimingStart,
+                extra: "markedLength=\(markedText.length) clearIfNeeded=\(clearIfNeeded ? 1 : 0)"
+            )
+        }
+#endif
         guard let surface = surface else { return }
 
         if markedText.length > 0 {
@@ -7583,6 +7811,17 @@ extension GhosttyNSView: NSTextInputClient {
     }
 
     func insertText(_ string: Any, replacementRange: NSRange) {
+#if DEBUG
+        let typingTimingStart = CmuxTypingTiming.start()
+        defer {
+            CmuxTypingTiming.logDuration(
+                path: "terminal.insertText",
+                startedAt: typingTimingStart,
+                event: NSApp.currentEvent,
+                extra: "replacementLocation=\(replacementRange.location) replacementLength=\(replacementRange.length)"
+            )
+        }
+#endif
         // Get the string value
         var chars = ""
         switch string {

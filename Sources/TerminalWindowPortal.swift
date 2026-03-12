@@ -129,44 +129,69 @@ final class WindowTerminalHostView: NSView {
         clearActiveDividerCursor(restoreArrow: true)
     }
 
+    // PERF: hitTest is called on EVERY event including keyboard. Keep non-pointer
+    // path minimal. Do not add work outside the isPointerEvent guard.
     override func hitTest(_ point: NSPoint) -> NSView? {
-        updateDividerCursor(at: point)
-
-        if shouldPassThroughToSidebarResizer(at: point) {
-            return nil
+        let currentEvent = NSApp.currentEvent
+        let isPointerEvent: Bool
+        switch currentEvent?.type {
+        case .mouseMoved, .mouseEntered, .mouseExited,
+             .leftMouseDown, .leftMouseUp, .leftMouseDragged,
+             .rightMouseDown, .rightMouseUp, .rightMouseDragged,
+             .otherMouseDown, .otherMouseUp, .otherMouseDragged,
+             .scrollWheel, .cursorUpdate:
+            isPointerEvent = true
+        default:
+            isPointerEvent = false
         }
 
-        if shouldPassThroughToSplitDivider(at: point) {
-            return nil
-        }
+        if isPointerEvent {
+            if shouldPassThroughToSidebarResizer(at: point) {
+                clearActiveDividerCursor(restoreArrow: false)
+                return nil
+            }
 
-        let dragPasteboardTypes = NSPasteboard(name: .drag).types
-        let eventType = NSApp.currentEvent?.type
-        let shouldPassThrough = DragOverlayRoutingPolicy.shouldPassThroughPortalHitTesting(
-            pasteboardTypes: dragPasteboardTypes,
-            eventType: eventType
-        )
-        if shouldPassThrough {
+            // Compute divider hit once and reuse for both cursor update and pass-through.
+            if let kind = splitDividerCursorKind(at: point) {
+                activeDividerCursorKind = kind
+                kind.cursor.set()
+                return nil
+            }
+
+            clearActiveDividerCursor(restoreArrow: true)
+
+            let dragPasteboardTypes = NSPasteboard(name: .drag).types
+            let eventType = currentEvent?.type
+            let shouldPassThrough = DragOverlayRoutingPolicy.shouldPassThroughPortalHitTesting(
+                pasteboardTypes: dragPasteboardTypes,
+                eventType: eventType
+            )
+            if shouldPassThrough {
+#if DEBUG
+                logDragRouteDecision(
+                    passThrough: true,
+                    eventType: eventType,
+                    pasteboardTypes: dragPasteboardTypes,
+                    hitView: nil
+                )
+#endif
+                return nil
+            }
+
+            let hitView = super.hitTest(point)
 #if DEBUG
             logDragRouteDecision(
-                passThrough: true,
-                eventType: eventType,
+                passThrough: false,
+                eventType: currentEvent?.type,
                 pasteboardTypes: dragPasteboardTypes,
-                hitView: nil
+                hitView: hitView
             )
 #endif
-            return nil
+            return hitView === self ? nil : hitView
         }
 
+        // Non-pointer event: skip divider/drag routing, just do standard hit testing.
         let hitView = super.hitTest(point)
-#if DEBUG
-        logDragRouteDecision(
-            passThrough: false,
-            eventType: eventType,
-            pasteboardTypes: dragPasteboardTypes,
-            hitView: hitView
-        )
-#endif
         return hitView === self ? nil : hitView
     }
 
