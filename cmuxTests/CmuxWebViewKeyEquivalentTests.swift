@@ -10685,6 +10685,37 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         XCTAssertFalse(hostedView.debugHasKeyboardCopyModeIndicator())
     }
 
+    @MainActor
+    func testDropHoverOverlayAttachesToParentContainerInsteadOfHostedTerminalView() {
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 240, height: 120))
+        let surfaceView = GhosttyNSView(frame: .zero)
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        hostedView.frame = container.bounds
+        container.addSubview(hostedView)
+
+        hostedView.setDropZoneOverlay(zone: .right)
+        container.layoutSubtreeIfNeeded()
+
+        let state = hostedView.debugDropZoneOverlayState()
+        XCTAssertFalse(state.isHidden)
+        XCTAssertFalse(
+            state.isAttachedToHostedView,
+            "Drop-hover overlay should be mounted outside the hosted terminal view"
+        )
+        XCTAssertTrue(
+            state.isAttachedToParentContainer,
+            "Drop-hover overlay should be mounted in the parent container so it cannot perturb terminal layout"
+        )
+        XCTAssertEqual(state.frame.origin.x, 120, accuracy: 0.5)
+        XCTAssertEqual(state.frame.origin.y, 4, accuracy: 0.5)
+        XCTAssertEqual(state.frame.size.width, 116, accuracy: 0.5)
+        XCTAssertEqual(state.frame.size.height, 112, accuracy: 0.5)
+
+        hostedView.setDropZoneOverlay(zone: nil)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+        XCTAssertTrue(hostedView.debugDropZoneOverlayState().isHidden)
+    }
+
     func testForceRefreshNoopsAfterSurfaceReleaseDuringGeometryReconcile() throws {
 #if DEBUG
         let window = NSWindow(
