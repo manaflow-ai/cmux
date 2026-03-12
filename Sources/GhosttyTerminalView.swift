@@ -2811,6 +2811,10 @@ final class TerminalSurface: Identifiable, ObservableObject {
         env["CMUX_PANEL_ID"] = id.uuidString
         env["CMUX_TAB_ID"] = tabId.uuidString
         env["CMUX_SOCKET_PATH"] = SocketControlSettings.socketPath()
+        if let bundledCLIPath = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux").path,
+           !bundledCLIPath.isEmpty {
+            env["CMUX_BUNDLED_CLI_PATH"] = bundledCLIPath
+        }
         if let bundleId = Bundle.main.bundleIdentifier, !bundleId.isEmpty {
             env["CMUX_BUNDLE_ID"] = bundleId
         }

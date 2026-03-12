@@ -1276,6 +1276,8 @@ struct CMUXCLI {
 
         case "ssh":
             try runSSH(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
+        case "ssh-session-end":
+            try runSSHSessionEnd(commandArgs: commandArgs, client: client)
 
         case "new-workspace":
             let (commandOpt, rem0) = parseOption(commandArgs, name: "--command")
@@ -2883,8 +2885,12 @@ struct CMUXCLI {
         prepareSSHTerminfoIfNeeded(sshOptions)
         let sshCommand = buildSSHCommandText(sshOptions)
         let shellFeaturesValue = scopedGhosttyShellFeaturesValue()
-        let sshStartupCommand = buildSSHStartupCommand(sshCommand: sshCommand, shellFeatures: shellFeaturesValue)
-        let remoteSSHOptions = sshOptionsWithControlSocketDefaults(
+        let sshStartupCommand = buildSSHStartupCommand(
+            sshCommand: sshCommand,
+            shellFeatures: shellFeaturesValue,
+            remoteRelayPort: sshOptions.remoteRelayPort
+        )
+        let remoteSSHOptions = effectiveSSHOptions(
             sshOptions.sshOptions,
             remoteRelayPort: sshOptions.remoteRelayPort
         )
@@ -2939,6 +2945,7 @@ struct CMUXCLI {
                 configureParams["relay_port"] = sshOptions.remoteRelayPort
                 configureParams["local_socket_path"] = sshOptions.localSocketPath
             }
+            configureParams["terminal_startup_command"] = sshStartupCommand
 
             cliDebugLog(
                 "cli.ssh.remote.configure workspace=\(String(workspaceId.prefix(8))) " +
@@ -2960,7 +2967,12 @@ struct CMUXCLI {
             cliDebugLog(
                 "cli.ssh.remote.configure.error workspace=\(String(workspaceId.prefix(8))) error=\(String(describing: error))"
             )
-            _ = try? client.sendV2(method: "workspace.close", params: ["workspace_id": workspaceId])
+            do {
+                _ = try client.sendV2(method: "workspace.close", params: ["workspace_id": workspaceId])
+            } catch {
+                let warning = "Warning: failed to rollback workspace \(workspaceId): \(error)\n"
+                FileHandle.standardError.write(Data(warning.utf8))
+            }
             throw error
         }
 
@@ -3055,12 +3067,6 @@ struct CMUXCLI {
         guard let destination else {
             throw CLIError(message: "ssh requires a destination (example: cmux ssh user@host)")
         }
-        if destination.hasPrefix("-") {
-            throw CLIError(
-                message: "ssh: destination must be <user@host>. Use --port/--identity/--ssh-option for SSH flags and `--` for remote command args."
-            )
-        }
-
         return SSHCommandOptions(
             destination: destination,
             port: port,
@@ -3075,6 +3081,7 @@ struct CMUXCLI {
 
     private func buildSSHCommandText(_ options: SSHCommandOptions) -> String {
         var parts = baseSSHArguments(options)
+        let shellFeaturesValue = scopedGhosttyShellFeaturesValue()
 
         if options.extraArguments.isEmpty {
             // No explicit remote command provided. Use RemoteCommand to bootstrap
@@ -3085,7 +3092,7 @@ struct CMUXCLI {
             if !hasSSHOptionKey(options.sshOptions, key: "RemoteCommand") {
                 parts += [
                     "-o",
-                    "RemoteCommand=\(buildInteractiveRemoteShellCommand(remoteRelayPort: options.remoteRelayPort))",
+                    "RemoteCommand=\(buildInteractiveRemoteShellCommand(remoteRelayPort: options.remoteRelayPort, shellFeatures: shellFeaturesValue))",
                 ]
             }
             parts.append(options.destination)
@@ -3096,11 +3103,21 @@ struct CMUXCLI {
         return parts.map(shellQuote).joined(separator: " ")
     }
 
-    private func buildInteractiveRemoteShellCommand(remoteRelayPort: Int) -> String {
+    private func effectiveSSHOptions(_ options: [String], remoteRelayPort: Int? = nil) -> [String] {
+        var merged = sshOptionsWithControlSocketDefaults(options, remoteRelayPort: remoteRelayPort)
+        if !hasSSHOptionKey(merged, key: "StrictHostKeyChecking") {
+            merged.append("StrictHostKeyChecking=accept-new")
+        }
+        return merged
+    }
+
+    private func buildInteractiveRemoteShellCommand(remoteRelayPort: Int, shellFeatures: String) -> String {
         let relayExport = remoteRelayPort > 0
             ? "export CMUX_SOCKET_PATH=127.0.0.1:\(remoteRelayPort)"
             : nil
+        let remoteEnvExports = interactiveRemoteShellExports(shellFeatures: shellFeatures)
         let innerCommand = [
+            remoteEnvExports,
             "export PATH=\"$HOME/.cmux/bin:$PATH\"",
             relayExport,
             "exec \"${SHELL:-/bin/zsh}\" -i",
@@ -3115,6 +3132,7 @@ struct CMUXCLI {
             "    exec \"$CMUX_LOGIN_SHELL\" -lc \(shellQuote(innerCommand))",
             "    ;;",
             "  *)",
+            remoteEnvExports,
             "    export PATH=\"$HOME/.cmux/bin:$PATH\"",
             relayExport,
             "    exec \"$CMUX_LOGIN_SHELL\" -i",
@@ -3127,15 +3145,36 @@ struct CMUXCLI {
         return outerCommand
     }
 
+    private func interactiveRemoteShellExports(shellFeatures: String) -> String {
+        let environment = ProcessInfo.processInfo.environment
+        let term = Self.normalizedEnvValue(environment["TERM"]) ?? "xterm-ghostty"
+        let colorTerm = Self.normalizedEnvValue(environment["COLORTERM"]) ?? "truecolor"
+        let termProgram = Self.normalizedEnvValue(environment["TERM_PROGRAM"]) ?? "ghostty"
+        let termProgramVersion = Self.normalizedEnvValue(environment["TERM_PROGRAM_VERSION"])
+            ?? (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String)
+            ?? ""
+        let trimmedShellFeatures = shellFeatures.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        var exports: [String] = [
+            "export TERM=\(shellQuote(term))",
+            "export COLORTERM=\(shellQuote(colorTerm))",
+            "export TERM_PROGRAM=\(shellQuote(termProgram))",
+        ]
+        if !termProgramVersion.isEmpty {
+            exports.append("export TERM_PROGRAM_VERSION=\(shellQuote(termProgramVersion))")
+        }
+        if !trimmedShellFeatures.isEmpty {
+            exports.append("export GHOSTTY_SHELL_FEATURES=\(shellQuote(trimmedShellFeatures))")
+        }
+        return exports.joined(separator: "; ")
+    }
+
     private func baseSSHArguments(_ options: SSHCommandOptions) -> [String] {
-        let effectiveSSHOptions = sshOptionsWithControlSocketDefaults(
+        let effectiveSSHOptions = effectiveSSHOptions(
             options.sshOptions,
             remoteRelayPort: options.remoteRelayPort
         )
         var parts: [String] = ["ssh"]
-        if !hasSSHOptionKey(effectiveSSHOptions, key: "StrictHostKeyChecking") {
-            parts += ["-o", "StrictHostKeyChecking=accept-new"]
-        }
         if !hasSSHOptionKey(effectiveSSHOptions, key: "SetEnv") {
             parts += ["-o", "SetEnv COLORTERM=truecolor"]
         }
@@ -3228,15 +3267,66 @@ struct CMUXCLI {
         return merged.joined(separator: ",")
     }
 
-    private func buildSSHStartupCommand(sshCommand: String, shellFeatures: String) -> String {
+    private func buildSSHStartupCommand(sshCommand: String, shellFeatures: String, remoteRelayPort: Int) -> String {
         let trimmedFeatures = shellFeatures.trimmingCharacters(in: .whitespacesAndNewlines)
         let shellFeaturesBootstrap: String = trimmedFeatures.isEmpty
             ? ""
             : "export GHOSTTY_SHELL_FEATURES=\(shellQuote(trimmedFeatures))"
-        let script = [shellFeaturesBootstrap, "command \(sshCommand); exec ${SHELL:-/bin/zsh} -l"]
+        let lifecycleCleanup = buildSSHSessionEndShellCommand(remoteRelayPort: remoteRelayPort)
+        let script = [
+            shellFeaturesBootstrap,
+            "CMUX_SSH_SESSION_ENDED=0",
+            "cmux_ssh_session_end() { if [ \"${CMUX_SSH_SESSION_ENDED:-0}\" = 1 ]; then return; fi; CMUX_SSH_SESSION_ENDED=1; \(lifecycleCleanup); }",
+            "trap 'cmux_ssh_session_end' EXIT HUP INT TERM",
+            "command \(sshCommand)",
+            "trap - EXIT HUP INT TERM",
+            "cmux_ssh_session_end",
+            "exec ${SHELL:-/bin/zsh} -l",
+        ]
             .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
             .joined(separator: "\n")
         return "/bin/zsh -ilc \(shellQuote(script))"
+    }
+
+    private func buildSSHSessionEndShellCommand(remoteRelayPort: Int) -> String {
+        [
+            "if [ -n \"${CMUX_BUNDLED_CLI_PATH:-}\" ]",
+            "&& [ -x \"${CMUX_BUNDLED_CLI_PATH}\" ]",
+            "&& [ -n \"${CMUX_SOCKET_PATH:-}\" ]",
+            "&& [ -n \"${CMUX_WORKSPACE_ID:-}\" ]",
+            "&& [ -n \"${CMUX_SURFACE_ID:-}\" ]; then",
+            "\"${CMUX_BUNDLED_CLI_PATH}\" --socket \"${CMUX_SOCKET_PATH}\" ssh-session-end --relay-port \(remoteRelayPort) --workspace \"${CMUX_WORKSPACE_ID}\" --surface \"${CMUX_SURFACE_ID}\" >/dev/null 2>&1 || true;",
+            "elif command -v cmux >/dev/null 2>&1",
+            "&& [ -n \"${CMUX_WORKSPACE_ID:-}\" ]",
+            "&& [ -n \"${CMUX_SURFACE_ID:-}\" ]; then",
+            "cmux ssh-session-end --relay-port \(remoteRelayPort) --workspace \"${CMUX_WORKSPACE_ID}\" --surface \"${CMUX_SURFACE_ID}\" >/dev/null 2>&1 || true;",
+            "fi",
+        ].joined(separator: " ")
+    }
+
+    private func runSSHSessionEnd(commandArgs: [String], client: SocketClient) throws {
+        guard let relayPortRaw = optionValue(commandArgs, name: "--relay-port"),
+              let relayPort = Int(relayPortRaw),
+              relayPort > 0 else {
+            throw CLIError(message: "ssh-session-end requires --relay-port <port>")
+        }
+        let workspaceRaw = optionValue(commandArgs, name: "--workspace") ?? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
+        let surfaceRaw = optionValue(commandArgs, name: "--surface") ?? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"]
+        guard let workspaceRaw,
+              let workspaceId = try normalizeWorkspaceHandle(workspaceRaw, client: client),
+              !workspaceId.isEmpty else {
+            throw CLIError(message: "ssh-session-end requires --workspace or CMUX_WORKSPACE_ID")
+        }
+        guard let surfaceRaw,
+              let surfaceId = try normalizeSurfaceHandle(surfaceRaw, client: client, workspaceHandle: workspaceId),
+              !surfaceId.isEmpty else {
+            throw CLIError(message: "ssh-session-end requires --surface or CMUX_SURFACE_ID")
+        }
+        _ = try client.sendV2(method: "workspace.remote.terminal_session_end", params: [
+            "workspace_id": workspaceId,
+            "surface_id": surfaceId,
+            "relay_port": relayPort,
+        ])
     }
 
     private func hasSSHOptionKey(_ options: [String], key: String) -> Bool {

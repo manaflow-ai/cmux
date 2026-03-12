@@ -1741,6 +1741,8 @@ class TerminalController {
             return v2Result(id: id, self.v2WorkspaceRemoteDisconnect(params: params))
         case "workspace.remote.status":
             return v2Result(id: id, self.v2WorkspaceRemoteStatus(params: params))
+        case "workspace.remote.terminal_session_end":
+            return v2Result(id: id, self.v2WorkspaceRemoteTerminalSessionEnd(params: params))
 
         // Settings
         case "settings.open":
@@ -2103,6 +2105,7 @@ class TerminalController {
             "workspace.remote.reconnect",
             "workspace.remote.disconnect",
             "workspace.remote.status",
+            "workspace.remote.terminal_session_end",
             "settings.open",
             "feedback.open",
             "feedback.submit",
@@ -3339,6 +3342,8 @@ class TerminalController {
         let autoConnect = v2Bool(params, "auto_connect") ?? true
         let relayPort = v2Int(params, "relay_port")
         let localSocketPath = v2RawString(params, "local_socket_path")
+        let terminalStartupCommand = v2RawString(params, "terminal_startup_command")?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
 
 #if DEBUG
         dlog(
@@ -3368,7 +3373,8 @@ class TerminalController {
                 sshOptions: sshOptions,
                 localProxyPort: localProxyPort,
                 relayPort: relayPort,
-                localSocketPath: localSocketPath
+                localSocketPath: localSocketPath,
+                terminalStartupCommand: terminalStartupCommand?.isEmpty == true ? nil : terminalStartupCommand
             )
             workspace.configureRemoteConnection(config, autoConnect: autoConnect)
 
@@ -3496,6 +3502,48 @@ class TerminalController {
                 "window_ref": v2Ref(kind: .window, uuid: windowId),
                 "workspace_id": workspace.id.uuidString,
                 "workspace_ref": v2Ref(kind: .workspace, uuid: workspace.id),
+                "remote": workspace.remoteStatusPayload(),
+            ])
+        }
+
+        return result
+    }
+
+    private func v2WorkspaceRemoteTerminalSessionEnd(params: [String: Any]) -> V2CallResult {
+        guard let workspaceId = v2UUID(params, "workspace_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
+        }
+        guard let surfaceId = v2UUID(params, "surface_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid surface_id", data: nil)
+        }
+        guard let relayPort = v2Int(params, "relay_port"),
+              relayPort > 0 else {
+            return .err(code: "invalid_params", message: "Missing or invalid relay_port", data: nil)
+        }
+
+        var result: V2CallResult = .err(code: "not_found", message: "Workspace not found", data: [
+            "workspace_id": workspaceId.uuidString,
+            "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
+            "surface_id": surfaceId.uuidString,
+            "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
+            "relay_port": relayPort,
+        ])
+
+        v2MainSync {
+            guard let owner = AppDelegate.shared?.tabManagerFor(tabId: workspaceId),
+                  let workspace = owner.tabs.first(where: { $0.id == workspaceId }) else {
+                return
+            }
+            workspace.markRemoteTerminalSessionEnded(surfaceId: surfaceId, relayPort: relayPort)
+            let windowId = v2ResolveWindowId(tabManager: owner)
+            result = .ok([
+                "window_id": v2OrNull(windowId?.uuidString),
+                "window_ref": v2Ref(kind: .window, uuid: windowId),
+                "workspace_id": workspace.id.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: workspace.id),
+                "surface_id": surfaceId.uuidString,
+                "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
+                "relay_port": relayPort,
                 "remote": workspace.remoteStatusPayload(),
             ])
         }
