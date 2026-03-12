@@ -33,6 +33,34 @@ final class CloseWindowConfirmDialogUITests: XCTestCase {
         XCTAssertTrue(app.windows.firstMatch.exists, "Expected the window to remain open after cancelling close")
     }
 
+    func testReturnConfirmsCloseWindowDialog() {
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_TAG"] = launchTag
+        app.launch()
+        XCTAssertTrue(
+            ensureForegroundAfterLaunch(app, timeout: 12.0),
+            "Expected app to launch for close-window confirmation test. state=\(app.state.rawValue)"
+        )
+
+        app.typeKey("w", modifierFlags: [.command, .control])
+
+        XCTAssertTrue(
+            waitForCloseWindowAlert(app: app, timeout: 5.0),
+            "Expected Cmd+Ctrl+W to show the close window confirmation alert"
+        )
+
+        app.typeKey(.return, modifierFlags: [])
+
+        XCTAssertTrue(
+            waitForCloseWindowAlertToDismiss(app: app, timeout: 5.0),
+            "Expected Return to dismiss the close window confirmation alert"
+        )
+        XCTAssertTrue(
+            waitForMainWindowToClose(app: app, timeout: 5.0),
+            "Expected Return to confirm window close"
+        )
+    }
+
     private func isCloseWindowAlertPresent(app: XCUIApplication) -> Bool {
         if closeWindowDialog(app: app).exists { return true }
         if closeWindowAlert(app: app).exists { return true }
@@ -48,6 +76,28 @@ final class CloseWindowConfirmDialogUITests: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         }
         return isCloseWindowAlertPresent(app: app)
+    }
+
+    private func waitForCloseWindowAlertToDismiss(app: XCUIApplication, timeout: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if !isCloseWindowAlertPresent(app: app) {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        return !isCloseWindowAlertPresent(app: app)
+    }
+
+    private func waitForMainWindowToClose(app: XCUIApplication, timeout: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if !app.windows.firstMatch.exists {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        return !app.windows.firstMatch.exists
     }
 
     private func clickCancelOnCloseWindowAlert(app: XCUIApplication) {

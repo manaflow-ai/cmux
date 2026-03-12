@@ -4446,10 +4446,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         alert.addButton(withTitle: String(localized: "common.close", defaultValue: "Close"))
         alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
 
+        let alertWindow = alert.window
         if let closeButton = alert.buttons.first {
-            closeButton.keyEquivalent = "d"
-            closeButton.keyEquivalentModifierMask = [.command]
-            alert.window.defaultButtonCell = closeButton.cell as? NSButtonCell
+            alertWindow.defaultButtonCell = closeButton.cell as? NSButtonCell
+            alertWindow.initialFirstResponder = closeButton
+            DispatchQueue.main.async {
+                _ = alertWindow.makeFirstResponder(closeButton)
+            }
         }
 
         return alert.runModal() == .alertFirstButtonReturn
