@@ -2591,10 +2591,14 @@ struct ContentView: View {
             if abs(sidebarState.persistedWidth - sanitized) > 0.5 {
                 sidebarState.persistedWidth = sanitized
             }
+            // Sidebar width changes are pure SwiftUI layout updates, so portal-hosted
+            // terminals need an explicit post-layout geometry resync.
+            TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronizeForAllWindows()
             updateSidebarResizerBandState()
         })
 
         view = AnyView(view.onChange(of: sidebarState.isVisible) { _ in
+            TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronizeForAllWindows()
             updateSidebarResizerBandState()
         })
 

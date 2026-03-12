@@ -11861,6 +11861,80 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         portal.synchronizeHostedViewForAnchor(anchor)
         XCTAssertFalse(hosted.isHidden, "Portal should unhide after geometry is usable")
     }
+
+    func testScheduledExternalGeometrySyncRefreshesAncestorLayoutShift() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 700, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer {
+            NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
+            window.orderOut(nil)
+        }
+
+        realizeWindowLayout(window)
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let shiftedContainer = NSView(frame: NSRect(x: 120, y: 60, width: 220, height: 160))
+        contentView.addSubview(shiftedContainer)
+        let anchor = NSView(frame: NSRect(x: 24, y: 28, width: 72, height: 56))
+        shiftedContainer.addSubview(anchor)
+
+        let surface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        let hosted = surface.hostedView
+        TerminalWindowPortalRegistry.bind(
+            hostedView: hosted,
+            to: anchor,
+            visibleInUI: true,
+            expectedSurfaceId: surface.id,
+            expectedGeneration: surface.portalBindingGeneration()
+        )
+        TerminalWindowPortalRegistry.synchronizeForAnchor(anchor)
+
+        let anchorCenter = NSPoint(x: anchor.bounds.midX, y: anchor.bounds.midY)
+        let originalWindowPoint = anchor.convert(anchorCenter, to: nil)
+        XCTAssertNotNil(
+            TerminalWindowPortalRegistry.terminalViewAtWindowPoint(originalWindowPoint, in: window),
+            "Initial hit-testing should resolve the portal-hosted terminal at its original window position"
+        )
+
+        shiftedContainer.frame.origin.x += 96
+        contentView.layoutSubtreeIfNeeded()
+        window.displayIfNeeded()
+
+        let shiftedWindowPoint = anchor.convert(anchorCenter, to: nil)
+        XCTAssertNotEqual(originalWindowPoint.x, shiftedWindowPoint.x, accuracy: 0.5)
+        XCTAssertNil(
+            TerminalWindowPortalRegistry.terminalViewAtWindowPoint(shiftedWindowPoint, in: window),
+            "Ancestor-only layout shifts should leave the portal stale until an external geometry sync runs"
+        )
+        XCTAssertNotNil(
+            TerminalWindowPortalRegistry.terminalViewAtWindowPoint(originalWindowPoint, in: window),
+            "Before the external geometry sync, hit-testing should still point at the stale portal location"
+        )
+
+        TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronizeForAllWindows()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        XCTAssertNil(
+            TerminalWindowPortalRegistry.terminalViewAtWindowPoint(originalWindowPoint, in: window),
+            "The stale portal position should be cleared after the scheduled external geometry sync"
+        )
+        XCTAssertNotNil(
+            TerminalWindowPortalRegistry.terminalViewAtWindowPoint(shiftedWindowPoint, in: window),
+            "The scheduled external geometry sync should move the portal-hosted terminal to the anchor's new window position"
+        )
+    }
 }
 
 @MainActor
