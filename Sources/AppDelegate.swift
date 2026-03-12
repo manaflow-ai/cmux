@@ -4448,8 +4448,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         let alertWindow = alert.window
         if let closeButton = alert.buttons.first {
-            closeButton.keyEquivalent = "d"
-            closeButton.keyEquivalentModifierMask = [.command]
             alertWindow.defaultButtonCell = closeButton.cell as? NSButtonCell
             alertWindow.initialFirstResponder = closeButton
             DispatchQueue.main.async {
