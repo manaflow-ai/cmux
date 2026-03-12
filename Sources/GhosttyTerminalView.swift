@@ -4268,7 +4268,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
             // Keep the display link alive for unfocused split panes so they
             // continue rendering. Mirrors the reassertion in setFocus(_:).
-            if let displayID = window?.screen?.displayID, displayID != 0 {
+            if let displayID = (window?.screen ?? NSScreen.main)?.displayID, displayID != 0 {
                 ghostty_surface_set_display_id(surface, displayID)
             }
         }
