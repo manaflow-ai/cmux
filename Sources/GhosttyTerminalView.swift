@@ -2414,7 +2414,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         // intermediate frame on the first real resize.
         let view = GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         self.surfaceView = view
-        self.hostedView = GhosttySurfaceScrollView(surfaceView: view)
+        self.hostedView = GhosttySurfaceScrollView(surfaceView: view, surfaceId: id)
         // Surface is created when attached to a view
         hostedView.attachSurface(self)
     }
@@ -5824,10 +5824,10 @@ final class GhosttySurfaceScrollView: NSView {
         )
     }
 
-    init(surfaceView: GhosttyNSView) {
+    init(surfaceView: GhosttyNSView, surfaceId: UUID) {
         self.surfaceView = surfaceView
 #if DEBUG
-        self.debugStoredSurfaceId = surfaceView.terminalSurface?.id
+        self.debugStoredSurfaceId = surfaceId
 #endif
         backgroundView = NSView(frame: .zero)
         scrollView = GhosttyScrollView()
