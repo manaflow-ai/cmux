@@ -8074,6 +8074,7 @@ struct CMUXCLI {
           \(bold)Shortcuts\(reset)
 
           \(bold)\u{2318}N\(reset)\(subdued)                  New workspace\(reset)
+          \(bold)\u{2318}T\(reset)\(subdued)                  New tab\(reset)
           \(bold)\u{2318}P\(reset)\(subdued)                  Go to workspace\(reset)
           \(bold)\u{2318}D\(reset)\(subdued)                  Split right\(reset)
           \(bold)\u{2318}\u{21E7}D\(reset)\(subdued)                 Split down\(reset)
