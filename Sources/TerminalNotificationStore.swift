@@ -491,14 +491,59 @@ enum NotificationSoundSettings {
         qos: .utility
     )
 
+    /// Split a shell-like command string into tokens without invoking a shell.
+    /// Handles single-quoted, double-quoted, and backslash-escaped sequences.
+    /// Returns nil if the string is empty or contains only whitespace.
+    static func splitCommandTokens(_ command: String) -> [String]? {
+        var tokens: [String] = []
+        var current = ""
+        var inSingleQuote = false
+        var inDoubleQuote = false
+        var i = command.startIndex
+        while i < command.endIndex {
+            let c = command[i]
+            if inSingleQuote {
+                if c == "'" { inSingleQuote = false }
+                else { current.append(c) }
+            } else if inDoubleQuote {
+                if c == "\"" { inDoubleQuote = false }
+                else if c == "\\" {
+                    let next = command.index(after: i)
+                    if next < command.endIndex {
+                        i = next
+                        current.append(command[i])
+                    }
+                } else { current.append(c) }
+            } else {
+                if c == "'" { inSingleQuote = true }
+                else if c == "\"" { inDoubleQuote = true }
+                else if c == "\\" {
+                    let next = command.index(after: i)
+                    if next < command.endIndex {
+                        i = next
+                        current.append(command[i])
+                    }
+                } else if c.isWhitespace {
+                    if !current.isEmpty { tokens.append(current); current = "" }
+                } else { current.append(c) }
+            }
+            i = command.index(after: i)
+        }
+        if !current.isEmpty { tokens.append(current) }
+        return tokens.isEmpty ? nil : tokens
+    }
+
     static func runCustomCommand(title: String, subtitle: String, body: String, defaults: UserDefaults = .standard) {
         let command = (defaults.string(forKey: customCommandKey) ?? defaultCustomCommand)
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !command.isEmpty else { return }
+        guard let tokens = splitCommandTokens(command), !tokens.isEmpty else { return }
         customCommandQueue.async {
             let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/bin/sh")
-            process.arguments = ["-c", command]
+            // Execute the binary directly instead of via /bin/sh -c to prevent
+            // shell injection from a tampered UserDefaults entry.
+            process.executableURL = URL(fileURLWithPath: tokens[0])
+            process.arguments = Array(tokens.dropFirst())
             var env = ProcessInfo.processInfo.environment
             env["CMUX_NOTIFICATION_TITLE"] = title
             env["CMUX_NOTIFICATION_SUBTITLE"] = subtitle
