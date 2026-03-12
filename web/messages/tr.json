@@ -335,7 +335,7 @@
       "debug": "Debug",
       "taggedDebug": "Etiketli debug build",
       "socketOverride": "CMUX_SOCKET_PATH ortam değişkeni ile geçersiz kılın. Çağrı başına yeni satırla sonlandırılmış bir JSON isteği gönderin:",
-      "socketCallout": "JSON socket istekleri method ve params kullanmalıdır. <legacy>{\"command\":\"...\"}</legacy> gibi eski v1 JSON yükleri desteklenmez.",
+      "socketCallout": "JSON socket istekleri method ve params kullanmalıdır. <legacy>'{'\"command\":\"...\"'}'</legacy> gibi eski v1 JSON yükleri desteklenmez.",
       "accessModes": "Erişim modları",
       "modeHeader": "Mod",
       "descriptionHeader": "Açıklama",

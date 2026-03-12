@@ -335,7 +335,7 @@
       "debug": "Debug",
       "taggedDebug": "Tagged debug build",
       "socketOverride": "Override ด้วยตัวแปรสภาพแวดล้อม CMUX_SOCKET_PATH ส่ง JSON request ที่จบด้วย newline หนึ่งรายการต่อการเรียก:",
-      "socketCallout": "JSON socket request ต้องใช้ method และ params Legacy v1 JSON payload เช่น <legacy>{\"command\":\"...\"}</legacy> ไม่รองรับ",
+      "socketCallout": "JSON socket request ต้องใช้ method และ params Legacy v1 JSON payload เช่น <legacy>'{'\"command\":\"...\"'}'</legacy> ไม่รองรับ",
       "accessModes": "โหมดการเข้าถึง",
       "modeHeader": "โหมด",
       "descriptionHeader": "คำอธิบาย",

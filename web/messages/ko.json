@@ -335,7 +335,7 @@
       "debug": "디버그",
       "taggedDebug": "태그된 디버그 빌드",
       "socketOverride": "CMUX_SOCKET_PATH 환경 변수로 오버라이드합니다. 호출당 하나의 줄바꿈으로 끝나는 JSON 요청을 전송합니다:",
-      "socketCallout": "JSON 소켓 요청은 method와 params를 사용해야 합니다. <legacy>{\"command\":\"...\"}</legacy>와 같은 레거시 v1 JSON 페이로드는 지원되지 않습니다.",
+      "socketCallout": "JSON 소켓 요청은 method와 params를 사용해야 합니다. <legacy>'{'\"command\":\"...\"'}'</legacy>와 같은 레거시 v1 JSON 페이로드는 지원되지 않습니다.",
       "accessModes": "접근 모드",
       "modeHeader": "모드",
       "descriptionHeader": "설명",

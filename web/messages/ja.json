@@ -335,7 +335,7 @@
       "debug": "デバッグ",
       "taggedDebug": "タグ付きデバッグビルド",
       "socketOverride": "CMUX_SOCKET_PATH環境変数で上書きできます。呼び出しごとに1つの改行区切りJSONリクエストを送信します：",
-      "socketCallout": "JSON socketリクエストにはmethodとparamsを使用する必要があります。<legacy>{\"command\":\"...\"}</legacy>などのレガシーv1 JSONペイロードはサポートされていません。",
+      "socketCallout": "JSON socketリクエストにはmethodとparamsを使用する必要があります。<legacy>'{'\"command\":\"...\"'}'</legacy>などのレガシーv1 JSONペイロードはサポートされていません。",
       "accessModes": "アクセスモード",
       "modeHeader": "モード",
       "descriptionHeader": "説明",

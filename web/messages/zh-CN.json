@@ -335,7 +335,7 @@
       "debug": "Debug",
       "taggedDebug": "带标签的 Debug 构建",
       "socketOverride": "可通过 CMUX_SOCKET_PATH 环境变量覆盖。每次调用发送一个以换行符结尾的 JSON 请求：",
-      "socketCallout": "JSON socket 请求必须使用 method 和 params。不支持旧版 v1 JSON 格式（如 <legacy>{\"command\":\"...\"}</legacy>）。",
+      "socketCallout": "JSON socket 请求必须使用 method 和 params。不支持旧版 v1 JSON 格式（如 <legacy>'{'\"command\":\"...\"'}'</legacy>）。",
       "accessModes": "访问模式",
       "modeHeader": "模式",
       "descriptionHeader": "描述",

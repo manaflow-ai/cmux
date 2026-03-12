@@ -335,7 +335,7 @@
       "debug": "Debug",
       "taggedDebug": "Tagirani debug build",
       "socketOverride": "Zaobiđite sa CMUX_SOCKET_PATH varijablom okruženja. Pošaljite jedan JSON zahtjev terminiran novim redom po pozivu:",
-      "socketCallout": "JSON socket zahtjevi moraju koristiti method i params. Stari v1 JSON formati poput <legacy>{\"command\":\"...\"}</legacy> nisu podržani.",
+      "socketCallout": "JSON socket zahtjevi moraju koristiti method i params. Stari v1 JSON formati poput <legacy>'{'\"command\":\"...\"'}'</legacy> nisu podržani.",
       "accessModes": "Načini pristupa",
       "modeHeader": "Način",
       "descriptionHeader": "Opis",

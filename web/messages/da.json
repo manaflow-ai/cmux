@@ -335,7 +335,7 @@
       "debug": "Debug",
       "taggedDebug": "Tagget debug build",
       "socketOverride": "Overskriv med CMUX_SOCKET_PATH-miljøvariablen. Send én linjetermineret JSON-anmodning per kald:",
-      "socketCallout": "JSON socket-anmodninger skal bruge method og params. Legacy v1 JSON-payloads som <legacy>{\"command\":\"...\"}</legacy> understøttes ikke.",
+      "socketCallout": "JSON socket-anmodninger skal bruge method og params. Legacy v1 JSON-payloads som <legacy>'{'\"command\":\"...\"'}'</legacy> understøttes ikke.",
       "accessModes": "Adgangstilstande",
       "modeHeader": "Tilstand",
       "descriptionHeader": "Beskrivelse",

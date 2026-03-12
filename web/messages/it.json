@@ -335,7 +335,7 @@
       "debug": "Debug",
       "taggedDebug": "Build debug con tag",
       "socketOverride": "Sovrascrivi con la variabile d'ambiente CMUX_SOCKET_PATH. Invia una richiesta JSON terminata da newline per chiamata:",
-      "socketCallout": "Le richieste JSON del socket devono usare method e params. I vecchi payload JSON v1 come <legacy>{\"command\":\"...\"}</legacy> non sono supportati.",
+      "socketCallout": "Le richieste JSON del socket devono usare method e params. I vecchi payload JSON v1 come <legacy>'{'\"command\":\"...\"'}'</legacy> non sono supportati.",
       "accessModes": "Modalità di accesso",
       "modeHeader": "Modalità",
       "descriptionHeader": "Descrizione",

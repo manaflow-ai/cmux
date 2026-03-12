@@ -335,7 +335,7 @@
       "debug": "Debug",
       "taggedDebug": "Tagget debug-build",
       "socketOverride": "Overstyr med CMUX_SOCKET_PATH-miljøvariabelen. Send én JSON-forespørsel terminert med linjeskift per kall:",
-      "socketCallout": "JSON-socketforespørsler må bruke method og params. Eldre v1 JSON-nyttelaster som <legacy>{\"command\":\"...\"}</legacy> støttes ikke.",
+      "socketCallout": "JSON-socketforespørsler må bruke method og params. Eldre v1 JSON-nyttelaster som <legacy>'{'\"command\":\"...\"'}'</legacy> støttes ikke.",
       "accessModes": "Tilgangsmoduser",
       "modeHeader": "Modus",
       "descriptionHeader": "Beskrivelse",

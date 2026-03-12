@@ -335,7 +335,7 @@
       "debug": "Debug",
       "taggedDebug": "Тегированная debug-сборка",
       "socketOverride": "Переопределить переменной окружения CMUX_SOCKET_PATH. Отправляй один JSON-запрос с переводом строки за вызов:",
-      "socketCallout": "JSON socket-запросы должны использовать method и params. Устаревшие v1 JSON-форматы типа <legacy>{\"command\":\"...\"}</legacy> не поддерживаются.",
+      "socketCallout": "JSON socket-запросы должны использовать method и params. Устаревшие v1 JSON-форматы типа <legacy>'{'\"command\":\"...\"'}'</legacy> не поддерживаются.",
       "accessModes": "Режимы доступа",
       "modeHeader": "Режим",
       "descriptionHeader": "Описание",

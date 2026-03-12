@@ -335,7 +335,7 @@
       "debug": "Debug",
       "taggedDebug": "Getaggter Debug-Build",
       "socketOverride": "Überschreiben mit der Umgebungsvariable CMUX_SOCKET_PATH. Senden Sie eine JSON-Anfrage pro Aufruf, mit Zeilenumbruch am Ende:",
-      "socketCallout": "JSON-Socket-Anfragen müssen method und params verwenden. Legacy-v1-JSON-Payloads wie <legacy>{\"command\":\"...\"}</legacy> werden nicht unterstützt.",
+      "socketCallout": "JSON-Socket-Anfragen müssen method und params verwenden. Legacy-v1-JSON-Payloads wie <legacy>'{'\"command\":\"...\"'}'</legacy> werden nicht unterstützt.",
       "accessModes": "Zugriffsmodi",
       "modeHeader": "Modus",
       "descriptionHeader": "Beschreibung",

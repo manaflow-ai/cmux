@@ -335,7 +335,7 @@
       "debug": "Debug",
       "taggedDebug": "Tagged debug build",
       "socketOverride": "បដិសេធជាមួយអថេរបរិស្ថាន CMUX_SOCKET_PATH។ ផ្ញើសំណើ JSON មួយដែលបញ្ចប់ដោយបន្ទាត់ថ្មីក្នុងការហៅម្ដង:",
-      "socketCallout": "សំណើ socket JSON ត្រូវប្រើ method និង params។ JSON payloads ចាស់ v1 ដូចជា <legacy>{\"command\":\"...\"}</legacy> មិនត្រូវបានគាំទ្រទេ។",
+      "socketCallout": "សំណើ socket JSON ត្រូវប្រើ method និង params។ JSON payloads ចាស់ v1 ដូចជា <legacy>'{'\"command\":\"...\"'}'</legacy> មិនត្រូវបានគាំទ្រទេ។",
       "accessModes": "មុខងារចូលប្រើ",
       "modeHeader": "មុខងារ",
       "descriptionHeader": "ការពិពណ៌នា",

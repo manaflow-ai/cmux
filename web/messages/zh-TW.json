@@ -335,7 +335,7 @@
       "debug": "除錯版",
       "taggedDebug": "標記的除錯版建構",
       "socketOverride": "使用 CMUX_SOCKET_PATH 環境變數覆寫。每次呼叫傳送一個以換行符結尾的 JSON 請求：",
-      "socketCallout": "JSON socket 請求必須使用 method 和 params。不支援舊版 v1 JSON 格式，例如 <legacy>{\"command\":\"...\"}</legacy>。",
+      "socketCallout": "JSON socket 請求必須使用 method 和 params。不支援舊版 v1 JSON 格式，例如 <legacy>'{'\"command\":\"...\"'}'</legacy>。",
       "accessModes": "存取模式",
       "modeHeader": "模式",
       "descriptionHeader": "說明",
