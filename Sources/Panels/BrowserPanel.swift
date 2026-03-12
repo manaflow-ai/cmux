@@ -3122,14 +3122,19 @@ extension BrowserPanel {
         let isVisibleSelector = NSSelectorFromString("isVisible")
         guard inspector.cmuxCallBool(selector: isVisibleSelector) ?? false else { return true }
 
+        var invokedSelector = false
         for rawSelector in ["hide", "close"] {
             let selector = NSSelectorFromString(rawSelector)
             guard inspector.responds(to: selector) else { continue }
+            invokedSelector = true
             inspector.cmuxCallVoid(selector: selector)
-            return true
+            if !(inspector.cmuxCallBool(selector: isVisibleSelector) ?? false) {
+                return true
+            }
         }
 
-        return false
+        guard invokedSelector else { return false }
+        return !(inspector.cmuxCallBool(selector: isVisibleSelector) ?? false)
     }
 
     @discardableResult

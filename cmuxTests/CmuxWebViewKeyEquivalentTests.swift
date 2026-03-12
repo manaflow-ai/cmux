@@ -2522,11 +2522,31 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
     }
 
     private final class FakeInspector: NSObject {
+        enum HideBehavior {
+            case unsupported
+            case noEffect
+            case hides
+        }
+
         private(set) var attachCount = 0
         private(set) var showCount = 0
+        private(set) var hideCount = 0
         private(set) var closeCount = 0
+        private let hideBehavior: HideBehavior
         private var visible = false
         private var attached = false
+
+        init(hideBehavior: HideBehavior = .unsupported) {
+            self.hideBehavior = hideBehavior
+            super.init()
+        }
+
+        override func responds(to aSelector: Selector!) -> Bool {
+            guard NSStringFromSelector(aSelector) == "hide" else {
+                return super.responds(to: aSelector)
+            }
+            return hideBehavior != .unsupported
+        }
 
         @objc func isVisible() -> Bool {
             visible
@@ -2547,6 +2567,12 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             visible = true
         }
 
+        @objc func hide() {
+            hideCount += 1
+            guard hideBehavior == .hides else { return }
+            visible = false
+        }
+
         @objc func close() {
             closeCount += 1
             visible = false
@@ -2559,9 +2585,11 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         installCmuxUnitTestInspectorOverride()
     }
 
-    private func makePanelWithInspector() -> (BrowserPanel, FakeInspector) {
+    private func makePanelWithInspector(
+        hideBehavior: FakeInspector.HideBehavior = .unsupported
+    ) -> (BrowserPanel, FakeInspector) {
         let panel = BrowserPanel(workspaceId: UUID())
-        let inspector = FakeInspector()
+        let inspector = FakeInspector(hideBehavior: hideBehavior)
         panel.webView.cmuxSetUnitTestInspector(inspector)
         return (panel, inspector)
     }
@@ -2669,6 +2697,19 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 
         panel.restoreDeveloperToolsAfterAttachIfNeeded()
         XCTAssertFalse(panel.hasPendingDeveloperToolsRefreshAfterAttach())
+    }
+
+    func testToggleDeveloperToolsFallsBackToCloseWhenHideDoesNotConcealInspector() {
+        let (panel, inspector) = makePanelWithInspector(hideBehavior: .noEffect)
+
+        XCTAssertTrue(panel.showDeveloperTools())
+        XCTAssertTrue(panel.isDeveloperToolsVisible())
+
+        XCTAssertTrue(panel.toggleDeveloperTools())
+
+        XCTAssertEqual(inspector.hideCount, 1)
+        XCTAssertEqual(inspector.closeCount, 1)
+        XCTAssertFalse(panel.isDeveloperToolsVisible())
     }
 
     func testTransientHideAttachmentPreserveFollowsDeveloperToolsIntent() {
