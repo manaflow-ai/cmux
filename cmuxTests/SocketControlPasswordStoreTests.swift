@@ -36,7 +36,10 @@ final class SocketControlPasswordStoreTests: XCTestCase {
         XCTAssertFalse(SocketControlPasswordStore.hasConfiguredPassword(environment: [:], fileURL: fileURL))
     }
 
-    func testConfiguredPasswordPrefersEnvironmentOverStoredFile() throws {
+    func testConfiguredPasswordIgnoresEnvironmentVariable() throws {
+        // CMUX_SOCKET_PASSWORD must not influence the app-side accepted password.
+        // The env var is reserved for CLI client authentication only; accepting
+        // it on the app side would allow credential injection via the environment.
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-socket-password-tests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
@@ -50,7 +53,8 @@ final class SocketControlPasswordStoreTests: XCTestCase {
             environment: environment,
             fileURL: fileURL
         )
-        XCTAssertEqual(configured, "env-secret")
+        // The stored-file password wins; the env var is ignored.
+        XCTAssertEqual(configured, "stored-secret")
     }
 
     func testConfiguredPasswordLazyKeychainFallbackReadsOnlyOnceAndCaches() {

@@ -79,9 +79,11 @@ enum SocketControlPasswordStore {
         allowLazyKeychainFallback: Bool = false,
         loadKeychainPassword: () -> String? = { loadLegacyPasswordFromKeychain() }
     ) -> String? {
-        if let envPassword = normalized(environment[SocketControlSettings.socketPasswordEnvKey]) {
-            return envPassword
-        }
+        // Note: CMUX_SOCKET_PASSWORD is intentionally NOT read here. Accepting
+        // a credential from the process environment means it can be injected by
+        // a parent process and is visible to sibling processes. The CLI reads
+        // CMUX_SOCKET_PASSWORD for client-side authentication only; the app
+        // derives the expected password from the stored file/Keychain.
         let filePassword: String?
         do {
             filePassword = try loadPassword(fileURL: fileURL)
