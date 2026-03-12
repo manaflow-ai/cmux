@@ -89,7 +89,14 @@ PROMPT='%F{5}❯%f '
 _ANSI_RE = re.compile(rb"\x1b\][^\x07]*\x07|\x1b\[[0-9;?]*[ -/]*[@-~]|\r")
 
 
-def _capture_session(*, use_ghostty: bool, wrapper_dir: Path, resources_dir: Path, workdir: Path) -> str:
+def _capture_session(
+    *,
+    use_ghostty: bool,
+    wrapper_dir: Path,
+    resources_dir: Path,
+    workdir: Path,
+    zsh_path: str,
+) -> str:
     base = Path(tempfile.mkdtemp(prefix="cmux_ghostty_pure_preprompt_"))
     try:
         home = base / "home"
@@ -112,7 +119,7 @@ def _capture_session(*, use_ghostty: bool, wrapper_dir: Path, resources_dir: Pat
 
         master, slave = pty.openpty()
         proc = subprocess.Popen(
-            ["zsh", "-d", "-i"],
+            [zsh_path, "-d", "-i"],
             cwd=str(workdir),
             stdin=slave,
             stdout=slave,
@@ -174,7 +181,8 @@ def main() -> int:
     if not (wrapper_dir / ".zshenv").exists():
         print(f"SKIP: missing Ghostty zsh wrapper at {wrapper_dir}")
         return 0
-    if shutil.which("zsh") is None:
+    zsh_path = shutil.which("zsh")
+    if zsh_path is None:
         print("SKIP: zsh not installed")
         return 0
 
@@ -186,12 +194,14 @@ def main() -> int:
         wrapper_dir=wrapper_dir,
         resources_dir=resources_dir,
         workdir=workdir,
+        zsh_path=zsh_path,
     )
     ghostty = _capture_session(
         use_ghostty=True,
         wrapper_dir=wrapper_dir,
         resources_dir=resources_dir,
         workdir=workdir,
+        zsh_path=zsh_path,
     )
 
     plain_stale, plain_async = _stale_preprompt_lines(plain, path_line, async_line)

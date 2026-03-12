@@ -73,10 +73,10 @@ zle -N zle-line-init _cmux_redraw_line_init
     )
 
 
-def _capture_session(env: dict[str, str]) -> bytes:
+def _capture_session(env: dict[str, str], zsh_path: str) -> bytes:
     master, slave = pty.openpty()
     proc = subprocess.Popen(
-        ["zsh", "-d", "-i"],
+        [zsh_path, "-d", "-i"],
         stdin=slave,
         stdout=slave,
         stderr=slave,
@@ -123,7 +123,8 @@ def main() -> int:
         print(f"SKIP: missing Ghostty zsh wrapper at {wrapper_dir}")
         return 0
 
-    if shutil.which("zsh") is None:
+    zsh_path = shutil.which("zsh")
+    if zsh_path is None:
         print("SKIP: zsh not installed")
         return 0
 
@@ -141,7 +142,7 @@ def main() -> int:
         env.pop("GHOSTTY_SHELL_FEATURES", None)
         env.pop("GHOSTTY_BIN_DIR", None)
 
-        output = _capture_session(env)
+        output = _capture_session(env, zsh_path)
 
         marker = output.find(END_COMMAND)
         if marker == -1:
