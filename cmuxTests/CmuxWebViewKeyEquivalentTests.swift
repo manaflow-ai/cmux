@@ -2495,6 +2495,18 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         return nil
     }
 
+    private func findWindowBrowserSlotView(in root: NSView) -> WindowBrowserSlotView? {
+        if let slot = root as? WindowBrowserSlotView {
+            return slot
+        }
+        for subview in root.subviews {
+            if let slot = findWindowBrowserSlotView(in: subview) {
+                return slot
+            }
+        }
+        return nil
+    }
+
     func testRestoreReopensInspectorAfterAttachWhenPreferredVisible() {
         let (panel, inspector) = makePanelWithInspector()
 
@@ -2787,6 +2799,106 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             inspectorView.superview === visibleSlot,
             "An off-window replacement host should leave DevTools companion views in the visible local host"
         )
+    }
+
+    func testVisibleReplacementLocalHostNormalizesBottomDockedInspectorFrames() {
+        let (panel, _) = makePanelWithInspector()
+        XCTAssertTrue(panel.showDeveloperTools())
+
+        let paneId = PaneID(id: UUID())
+        let representable = WebViewRepresentable(
+            panel: panel,
+            paneId: paneId,
+            shouldAttachWebView: false,
+            useLocalInlineHosting: true,
+            shouldFocusWebView: false,
+            isPanelFocused: true,
+            portalZPriority: 0,
+            paneDropZone: nil,
+            searchOverlay: nil,
+            paneTopChromeHeight: 0
+        )
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let narrowHosting = NSHostingView(rootView: representable)
+        narrowHosting.frame = NSRect(x: 180, y: 0, width: 180, height: 240)
+        contentView.addSubview(narrowHosting)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        narrowHosting.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        guard let initialSlot = panel.webView.superview as? WindowBrowserSlotView else {
+            XCTFail("Expected initial local inline slot")
+            return
+        }
+
+        let inspectorView = WKInspectorProbeView(
+            frame: NSRect(x: 0, y: 0, width: initialSlot.bounds.width, height: 72)
+        )
+        inspectorView.autoresizingMask = [.width]
+        initialSlot.addSubview(inspectorView)
+        panel.webView.frame = NSRect(
+            x: 0,
+            y: inspectorView.frame.maxY,
+            width: initialSlot.bounds.width,
+            height: initialSlot.bounds.height - inspectorView.frame.height
+        )
+        initialSlot.layoutSubtreeIfNeeded()
+
+        let replacementHosting = NSHostingView(rootView: representable)
+        replacementHosting.frame = contentView.bounds
+        replacementHosting.autoresizingMask = [.width, .height]
+        contentView.addSubview(replacementHosting, positioned: .above, relativeTo: narrowHosting)
+        contentView.layoutSubtreeIfNeeded()
+        replacementHosting.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        replacementHosting.rootView = representable
+        contentView.layoutSubtreeIfNeeded()
+        replacementHosting.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        narrowHosting.removeFromSuperview()
+        contentView.layoutSubtreeIfNeeded()
+        replacementHosting.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        guard let replacementHost = findHostContainerView(in: replacementHosting),
+              let replacementSlot = findWindowBrowserSlotView(in: replacementHost) else {
+            XCTFail("Expected replacement local inline host")
+            return
+        }
+
+        XCTAssertTrue(
+            panel.webView.superview === replacementSlot,
+            "A visible replacement local host should take over the hosted page"
+        )
+        XCTAssertTrue(
+            inspectorView.superview === replacementSlot,
+            "A visible replacement local host should move the DevTools companion views with the page"
+        )
+        XCTAssertEqual(inspectorView.frame.minX, 0, accuracy: 0.5)
+        XCTAssertEqual(inspectorView.frame.minY, 0, accuracy: 0.5)
+        XCTAssertEqual(inspectorView.frame.width, replacementSlot.bounds.width, accuracy: 0.5)
+        XCTAssertEqual(inspectorView.frame.height, 72, accuracy: 0.5)
+        XCTAssertEqual(panel.webView.frame.minX, 0, accuracy: 0.5)
+        XCTAssertEqual(panel.webView.frame.minY, 72, accuracy: 0.5)
+        XCTAssertEqual(panel.webView.frame.width, replacementSlot.bounds.width, accuracy: 0.5)
+        XCTAssertEqual(panel.webView.frame.height, replacementSlot.bounds.height - 72, accuracy: 0.5)
     }
 }
 
@@ -11548,6 +11660,76 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         )
     }
 
+    func testPortalSyncRepairsBottomDockedInspectorOverflowedPageFrame() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        realizeWindowLayout(window)
+        let portal = WindowBrowserPortal(window: window)
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let anchor = NSView(frame: NSRect(x: 40, y: 24, width: 260, height: 180))
+        contentView.addSubview(anchor)
+
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        portal.bind(webView: webView, to: anchor, visibleInUI: true)
+        contentView.layoutSubtreeIfNeeded()
+        portal.synchronizeWebViewForAnchor(anchor)
+
+        guard let slot = webView.superview as? WindowBrowserSlotView else {
+            XCTFail("Expected browser slot")
+            return
+        }
+
+        let inspectorHeight: CGFloat = 84
+        let inspectorContainer = NSView(
+            frame: NSRect(x: 0, y: 0, width: slot.bounds.width, height: inspectorHeight)
+        )
+        inspectorContainer.autoresizingMask = [.width]
+        let inspectorView = WKInspectorProbeView(frame: inspectorContainer.bounds)
+        inspectorView.autoresizingMask = [.width, .height]
+        inspectorContainer.addSubview(inspectorView)
+        slot.addSubview(inspectorContainer)
+
+        webView.frame = NSRect(
+            x: 0,
+            y: inspectorHeight,
+            width: slot.bounds.width,
+            height: slot.bounds.height
+        )
+        webView.autoresizingMask = [.width, .height]
+        slot.layoutSubtreeIfNeeded()
+
+        portal.synchronizeWebViewForAnchor(anchor)
+
+        XCTAssertFalse(slot.isHidden, "Portal sync should keep the hosted browser visible")
+        XCTAssertEqual(
+            webView.frame.minY,
+            inspectorHeight,
+            accuracy: 0.5,
+            "Portal sync should keep the page viewport below a bottom-docked inspector instead of shifting the page upward"
+        )
+        XCTAssertEqual(
+            webView.frame.height,
+            slot.bounds.height - inspectorHeight,
+            accuracy: 0.5,
+            "Portal sync should shrink the page viewport to the space above a bottom-docked inspector"
+        )
+        XCTAssertEqual(
+            webView.frame.maxY,
+            slot.bounds.maxY,
+            accuracy: 0.5,
+            "The repaired page viewport should stay flush with the top edge of the slot"
+        )
+    }
+
     func testHidingBrowserSlotYieldsOwnedInspectorFirstResponder() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 520, height: 320),
@@ -11557,7 +11739,6 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         )
         defer { window.orderOut(nil) }
         realizeWindowLayout(window)
-
         guard let contentView = window.contentView else {
             XCTFail("Expected content view")
             return
@@ -11582,10 +11763,16 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
 
         slot.isHidden = true
 
-        XCTAssertNil(
-            window.firstResponder,
+        XCTAssertFalse(
+            window.firstResponder === inspectorView,
             "Hiding a browser slot should yield any owned inspector responder before it goes off-screen"
         )
+        if let firstResponderView = window.firstResponder as? NSView {
+            XCTAssertFalse(
+                firstResponderView === slot || firstResponderView.isDescendant(of: slot),
+                "Hiding a browser slot should not leave first responder inside the hidden slot"
+            )
+        }
     }
 
     func testHiddenPortalSyncDoesNotStealLocallyHostedDevToolsWebViewDuringResize() {
