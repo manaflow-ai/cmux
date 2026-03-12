@@ -67,6 +67,9 @@ enum SocketControlPasswordStore {
     private static let legacyKeychainService = "com.cmuxterm.app.socket-control"
     private static let legacyKeychainAccount = "local-socket-password"
     // Primary Keychain storage (replaces plaintext file).
+    // NOTE: intentionally the same service string as the legacy store above;
+    // the two entries are differentiated solely by account name
+    // ("socket-password" vs the legacy "local-socket-password").
     private static let keychainService = "com.cmuxterm.app.socket-control"
     private static let keychainAccount = "socket-password"
     private struct LazyKeychainFallbackCache {
