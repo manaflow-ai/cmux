@@ -354,7 +354,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         let windowId = appDelegate.createMainWindow()
         defer { closeWindow(withId: windowId) }
 
-        guard let window = window(withId: windowId) else {
+        guard let targetWindow = window(withId: windowId) else {
             XCTFail("Expected test window")
             return
         }
@@ -369,7 +369,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             key: "w",
             modifiers: [.command, .control],
             keyCode: 13,
-            windowNumber: window.windowNumber
+            windowNumber: targetWindow.windowNumber
         ) else {
             XCTFail("Failed to construct Cmd+Ctrl+W event")
             return
@@ -383,8 +383,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
 
-        XCTAssertTrue(promptedWindow === window, "Cmd+Ctrl+W should prompt for the target main window")
-        XCTAssertNotNil(window(withId: windowId), "Cancelling the confirmation should keep the window open")
+        XCTAssertTrue(promptedWindow === targetWindow, "Cmd+Ctrl+W should prompt for the target main window")
+        XCTAssertNotNil(self.window(withId: windowId), "Cancelling the confirmation should keep the window open")
     }
 
     func testCmdCtrlWClosesWindowAfterConfirmation() {
@@ -394,7 +394,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
 
         let windowId = appDelegate.createMainWindow()
-        guard let window = window(withId: windowId) else {
+        guard let targetWindow = window(withId: windowId) else {
             XCTFail("Expected test window")
             return
         }
@@ -405,7 +405,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             key: "w",
             modifiers: [.command, .control],
             keyCode: 13,
-            windowNumber: window.windowNumber
+            windowNumber: targetWindow.windowNumber
         ) else {
             XCTFail("Failed to construct Cmd+Ctrl+W event")
             return
@@ -419,7 +419,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
 
-        XCTAssertNil(window(withId: windowId), "Confirming Cmd+Ctrl+W should close the window")
+        XCTAssertNil(self.window(withId: windowId), "Confirming Cmd+Ctrl+W should close the window")
     }
 
     func testCmdPhysicalIWithDvorakCharactersDoesNotTriggerShowNotifications() {
