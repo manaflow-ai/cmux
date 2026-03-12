@@ -4388,7 +4388,7 @@ struct SettingsView: View {
                         && !sectionVisible(.browser)
                         && !sectionVisible(.keyboardShortcuts)
                         && !sectionVisible(.reset) {
-                        Text(String(localized: "settings.search.noResults", defaultValue: "No settings matched \"\(searchQuery)\"."))
+                        Text(String(localized: "settings.search.noResults", defaultValue: "No settings matched \"\(debouncedSearchQuery)\"."))
                             .foregroundColor(.secondary)
                             .font(.system(size: 13))
                             .frame(maxWidth: .infinity, alignment: .center)
@@ -4491,8 +4491,7 @@ struct SettingsView: View {
         .onChange(of: searchQuery) { _, newValue in
             searchDebounceTask?.cancel()
             searchDebounceTask = Task {
-                try? await Task.sleep(for: .milliseconds(200))
-                guard !Task.isCancelled else { return }
+                try await Task.sleep(for: .milliseconds(200))
                 debouncedSearchQuery = newValue
             }
         }
@@ -4516,6 +4515,9 @@ struct SettingsView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: SettingsNavigationRequest.notificationName)) { notification in
             guard let target = SettingsNavigationRequest.target(from: notification) else { return }
+            searchQuery = ""
+            debouncedSearchQuery = ""
+            searchDebounceTask?.cancel()
             DispatchQueue.main.async {
                 withAnimation(.easeInOut(duration: 0.2)) {
                     proxy.scrollTo(target, anchor: .top)

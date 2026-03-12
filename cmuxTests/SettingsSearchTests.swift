@@ -53,10 +53,14 @@ final class SettingsSearchTests: XCTestCase {
     }
 
     func testAllSectionsHaveAtLeastThreeTerms() {
+        // .reset intentionally has only 2 terms (section header + reset action);
+        // all other sections must have at least 3.
+        let minimums: [SettingsSection: Int] = [.reset: 2]
         for section in SettingsSection.allCases {
+            let minimum = minimums[section] ?? 3
             XCTAssertGreaterThanOrEqual(
-                section.searchTerms.count, 3,
-                "\(section) has fewer than 3 search terms"
+                section.searchTerms.count, minimum,
+                "\(section) has fewer than \(minimum) search terms"
             )
         }
     }
