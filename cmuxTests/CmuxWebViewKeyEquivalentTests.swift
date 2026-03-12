@@ -111,6 +111,23 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
         }
     }
 
+    private final class WindowCyclingActionSpy: NSObject {
+        weak var firstWindow: NSWindow?
+        weak var secondWindow: NSWindow?
+        private(set) var invocationCount = 0
+
+        @objc func cycleWindow(_ sender: Any?) {
+            invocationCount += 1
+            guard let firstWindow, let secondWindow else { return }
+
+            if NSApp.keyWindow === firstWindow {
+                secondWindow.makeKeyAndOrderFront(nil)
+            } else {
+                firstWindow.makeKeyAndOrderFront(nil)
+            }
+        }
+    }
+
     private final class FirstResponderView: NSView {
         override var acceptsFirstResponder: Bool { true }
     }
@@ -677,15 +694,145 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
         }
         XCTAssertTrue(window.makeFirstResponder(responder))
     }
+
+    @MainActor
+    func testCmdBacktickMenuActionThatChangesKeyWindowOnlyRunsOnceWhenTerminalIsFirstResponder() {
+        _ = NSApplication.shared
+        AppDelegate.installWindowResponderSwizzlesForTesting()
+
+        let firstWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let secondWindow = NSWindow(
+            contentRect: NSRect(x: 40, y: 40, width: 640, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+
+        let firstContainer = NSView(frame: firstWindow.contentRect(forFrameRect: firstWindow.frame))
+        let secondContainer = NSView(frame: secondWindow.contentRect(forFrameRect: secondWindow.frame))
+        firstWindow.contentView = firstContainer
+        secondWindow.contentView = secondContainer
+
+        let firstTerminal = GhosttyNSView(frame: firstContainer.bounds)
+        firstTerminal.autoresizingMask = [.width, .height]
+        firstContainer.addSubview(firstTerminal)
+
+        let secondTerminal = GhosttyNSView(frame: secondContainer.bounds)
+        secondTerminal.autoresizingMask = [.width, .height]
+        secondContainer.addSubview(secondTerminal)
+
+        let spy = WindowCyclingActionSpy()
+        spy.firstWindow = firstWindow
+        spy.secondWindow = secondWindow
+        installMenu(
+            target: spy,
+            action: #selector(WindowCyclingActionSpy.cycleWindow(_:)),
+            key: "`",
+            modifiers: [.command]
+        )
+
+        secondWindow.orderFront(nil)
+        firstWindow.makeKeyAndOrderFront(nil)
+        defer {
+            secondWindow.orderOut(nil)
+            firstWindow.orderOut(nil)
+        }
+
+        XCTAssertTrue(firstWindow.makeFirstResponder(firstTerminal))
+        guard let event = makeKeyDownEvent(
+            key: "`",
+            modifiers: [.command],
+            keyCode: 50,
+            windowNumber: firstWindow.windowNumber
+        ) else {
+            XCTFail("Failed to construct Cmd+` event")
+            return
+        }
+
+        NSApp.sendEvent(event)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        XCTAssertEqual(spy.invocationCount, 1, "Cmd+` should only trigger one window-cycle action")
+    }
+
+    @MainActor
+    func testCmdBacktickDoesNotRouteDirectlyToMainMenuWhenWebViewIsFirstResponder() {
+        _ = NSApplication.shared
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+
+        let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
+        window.contentView = container
+
+        let webView = CmuxWebView(frame: container.bounds, configuration: WKWebViewConfiguration())
+        webView.autoresizingMask = [.width, .height]
+        container.addSubview(webView)
+
+        let spy = ActionSpy()
+        installMenu(
+            target: spy,
+            action: #selector(ActionSpy.didInvoke(_:)),
+            key: "`",
+            modifiers: [.command]
+        )
+
+        window.makeKeyAndOrderFront(nil)
+        defer {
+            window.orderOut(nil)
+        }
+
+        XCTAssertTrue(window.makeFirstResponder(webView))
+        guard let event = makeKeyDownEvent(
+            key: "`",
+            modifiers: [.command],
+            keyCode: 50,
+            windowNumber: window.windowNumber
+        ) else {
+            XCTFail("Failed to construct Cmd+` event")
+            return
+        }
+
+        XCTAssertFalse(shouldRouteCommandEquivalentDirectlyToMainMenu(event))
+        _ = webView.performKeyEquivalent(with: event)
+        XCTAssertFalse(
+            spy.invoked,
+            "CmuxWebView should not route Cmd+` directly to the menu when WebKit is first responder"
+        )
+    }
+
     private func installMenu(spy: ActionSpy, key: String, modifiers: NSEvent.ModifierFlags) {
+        installMenu(
+            target: spy,
+            action: #selector(ActionSpy.didInvoke(_:)),
+            key: key,
+            modifiers: modifiers
+        )
+    }
+
+    private func installMenu(
+        target: NSObject,
+        action: Selector,
+        key: String,
+        modifiers: NSEvent.ModifierFlags
+    ) {
         let mainMenu = NSMenu()
 
         let fileItem = NSMenuItem(title: "File", action: nil, keyEquivalent: "")
         let fileMenu = NSMenu(title: "File")
 
-        let item = NSMenuItem(title: "Test Item", action: #selector(ActionSpy.didInvoke(_:)), keyEquivalent: key)
+        let item = NSMenuItem(title: "Test Item", action: action, keyEquivalent: key)
         item.keyEquivalentModifierMask = modifiers
-        item.target = spy
+        item.target = target
         fileMenu.addItem(item)
 
         mainMenu.addItem(fileItem)
@@ -696,13 +843,18 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
         NSApp.mainMenu = mainMenu
     }
 
-    private func makeKeyDownEvent(key: String, modifiers: NSEvent.ModifierFlags, keyCode: UInt16) -> NSEvent? {
+    private func makeKeyDownEvent(
+        key: String,
+        modifiers: NSEvent.ModifierFlags,
+        keyCode: UInt16,
+        windowNumber: Int = 0
+    ) -> NSEvent? {
         NSEvent.keyEvent(
             with: .keyDown,
             location: .zero,
             modifierFlags: modifiers,
             timestamp: ProcessInfo.processInfo.systemUptime,
-            windowNumber: 0,
+            windowNumber: windowNumber,
             context: nil,
             characters: key,
             charactersIgnoringModifiers: key,

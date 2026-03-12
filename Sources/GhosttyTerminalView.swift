@@ -5592,6 +5592,15 @@ private final class GhosttyPassthroughVisualEffectView: NSVisualEffectView {
     }
 }
 
+func shouldAllowEnsureFocusWindowActivation(
+    activeTabManager: TabManager?,
+    targetTabManager: TabManager,
+    keyWindow: NSWindow?,
+    mainWindow: NSWindow?
+) -> Bool {
+    activeTabManager === targetTabManager || (keyWindow == nil && mainWindow == nil)
+}
+
 final class GhosttySurfaceScrollView: NSView {
     enum FlashStyle {
         case standardFocus
@@ -7003,6 +7012,14 @@ final class GhosttySurfaceScrollView: NSView {
         }
 
         if !window.isKeyWindow {
+            guard shouldAllowEnsureFocusWindowActivation(
+                activeTabManager: delegate.tabManager,
+                targetTabManager: tabManager,
+                keyWindow: NSApp.keyWindow,
+                mainWindow: NSApp.mainWindow
+            ) else {
+                return
+            }
             window.makeKeyAndOrderFront(nil)
         }
         let result = window.makeFirstResponder(surfaceView)
