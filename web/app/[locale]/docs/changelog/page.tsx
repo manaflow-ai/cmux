@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import fs from "fs";
 import path from "path";
 import Image from "next/image";
+import { useTranslations } from "next-intl";
 import { changelogMedia, type VersionMedia } from "./changelog-media";
 
 /** Read PNG dimensions from the IHDR chunk (bytes 16-23). */
@@ -238,13 +239,14 @@ function SectionBadge({ heading }: { heading: string }) {
 }
 
 export default function ChangelogPage() {
+  const t = useTranslations("docs.changelog");
   const changelogPath = path.join(process.cwd(), "..", "CHANGELOG.md");
   const markdown = fs.readFileSync(changelogPath, "utf-8");
   const versions = parseChangelog(markdown);
 
   return (
     <div className="max-w-[640px] overflow-hidden">
-      <h1 style={{ margin: 0, padding: 0, paddingBottom: 8 }}>Changelog</h1>
+      <h1 style={{ margin: 0, padding: 0, paddingBottom: 8 }}>{t("title")}</h1>
 
       <div style={{ paddingTop: 16 }}>
         {versions.map((v, vi) => {

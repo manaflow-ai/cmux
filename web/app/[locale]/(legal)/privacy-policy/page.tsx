@@ -1,4 +1,6 @@
 import type { Metadata } from "next";
+import { useTranslations } from "next-intl";
+import { Link } from "../../../../i18n/navigation";
 
 export const metadata: Metadata = {
   title: "Privacy Policy — cmux",
@@ -6,9 +8,10 @@ export const metadata: Metadata = {
 };
 
 export default function PrivacyPolicyPage() {
+  const t = useTranslations("legal");
   return (
     <>
-      <h1>Privacy Policy</h1>
+      <h1>{t("privacyPolicy")}</h1>
       <p>Last updated: December 2, 2025</p>
 
       <p>
@@ -29,7 +32,7 @@ export default function PrivacyPolicyPage() {
       </p>
       <p>
         By using our Service, you accept this Privacy Policy and our{" "}
-        <a href="/terms-of-service">Terms of Service</a>, and you consent to
+        <Link href="/terms-of-service">Terms of Service</Link>, and you consent to
         our collection, storage, use and disclosure of your information as
         described here.
       </p>

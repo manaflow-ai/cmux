@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { useTranslations } from "next-intl";
 import { CodeBlock } from "../../components/code-block";
 
 export const metadata: Metadata = {
@@ -8,64 +9,53 @@ export const metadata: Metadata = {
 };
 
 export default function ConceptsPage() {
+  const t = useTranslations("docs.concepts");
+
   return (
     <>
-      <h1>Concepts</h1>
-      <p>
-        cmux organizes your terminals in a four-level hierarchy. Understanding
-        these levels helps when using the socket API, CLI, and keyboard
-        shortcuts.
-      </p>
+      <h1>{t("title")}</h1>
+      <p>{t("intro")}</p>
 
-      <h2>Hierarchy</h2>
+      <h2>{t("hierarchy")}</h2>
       <CodeBlock lang="text">{`Window
   └── Workspace (sidebar entry)
         └── Pane (split region)
               └── Surface (tab within pane)
                     └── Panel (terminal or browser content)`}</CodeBlock>
 
-      <h3>Window</h3>
+      <h3>{t("windowTitle")}</h3>
       <p>
-        A macOS window. Open multiple windows with <code>⌘⇧N</code>. Each
-        window has its own sidebar with independent workspaces.
+        {t("windowDesc", { shortcut: "⌘⇧N" })}
       </p>
 
-      <h3>Workspace</h3>
-      <p>
-        A sidebar entry. Each workspace contains one or more split panes.
-        Workspaces are what you see listed in the left sidebar.
-      </p>
-      <p>
-        In the UI and keyboard shortcuts, workspaces are often called
-        &ldquo;tabs&rdquo; since they behave like tabs in the sidebar. The
-        socket API and environment variables use the term
-        &ldquo;workspace&rdquo;.
-      </p>
+      <h3>{t("workspaceTitle")}</h3>
+      <p>{t("workspaceDesc")}</p>
+      <p>{t("workspaceNote")}</p>
 
       <table>
         <thead>
           <tr>
-            <th>Context</th>
-            <th>Term used</th>
+            <th>{t("contextHeader")}</th>
+            <th>{t("termUsedHeader")}</th>
           </tr>
         </thead>
         <tbody>
           <tr>
-            <td>Sidebar UI</td>
-            <td>Tab</td>
+            <td>{t("sidebarUI")}</td>
+            <td>{t("tab")}</td>
           </tr>
           <tr>
-            <td>Keyboard shortcuts</td>
-            <td>Workspace or tab</td>
+            <td>{t("keyboardShortcuts")}</td>
+            <td>{t("workspaceOrTab")}</td>
           </tr>
           <tr>
-            <td>Socket API</td>
+            <td>{t("socketAPI")}</td>
             <td>
               <code>workspace</code>
             </td>
           </tr>
           <tr>
-            <td>Environment variable</td>
+            <td>{t("environmentVariable")}</td>
             <td>
               <code>CMUX_WORKSPACE_ID</code>
             </td>
@@ -74,48 +64,50 @@ export default function ConceptsPage() {
       </table>
 
       <p>
-        <strong>Shortcuts:</strong> <code>⌘N</code> (new),{" "}
-        <code>⌘1</code>–<code>⌘9</code> (jump), <code>⌘⇧W</code> (close),{" "}
-        <code>⌘⇧[</code> / <code>⌘⇧]</code> (prev/next)
+        <strong>
+          {t("workspaceShortcuts", {
+            new: "⌘N",
+            jump: "⌘1–⌘9",
+            close: "⌘⇧W",
+            prevNext: "⌘⇧[ / ⌘⇧]",
+          })}
+        </strong>
       </p>
 
-      <h3>Pane</h3>
+      <h3>{t("paneTitle")}</h3>
       <p>
-        A split region within a workspace. Created by splitting with{" "}
-        <code>⌘D</code> (right) or <code>⌘⇧D</code> (down). Navigate between
-        panes with <code>⌥⌘</code> + arrow keys.
+        {t("paneDesc", {
+          right: "⌘D",
+          down: "⌘⇧D",
+          nav: "⌥⌘",
+        })}
       </p>
-      <p>Each pane can hold multiple surfaces (tabs within the pane).</p>
+      <p>{t("paneNote")}</p>
 
-      <h3>Surface</h3>
+      <h3>{t("surfaceTitle")}</h3>
       <p>
-        A tab within a pane. Each pane has its own tab bar and can hold multiple
-        surfaces. Created with <code>⌘T</code>, navigated with{" "}
-        <code>⌘[</code> / <code>⌘]</code> or <code>⌃1</code>–
-        <code>⌃9</code>.
+        {t("surfaceDesc", {
+          new: "⌘T",
+          prev: "⌘[",
+          next: "⌘]",
+          jump: "⌃1–⌃9",
+        })}
       </p>
-      <p>
-        Surfaces are the individual terminal or browser sessions you interact
-        with. Each surface has its own <code>CMUX_SURFACE_ID</code> environment
-        variable.
-      </p>
+      <p>{t("surfaceNote")}</p>
 
-      <h3>Panel</h3>
-      <p>The content inside a surface. Currently two types:</p>
+      <h3>{t("panelTitle")}</h3>
+      <p>{t("panelDesc")}</p>
       <ul>
         <li>
-          <strong>Terminal</strong> — a Ghostty terminal session
+          <strong>{t("panelTerminal")}</strong>
         </li>
         <li>
-          <strong>Browser</strong> — an embedded web view
+          <strong>{t("panelBrowser")}</strong>
         </li>
       </ul>
-      <p>
-        Panel is mostly an internal concept. In the socket API and CLI, you
-        interact with surfaces rather than panels directly.
-      </p>
+      <p>{t("panelNote")}</p>
 
-      <h2>Visual example</h2>
+      <h2>{t("visualExample")}</h2>
       <CodeBlock variant="ascii">{`┌──────────────────────────────────────────────────────┐
 │ ┌──────────┐ ┌─────────────────────────────────────┐ │
 │ │ Sidebar  │ │ Workspace "dev"                     │ │
@@ -129,51 +121,37 @@ export default function ConceptsPage() {
 │ │          │ │ └───────────────┴─────────────────┘ │ │
 │ └──────────┘ └─────────────────────────────────────┘ │
 └──────────────────────────────────────────────────────┘`}</CodeBlock>
-      <p>In this example:</p>
+      <p>{t("visualExampleDesc")}</p>
       <ul>
-        <li>
-          The <strong>window</strong> contains a sidebar with three workspaces
-          (dev, server, logs)
-        </li>
-        <li>
-          <strong>Workspace &ldquo;dev&rdquo;</strong> is selected, showing two{" "}
-          <strong>panes</strong> side by side
-        </li>
-        <li>
-          <strong>Pane 1</strong> has two <strong>surfaces</strong> ([S1] and
-          [S2] in the tab bar), with S1 active
-        </li>
-        <li>
-          <strong>Pane 2</strong> has one surface
-        </li>
-        <li>
-          Each surface contains a <strong>panel</strong> (a terminal in this
-          case)
-        </li>
+        <li>{t("visualItem1")}</li>
+        <li>{t("visualItem2")}</li>
+        <li>{t("visualItem3")}</li>
+        <li>{t("visualItem4")}</li>
+        <li>{t("visualItem5")}</li>
       </ul>
 
-      <h2>Summary</h2>
+      <h2>{t("summary")}</h2>
       <table>
         <thead>
           <tr>
-            <th>Level</th>
-            <th>What it is</th>
-            <th>Created by</th>
-            <th>Identified by</th>
+            <th>{t("levelHeader")}</th>
+            <th>{t("whatItIsHeader")}</th>
+            <th>{t("createdByHeader")}</th>
+            <th>{t("identifiedByHeader")}</th>
           </tr>
         </thead>
         <tbody>
           <tr>
-            <td>Window</td>
-            <td>macOS window</td>
+            <td>{t("windowTitle")}</td>
+            <td>{t("macosWindow")}</td>
             <td>
               <code>⌘⇧N</code>
             </td>
             <td>—</td>
           </tr>
           <tr>
-            <td>Workspace</td>
-            <td>Sidebar entry</td>
+            <td>{t("workspaceTitle")}</td>
+            <td>{t("sidebarEntry")}</td>
             <td>
               <code>⌘N</code>
             </td>
@@ -182,16 +160,16 @@ export default function ConceptsPage() {
             </td>
           </tr>
           <tr>
-            <td>Pane</td>
-            <td>Split region</td>
+            <td>{t("paneTitle")}</td>
+            <td>{t("splitRegion")}</td>
             <td>
               <code>⌘D</code> / <code>⌘⇧D</code>
             </td>
-            <td>Pane ID (socket API)</td>
+            <td>{t("paneIdSocket")}</td>
           </tr>
           <tr>
-            <td>Surface</td>
-            <td>Tab within pane</td>
+            <td>{t("surfaceTitle")}</td>
+            <td>{t("tabWithinPane")}</td>
             <td>
               <code>⌘T</code>
             </td>
@@ -200,10 +178,10 @@ export default function ConceptsPage() {
             </td>
           </tr>
           <tr>
-            <td>Panel</td>
-            <td>Terminal or browser</td>
-            <td>Automatic</td>
-            <td>Panel ID (internal)</td>
+            <td>{t("panelTitle")}</td>
+            <td>{t("terminalOrBrowser")}</td>
+            <td>{t("automatic")}</td>
+            <td>{t("panelIdInternal")}</td>
           </tr>
         </tbody>
       </table>

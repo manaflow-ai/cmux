@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { useTranslations } from "next-intl";
 
 export const metadata: Metadata = {
   title: "Terms of Service — cmux",
@@ -6,9 +7,10 @@ export const metadata: Metadata = {
 };
 
 export default function TermsOfServicePage() {
+  const t = useTranslations("legal");
   return (
     <>
-      <h1>Terms of Service</h1>
+      <h1>{t("termsOfService")}</h1>
       <p>Last revised on: December 2, 2025</p>
 
       <p>

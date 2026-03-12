@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { useTranslations } from "next-intl";
 
 export const metadata: Metadata = {
   title: "EULA — cmux",
@@ -6,9 +7,10 @@ export const metadata: Metadata = {
 };
 
 export default function EulaPage() {
+  const t = useTranslations("legal");
   return (
     <>
-      <h1>End-User License Agreement</h1>
+      <h1>{t("eula")}</h1>
       <p>Last updated: December 2, 2025</p>
 
       <p>

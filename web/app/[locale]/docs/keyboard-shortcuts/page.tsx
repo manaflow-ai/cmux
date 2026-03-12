@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { useTranslations } from "next-intl";
 import { KeyboardShortcuts } from "../../keyboard-shortcuts";
 
 export const metadata: Metadata = {
@@ -8,12 +9,12 @@ export const metadata: Metadata = {
 };
 
 export default function KeyboardShortcutsPage() {
+  const t = useTranslations("docs.keyboardShortcuts");
+
   return (
     <>
-      <h1>Keyboard Shortcuts</h1>
-      <p>
-        All keyboard shortcuts available in cmux, grouped by category.
-      </p>
+      <h1>{t("title")}</h1>
+      <p>{t("description")}</p>
       <KeyboardShortcuts />
     </>
   );

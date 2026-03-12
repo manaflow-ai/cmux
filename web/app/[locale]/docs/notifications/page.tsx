@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { useTranslations } from "next-intl";
 import { CodeBlock } from "../../components/code-block";
 import { Callout } from "../../components/callout";
 
@@ -9,52 +10,39 @@ export const metadata: Metadata = {
 };
 
 export default function NotificationsPage() {
+  const t = useTranslations("docs.notifications");
+
   return (
     <>
-      <h1>Notifications</h1>
-      <p>
-        cmux supports desktop notifications, allowing AI agents and scripts to
-        alert you when they need attention.
-      </p>
+      <h1>{t("title")}</h1>
+      <p>{t("intro")}</p>
 
-      <h2>Lifecycle</h2>
+      <h2>{t("lifecycle")}</h2>
       <ol>
-        <li>
-          <strong>Received</strong> — notification appears in panel, desktop
-          alert fires (if not suppressed)
-        </li>
-        <li>
-          <strong>Unread</strong> — badge shown on workspace tab
-        </li>
-        <li>
-          <strong>Read</strong> — cleared when you view that workspace
-        </li>
-        <li>
-          <strong>Cleared</strong> — removed from panel
-        </li>
+        <li>{t("received")}</li>
+        <li>{t("unread")}</li>
+        <li>{t("read")}</li>
+        <li>{t("cleared")}</li>
       </ol>
 
-      <h3>Suppression</h3>
-      <p>Desktop alerts are suppressed when:</p>
+      <h3>{t("suppression")}</h3>
+      <p>{t("suppressionDesc")}</p>
       <ul>
-        <li>The cmux window is focused</li>
-        <li>The specific workspace sending the notification is active</li>
-        <li>The notification panel is open</li>
+        <li>{t("suppressItem1")}</li>
+        <li>{t("suppressItem2")}</li>
+        <li>{t("suppressItem3")}</li>
       </ul>
 
-      <h3>Notification panel</h3>
+      <h3>{t("notificationPanel")}</h3>
       <p>
-        Press <code>⌘⇧I</code> to open the notification panel. Click a
-        notification to jump to that workspace. Press <code>⌘⇧U</code> to jump
-        directly to the workspace with the most recent unread notification.
+        {t.rich("notificationPanelDesc", {
+          openShortcut: () => <code>⌘⇧I</code>,
+          jumpShortcut: () => <code>⌘⇧U</code>,
+        })}
       </p>
 
-      <h2>Custom command</h2>
-      <p>
-        Run a shell command every time a notification is scheduled. Set it in{" "}
-        <strong>Settings → App → Notification Command</strong>. The command
-        runs via <code>/bin/sh -c</code> with these environment variables:
-      </p>
+      <h2>{t("customCommand")}</h2>
+      <p>{t("customCommandDesc")}</p>
       <table>
         <thead>
           <tr>
@@ -85,22 +73,16 @@ afplay /path/to/sound.aiff
 
 # Log to file
 echo "$CMUX_NOTIFICATION_TITLE: $CMUX_NOTIFICATION_BODY" >> ~/notifications.log`}</CodeBlock>
-      <p>
-        The command runs independently of the system sound picker. Set the
-        picker to "None" to use only the custom command, or keep both for a
-        system sound plus a custom action.
-      </p>
+      <p>{t("customCommandNote")}</p>
 
-      <h2>Sending notifications</h2>
+      <h2>{t("sending")}</h2>
 
-      <h3>CLI</h3>
+      <h3>{t("cli")}</h3>
       <CodeBlock lang="bash">{`cmux notify --title "Task Complete" --body "Your build finished"
 cmux notify --title "Claude Code" --subtitle "Waiting" --body "Agent needs input"`}</CodeBlock>
 
-      <h3>OSC 777 (simple)</h3>
-      <p>
-        The RXVT protocol uses a fixed format with title and body:
-      </p>
+      <h3>{t("osc777Title")}</h3>
+      <p>{t("osc777Desc")}</p>
       <CodeBlock lang="bash">{`printf '\\e]777;notify;My Title;Message body here\\a'`}</CodeBlock>
       <CodeBlock title="Shell function" lang="bash">{`notify_osc777() {
     local title="$1"
@@ -110,10 +92,8 @@ cmux notify --title "Claude Code" --subtitle "Waiting" --body "Agent needs input
 
 notify_osc777 "Build Complete" "All tests passed"`}</CodeBlock>
 
-      <h3>OSC 99 (rich)</h3>
-      <p>
-        The Kitty protocol supports subtitles and notification IDs:
-      </p>
+      <h3>{t("osc99Title")}</h3>
+      <p>{t("osc99Desc")}</p>
       <CodeBlock lang="bash">{`# Format: ESC ] 99 ; <params> ; <payload> ESC \\
 
 # Simple notification
@@ -127,7 +107,7 @@ printf '\\e]99;i=1;e=1;d=1;p=body:All tests passed\\e\\\\'`}</CodeBlock>
       <table>
         <thead>
           <tr>
-            <th>Feature</th>
+            <th>{t("featureHeader")}</th>
             <th>OSC 99</th>
             <th>OSC 777</th>
           </tr>
@@ -157,19 +137,19 @@ printf '\\e]99;i=1;e=1;d=1;p=body:All tests passed\\e\\\\'`}</CodeBlock>
       </table>
 
       <Callout>
-        Use OSC 777 for simple notifications. Use OSC 99 when you need subtitles
-        or notification IDs. Use the CLI (<code>cmux notify</code>) for the
-        easiest integration.
+        {t("comparisonCallout")}
       </Callout>
 
-      <h2>Claude Code hooks</h2>
+      <h2>{t("claudeCodeHooks")}</h2>
       <p>
-        cmux integrates with{" "}
-        <a href="https://docs.anthropic.com/en/docs/claude-code">Claude Code</a>{" "}
-        via hooks to notify you when tasks complete.
+        {t.rich("claudeCodeHooksDesc", {
+          link: (chunks) => (
+            <a href="https://docs.anthropic.com/en/docs/claude-code">{chunks}</a>
+          ),
+        })}
       </p>
 
-      <h3>1. Create the hook script</h3>
+      <h3>{t("createHookScript")}</h3>
       <CodeBlock title="~/.claude/hooks/cmux-notify.sh" lang="bash">{`#!/bin/bash
 # Skip if not in cmux
 [ -S /tmp/cmux.sock ] || exit 0
@@ -188,7 +168,7 @@ case "$EVENT_TYPE" in
 esac`}</CodeBlock>
       <CodeBlock lang="bash">{`chmod +x ~/.claude/hooks/cmux-notify.sh`}</CodeBlock>
 
-      <h3>2. Configure Claude Code</h3>
+      <h3>{t("configureClaude")}</h3>
       <CodeBlock title="~/.claude/settings.json" lang="json">{`{
   "hooks": {
     "Stop": ["~/.claude/hooks/cmux-notify.sh"],
@@ -200,11 +180,11 @@ esac`}</CodeBlock>
     ]
   }
 }`}</CodeBlock>
-      <p>Restart Claude Code to apply the hooks.</p>
+      <p>{t("restartNote")}</p>
 
-      <h2>Integration examples</h2>
+      <h2>{t("integrationExamples")}</h2>
 
-      <h3>Notify after long command</h3>
+      <h3>{t("notifyAfterLong")}</h3>
       <CodeBlock title="~/.zshrc" lang="bash">{`# Add to your shell config
 notify-after() {
   "$@"
@@ -219,7 +199,7 @@ notify-after() {
 
 # Usage: notify-after npm run build`}</CodeBlock>
 
-      <h3>Python</h3>
+      <h3>{t("python")}</h3>
       <CodeBlock title="python" lang="python">{`import sys
 
 def notify(title: str, body: str):
@@ -229,15 +209,15 @@ def notify(title: str, body: str):
 
 notify("Script Complete", "Processing finished")`}</CodeBlock>
 
-      <h3>Node.js</h3>
+      <h3>{t("nodejs")}</h3>
       <CodeBlock title="node" lang="javascript">{`function notify(title, body) {
   process.stdout.write(\`\\x1b]777;notify;\${title};\${body}\\x07\`);
 }
 
 notify('Build Done', 'webpack finished');`}</CodeBlock>
 
-      <h3>tmux passthrough</h3>
-      <p>If using tmux inside cmux, enable passthrough:</p>
+      <h3>{t("tmuxPassthrough")}</h3>
+      <p>{t("tmuxDesc")}</p>
       <CodeBlock title=".tmux.conf" lang="bash">{`set -g allow-passthrough on`}</CodeBlock>
       <CodeBlock lang="bash">{`printf '\\ePtmux;\\e\\e]777;notify;Title;Body\\a\\e\\\\'`}</CodeBlock>
     </>

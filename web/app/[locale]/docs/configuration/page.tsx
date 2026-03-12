@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { useTranslations } from "next-intl";
 import { CodeBlock } from "../../components/code-block";
 import { Callout } from "../../components/callout";
 
@@ -9,16 +10,15 @@ export const metadata: Metadata = {
 };
 
 export default function ConfigurationPage() {
+  const t = useTranslations("docs.configuration");
+
   return (
     <>
-      <h1>Configuration</h1>
-      <p>
-        cmux reads configuration from Ghostty config files, giving you familiar
-        options if you&apos;re coming from Ghostty.
-      </p>
+      <h1>{t("title")}</h1>
+      <p>{t("intro")}</p>
 
-      <h2>Config file locations</h2>
-      <p>cmux looks for configuration in these locations (in order):</p>
+      <h2>{t("configLocations")}</h2>
+      <p>{t("configLocationsDesc")}</p>
       <ol>
         <li>
           <code>~/.config/ghostty/config</code>
@@ -27,17 +27,17 @@ export default function ConfigurationPage() {
           <code>~/Library/Application Support/com.mitchellh.ghostty/config</code>
         </li>
       </ol>
-      <p>Create the config file if it doesn&apos;t exist:</p>
+      <p>{t("createConfig")}</p>
       <CodeBlock lang="bash">{`mkdir -p ~/.config/ghostty
 touch ~/.config/ghostty/config`}</CodeBlock>
 
-      <h2>Appearance</h2>
+      <h2>{t("appearance")}</h2>
 
-      <h3>Font</h3>
+      <h3>{t("font")}</h3>
       <CodeBlock title="~/.config/ghostty/config" lang="ini">{`font-family = JetBrains Mono
 font-size = 14`}</CodeBlock>
 
-      <h3>Colors</h3>
+      <h3>{t("colors")}</h3>
       <CodeBlock title="~/.config/ghostty/config" lang="ini">{`# Theme (or use individual colors below)
 theme = Dracula
 
@@ -49,7 +49,7 @@ cursor-text = #1e1e2e
 selection-background = #585b70
 selection-foreground = #cdd6f4`}</CodeBlock>
 
-      <h3>Split panes</h3>
+      <h3>{t("splitPanes")}</h3>
       <CodeBlock title="~/.config/ghostty/config" lang="ini">{`# Opacity for unfocused splits (0.0 to 1.0)
 unfocused-split-opacity = 0.7
 
@@ -59,78 +59,59 @@ unfocused-split-fill = #1e1e2e
 # Divider color between splits
 split-divider-color = #45475a`}</CodeBlock>
 
-      <h2>Behavior</h2>
+      <h2>{t("behavior")}</h2>
 
-      <h3>Scrollback</h3>
+      <h3>{t("scrollback")}</h3>
       <CodeBlock title="~/.config/ghostty/config" lang="ini">{`# Number of lines to keep in scrollback buffer
 scrollback-limit = 10000`}</CodeBlock>
 
-      <h3>Working directory</h3>
+      <h3>{t("workingDirectory")}</h3>
       <CodeBlock title="~/.config/ghostty/config" lang="ini">{`# Default directory for new terminals
 working-directory = ~/Projects`}</CodeBlock>
 
-      <h2>App settings</h2>
-      <p>
-        In-app settings are available via <strong>cmux → Settings</strong> (
-        <code>⌘,</code>):
-      </p>
+      <h2>{t("appSettings")}</h2>
+      <p>{t("appSettingsDesc", { shortcut: "⌘," })}</p>
 
-      <h3>Theme mode</h3>
+      <h3>{t("themeMode")}</h3>
       <ul>
         <li>
-          <strong>System</strong> — follow macOS appearance
+          <strong>{t("themeSystem")}</strong>
         </li>
         <li>
-          <strong>Light</strong> — always light mode
+          <strong>{t("themeLight")}</strong>
         </li>
         <li>
-          <strong>Dark</strong> — always dark mode
+          <strong>{t("themeDark")}</strong>
         </li>
       </ul>
 
-      <h3>Automation mode</h3>
-      <p>Control socket access level:</p>
+      <h3>{t("automationMode")}</h3>
+      <p>{t("automationModeDesc")}</p>
       <ul>
         <li>
-          <strong>Off</strong> — no socket control (most secure)
+          <strong>{t("automationOff")}</strong>
         </li>
         <li>
-          <strong>cmux processes only</strong> — only allow processes started
-          inside cmux terminals to connect
+          <strong>{t("automationCmux")}</strong>
         </li>
         <li>
-          <strong>allowAll</strong> — allow any local process to connect (
-          <code>CMUX_SOCKET_MODE=allowAll</code>, env override only)
+          <strong>{t("automationAll")}</strong>
         </li>
       </ul>
-      <Callout type="warn">
-        On shared machines, consider using &ldquo;Off&rdquo; or
-        &ldquo;cmux processes only&rdquo; mode.
-      </Callout>
+      <Callout type="warn">{t("automationCallout")}</Callout>
 
-      <h3>Browser link behavior</h3>
-      <p>
-        In <strong>Settings → Browser</strong>, cmux exposes two host lists with
-        different purposes:
-      </p>
+      <h3>{t("browserLinkBehavior")}</h3>
+      <p>{t("browserLinkDesc")}</p>
       <ul>
         <li>
-          <strong>Hosts to Open in Embedded Browser</strong> — applies to links
-          clicked from terminal output. Hosts in this list open in cmux; other
-          hosts open in your default browser. Supports one host or wildcard per
-          line (for example: <code>example.com</code>,{" "}
-          <code>*.internal.example</code>).
+          <strong>{t("browserHostsEmbed")}</strong>
         </li>
         <li>
-          <strong>HTTP Hosts Allowed in Embedded Browser</strong> — applies only
-          to HTTP (non-HTTPS) URLs. Hosts in this list can open in cmux without
-          a warning prompt. Defaults include <code>localhost</code>,{" "}
-          <code>127.0.0.1</code>, <code>::1</code>, <code>0.0.0.0</code>, and{" "}
-          <code>*.localtest.me</code>.
+          <strong>{t("browserHostsHttp")}</strong>
         </li>
       </ul>
 
-      <h2>Example config</h2>
+      <h2>{t("exampleConfig")}</h2>
       <CodeBlock title="~/.config/ghostty/config" lang="ini">{`# Font
 font-family = SF Mono
 font-size = 13

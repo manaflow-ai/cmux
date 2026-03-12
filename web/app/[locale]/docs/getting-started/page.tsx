@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { useTranslations } from "next-intl";
 import { CodeBlock } from "../../components/code-block";
 import { Callout } from "../../components/callout";
 import { DownloadButton } from "../../components/download-button";
@@ -10,82 +11,65 @@ export const metadata: Metadata = {
 };
 
 export default function GettingStartedPage() {
+  const t = useTranslations("docs.gettingStarted");
+
   return (
     <>
-      <h1>Getting Started</h1>
-      <p>
-        cmux is a lightweight, native macOS terminal built on Ghostty for
-        managing multiple AI coding agents. It features vertical tabs, a
-        notification panel, and a socket-based control API.
-      </p>
+      <h1>{t("title")}</h1>
+      <p>{t("intro")}</p>
 
-      <h2>Install</h2>
+      <h2>{t("install")}</h2>
 
-      <h3>DMG (recommended)</h3>
+      <h3>{t("dmgRecommended")}</h3>
       <div className="my-4">
         <DownloadButton />
       </div>
-      <p>
-        Open the <code>.dmg</code> and drag cmux to your Applications folder.
-        cmux auto-updates via Sparkle, so you only need to download once.
-      </p>
+      <p>{t("dmgDesc")}</p>
 
-      <h3>Homebrew</h3>
+      <h3>{t("homebrew")}</h3>
       <CodeBlock lang="bash">{`brew tap manaflow-ai/cmux
 brew install --cask cmux`}</CodeBlock>
-      <p>To update later:</p>
+      <p>{t("updateLater")}</p>
       <CodeBlock lang="bash">{`brew upgrade --cask cmux`}</CodeBlock>
 
       <Callout>
-        On first launch, macOS may ask you to confirm opening an app from an
-        identified developer. Click <strong>Open</strong> to proceed.
+        {t.rich("firstLaunchCallout", {
+          strong: (chunks) => <strong>{chunks}</strong>,
+        })}
       </Callout>
 
-      <h2>Verify installation</h2>
-      <p>Open cmux and you should see:</p>
+      <h2>{t("verifyTitle")}</h2>
+      <p>{t("verifyDesc")}</p>
       <ul>
-        <li>A terminal window with a vertical tab sidebar on the left</li>
-        <li>One initial workspace already open</li>
-        <li>The Ghostty-powered terminal ready for input</li>
+        <li>{t("verifyItem1")}</li>
+        <li>{t("verifyItem2")}</li>
+        <li>{t("verifyItem3")}</li>
       </ul>
 
-      <h2>CLI setup</h2>
-      <p>
-        cmux includes a command-line tool for automation. Inside cmux terminals
-        it works automatically. To use the CLI from outside cmux, create a
-        symlink:
-      </p>
+      <h2>{t("cliSetup")}</h2>
+      <p>{t("cliDesc")}</p>
       <CodeBlock lang="bash">{`sudo ln -sf "/Applications/cmux.app/Contents/Resources/bin/cmux" /usr/local/bin/cmux`}</CodeBlock>
-      <p>Then you can run commands like:</p>
+      <p>{t("cliThen")}</p>
       <CodeBlock lang="bash">{`cmux list-workspaces
 cmux notify --title "Build Complete" --body "Your build finished"`}</CodeBlock>
 
-      <h2>Auto-updates</h2>
-      <p>
-        cmux checks for updates automatically via Sparkle. When an update is
-        available you&apos;ll see an update pill in the titlebar. You can also
-        check manually via <strong>cmux → Check for Updates</strong> in the menu
-        bar.
-      </p>
+      <h2>{t("autoUpdates")}</h2>
+      <p>{t("autoUpdatesDesc")}</p>
 
-      <h2>Session restore (current behavior)</h2>
-      <p>After relaunch, cmux restores layout and metadata only:</p>
+      <h2>{t("sessionRestore")}</h2>
+      <p>{t("sessionRestoreDesc")}</p>
       <ul>
-        <li>Window, workspace, and pane layout</li>
-        <li>Working directories</li>
-        <li>Terminal scrollback (best effort)</li>
-        <li>Browser URL and navigation history</li>
+        <li>{t("sessionItem1")}</li>
+        <li>{t("sessionItem2")}</li>
+        <li>{t("sessionItem3")}</li>
+        <li>{t("sessionItem4")}</li>
       </ul>
-      <Callout>
-        cmux does not restore live process state yet. Active terminal app
-        sessions such as Claude Code, tmux, and vim are not resumed after app
-        restart.
-      </Callout>
+      <Callout>{t("sessionCallout")}</Callout>
 
-      <h2>Requirements</h2>
+      <h2>{t("requirements")}</h2>
       <ul>
-        <li>macOS 14.0 or later</li>
-        <li>Apple Silicon or Intel Mac</li>
+        <li>{t("reqItem1")}</li>
+        <li>{t("reqItem2")}</li>
       </ul>
     </>
   );
