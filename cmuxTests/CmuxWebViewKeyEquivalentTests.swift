@@ -11441,10 +11441,21 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
 final class BrowserWindowPortalLifecycleTests: XCTestCase {
     private final class TrackingPortalWebView: WKWebView {
         private(set) var displayIfNeededCount = 0
+        private(set) var reattachRenderingStateCount = 0
 
         override func displayIfNeeded() {
             displayIfNeededCount += 1
             super.displayIfNeeded()
+        }
+
+        @objc(_enterInWindow)
+        func cmuxUnitTestEnterInWindow() {
+            reattachRenderingStateCount += 1
+        }
+
+        @objc(_endDeferringViewInWindowChangesSync)
+        func cmuxUnitTestEndDeferringViewInWindowChangesSync() {
+            reattachRenderingStateCount += 1
         }
     }
 
@@ -11784,6 +11795,138 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         )
     }
 
+    func testPortalAnchorResizeDoesNotForceHostedWebViewPresentationRefresh() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        realizeWindowLayout(window)
+        let portal = WindowBrowserPortal(window: window)
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let anchor = NSView(frame: NSRect(x: 40, y: 24, width: 220, height: 160))
+        contentView.addSubview(anchor)
+
+        let webView = TrackingPortalWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        portal.bind(webView: webView, to: anchor, visibleInUI: true)
+        contentView.layoutSubtreeIfNeeded()
+        portal.synchronizeWebViewForAnchor(anchor)
+        advanceAnimations()
+
+        guard let slot = webView.superview as? WindowBrowserSlotView else {
+            XCTFail("Expected browser slot")
+            return
+        }
+
+        let initialDisplayCount = webView.displayIfNeededCount
+        let initialReattachCount = webView.reattachRenderingStateCount
+        anchor.frame = NSRect(x: 52, y: 30, width: 248, height: 178)
+        contentView.layoutSubtreeIfNeeded()
+        portal.synchronizeWebViewForAnchor(anchor)
+        advanceAnimations()
+
+        XCTAssertFalse(slot.isHidden, "Anchor resize should keep the portal-hosted browser visible")
+        XCTAssertEqual(slot.frame.origin.x, 52, accuracy: 0.5)
+        XCTAssertEqual(slot.frame.origin.y, 30, accuracy: 0.5)
+        XCTAssertEqual(slot.frame.size.width, 248, accuracy: 0.5)
+        XCTAssertEqual(slot.frame.size.height, 178, accuracy: 0.5)
+        XCTAssertGreaterThan(
+            webView.displayIfNeededCount,
+            initialDisplayCount,
+            "Pure anchor geometry updates should still repaint the hosted browser"
+        )
+        XCTAssertEqual(
+            webView.reattachRenderingStateCount,
+            initialReattachCount,
+            "Pure anchor geometry updates should not trigger the WebKit reattach path"
+        )
+    }
+
+    func testExternalSplitResizeDoesNotForceHostedWebViewPresentationRefresh() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 360),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        realizeWindowLayout(window)
+        let portal = WindowBrowserPortal(window: window)
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let splitView = NSSplitView(frame: contentView.bounds)
+        splitView.autoresizingMask = [.width, .height]
+        splitView.isVertical = true
+
+        let leadingPane = NSView(
+            frame: NSRect(x: 0, y: 0, width: 220, height: contentView.bounds.height)
+        )
+        leadingPane.autoresizingMask = [.height]
+        let trailingPane = NSView(
+            frame: NSRect(
+                x: 221,
+                y: 0,
+                width: contentView.bounds.width - 221,
+                height: contentView.bounds.height
+            )
+        )
+        trailingPane.autoresizingMask = [.width, .height]
+        splitView.addSubview(leadingPane)
+        splitView.addSubview(trailingPane)
+        contentView.addSubview(splitView)
+        splitView.adjustSubviews()
+
+        let anchor = NSView(frame: trailingPane.bounds.insetBy(dx: 12, dy: 12))
+        anchor.autoresizingMask = [.width, .height]
+        trailingPane.addSubview(anchor)
+
+        let webView = TrackingPortalWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        portal.bind(webView: webView, to: anchor, visibleInUI: true)
+        contentView.layoutSubtreeIfNeeded()
+        portal.synchronizeWebViewForAnchor(anchor)
+        advanceAnimations()
+
+        guard let slot = webView.superview as? WindowBrowserSlotView else {
+            XCTFail("Expected browser slot")
+            return
+        }
+
+        let initialDisplayCount = webView.displayIfNeededCount
+        let initialReattachCount = webView.reattachRenderingStateCount
+        let initialWidth = slot.frame.width
+
+        splitView.setPosition(280, ofDividerAt: 0)
+        contentView.layoutSubtreeIfNeeded()
+        NotificationCenter.default.post(name: NSSplitView.didResizeSubviewsNotification, object: splitView)
+        advanceAnimations()
+
+        XCTAssertFalse(slot.isHidden, "App split resize should keep the browser slot visible")
+        XCTAssertLessThan(
+            slot.frame.width,
+            initialWidth,
+            "Moving the app split divider should shrink the hosted browser slot"
+        )
+        XCTAssertGreaterThan(
+            webView.displayIfNeededCount,
+            initialDisplayCount,
+            "External split resize should still repaint the hosted browser"
+        )
+        XCTAssertEqual(
+            webView.reattachRenderingStateCount,
+            initialReattachCount,
+            "External split resize should not trigger the WebKit reattach path"
+        )
+    }
+
     func testPortalSyncRepairsBottomDockedInspectorOverflowedPageFrame() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 520, height: 320),
@@ -12071,21 +12214,33 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         portal.synchronizeWebViewForAnchor(anchor)
         advanceAnimations()
         let initialDisplayCount = webView.displayIfNeededCount
+        let initialReattachCount = webView.reattachRenderingStateCount
 
         portal.updateEntryVisibility(forWebViewId: ObjectIdentifier(webView), visibleInUI: false, zPriority: 0)
         portal.synchronizeWebViewForAnchor(anchor)
         advanceAnimations()
         let hiddenDisplayCount = webView.displayIfNeededCount
+        let hiddenReattachCount = webView.reattachRenderingStateCount
 
         portal.updateEntryVisibility(forWebViewId: ObjectIdentifier(webView), visibleInUI: true, zPriority: 0)
         portal.synchronizeWebViewForAnchor(anchor)
         advanceAnimations()
 
         XCTAssertGreaterThanOrEqual(hiddenDisplayCount, initialDisplayCount)
+        XCTAssertEqual(
+            hiddenReattachCount,
+            initialReattachCount,
+            "Hiding a portal-hosted browser should not itself trigger the WebKit reattach path"
+        )
         XCTAssertGreaterThan(
             webView.displayIfNeededCount,
             hiddenDisplayCount,
             "Revealing an existing portal-hosted browser should refresh WebKit presentation immediately"
+        )
+        XCTAssertGreaterThan(
+            webView.reattachRenderingStateCount,
+            hiddenReattachCount,
+            "Revealing an existing portal-hosted browser should trigger the WebKit reattach path"
         )
     }
 

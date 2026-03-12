@@ -2101,7 +2101,7 @@ final class WindowBrowserPortal: NSObject {
                   let containerView = entry.containerView,
                   !containerView.isHidden else { continue }
             guard webView.superview === containerView else { continue }
-            refreshHostedWebViewPresentation(
+            invalidateHostedWebViewGeometry(
                 webView,
                 in: containerView,
                 reason: "externalGeometry"
@@ -2378,14 +2378,16 @@ final class WindowBrowserPortal: NSObject {
         _ webView: WKWebView,
         in containerView: WindowBrowserSlotView,
         reason: String,
-        phase: String
+        phase: String,
+        reattachRenderingState: Bool
     ) {
         guard !containerView.isHidden else { return }
         guard !containerView.isHostedInspectorDividerDragActive else {
 #if DEBUG
             dlog(
                 "browser.portal.refresh.skip web=\(browserPortalDebugToken(webView)) " +
-                "container=\(browserPortalDebugToken(containerView)) reason=\(reason) phase=\(phase) drag=1"
+                "container=\(browserPortalDebugToken(containerView)) reason=\(reason) phase=\(phase) " +
+                "drag=1 reattach=\(reattachRenderingState ? 1 : 0)"
             )
 #endif
             return
@@ -2414,17 +2416,34 @@ final class WindowBrowserPortal: NSObject {
             scrollView.displayIfNeeded()
         }
         webView.layoutSubtreeIfNeeded()
-        webView.browserPortalReattachRenderingState(reason: "\(reason):\(phase)")
+        if reattachRenderingState {
+            webView.browserPortalReattachRenderingState(reason: "\(reason):\(phase)")
+        }
         containerView.displayIfNeeded()
         webView.displayIfNeeded()
         (webView.window ?? hostView.window)?.displayIfNeeded()
 #if DEBUG
         dlog(
-            "browser.portal.refresh web=\(browserPortalDebugToken(webView)) " +
+            "\(reattachRenderingState ? "browser.portal.refresh" : "browser.portal.invalidate") " +
+            "web=\(browserPortalDebugToken(webView)) " +
             "container=\(browserPortalDebugToken(containerView)) reason=\(reason) " +
             "phase=\(phase) frame=\(browserPortalDebugFrame(containerView.frame))"
         )
 #endif
+    }
+
+    private func invalidateHostedWebViewGeometry(
+        _ webView: WKWebView,
+        in containerView: WindowBrowserSlotView,
+        reason: String
+    ) {
+        runHostedWebViewRefreshPass(
+            webView,
+            in: containerView,
+            reason: reason,
+            phase: "geometry",
+            reattachRenderingState: false
+        )
     }
 
     private func refreshHostedWebViewPresentation(
@@ -2434,14 +2453,21 @@ final class WindowBrowserPortal: NSObject {
     ) {
         guard !containerView.isHidden else { return }
 
-        runHostedWebViewRefreshPass(webView, in: containerView, reason: reason, phase: "immediate")
+        runHostedWebViewRefreshPass(
+            webView,
+            in: containerView,
+            reason: reason,
+            phase: "immediate",
+            reattachRenderingState: true
+        )
         DispatchQueue.main.async { [weak self, weak webView, weak containerView] in
             guard let self, let webView, let containerView else { return }
             self.runHostedWebViewRefreshPass(
                 webView,
                 in: containerView,
                 reason: reason,
-                phase: "async"
+                phase: "async",
+                reattachRenderingState: true
             )
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) { [weak self, weak webView, weak containerView] in
@@ -2450,8 +2476,42 @@ final class WindowBrowserPortal: NSObject {
                 webView,
                 in: containerView,
                 reason: reason,
-                phase: "delayed"
+                phase: "delayed",
+                reattachRenderingState: true
             )
+        }
+    }
+
+    private enum HostedWebViewPresentationUpdateKind {
+        case none
+        case geometryOnly
+        case refresh
+
+        private static let geometryOnlyReasons: Set<String> = [
+            "frame",
+            "bounds",
+            "webFrame",
+            "webFrameBottomDock",
+        ]
+
+        private static let refreshReasons: Set<String> = [
+            "syncAttachContainer",
+            "syncAttachWebView",
+            "reveal",
+            "transientRecovery",
+            "anchor",
+        ]
+
+        static func resolve(reasons: [String]) -> Self {
+            guard !reasons.isEmpty else { return .none }
+            let reasonSet = Set(reasons)
+            if !reasonSet.isDisjoint(with: Self.refreshReasons) {
+                return .refresh
+            }
+            if reasonSet.isSubset(of: Self.geometryOnlyReasons) {
+                return .geometryOnly
+            }
+            return .refresh
         }
     }
 
@@ -3272,8 +3332,13 @@ final class WindowBrowserPortal: NSObject {
         let hostedInspectorAdjustedDuringSync =
             containerOwnsWebView &&
             hostView.reapplyHostedInspectorDividerIfNeeded(in: containerView, reason: "portal.sync")
-        if !shouldHide, containerOwnsWebView, !refreshReasons.isEmpty {
-            if hostedInspectorAdjustedDuringSync && !recoveredFromTransientGeometry {
+        let presentationUpdateKind = HostedWebViewPresentationUpdateKind.resolve(
+            reasons: refreshReasons
+        )
+        if !shouldHide, containerOwnsWebView, presentationUpdateKind != .none {
+            if presentationUpdateKind == .refresh &&
+                hostedInspectorAdjustedDuringSync &&
+                !recoveredFromTransientGeometry {
 #if DEBUG
                 dlog(
                     "browser.portal.refresh.skip web=\(browserPortalDebugToken(webView)) " +
@@ -3282,11 +3347,23 @@ final class WindowBrowserPortal: NSObject {
                 )
 #endif
             } else {
-                refreshHostedWebViewPresentation(
-                    webView,
-                    in: containerView,
-                    reason: "\(source):" + refreshReasons.joined(separator: ",")
-                )
+                let refreshReason = "\(source):" + refreshReasons.joined(separator: ",")
+                switch presentationUpdateKind {
+                case .none:
+                    break
+                case .geometryOnly:
+                    invalidateHostedWebViewGeometry(
+                        webView,
+                        in: containerView,
+                        reason: refreshReason
+                    )
+                case .refresh:
+                    refreshHostedWebViewPresentation(
+                        webView,
+                        in: containerView,
+                        reason: refreshReason
+                    )
+                }
             }
         }
         if containerOwnsWebView, !hostedInspectorAdjustedDuringSync {
