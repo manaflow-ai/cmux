@@ -473,6 +473,20 @@ def _local_file_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _local_binary_contains_version_marker(path: Path, version: str) -> bool:
+    marker = version.encode("utf-8")
+    tail = b""
+    with path.open("rb") as handle:
+        while True:
+            chunk = handle.read(1024 * 1024)
+            if not chunk:
+                return False
+            haystack = tail + chunk
+            if marker in haystack:
+                return True
+            tail = haystack[-max(len(marker) - 1, 0) :]
+
+
 def _remote_binary_sha256(host: str, host_port: int, key_path: Path, remote_path: str) -> str:
     script = f"""
 set -eu
@@ -614,8 +628,8 @@ def main() -> int:
                 f"local daemon cache artifact must be executable: {local_cached_binary}",
             )
             _must(
-                daemon_version in local_cached_binary.parts,
-                f"local cached daemon binary path should encode daemon version {daemon_version!r}: {local_cached_binary}",
+                _local_binary_contains_version_marker(local_cached_binary, daemon_version),
+                f"local cached daemon binary should embed daemon version marker {daemon_version!r}: {local_cached_binary}",
             )
             local_sha256 = _local_file_sha256(local_cached_binary)
             remote_sha256 = _remote_binary_sha256(host, host_ssh_port, key_path, remote_path)
