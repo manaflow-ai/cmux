@@ -94,7 +94,7 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
         let text: String
         if let selectedId = tabManager.selectedTabId,
            let tab = tabManager.tabs.first(where: { $0.id == selectedId }) {
-            let title = tab.title.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+            let title = tab.title.trimmingCharacters(in: .whitespacesAndNewlines)
             text = title.isEmpty ? "Cmd: —" : "Cmd: \(title)"
         } else {
             text = "Cmd: —"

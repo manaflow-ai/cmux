@@ -84,43 +84,18 @@ final class TerminalPanel: Panel, ObservableObject {
         context: ghostty_surface_context_e = GHOSTTY_SURFACE_CONTEXT_SPLIT,
         configTemplate: ghostty_surface_config_s? = nil,
         workingDirectory: String? = nil,
-        portOrdinal: Int = 0,
-        initialCommand: String? = nil,
-        initialEnvironmentOverrides: [String: String] = [:],
-        additionalEnvironment: [String: String] = [:]
+        additionalEnvironment: [String: String] = [:],
+        portOrdinal: Int = 0
     ) {
         let surface = TerminalSurface(
             tabId: workspaceId,
             context: context,
             configTemplate: configTemplate,
             workingDirectory: workingDirectory,
-            initialCommand: initialCommand,
-            initialEnvironmentOverrides: Self.mergedNormalizedEnvironment(
-                base: additionalEnvironment,
-                overrides: initialEnvironmentOverrides
-            )
+            additionalEnvironment: additionalEnvironment
         )
         surface.portOrdinal = portOrdinal
         self.init(workspaceId: workspaceId, surface: surface)
-    }
-
-    private static func mergedNormalizedEnvironment(
-        base: [String: String],
-        overrides: [String: String]
-    ) -> [String: String] {
-        var merged: [String: String] = [:]
-        merged.reserveCapacity(base.count + overrides.count)
-        for (rawKey, value) in base {
-            let key = rawKey.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !key.isEmpty else { continue }
-            merged[key] = value
-        }
-        for (rawKey, value) in overrides {
-            let key = rawKey.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !key.isEmpty else { continue }
-            merged[key] = value
-        }
-        return merged
     }
 
     func updateTitle(_ newTitle: String) {
