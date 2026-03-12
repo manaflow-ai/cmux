@@ -4829,7 +4829,11 @@ struct ContentView: View {
                 NSSound.beep()
                 return
             }
-            window.performClose(nil)
+            if let appDelegate = AppDelegate.shared {
+                appDelegate.closeWindowWithConfirmation(window)
+            } else {
+                window.performClose(nil)
+            }
         }
         registry.register(commandId: "palette.toggleFullScreen") {
             guard let window = observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow else {

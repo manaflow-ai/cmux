@@ -2028,6 +2028,12 @@ final class BrowserPanel: Panel, ObservableObject {
         setupObservers(for: webView)
     }
 
+    private func isCurrentWebView(_ candidate: WKWebView, instanceID: UUID? = nil) -> Bool {
+        guard candidate === webView else { return false }
+        guard let instanceID else { return true }
+        return instanceID == webViewInstanceID
+    }
+
     init(
         workspaceId: UUID,
         initialURL: URL? = nil,
@@ -2052,15 +2058,16 @@ final class BrowserPanel: Panel, ObservableObject {
         navDelegate.didFinish = { webView in
             BrowserHistoryStore.shared.recordVisit(url: webView.url, title: webView.title)
             Task { @MainActor [weak self] in
-                self?.refreshFavicon(from: webView)
-                self?.applyBrowserThemeModeIfNeeded()
+                guard let self, self.isCurrentWebView(webView) else { return }
+                self.refreshFavicon(from: webView)
+                self.applyBrowserThemeModeIfNeeded()
                 // Keep find-in-page open through load completion and refresh matches for the new DOM.
-                self?.restoreFindStateAfterNavigation(replaySearch: true)
+                self.restoreFindStateAfterNavigation(replaySearch: true)
             }
         }
-        navDelegate.didFailNavigation = { [weak self] _, failedURL in
+        navDelegate.didFailNavigation = { [weak self] failedWebView, failedURL in
             Task { @MainActor in
-                guard let self else { return }
+                guard let self, self.isCurrentWebView(failedWebView) else { return }
                 // Clear stale title/favicon from the previous page so the tab
                 // shows the failed URL instead of the old page's branding.
                 self.pageTitle = failedURL.isEmpty ? "" : failedURL
@@ -2228,10 +2235,13 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     private func setupObservers(for webView: WKWebView) {
+        let observedWebViewInstanceID = webViewInstanceID
+
         // URL changes
         let urlObserver = webView.observe(\.url, options: [.new]) { [weak self] webView, _ in
             Task { @MainActor in
-                self?.currentURL = webView.url
+                guard let self, self.isCurrentWebView(webView, instanceID: observedWebViewInstanceID) else { return }
+                self.currentURL = webView.url
             }
         }
         webViewObservers.append(urlObserver)
@@ -2239,12 +2249,13 @@ final class BrowserPanel: Panel, ObservableObject {
         // Title changes
         let titleObserver = webView.observe(\.title, options: [.new]) { [weak self] webView, _ in
             Task { @MainActor in
+                guard let self, self.isCurrentWebView(webView, instanceID: observedWebViewInstanceID) else { return }
                 // Keep showing the last non-empty title while the new navigation is loading.
                 // WebKit often clears title to nil/"" during reload/navigation, which causes
                 // a distracting tab-title flash (e.g. to host/URL). Only accept non-empty titles.
                 let trimmed = (webView.title ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !trimmed.isEmpty else { return }
-                self?.pageTitle = trimmed
+                self.pageTitle = trimmed
             }
         }
         webViewObservers.append(titleObserver)
@@ -2252,7 +2263,8 @@ final class BrowserPanel: Panel, ObservableObject {
         // Loading state
         let loadingObserver = webView.observe(\.isLoading, options: [.new]) { [weak self] webView, _ in
             Task { @MainActor in
-                self?.handleWebViewLoadingChanged(webView.isLoading)
+                guard let self, self.isCurrentWebView(webView, instanceID: observedWebViewInstanceID) else { return }
+                self.handleWebViewLoadingChanged(webView.isLoading)
             }
         }
         webViewObservers.append(loadingObserver)
@@ -2260,7 +2272,7 @@ final class BrowserPanel: Panel, ObservableObject {
         // Can go back
         let backObserver = webView.observe(\.canGoBack, options: [.new]) { [weak self] webView, _ in
             Task { @MainActor in
-                guard let self else { return }
+                guard let self, self.isCurrentWebView(webView, instanceID: observedWebViewInstanceID) else { return }
                 self.nativeCanGoBack = webView.canGoBack
                 self.refreshNavigationAvailability()
             }
@@ -2270,7 +2282,7 @@ final class BrowserPanel: Panel, ObservableObject {
         // Can go forward
         let forwardObserver = webView.observe(\.canGoForward, options: [.new]) { [weak self] webView, _ in
             Task { @MainActor in
-                guard let self else { return }
+                guard let self, self.isCurrentWebView(webView, instanceID: observedWebViewInstanceID) else { return }
                 self.nativeCanGoForward = webView.canGoForward
                 self.refreshNavigationAvailability()
             }
@@ -2280,7 +2292,8 @@ final class BrowserPanel: Panel, ObservableObject {
         // Progress
         let progressObserver = webView.observe(\.estimatedProgress, options: [.new]) { [weak self] webView, _ in
             Task { @MainActor in
-                self?.estimatedProgress = webView.estimatedProgress
+                guard let self, self.isCurrentWebView(webView, instanceID: observedWebViewInstanceID) else { return }
+                self.estimatedProgress = webView.estimatedProgress
             }
         }
         webViewObservers.append(progressObserver)
@@ -2316,6 +2329,9 @@ final class BrowserPanel: Panel, ObservableObject {
 
         webViewObservers.removeAll()
         webViewCancellables.removeAll()
+        faviconTask?.cancel()
+        faviconTask = nil
+        faviconRefreshGeneration &+= 1
         BrowserWindowPortalRegistry.detach(webView: terminatedWebView)
         terminatedWebView.stopLoading()
         terminatedWebView.navigationDelegate = nil
@@ -2326,11 +2342,12 @@ final class BrowserPanel: Panel, ObservableObject {
 
         let replacement = Self.makeWebView()
         replacement.pageZoom = desiredZoom
-        webView = replacement
         webViewInstanceID = UUID()
+        webView = replacement
         shouldRenderWebView = wasRenderable
 
         bindWebView(replacement)
+        applyBrowserThemeModeIfNeeded()
 
         if !history.backHistoryURLStrings.isEmpty || !history.forwardHistoryURLStrings.isEmpty {
             restoreSessionNavigationHistory(
@@ -2426,9 +2443,11 @@ final class BrowserPanel: Panel, ObservableObject {
         guard let scheme = pageURL.scheme?.lowercased(), scheme == "http" || scheme == "https" else { return }
         faviconRefreshGeneration &+= 1
         let refreshGeneration = faviconRefreshGeneration
+        let refreshWebViewInstanceID = webViewInstanceID
 
         faviconTask = Task { @MainActor [weak self, weak webView] in
             guard let self, let webView else { return }
+            guard self.isCurrentWebView(webView, instanceID: refreshWebViewInstanceID) else { return }
             guard self.isCurrentFaviconRefresh(generation: refreshGeneration) else { return }
 
             // Try to discover the best icon URL from the document.
@@ -2463,6 +2482,7 @@ final class BrowserPanel: Panel, ObservableObject {
                     discoveredURL = u
                 }
             }
+            guard self.isCurrentWebView(webView, instanceID: refreshWebViewInstanceID) else { return }
             guard self.isCurrentFaviconRefresh(generation: refreshGeneration) else { return }
 
             let fallbackURL = URL(string: "/favicon.ico", relativeTo: pageURL)
@@ -2488,6 +2508,7 @@ final class BrowserPanel: Panel, ObservableObject {
             } catch {
                 return
             }
+            guard self.isCurrentWebView(webView, instanceID: refreshWebViewInstanceID) else { return }
             guard self.isCurrentFaviconRefresh(generation: refreshGeneration) else { return }
 
             guard let http = response as? HTTPURLResponse,
@@ -2796,12 +2817,121 @@ final class BrowserPanel: Panel, ObservableObject {
         if let detachedDeveloperToolsWindowCloseObserver {
             NotificationCenter.default.removeObserver(detachedDeveloperToolsWindowCloseObserver)
         }
+        webViewObservers.removeAll()
+        webViewCancellables.removeAll()
         let webView = webView
         Task { @MainActor in
             BrowserWindowPortalRegistry.detach(webView: webView)
         }
+    }
+}
+
+extension BrowserPanel {
+    private var needsWorkspaceContextReset: Bool {
+        shouldRenderWebView ||
+        currentURL != nil ||
+        !pageTitle.isEmpty ||
+        faviconPNGData != nil ||
+        searchState != nil ||
+        nativeCanGoBack ||
+        nativeCanGoForward ||
+        restoredHistoryCurrentURL != nil ||
+        !restoredBackHistoryStack.isEmpty ||
+        !restoredForwardHistoryStack.isEmpty ||
+        estimatedProgress > 0 ||
+        isLoading ||
+        isDownloading ||
+        activeDownloadCount != 0 ||
+        preferredDeveloperToolsVisible ||
+        webView.superview != nil
+    }
+
+    func resetForWorkspaceContextChange(reason: String) {
+        guard needsWorkspaceContextReset else {
+#if DEBUG
+            dlog(
+                "browser.contextReset.skip panel=\(id.uuidString.prefix(5)) " +
+                "reason=\(reason) render=\(shouldRenderWebView ? 1 : 0)"
+            )
+#endif
+            return
+        }
+
+#if DEBUG
+        dlog(
+            "browser.contextReset.begin panel=\(id.uuidString.prefix(5)) " +
+            "reason=\(reason) render=\(shouldRenderWebView ? 1 : 0) " +
+            "url=\(preferredURLStringForOmnibar() ?? "nil")"
+        )
+#endif
+
+        _ = hideDeveloperTools()
+        cancelDeveloperToolsRestoreRetry()
+        preferredDeveloperToolsVisible = false
+        preferredDeveloperToolsPresentation = .unknown
+        forceDeveloperToolsRefreshOnNextAttach = false
+        developerToolsDetachedOpenGraceDeadline = nil
+        developerToolsRestoreRetryAttempt = 0
+        preferredAttachedDeveloperToolsWidth = nil
+        preferredAttachedDeveloperToolsWidthFraction = nil
+
+        loadingEndWorkItem?.cancel()
+        loadingEndWorkItem = nil
+        faviconTask?.cancel()
+        faviconTask = nil
+        faviconRefreshGeneration &+= 1
+        loadingGeneration &+= 1
+        activeDownloadCount = 0
+        isDownloading = false
+        isLoading = false
+        estimatedProgress = 0
+        nativeCanGoBack = false
+        nativeCanGoForward = false
+        navigationDelegate?.lastAttemptedURL = nil
+        abandonRestoredSessionHistoryIfNeeded()
+
+        pendingAddressBarFocusRequestId = nil
+        preferredFocusIntent = .addressBar
+        suppressOmnibarAutofocusUntil = nil
+        suppressWebViewFocusUntil = nil
+        endSuppressWebViewFocusForAddressBar()
+        invalidateAddressBarPageFocusRestoreAttempts()
+        invalidateSearchFocusRequests(reason: "contextReset")
+        searchState = nil
+
+        pageTitle = ""
+        currentURL = nil
+        faviconPNGData = nil
+        lastFaviconURLString = nil
+        activePortalHostLease = nil
+        pendingDistinctPortalHostReplacementPaneId = nil
+        lockedPortalHost = nil
+
+        let oldWebView = webView
         webViewObservers.removeAll()
         webViewCancellables.removeAll()
+        BrowserWindowPortalRegistry.detach(webView: oldWebView)
+        oldWebView.stopLoading()
+        oldWebView.navigationDelegate = nil
+        oldWebView.uiDelegate = nil
+        if let oldCmuxWebView = oldWebView as? CmuxWebView {
+            oldCmuxWebView.onContextMenuDownloadStateChanged = nil
+        }
+
+        let replacement = Self.makeWebView()
+        webViewInstanceID = UUID()
+        webView = replacement
+        shouldRenderWebView = false
+        bindWebView(replacement)
+        applyBrowserThemeModeIfNeeded()
+        refreshNavigationAvailability()
+
+#if DEBUG
+        dlog(
+            "browser.contextReset.end panel=\(id.uuidString.prefix(5)) " +
+            "reason=\(reason) instance=\(webViewInstanceID.uuidString.prefix(6))"
+        )
+#endif
     }
 }
 
@@ -3087,14 +3217,19 @@ extension BrowserPanel {
         let isVisibleSelector = NSSelectorFromString("isVisible")
         guard inspector.cmuxCallBool(selector: isVisibleSelector) ?? false else { return true }
 
+        var invokedSelector = false
         for rawSelector in ["hide", "close"] {
             let selector = NSSelectorFromString(rawSelector)
             guard inspector.responds(to: selector) else { continue }
+            invokedSelector = true
             inspector.cmuxCallVoid(selector: selector)
-            return true
+            if !(inspector.cmuxCallBool(selector: isVisibleSelector) ?? false) {
+                return true
+            }
         }
 
-        return false
+        guard invokedSelector else { return false }
+        return !(inspector.cmuxCallBool(selector: isVisibleSelector) ?? false)
     }
 
     @discardableResult

@@ -8579,10 +8579,12 @@ struct CMUXCLI {
     private func printWelcome() {
         let reset = "\u{001B}[0m"
         let bold = "\u{001B}[1m"
-        let dim = "\u{001B}[2m"
         func trueColor(_ red: Int, _ green: Int, _ blue: Int) -> String {
             "\u{001B}[38;2;\(red);\(green);\(blue)m"
         }
+
+        let isDark = UserDefaults.standard.string(forKey: "AppleInterfaceStyle") == "Dark"
+
         let c1 = trueColor(0, 212, 255)
         let c2 = trueColor(24, 181, 250)
         let c3 = trueColor(48, 150, 245)
@@ -8590,7 +8592,17 @@ struct CMUXCLI {
         let c5 = trueColor(96, 88, 239)
         let c6 = trueColor(110, 73, 238)
         let c7 = trueColor(124, 58, 237)
-        let tagline = trueColor(130, 130, 140)
+
+        let tagline: String
+        let subdued: String
+
+        if isDark {
+            tagline = trueColor(130, 130, 140)
+            subdued = "\u{001B}[2m"
+        } else {
+            tagline = trueColor(90, 90, 98)
+            subdued = trueColor(100, 100, 108)
+        }
 
         let logo = """
         \(c1)  ::\(reset)
@@ -8605,14 +8617,14 @@ struct CMUXCLI {
         let shortcuts = """
           \(bold)Shortcuts\(reset)
 
-          \(bold)\u{2318}N\(reset)\(dim)                  New workspace\(reset)
-          \(bold)\u{2318}P\(reset)\(dim)                  Go to workspace\(reset)
-          \(bold)\u{2318}D\(reset)\(dim)                  Split right\(reset)
-          \(bold)\u{2318}\u{21E7}D\(reset)\(dim)                 Split down\(reset)
-          \(bold)\u{2318}\u{21E7}P\(reset)\(dim)                 Command palette\(reset)
-          \(bold)\u{2318}\u{21E7}R\(reset)\(dim)                 Rename workspace\(reset)
-          \(bold)\u{2318}\u{21E7}L\(reset)\(dim)                 New browser\(reset)
-          \(bold)\u{2318}\u{21E7}U\(reset)\(dim)                 Jump to latest unread\(reset)
+          \(bold)\u{2318}N\(reset)\(subdued)                  New workspace\(reset)
+          \(bold)\u{2318}P\(reset)\(subdued)                  Go to workspace\(reset)
+          \(bold)\u{2318}D\(reset)\(subdued)                  Split right\(reset)
+          \(bold)\u{2318}\u{21E7}D\(reset)\(subdued)                 Split down\(reset)
+          \(bold)\u{2318}\u{21E7}P\(reset)\(subdued)                 Command palette\(reset)
+          \(bold)\u{2318}\u{21E7}R\(reset)\(subdued)                 Rename workspace\(reset)
+          \(bold)\u{2318}\u{21E7}L\(reset)\(subdued)                 New browser\(reset)
+          \(bold)\u{2318}\u{21E7}U\(reset)\(subdued)                 Jump to latest unread\(reset)
         """
 
         print()
@@ -8620,14 +8632,14 @@ struct CMUXCLI {
         print()
         print(shortcuts)
         print()
-        print("  \(bold)Docs\(reset)\(dim)                https://cmux.dev/docs\(reset)")
-        print("  \(bold)Discord\(reset)\(dim)             https://discord.gg/xsgFEVrWCZ\(reset)")
-        print("  \(bold)GitHub\(reset)\(dim)              https://github.com/manaflow-ai/cmux (please leave a star ⭐)\(reset)")
-        print("  \(bold)Email\(reset)\(dim)               founders@manaflow.com\(reset)")
+        print("  \(bold)Docs\(reset)\(subdued)                https://cmux.dev/docs\(reset)")
+        print("  \(bold)Discord\(reset)\(subdued)             https://discord.gg/xsgFEVrWCZ\(reset)")
+        print("  \(bold)GitHub\(reset)\(subdued)              https://github.com/manaflow-ai/cmux (please leave a star ⭐)\(reset)")
+        print("  \(bold)Email\(reset)\(subdued)               founders@manaflow.com\(reset)")
         print()
-        print("  \(dim)Run \(reset)\(bold)cmux --help\(reset)\(dim) for all commands.\(reset)")
-        print("  \(dim)Run \(reset)\(bold)cmux shortcuts\(reset)\(dim) to edit shortcuts.\(reset)")
-        print("  \(dim)Run \(reset)\(bold)cmux feedback\(reset)\(dim) to report a bug.\(reset)")
+        print("  \(subdued)Run \(reset)\(bold)cmux --help\(reset)\(subdued) for all commands.\(reset)")
+        print("  \(subdued)Run \(reset)\(bold)cmux shortcuts\(reset)\(subdued) to edit shortcuts.\(reset)")
+        print("  \(subdued)Run \(reset)\(bold)cmux feedback\(reset)\(subdued) to report a bug.\(reset)")
         print()
     }
 

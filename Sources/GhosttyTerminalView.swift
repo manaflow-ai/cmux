@@ -2616,6 +2616,10 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private static let surfaceLogPath = "/tmp/cmux-ghostty-surface.log"
     private static let sizeLogPath = "/tmp/cmux-ghostty-size.log"
 
+    func debugCurrentPixelSize() -> (width: UInt32, height: UInt32) {
+        (lastPixelWidth, lastPixelHeight)
+    }
+
     private static func surfaceLog(_ message: String) {
         let timestamp = ISO8601DateFormatter().string(from: Date())
         let line = "[\(timestamp)] \(message)\n"
@@ -3709,6 +3713,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return isDragResizeEvent(NSApp.currentEvent?.type)
     }
 
+    private func activeSurfaceResizeDeferralReason() -> String? {
+        return Self.shouldDeferSurfaceResizeForActiveDrag() ? "tabDrag" : nil
+    }
+
     private func scheduleDeferredSurfaceSizeRetryIfNeeded() {
         guard window != nil else { return }
         guard !deferredSurfaceSizeRetryQueued else { return }
@@ -3739,13 +3747,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return false
         }
         pendingSurfaceSize = size
-        guard !Self.shouldDeferSurfaceResizeForActiveDrag() else {
+        if let deferralReason = activeSurfaceResizeDeferralReason() {
             scheduleDeferredSurfaceSizeRetryIfNeeded()
 #if DEBUG
-            let signature = "tabDrag-\(Int(size.width.rounded()))x\(Int(size.height.rounded()))"
+            let signature = "\(deferralReason)-\(Int(size.width.rounded()))x\(Int(size.height.rounded()))"
             if lastSizeSkipSignature != signature {
                 dlog(
-                    "surface.size.defer surface=\(terminalSurface.id.uuidString.prefix(5)) reason=tabDrag " +
+                    "surface.size.defer surface=\(terminalSurface.id.uuidString.prefix(5)) reason=\(deferralReason) " +
                     "size=\(String(format: "%.1fx%.1f", size.width, size.height)) " +
                     "inWindow=\(window != nil ? 1 : 0)"
                 )
@@ -3754,6 +3762,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #endif
             return false
         }
+
         guard let window else {
 #if DEBUG
             let signature = "noWindow-\(Int(size.width))x\(Int(size.height))"
@@ -5682,13 +5691,14 @@ final class GhosttySurfaceScrollView: NSView {
 
 #if DEBUG
     private var lastDropZoneOverlayLogSignature: String?
+    private var lastDragGeometryLogSignature: String?
     private var dragLayoutLogSequence: UInt64 = 0
     private static let tabTransferPasteboardType = NSPasteboard.PasteboardType("com.splittabbar.tabtransfer")
     private static let sidebarTabReorderPasteboardType = NSPasteboard.PasteboardType("com.cmux.sidebar-tab-reorder")
-	    private static var flashCounts: [UUID: Int] = [:]
-	    private static var drawCounts: [UUID: Int] = [:]
-	    private static var lastDrawTimes: [UUID: CFTimeInterval] = [:]
-	    private static var presentCounts: [UUID: Int] = [:]
+    private static var flashCounts: [UUID: Int] = [:]
+    private static var drawCounts: [UUID: Int] = [:]
+    private static var lastDrawTimes: [UUID: CFTimeInterval] = [:]
+    private static var presentCounts: [UUID: Int] = [:]
     private static var dropOverlayShowCounts: [UUID: Int] = [:]
     private static var lastPresentTimes: [UUID: CFTimeInterval] = [:]
     private static var lastContentsKeys: [UUID: String] = [:]
@@ -5869,7 +5879,6 @@ final class GhosttySurfaceScrollView: NSView {
         dropZoneOverlayView.layer?.borderWidth = 2
         dropZoneOverlayView.layer?.cornerRadius = 8
         dropZoneOverlayView.isHidden = true
-        addSubview(dropZoneOverlayView)
         notificationRingOverlayView.wantsLayer = true
         notificationRingOverlayView.layer?.backgroundColor = NSColor.clear.cgColor
         notificationRingOverlayView.layer?.masksToBounds = false
@@ -6040,6 +6049,7 @@ final class GhosttySurfaceScrollView: NSView {
 #endif
         observers.forEach { NotificationCenter.default.removeObserver($0) }
         windowObservers.forEach { NotificationCenter.default.removeObserver($0) }
+        dropZoneOverlayView.removeFromSuperview()
         cancelFocusRequest()
     }
 
@@ -6051,6 +6061,15 @@ final class GhosttySurfaceScrollView: NSView {
     override func layout() {
         super.layout()
         synchronizeGeometryAndContent()
+    }
+
+    override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        guard activeDropZone != nil || pendingDropZone != nil else { return }
+        attachDropZoneOverlayIfNeeded()
+        if let zone = activeDropZone ?? pendingDropZone {
+            applyDropZoneOverlayFrame(dropZoneOverlayFrame(for: zone, in: bounds.size))
+        }
     }
 
     /// Reconcile AppKit geometry with ghostty surface geometry synchronously.
@@ -6096,6 +6115,7 @@ final class GhosttySurfaceScrollView: NSView {
         _ = setFrameIfNeeded(documentView, to: targetDocumentFrame)
         _ = setFrameIfNeeded(inactiveOverlayView, to: bounds)
         if let zone = activeDropZone {
+            attachDropZoneOverlayIfNeeded()
             _ = setFrameIfNeeded(
                 dropZoneOverlayView,
                 to: dropZoneOverlayFrame(for: zone, in: bounds.size)
@@ -6138,6 +6158,42 @@ final class GhosttySurfaceScrollView: NSView {
         abs(lhs.x - rhs.x) <= epsilon && abs(lhs.y - rhs.y) <= epsilon
     }
 
+    private func dropZoneOverlayContainerView() -> NSView {
+        superview ?? self
+    }
+
+    private func attachDropZoneOverlayIfNeeded() {
+        // Keep the hover indicator outside the hosted terminal subtree so it stays purely additive
+        // and cannot invalidate the scroll/surface layout that Ghostty renders into.
+        let container = dropZoneOverlayContainerView()
+        if dropZoneOverlayView.superview !== container {
+            dropZoneOverlayView.removeFromSuperview()
+            if container === self {
+                addSubview(dropZoneOverlayView, positioned: .above, relativeTo: nil)
+            } else {
+                container.addSubview(dropZoneOverlayView, positioned: .above, relativeTo: self)
+            }
+#if DEBUG
+            logDropZoneOverlay(event: "attach", zone: activeDropZone ?? pendingDropZone, frame: dropZoneOverlayView.frame)
+#endif
+            return
+        }
+
+        guard container !== self else { return }
+        guard let hostedIndex = container.subviews.firstIndex(of: self),
+              let overlayIndex = container.subviews.firstIndex(of: dropZoneOverlayView),
+              overlayIndex <= hostedIndex else { return }
+        container.addSubview(dropZoneOverlayView, positioned: .above, relativeTo: self)
+    }
+
+    private func applyDropZoneOverlayFrame(_ frame: CGRect) {
+        if Self.rectApproximatelyEqual(dropZoneOverlayView.frame, frame) { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        dropZoneOverlayView.frame = frame
+        CATransaction.commit()
+    }
+
 #if DEBUG
     private static func isDragMouseEvent(_ eventType: NSEvent.EventType?) -> Bool {
         switch eventType {
@@ -6146,6 +6202,36 @@ final class GhosttySurfaceScrollView: NSView {
         default:
             return false
         }
+    }
+
+    private func hasActiveDragLoggingContext() -> Bool {
+        let pasteboardTypes = NSPasteboard(name: .drag).types
+        let hasTabDrag = pasteboardTypes?.contains(Self.tabTransferPasteboardType) == true
+        let hasSidebarDrag = pasteboardTypes?.contains(Self.sidebarTabReorderPasteboardType) == true
+        let eventType = NSApp.currentEvent?.type
+        return activeDropZone != nil ||
+            pendingDropZone != nil ||
+            ((hasTabDrag || hasSidebarDrag) && Self.isDragMouseEvent(eventType))
+    }
+
+    private func logDragGeometryChange(event: String, old: CGPoint, new: CGPoint) {
+        guard hasActiveDragLoggingContext() else { return }
+
+        let surface = surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil"
+        let overlaySuperviewClass = dropZoneOverlayView.superview.map { String(describing: type(of: $0)) } ?? "nil"
+        let signature =
+            "\(event)|\(surface)|\(String(format: "%.1f,%.1f", old.x, old.y))|" +
+            "\(String(format: "%.1f,%.1f", new.x, new.y))|\(overlaySuperviewClass)|\(dropZoneOverlayView.isHidden ? 1 : 0)"
+        guard lastDragGeometryLogSignature != signature else { return }
+        lastDragGeometryLogSignature = signature
+        dlog(
+            "terminal.dragGeometry event=\(event) surface=\(surface) " +
+            "old=\(String(format: "%.1f,%.1f", old.x, old.y)) " +
+            "new=\(String(format: "%.1f,%.1f", new.x, new.y)) " +
+            "overlaySuper=\(overlaySuperviewClass) " +
+            "overlayExternal=\(dropZoneOverlayView.superview === self ? 0 : 1) " +
+            "overlayHidden=\(dropZoneOverlayView.isHidden ? 1 : 0)"
+        )
     }
 
     private func logLayoutDuringActiveDrag(targetSize: CGSize) {
@@ -6164,11 +6250,15 @@ final class GhosttySurfaceScrollView: NSView {
         let activeZone = activeDropZone.map { String(describing: $0) } ?? "none"
         let pendingZone = pendingDropZone.map { String(describing: $0) } ?? "none"
         let event = eventType.map { String(describing: $0) } ?? "nil"
+        let overlaySuperviewClass = dropZoneOverlayView.superview.map { String(describing: type(of: $0)) } ?? "nil"
         dlog(
             "terminal.layout.drag surface=\(surface) seq=\(dragLayoutLogSequence) " +
             "activeZone=\(activeZone) pendingZone=\(pendingZone) " +
             "hasTabDrag=\(hasTabDrag ? 1 : 0) hasSidebarDrag=\(hasSidebarDrag ? 1 : 0) " +
             "event=\(event) inWindow=\(window != nil ? 1 : 0) " +
+            "overlaySuper=\(overlaySuperviewClass) overlayExternal=\(dropZoneOverlayView.superview === self ? 0 : 1) " +
+            "scrollOrigin=\(String(format: "%.1f,%.1f", scrollView.contentView.bounds.origin.x, scrollView.contentView.bounds.origin.y)) " +
+            "surfaceOrigin=\(String(format: "%.1f,%.1f", surfaceView.frame.origin.x, surfaceView.frame.origin.y)) " +
             "bounds=\(String(format: "%.1fx%.1f", bounds.width, bounds.height)) " +
             "target=\(String(format: "%.1fx%.1f", targetSize.width, targetSize.height))"
         )
@@ -6413,18 +6503,23 @@ final class GhosttySurfaceScrollView: NSView {
 
     private func dropZoneOverlayFrame(for zone: DropZone, in size: CGSize) -> CGRect {
         let padding: CGFloat = 4
+        let localFrame: CGRect
         switch zone {
         case .center:
-            return CGRect(x: padding, y: padding, width: size.width - padding * 2, height: size.height - padding * 2)
+            localFrame = CGRect(x: padding, y: padding, width: size.width - padding * 2, height: size.height - padding * 2)
         case .left:
-            return CGRect(x: padding, y: padding, width: size.width / 2 - padding, height: size.height - padding * 2)
+            localFrame = CGRect(x: padding, y: padding, width: size.width / 2 - padding, height: size.height - padding * 2)
         case .right:
-            return CGRect(x: size.width / 2, y: padding, width: size.width / 2 - padding, height: size.height - padding * 2)
+            localFrame = CGRect(x: size.width / 2, y: padding, width: size.width / 2 - padding, height: size.height - padding * 2)
         case .top:
-            return CGRect(x: padding, y: size.height / 2, width: size.width - padding * 2, height: size.height / 2 - padding)
+            localFrame = CGRect(x: padding, y: size.height / 2, width: size.width - padding * 2, height: size.height / 2 - padding)
         case .bottom:
-            return CGRect(x: padding, y: padding, width: size.width - padding * 2, height: size.height / 2 - padding)
+            localFrame = CGRect(x: padding, y: padding, width: size.width - padding * 2, height: size.height / 2 - padding)
         }
+
+        let container = dropZoneOverlayView.superview ?? superview
+        guard let container, container !== self else { return localFrame }
+        return container.convert(localFrame, from: self)
     }
 
     private static func rectApproximatelyEqual(_ lhs: CGRect, _ rhs: CGRect, epsilon: CGFloat = 0.5) -> Bool {
@@ -6454,15 +6549,15 @@ final class GhosttySurfaceScrollView: NSView {
         activeDropZone = zone
         pendingDropZone = nil
 
-        let previousFrame = dropZoneOverlayView.frame
-
         if let zone {
 #if DEBUG
             if window == nil {
                 logDropZoneOverlay(event: "showNoWindow", zone: zone, frame: nil)
             }
 #endif
+            attachDropZoneOverlayIfNeeded()
             let targetFrame = dropZoneOverlayFrame(for: zone, in: bounds.size)
+            let previousFrame = dropZoneOverlayView.frame
             let isSameFrame = Self.rectApproximatelyEqual(previousFrame, targetFrame)
             let needsFrameUpdate = !isSameFrame
             let zoneChanged = previousZone != zone
@@ -6475,7 +6570,7 @@ final class GhosttySurfaceScrollView: NSView {
             dropZoneOverlayView.layer?.removeAllAnimations()
 
             if dropZoneOverlayView.isHidden {
-                dropZoneOverlayView.frame = targetFrame
+                applyDropZoneOverlayFrame(targetFrame)
                 dropZoneOverlayView.alphaValue = 0
                 dropZoneOverlayView.isHidden = false
 #if DEBUG
@@ -6545,6 +6640,17 @@ final class GhosttySurfaceScrollView: NSView {
         let surface = surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil"
         let zoneText = zone.map { String(describing: $0) } ?? "none"
         let boundsText = String(format: "%.1fx%.1f", bounds.width, bounds.height)
+        let overlaySuperviewClass = dropZoneOverlayView.superview.map { String(describing: type(of: $0)) } ?? "nil"
+        let scrollOriginText = String(
+            format: "%.1f,%.1f",
+            scrollView.contentView.bounds.origin.x,
+            scrollView.contentView.bounds.origin.y
+        )
+        let surfaceOriginText = String(
+            format: "%.1f,%.1f",
+            surfaceView.frame.origin.x,
+            surfaceView.frame.origin.y
+        )
         let frameText: String
         if let frame {
             frameText = String(
@@ -6554,12 +6660,16 @@ final class GhosttySurfaceScrollView: NSView {
         } else {
             frameText = "-"
         }
-        let signature = "\(event)|\(surface)|\(zoneText)|\(boundsText)|\(frameText)|\(dropZoneOverlayView.isHidden ? 1 : 0)"
+        let signature =
+            "\(event)|\(surface)|\(zoneText)|\(boundsText)|\(frameText)|\(overlaySuperviewClass)|" +
+            "\(scrollOriginText)|\(surfaceOriginText)|\(dropZoneOverlayView.isHidden ? 1 : 0)"
         guard lastDropZoneOverlayLogSignature != signature else { return }
         lastDropZoneOverlayLogSignature = signature
         dlog(
             "terminal.dropOverlay event=\(event) surface=\(surface) zone=\(zoneText) " +
-            "hidden=\(dropZoneOverlayView.isHidden ? 1 : 0) bounds=\(boundsText) frame=\(frameText)"
+            "hidden=\(dropZoneOverlayView.isHidden ? 1 : 0) bounds=\(boundsText) frame=\(frameText) " +
+            "overlaySuper=\(overlaySuperviewClass) overlayExternal=\(dropZoneOverlayView.superview === self ? 0 : 1) " +
+            "scrollOrigin=\(scrollOriginText) surfaceOrigin=\(surfaceOriginText)"
         )
     }
 #endif
@@ -6751,6 +6861,22 @@ final class GhosttySurfaceScrollView: NSView {
         )
     }
 
+    struct DebugDropZoneOverlayState {
+        let isHidden: Bool
+        let frame: CGRect
+        let isAttachedToHostedView: Bool
+        let isAttachedToParentContainer: Bool
+    }
+
+    func debugDropZoneOverlayState() -> DebugDropZoneOverlayState {
+        DebugDropZoneOverlayState(
+            isHidden: dropZoneOverlayView.isHidden,
+            frame: dropZoneOverlayView.frame,
+            isAttachedToHostedView: dropZoneOverlayView.superview === self,
+            isAttachedToParentContainer: dropZoneOverlayView.superview === superview
+        )
+    }
+
     func debugHasSearchOverlay() -> Bool {
         guard let overlay = searchOverlayHostingView else { return false }
         return overlay.superview === self && !overlay.isHidden
@@ -6761,6 +6887,10 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
 #endif
+
+    fileprivate var hasActiveDropZoneOverlay: Bool {
+        activeDropZone != nil || pendingDropZone != nil
+    }
 
     /// Handle file/URL drops, forwarding to the terminal as shell-escaped paths.
     func handleDroppedURLs(_ urls: [URL]) -> Bool {
@@ -7552,6 +7682,9 @@ final class GhosttySurfaceScrollView: NSView {
     private func synchronizeSurfaceView() {
         let visibleRect = scrollView.contentView.documentVisibleRect
         guard !pointApproximatelyEqual(surfaceView.frame.origin, visibleRect.origin) else { return }
+#if DEBUG
+        logDragGeometryChange(event: "surfaceOrigin", old: surfaceView.frame.origin, new: visibleRect.origin)
+#endif
         surfaceView.frame.origin = visibleRect.origin
     }
 
@@ -7626,6 +7759,13 @@ final class GhosttySurfaceScrollView: NSView {
                     CGFloat(scrollbar.total - scrollbar.offset - scrollbar.len) * cellHeight
                 let targetOrigin = CGPoint(x: 0, y: offsetY)
                 if !pointApproximatelyEqual(scrollView.contentView.bounds.origin, targetOrigin) {
+#if DEBUG
+                    logDragGeometryChange(
+                        event: "scrollOrigin",
+                        old: scrollView.contentView.bounds.origin,
+                        new: targetOrigin
+                    )
+#endif
                     scrollView.contentView.scroll(to: targetOrigin)
                     didChangeGeometry = true
                 }
