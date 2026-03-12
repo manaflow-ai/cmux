@@ -11448,11 +11448,6 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             super.displayIfNeeded()
         }
 
-        override func viewDidUnhide() {
-            reattachRenderingStateCount += 1
-            super.viewDidUnhide()
-        }
-
         @objc(_enterInWindow)
         func cmuxUnitTestEnterInWindow() {
             reattachRenderingStateCount += 1
@@ -12219,21 +12214,33 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         portal.synchronizeWebViewForAnchor(anchor)
         advanceAnimations()
         let initialDisplayCount = webView.displayIfNeededCount
+        let initialReattachCount = webView.reattachRenderingStateCount
 
         portal.updateEntryVisibility(forWebViewId: ObjectIdentifier(webView), visibleInUI: false, zPriority: 0)
         portal.synchronizeWebViewForAnchor(anchor)
         advanceAnimations()
         let hiddenDisplayCount = webView.displayIfNeededCount
+        let hiddenReattachCount = webView.reattachRenderingStateCount
 
         portal.updateEntryVisibility(forWebViewId: ObjectIdentifier(webView), visibleInUI: true, zPriority: 0)
         portal.synchronizeWebViewForAnchor(anchor)
         advanceAnimations()
 
         XCTAssertGreaterThanOrEqual(hiddenDisplayCount, initialDisplayCount)
+        XCTAssertEqual(
+            hiddenReattachCount,
+            initialReattachCount,
+            "Hiding a portal-hosted browser should not itself trigger the WebKit reattach path"
+        )
         XCTAssertGreaterThan(
             webView.displayIfNeededCount,
             hiddenDisplayCount,
             "Revealing an existing portal-hosted browser should refresh WebKit presentation immediately"
+        )
+        XCTAssertGreaterThan(
+            webView.reattachRenderingStateCount,
+            hiddenReattachCount,
+            "Revealing an existing portal-hosted browser should trigger the WebKit reattach path"
         )
     }
 

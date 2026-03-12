@@ -2418,14 +2418,10 @@ final class WindowBrowserPortal: NSObject {
         webView.layoutSubtreeIfNeeded()
         if reattachRenderingState {
             webView.browserPortalReattachRenderingState(reason: "\(reason):\(phase)")
-            containerView.displayIfNeeded()
-            webView.displayIfNeeded()
-            (webView.window ?? hostView.window)?.displayIfNeeded()
-        } else {
-            containerView.displayIfNeeded()
-            webView.displayIfNeeded()
-            (webView.window ?? hostView.window)?.displayIfNeeded()
         }
+        containerView.displayIfNeeded()
+        webView.displayIfNeeded()
+        (webView.window ?? hostView.window)?.displayIfNeeded()
 #if DEBUG
         dlog(
             "\(reattachRenderingState ? "browser.portal.refresh" : "browser.portal.invalidate") " +
@@ -2506,9 +2502,9 @@ final class WindowBrowserPortal: NSObject {
             "anchor",
         ]
 
-        static func resolve(refreshReasons: [String]) -> Self {
-            guard !refreshReasons.isEmpty else { return .none }
-            let reasonSet = Set(refreshReasons)
+        static func resolve(reasons: [String]) -> Self {
+            guard !reasons.isEmpty else { return .none }
+            let reasonSet = Set(reasons)
             if !reasonSet.isDisjoint(with: Self.refreshReasons) {
                 return .refresh
             }
@@ -3337,7 +3333,7 @@ final class WindowBrowserPortal: NSObject {
             containerOwnsWebView &&
             hostView.reapplyHostedInspectorDividerIfNeeded(in: containerView, reason: "portal.sync")
         let presentationUpdateKind = HostedWebViewPresentationUpdateKind.resolve(
-            refreshReasons: refreshReasons
+            reasons: refreshReasons
         )
         if !shouldHide, containerOwnsWebView, presentationUpdateKind != .none {
             if presentationUpdateKind == .refresh &&
