@@ -181,6 +181,11 @@ def test_short_resume_flag_skips_session_id_injection(failures: list[str]) -> No
         f"-r flag: original -r arg should pass through, got {real_argv}",
         failures,
     )
+    expect(
+        "some-session-id" in real_argv,
+        f"-r flag: resume value should pass through, got {real_argv}",
+        failures,
+    )
 
 
 def main() -> int:
