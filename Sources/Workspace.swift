@@ -1713,29 +1713,23 @@ final class Workspace: Identifiable, ObservableObject {
 
         for browserPanel in browserPanels {
             browserPanel.resetForWorkspaceContextChange(reason: reason)
+            let nextTitle = browserPanel.displayTitle
+            _ = updatePanelTitle(panelId: browserPanel.id, title: nextTitle)
 
             guard let tabId = surfaceIdFromPanelId(browserPanel.id),
                   let existing = bonsplitController.tab(tabId) else {
                 continue
             }
 
-            let nextTitle = browserPanel.displayTitle
-            if panelTitles[browserPanel.id] != nextTitle {
-                panelTitles[browserPanel.id] = nextTitle
-            }
-
-            let resolvedTitle = resolvedPanelTitle(panelId: browserPanel.id, fallback: nextTitle)
-            let titleUpdate: String? = existing.title == resolvedTitle ? nil : resolvedTitle
             let faviconUpdate: Data?? = existing.iconImageData == nil ? nil : .some(nil)
             let loadingUpdate: Bool? = existing.isLoading ? false : nil
 
-            guard titleUpdate != nil || faviconUpdate != nil || loadingUpdate != nil else {
+            guard faviconUpdate != nil || loadingUpdate != nil else {
                 continue
             }
 
             bonsplitController.updateTab(
                 tabId,
-                title: titleUpdate,
                 iconImageData: faviconUpdate,
                 hasCustomTitle: panelCustomTitles[browserPanel.id] != nil,
                 isLoading: loadingUpdate

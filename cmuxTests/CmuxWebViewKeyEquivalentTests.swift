@@ -2466,6 +2466,14 @@ final class BrowserSessionHistoryRestoreTests: XCTestCase {
             url: try XCTUnwrap(URL(string: "https://example.com/pull/1208")),
             status: .open
         )
+        workspace.logEntries.append(
+            SidebarLogEntry(
+                message: "Issue #1208",
+                level: .info,
+                source: "test",
+                timestamp: Date()
+            )
+        )
         workspace.surfaceListeningPorts[contextPanelId] = [3000]
         workspace.recomputeListeningPorts()
 
@@ -2475,12 +2483,15 @@ final class BrowserSessionHistoryRestoreTests: XCTestCase {
         XCTAssertTrue(browser.canGoForward)
         XCTAssertNotNil(browser.searchState)
         XCTAssertFalse(workspace.statusEntries.isEmpty)
+        XCTAssertFalse(workspace.logEntries.isEmpty)
         XCTAssertFalse(workspace.metadataBlocks.isEmpty)
         XCTAssertNotNil(workspace.progress)
         XCTAssertNotNil(workspace.gitBranch)
         XCTAssertNotNil(workspace.pullRequest)
         XCTAssertEqual(workspace.listeningPorts, [3000])
 
+        let priorWebView = browser.webView
+        let priorInstanceID = browser.webViewInstanceID
         workspace.resetSidebarContext(reason: "test")
 
         XCTAssertTrue(workspace.statusEntries.isEmpty)
@@ -2498,6 +2509,8 @@ final class BrowserSessionHistoryRestoreTests: XCTestCase {
         XCTAssertFalse(browser.canGoBack)
         XCTAssertFalse(browser.canGoForward)
         XCTAssertNil(browser.searchState)
+        XCTAssertFalse(browser.webView === priorWebView)
+        XCTAssertNotEqual(browser.webViewInstanceID, priorInstanceID)
     }
 
 }
