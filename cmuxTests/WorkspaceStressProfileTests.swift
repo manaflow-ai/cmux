@@ -204,7 +204,10 @@ final class WorkspaceStressProfileTests: XCTestCase {
         guard tabsPerWorkspace > 0 else { return }
         while workspace.panels.count < tabsPerWorkspace {
             let created = workspace.newTerminalSurfaceInFocusedPane(focus: false)
-            XCTAssertNotNil(created, "Expected terminal tab creation to succeed")
+            guard created != nil else {
+                XCTFail("Expected terminal tab creation to succeed")
+                return
+            }
         }
     }
 

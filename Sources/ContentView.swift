@@ -2916,10 +2916,10 @@ struct ContentView: View {
                         return
                     }
                 }
-                await MainActor.run {
-                    guard workspaceHandoffGeneration == generation else { return }
-                    guard retiringWorkspaceId != nil else { return }
-                    guard canCompleteWorkspaceHandoffImmediately(for: newSelectedId) else { return }
+                let completed = await MainActor.run { () -> Bool in
+                    guard workspaceHandoffGeneration == generation else { return false }
+                    guard retiringWorkspaceId != nil else { return false }
+                    guard canCompleteWorkspaceHandoffImmediately(for: newSelectedId) else { return false }
 #if DEBUG
                     if let snapshot = tabManager.debugCurrentWorkspaceSwitchSnapshot() {
                         let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
@@ -2931,7 +2931,9 @@ struct ContentView: View {
                     }
 #endif
                     completeWorkspaceHandoff(reason: "ready")
+                    return true
                 }
+                if completed { return }
             }
         }
 
@@ -9559,6 +9561,7 @@ private struct TabItemView: View, Equatable {
         lhs.isActive == rhs.isActive &&
         lhs.workspaceShortcutDigit == rhs.workspaceShortcutDigit &&
         lhs.canCloseWorkspace == rhs.canCloseWorkspace &&
+        lhs.accessibilityWorkspaceCount == rhs.accessibilityWorkspaceCount &&
         lhs.unreadCount == rhs.unreadCount &&
         lhs.latestNotificationText == rhs.latestNotificationText &&
         lhs.rowSpacing == rhs.rowSpacing &&

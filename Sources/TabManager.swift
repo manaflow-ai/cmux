@@ -2295,6 +2295,12 @@ class TabManager: ObservableObject {
     }
 
     private func debugPrepareWorkspaceSwitch(_ trigger: String, from: UUID?, to: UUID?) {
+        guard from != to else {
+            debugPendingWorkspaceSwitchTrigger = nil
+            debugPendingWorkspaceSwitchTarget = nil
+            debugPreparedWorkspaceSwitchTarget = nil
+            return
+        }
         debugPendingWorkspaceSwitchTrigger = nil
         debugPendingWorkspaceSwitchTarget = nil
         debugBeginWorkspaceSwitch(trigger: trigger, from: from, to: to)
