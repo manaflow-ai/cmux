@@ -41182,6 +41182,57 @@
         }
       }
     },
+    "settings.app.closeWorkspaceOnLastSurfaceShortcut": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd+W Closes Workspace on Last Surface"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最後のサーフェスでCmd+Wがワークスペースも閉じる"
+          }
+        }
+      }
+    },
+    "settings.app.closeWorkspaceOnLastSurfaceShortcut.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When the focused surface is the last one in its workspace, Cmd+W closes only the surface and keeps the workspace open."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォーカス中のサーフェスがそのワークスペースの最後の1つでも、Cmd+Wはサーフェスだけを閉じ、ワークスペースは残します。"
+          }
+        }
+      }
+    },
+    "settings.app.closeWorkspaceOnLastSurfaceShortcut.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When the focused surface is the last one in its workspace, Cmd+W also closes the workspace."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォーカス中のサーフェスがそのワークスペースの最後の1つなら、Cmd+Wでワークスペースも閉じます。"
+          }
+        }
+      }
+    },
     "settings.app.openSidebarPRLinks": {
       "extractionState": "manual",
       "localizations": {

@@ -51,6 +51,18 @@ enum WorkspaceAutoReorderSettings {
     }
 }
 
+enum LastSurfaceCloseShortcutSettings {
+    static let key = "closeWorkspaceOnLastSurfaceShortcut"
+    static let defaultValue = false
+
+    static func closesWorkspace(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: key) == nil {
+            return defaultValue
+        }
+        return defaults.bool(forKey: key)
+    }
+}
+
 enum SidebarBranchLayoutSettings {
     static let key = "sidebarBranchVerticalLayout"
     static let defaultVerticalLayout = true
@@ -1649,6 +1661,10 @@ class TabManager: ObservableObject {
         }
     }
 
+    private func shouldCloseWorkspaceOnLastSurfaceShortcut(_ workspace: Workspace) -> Bool {
+        LastSurfaceCloseShortcutSettings.closesWorkspace() && workspace.panels.count <= 1
+    }
+
     private func closePanelWithConfirmation(tab: Workspace, panelId: UUID) {
         let bonsplitTabCount = tab.bonsplitController.allPaneIds.reduce(0) { partial, paneId in
             partial + tab.bonsplitController.tabs(inPane: paneId).count
@@ -1663,12 +1679,18 @@ class TabManager: ObservableObject {
         dlog(
             "surface.close.shortcut.begin tab=\(tab.id.uuidString.prefix(5)) " +
             "panel=\(panelId.uuidString.prefix(5)) kind=\(panelKind) " +
-            "panelCount=\(tab.panels.count) bonsplitTabs=\(bonsplitTabCount)"
+            "panelCount=\(tab.panels.count) bonsplitTabs=\(bonsplitTabCount) " +
+            "closeWorkspaceOnLastSurface=\(shouldCloseWorkspaceOnLastSurfaceShortcut(tab) ? 1 : 0)"
         )
 #endif
 
-        // Cmd+W should match Bonsplit's tab close button semantics, even for the last surface in
-        // a workspace. Closing a workspace remains an explicit Cmd+Shift+W action.
+        // Cmd+W should match Bonsplit's tab close button semantics by default. Users can opt
+        // back into the legacy behavior where closing the last surface also closes its workspace.
+        if shouldCloseWorkspaceOnLastSurfaceShortcut(tab) {
+            closeWorkspaceIfRunningProcess(tab)
+            return
+        }
+
         if let terminalPanel = tab.terminalPanel(for: panelId),
            terminalPanel.needsConfirmClose() {
 #if DEBUG
