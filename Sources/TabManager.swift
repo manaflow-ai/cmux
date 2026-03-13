@@ -655,6 +655,33 @@ class TabManager: ObservableObject {
     private static var nextPortOrdinal: Int = 0
     private static let initialWorkspaceGitProbeDelays: [TimeInterval] = [0, 0.5, 1.5, 3.0, 6.0, 10.0]
     @Published var selectedTabId: UUID? {
+        willSet {
+#if DEBUG
+            guard newValue != selectedTabId else {
+                debugPendingWorkspaceSwitchTrigger = nil
+                debugPendingWorkspaceSwitchTarget = nil
+                debugPreparedWorkspaceSwitchTarget = nil
+                return
+            }
+
+            if debugPreparedWorkspaceSwitchTarget == newValue {
+                debugPreparedWorkspaceSwitchTarget = nil
+                debugPendingWorkspaceSwitchTrigger = nil
+                debugPendingWorkspaceSwitchTarget = nil
+            } else {
+                let trigger = (debugPendingWorkspaceSwitchTarget == newValue
+                    ? debugPendingWorkspaceSwitchTrigger
+                    : nil) ?? "direct"
+                debugPendingWorkspaceSwitchTrigger = nil
+                debugPendingWorkspaceSwitchTarget = nil
+                debugBeginWorkspaceSwitch(
+                    trigger: trigger,
+                    from: selectedTabId,
+                    to: newValue
+                )
+            }
+#endif
+        }
         didSet {
             guard selectedTabId != oldValue else { return }
             sentryBreadcrumb("workspace.switch", data: [
@@ -731,6 +758,9 @@ class TabManager: ObservableObject {
     private var debugWorkspaceSwitchCounter: UInt64 = 0
     private var debugWorkspaceSwitchId: UInt64 = 0
     private var debugWorkspaceSwitchStartTime: CFTimeInterval = 0
+    private var debugPendingWorkspaceSwitchTrigger: String?
+    private var debugPendingWorkspaceSwitchTarget: UUID?
+    private var debugPreparedWorkspaceSwitchTarget: UUID?
 #endif
 
 #if DEBUG
@@ -930,6 +960,9 @@ class TabManager: ObservableObject {
             newWorkspace.requestBackgroundTerminalSurfaceStartIfNeeded()
         }
         if select {
+#if DEBUG
+            debugPrimeWorkspaceSwitchTrigger("create", to: newWorkspace.id)
+#endif
             selectedTabId = newWorkspace.id
             NotificationCenter.default.post(
                 name: .ghosttyDidFocusTab,
@@ -1507,6 +1540,9 @@ class TabManager: ObservableObject {
     }
 
     func selectWorkspace(_ workspace: Workspace) {
+#if DEBUG
+        debugPrimeWorkspaceSwitchTrigger("select", to: workspace.id)
+#endif
         selectedTabId = workspace.id
     }
 
@@ -2093,6 +2129,9 @@ class TabManager: ObservableObject {
             // Keep selected-surface intent stable across selectedTabId didSet async restore.
             lastFocusedPanelByTab[tabId] = surfaceId
         }
+#if DEBUG
+        debugPrimeWorkspaceSwitchTrigger("focus", to: tabId)
+#endif
         selectedTabId = tabId
         NotificationCenter.default.post(
             name: .ghosttyDidFocusTab,
@@ -2160,13 +2199,7 @@ class TabManager: ObservableObject {
         let nextIndex = (currentIndex + 1) % tabs.count
 #if DEBUG
         let nextId = tabs[nextIndex].id
-        debugWorkspaceSwitchCounter &+= 1
-        debugWorkspaceSwitchId = debugWorkspaceSwitchCounter
-        debugWorkspaceSwitchStartTime = CACurrentMediaTime()
-        dlog(
-            "ws.switch.begin id=\(debugWorkspaceSwitchId) dir=next from=\(Self.debugShortWorkspaceId(currentId)) " +
-            "to=\(Self.debugShortWorkspaceId(nextId)) hot=\(isWorkspaceCycleHot ? 1 : 0) tabs=\(tabs.count)"
-        )
+        debugPrepareWorkspaceSwitch("next", from: currentId, to: nextId)
 #endif
         activateWorkspaceCycleHotWindow()
         selectedTabId = tabs[nextIndex].id
@@ -2178,13 +2211,7 @@ class TabManager: ObservableObject {
         let prevIndex = (currentIndex - 1 + tabs.count) % tabs.count
 #if DEBUG
         let prevId = tabs[prevIndex].id
-        debugWorkspaceSwitchCounter &+= 1
-        debugWorkspaceSwitchId = debugWorkspaceSwitchCounter
-        debugWorkspaceSwitchStartTime = CACurrentMediaTime()
-        dlog(
-            "ws.switch.begin id=\(debugWorkspaceSwitchId) dir=prev from=\(Self.debugShortWorkspaceId(currentId)) " +
-            "to=\(Self.debugShortWorkspaceId(prevId)) hot=\(isWorkspaceCycleHot ? 1 : 0) tabs=\(tabs.count)"
-        )
+        debugPrepareWorkspaceSwitch("prev", from: currentId, to: prevId)
 #endif
         activateWorkspaceCycleHotWindow()
         selectedTabId = tabs[prevIndex].id
@@ -2257,6 +2284,40 @@ class TabManager: ObservableObject {
         return (debugWorkspaceSwitchId, debugWorkspaceSwitchStartTime)
     }
 
+    private func debugPrimeWorkspaceSwitchTrigger(_ trigger: String, to target: UUID?) {
+        guard selectedTabId != target else {
+            debugPendingWorkspaceSwitchTrigger = nil
+            debugPendingWorkspaceSwitchTarget = nil
+            return
+        }
+        debugPendingWorkspaceSwitchTrigger = trigger
+        debugPendingWorkspaceSwitchTarget = target
+    }
+
+    private func debugPrepareWorkspaceSwitch(_ trigger: String, from: UUID?, to: UUID?) {
+        guard from != to else {
+            debugPendingWorkspaceSwitchTrigger = nil
+            debugPendingWorkspaceSwitchTarget = nil
+            debugPreparedWorkspaceSwitchTarget = nil
+            return
+        }
+        debugPendingWorkspaceSwitchTrigger = nil
+        debugPendingWorkspaceSwitchTarget = nil
+        debugBeginWorkspaceSwitch(trigger: trigger, from: from, to: to)
+        debugPreparedWorkspaceSwitchTarget = to
+    }
+
+    private func debugBeginWorkspaceSwitch(trigger: String, from: UUID?, to: UUID?) {
+        debugWorkspaceSwitchCounter &+= 1
+        debugWorkspaceSwitchId = debugWorkspaceSwitchCounter
+        debugWorkspaceSwitchStartTime = CACurrentMediaTime()
+        dlog(
+            "ws.switch.begin id=\(debugWorkspaceSwitchId) trigger=\(trigger) " +
+            "from=\(Self.debugShortWorkspaceId(from)) to=\(Self.debugShortWorkspaceId(to)) " +
+            "hot=\(isWorkspaceCycleHot ? 1 : 0) tabs=\(tabs.count)"
+        )
+    }
+
     private static func debugShortWorkspaceId(_ id: UUID?) -> String {
         guard let id else { return "nil" }
         return String(id.uuidString.prefix(5))
@@ -2269,6 +2330,9 @@ class TabManager: ObservableObject {
 
     func selectTab(at index: Int) {
         guard index >= 0 && index < tabs.count else { return }
+#if DEBUG
+        debugPrimeWorkspaceSwitchTrigger("select_index", to: tabs[index].id)
+#endif
         selectedTabId = tabs[index].id
     }
 
