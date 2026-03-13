@@ -37,6 +37,7 @@
     "twitter": "X / Twitter",
     "discord": "Discord",
     "contact": "Kontakt",
+    "nightly": "Nightly",
     "copyright": "© {year} Manaflow",
     "language": "Sprog"
   },
@@ -580,6 +581,15 @@
     "bchris91": "Det er præcis hvad jeg har ønsket mig. Fantastisk arbejde, tak!",
     "connorelsea": "Har brugt det i en uge og det er fantastisk. Vertikal fane for hver igangværende opgave. Indeni, Claude på den ene side og browser med PR og ressourcer på den anden, skift mellem opgaver og hold orden. Bland det med skills så Claude kan overvåge CI rekursivt, osv. føler mig oplyst ærlig talt",
     "tonkotsuboy": "Jeg skiftede fra Warp til Ghostty i starten af året, men nu er jeg skiftet til cmux. De vertikale faner er praktiske, og jeg sætter pris på at blive notificeret når Claude Code-opgaver er færdige. Det er Ghostty-baseret så den lynhurtige ydeevne følger med. Branch-visning og completions jeg satte op i Ghostty virker stadig."
+  },
+  "nightly": {
+    "title": "cmux NIGHTLY",
+    "subtitle": "Seneste builds fra main",
+    "metaTitle": "cmux NIGHTLY — Nightly Builds",
+    "metaDescription": "Download cmux NIGHTLY, en separat app bygget automatisk fra det seneste main-commit. Kører ved siden af den stabile version med egne automatiske opdateringer.",
+    "description": "cmux NIGHTLY bygges automatisk fra det seneste commit på main. Den har sit eget bundle-ID, så den kører ved siden af den stabile version uden konflikter. Brug den til at teste nye funktioner før de udkommer.",
+    "download": "Download NIGHTLY til Mac",
+    "warning": "Nightly builds kan indeholde fejl eller ufærdige funktioner. Hvis noget går galt, rapportér det på <githubLink>GitHub</githubLink> eller i <discordLink>#nightly-bugs på Discord</discordLink> og skift tilbage til den stabile version."
   },
   "languageSwitcher": {
     "label": "Sprog"

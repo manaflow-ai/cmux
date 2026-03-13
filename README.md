@@ -213,6 +213,8 @@ Browser developer-tool shortcuts follow Safari defaults and are customizable in 
 
 cmux NIGHTLY is a separate app with its own bundle ID, so it runs alongside the stable version. Built automatically from the latest `main` commit and auto-updates via its own Sparkle feed.
 
+Report nightly bugs on [GitHub Issues](https://github.com/manaflow-ai/cmux/issues) or in [#nightly-bugs on Discord](https://discord.gg/xsgFEVrWCZ).
+
 ## Session restore (current behavior)
 
 On relaunch, cmux currently restores app layout and metadata only:
