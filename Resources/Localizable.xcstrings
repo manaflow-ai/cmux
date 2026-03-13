@@ -35046,6 +35046,23 @@
         }
       }
     },
+    "menu.openInVSCodeDesktop": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Current Directory in VS Code"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在のディレクトリを VS Code で開く"
+          }
+        }
+      }
+    },
     "menu.openInWarp": {
       "extractionState": "manual",
       "localizations": {
