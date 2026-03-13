@@ -7997,7 +7997,7 @@ private struct SidebarExternalDropDelegate: DropDelegate {
     let draggedTabId: UUID?
 
     func validateDrop(info: DropInfo) -> Bool {
-        let hasSidebarPayload = info.hasItemsConforming(to: [SidebarTabDragPayload.typeIdentifier])
+        let hasSidebarPayload = info.hasItemsConforming(to: SidebarTabDragPayload.dropContentTypes)
         let shouldReset = SidebarOutsideDropResetPolicy.shouldResetDrag(
             draggedTabId: draggedTabId,
             hasSidebarDragPayload: hasSidebarPayload
@@ -11329,7 +11329,10 @@ private enum SidebarTabDragPayload {
     static func provider(for tabId: UUID) -> NSItemProvider {
         let provider = NSItemProvider()
         let payload = "\(prefix)\(tabId.uuidString)"
-        provider.registerDataRepresentation(forTypeIdentifier: typeIdentifier, visibility: .ownProcess) { completion in
+        // Use .all visibility for compatibility with macOS 26+ where .ownProcess
+        // can cause drag reorder to fail on fresh installs due to stricter
+        // process-scoped drag session validation.
+        provider.registerDataRepresentation(forTypeIdentifier: typeIdentifier, visibility: .all) { completion in
             completion(payload.data(using: .utf8), nil)
             return nil
         }
@@ -11399,7 +11402,7 @@ private struct SidebarBonsplitTabDropDelegate: DropDelegate {
     @Binding var lastSidebarSelectionIndex: Int?
 
     func validateDrop(info: DropInfo) -> Bool {
-        guard info.hasItemsConforming(to: [BonsplitTabDragPayload.typeIdentifier]) else { return false }
+        guard info.hasItemsConforming(to: BonsplitTabDragPayload.dropContentTypes) else { return false }
         return BonsplitTabDragPayload.currentTransfer() != nil
     }
 
@@ -11455,7 +11458,7 @@ private struct SidebarTabDropDelegate: DropDelegate {
     @Binding var dropIndicator: SidebarDropIndicator?
 
     func validateDrop(info: DropInfo) -> Bool {
-        let hasType = info.hasItemsConforming(to: [SidebarTabDragPayload.typeIdentifier])
+        let hasType = info.hasItemsConforming(to: SidebarTabDragPayload.dropContentTypes)
         let hasDrag = draggedTabId != nil
         #if DEBUG
         dlog("sidebar.validateDrop target=\(targetTabId?.uuidString.prefix(5) ?? "end") hasType=\(hasType) hasDrag=\(hasDrag)")
