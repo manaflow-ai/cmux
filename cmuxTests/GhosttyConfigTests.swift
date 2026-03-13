@@ -1716,6 +1716,7 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
     func testGhosttySemanticPatchRetriesAfterDeferredInitCreatesLiveHooks() throws {
         let output = try runInteractiveZsh(
             cmuxLoadGhosttyIntegration: true,
+            cmuxLoadShellIntegration: true,
             command: """
             _cmux_patch_ghostty_semantic_redraw
             (( $+functions[_ghostty_deferred_init] )) && _ghostty_deferred_init >/dev/null 2>&1
@@ -1733,13 +1734,18 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
     private func runInteractiveZsh(cmuxLoadGhosttyIntegration: Bool) throws -> String {
         try runInteractiveZsh(
             cmuxLoadGhosttyIntegration: cmuxLoadGhosttyIntegration,
+            cmuxLoadShellIntegration: false,
             command: "(( $+functions[_ghostty_deferred_init] )) && _ghostty_deferred_init >/dev/null 2>&1; " +
                 "print -r -- \"PRECMD=${+functions[_ghostty_precmd]} " +
                 "PREEXEC=${+functions[_ghostty_preexec]} PRECMDS=${(j:,:)precmd_functions}\""
         )
     }
 
-    private func runInteractiveZsh(cmuxLoadGhosttyIntegration: Bool, command: String) throws -> String {
+    private func runInteractiveZsh(
+        cmuxLoadGhosttyIntegration: Bool,
+        cmuxLoadShellIntegration: Bool,
+        command: String
+    ) throws -> String {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-zsh-shell-integration-\(UUID().uuidString)")
@@ -1774,6 +1780,13 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
         ]
         if cmuxLoadGhosttyIntegration {
             process.environment?["CMUX_LOAD_GHOSTTY_ZSH_INTEGRATION"] = "1"
+        }
+        if cmuxLoadShellIntegration {
+            process.environment?["CMUX_SHELL_INTEGRATION"] = "1"
+            process.environment?["CMUX_SHELL_INTEGRATION_DIR"] = cmuxZdotdir.path
+            process.environment?["CMUX_SOCKET_PATH"] = root.appendingPathComponent("cmux-test.sock").path
+            process.environment?["CMUX_TAB_ID"] = "tab-test"
+            process.environment?["CMUX_PANEL_ID"] = "panel-test"
         }
 
         let stdout = Pipe()
