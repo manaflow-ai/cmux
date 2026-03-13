@@ -7186,12 +7186,6 @@ struct VerticalTabsSidebar: View {
                                     isActive: tabManager.selectedTabId == tab.id,
                                     tabCount: tabManager.tabs.count,
                                     unreadCount: notificationStore.unreadCount(forTabId: tab.id),
-                                    latestNotificationText: {
-                                        guard let notification = notificationStore.latestNotification(forTabId: tab.id) else { return nil }
-                                        let text = notification.body.isEmpty ? notification.title : notification.body
-                                        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-                                        return trimmed.isEmpty ? nil : trimmed
-                                    }(),
                                     rowSpacing: tabRowSpacing,
                                     setSelectionToTabs: { selection = .tabs },
                                     selectedTabIds: $selectedTabIds,
@@ -9452,7 +9446,6 @@ private struct TabItemView: View, Equatable {
         lhs.isActive == rhs.isActive &&
         lhs.tabCount == rhs.tabCount &&
         lhs.unreadCount == rhs.unreadCount &&
-        lhs.latestNotificationText == rhs.latestNotificationText &&
         lhs.rowSpacing == rhs.rowSpacing &&
         lhs.showsModifierShortcutHints == rhs.showsModifierShortcutHints
     }
@@ -9468,7 +9461,6 @@ private struct TabItemView: View, Equatable {
     let isActive: Bool
     let tabCount: Int
     let unreadCount: Int
-    let latestNotificationText: String?
     let rowSpacing: CGFloat
     let setSelectionToTabs: () -> Void
     @Binding var selectedTabIds: Set<UUID>
@@ -9596,7 +9588,7 @@ private struct TabItemView: View, Equatable {
         let accessibilityHintText = String(localized: "sidebar.workspace.accessibilityHint", defaultValue: "Activate to focus this workspace. Drag to reorder, or use Move Up and Move Down actions.")
         let moveUpActionText = String(localized: "sidebar.workspace.moveUpAction", defaultValue: "Move Up")
         let moveDownActionText = String(localized: "sidebar.workspace.moveDownAction", defaultValue: "Move Down")
-        let latestNotificationSubtitle = latestNotificationText
+        let latestNotificationSubtitle = tab.sidebarPreviewText
         let orderedPanelIds: [UUID]? = (sidebarShowBranchDirectory || sidebarShowPullRequest)
             ? tab.sidebarOrderedPanelIds()
             : nil
@@ -10360,9 +10352,6 @@ private struct TabItemView: View, Equatable {
         selectedTabIds.subtract(orderedWorkspaceIds)
         syncSelectionAfterMutation()
     }
-
-    // latestNotificationText is now passed as a parameter from the parent view
-    // to avoid subscribing to notificationStore changes in every TabItemView.
 
     private func branchDirectoryRow(
         gitSummary: String?,

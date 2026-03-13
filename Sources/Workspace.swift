@@ -995,10 +995,13 @@ final class Workspace: Identifiable, ObservableObject {
     @Published var panelGitBranches: [UUID: SidebarGitBranchState] = [:]
     @Published var pullRequest: SidebarPullRequestState?
     @Published var panelPullRequests: [UUID: SidebarPullRequestState] = [:]
+    @Published private(set) var sidebarPreviewText: String?
     @Published var surfaceListeningPorts: [UUID: [Int]] = [:]
     @Published var listeningPorts: [Int] = []
     var surfaceTTYNames: [UUID: String] = [:]
     private var restoredTerminalScrollbackByPanelId: [UUID: String] = [:]
+    private var sidebarPreviewSourcePanelId: UUID?
+    private var sidebarPreviewNotificationId: UUID?
 
     var focusedSurfaceId: UUID? { focusedPanelId }
     var surfaceDirectories: [UUID: String] {
@@ -1605,10 +1608,92 @@ final class Workspace: Identifiable, ObservableObject {
         return !trimmed.isEmpty
     }
 
+    private static func resolvedSidebarPreviewText(title: String, body: String) -> String? {
+        let trimmedBody = body.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedBody.isEmpty {
+            return trimmedBody
+        }
+
+        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmedTitle.isEmpty ? nil : trimmedTitle
+    }
+
+    func setSidebarPreview(notificationId: UUID, sourcePanelId: UUID?, title: String, body: String) {
+        guard let nextText = Self.resolvedSidebarPreviewText(title: title, body: body) else {
+            clearSidebarPreview(reason: "notification.empty")
+            return
+        }
+
+        sidebarPreviewNotificationId = notificationId
+        sidebarPreviewSourcePanelId = sourcePanelId
+        if sidebarPreviewText != nextText {
+            sidebarPreviewText = nextText
+        }
+    }
+
+    func clearSidebarPreview(reason: String) {
+        guard sidebarPreviewText != nil
+            || sidebarPreviewSourcePanelId != nil
+            || sidebarPreviewNotificationId != nil else {
+            return
+        }
+
+#if DEBUG
+        dlog(
+            "workspace.sidebarPreview.clear workspace=\(id.uuidString.prefix(5)) " +
+            "reason=\(reason) sourcePanel=\(sidebarPreviewSourcePanelId?.uuidString.prefix(5) ?? "nil")"
+        )
+#endif
+
+        sidebarPreviewText = nil
+        sidebarPreviewSourcePanelId = nil
+        sidebarPreviewNotificationId = nil
+    }
+
+    func clearSidebarPreviewIfSourceMatches(panelId: UUID?, reason: String) {
+        guard let sourcePanelId = sidebarPreviewSourcePanelId else {
+            clearSidebarPreview(reason: reason)
+            return
+        }
+        guard panelId == nil || sourcePanelId == panelId else { return }
+        clearSidebarPreview(reason: reason)
+    }
+
+    func clearSidebarPreviewIfNotificationMatches(ids: Set<UUID>, reason: String) {
+        guard let notificationId = sidebarPreviewNotificationId, ids.contains(notificationId) else {
+            return
+        }
+        clearSidebarPreview(reason: reason)
+    }
+
+    func replaceSidebarPreviewIfNotificationMatches(
+        ids: Set<UUID>,
+        replacement: TerminalNotification?,
+        reason: String
+    ) {
+        guard let notificationId = sidebarPreviewNotificationId, ids.contains(notificationId) else {
+            return
+        }
+        guard let replacement else {
+            clearSidebarPreview(reason: reason)
+            return
+        }
+        setSidebarPreview(
+            notificationId: replacement.id,
+            sourcePanelId: replacement.surfaceId,
+            title: replacement.title,
+            body: replacement.body
+        )
+    }
+
     func applyProcessTitle(_ title: String) {
+        let previousTitle = self.title
         processTitle = title
         guard customTitle == nil else { return }
         self.title = title
+        if previousTitle != self.title {
+            clearSidebarPreview(reason: "workspace.processTitle")
+        }
     }
 
     func setCustomColor(_ hex: String?) {
@@ -1620,6 +1705,8 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func setCustomTitle(_ title: String?) {
+        let previousCustomTitle = customTitle
+        let previousTitle = self.title
         let trimmed = title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if trimmed.isEmpty {
             customTitle = nil
@@ -1627,6 +1714,9 @@ final class Workspace: Identifiable, ObservableObject {
         } else {
             customTitle = trimmed
             self.title = trimmed
+        }
+        if previousCustomTitle != customTitle || previousTitle != self.title {
+            clearSidebarPreview(reason: "workspace.rename")
         }
     }
 
@@ -1649,6 +1739,7 @@ final class Workspace: Identifiable, ObservableObject {
         let existing = panelGitBranches[panelId]
         if existing?.branch != branch || existing?.isDirty != isDirty {
             panelGitBranches[panelId] = state
+            clearSidebarPreviewIfSourceMatches(panelId: panelId, reason: "gitBranch.changed")
         }
         if panelId == focusedPanelId {
             gitBranch = state
@@ -1656,7 +1747,10 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func clearPanelGitBranch(panelId: UUID) {
-        panelGitBranches.removeValue(forKey: panelId)
+        let removed = panelGitBranches.removeValue(forKey: panelId)
+        if removed != nil {
+            clearSidebarPreviewIfSourceMatches(panelId: panelId, reason: "gitBranch.cleared")
+        }
         if panelId == focusedPanelId {
             gitBranch = nil
         }
@@ -1697,6 +1791,7 @@ final class Workspace: Identifiable, ObservableObject {
         surfaceListeningPorts.removeAll()
         listeningPorts.removeAll()
         metadataBlocks.removeAll()
+        clearSidebarPreview(reason: "sidebarContext.\(reason)")
         resetBrowserPanelsForContextChange(reason: reason)
     }
 
@@ -1766,6 +1861,7 @@ final class Workspace: Identifiable, ObservableObject {
             if self.title != trimmed {
                 self.title = trimmed
                 didMutate = true
+                clearSidebarPreview(reason: "workspace.titleChanged")
             }
             if processTitle != trimmed {
                 processTitle = trimmed
@@ -1786,6 +1882,10 @@ final class Workspace: Identifiable, ObservableObject {
         surfaceListeningPorts = surfaceListeningPorts.filter { validSurfaceIds.contains($0.key) }
         surfaceTTYNames = surfaceTTYNames.filter { validSurfaceIds.contains($0.key) }
         panelPullRequests = panelPullRequests.filter { validSurfaceIds.contains($0.key) }
+        if let sourcePanelId = sidebarPreviewSourcePanelId,
+           !validSurfaceIds.contains(sourcePanelId) {
+            clearSidebarPreview(reason: "surface.pruned")
+        }
         recomputeListeningPorts()
     }
 

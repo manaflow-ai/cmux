@@ -1459,6 +1459,9 @@ class TerminalController {
         case "report_pwd":
             return reportPwd(args)
 
+        case "clear_sidebar_preview":
+            return clearSidebarPreview(args)
+
         case "sidebar_state":
             return sidebarState(args)
 
@@ -4349,6 +4352,7 @@ class TerminalController {
                 return
             }
 
+            ws.clearSidebarPreviewIfSourceMatches(panelId: surfaceId, reason: "surface.clear_history")
             terminalPanel.surface.forceRefresh(reason: "terminalController.v2SurfaceClearHistory")
             let windowId = v2ResolveWindowId(tabManager: tabManager)
             result = .ok([
@@ -9700,6 +9704,7 @@ class TerminalController {
           report_tty <tty_name> [--tab=X] [--panel=Y] - Register TTY for batched port scanning
           ports_kick [--tab=X] [--panel=Y] - Request batched port scan for panel
           report_pwd <path> [--tab=X] [--panel=Y] - Report current working directory
+          clear_sidebar_preview [--tab=X] [--panel=Y] - Clear the workspace sidebar preview text
           clear_ports [--tab=X] [--panel=Y] - Clear listening ports
           sidebar_state [--tab=X] - Dump sidebar metadata
           reset_sidebar [--tab=X] - Clear sidebar metadata
@@ -13593,6 +13598,63 @@ class TerminalController {
             }
 
             tabManager.updateSurfaceDirectory(tabId: tab.id, surfaceId: surfaceId, directory: directory)
+        }
+        return result
+    }
+
+    private func clearSidebarPreview(_ args: String) -> String {
+        let parsed = parseOptions(args)
+
+        if let scope = Self.explicitSocketScope(options: parsed.options) {
+            DispatchQueue.main.async {
+                guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: scope.workspaceId),
+                      let tab = tabManager.tabs.first(where: { $0.id == scope.workspaceId }) else {
+                    return
+                }
+                let validSurfaceIds = Set(tab.panels.keys)
+                tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
+                let panelId = validSurfaceIds.contains(scope.panelId) ? scope.panelId : nil
+                tab.clearSidebarPreviewIfSourceMatches(
+                    panelId: panelId,
+                    reason: panelId == nil ? "sidebarPreview.clear.workspace" : "sidebarPreview.clear.surface"
+                )
+            }
+            return "OK"
+        }
+
+        var result = "OK"
+        DispatchQueue.main.sync {
+            guard let tab = resolveTabForReport(args) else {
+                result = parsed.options["tab"] != nil ? "ERROR: Tab not found" : "ERROR: No tab selected"
+                return
+            }
+
+            let validSurfaceIds = Set(tab.panels.keys)
+            tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
+
+            let panelArg = parsed.options["panel"] ?? parsed.options["surface"]
+            guard let panelArg else {
+                tab.clearSidebarPreview(reason: "sidebarPreview.clear.workspace")
+                return
+            }
+
+            if panelArg.isEmpty {
+                result = "ERROR: Missing panel id — usage: clear_sidebar_preview [--tab=X] [--panel=Y]"
+                return
+            }
+            guard let surfaceId = UUID(uuidString: panelArg) else {
+                result = "ERROR: Invalid panel id '\(panelArg)'"
+                return
+            }
+            guard validSurfaceIds.contains(surfaceId) else {
+                result = "ERROR: Panel not found '\(surfaceId.uuidString)'"
+                return
+            }
+
+            tab.clearSidebarPreviewIfSourceMatches(
+                panelId: surfaceId,
+                reason: "sidebarPreview.clear.surface"
+            )
         }
         return result
     }

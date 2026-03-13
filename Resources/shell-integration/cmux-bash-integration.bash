@@ -103,6 +103,15 @@ _cmux_report_tty_once() {
     } >/dev/null 2>&1 & disown
 }
 
+_cmux_clear_sidebar_preview() {
+    [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
+    [[ -n "$CMUX_TAB_ID" ]] || return 0
+    [[ -n "$CMUX_PANEL_ID" ]] || return 0
+    {
+        _cmux_send "clear_sidebar_preview --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+    } >/dev/null 2>&1 & disown
+}
+
 _cmux_ports_kick() {
     # Lightweight: just tell the app to run a batched scan for this panel.
     # The app coalesces kicks across all panels and runs a single ps+lsof.
@@ -320,6 +329,7 @@ _cmux_prompt_command() {
     fi
 
     _cmux_report_tty_once
+    _cmux_clear_sidebar_preview
 
     # CWD: keep the app in sync with the actual shell directory.
     if [[ "$pwd" != "$_CMUX_PWD_LAST_PWD" ]]; then

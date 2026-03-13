@@ -8398,6 +8398,125 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
     }
 }
 
+@MainActor
+final class SidebarPreviewNotificationSyncTests: XCTestCase {
+    func testRemovingCurrentPreviewFallsBackToPreviousNotification() {
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let manager = TabManager()
+        let store = TerminalNotificationStore.shared
+
+        let originalTabManager = appDelegate.tabManager
+        let originalNotificationStore = appDelegate.notificationStore
+
+        store.replaceNotificationsForTesting([])
+        store.configureNotificationDeliveryHandlerForTesting { _, _ in }
+        appDelegate.tabManager = manager
+        appDelegate.notificationStore = store
+
+        defer {
+            store.replaceNotificationsForTesting([])
+            store.resetNotificationDeliveryHandlerForTesting()
+            appDelegate.tabManager = originalTabManager
+            appDelegate.notificationStore = originalNotificationStore
+        }
+
+        guard let workspace = manager.selectedWorkspace,
+              let firstPanelId = workspace.focusedPanelId,
+              let secondPanel = workspace.newTerminalSplit(from: firstPanelId, orientation: .horizontal) else {
+            XCTFail("Expected workspace with two terminal panels")
+            return
+        }
+
+        store.addNotification(
+            tabId: workspace.id,
+            surfaceId: firstPanelId,
+            title: "Older title",
+            subtitle: "",
+            body: "Older body"
+        )
+        store.addNotification(
+            tabId: workspace.id,
+            surfaceId: secondPanel.id,
+            title: "Newest title",
+            subtitle: "",
+            body: "Newest body"
+        )
+
+        XCTAssertEqual(workspace.sidebarPreviewText, "Newest body")
+
+        guard let newestNotificationId = store.notifications.first(where: { $0.surfaceId == secondPanel.id })?.id else {
+            XCTFail("Expected latest notification for second panel")
+            return
+        }
+
+        store.remove(id: newestNotificationId)
+
+        XCTAssertEqual(
+            workspace.sidebarPreviewText,
+            "Older body",
+            "Expected preview to fall back to the latest remaining workspace notification"
+        )
+    }
+
+    func testMarkingCurrentPreviewReadFallsBackToLatestUnreadNotification() {
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let manager = TabManager()
+        let store = TerminalNotificationStore.shared
+
+        let originalTabManager = appDelegate.tabManager
+        let originalNotificationStore = appDelegate.notificationStore
+
+        store.replaceNotificationsForTesting([])
+        store.configureNotificationDeliveryHandlerForTesting { _, _ in }
+        appDelegate.tabManager = manager
+        appDelegate.notificationStore = store
+
+        defer {
+            store.replaceNotificationsForTesting([])
+            store.resetNotificationDeliveryHandlerForTesting()
+            appDelegate.tabManager = originalTabManager
+            appDelegate.notificationStore = originalNotificationStore
+        }
+
+        guard let workspace = manager.selectedWorkspace,
+              let firstPanelId = workspace.focusedPanelId,
+              let secondPanel = workspace.newTerminalSplit(from: firstPanelId, orientation: .horizontal) else {
+            XCTFail("Expected workspace with two terminal panels")
+            return
+        }
+
+        store.addNotification(
+            tabId: workspace.id,
+            surfaceId: firstPanelId,
+            title: "Older title",
+            subtitle: "",
+            body: "Older unread body"
+        )
+        store.addNotification(
+            tabId: workspace.id,
+            surfaceId: secondPanel.id,
+            title: "Newest title",
+            subtitle: "",
+            body: "Newest unread body"
+        )
+
+        XCTAssertEqual(workspace.sidebarPreviewText, "Newest unread body")
+
+        guard let newestNotificationId = store.notifications.first(where: { $0.surfaceId == secondPanel.id })?.id else {
+            XCTFail("Expected latest notification for second panel")
+            return
+        }
+
+        store.markRead(id: newestNotificationId)
+
+        XCTAssertEqual(
+            workspace.sidebarPreviewText,
+            "Older unread body",
+            "Expected preview to switch to the latest unread notification after marking the current preview read"
+        )
+    }
+}
+
 
 final class MenuBarBadgeLabelFormatterTests: XCTestCase {
     func testBadgeLabelFormatting() {
