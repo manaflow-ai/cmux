@@ -1404,6 +1404,15 @@ class TabManager: ObservableObject {
         tab.updatePanelDirectory(panelId: surfaceId, directory: normalized)
     }
 
+    func updateSurfaceShellActivity(
+        tabId: UUID,
+        surfaceId: UUID,
+        state: Workspace.PanelShellActivityState
+    ) {
+        guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
+        tab.updatePanelShellActivityState(panelId: surfaceId, state: state)
+    }
+
     private func normalizeDirectory(_ directory: String) -> String {
         let trimmed = directory.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return directory }
@@ -1797,7 +1806,7 @@ class TabManager: ObservableObject {
         guard tab.panels[surfaceId] != nil else { return }
 
         if let terminalPanel = tab.terminalPanel(for: surfaceId),
-           terminalPanel.needsConfirmClose() {
+           tab.panelNeedsConfirmClose(panelId: surfaceId, fallbackNeedsConfirmClose: terminalPanel.needsConfirmClose()) {
             guard confirmClose(
                 title: String(localized: "dialog.closeTab.title", defaultValue: "Close tab?"),
                 message: String(localized: "dialog.closeTab.message", defaultValue: "This will close the current tab."),

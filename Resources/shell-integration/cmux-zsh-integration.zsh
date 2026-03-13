@@ -55,6 +55,7 @@ typeset -g _CMUX_ASYNC_JOB_TIMEOUT=20
 
 typeset -g _CMUX_PORTS_LAST_RUN=0
 typeset -g _CMUX_CMD_START=0
+typeset -g _CMUX_SHELL_ACTIVITY_LAST=""
 typeset -g _CMUX_TTY_NAME=""
 typeset -g _CMUX_TTY_REPORTED=0
 
@@ -107,6 +108,19 @@ _cmux_report_tty_once() {
     _CMUX_TTY_REPORTED=1
     {
         _cmux_send "report_tty $_CMUX_TTY_NAME --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+    } >/dev/null 2>&1 &!
+}
+
+_cmux_report_shell_activity_state() {
+    local state="$1"
+    [[ -n "$state" ]] || return 0
+    [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
+    [[ -n "$CMUX_TAB_ID" ]] || return 0
+    [[ -n "$CMUX_PANEL_ID" ]] || return 0
+    [[ "$_CMUX_SHELL_ACTIVITY_LAST" == "$state" ]] && return 0
+    _CMUX_SHELL_ACTIVITY_LAST="$state"
+    {
+        _cmux_send "report_shell_state $state --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
     } >/dev/null 2>&1 &!
 }
 
@@ -361,6 +375,7 @@ _cmux_preexec() {
     fi
 
     _CMUX_CMD_START=$EPOCHSECONDS
+    _cmux_report_shell_activity_state running
 
     # Heuristic: commands that may change git branch/dirty state without changing $PWD.
     local cmd="${1## }"
@@ -384,6 +399,7 @@ _cmux_precmd() {
     [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
     [[ -n "$CMUX_TAB_ID" ]] || return 0
     [[ -n "$CMUX_PANEL_ID" ]] || return 0
+    _cmux_report_shell_activity_state prompt
 
     if [[ -z "$_CMUX_TTY_NAME" ]]; then
         local t

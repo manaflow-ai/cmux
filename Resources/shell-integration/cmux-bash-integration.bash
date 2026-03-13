@@ -51,6 +51,7 @@ _CMUX_PR_FORCE="${_CMUX_PR_FORCE:-0}"
 _CMUX_ASYNC_JOB_TIMEOUT="${_CMUX_ASYNC_JOB_TIMEOUT:-20}"
 
 _CMUX_PORTS_LAST_RUN="${_CMUX_PORTS_LAST_RUN:-0}"
+_CMUX_SHELL_ACTIVITY_LAST="${_CMUX_SHELL_ACTIVITY_LAST:-}"
 _CMUX_TTY_NAME="${_CMUX_TTY_NAME:-}"
 _CMUX_TTY_REPORTED="${_CMUX_TTY_REPORTED:-0}"
 
@@ -100,6 +101,19 @@ _cmux_report_tty_once() {
     _CMUX_TTY_REPORTED=1
     {
         _cmux_send "report_tty $_CMUX_TTY_NAME --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+    } >/dev/null 2>&1 & disown
+}
+
+_cmux_report_shell_activity_state() {
+    local state="$1"
+    [[ -n "$state" ]] || return 0
+    [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
+    [[ -n "$CMUX_TAB_ID" ]] || return 0
+    [[ -n "$CMUX_PANEL_ID" ]] || return 0
+    [[ "$_CMUX_SHELL_ACTIVITY_LAST" == "$state" ]] && return 0
+    _CMUX_SHELL_ACTIVITY_LAST="$state"
+    {
+        _cmux_send "report_shell_state $state --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
     } >/dev/null 2>&1 & disown
 }
 
@@ -291,10 +305,33 @@ _cmux_bash_cleanup() {
     _cmux_stop_pr_poll_loop
 }
 
+_cmux_preexec_command() {
+    [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
+    [[ -n "$CMUX_TAB_ID" ]] || return 0
+    [[ -n "$CMUX_PANEL_ID" ]] || return 0
+
+    if [[ -z "$_CMUX_TTY_NAME" ]]; then
+        local t
+        t="$(tty 2>/dev/null || true)"
+        t="${t##*/}"
+        [[ -n "$t" && "$t" != "not a tty" ]] && _CMUX_TTY_NAME="$t"
+    fi
+
+    _cmux_report_shell_activity_state running
+    _cmux_report_tty_once
+    _cmux_ports_kick
+    _cmux_stop_pr_poll_loop
+}
+
+_cmux_bash_preexec_hook() {
+    _cmux_preexec_command
+}
+
 _cmux_prompt_command() {
     [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
     [[ -n "$CMUX_TAB_ID" ]] || return 0
     [[ -n "$CMUX_PANEL_ID" ]] || return 0
+    _cmux_report_shell_activity_state prompt
 
     local now=$SECONDS
     local pwd="$PWD"
@@ -438,6 +475,17 @@ _cmux_install_prompt_command() {
                 fi
                 ;;
         esac
+    fi
+
+    if (( BASH_VERSINFO[0] > 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] >= 4) )); then
+        if (( BASH_VERSINFO[0] > 5 || (BASH_VERSINFO[0] == 5 && BASH_VERSINFO[1] >= 3) )); then
+            builtin readonly _CMUX_BASH_PS0='${ _cmux_bash_preexec_hook; }'
+        else
+            builtin readonly _CMUX_BASH_PS0='$(_cmux_bash_preexec_hook >/dev/null)'
+        fi
+        if [[ "$PS0" != *"${_CMUX_BASH_PS0}"* ]]; then
+            PS0=$PS0"${_CMUX_BASH_PS0}"
+        fi
     fi
 }
 
