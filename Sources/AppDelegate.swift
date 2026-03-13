@@ -1906,6 +1906,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var windowKeyObserver: NSObjectProtocol?
     private var shortcutMonitor: Any?
     private var shortcutDefaultsObserver: NSObjectProtocol?
+    private var menuBarVisibilityObserver: NSObjectProtocol?
     private var splitButtonTooltipRefreshScheduled = false
     private var ghosttyConfigObserver: NSObjectProtocol?
     private var ghosttyGotoSplitLeftShortcut: StoredShortcut?
@@ -2196,7 +2197,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ensureApplicationIcon()
         if !isRunningUnderXCTest {
             configureUserNotifications()
-            setupMenuBarExtra()
+            installMenuBarVisibilityObserver()
+            syncMenuBarExtraVisibility()
             // Sparkle updater is started lazily on first manual check. This avoids any
             // first-launch permission prompts and keeps cmux aligned with the update pill UI.
         }
@@ -5535,6 +5537,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func setupMenuBarExtra() {
+        guard menuBarExtraController == nil else { return }
         let store = TerminalNotificationStore.shared
         menuBarExtraController = MenuBarExtraController(
             notificationStore: store,
@@ -5561,6 +5564,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 NSApp.terminate(nil)
             }
         )
+    }
+
+    private func installMenuBarVisibilityObserver() {
+        guard menuBarVisibilityObserver == nil else { return }
+        menuBarVisibilityObserver = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.syncMenuBarExtraVisibility()
+            }
+        }
+    }
+
+    private func syncMenuBarExtraVisibility(defaults: UserDefaults = .standard) {
+        if MenuBarExtraSettings.showsMenuBarExtra(defaults: defaults) {
+            setupMenuBarExtra()
+            return
+        }
+
+        menuBarExtraController?.removeFromMenuBar()
+        menuBarExtraController = nil
     }
 
     @MainActor
@@ -10187,6 +10213,13 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
         refreshUI()
     }
 
+    func removeFromMenuBar() {
+        notificationsCancellable?.cancel()
+        notificationsCancellable = nil
+        statusItem.menu = nil
+        NSStatusBar.system.removeStatusItem(statusItem)
+    }
+
     private func refreshUI() {
         let snapshot = NotificationMenuSnapshotBuilder.make(
             notifications: notificationStore.notifications,
@@ -10506,6 +10539,18 @@ enum MenuBarBuildHintFormatter {
             return name
         }
         return ProcessInfo.processInfo.processName
+    }
+}
+
+enum MenuBarExtraSettings {
+    static let showInMenuBarKey = "showMenuBarExtra"
+    static let defaultShowInMenuBar = true
+
+    static func showsMenuBarExtra(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: showInMenuBarKey) == nil {
+            return defaultShowInMenuBar
+        }
+        return defaults.bool(forKey: showInMenuBarKey)
     }
 }
 

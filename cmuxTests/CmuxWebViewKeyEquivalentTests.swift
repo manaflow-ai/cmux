@@ -7901,6 +7901,25 @@ final class NotificationDockBadgeTests: XCTestCase {
         XCTAssertTrue(NotificationBadgeSettings.isDockBadgeEnabled(defaults: defaults))
     }
 
+    func testMenuBarExtraPreferenceDefaultsToVisible() {
+        let suiteName = "MenuBarExtraVisibilityTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        XCTAssertTrue(MenuBarExtraSettings.showsMenuBarExtra(defaults: defaults))
+
+        defaults.set(false, forKey: MenuBarExtraSettings.showInMenuBarKey)
+        XCTAssertFalse(MenuBarExtraSettings.showsMenuBarExtra(defaults: defaults))
+
+        defaults.set(true, forKey: MenuBarExtraSettings.showInMenuBarKey)
+        XCTAssertTrue(MenuBarExtraSettings.showsMenuBarExtra(defaults: defaults))
+    }
+
     func testNotificationSoundUsesSystemSoundForDefaultAndNamedSounds() {
         let suiteName = "NotificationDockBadgeTests.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {

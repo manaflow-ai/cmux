@@ -40470,6 +40470,40 @@
         }
       }
     },
+    "settings.app.showInMenuBar": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show in Menu Bar"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メニューバーに表示"
+          }
+        }
+      }
+    },
+    "settings.app.showInMenuBar.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep cmux in the menu bar for unread notifications and quick actions."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未読通知の確認やクイック操作のために、cmuxをメニューバーに表示します。"
+          }
+        }
+      }
+    },
     "settings.app.language": {
       "extractionState": "manual",
       "localizations": {
