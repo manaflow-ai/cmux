@@ -1330,6 +1330,7 @@ struct ContentView: View {
     @State private var retiringWorkspaceId: UUID?
     @State private var workspaceHandoffGeneration: UInt64 = 0
     @State private var workspaceHandoffFallbackTask: Task<Void, Never>?
+    @State private var didApplyUITestSidebarSelection = false
     @State private var titlebarThemeGeneration: UInt64 = 0
     @State private var sidebarDraggedTabId: UUID?
     @State private var titlebarTextUpdateCoalescer = NotificationBurstCoalescer(delay: 1.0 / 30.0)
@@ -2233,6 +2234,8 @@ struct ContentView: View {
                 selectedTabIds = [selectedId]
                 lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == selectedId }
             }
+            syncSidebarSelectedWorkspaceIds()
+            applyUITestSidebarSelectionIfNeeded(tabs: tabManager.tabs)
             updateTitlebarText()
 
             // Startup recovery (#399): if session restore or a race condition leaves the
@@ -2267,6 +2270,9 @@ struct ContentView: View {
                     didRecover = true
                 }
 
+                syncSidebarSelectedWorkspaceIds()
+                applyUITestSidebarSelectionIfNeeded(tabs: tabManager.tabs)
+
                 if didRecover {
 #if DEBUG
                     dlog("startup.recovery tabCount=\(tabManager.tabs.count) selected=\(tabManager.selectedTabId?.uuidString.prefix(8) ?? "nil") mounted=\(mountedWorkspaceIds.count)")
@@ -2300,6 +2306,10 @@ struct ContentView: View {
                 lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == newValue }
             }
             updateTitlebarText()
+        })
+
+        view = AnyView(view.onChange(of: selectedTabIds) { _ in
+            syncSidebarSelectedWorkspaceIds()
         })
 
         view = AnyView(view.onChange(of: tabManager.isWorkspaceCycleHot) { _ in
@@ -2401,6 +2411,8 @@ struct ContentView: View {
                     lastSidebarSelectionIndex = nil
                 }
             }
+            syncSidebarSelectedWorkspaceIds()
+            applyUITestSidebarSelectionIfNeeded(tabs: tabs)
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: SidebarDragLifecycleNotification.stateDidChange)) { notification in
@@ -5962,11 +5974,7 @@ struct ContentView: View {
     }
 
     private func closeWorkspaceIds(_ workspaceIds: [UUID], allowPinned: Bool) {
-        for workspaceId in workspaceIds {
-            guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { continue }
-            guard allowPinned || !workspace.isPinned else { continue }
-            tabManager.closeWorkspaceWithConfirmation(workspace)
-        }
+        tabManager.closeWorkspacesWithConfirmation(workspaceIds, allowPinned: allowPinned)
     }
 
     private func closeOtherSelectedWorkspaces() {
@@ -5976,17 +5984,51 @@ struct ContentView: View {
     }
 
     private func closeSelectedWorkspacesBelow() {
-        guard let workspace = tabManager.selectedWorkspace,
+        guard tabManager.selectedWorkspace != nil,
               let anchorIndex = selectedWorkspaceIndex() else { return }
         let workspaceIds = tabManager.tabs.suffix(from: anchorIndex + 1).map(\.id)
         closeWorkspaceIds(workspaceIds, allowPinned: false)
     }
 
     private func closeSelectedWorkspacesAbove() {
-        guard let workspace = tabManager.selectedWorkspace,
+        guard tabManager.selectedWorkspace != nil,
               let anchorIndex = selectedWorkspaceIndex() else { return }
         let workspaceIds = tabManager.tabs.prefix(upTo: anchorIndex).map(\.id)
         closeWorkspaceIds(workspaceIds, allowPinned: false)
+    }
+
+    private func syncSidebarSelectedWorkspaceIds() {
+        tabManager.setSidebarSelectedWorkspaceIds(selectedTabIds)
+    }
+
+    private func applyUITestSidebarSelectionIfNeeded(tabs: [Workspace]) {
+#if DEBUG
+        guard !didApplyUITestSidebarSelection else { return }
+        let env = ProcessInfo.processInfo.environment
+        guard let rawValue = env["CMUX_UI_TEST_SIDEBAR_SELECTED_WORKSPACE_INDICES"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              !rawValue.isEmpty else {
+            return
+        }
+
+        var indices: [Int] = []
+        for token in rawValue.split(separator: ",") {
+            let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let index = Int(trimmed), index >= 0 else { return }
+            if !indices.contains(index) {
+                indices.append(index)
+            }
+        }
+
+        guard let lastIndex = indices.last, !indices.isEmpty, lastIndex < tabs.count else { return }
+
+        let selectedIds = Set(indices.map { tabs[$0].id })
+        selectedTabIds = selectedIds
+        lastSidebarSelectionIndex = lastIndex
+        tabManager.selectWorkspace(tabs[lastIndex])
+        sidebarSelectionState.selection = .tabs
+        didApplyUITestSidebarSelection = true
+#endif
     }
 
     private func beginRenameWorkspaceFlow() {
@@ -10289,16 +10331,7 @@ private struct TabItemView: View, Equatable {
     }
 
     private func closeTabs(_ targetIds: [UUID], allowPinned: Bool) {
-        let idsToClose = targetIds.filter { id in
-            guard let tab = tabManager.tabs.first(where: { $0.id == id }) else { return false }
-            return allowPinned || !tab.isPinned
-        }
-        for id in idsToClose {
-            if let tab = tabManager.tabs.first(where: { $0.id == id }) {
-                tabManager.closeWorkspaceWithConfirmation(tab)
-            }
-        }
-        selectedTabIds.subtract(idsToClose)
+        tabManager.closeWorkspacesWithConfirmation(targetIds, allowPinned: allowPinned)
         syncSelectionAfterMutation()
     }
 

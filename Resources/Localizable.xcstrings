@@ -27859,6 +27859,57 @@
         }
       }
     },
+    "dialog.closeWorkspaces.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This will close %1$lld workspaces and all of their panels:\n%2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld 個のワークスペースと、それぞれのすべてのパネルを閉じます:\n%2$@"
+          }
+        }
+      }
+    },
+    "dialog.closeWorkspaces.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close workspaces?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースを閉じますか？"
+          }
+        }
+      }
+    },
+    "dialog.closeWorkspacesWindow.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This will close the current window, its %1$lld workspaces, and all of their panels:\n%2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在のウィンドウと、その %1$lld 個のワークスペースと、それぞれのすべてのパネルを閉じます:\n%2$@"
+          }
+        }
+      }
+    },
     "dialog.closeWorkspace.message": {
       "extractionState": "manual",
       "localizations": {
