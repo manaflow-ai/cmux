@@ -41188,13 +41188,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cmd+W Closes Workspace on Last Surface"
+            "value": "Closing Last Surface Closes Workspace"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "最後のサーフェスでCmd+Wがワークスペースも閉じる"
+            "value": "最後のサーフェスを閉じるとワークスペースも閉じる"
           }
         }
       }
@@ -41205,13 +41205,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "When the focused surface is the last one in its workspace, Cmd+W closes only the surface and keeps the workspace open."
+            "value": "Closing the last surface keeps the workspace open. Use Cmd+Shift+W to close a workspace explicitly."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "フォーカス中のサーフェスがそのワークスペースの最後の1つでも、Cmd+Wはサーフェスだけを閉じ、ワークスペースは残します。"
+            "value": "最後のサーフェスを閉じてもワークスペースは残ります。ワークスペースを明示的に閉じるにはCmd+Shift+Wを使います。"
           }
         }
       }
@@ -41222,13 +41222,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "When the focused surface is the last one in its workspace, Cmd+W also closes the workspace."
+            "value": "Closing the last surface also closes its workspace."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "フォーカス中のサーフェスがそのワークスペースの最後の1つなら、Cmd+Wでワークスペースも閉じます。"
+            "value": "最後のサーフェスを閉じると、そのワークスペースも閉じます。"
           }
         }
       }

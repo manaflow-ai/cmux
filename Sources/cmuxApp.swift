@@ -454,7 +454,8 @@ struct cmuxApp: App {
                 // Terminal semantics:
                 // Cmd+W closes the focused tab/surface (with confirmation if needed) and keeps
                 // the workspace open by default. Cmd+Shift+W is the explicit workspace-close
-                // action, unless the user opts back into the legacy last-surface Cmd+W behavior.
+                // action, unless the user opts into closing the workspace when its last surface
+                // is closed.
                 Button(String(localized: "menu.file.closeTab", defaultValue: "Close Tab")) {
                     closePanelOrWindow()
                 }
@@ -3127,12 +3128,12 @@ struct SettingsView: View {
         if closeWorkspaceOnLastSurfaceShortcut {
             return String(
                 localized: "settings.app.closeWorkspaceOnLastSurfaceShortcut.subtitleOn",
-                defaultValue: "When the focused surface is the last one in its workspace, Cmd+W also closes the workspace."
+                defaultValue: "Closing the last surface also closes its workspace."
             )
         }
         return String(
             localized: "settings.app.closeWorkspaceOnLastSurfaceShortcut.subtitleOff",
-            defaultValue: "When the focused surface is the last one in its workspace, Cmd+W closes only the surface and keeps the workspace open."
+            defaultValue: "Closing the last surface keeps the workspace open. Use Cmd+Shift+W to close a workspace explicitly."
         )
     }
 
@@ -3504,7 +3505,7 @@ struct SettingsView: View {
                         SettingsCardDivider()
 
                         SettingsCardRow(
-                            String(localized: "settings.app.closeWorkspaceOnLastSurfaceShortcut", defaultValue: "Cmd+W Closes Workspace on Last Surface"),
+                            String(localized: "settings.app.closeWorkspaceOnLastSurfaceShortcut", defaultValue: "Closing Last Surface Closes Workspace"),
                             subtitle: closeWorkspaceOnLastSurfaceShortcutSubtitle
                         ) {
                             Toggle("", isOn: $closeWorkspaceOnLastSurfaceShortcut)
