@@ -2314,6 +2314,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         isTerminatingApp = true
+        populateClaudeSessionIdsFromHookStore()
         _ = saveSessionSnapshot(includeScrollback: true, removeWhenEmpty: false)
         return .terminateNow
     }
@@ -2510,6 +2511,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         startupSessionSnapshot = nil
         isApplyingStartupSessionRestore = false
         _ = saveSessionSnapshot(includeScrollback: false)
+
+        // Resume any Claude sessions that were active when cmux last quit
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            self?.resumeClaudeSessionsAfterRestore()
+        }
     }
 
     private func applySessionWindowSnapshot(
@@ -8509,6 +8515,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        // Fork Claude session: Ctrl+Shift+F
+        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .forkClaudeSession)) {
+            performForkClaudeSession()
+            return true
+        }
+
         // Surface navigation (legacy Ctrl+Tab support)
         if matchTabShortcut(event: event, shortcut: StoredShortcut(key: "\t", command: false, shift: false, option: false, control: true)) {
             tabManager?.selectNextSurface()
@@ -9200,6 +9212,142 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         recordGotoSplitSplitIfNeeded(direction: direction)
 #endif
         return true
+    }
+
+    /// Fork the current Claude Code session into a new tab.
+    /// Creates a new terminal surface and sends `claude --continue --fork-session` to it.
+    func performForkClaudeSession() {
+        _ = synchronizeActiveMainWindowContext(preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow)
+        guard let tabManager else { return }
+
+        // Create a new terminal tab (surface) in the focused pane
+        tabManager.newSurface()
+
+        // Wait for the new surface to become ready, then send the fork command
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+            self?.sendForkCommandToFocusedSurface(attempt: 0)
+        }
+    }
+
+    private func sendForkCommandToFocusedSurface(attempt: Int) {
+        guard attempt < 20 else { return }
+        guard let tab = tabManager?.selectedWorkspace,
+              let terminalPanel = tab.focusedTerminalPanel,
+              let surface = terminalPanel.surface.surface else {
+            // Surface not ready yet, retry
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+                self?.sendForkCommandToFocusedSurface(attempt: attempt + 1)
+            }
+            return
+        }
+
+        // Send the command text
+        terminalPanel.sendText("claude --continue --fork-session")
+
+        // Send Enter as a proper key event (keycode 36 = Return)
+        var keyEvent = ghostty_input_key_s()
+        keyEvent.action = GHOSTTY_ACTION_PRESS
+        keyEvent.keycode = 36
+        keyEvent.mods = GHOSTTY_MODS_NONE
+        keyEvent.consumed_mods = GHOSTTY_MODS_NONE
+        keyEvent.text = nil
+        keyEvent.composing = false
+        _ = ghostty_surface_key(surface, keyEvent)
+    }
+
+    // MARK: - Claude Session Save/Restore
+
+    /// Lightweight read-only structs for decoding the Claude hook session store.
+    private struct ClaudeSessionMapping: Codable {
+        var sessionId: String
+        var workspaceId: String
+        var surfaceId: String
+    }
+
+    private struct ClaudeSessionMappingFile: Codable {
+        var version: Int?
+        var sessions: [String: ClaudeSessionMapping]
+    }
+
+    /// Read the Claude hook session store and populate `surfaceClaudeSessionIds`
+    /// on each workspace so that the next snapshot save includes Claude session IDs.
+    func populateClaudeSessionIdsFromHookStore() {
+        let statePath = NSString(string: "~/.cmuxterm/claude-hook-sessions.json").expandingTildeInPath
+        guard FileManager.default.fileExists(atPath: statePath),
+              let data = try? Data(contentsOf: URL(fileURLWithPath: statePath)),
+              let store = try? JSONDecoder().decode(ClaudeSessionMappingFile.self, from: data) else {
+            return
+        }
+
+        for context in mainWindowContexts.values {
+            for workspace in context.tabManager.tabs {
+                for (panelId, _) in workspace.panels {
+                    // Match by surfaceId (panel UUID)
+                    let panelIdString = panelId.uuidString.lowercased()
+                    for (_, record) in store.sessions {
+                        if record.surfaceId.lowercased() == panelIdString {
+                            workspace.surfaceClaudeSessionIds[panelId] = record.sessionId
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// After session restore completes, send `claude --resume <id>` to panels
+    /// that had active Claude sessions.
+    func resumeClaudeSessionsAfterRestore() {
+        for context in mainWindowContexts.values {
+            for workspace in context.tabManager.tabs {
+                for (panelId, sessionId) in workspace.pendingClaudeResumes {
+                    sendClaudeResumeCommand(
+                        to: workspace,
+                        panelId: panelId,
+                        sessionId: sessionId
+                    )
+                }
+                workspace.pendingClaudeResumes.removeAll()
+            }
+        }
+    }
+
+    private func sendClaudeResumeCommand(
+        to workspace: Workspace,
+        panelId: UUID,
+        sessionId: String,
+        attempt: Int = 0
+    ) {
+        let maxAttempts = 60
+        guard attempt < maxAttempts else { return }
+        guard let terminalPanel = workspace.terminalPanel(for: panelId),
+              let surface = terminalPanel.surface.surface else {
+            // Surface not ready yet, retry
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+                self?.sendClaudeResumeCommand(
+                    to: workspace,
+                    panelId: panelId,
+                    sessionId: sessionId,
+                    attempt: attempt + 1
+                )
+            }
+            return
+        }
+
+        // Sanitize session ID to prevent command injection (UUIDs are [a-zA-Z0-9-])
+        let sanitized = sessionId.filter { $0.isLetter || $0.isNumber || $0 == "-" }
+        guard !sanitized.isEmpty else { return }
+
+        terminalPanel.sendText("claude --resume \(sanitized)")
+
+        // Send Enter as a proper key event (keycode 36 = Return)
+        var keyEvent = ghostty_input_key_s()
+        keyEvent.action = GHOSTTY_ACTION_PRESS
+        keyEvent.keycode = 36
+        keyEvent.mods = GHOSTTY_MODS_NONE
+        keyEvent.consumed_mods = GHOSTTY_MODS_NONE
+        keyEvent.text = nil
+        keyEvent.composing = false
+        _ = ghostty_surface_key(surface, keyEvent)
     }
 
     @discardableResult

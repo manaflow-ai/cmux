@@ -304,6 +304,7 @@ extension Workspace {
         }
         let listeningPorts = (surfaceListeningPorts[panelId] ?? []).sorted()
         let ttyName = surfaceTTYNames[panelId]
+        let claudeSessionId = surfaceClaudeSessionIds[panelId]
 
         let terminalSnapshot: SessionTerminalPanelSnapshot?
         let browserSnapshot: SessionBrowserPanelSnapshot?
@@ -360,6 +361,7 @@ extension Workspace {
             gitBranch: branchSnapshot,
             listeningPorts: listeningPorts,
             ttyName: ttyName,
+            claudeSessionId: claudeSessionId,
             terminal: terminalSnapshot,
             browser: browserSnapshot,
             markdown: markdownSnapshot
@@ -510,6 +512,10 @@ extension Workspace {
                 restoredTerminalScrollbackByPanelId.removeValue(forKey: terminalPanel.id)
             }
             applySessionPanelMetadata(snapshot, toPanelId: terminalPanel.id)
+            if let claudeSessionId = snapshot.claudeSessionId?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !claudeSessionId.isEmpty {
+                pendingClaudeResumes[terminalPanel.id] = claudeSessionId
+            }
             return terminalPanel.id
         case .browser:
             let initialURL = snapshot.browser?.urlString.flatMap { URL(string: $0) }
@@ -568,6 +574,13 @@ extension Workspace {
             surfaceTTYNames[panelId] = ttyName
         } else {
             surfaceTTYNames.removeValue(forKey: panelId)
+        }
+
+        if let claudeSessionId = snapshot.claudeSessionId?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !claudeSessionId.isEmpty {
+            surfaceClaudeSessionIds[panelId] = claudeSessionId
+        } else {
+            surfaceClaudeSessionIds.removeValue(forKey: panelId)
         }
 
         if let browserSnapshot = snapshot.browser,
@@ -999,6 +1012,8 @@ final class Workspace: Identifiable, ObservableObject {
     @Published var surfaceListeningPorts: [UUID: [Int]] = [:]
     @Published var listeningPorts: [Int] = []
     var surfaceTTYNames: [UUID: String] = [:]
+    var surfaceClaudeSessionIds: [UUID: String] = [:]
+    var pendingClaudeResumes: [UUID: String] = [:]
     private var restoredTerminalScrollbackByPanelId: [UUID: String] = [:]
 
     var focusedSurfaceId: UUID? { focusedPanelId }
@@ -1786,6 +1801,7 @@ final class Workspace: Identifiable, ObservableObject {
         manualUnreadMarkedAt = manualUnreadMarkedAt.filter { validSurfaceIds.contains($0.key) }
         surfaceListeningPorts = surfaceListeningPorts.filter { validSurfaceIds.contains($0.key) }
         surfaceTTYNames = surfaceTTYNames.filter { validSurfaceIds.contains($0.key) }
+        surfaceClaudeSessionIds = surfaceClaudeSessionIds.filter { validSurfaceIds.contains($0.key) }
         panelPullRequests = panelPullRequests.filter { validSurfaceIds.contains($0.key) }
         recomputeListeningPorts()
     }
@@ -4661,6 +4677,7 @@ extension Workspace: BonsplitDelegate {
         manualUnreadMarkedAt.removeValue(forKey: panelId)
         panelSubscriptions.removeValue(forKey: panelId)
         surfaceTTYNames.removeValue(forKey: panelId)
+        surfaceClaudeSessionIds.removeValue(forKey: panelId)
         restoredTerminalScrollbackByPanelId.removeValue(forKey: panelId)
         PortScanner.shared.unregisterPanel(workspaceId: id, panelId: panelId)
         terminalInheritanceFontPointsByPanelId.removeValue(forKey: panelId)
@@ -4840,6 +4857,7 @@ extension Workspace: BonsplitDelegate {
                 manualUnreadPanelIds.remove(panelId)
                 panelSubscriptions.removeValue(forKey: panelId)
                 surfaceTTYNames.removeValue(forKey: panelId)
+                surfaceClaudeSessionIds.removeValue(forKey: panelId)
                 surfaceListeningPorts.removeValue(forKey: panelId)
                 restoredTerminalScrollbackByPanelId.removeValue(forKey: panelId)
                 PortScanner.shared.unregisterPanel(workspaceId: id, panelId: panelId)
