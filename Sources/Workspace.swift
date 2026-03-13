@@ -651,6 +651,14 @@ struct SidebarPullRequestState: Equatable {
     let status: SidebarPullRequestStatus
 }
 
+struct SidebarAutosuggestionProviderState: Equatable {
+    let provider: String
+
+    var isExternal: Bool {
+        provider.hasPrefix("external:")
+    }
+}
+
 enum SidebarBranchOrdering {
     struct BranchEntry: Equatable {
         let name: String
@@ -996,6 +1004,8 @@ final class Workspace: Identifiable, ObservableObject {
     @Published var panelGitBranches: [UUID: SidebarGitBranchState] = [:]
     @Published var pullRequest: SidebarPullRequestState?
     @Published var panelPullRequests: [UUID: SidebarPullRequestState] = [:]
+    @Published var autosuggestionProvider: SidebarAutosuggestionProviderState?
+    @Published var panelAutosuggestionProviders: [UUID: SidebarAutosuggestionProviderState] = [:]
     @Published var surfaceListeningPorts: [UUID: [Int]] = [:]
     @Published var listeningPorts: [Int] = []
     var surfaceTTYNames: [UUID: String] = [:]
@@ -1687,6 +1697,23 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
+    func updatePanelAutosuggestionProvider(panelId: UUID, provider: String) {
+        let state = SidebarAutosuggestionProviderState(provider: provider)
+        if panelAutosuggestionProviders[panelId] != state {
+            panelAutosuggestionProviders[panelId] = state
+        }
+        if panelId == focusedPanelId {
+            autosuggestionProvider = state
+        }
+    }
+
+    func clearPanelAutosuggestionProvider(panelId: UUID) {
+        panelAutosuggestionProviders.removeValue(forKey: panelId)
+        if panelId == focusedPanelId {
+            autosuggestionProvider = nil
+        }
+    }
+
     func resetSidebarContext(reason: String = "unspecified") {
         statusEntries.removeAll()
         logEntries.removeAll()
@@ -1695,6 +1722,8 @@ final class Workspace: Identifiable, ObservableObject {
         panelGitBranches.removeAll()
         pullRequest = nil
         panelPullRequests.removeAll()
+        autosuggestionProvider = nil
+        panelAutosuggestionProviders.removeAll()
         surfaceListeningPorts.removeAll()
         listeningPorts.removeAll()
         metadataBlocks.removeAll()
@@ -1787,6 +1816,7 @@ final class Workspace: Identifiable, ObservableObject {
         surfaceListeningPorts = surfaceListeningPorts.filter { validSurfaceIds.contains($0.key) }
         surfaceTTYNames = surfaceTTYNames.filter { validSurfaceIds.contains($0.key) }
         panelPullRequests = panelPullRequests.filter { validSurfaceIds.contains($0.key) }
+        panelAutosuggestionProviders = panelAutosuggestionProviders.filter { validSurfaceIds.contains($0.key) }
         recomputeListeningPorts()
     }
 
@@ -3535,6 +3565,7 @@ final class Workspace: Identifiable, ObservableObject {
         }
         gitBranch = panelGitBranches[targetPanelId]
         pullRequest = panelPullRequests[targetPanelId]
+        autosuggestionProvider = panelAutosuggestionProviders[targetPanelId]
     }
 
     /// Reconcile focus/first-responder convergence.
@@ -4344,6 +4375,7 @@ extension Workspace: BonsplitDelegate {
         }
         gitBranch = panelGitBranches[panelId]
         pullRequest = panelPullRequests[panelId]
+        autosuggestionProvider = panelAutosuggestionProviders[panelId]
 
         // Post notification
         NotificationCenter.default.post(
@@ -4654,6 +4686,7 @@ extension Workspace: BonsplitDelegate {
         panelDirectories.removeValue(forKey: panelId)
         panelGitBranches.removeValue(forKey: panelId)
         panelPullRequests.removeValue(forKey: panelId)
+        panelAutosuggestionProviders.removeValue(forKey: panelId)
         panelTitles.removeValue(forKey: panelId)
         panelCustomTitles.removeValue(forKey: panelId)
         pinnedPanelIds.remove(panelId)
@@ -4834,6 +4867,7 @@ extension Workspace: BonsplitDelegate {
                 panelDirectories.removeValue(forKey: panelId)
                 panelGitBranches.removeValue(forKey: panelId)
                 panelPullRequests.removeValue(forKey: panelId)
+                panelAutosuggestionProviders.removeValue(forKey: panelId)
                 panelTitles.removeValue(forKey: panelId)
                 panelCustomTitles.removeValue(forKey: panelId)
                 pinnedPanelIds.remove(panelId)

@@ -57,6 +57,192 @@ typeset -g _CMUX_PORTS_LAST_RUN=0
 typeset -g _CMUX_CMD_START=0
 typeset -g _CMUX_TTY_NAME=""
 typeset -g _CMUX_TTY_REPORTED=0
+typeset -g _CMUX_AUTOSUGGEST_PROVIDER_LAST=""
+typeset -g _CMUX_AUTOSUGGEST_PROVIDER_ACK_FILE="${TMPDIR:-/tmp}/cmux-autosuggest-provider.$$.ack"
+/bin/rm -f -- "$_CMUX_AUTOSUGGEST_PROVIDER_ACK_FILE" >/dev/null 2>&1 || true
+
+_cmux_normalize_autosuggestion_provider() {
+    local value="$1"
+    value="${value#"${value%%[![:space:]]*}"}"
+    value="${value%"${value##*[![:space:]]}"}"
+    value="${value:l}"
+    [[ -n "$value" ]] || return 1
+
+    case "$value" in
+        none|cmux)
+            print -r -- "$value"
+            return 0
+            ;;
+        external:*)
+            local suffix="${value#external:}"
+            suffix="${suffix//[^[:alnum:]:._-]/}"
+            if [[ -z "$suffix" ]]; then
+                print -r -- "external:unknown"
+            else
+                print -r -- "external:$suffix"
+            fi
+            return 0
+            ;;
+    esac
+
+    return 1
+}
+
+_cmux_name_matches_any() {
+    local name="$1"
+    shift
+
+    local pattern
+    for pattern in "$@"; do
+        case "$name" in
+            $pattern)
+                return 0
+                ;;
+        esac
+    done
+
+    return 1
+}
+
+_cmux_assoc_contains_match() {
+    local assoc_name="$1"
+    shift
+
+    local key
+    local -a keys
+    case "$assoc_name" in
+        functions)
+            keys=("${(@k)functions}")
+            ;;
+        parameters)
+            keys=("${(@k)parameters}")
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+
+    for key in "${keys[@]}"; do
+        if _cmux_name_matches_any "$key" "$@"; then
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+_cmux_widgets_contain_match() {
+    local widget
+    local -a widgets
+    widgets=("${(@f)$(builtin zle -la 2>/dev/null)}")
+
+    for widget in "${widgets[@]}"; do
+        if _cmux_name_matches_any "$widget" "$@"; then
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+_cmux_detect_known_autosuggestion_provider() {
+    if (( $+parameters[ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE] )) \
+        || (( $+parameters[ZSH_AUTOSUGGEST_STRATEGY] )) \
+        || (( $+parameters[ZSH_AUTOSUGGEST_USE_ASYNC] )) \
+        || (( $+parameters[ZSH_AUTOSUGGEST_MANUAL_REBIND] )) \
+        || (( $+functions[_zsh_autosuggest_start] )) \
+        || (( $+functions[_zsh_autosuggest_bind_widgets] )) \
+        || (( $+functions[_zsh_autosuggest_widget_accept] )) \
+        || _cmux_widgets_contain_match autosuggest-accept autosuggest-disable autosuggest-toggle; then
+        print -r -- "external:zsh-autosuggestions"
+        return 0
+    fi
+
+    if (( $+functions[_autocomplete__main] )) \
+        || _cmux_assoc_contains_match functions "_autocomplete__*"; then
+        print -r -- "external:zsh-autocomplete"
+        return 0
+    fi
+
+    return 1
+}
+
+_cmux_detect_unknown_autosuggestion_provider() {
+    if _cmux_widgets_contain_match "*autosuggest*" "*autocomplete*" "*auto-suggest*"; then
+        print -r -- "external:unknown"
+        return 0
+    fi
+
+    if _cmux_assoc_contains_match parameters "*AUTOSUGGEST*" "*AUTOCOMPLETE*" "*AUTO_SUGGEST*"; then
+        print -r -- "external:unknown"
+        return 0
+    fi
+
+    if _cmux_assoc_contains_match functions \
+        "_*autosuggest*" \
+        "_*autocomplete*" \
+        "_*auto-suggest*" \
+        ".autocomplete*" \
+        "*autosuggest*" \
+        "*autocomplete*" \
+        "*auto-suggest*"; then
+        print -r -- "external:unknown"
+        return 0
+    fi
+
+    return 1
+}
+
+_cmux_autosuggestion_provider() {
+    local override
+    override="$(_cmux_normalize_autosuggestion_provider "${CMUX_AUTOSUGGEST_PROVIDER_OVERRIDE:-}" 2>/dev/null || true)"
+    if [[ -n "$override" ]]; then
+        print -r -- "$override"
+        return 0
+    fi
+
+    local provider
+    provider="$(_cmux_detect_known_autosuggestion_provider 2>/dev/null || true)"
+    if [[ -n "$provider" ]]; then
+        print -r -- "$provider"
+        return 0
+    fi
+
+    provider="$(_cmux_detect_unknown_autosuggestion_provider 2>/dev/null || true)"
+    if [[ -n "$provider" ]]; then
+        print -r -- "$provider"
+        return 0
+    fi
+
+    print -r -- "none"
+}
+
+_cmux_sync_autosuggestion_provider_ack() {
+    local path="${_CMUX_AUTOSUGGEST_PROVIDER_ACK_FILE:-}"
+    [[ -n "$path" && -r "$path" ]] || return 0
+
+    local provider=""
+    provider="$(/bin/cat -- "$path" 2>/dev/null || true)"
+    /bin/rm -f -- "$path" >/dev/null 2>&1 || true
+    provider="$(_cmux_normalize_autosuggestion_provider "$provider" 2>/dev/null || true)"
+    [[ -n "$provider" ]] || return 0
+    _CMUX_AUTOSUGGEST_PROVIDER_LAST="$provider"
+}
+
+_cmux_report_autosuggestion_provider() {
+    _cmux_sync_autosuggestion_provider_ack
+
+    local provider
+    provider="$(_cmux_autosuggestion_provider 2>/dev/null || true)"
+    [[ "$provider" == "$_CMUX_AUTOSUGGEST_PROVIDER_LAST" ]] && return 0
+
+    local ack_path="${_CMUX_AUTOSUGGEST_PROVIDER_ACK_FILE:-}"
+    {
+        if _cmux_send "report_autosuggestion_provider $provider --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID" >/dev/null 2>&1; then
+            print -r -- "$provider" >| "$ack_path"
+        fi
+    } >/dev/null 2>&1 &!
+}
 
 _cmux_git_resolve_head_path() {
     # Resolve the HEAD file path without invoking git (fast; works for worktrees).
@@ -393,6 +579,7 @@ _cmux_precmd() {
     fi
 
     _cmux_report_tty_once
+    _cmux_report_autosuggestion_provider
 
     local now=$EPOCHSECONDS
     local pwd="$PWD"

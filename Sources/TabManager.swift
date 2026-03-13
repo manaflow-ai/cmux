@@ -3998,6 +3998,7 @@ extension TabManager {
             hasher.combine(workspace.panelTitles.count)
             hasher.combine(workspace.panelPullRequests.count)
             hasher.combine(workspace.panelGitBranches.count)
+            hasher.combine(workspace.panelAutosuggestionProviders.count)
             hasher.combine(workspace.surfaceListeningPorts.count)
 
             if let progress = workspace.progress {
@@ -4014,6 +4015,8 @@ extension TabManager {
                 hasher.combine("")
                 hasher.combine(false)
             }
+
+            hasher.combine(workspace.autosuggestionProvider?.provider ?? "")
         }
 
         return hasher.finalize()

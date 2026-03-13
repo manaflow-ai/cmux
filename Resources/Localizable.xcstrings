@@ -45805,6 +45805,142 @@
         }
       }
     },
+    "settings.automation.terminalAutosuggestions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal Autosuggestions"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナル自動提案"
+          }
+        }
+      }
+    },
+    "settings.automation.terminalAutosuggestions.mode.automatic": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatic"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動"
+          }
+        }
+      }
+    },
+    "settings.automation.terminalAutosuggestions.mode.forceOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Force On"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "常にオン"
+          }
+        }
+      }
+    },
+    "settings.automation.terminalAutosuggestions.mode.off": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Off"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフ"
+          }
+        }
+      }
+    },
+    "settings.automation.terminalAutosuggestions.note": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatic is the safest default. cmux only renders terminal autosuggestions when the shell reports that no external autosuggestion provider owns the current session."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "既定値として最も安全なのは「自動」です。シェルが現在のセッションを所有する外部の自動提案プロバイダーがいないと報告した場合にのみ、cmux はターミナル自動提案を表示します。"
+          }
+        }
+      }
+    },
+    "settings.automation.terminalAutosuggestions.subtitleAutomatic": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux backs off when the shell reports an external autosuggestion provider."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "シェルが外部の自動提案プロバイダーを報告した場合、cmux は引き下がります。"
+          }
+        }
+      }
+    },
+    "settings.automation.terminalAutosuggestions.subtitleForceOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux keeps terminal autosuggestions enabled even when the shell reports another provider."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "シェルが別のプロバイダーを報告しても、cmux はターミナル自動提案を有効のままにします。"
+          }
+        }
+      }
+    },
+    "settings.automation.terminalAutosuggestions.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux terminal autosuggestions stay disabled."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux のターミナル自動提案は無効のままです。"
+          }
+        }
+      }
+    },
     "settings.automation.openAccess.dialog.cancel": {
       "extractionState": "manual",
       "localizations": {

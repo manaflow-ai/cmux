@@ -3019,6 +3019,81 @@ enum ClaudeCodeIntegrationSettings {
     }
 }
 
+enum TerminalAutosuggestionMode: String, CaseIterable, Identifiable {
+    case off
+    case automatic
+    case forceOn = "force_on"
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .off:
+            return String(localized: "settings.automation.terminalAutosuggestions.mode.off", defaultValue: "Off")
+        case .automatic:
+            return String(localized: "settings.automation.terminalAutosuggestions.mode.automatic", defaultValue: "Automatic")
+        case .forceOn:
+            return String(localized: "settings.automation.terminalAutosuggestions.mode.forceOn", defaultValue: "Force On")
+        }
+    }
+
+    var description: String {
+        switch self {
+        case .off:
+            return String(
+                localized: "settings.automation.terminalAutosuggestions.subtitleOff",
+                defaultValue: "cmux terminal autosuggestions stay disabled."
+            )
+        case .automatic:
+            return String(
+                localized: "settings.automation.terminalAutosuggestions.subtitleAutomatic",
+                defaultValue: "cmux backs off when the shell reports an external autosuggestion provider."
+            )
+        case .forceOn:
+            return String(
+                localized: "settings.automation.terminalAutosuggestions.subtitleForceOn",
+                defaultValue: "cmux keeps terminal autosuggestions enabled even when the shell reports another provider."
+            )
+        }
+    }
+}
+
+enum TerminalAutosuggestionSettings {
+    static let modeKey = "terminalAutosuggestionMode"
+    static let defaultMode: TerminalAutosuggestionMode = .automatic
+
+    static func mode(for rawValue: String?) -> TerminalAutosuggestionMode {
+        guard let rawValue, let mode = TerminalAutosuggestionMode(rawValue: rawValue) else {
+            return defaultMode
+        }
+        return mode
+    }
+
+    static func mode(defaults: UserDefaults = .standard) -> TerminalAutosuggestionMode {
+        if defaults.string(forKey: modeKey) != nil {
+            return mode(for: defaults.string(forKey: modeKey))
+        }
+        return defaultMode
+    }
+
+    static func shouldRender(
+        mode: TerminalAutosuggestionMode,
+        reportedProvider: String?
+    ) -> Bool {
+        let provider = reportedProvider?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        switch mode {
+        case .off:
+            return false
+        case .forceOn:
+            return true
+        case .automatic:
+            return provider == "none" || provider == "cmux"
+        }
+    }
+}
+
 enum WelcomeSettings {
     static let shownKey = "cmuxWelcomeShown"
 }
@@ -3049,6 +3124,8 @@ struct SettingsView: View {
     @AppStorage(SocketControlSettings.appStorageKey) private var socketControlMode = SocketControlSettings.defaultMode.rawValue
     @AppStorage(ClaudeCodeIntegrationSettings.hooksEnabledKey)
     private var claudeCodeHooksEnabled = ClaudeCodeIntegrationSettings.defaultHooksEnabled
+    @AppStorage(TerminalAutosuggestionSettings.modeKey)
+    private var terminalAutosuggestionMode = TerminalAutosuggestionSettings.defaultMode.rawValue
     @AppStorage(TelemetrySettings.sendAnonymousTelemetryKey)
     private var sendAnonymousTelemetry = TelemetrySettings.defaultSendAnonymousTelemetry
     @AppStorage("cmuxPortBase") private var cmuxPortBase = 9100
@@ -3150,6 +3227,17 @@ struct SettingsView: View {
 
     private var selectedSocketControlMode: SocketControlMode {
         SocketControlSettings.migrateMode(socketControlMode)
+    }
+
+    private var selectedTerminalAutosuggestionMode: TerminalAutosuggestionMode {
+        TerminalAutosuggestionSettings.mode(for: terminalAutosuggestionMode)
+    }
+
+    private var terminalAutosuggestionModeSelection: Binding<String> {
+        Binding(
+            get: { TerminalAutosuggestionSettings.mode(for: terminalAutosuggestionMode).rawValue },
+            set: { terminalAutosuggestionMode = TerminalAutosuggestionSettings.mode(for: $0).rawValue }
+        )
     }
 
     private var selectedBrowserThemeMode: BrowserThemeMode {
@@ -4017,6 +4105,28 @@ struct SettingsView: View {
                     }
 
                     SettingsCard {
+                        SettingsPickerRow(
+                            String(localized: "settings.automation.terminalAutosuggestions", defaultValue: "Terminal Autosuggestions"),
+                            subtitle: selectedTerminalAutosuggestionMode.description,
+                            controlWidth: pickerColumnWidth,
+                            selection: terminalAutosuggestionModeSelection
+                        ) {
+                            ForEach(TerminalAutosuggestionMode.allCases) { mode in
+                                Text(mode.displayName).tag(mode.rawValue)
+                            }
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardNote(
+                            String(
+                                localized: "settings.automation.terminalAutosuggestions.note",
+                                defaultValue: "Automatic is the safest default. cmux only renders terminal autosuggestions when the shell reports that no external autosuggestion provider owns the current session."
+                            )
+                        )
+                    }
+
+                    SettingsCard {
                         SettingsCardRow(String(localized: "settings.automation.portBase", defaultValue: "Port Base"), subtitle: String(localized: "settings.automation.portBase.subtitle", defaultValue: "Starting port for CMUX_PORT env var."), controlWidth: pickerColumnWidth) {
                             TextField("", value: $cmuxPortBase, format: .number)
                                 .textFieldStyle(.roundedBorder)
@@ -4459,6 +4569,7 @@ struct SettingsView: View {
         AppIconSettings.applyIcon(.automatic)
         socketControlMode = SocketControlSettings.defaultMode.rawValue
         claudeCodeHooksEnabled = ClaudeCodeIntegrationSettings.defaultHooksEnabled
+        terminalAutosuggestionMode = TerminalAutosuggestionSettings.defaultMode.rawValue
         sendAnonymousTelemetry = TelemetrySettings.defaultSendAnonymousTelemetry
         browserSearchEngine = BrowserSearchSettings.defaultSearchEngine.rawValue
         browserSearchSuggestionsEnabled = BrowserSearchSettings.defaultSearchSuggestionsEnabled

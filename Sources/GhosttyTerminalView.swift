@@ -2982,6 +2982,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         if !claudeHooksEnabled {
             env["CMUX_CLAUDE_HOOKS_DISABLED"] = "1"
         }
+        env["CMUX_TERMINAL_AUTOSUGGESTIONS_MODE"] = TerminalAutosuggestionSettings.mode().rawValue
 
         if let cliBinPath = Bundle.main.resourceURL?.appendingPathComponent("bin").path {
             let currentPath = env["PATH"]

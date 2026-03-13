@@ -518,6 +518,66 @@ final class GhosttyConfigTests: XCTestCase {
         XCTAssertFalse(ClaudeCodeIntegrationSettings.hooksEnabled(defaults: defaults))
     }
 
+    func testTerminalAutosuggestionModeDefaultsToAutomaticWhenUnset() {
+        let suiteName = "cmux.tests.terminal-autosuggestions.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated user defaults suite")
+            return
+        }
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        defaults.removeObject(forKey: TerminalAutosuggestionSettings.modeKey)
+        XCTAssertEqual(TerminalAutosuggestionSettings.mode(defaults: defaults), .automatic)
+    }
+
+    func testTerminalAutosuggestionModeRespectsStoredPreference() {
+        let suiteName = "cmux.tests.terminal-autosuggestions.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated user defaults suite")
+            return
+        }
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        defaults.set(TerminalAutosuggestionMode.off.rawValue, forKey: TerminalAutosuggestionSettings.modeKey)
+        XCTAssertEqual(TerminalAutosuggestionSettings.mode(defaults: defaults), .off)
+
+        defaults.set(TerminalAutosuggestionMode.forceOn.rawValue, forKey: TerminalAutosuggestionSettings.modeKey)
+        XCTAssertEqual(TerminalAutosuggestionSettings.mode(defaults: defaults), .forceOn)
+    }
+
+    func testTerminalAutosuggestionRenderingPolicyMatchesModeAndProvider() {
+        XCTAssertFalse(TerminalAutosuggestionSettings.shouldRender(mode: .off, reportedProvider: "none"))
+        XCTAssertTrue(TerminalAutosuggestionSettings.shouldRender(mode: .forceOn, reportedProvider: "external:zsh-autosuggestions"))
+        XCTAssertTrue(TerminalAutosuggestionSettings.shouldRender(mode: .automatic, reportedProvider: "none"))
+        XCTAssertTrue(TerminalAutosuggestionSettings.shouldRender(mode: .automatic, reportedProvider: "cmux"))
+        XCTAssertTrue(TerminalAutosuggestionSettings.shouldRender(mode: .automatic, reportedProvider: " NONE "))
+        XCTAssertFalse(TerminalAutosuggestionSettings.shouldRender(mode: .automatic, reportedProvider: nil))
+        XCTAssertFalse(TerminalAutosuggestionSettings.shouldRender(mode: .automatic, reportedProvider: "external:unknown"))
+    }
+
+    func testNormalizeAutosuggestionProviderAcceptsKnownValues() {
+        XCTAssertEqual(TerminalController.normalizeAutosuggestionProvider("none"), "none")
+        XCTAssertEqual(TerminalController.normalizeAutosuggestionProvider(" cmux "), "cmux")
+        XCTAssertEqual(
+            TerminalController.normalizeAutosuggestionProvider("external:Zsh-Autosuggestions"),
+            "external:zsh-autosuggestions"
+        )
+        XCTAssertEqual(
+            TerminalController.normalizeAutosuggestionProvider("external:"),
+            "external:unknown"
+        )
+    }
+
+    func testNormalizeAutosuggestionProviderRejectsInvalidValues() {
+        XCTAssertNil(TerminalController.normalizeAutosuggestionProvider(""))
+        XCTAssertNil(TerminalController.normalizeAutosuggestionProvider("external provider"))
+        XCTAssertNil(TerminalController.normalizeAutosuggestionProvider("maybe"))
+    }
+
     func testTelemetryDefaultsToEnabledWhenUnset() {
         let suiteName = "cmux.tests.telemetry.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {
@@ -1514,7 +1574,12 @@ final class GhosttyMouseFocusTests: XCTestCase {
 
 final class ZshShellIntegrationHandoffTests: XCTestCase {
     func testGhosttyPromptHooksLoadWhenCmuxRequestsZshIntegration() throws {
-        let output = try runInteractiveZsh(cmuxLoadGhosttyIntegration: true)
+        let output = try runInteractiveZsh(
+            command: "(( $+functions[_ghostty_deferred_init] )) && _ghostty_deferred_init >/dev/null 2>&1; " +
+                "print -r -- \"PRECMD=${+functions[_ghostty_precmd]} " +
+                "PREEXEC=${+functions[_ghostty_preexec]} PRECMDS=${(j:,:)precmd_functions}\"",
+            cmuxLoadGhosttyIntegration: true
+        )
 
         XCTAssertTrue(output.contains("PRECMD=1"), output)
         XCTAssertTrue(output.contains("PREEXEC=1"), output)
@@ -1522,13 +1587,86 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
     }
 
     func testGhosttyPromptHooksDoNotLoadWithoutCmuxHandoffFlag() throws {
-        let output = try runInteractiveZsh(cmuxLoadGhosttyIntegration: false)
+        let output = try runInteractiveZsh(
+            command: "(( $+functions[_ghostty_deferred_init] )) && _ghostty_deferred_init >/dev/null 2>&1; " +
+                "print -r -- \"PRECMD=${+functions[_ghostty_precmd]} " +
+                "PREEXEC=${+functions[_ghostty_preexec]} PRECMDS=${(j:,:)precmd_functions}\""
+        )
 
         XCTAssertTrue(output.contains("PRECMD=0"), output)
         XCTAssertTrue(output.contains("PREEXEC=0"), output)
     }
 
-    private func runInteractiveZsh(cmuxLoadGhosttyIntegration: Bool) throws -> String {
+    func testAutosuggestionProviderDefaultsToNoneWithoutMarkers() throws {
+        let provider = try detectAutosuggestionProvider()
+        XCTAssertEqual(provider, "none")
+    }
+
+    func testAutosuggestionProviderDetectsZshAutosuggestions() throws {
+        let provider = try detectAutosuggestionProvider(
+            userZshrc: """
+            typeset -g ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE='fg=8'
+            """
+        )
+
+        XCTAssertEqual(provider, "external:zsh-autosuggestions")
+    }
+
+    func testAutosuggestionProviderDetectsZshAutocomplete() throws {
+        let provider = try detectAutosuggestionProvider(
+            userZshrc: """
+            function _autocomplete__main() { :; }
+            """
+        )
+
+        XCTAssertEqual(provider, "external:zsh-autocomplete")
+    }
+
+    func testAutosuggestionProviderTreatsUnknownMarkersAsExternalUnknown() throws {
+        let provider = try detectAutosuggestionProvider(
+            userZshrc: """
+            function _custom_autosuggest_preview() { :; }
+            """
+        )
+
+        XCTAssertEqual(provider, "external:unknown")
+    }
+
+    func testAutosuggestionProviderOverrideWins() throws {
+        let provider = try detectAutosuggestionProvider(
+            userZshrc: """
+            typeset -g ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE='fg=8'
+            """,
+            environmentOverrides: [
+                "CMUX_AUTOSUGGEST_PROVIDER_OVERRIDE": "none"
+            ]
+        )
+
+        XCTAssertEqual(provider, "none")
+    }
+
+    private func detectAutosuggestionProvider(
+        userZshenv: String = "\n",
+        userZshrc: String = "\n",
+        environmentOverrides: [String: String] = [:]
+    ) throws -> String {
+        try runInteractiveZsh(
+            command: "print -r -- \"$(_cmux_autosuggestion_provider)\"",
+            cmuxShellIntegration: true,
+            userZshenv: userZshenv,
+            userZshrc: userZshrc,
+            environmentOverrides: environmentOverrides
+        )
+    }
+
+    private func runInteractiveZsh(
+        command: String,
+        cmuxLoadGhosttyIntegration: Bool = false,
+        cmuxShellIntegration: Bool = false,
+        userZshenv: String = "\n",
+        userZshrc: String = "\n",
+        environmentOverrides: [String: String] = [:]
+    ) throws -> String {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-zsh-shell-integration-\(UUID().uuidString)")
@@ -1537,7 +1675,8 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
 
         let userZdotdir = root.appendingPathComponent("zdotdir")
         try fileManager.createDirectory(at: userZdotdir, withIntermediateDirectories: true)
-        try "\n".write(to: userZdotdir.appendingPathComponent(".zshenv"), atomically: true, encoding: .utf8)
+        try userZshenv.write(to: userZdotdir.appendingPathComponent(".zshenv"), atomically: true, encoding: .utf8)
+        try userZshrc.write(to: userZdotdir.appendingPathComponent(".zshrc"), atomically: true, encoding: .utf8)
 
         let repoRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -1550,9 +1689,7 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
         process.arguments = [
             "-i",
             "-c",
-            "(( $+functions[_ghostty_deferred_init] )) && _ghostty_deferred_init >/dev/null 2>&1; " +
-            "print -r -- \"PRECMD=${+functions[_ghostty_precmd]} " +
-            "PREEXEC=${+functions[_ghostty_preexec]} PRECMDS=${(j:,:)precmd_functions}\""
+            command
         ]
         process.environment = [
             "HOME": root.path,
@@ -1561,11 +1698,15 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
             "USER": NSUserName(),
             "ZDOTDIR": cmuxZdotdir.path,
             "CMUX_ZSH_ZDOTDIR": userZdotdir.path,
-            "CMUX_SHELL_INTEGRATION": "0",
+            "CMUX_SHELL_INTEGRATION": cmuxShellIntegration ? "1" : "0",
+            "CMUX_SHELL_INTEGRATION_DIR": cmuxZdotdir.path,
             "GHOSTTY_RESOURCES_DIR": ghosttyResources.path,
         ]
         if cmuxLoadGhosttyIntegration {
             process.environment?["CMUX_LOAD_GHOSTTY_ZSH_INTEGRATION"] = "1"
+        }
+        for (key, value) in environmentOverrides {
+            process.environment?[key] = value
         }
 
         let stdout = Pipe()
