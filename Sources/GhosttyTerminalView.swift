@@ -8,6 +8,7 @@ import Darwin
 import Sentry
 import Bonsplit
 import IOSurface
+import UniformTypeIdentifiers
 
 #if os(macOS)
 func cmuxShouldUseTransparentBackgroundWindow() -> Bool {
@@ -175,7 +176,35 @@ private enum GhosttyPasteboardHelper {
 
     private static func hasImageData(in pasteboard: NSPasteboard) -> Bool {
         let types = pasteboard.types ?? []
-        return types.contains(.tiff) || types.contains(.png)
+        if types.contains(.tiff) || types.contains(.png) {
+            return true
+        }
+
+        return types.contains { type in
+            guard let utType = UTType(type.rawValue) else { return false }
+            return utType.conforms(to: .image)
+        }
+    }
+
+    private static func directImageRepresentation(
+        in pasteboard: NSPasteboard
+    ) -> (data: Data, fileExtension: String)? {
+        if let pngData = pasteboard.data(forType: .png) {
+            return (pngData, "png")
+        }
+
+        for type in pasteboard.types ?? [] {
+            guard type != .png,
+                  type != .tiff,
+                  let utType = UTType(type.rawValue),
+                  utType.conforms(to: .image),
+                  let imageData = pasteboard.data(forType: type),
+                  let fileExtension = utType.preferredFilenameExtension,
+                  !fileExtension.isEmpty else { continue }
+            return (imageData, fileExtension)
+        }
+
+        return nil
     }
 
     private static func htmlHasNoVisibleText(_ html: String) -> Bool {
@@ -207,9 +236,9 @@ private enum GhosttyPasteboardHelper {
 
         let imageData: Data
         let fileExtension: String
-        if let pngData = pasteboard.data(forType: .png) {
-            imageData = pngData
-            fileExtension = "png"
+        if let directImage = directImageRepresentation(in: pasteboard) {
+            imageData = directImage.data
+            fileExtension = directImage.fileExtension
         } else {
             guard hasImageData(in: pasteboard),
                   let image = NSImage(pasteboard: pasteboard),
