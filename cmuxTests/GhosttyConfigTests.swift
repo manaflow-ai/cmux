@@ -536,6 +536,55 @@ final class WorkspaceChromeThemeTests: XCTestCase {
     }
 }
 
+final class TerminalCopyOnSelectSettingsTests: XCTestCase {
+    func testCopyOnSelectSettingDefaultsToInheritWhenUnset() {
+        let defaults = makeCopyOnSelectDefaults()
+        defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
+
+        XCTAssertEqual(TerminalCopyOnSelectSettings.mode(defaults: defaults), .inherit)
+        XCTAssertNil(TerminalCopyOnSelectSettings.overrideConfigLine(defaults: defaults))
+    }
+
+    func testCopyOnSelectSettingMapsModesToGhosttyConfigValues() {
+        XCTAssertNil(TerminalCopyOnSelectSettings.Mode.inherit.ghosttyConfigLine)
+        XCTAssertEqual(
+            TerminalCopyOnSelectSettings.Mode.selection.ghosttyConfigLine,
+            "copy-on-select = true"
+        )
+        XCTAssertEqual(
+            TerminalCopyOnSelectSettings.Mode.clipboard.ghosttyConfigLine,
+            "copy-on-select = clipboard"
+        )
+        XCTAssertEqual(
+            TerminalCopyOnSelectSettings.Mode.disabled.ghosttyConfigLine,
+            "copy-on-select = false"
+        )
+    }
+
+    func testCopyOnSelectSettingReadsStoredClipboardOverride() {
+        let defaults = makeCopyOnSelectDefaults()
+        defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
+        defaults.set(
+            TerminalCopyOnSelectSettings.Mode.clipboard.rawValue,
+            forKey: TerminalCopyOnSelectSettings.modeKey
+        )
+
+        XCTAssertEqual(TerminalCopyOnSelectSettings.mode(defaults: defaults), .clipboard)
+        XCTAssertEqual(
+            TerminalCopyOnSelectSettings.overrideConfigLine(defaults: defaults),
+            "copy-on-select = clipboard"
+        )
+    }
+
+    private let defaultsSuiteName = "TerminalCopyOnSelectSettingsTests"
+
+    private func makeCopyOnSelectDefaults() -> UserDefaults {
+        let defaults = UserDefaults(suiteName: defaultsSuiteName)!
+        defaults.removePersistentDomain(forName: defaultsSuiteName)
+        return defaults
+    }
+}
+
 final class WorkspaceAppearanceConfigResolutionTests: XCTestCase {
     func testResolvedAppearanceConfigPrefersGhosttyRuntimeBackgroundOverLoadedConfig() {
         guard let loadedBackground = NSColor(hex: "#112233"),

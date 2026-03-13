@@ -40193,6 +40193,159 @@
         }
       }
     },
+    "settings.app.copyOnSelect": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy on Select"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択時にコピー"
+          }
+        }
+      }
+    },
+    "settings.app.copyOnSelect.clipboard": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clipboard"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クリップボード"
+          }
+        }
+      }
+    },
+    "settings.app.copyOnSelect.clipboard.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto-copy selected terminal text to the macOS clipboard and Ghostty's selection clipboard."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択したターミナルテキストをmacOSのクリップボードとGhosttyの選択クリップボードに自動コピーします。"
+          }
+        }
+      }
+    },
+    "settings.app.copyOnSelect.disabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Off"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフ"
+          }
+        }
+      }
+    },
+    "settings.app.copyOnSelect.disabled.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Do not auto-copy terminal selections."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルの選択を自動コピーしません。"
+          }
+        }
+      }
+    },
+    "settings.app.copyOnSelect.inherit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inherit Ghostty Config"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ghostty設定に従う"
+          }
+        }
+      }
+    },
+    "settings.app.copyOnSelect.inherit.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use your Ghostty config file or Ghostty's platform default."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ghosttyの設定ファイルまたはGhosttyのプラットフォーム既定値を使います。"
+          }
+        }
+      }
+    },
+    "settings.app.copyOnSelect.selection": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Selection Clipboard"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択クリップボード"
+          }
+        }
+      }
+    },
+    "settings.app.copyOnSelect.selection.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto-copy selected terminal text to Ghostty's selection clipboard only."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択したターミナルテキストをGhosttyの選択クリップボードだけに自動コピーします。"
+          }
+        }
+      }
+    },
     "settings.app.dockBadge": {
       "extractionState": "manual",
       "localizations": {

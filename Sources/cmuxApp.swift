@@ -3009,6 +3009,103 @@ enum CommandPaletteRenameSelectionSettings {
     }
 }
 
+enum TerminalCopyOnSelectSettings {
+    static let modeKey = "terminalCopyOnSelectMode"
+    static let defaultMode: Mode = .inherit
+
+    enum Mode: String, CaseIterable, Identifiable {
+        case inherit
+        case selection
+        case clipboard
+        case disabled
+
+        var id: Self { self }
+
+        var displayName: String {
+            switch self {
+            case .inherit:
+                return String(
+                    localized: "settings.app.copyOnSelect.inherit",
+                    defaultValue: "Inherit Ghostty Config"
+                )
+            case .selection:
+                return String(
+                    localized: "settings.app.copyOnSelect.selection",
+                    defaultValue: "Selection Clipboard"
+                )
+            case .clipboard:
+                return String(
+                    localized: "settings.app.copyOnSelect.clipboard",
+                    defaultValue: "Clipboard"
+                )
+            case .disabled:
+                return String(
+                    localized: "settings.app.copyOnSelect.disabled",
+                    defaultValue: "Off"
+                )
+            }
+        }
+
+        var description: String {
+            switch self {
+            case .inherit:
+                return String(
+                    localized: "settings.app.copyOnSelect.inherit.subtitle",
+                    defaultValue: "Use your Ghostty config file or Ghostty's platform default."
+                )
+            case .selection:
+                return String(
+                    localized: "settings.app.copyOnSelect.selection.subtitle",
+                    defaultValue: "Auto-copy selected terminal text to Ghostty's selection clipboard only."
+                )
+            case .clipboard:
+                return String(
+                    localized: "settings.app.copyOnSelect.clipboard.subtitle",
+                    defaultValue: "Auto-copy selected terminal text to the macOS clipboard and Ghostty's selection clipboard."
+                )
+            case .disabled:
+                return String(
+                    localized: "settings.app.copyOnSelect.disabled.subtitle",
+                    defaultValue: "Do not auto-copy terminal selections."
+                )
+            }
+        }
+
+        // Keep the cmux picker aligned with Ghostty's upstream `copy-on-select` values.
+        var ghosttyConfigValue: String? {
+            switch self {
+            case .inherit:
+                return nil
+            case .selection:
+                return "true"
+            case .clipboard:
+                return "clipboard"
+            case .disabled:
+                return "false"
+            }
+        }
+
+        var ghosttyConfigLine: String? {
+            ghosttyConfigValue.map { "copy-on-select = \($0)" }
+        }
+    }
+
+    static func mode(defaults: UserDefaults = .standard) -> Mode {
+        mode(for: defaults.string(forKey: modeKey))
+    }
+
+    static func mode(for rawValue: String?) -> Mode {
+        guard let rawValue, let mode = Mode(rawValue: rawValue) else {
+            return defaultMode
+        }
+        return mode
+    }
+
+    static func overrideConfigLine(defaults: UserDefaults = .standard) -> String? {
+        mode(defaults: defaults).ghosttyConfigLine
+    }
+}
+
 enum ClaudeCodeIntegrationSettings {
     static let hooksEnabledKey = "claudeCodeHooksEnabled"
     static let defaultHooksEnabled = true
@@ -3073,6 +3170,8 @@ struct SettingsView: View {
     @AppStorage(QuitWarningSettings.warnBeforeQuitKey) private var warnBeforeQuitShortcut = QuitWarningSettings.defaultWarnBeforeQuit
     @AppStorage(CommandPaletteRenameSelectionSettings.selectAllOnFocusKey)
     private var commandPaletteRenameSelectAllOnFocus = CommandPaletteRenameSelectionSettings.defaultSelectAllOnFocus
+    @AppStorage(TerminalCopyOnSelectSettings.modeKey)
+    private var terminalCopyOnSelectMode = TerminalCopyOnSelectSettings.defaultMode.rawValue
     @AppStorage(ShortcutHintDebugSettings.alwaysShowHintsKey)
     private var alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
     @AppStorage(WorkspacePlacementSettings.placementKey) private var newWorkspacePlacement = WorkspacePlacementSettings.defaultPlacement.rawValue
@@ -3145,6 +3244,19 @@ struct SettingsView: View {
             get: { browserThemeMode },
             set: { newValue in
                 browserThemeMode = BrowserThemeSettings.mode(for: newValue).rawValue
+            }
+        )
+    }
+
+    private var selectedTerminalCopyOnSelectMode: TerminalCopyOnSelectSettings.Mode {
+        TerminalCopyOnSelectSettings.mode(for: terminalCopyOnSelectMode)
+    }
+
+    private var terminalCopyOnSelectModeSelection: Binding<String> {
+        Binding(
+            get: { selectedTerminalCopyOnSelectMode.rawValue },
+            set: { newValue in
+                terminalCopyOnSelectMode = TerminalCopyOnSelectSettings.mode(for: newValue).rawValue
             }
         )
     }
@@ -3648,6 +3760,19 @@ struct SettingsView: View {
                             Toggle("", isOn: $commandPaletteRenameSelectAllOnFocus)
                                 .labelsHidden()
                                 .controlSize(.small)
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsPickerRow(
+                            String(localized: "settings.app.copyOnSelect", defaultValue: "Copy on Select"),
+                            subtitle: selectedTerminalCopyOnSelectMode.description,
+                            controlWidth: pickerColumnWidth,
+                            selection: terminalCopyOnSelectModeSelection
+                        ) {
+                            ForEach(TerminalCopyOnSelectSettings.Mode.allCases) { mode in
+                                Text(mode.displayName).tag(mode.rawValue)
+                            }
                         }
 
                         SettingsCardDivider()
@@ -4292,6 +4417,14 @@ struct SettingsView: View {
         .onChange(of: notificationSoundCustomFilePath) { _, _ in
             refreshNotificationCustomSoundStatus()
         }
+        .onChange(of: terminalCopyOnSelectMode) { _, newValue in
+            let normalized = TerminalCopyOnSelectSettings.mode(for: newValue).rawValue
+            if normalized != newValue {
+                terminalCopyOnSelectMode = normalized
+                return
+            }
+            GhosttyApp.shared.reloadConfiguration(source: "settings.copy_on_select")
+        }
         .onChange(of: browserInsecureHTTPAllowlist) { oldValue, newValue in
             // Keep draft in sync with external changes unless the user has local unsaved edits.
             if browserInsecureHTTPAllowlistDraft == oldValue {
@@ -4409,6 +4542,7 @@ struct SettingsView: View {
         notificationDockBadgeEnabled = NotificationBadgeSettings.defaultDockBadgeEnabled
         warnBeforeQuitShortcut = QuitWarningSettings.defaultWarnBeforeQuit
         commandPaletteRenameSelectAllOnFocus = CommandPaletteRenameSelectionSettings.defaultSelectAllOnFocus
+        terminalCopyOnSelectMode = TerminalCopyOnSelectSettings.defaultMode.rawValue
         ShortcutHintDebugSettings.resetVisibilityDefaults()
         alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
         newWorkspacePlacement = WorkspacePlacementSettings.defaultPlacement.rawValue
