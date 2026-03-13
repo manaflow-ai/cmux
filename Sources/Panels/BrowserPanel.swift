@@ -4,6 +4,7 @@ import WebKit
 import AppKit
 import Bonsplit
 import Network
+import CFNetwork
 
 struct BrowserProxyEndpoint: Equatable {
     let host: String
@@ -2457,6 +2458,13 @@ final class BrowserPanel: Panel, ObservableObject {
             guard let self, let webView else { return }
             guard self.isCurrentWebView(webView, instanceID: refreshWebViewInstanceID) else { return }
             guard self.isCurrentFaviconRefresh(generation: refreshGeneration) else { return }
+#if DEBUG
+            dlog(
+                "browser.favicon.begin " +
+                "panel=\(id.uuidString.prefix(5)) " +
+                "page=\(pageURL.absoluteString)"
+            )
+#endif
 
             // Try to discover the best icon URL from the document.
             let js = """
@@ -2484,7 +2492,11 @@ final class BrowserPanel: Panel, ObservableObject {
             """
 
             var discoveredURL: URL?
-            if let href = try? await webView.evaluateJavaScript(js) as? String {
+            if let href = await self.evaluateJavaScriptString(
+                js,
+                in: webView,
+                timeoutNanoseconds: 400_000_000
+            ) {
                 let trimmed = href.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !trimmed.isEmpty, let u = URL(string: trimmed) {
                     discoveredURL = u
@@ -2496,10 +2508,26 @@ final class BrowserPanel: Panel, ObservableObject {
             let fallbackURL = URL(string: "/favicon.ico", relativeTo: pageURL)
             let iconURL = discoveredURL ?? fallbackURL
             guard let iconURL else { return }
+#if DEBUG
+            dlog(
+                "browser.favicon.iconURL " +
+                "panel=\(id.uuidString.prefix(5)) " +
+                "discovered=\(discoveredURL?.absoluteString ?? "<nil>") " +
+                "fallback=\(fallbackURL?.absoluteString ?? "<nil>") " +
+                "chosen=\(iconURL.absoluteString)"
+            )
+#endif
 
             // Avoid repeated fetches.
             let iconURLString = iconURL.absoluteString
             if iconURLString == lastFaviconURLString, faviconPNGData != nil {
+#if DEBUG
+                dlog(
+                    "browser.favicon.skipCached " +
+                    "panel=\(id.uuidString.prefix(5)) " +
+                    "icon=\(iconURLString)"
+                )
+#endif
                 return
             }
             lastFaviconURLString = iconURLString
@@ -2508,12 +2536,42 @@ final class BrowserPanel: Panel, ObservableObject {
             req.timeoutInterval = 2.0
             req.cachePolicy = .returnCacheDataElseLoad
             req.setValue(BrowserUserAgentSettings.safariUserAgent, forHTTPHeaderField: "User-Agent")
+            let effectiveRequest = remoteProxyPreparedRequest(from: req, logScope: "faviconRewrite")
 
             let data: Data
             let response: URLResponse
             do {
-                (data, response) = try await URLSession.shared.data(for: req)
+                let remoteSession = remoteProxyURLSession()
+                defer { remoteSession?.finishTasksAndInvalidate() }
+                if let remoteSession {
+#if DEBUG
+                    dlog(
+                        "browser.favicon.fetch " +
+                        "panel=\(id.uuidString.prefix(5)) " +
+                        "via=proxy " +
+                        "url=\(effectiveRequest.url?.absoluteString ?? "<nil>")"
+                    )
+#endif
+                    (data, response) = try await remoteSession.data(for: effectiveRequest)
+                } else {
+#if DEBUG
+                    dlog(
+                        "browser.favicon.fetch " +
+                        "panel=\(id.uuidString.prefix(5)) " +
+                        "via=direct " +
+                        "url=\(effectiveRequest.url?.absoluteString ?? "<nil>")"
+                    )
+#endif
+                    (data, response) = try await URLSession.shared.data(for: effectiveRequest)
+                }
             } catch {
+#if DEBUG
+                dlog(
+                    "browser.favicon.fetchError " +
+                    "panel=\(id.uuidString.prefix(5)) " +
+                    "error=\(String(describing: error))"
+                )
+#endif
                 return
             }
             guard self.isCurrentWebView(webView, instanceID: refreshWebViewInstanceID) else { return }
@@ -2521,19 +2579,80 @@ final class BrowserPanel: Panel, ObservableObject {
 
             guard let http = response as? HTTPURLResponse,
                   (200..<300).contains(http.statusCode) else {
+#if DEBUG
+                let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+                dlog(
+                    "browser.favicon.badResponse " +
+                    "panel=\(id.uuidString.prefix(5)) " +
+                    "status=\(status)"
+                )
+#endif
                 return
             }
+#if DEBUG
+            dlog(
+                "browser.favicon.response " +
+                "panel=\(id.uuidString.prefix(5)) " +
+                "status=\(http.statusCode) " +
+                "bytes=\(data.count)"
+            )
+#endif
 
             // Use >= 2x the rendered point size so we don't upscale (blurry) on Retina.
-            guard let png = Self.makeFaviconPNGData(from: data, targetPx: 32) else { return }
+            guard let png = Self.makeFaviconPNGData(from: data, targetPx: 32) else {
+#if DEBUG
+                dlog(
+                    "browser.favicon.decodeFailed " +
+                    "panel=\(id.uuidString.prefix(5)) " +
+                    "bytes=\(data.count)"
+                )
+#endif
+                return
+            }
             // Only update if we got a real icon; keep the old one otherwise to avoid flashes.
             faviconPNGData = png
+#if DEBUG
+            dlog(
+                "browser.favicon.ready " +
+                "panel=\(id.uuidString.prefix(5)) " +
+                "pngBytes=\(png.count)"
+            )
+#endif
         }
     }
 
     private func isCurrentFaviconRefresh(generation: Int) -> Bool {
         guard !Task.isCancelled else { return false }
         return generation == faviconRefreshGeneration
+    }
+
+    @MainActor
+    private func evaluateJavaScriptString(
+        _ script: String,
+        in webView: WKWebView,
+        timeoutNanoseconds: UInt64
+    ) async -> String? {
+        await withCheckedContinuation { continuation in
+            var hasResumed = false
+
+            func resume(_ value: String?) {
+                guard !hasResumed else { return }
+                hasResumed = true
+                continuation.resume(returning: value)
+            }
+
+            webView.evaluateJavaScript(script) { result, _ in
+                let value = result as? String
+                Task { @MainActor in
+                    resume(value)
+                }
+            }
+
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: timeoutNanoseconds)
+                resume(nil)
+            }
+        }
     }
 
     @MainActor
@@ -2669,7 +2788,7 @@ final class BrowserPanel: Panel, ObservableObject {
         if !preserveRestoredSessionHistory {
             abandonRestoredSessionHistoryIfNeeded()
         }
-        let effectiveRequest = remoteProxyPreparedNavigationRequest(from: request)
+        let effectiveRequest = remoteProxyPreparedRequest(from: request, logScope: "rewrite")
         // Some installs can end up with a legacy Chrome UA override; keep this pinned.
         webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
         shouldRenderWebView = true
@@ -2680,7 +2799,7 @@ final class BrowserPanel: Panel, ObservableObject {
         browserLoadRequest(effectiveRequest, in: webView)
     }
 
-    private func remoteProxyPreparedNavigationRequest(from request: URLRequest) -> URLRequest {
+    private func remoteProxyPreparedRequest(from request: URLRequest, logScope: String) -> URLRequest {
         guard remoteProxyEndpoint != nil else { return request }
         guard let url = request.url else { return request }
         guard let rewrittenURL = Self.remoteProxyLoopbackAliasURL(for: url) else { return request }
@@ -2689,13 +2808,30 @@ final class BrowserPanel: Panel, ObservableObject {
         rewrittenRequest.url = rewrittenURL
 #if DEBUG
         dlog(
-            "browser.remoteProxy.rewrite " +
+            "browser.remoteProxy.\(logScope) " +
             "panel=\(id.uuidString.prefix(5)) " +
             "from=\(url.absoluteString) " +
             "to=\(rewrittenURL.absoluteString)"
         )
 #endif
         return rewrittenRequest
+    }
+
+    private func remoteProxyURLSession() -> URLSession? {
+        guard let endpoint = remoteProxyEndpoint else { return nil }
+        let host = endpoint.host.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !host.isEmpty, endpoint.port > 0, endpoint.port <= 65535 else { return nil }
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.requestCachePolicy = .returnCacheDataElseLoad
+        configuration.timeoutIntervalForRequest = 2.0
+        configuration.timeoutIntervalForResource = 4.0
+        configuration.connectionProxyDictionary = [
+            kCFNetworkProxiesSOCKSEnable as String: 1,
+            kCFNetworkProxiesSOCKSProxy as String: host,
+            kCFNetworkProxiesSOCKSPort as String: endpoint.port,
+        ]
+        return URLSession(configuration: configuration)
     }
 
     private static func remoteProxyDisplayURL(for url: URL?) -> URL? {
