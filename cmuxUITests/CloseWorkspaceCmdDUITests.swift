@@ -623,12 +623,14 @@ final class CloseWorkspaceCmdDUITests: XCTestCase {
         return isCloseTabAlertPresent(app: app)
     }
 
+    // Must match the defaultValue for dialog.closeTab.title in TabManager.
     private func isCloseTabAlertPresent(app: XCUIApplication) -> Bool {
         if app.dialogs.containing(.staticText, identifier: "Close tab?").firstMatch.exists { return true }
         if app.alerts.containing(.staticText, identifier: "Close tab?").firstMatch.exists { return true }
         return app.staticTexts["Close tab?"].exists
     }
 
+    // Must match the defaultValue for dialog.closeTab.title in TabManager.
     private func clickCloseOnCloseTabAlert(app: XCUIApplication) {
         let dialog = app.dialogs.containing(.staticText, identifier: "Close tab?").firstMatch
         if dialog.exists {

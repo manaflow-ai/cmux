@@ -5288,6 +5288,68 @@ final class TabManagerCloseCurrentPanelTests: XCTestCase {
         XCTAssertEqual(manager.tabs.map(\.id), [firstWorkspace.id])
         XCTAssertEqual(manager.selectedTabId, firstWorkspace.id)
     }
+
+    func testCloseCurrentPanelWithLegacySettingIgnoresStaleSurfaceId() {
+        let defaults = UserDefaults.standard
+        let originalSetting = defaults.object(forKey: LastSurfaceCloseShortcutSettings.key)
+        defaults.set(true, forKey: LastSurfaceCloseShortcutSettings.key)
+        defer {
+            if let originalSetting {
+                defaults.set(originalSetting, forKey: LastSurfaceCloseShortcutSettings.key)
+            } else {
+                defaults.removeObject(forKey: LastSurfaceCloseShortcutSettings.key)
+            }
+        }
+
+        let manager = TabManager()
+        let firstWorkspace = manager.tabs[0]
+        let secondWorkspace = manager.addWorkspace()
+
+        manager.closePanelWithConfirmation(tabId: secondWorkspace.id, surfaceId: UUID())
+
+        XCTAssertEqual(manager.tabs.map(\.id), [firstWorkspace.id, secondWorkspace.id])
+    }
+
+    func testCloseCurrentPanelClearsNotificationsForClosedSurface() {
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let manager = TabManager()
+        let store = TerminalNotificationStore.shared
+
+        let originalTabManager = appDelegate.tabManager
+        let originalNotificationStore = appDelegate.notificationStore
+        store.replaceNotificationsForTesting([])
+        store.configureNotificationDeliveryHandlerForTesting { _, _ in }
+        appDelegate.tabManager = manager
+        appDelegate.notificationStore = store
+
+        defer {
+            store.replaceNotificationsForTesting([])
+            store.resetNotificationDeliveryHandlerForTesting()
+            appDelegate.tabManager = originalTabManager
+            appDelegate.notificationStore = originalNotificationStore
+        }
+
+        guard let workspace = manager.selectedWorkspace,
+              let initialPanelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace and focused panel")
+            return
+        }
+
+        store.addNotification(
+            tabId: workspace.id,
+            surfaceId: initialPanelId,
+            title: "Unread",
+            subtitle: "",
+            body: ""
+        )
+        XCTAssertTrue(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: initialPanelId))
+
+        manager.closeCurrentPanelWithConfirmation()
+        drainMainQueue()
+        drainMainQueue()
+
+        XCTAssertFalse(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: initialPanelId))
+    }
 }
 
 @MainActor

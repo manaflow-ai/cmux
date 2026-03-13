@@ -1666,6 +1666,16 @@ class TabManager: ObservableObject {
     }
 
     private func closePanelWithConfirmation(tab: Workspace, panelId: UUID) {
+        guard tab.panels[panelId] != nil else {
+#if DEBUG
+            dlog(
+                "surface.close.shortcut.skip tab=\(tab.id.uuidString.prefix(5)) " +
+                "panel=\(panelId.uuidString.prefix(5)) reason=missingPanel"
+            )
+#endif
+            return
+        }
+
         let bonsplitTabCount = tab.bonsplitController.allPaneIds.reduce(0) { partial, paneId in
             partial + tab.bonsplitController.tabs(inPane: paneId).count
         }
@@ -1691,31 +1701,9 @@ class TabManager: ObservableObject {
             return
         }
 
-        if let terminalPanel = tab.terminalPanel(for: panelId),
-           terminalPanel.needsConfirmClose() {
-#if DEBUG
-            dlog(
-                "surface.close.shortcut.confirm tab=\(tab.id.uuidString.prefix(5)) " +
-                "panel=\(panelId.uuidString.prefix(5)) reason=terminalNeedsConfirm"
-            )
-#endif
-            guard confirmClose(
-                title: String(localized: "dialog.closeTab.title", defaultValue: "Close tab?"),
-                message: String(localized: "dialog.closeTab.message", defaultValue: "This will close the current tab."),
-                acceptCmdD: false
-            ) else {
-#if DEBUG
-                dlog(
-                    "surface.close.shortcut.cancel tab=\(tab.id.uuidString.prefix(5)) " +
-                    "panel=\(panelId.uuidString.prefix(5)) reason=terminalConfirmDismissed"
-                )
-#endif
-                return
-            }
-        }
-
-        // We already confirmed (if needed); bypass Bonsplit's delegate gating.
-        let closed = tab.closePanel(panelId, force: true)
+        // Route the default Cmd+W path through Bonsplit/Workspace close handling so it matches
+        // the tab close button behavior, including shared confirmation and replacement-panel flow.
+        let closed = tab.closePanel(panelId)
 #if DEBUG
         dlog(
             "surface.close.shortcut tab=\(tab.id.uuidString.prefix(5)) " +
