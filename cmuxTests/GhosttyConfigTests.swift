@@ -164,6 +164,58 @@ final class GhosttyConfigTests: XCTestCase {
         XCTAssertEqual(rgb255(config.backgroundColor), RGB(red: 253, green: 246, blue: 227))
     }
 
+    func testLoadThemeResolvesITerm2SolarizedLightAliasToLegacyThemeName() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ghostty-solarized-light-\(UUID().uuidString)")
+        let themesDir = root.appendingPathComponent("themes")
+        try FileManager.default.createDirectory(at: themesDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        try """
+        background = #fdf6e3
+        foreground = #657b83
+        """.write(
+            to: themesDir.appendingPathComponent("Solarized Light"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        var config = GhosttyConfig()
+        config.loadTheme(
+            "iTerm2 Solarized Light",
+            environment: ["GHOSTTY_RESOURCES_DIR": root.path],
+            bundleResourceURL: nil
+        )
+
+        XCTAssertEqual(rgb255(config.backgroundColor), RGB(red: 253, green: 246, blue: 227))
+    }
+
+    func testLoadThemeResolvesITerm2SolarizedDarkAliasToLegacyThemeName() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ghostty-solarized-dark-\(UUID().uuidString)")
+        let themesDir = root.appendingPathComponent("themes")
+        try FileManager.default.createDirectory(at: themesDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        try """
+        background = #002b36
+        foreground = #93a1a1
+        """.write(
+            to: themesDir.appendingPathComponent("Solarized Dark"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        var config = GhosttyConfig()
+        config.loadTheme(
+            "iTerm2 Solarized Dark",
+            environment: ["GHOSTTY_RESOURCES_DIR": root.path],
+            bundleResourceURL: nil
+        )
+
+        XCTAssertEqual(rgb255(config.backgroundColor), RGB(red: 0, green: 43, blue: 54))
+    }
+
     func testLoadCachesPerColorScheme() {
         GhosttyConfig.invalidateLoadCache()
         defer { GhosttyConfig.invalidateLoadCache() }
