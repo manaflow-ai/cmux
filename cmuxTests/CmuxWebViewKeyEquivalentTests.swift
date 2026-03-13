@@ -5491,6 +5491,33 @@ final class TabManagerCloseCurrentPanelTests: XCTestCase {
 }
 
 @MainActor
+final class TabManagerNotificationFocusTests: XCTestCase {
+    func testFocusTabFromNotificationClearsSplitZoomBeforeFocusingTargetPanel() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let leftPanelId = workspace.focusedPanelId,
+              let rightPanel = workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal) else {
+            XCTFail("Expected split setup to succeed")
+            return
+        }
+
+        workspace.focusPanel(leftPanelId)
+        XCTAssertTrue(workspace.toggleSplitZoom(panelId: leftPanelId), "Expected split zoom to enable")
+        XCTAssertTrue(workspace.bonsplitController.isSplitZoomed, "Expected workspace to start zoomed")
+
+        manager.focusTabFromNotification(workspace.id, surfaceId: rightPanel.id)
+        drainMainQueue()
+        drainMainQueue()
+
+        XCTAssertFalse(
+            workspace.bonsplitController.isSplitZoomed,
+            "Expected notification focus to exit split zoom so the target pane becomes visible"
+        )
+        XCTAssertEqual(workspace.focusedPanelId, rightPanel.id, "Expected notification target panel to be focused")
+    }
+}
+
+@MainActor
 final class TabManagerPendingUnfocusPolicyTests: XCTestCase {
     func testDoesNotUnfocusWhenPendingTabIsCurrentlySelected() {
         let tabId = UUID()
