@@ -241,10 +241,13 @@ struct TitlebarControlsView: View {
     let onToggleNotifications: () -> Void
     let onNewTab: () -> Void
     @AppStorage("titlebarControlsStyle") private var styleRawValue = TitlebarControlsStyle.classic.rawValue
+    @AppStorage(TitlebarControlsVisibilitySettings.modeKey)
+    private var visibilityModeRawValue = TitlebarControlsVisibilitySettings.defaultMode.rawValue
     @AppStorage(ShortcutHintDebugSettings.titlebarHintXKey) private var titlebarShortcutHintXOffset = ShortcutHintDebugSettings.defaultTitlebarHintX
     @AppStorage(ShortcutHintDebugSettings.titlebarHintYKey) private var titlebarShortcutHintYOffset = ShortcutHintDebugSettings.defaultTitlebarHintY
     @AppStorage(ShortcutHintDebugSettings.alwaysShowHintsKey) private var alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
     @State private var shortcutRefreshTick = 0
+    @State private var isHoveringControls = false
     @StateObject private var modifierKeyMonitor = TitlebarShortcutHintModifierMonitor()
     private let titlebarHintRightSafetyShift: CGFloat = 10
     private let titlebarHintBaseXShift: CGFloat = -10
@@ -279,6 +282,19 @@ struct TitlebarControlsView: View {
         alwaysShowShortcutHints || modifierKeyMonitor.isModifierPressed
     }
 
+    private var visibilityMode: ChromeControlsVisibilityMode {
+        TitlebarControlsVisibilitySettings.mode(for: visibilityModeRawValue)
+    }
+
+    private var shouldShowControls: Bool {
+        switch visibilityMode {
+        case .always:
+            return true
+        case .onHover:
+            return isHoveringControls || shouldShowTitlebarShortcutHints
+        }
+    }
+
     var body: some View {
         // Force the `.safeHelp(...)` tooltips to re-evaluate when shortcuts are changed in settings.
         // (The titlebar controls don't otherwise re-render on UserDefaults changes.)
@@ -288,12 +304,18 @@ struct TitlebarControlsView: View {
         controlsGroup(config: config)
             .padding(.leading, 4)
             .padding(.trailing, titlebarHintTrailingInset)
+            .contentShape(Rectangle())
+            .opacity(shouldShowControls ? 1 : 0)
+            .animation(.easeInOut(duration: 0.14), value: shouldShowControls)
             .background(
                 WindowAccessor { window in
                     modifierKeyMonitor.setHostWindow(window)
                 }
                 .frame(width: 0, height: 0)
             )
+            .onHover { hovering in
+                isHoveringControls = hovering
+            }
             .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
                 shortcutRefreshTick &+= 1
             }

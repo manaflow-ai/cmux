@@ -73178,6 +73178,193 @@
           }
         }
       }
+    },
+    "settings.app.showWorkspaceTitlebar": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Workspace Title Bar"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースのタイトルバーを表示"
+          }
+        }
+      }
+    },
+    "settings.app.showWorkspaceTitlebar.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide the folder/title strip and drag from empty space in the top pane tab bar."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォルダとタイトルの帯を隠し、上部のペインタブバーの空き領域からウィンドウをドラッグできます。"
+          }
+        }
+      }
+    },
+    "settings.app.showWorkspaceTitlebar.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show the folder and active title above pane tabs."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペインタブの上にフォルダ名と現在のタイトルを表示します。"
+          }
+        }
+      }
+    },
+    "settings.app.titlebarControls": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Titlebar Controls"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タイトルバーのコントロール"
+          }
+        }
+      }
+    },
+    "settings.app.titlebarControls.always": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Always Visible"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "常に表示"
+          }
+        }
+      }
+    },
+    "settings.app.titlebarControls.hover": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show on Hover"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホバー時に表示"
+          }
+        }
+      }
+    },
+    "settings.app.titlebarControls.subtitleAlways": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep the sidebar, notifications, and new workspace buttons visible."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバー、通知、新規ワークスペースのボタンを常に表示します。"
+          }
+        }
+      }
+    },
+    "settings.app.titlebarControls.subtitleHover": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide titlebar buttons until the pointer reaches them."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ポインタが近づくまでタイトルバーのボタンを隠します。"
+          }
+        }
+      }
+    },
+    "settings.app.paneTabBarControls": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pane Tab Bar Controls"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペインタブバーのコントロール"
+          }
+        }
+      }
+    },
+    "settings.app.paneTabBarControls.subtitleAlways": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep the pane tab bar's new tab and split buttons visible."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペインタブバーの新規タブボタンと分割ボタンを常に表示します。"
+          }
+        }
+      }
+    },
+    "settings.app.paneTabBarControls.subtitleHover": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide the pane tab bar's new tab and split buttons until you hover the bar."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペインタブバーにホバーするまで、新規タブボタンと分割ボタンを隠します。"
+          }
+        }
+      }
     }
   }
 }

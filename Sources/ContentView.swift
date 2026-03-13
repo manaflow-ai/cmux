@@ -1932,8 +1932,7 @@ struct ContentView: View {
         .frame(width: sidebarWidth)
     }
 
-    /// Space at top of content area for the titlebar. This must be at least the actual titlebar
-    /// height; otherwise controls like Bonsplit tab dragging can be interpreted as window drags.
+    /// Space at top of content area reserved for the custom workspace titlebar.
     @State private var titlebarPadding: CGFloat = 32
 
     private var terminalContent: some View {
@@ -1942,56 +1941,59 @@ struct ContentView: View {
         let selectedWorkspaceId = tabManager.selectedTabId
         let retiringWorkspaceId = self.retiringWorkspaceId
 
-        return ZStack {
+        return ZStack(alignment: .top) {
             ZStack {
-                ForEach(mountedWorkspaces) { tab in
-                    let isSelectedWorkspace = selectedWorkspaceId == tab.id
-                    let isRetiringWorkspace = retiringWorkspaceId == tab.id
-                    let shouldPrimeInBackground = tabManager.pendingBackgroundWorkspaceLoadIds.contains(tab.id)
-                    // Keep the retiring workspace visible during handoff, but never input-active.
-                    // Allowing both selected+retiring workspaces to be input-active lets the
-                    // old workspace steal first responder (notably with WKWebView), which can
-                    // delay handoff completion and make browser returns feel laggy.
-                    let isInputActive = isSelectedWorkspace
-                    let isVisible = isSelectedWorkspace || isRetiringWorkspace
-                    let portalPriority = isSelectedWorkspace ? 2 : (isRetiringWorkspace ? 1 : 0)
-                    WorkspaceContentView(
-                        workspace: tab,
-                        isWorkspaceVisible: isVisible,
-                        isWorkspaceInputActive: isInputActive,
-                        workspacePortalPriority: portalPriority,
-                        onThemeRefreshRequest: { reason, eventId, source, payloadHex in
-                            scheduleTitlebarThemeRefreshFromWorkspace(
-                                workspaceId: tab.id,
-                                reason: reason,
-                                backgroundEventId: eventId,
-                                backgroundSource: source,
-                                notificationPayloadHex: payloadHex
-                            )
+                ZStack {
+                    ForEach(mountedWorkspaces) { tab in
+                        let isSelectedWorkspace = selectedWorkspaceId == tab.id
+                        let isRetiringWorkspace = retiringWorkspaceId == tab.id
+                        let shouldPrimeInBackground = tabManager.pendingBackgroundWorkspaceLoadIds.contains(tab.id)
+                        // Keep the retiring workspace visible during handoff, but never input-active.
+                        // Allowing both selected+retiring workspaces to be input-active lets the
+                        // old workspace steal first responder (notably with WKWebView), which can
+                        // delay handoff completion and make browser returns feel laggy.
+                        let isInputActive = isSelectedWorkspace
+                        let isVisible = isSelectedWorkspace || isRetiringWorkspace
+                        let portalPriority = isSelectedWorkspace ? 2 : (isRetiringWorkspace ? 1 : 0)
+                        WorkspaceContentView(
+                            workspace: tab,
+                            isWorkspaceVisible: isVisible,
+                            isWorkspaceInputActive: isInputActive,
+                            workspacePortalPriority: portalPriority,
+                            onThemeRefreshRequest: { reason, eventId, source, payloadHex in
+                                scheduleTitlebarThemeRefreshFromWorkspace(
+                                    workspaceId: tab.id,
+                                    reason: reason,
+                                    backgroundEventId: eventId,
+                                    backgroundSource: source,
+                                    notificationPayloadHex: payloadHex
+                                )
+                            }
+                        )
+                        .opacity(isVisible ? 1 : 0)
+                        .allowsHitTesting(isSelectedWorkspace)
+                        .accessibilityHidden(!isVisible)
+                        .zIndex(isSelectedWorkspace ? 2 : (isRetiringWorkspace ? 1 : 0))
+                        .task(id: shouldPrimeInBackground ? tab.id : nil) {
+                            await primeBackgroundWorkspaceIfNeeded(workspaceId: tab.id)
                         }
-                    )
-                    .opacity(isVisible ? 1 : 0)
-                    .allowsHitTesting(isSelectedWorkspace)
-                    .accessibilityHidden(!isVisible)
-                    .zIndex(isSelectedWorkspace ? 2 : (isRetiringWorkspace ? 1 : 0))
-                    .task(id: shouldPrimeInBackground ? tab.id : nil) {
-                        await primeBackgroundWorkspaceIfNeeded(workspaceId: tab.id)
                     }
                 }
-            }
-            .opacity(sidebarSelectionState.selection == .tabs ? 1 : 0)
-            .allowsHitTesting(sidebarSelectionState.selection == .tabs)
-            .accessibilityHidden(sidebarSelectionState.selection != .tabs)
+                .opacity(sidebarSelectionState.selection == .tabs ? 1 : 0)
+                .allowsHitTesting(sidebarSelectionState.selection == .tabs)
+                .accessibilityHidden(sidebarSelectionState.selection != .tabs)
 
-            NotificationsPage(selection: $sidebarSelectionState.selection)
-                .opacity(sidebarSelectionState.selection == .notifications ? 1 : 0)
-                .allowsHitTesting(sidebarSelectionState.selection == .notifications)
-                .accessibilityHidden(sidebarSelectionState.selection != .notifications)
-        }
-        .padding(.top, titlebarPadding)
-        .overlay(alignment: .top) {
-            // Titlebar overlay is only over terminal content, not the sidebar.
-            customTitlebar
+                NotificationsPage(selection: $sidebarSelectionState.selection)
+                    .opacity(sidebarSelectionState.selection == .notifications ? 1 : 0)
+                    .allowsHitTesting(sidebarSelectionState.selection == .notifications)
+                    .accessibilityHidden(sidebarSelectionState.selection != .notifications)
+            }
+            .padding(.top, titlebarPadding)
+
+            if showWorkspaceTitlebar {
+                // Titlebar overlay is only over terminal content, not the sidebar.
+                customTitlebar
+            }
         }
     }
 
@@ -2008,6 +2010,8 @@ struct ContentView: View {
     @AppStorage("bgGlassTintHex") private var bgGlassTintHex = "#000000"
     @AppStorage("bgGlassTintOpacity") private var bgGlassTintOpacity = 0.03
     @AppStorage("bgGlassEnabled") private var bgGlassEnabled = false
+    @AppStorage(WorkspaceTitlebarSettings.showTitlebarKey)
+    private var showWorkspaceTitlebar = WorkspaceTitlebarSettings.defaultShowTitlebar
     @AppStorage("debugTitlebarLeadingExtra") private var debugTitlebarLeadingExtra: Double = 0
 
     @State private var titlebarLeadingInset: CGFloat = 12
@@ -2635,7 +2639,7 @@ struct ContentView: View {
             removeSidebarResizerPointerMonitor()
         })
 
-        view = AnyView(view.background(WindowAccessor { [sidebarBlendMode, bgGlassEnabled, bgGlassTintHex, bgGlassTintOpacity] window in
+        view = AnyView(view.background(WindowAccessor { [sidebarBlendMode, bgGlassEnabled, bgGlassTintHex, bgGlassTintOpacity, showWorkspaceTitlebar] window in
             window.identifier = NSUserInterfaceItemIdentifier(windowIdentifier)
             window.titlebarAppearsTransparent = true
             // Do not make the entire background draggable; it interferes with drag gestures
@@ -2658,10 +2662,11 @@ struct ContentView: View {
                 }
             }
 
-            // Keep content below the titlebar so drags on Bonsplit's tab bar don't
-            // get interpreted as window drags.
+            // Reserve space for the custom titlebar only when it is enabled. When hidden, the
+            // top Bonsplit tab bar moves into this strip and its empty space gets an explicit
+            // drag handle overlay instead.
             let computedTitlebarHeight = window.frame.height - window.contentLayoutRect.height
-            let nextPadding = max(28, min(72, computedTitlebarHeight))
+            let nextPadding = showWorkspaceTitlebar ? max(28, min(72, computedTitlebarHeight)) : 0
             if abs(titlebarPadding - nextPadding) > 0.5 {
                 DispatchQueue.main.async {
                     titlebarPadding = nextPadding
