@@ -7,6 +7,7 @@ struct GhosttyConfig {
         case dark
     }
 
+    private static let cmuxReleaseBundleIdentifier = "com.cmuxterm.app"
     private static let loadCacheLock = NSLock()
     private static var cachedConfigsByColorScheme: [ColorSchemePreference: GhosttyConfig] = [:]
 
@@ -87,6 +88,52 @@ struct GhosttyConfig {
         loadCacheLock.unlock()
     }
 
+    private static func cmuxConfigPaths(
+        fileManager: FileManager = .default,
+        currentBundleIdentifier: String? = Bundle.main.bundleIdentifier
+    ) -> [String] {
+        guard let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+            return []
+        }
+
+        func paths(for bundleIdentifier: String) -> [String] {
+            let directory = appSupport.appendingPathComponent(bundleIdentifier, isDirectory: true)
+            return [
+                directory.appendingPathComponent("config", isDirectory: false).path,
+                directory.appendingPathComponent("config.ghostty", isDirectory: false).path,
+            ]
+        }
+
+        func hasConfig(_ paths: [String]) -> Bool {
+            paths.contains { path in
+                guard let attributes = try? fileManager.attributesOfItem(atPath: path),
+                      let type = attributes[.type] as? FileAttributeType,
+                      type == .typeRegular,
+                      let size = attributes[.size] as? NSNumber else {
+                    return false
+                }
+                return size.intValue > 0
+            }
+        }
+
+        let releasePaths = paths(for: cmuxReleaseBundleIdentifier)
+        guard let currentBundleIdentifier, !currentBundleIdentifier.isEmpty else {
+            return releasePaths
+        }
+        if currentBundleIdentifier == cmuxReleaseBundleIdentifier {
+            return releasePaths
+        }
+
+        let currentPaths = paths(for: currentBundleIdentifier)
+        if hasConfig(currentPaths) {
+            return currentPaths
+        }
+        if SocketControlSettings.isDebugLikeBundleIdentifier(currentBundleIdentifier) {
+            return releasePaths
+        }
+        return []
+    }
+
     private static func loadFromDisk(preferredColorScheme: ColorSchemePreference) -> GhosttyConfig {
         var config = GhosttyConfig()
 
@@ -96,7 +143,7 @@ struct GhosttyConfig {
             "~/.config/ghostty/config.ghostty",
             "~/Library/Application Support/com.mitchellh.ghostty/config",
             "~/Library/Application Support/com.mitchellh.ghostty/config.ghostty",
-        ].map { NSString(string: $0).expandingTildeInPath }
+        ].map { NSString(string: $0).expandingTildeInPath } + cmuxConfigPaths()
 
         for path in configPaths {
             if let contents = readConfigFile(at: path) {

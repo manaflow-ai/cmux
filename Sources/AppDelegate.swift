@@ -9,6 +9,10 @@ import Combine
 import ObjectiveC.runtime
 import Darwin
 
+private enum CmuxThemeNotifications {
+    static let reloadConfig = Notification.Name("com.cmuxterm.themes.reload-config")
+}
+
 #if DEBUG
 enum CmuxTypingTiming {
     static let isEnabled: Bool = {
@@ -2117,6 +2121,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let env = ProcessInfo.processInfo.environment
         let isRunningUnderXCTest = isRunningUnderXCTest(env)
         let telemetryEnabled = TelemetrySettings.enabledForCurrentLaunch
+
+        DistributedNotificationCenter.default().addObserver(
+            self,
+            selector: #selector(handleThemesReloadNotification(_:)),
+            name: CmuxThemeNotifications.reloadConfig,
+            object: Bundle.main.bundleIdentifier,
+            suspensionBehavior: .deliverImmediately
+        )
 
 #if DEBUG
         // UI tests run on a shared VM user profile, so persisted shortcuts can drift and make
@@ -10766,6 +10778,14 @@ private extension NSApplication {
     }
 }
 
+private extension AppDelegate {
+    @objc func handleThemesReloadNotification(_ notification: Notification) {
+        DispatchQueue.main.async {
+            GhosttyApp.shared.reloadConfiguration(source: "distributed.cmux.themes")
+        }
+    }
+}
+
 private extension NSWindow {
     @objc func cmux_makeFirstResponder(_ responder: NSResponder?) -> Bool {
         if cmuxIsWindowFirstResponderBypassActive() {
@@ -11357,4 +11377,5 @@ private extension NSWindow {
         }
         return hitWebView === webView
     }
+
 }
