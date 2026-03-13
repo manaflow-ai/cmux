@@ -312,6 +312,56 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
         super.tearDown()
     }
 
+    func testCmdShiftPBackspaceReturnsToWorkspaceResults() throws {
+        let app = XCUIApplication()
+        app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        launchAndActivate(app)
+
+        XCTAssertTrue(
+            sidebarHelpPollUntil(timeout: 8.0) {
+                app.windows.count >= 1
+            },
+            "Expected the main window to be visible"
+        )
+        XCTAssertTrue(waitForSocketPong(timeout: 12.0), "Expected control socket at \(socketPath)")
+
+        let mainWindowId = try XCTUnwrap(
+            socketCommand("current_window")?.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+
+        openCommandPaletteCommands(app: app)
+
+        _ = try XCTUnwrap(
+            waitForCommandPaletteSnapshot(windowId: mainWindowId, mode: "commands", query: "", timeout: 5.0) { snapshot in
+                self.commandPaletteResultRows(from: snapshot).contains { row in
+                    let commandId = row["command_id"] as? String ?? ""
+                    return !commandId.hasPrefix("switcher.")
+                }
+            }
+        )
+
+        app.typeKey(XCUIKeyboardKey.delete.rawValue, modifierFlags: [])
+
+        let switcherSnapshot = try XCTUnwrap(
+            waitForCommandPaletteSnapshot(windowId: mainWindowId, mode: "switcher", query: "", timeout: 5.0) { snapshot in
+                self.commandPaletteResultRows(from: snapshot).contains { row in
+                    let commandId = row["command_id"] as? String ?? ""
+                    return commandId.hasPrefix("switcher.workspace.")
+                }
+            }
+        )
+
+        XCTAssertTrue(
+            commandPaletteResultRows(from: switcherSnapshot).contains { row in
+                let commandId = row["command_id"] as? String ?? ""
+                return commandId.hasPrefix("switcher.workspace.")
+            },
+            "Expected deleting the command prefix to restore workspace rows. snapshot=\(switcherSnapshot)"
+        )
+    }
+
     func testCmdPSearchCanIncludeSurfacesFromOtherWorkspacesWhenEnabled() throws {
         let app = XCUIApplication()
         app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
@@ -409,6 +459,13 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
         XCTAssertTrue(searchField.waitForExistence(timeout: 5.0), "Expected command palette search field")
         searchField.click()
         searchField.typeText(query)
+    }
+
+    private func openCommandPaletteCommands(app: XCUIApplication) {
+        let searchField = app.textFields["CommandPaletteSearchField"]
+        app.typeKey("p", modifierFlags: [.command, .shift])
+        XCTAssertTrue(searchField.waitForExistence(timeout: 5.0), "Expected command palette search field")
+        searchField.click()
     }
 
     private func dismissCommandPalette(app: XCUIApplication) {
@@ -511,6 +568,7 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
 
     private func waitForCommandPaletteSnapshot(
         windowId: String,
+        mode: String = "switcher",
         query: String,
         timeout: TimeInterval,
         predicate: (([String: Any]) -> Bool)? = nil
@@ -520,7 +578,7 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
             guard let snapshot = commandPaletteSnapshot(windowId: windowId) else { return false }
             latest = snapshot
             guard (snapshot["visible"] as? Bool) == true else { return false }
-            guard (snapshot["mode"] as? String) == "switcher" else { return false }
+            guard (snapshot["mode"] as? String) == mode else { return false }
             guard (snapshot["query"] as? String) == query else { return false }
             return predicate?(snapshot) ?? true
         }

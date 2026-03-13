@@ -434,6 +434,37 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         )
     }
 
+    func testVisibleResultsResetWhenQueryChangesCommandPaletteScope() {
+        XCTAssertTrue(
+            ContentView.commandPaletteShouldResetVisibleResultsForQueryTransition(
+                oldQuery: ">",
+                newQuery: "",
+                hasVisibleResults: true
+            )
+        )
+        XCTAssertTrue(
+            ContentView.commandPaletteShouldResetVisibleResultsForQueryTransition(
+                oldQuery: "",
+                newQuery: ">",
+                hasVisibleResults: true
+            )
+        )
+        XCTAssertFalse(
+            ContentView.commandPaletteShouldResetVisibleResultsForQueryTransition(
+                oldQuery: ">rename",
+                newQuery: ">renam",
+                hasVisibleResults: true
+            )
+        )
+        XCTAssertFalse(
+            ContentView.commandPaletteShouldResetVisibleResultsForQueryTransition(
+                oldQuery: ">",
+                newQuery: "",
+                hasVisibleResults: false
+            )
+        )
+    }
+
     func testCommandContextFingerprintTracksExactContextValues() {
         let base = ContentView.commandPaletteContextFingerprint(
             boolValues: [
