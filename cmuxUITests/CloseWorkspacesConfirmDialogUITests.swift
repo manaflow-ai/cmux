@@ -61,6 +61,43 @@ final class CloseWorkspacesConfirmDialogUITests: XCTestCase {
         )
     }
 
+    func testCmdShiftWUsesSidebarMultiSelectionSummaryDialog() {
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        app.launchEnvironment["CMUX_UI_TEST_FORCE_CONFIRM_CLOSE_WORKSPACE"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_SIDEBAR_SELECTED_WORKSPACE_INDICES"] = "0,1"
+        app.launch()
+        XCTAssertTrue(
+            ensureForegroundAfterLaunch(app, timeout: 12.0),
+            "Expected app to launch for close-workspaces shortcut test. state=\(app.state.rawValue)"
+        )
+        XCTAssertTrue(waitForSocketPong(timeout: 12.0), "Expected control socket to respond at \(socketPath)")
+
+        XCTAssertEqual(socketCommand("new_workspace")?.prefix(2), "OK")
+        XCTAssertTrue(
+            waitForWorkspaceCount(2, timeout: 5.0),
+            "Expected 2 workspaces before running Cmd+Shift+W. list=\(socketCommand("list_workspaces") ?? "<nil>")"
+        )
+
+        app.typeKey("w", modifierFlags: [.command, .shift])
+
+        XCTAssertTrue(
+            waitForCloseWorkspacesAlert(app: app, timeout: 5.0),
+            "Expected Cmd+Shift+W to use the aggregated close-workspaces alert for sidebar multi-selection"
+        )
+
+        clickCancelOnCloseWorkspacesAlert(app: app)
+
+        XCTAssertFalse(
+            isCloseWorkspacesAlertPresent(app: app),
+            "Expected aggregated close-workspaces alert to dismiss after clicking Cancel"
+        )
+        XCTAssertTrue(
+            waitForWorkspaceCount(2, timeout: 5.0),
+            "Expected both workspaces to remain after cancelling Cmd+Shift+W multi-close. list=\(socketCommand("list_workspaces") ?? "<nil>")"
+        )
+    }
+
     private func ensureForegroundAfterLaunch(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
         if app.wait(for: .runningForeground, timeout: timeout) {
             return true
