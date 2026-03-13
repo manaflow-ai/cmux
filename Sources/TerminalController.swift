@@ -3740,7 +3740,7 @@ class TerminalController {
             "close_left", "close_right", "close_others",
             "new_terminal_right", "new_browser_right",
             "reload", "duplicate",
-            "pin", "unpin", "mark_unread"
+            "pin", "unpin", "mark_read", "mark_unread"
         ]
 
         var result: V2CallResult = .err(code: "invalid_params", message: "Unknown tab action", data: [
@@ -3853,6 +3853,10 @@ class TerminalController {
             case "unpin":
                 workspace.setPanelPinned(panelId: surfaceId, pinned: false)
                 finish(["pinned": false])
+
+            case "mark_read":
+                workspace.markPanelRead(surfaceId)
+                finish()
 
             case "mark_unread", "mark_as_unread":
                 workspace.markPanelUnread(surfaceId)
@@ -4037,7 +4041,7 @@ class TerminalController {
                     "ref": v2Ref(kind: .surface, uuid: panel.id),
                     "index": index,
                     "type": panel.panelType.rawValue,
-                    "title": panel.displayTitle,
+                    "title": ws.panelTitle(panelId: panel.id) ?? panel.displayTitle,
                     "focused": panel.id == focusedSurfaceId,
                     "pane_id": v2OrNull(paneUUID?.uuidString),
                     "pane_ref": v2Ref(kind: .pane, uuid: paneUUID),
@@ -5325,7 +5329,7 @@ class TerminalController {
         if sourcePaneUUID == targetPaneUUID {
             return .err(code: "invalid_params", message: "pane_id and target_pane_id must be different", data: nil)
         }
-        let focus = v2Bool(params, "focus") ?? true
+        let focus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? true)
 
         var result: V2CallResult = .err(code: "internal_error", message: "Failed to swap panes", data: nil)
         v2MainSync {
@@ -5408,7 +5412,7 @@ class TerminalController {
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
-        let focus = v2Bool(params, "focus") ?? true
+        let focus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? true)
 
         var result: V2CallResult = .err(code: "internal_error", message: "Failed to break pane", data: nil)
         v2MainSync {
@@ -5449,7 +5453,7 @@ class TerminalController {
                 return
             }
 
-            let destinationWorkspace = tabManager.addWorkspace()
+            let destinationWorkspace = tabManager.addWorkspace(select: focus)
             guard let destinationPane = destinationWorkspace.bonsplitController.focusedPaneId
                 ?? destinationWorkspace.bonsplitController.allPaneIds.first else {
                 if let sourcePaneForRollback {
@@ -5475,10 +5479,6 @@ class TerminalController {
                 }
                 result = .err(code: "internal_error", message: "Failed to attach surface to new workspace", data: nil)
                 return
-            }
-
-            if !focus {
-                tabManager.selectWorkspace(sourceWorkspace)
             }
             let windowId = v2ResolveWindowId(tabManager: tabManager)
             result = .ok([

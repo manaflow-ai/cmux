@@ -1368,6 +1368,7 @@ struct ContentView: View {
     @State private var workspaceHandoffGeneration: UInt64 = 0
     @State private var workspaceHandoffFallbackTask: Task<Void, Never>?
     @State private var didApplyUITestSidebarSelection = false
+    @State private var workspaceHandoffReadyCheckTask: Task<Void, Never>?
     @State private var titlebarThemeGeneration: UInt64 = 0
     @State private var sidebarDraggedTabId: UUID?
     @State private var titlebarTextUpdateCoalescer = NotificationBurstCoalescer(delay: 1.0 / 30.0)
@@ -2919,6 +2920,8 @@ struct ContentView: View {
             retiringWorkspaceId = nil
             workspaceHandoffFallbackTask?.cancel()
             workspaceHandoffFallbackTask = nil
+            workspaceHandoffReadyCheckTask?.cancel()
+            workspaceHandoffReadyCheckTask = nil
             return
         }
 
@@ -2926,6 +2929,7 @@ struct ContentView: View {
         let generation = workspaceHandoffGeneration
         retiringWorkspaceId = oldSelectedId
         workspaceHandoffFallbackTask?.cancel()
+        workspaceHandoffReadyCheckTask?.cancel()
 
 #if DEBUG
         if let snapshot = tabManager.debugCurrentWorkspaceSwitchSnapshot() {
@@ -2940,6 +2944,36 @@ struct ContentView: View {
             )
         }
 #endif
+
+        workspaceHandoffReadyCheckTask = Task { [generation, newSelectedId] in
+            for delay in [0, 20_000_000, 40_000_000, 60_000_000] {
+                if delay > 0 {
+                    do {
+                        try await Task.sleep(nanoseconds: UInt64(delay))
+                    } catch {
+                        return
+                    }
+                }
+                let completed = await MainActor.run { () -> Bool in
+                    guard workspaceHandoffGeneration == generation else { return false }
+                    guard retiringWorkspaceId != nil else { return false }
+                    guard canCompleteWorkspaceHandoffImmediately(for: newSelectedId) else { return false }
+#if DEBUG
+                    if let snapshot = tabManager.debugCurrentWorkspaceSwitchSnapshot() {
+                        let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
+                        dlog(
+                            "ws.handoff.fastReady id=\(snapshot.id) dt=\(debugMsText(dtMs)) selected=\(debugShortWorkspaceId(newSelectedId))"
+                        )
+                    } else {
+                        dlog("ws.handoff.fastReady id=none selected=\(debugShortWorkspaceId(newSelectedId))")
+                    }
+#endif
+                    completeWorkspaceHandoff(reason: "ready")
+                    return true
+                }
+                if completed { return }
+            }
+        }
 
         workspaceHandoffFallbackTask = Task { [generation] in
             do {
@@ -2960,9 +2994,20 @@ struct ContentView: View {
         completeWorkspaceHandoff(reason: reason)
     }
 
+    private func canCompleteWorkspaceHandoffImmediately(for workspaceId: UUID) -> Bool {
+        guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return true }
+        if let focusedPanelId = workspace.focusedPanelId,
+           workspace.browserPanel(for: focusedPanelId) != nil {
+            return true
+        }
+        return workspace.hasLoadedTerminalSurface()
+    }
+
     private func completeWorkspaceHandoff(reason: String) {
         workspaceHandoffFallbackTask?.cancel()
         workspaceHandoffFallbackTask = nil
+        workspaceHandoffReadyCheckTask?.cancel()
+        workspaceHandoffReadyCheckTask = nil
         let retiring = retiringWorkspaceId
 
         // Hide portal-hosted views for the retiring workspace BEFORE clearing
@@ -7259,6 +7304,9 @@ struct VerticalTabsSidebar: View {
     }
 
     var body: some View {
+        let workspaceCount = tabManager.tabs.count
+        let canCloseWorkspace = workspaceCount > 1
+
         VStack(spacing: 0) {
             GeometryReader { proxy in
                 ScrollView {
@@ -7282,7 +7330,12 @@ struct VerticalTabsSidebar: View {
                                     tab: tab,
                                     index: index,
                                     isActive: tabManager.selectedTabId == tab.id,
-                                    tabCount: tabManager.tabs.count,
+                                    workspaceShortcutDigit: WorkspaceShortcutMapper.commandDigitForWorkspace(
+                                        at: index,
+                                        workspaceCount: workspaceCount
+                                    ),
+                                    canCloseWorkspace: canCloseWorkspace,
+                                    accessibilityWorkspaceCount: workspaceCount,
                                     unreadCount: notificationStore.unreadCount(forTabId: tab.id),
                                     latestNotificationText: {
                                         guard showsSidebarNotificationMessage,
@@ -9555,7 +9608,9 @@ private struct TabItemView: View, Equatable {
         lhs.tab === rhs.tab &&
         lhs.index == rhs.index &&
         lhs.isActive == rhs.isActive &&
-        lhs.tabCount == rhs.tabCount &&
+        lhs.workspaceShortcutDigit == rhs.workspaceShortcutDigit &&
+        lhs.canCloseWorkspace == rhs.canCloseWorkspace &&
+        lhs.accessibilityWorkspaceCount == rhs.accessibilityWorkspaceCount &&
         lhs.unreadCount == rhs.unreadCount &&
         lhs.latestNotificationText == rhs.latestNotificationText &&
         lhs.rowSpacing == rhs.rowSpacing &&
@@ -9574,7 +9629,9 @@ private struct TabItemView: View, Equatable {
     @ObservedObject var tab: Tab
     let index: Int
     let isActive: Bool
-    let tabCount: Int
+    let workspaceShortcutDigit: Int?
+    let canCloseWorkspace: Bool
+    let accessibilityWorkspaceCount: Int
     let unreadCount: Int
     let latestNotificationText: String?
     let rowSpacing: CGFloat
@@ -9681,12 +9738,8 @@ private struct TabItemView: View, Equatable {
         usesInvertedActiveForeground ? 1.0 : 0.9
     }
 
-    private var workspaceShortcutDigit: Int? {
-        WorkspaceShortcutMapper.commandDigitForWorkspace(at: index, workspaceCount: tabCount)
-    }
-
     private var showCloseButton: Bool {
-        isHovering && tabCount > 1 && !(showsModifierShortcutHints || alwaysShowShortcutHints)
+        isHovering && canCloseWorkspace && !(showsModifierShortcutHints || alwaysShowShortcutHints)
     }
 
     private var workspaceShortcutLabel: String? {
@@ -10444,7 +10497,7 @@ private struct TabItemView: View, Equatable {
     }
 
     private var accessibilityTitle: String {
-        String(localized: "accessibility.workspacePosition", defaultValue: "\(tab.title), workspace \(index + 1) of \(tabCount)")
+        String(localized: "accessibility.workspacePosition", defaultValue: "\(tab.title), workspace \(index + 1) of \(accessibilityWorkspaceCount)")
     }
 
     private func moveBy(_ delta: Int) {
