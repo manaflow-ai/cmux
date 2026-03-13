@@ -879,7 +879,7 @@ struct BrowserPanelView: View {
                 panel.goBack()
             }) {
                 Image(systemName: "chevron.left")
-                    .font(.system(size: 12, weight: .medium))
+                    .scaledFont(size: 12, weight: .medium)
                     .frame(width: addressBarButtonHitSize, height: addressBarButtonHitSize, alignment: .center)
                     .contentShape(Rectangle())
             }
@@ -895,7 +895,7 @@ struct BrowserPanelView: View {
                 panel.goForward()
             }) {
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 12, weight: .medium))
+                    .scaledFont(size: 12, weight: .medium)
                     .frame(width: addressBarButtonHitSize, height: addressBarButtonHitSize, alignment: .center)
                     .contentShape(Rectangle())
             }
@@ -918,7 +918,7 @@ struct BrowserPanelView: View {
                 }
             }) {
                 Image(systemName: panel.isLoading ? "xmark" : "arrow.clockwise")
-                    .font(.system(size: 12, weight: .medium))
+                    .scaledFont(size: 12, weight: .medium)
                     .frame(width: addressBarButtonHitSize, height: addressBarButtonHitSize, alignment: .center)
                     .contentShape(Rectangle())
             }
@@ -930,7 +930,7 @@ struct BrowserPanelView: View {
                     ProgressView()
                         .controlSize(.small)
                     Text(String(localized: "browser.downloading", defaultValue: "Downloading..."))
-                        .font(.system(size: 11))
+                        .scaledFont(size: 11)
                         .foregroundStyle(.secondary)
                 }
                 .padding(.leading, 6)
@@ -964,7 +964,7 @@ struct BrowserPanelView: View {
             Image(systemName: devToolsIconOption.rawValue)
                 .symbolRenderingMode(.monochrome)
                 .cmuxFlatSymbolColorRendering()
-                .font(.system(size: devToolsButtonIconSize, weight: .medium))
+                .scaledFont(size: devToolsButtonIconSize, weight: .medium)
                 .foregroundStyle(devToolsColorOption.color)
                 .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
         }
@@ -1009,7 +1009,7 @@ struct BrowserPanelView: View {
             Image(systemName: browserThemeMode.iconName)
                 .symbolRenderingMode(.monochrome)
                 .cmuxFlatSymbolColorRendering()
-                .font(.system(size: devToolsButtonIconSize, weight: .medium))
+                .scaledFont(size: devToolsButtonIconSize, weight: .medium)
                 .foregroundStyle(browserThemeModeIconColor)
                 .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
         }
@@ -1129,11 +1129,11 @@ struct BrowserPanelView: View {
                 } label: {
                     HStack(spacing: 8) {
                         Image(systemName: mode == browserThemeMode ? "checkmark" : "circle")
-                            .font(.system(size: 10, weight: .semibold))
+                            .scaledFont(size: 10, weight: .semibold)
                             .opacity(mode == browserThemeMode ? 1.0 : 0.0)
                             .frame(width: 12, alignment: .center)
                         Text(mode.displayName)
-                            .font(.system(size: 12))
+                            .scaledFont(size: 12)
                         Spacer(minLength: 0)
                     }
                     .padding(.horizontal, 8)
@@ -1162,7 +1162,7 @@ struct BrowserPanelView: View {
         return HStack(spacing: 4) {
             if showSecureBadge {
                 Image(systemName: "lock.fill")
-                    .font(.system(size: 10))
+                    .scaledFont(size: 10)
                     .foregroundColor(.secondary)
             }
 
@@ -4275,13 +4275,13 @@ private struct OmnibarSuggestionsView: View {
             } label: {
                 HStack(spacing: 6) {
                         Text(item.listText)
-                            .font(.system(size: 11))
+                            .scaledFont(size: 11)
                             .foregroundStyle(listTextColor)
                             .lineLimit(1)
                             .truncationMode(.tail)
                         if let badge = item.trailingBadgeText {
                             Text(badge)
-                                .font(.system(size: 9.5, weight: .medium))
+                                .scaledFont(size: 9.5, weight: .medium)
                                 .foregroundStyle(badgeTextColor)
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 2)

@@ -258,6 +258,7 @@ struct TitlebarControlsView: View {
     let onNewTab: () -> Void
     let visibilityMode: TitlebarControlsVisibilityMode
     @AppStorage("titlebarControlsStyle") private var styleRawValue = TitlebarControlsStyle.classic.rawValue
+    @AppStorage(UIScaleSettings.key) private var uiScaleFactor = UIScaleSettings.defaultValue
     @AppStorage(ShortcutHintDebugSettings.titlebarHintXKey) private var titlebarShortcutHintXOffset = ShortcutHintDebugSettings.defaultTitlebarHintX
     @AppStorage(ShortcutHintDebugSettings.titlebarHintYKey) private var titlebarShortcutHintYOffset = ShortcutHintDebugSettings.defaultTitlebarHintY
     @AppStorage(ShortcutHintDebugSettings.alwaysShowHintsKey) private var alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
@@ -312,6 +313,7 @@ struct TitlebarControlsView: View {
         let style = TitlebarControlsStyle(rawValue: styleRawValue) ?? .classic
         let config = style.config
         controlsGroup(config: config)
+            .environment(\.uiScale, CGFloat(UIScaleSettings.clampedValue(uiScaleFactor)))
             .padding(.leading, 4)
             .padding(.trailing, titlebarHintTrailingInset)
             .contentShape(Rectangle())
@@ -380,7 +382,7 @@ struct TitlebarControlsView: View {
 
                     if notificationStore.unreadCount > 0 {
                         Text("\(min(notificationStore.unreadCount, 99))")
-                            .font(.system(size: max(8, config.badgeSize - 5), weight: .semibold))
+                            .scaledFont(size: max(8, config.badgeSize - 5), weight: .semibold)
                             .foregroundColor(.white)
                             .frame(width: config.badgeSize, height: config.badgeSize)
                             .background(
@@ -481,7 +483,7 @@ struct TitlebarControlsView: View {
     }
 
     private func titlebarHintWidth(for shortcut: StoredShortcut, config: TitlebarControlsStyleConfig) -> CGFloat {
-        let font = NSFont.systemFont(ofSize: max(8, config.iconSize - 4), weight: .semibold)
+        let font = NSFont.systemFont(ofSize: UIScaleSettings.scaled(max(8, config.iconSize - 4)), weight: .semibold)
         let textWidth = (shortcut.displayString as NSString).size(withAttributes: [.font: font]).width
         return ceil(textWidth) + 12
     }
@@ -518,7 +520,7 @@ struct TitlebarControlsView: View {
         config: TitlebarControlsStyleConfig
     ) -> some View {
         Text(shortcut.displayString)
-            .font(.system(size: max(8, config.iconSize - 5), weight: .semibold, design: .rounded))
+            .scaledFont(size: max(8, config.iconSize - 5), weight: .semibold, design: .rounded)
             .monospacedDigit()
             .lineLimit(1)
             .fixedSize(horizontal: true, vertical: false)
@@ -532,7 +534,7 @@ struct TitlebarControlsView: View {
     @ViewBuilder
     private func iconLabel(systemName: String, config: TitlebarControlsStyleConfig) -> some View {
         let icon = Image(systemName: systemName)
-            .font(.system(size: config.iconSize, weight: .semibold))
+            .scaledFont(size: config.iconSize, weight: .semibold)
             .frame(width: config.buttonSize, height: config.buttonSize)
 
         if config.buttonBackground {
@@ -1064,7 +1066,7 @@ private struct NotificationsPopoverView: View {
             if notificationStore.notifications.isEmpty {
                 VStack(spacing: 8) {
                     Image(systemName: "bell.slash")
-                        .font(.system(size: 28))
+                        .scaledFont(size: 28)
                         .foregroundColor(.secondary)
                     Text(String(localized: "notifications.empty.title", defaultValue: "No notifications yet"))
                         .font(.headline)

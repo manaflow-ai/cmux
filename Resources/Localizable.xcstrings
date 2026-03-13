@@ -47782,6 +47782,57 @@
         }
       }
     },
+    "settings.app.uiScaleFactor": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "UI Scale Factor"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "UIスケール係数"
+          }
+        }
+      }
+    },
+    "settings.app.uiScaleFactor.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scale fonts and UI elements. Does not affect terminal text."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォントとUI要素を拡大縮小します。ターミナルのテキストには影響しません。"
+          }
+        }
+      }
+    },
+    "settings.app.uiScaleFactor.reset": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reset to default"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デフォルトに戻す"
+          }
+        }
+      }
+    },
     "settings.app.newWorkspacePlacement": {
       "extractionState": "manual",
       "localizations": {

@@ -90,7 +90,7 @@ struct NotificationsPage: View {
     private var emptyState: some View {
         VStack(spacing: 8) {
             Image(systemName: "bell.slash")
-                .font(.system(size: 32))
+                .scaledFont(size: 32)
                 .foregroundColor(.secondary)
             Text(String(localized: "notifications.empty.title", defaultValue: "No notifications yet"))
                 .font(.headline)
@@ -160,7 +160,7 @@ struct ShortcutAnnotation: View {
 
     private var badge: some View {
         Text(text)
-            .font(.system(size: 10, weight: .semibold, design: .rounded))
+            .scaledFont(size: 10, weight: .semibold, design: .rounded)
             .foregroundStyle(.primary)
             .padding(.horizontal, 6)
             .padding(.vertical, 2)

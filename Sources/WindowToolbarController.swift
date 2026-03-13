@@ -165,7 +165,7 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
         if itemIdentifier == commandItemIdentifier {
             let item = NSToolbarItem(itemIdentifier: itemIdentifier)
             let label = NSTextField(labelWithString: "Cmd: —")
-            label.font = NSFont.systemFont(ofSize: 12, weight: .medium)
+            label.font = NSFont.systemFont(ofSize: UIScaleSettings.scaled(12), weight: .medium)
             label.textColor = .secondaryLabelColor
             label.lineBreakMode = .byTruncatingMiddle
             label.setContentHuggingPriority(.defaultHigh, for: .horizontal)

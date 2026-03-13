@@ -71,9 +71,9 @@ struct MarkdownPanelView: View {
         HStack(spacing: 6) {
             Image(systemName: "doc.richtext")
                 .foregroundColor(.secondary)
-                .font(.system(size: 12))
+                .scaledFont(size: 12)
             Text(panel.filePath)
-                .font(.system(size: 11, design: .monospaced))
+                .scaledFont(size: 11, design: .monospaced)
                 .foregroundColor(.secondary)
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -84,13 +84,13 @@ struct MarkdownPanelView: View {
     private var fileUnavailableView: some View {
         VStack(spacing: 12) {
             Image(systemName: "doc.questionmark")
-                .font(.system(size: 40))
+                .scaledFont(size: 40)
                 .foregroundColor(.secondary)
             Text(String(localized: "markdown.fileUnavailable.title", defaultValue: "File unavailable"))
                 .font(.headline)
                 .foregroundColor(.primary)
             Text(panel.filePath)
-                .font(.system(size: 12, design: .monospaced))
+                .scaledFont(size: 12, design: .monospaced)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
                 .textSelection(.enabled)
