@@ -2126,7 +2126,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             self,
             selector: #selector(handleThemesReloadNotification(_:)),
             name: CmuxThemeNotifications.reloadConfig,
-            object: Bundle.main.bundleIdentifier,
+            object: nil,
             suspensionBehavior: .deliverImmediately
         )
 

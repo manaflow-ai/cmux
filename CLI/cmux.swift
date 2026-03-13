@@ -5961,7 +5961,7 @@ struct CMUXCLI {
         let directoryURL = configURL.deletingLastPathComponent()
         try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true, attributes: nil)
 
-        let existingContents = (try? String(contentsOf: configURL, encoding: .utf8)) ?? ""
+        let existingContents = try readOptionalThemeOverrideContents(at: configURL) ?? ""
         let strippedContents = removingManagedThemeOverride(from: existingContents)
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let block = """
@@ -5978,7 +5978,7 @@ struct CMUXCLI {
     private func clearManagedThemeOverride() throws -> URL {
         let fileManager = FileManager.default
         let configURL = try cmuxThemeOverrideConfigURL()
-        guard let existingContents = try? String(contentsOf: configURL, encoding: .utf8) else {
+        guard let existingContents = try readOptionalThemeOverrideContents(at: configURL) else {
             return configURL
         }
 
@@ -5986,12 +5986,41 @@ struct CMUXCLI {
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
         if strippedContents.isEmpty {
-            try? fileManager.removeItem(at: configURL)
+            do {
+                try fileManager.removeItem(at: configURL)
+            } catch {
+                guard !isThemeOverrideFileNotFoundError(error) else {
+                    return configURL
+                }
+                throw error
+            }
         } else {
             try strippedContents.appending("\n").write(to: configURL, atomically: true, encoding: .utf8)
         }
 
         return configURL
+    }
+
+    private func readOptionalThemeOverrideContents(at url: URL) throws -> String? {
+        do {
+            return try String(contentsOf: url, encoding: .utf8)
+        } catch {
+            guard isThemeOverrideFileNotFoundError(error) else {
+                throw error
+            }
+            return nil
+        }
+    }
+
+    private func isThemeOverrideFileNotFoundError(_ error: Error) -> Bool {
+        let nsError = error as NSError
+        if nsError.domain == NSCocoaErrorDomain {
+            return nsError.code == NSFileNoSuchFileError || nsError.code == NSFileReadNoSuchFileError
+        }
+        if nsError.domain == NSPOSIXErrorDomain {
+            return nsError.code == ENOENT
+        }
+        return false
     }
 
     private func removingManagedThemeOverride(from contents: String) -> String {
@@ -6007,8 +6036,8 @@ struct CMUXCLI {
         let bundleIdentifier = currentCmuxAppBundleIdentifier() ?? Self.cmuxThemeOverrideBundleIdentifier
         DistributedNotificationCenter.default().post(
             name: Notification.Name(Self.cmuxThemesReloadNotificationName),
-            object: bundleIdentifier,
-            userInfo: nil
+            object: nil,
+            userInfo: ["bundleIdentifier": bundleIdentifier]
         )
         return ThemeReloadStatus(requested: true, targetBundleIdentifier: bundleIdentifier)
     }

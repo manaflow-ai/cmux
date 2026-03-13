@@ -1236,16 +1236,12 @@ class GhosttyApp {
     ) -> [URL] {
         guard let currentBundleIdentifier, !currentBundleIdentifier.isEmpty else { return [] }
 
-        func configURLs(for bundleIdentifier: String) -> [URL] {
+        func existingConfigURLs(for bundleIdentifier: String) -> [URL] {
             let directory = appSupportDirectory.appendingPathComponent(bundleIdentifier, isDirectory: true)
             return [
                 directory.appendingPathComponent("config", isDirectory: false),
                 directory.appendingPathComponent("config.ghostty", isDirectory: false)
-            ]
-        }
-
-        func hasConfig(_ urls: [URL]) -> Bool {
-            urls.contains { url in
+            ].filter { url in
                 guard let attrs = try? fileManager.attributesOfItem(atPath: url.path),
                       let type = attrs[.type] as? FileAttributeType,
                       type == .typeRegular,
@@ -1256,13 +1252,13 @@ class GhosttyApp {
             }
         }
 
-        let currentURLs = configURLs(for: currentBundleIdentifier)
-        if hasConfig(currentURLs) {
+        let currentURLs = existingConfigURLs(for: currentBundleIdentifier)
+        if !currentURLs.isEmpty {
             return currentURLs
         }
         if SocketControlSettings.isDebugLikeBundleIdentifier(currentBundleIdentifier) {
-            let releaseURLs = configURLs(for: releaseBundleIdentifier)
-            if hasConfig(releaseURLs) {
+            let releaseURLs = existingConfigURLs(for: releaseBundleIdentifier)
+            if !releaseURLs.isEmpty {
                 return releaseURLs
             }
         }
@@ -1325,11 +1321,11 @@ class GhosttyApp {
             }
         }
 
-        #if DEBUG
-        Self.initLog(
+#if DEBUG
+        dlog(
             "loaded cmux app support ghostty config from: \(urls.map(\.path).joined(separator: ", "))"
         )
-        #endif
+#endif
         #endif
     }
 
