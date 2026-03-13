@@ -713,6 +713,7 @@ class TabManager: ObservableObject {
     private var workspaceCycleGeneration: UInt64 = 0
     private var workspaceCycleCooldownTask: Task<Void, Never>?
     private var pendingWorkspaceUnfocusTarget: (tabId: UUID, panelId: UUID)?
+    private var sidebarSelectedWorkspaceIds: Set<UUID> = []
     var confirmCloseHandler: ((String, String, Bool) -> Bool)?
 #if DEBUG
     private var debugWorkspaceSwitchCounter: UInt64 = 0
@@ -1339,6 +1340,7 @@ class TabManager: ObservableObject {
         guard let index = tabs.firstIndex(where: { $0.id == workspace.id }) else { return }
         sentryBreadcrumb("workspace.close", data: ["tabCount": tabs.count - 1])
         clearInitialWorkspaceGitProbe(workspaceId: workspace.id)
+        sidebarSelectedWorkspaceIds.remove(workspace.id)
 
         AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: workspace.id)
         unwireClosedBrowserTracking(for: workspace)
@@ -1361,6 +1363,7 @@ class TabManager: ObservableObject {
     func detachWorkspace(tabId: UUID) -> Workspace? {
         guard let index = tabs.firstIndex(where: { $0.id == tabId }) else { return nil }
         clearInitialWorkspaceGitProbe(workspaceId: tabId)
+        sidebarSelectedWorkspaceIds.remove(tabId)
 
         let removed = tabs.remove(at: index)
         unwireClosedBrowserTracking(for: removed)
@@ -1442,6 +1445,11 @@ class TabManager: ObservableObject {
 #if DEBUG
         UITestRecorder.incrementInt("closeTabInvocations")
 #endif
+        let sidebarSelectionIds = orderedSidebarSelectedWorkspaceIds()
+        if sidebarSelectionIds.count > 1 {
+            closeWorkspacesWithConfirmation(sidebarSelectionIds, allowPinned: true)
+            return
+        }
         guard let selectedId = selectedTabId,
               let workspace = tabs.first(where: { $0.id == selectedId }) else { return }
         closeWorkspaceWithConfirmation(workspace)
@@ -1454,6 +1462,11 @@ class TabManager: ObservableObject {
     func closeWorkspaceWithConfirmation(tabId: UUID) {
         guard let workspace = tabs.first(where: { $0.id == tabId }) else { return }
         closeWorkspaceWithConfirmation(workspace)
+    }
+
+    func setSidebarSelectedWorkspaceIds(_ workspaceIds: Set<UUID>) {
+        let existingIds = Set(tabs.map(\.id))
+        sidebarSelectedWorkspaceIds = workspaceIds.intersection(existingIds)
     }
 
     func closeWorkspacesWithConfirmation(_ workspaceIds: [UUID], allowPinned: Bool) {
@@ -1571,6 +1584,12 @@ class TabManager: ObservableObject {
             guard targetIds.contains(workspace.id) else { return nil }
             guard allowPinned || !workspace.isPinned else { return nil }
             return workspace
+        }
+    }
+
+    private func orderedSidebarSelectedWorkspaceIds() -> [UUID] {
+        tabs.compactMap { workspace in
+            sidebarSelectedWorkspaceIds.contains(workspace.id) ? workspace.id : nil
         }
     }
 
