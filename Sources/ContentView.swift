@@ -1476,11 +1476,34 @@ struct ContentView: View {
         let subtitle: String
         let shortcutHint: String?
         let keywords: [String]
+        let tags: [String]
         let dismissOnRun: Bool
         let action: () -> Void
 
+        init(
+            id: String,
+            rank: Int,
+            title: String,
+            subtitle: String,
+            shortcutHint: String?,
+            keywords: [String],
+            tags: [String] = [],
+            dismissOnRun: Bool,
+            action: @escaping () -> Void
+        ) {
+            self.id = id
+            self.rank = rank
+            self.title = title
+            self.subtitle = subtitle
+            self.shortcutHint = shortcutHint
+            self.keywords = keywords
+            self.tags = tags
+            self.dismissOnRun = dismissOnRun
+            self.action = action
+        }
+
         var searchableTexts: [String] {
-            [title, subtitle] + keywords
+            [title, subtitle] + keywords + tags
         }
     }
 
@@ -3008,10 +3031,13 @@ struct ContentView: View {
         let selectedIndex = commandPaletteSelectedIndex(resultCount: visibleResults.count)
         let commandPaletteListMaxHeight: CGFloat = 450
         let commandPaletteRowHeight: CGFloat = 24
+        let commandPaletteTagRowHeight: CGFloat = 40
         let commandPaletteEmptyStateHeight: CGFloat = 44
-        let commandPaletteListContentHeight = visibleResults.isEmpty
+        let commandPaletteListContentHeight: CGFloat = visibleResults.isEmpty
             ? commandPaletteEmptyStateHeight
-            : CGFloat(visibleResults.count) * commandPaletteRowHeight
+            : visibleResults.reduce(CGFloat(0)) { total, result in
+                total + (result.command.tags.isEmpty ? commandPaletteRowHeight : commandPaletteTagRowHeight)
+            }
         let commandPaletteListHeight = min(commandPaletteListMaxHeight, commandPaletteListContentHeight)
         return VStack(spacing: 0) {
             HStack(spacing: 8) {
@@ -3076,30 +3102,40 @@ struct ContentView: View {
                             Button {
                                 runCommandPaletteResult(commandID: result.id)
                             } label: {
-                                HStack(spacing: 8) {
-                                    commandPaletteHighlightedTitleText(
-                                        result.command.title,
-                                        matchedIndices: result.titleMatchIndices
-                                    )
-                                        .font(.system(size: 13, weight: .regular))
-                                        .lineLimit(1)
-                                    Spacer()
+                                VStack(alignment: .leading, spacing: 0) {
+                                    HStack(spacing: 8) {
+                                        commandPaletteHighlightedTitleText(
+                                            result.command.title,
+                                            matchedIndices: result.titleMatchIndices
+                                        )
+                                            .font(.system(size: 13, weight: .regular))
+                                            .lineLimit(1)
+                                        Spacer()
 
-                                    if let trailingLabel = commandPaletteTrailingLabel(for: result.command) {
-                                        switch trailingLabel.style {
-                                        case .shortcut:
-                                            Text(trailingLabel.text)
-                                                .font(.system(size: 11, weight: .medium))
-                                                .foregroundStyle(.secondary)
-                                                .padding(.horizontal, 4)
-                                                .padding(.vertical, 1)
-                                                .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
-                                        case .kind:
-                                            Text(trailingLabel.text)
-                                                .font(.system(size: 11, weight: .regular))
-                                                .foregroundStyle(.secondary)
-                                                .lineLimit(1)
+                                        if let trailingLabel = commandPaletteTrailingLabel(for: result.command) {
+                                            switch trailingLabel.style {
+                                            case .shortcut:
+                                                Text(trailingLabel.text)
+                                                    .font(.system(size: 11, weight: .medium))
+                                                    .foregroundStyle(.secondary)
+                                                    .padding(.horizontal, 4)
+                                                    .padding(.vertical, 1)
+                                                    .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
+                                            case .kind:
+                                                Text(trailingLabel.text)
+                                                    .font(.system(size: 11, weight: .regular))
+                                                    .foregroundStyle(.secondary)
+                                                    .lineLimit(1)
+                                            }
                                         }
+                                    }
+
+                                    if !result.command.tags.isEmpty {
+                                        Text(result.command.tags.joined(separator: " · "))
+                                            .font(.system(size: 10, weight: .regular))
+                                            .foregroundStyle(.tertiary)
+                                            .lineLimit(1)
+                                            .truncationMode(.tail)
                                     }
                                 }
                                 .padding(.horizontal, 9)
@@ -3774,6 +3810,7 @@ struct ContentView: View {
                         subtitle: commandPaletteSwitcherSubtitle(base: String(localized: "commandPalette.switcher.workspaceLabel", defaultValue: "Workspace"), windowLabel: context.windowLabel),
                         shortcutHint: nil,
                         keywords: workspaceKeywords,
+                        tags: workspace.searchTags,
                         dismissOnRun: true,
                         action: {
                             focusCommandPaletteSwitcherTarget(
@@ -3885,10 +3922,12 @@ struct ContentView: View {
         let directories = [workspace.currentDirectory]
         let branches = [workspace.gitBranch?.branch].compactMap { $0 }
         let ports = workspace.listeningPorts
+        let tags = workspace.searchTags
         return CommandPaletteSwitcherSearchMetadata(
             directories: directories,
             branches: branches,
-            ports: ports
+            ports: ports,
+            tags: tags
         )
     }
 
@@ -5261,6 +5300,10 @@ struct ContentView: View {
         for port in metadata.ports {
             hasher.combine(port)
         }
+        hasher.combine(metadata.tags.count)
+        for tag in metadata.tags {
+            hasher.combine(tag)
+        }
     }
 
     static func commandPaletteScrollPositionAnchor(
@@ -6238,15 +6281,18 @@ struct CommandPaletteSwitcherSearchMetadata: Equatable, Sendable {
     let directories: [String]
     let branches: [String]
     let ports: [Int]
+    let tags: [String]
 
     init(
         directories: [String] = [],
         branches: [String] = [],
-        ports: [Int] = []
+        ports: [Int] = [],
+        tags: [String] = []
     ) {
         self.directories = directories
         self.branches = branches
         self.ports = ports
+        self.tags = tags
     }
 }
 
@@ -6274,6 +6320,7 @@ enum CommandPaletteSwitcherSearchIndexer {
         let directoryTokens = metadata.directories.flatMap { directoryTokensForSearch($0, detail: detail) }
         let branchTokens = metadata.branches.flatMap { branchTokensForSearch($0, detail: detail) }
         let portTokens = metadata.ports.flatMap(portTokensForSearch)
+        let tagTokens = metadata.tags.flatMap(tagTokensForSearch)
 
         var contextKeywords: [String] = []
         if !directoryTokens.isEmpty {
@@ -6285,8 +6332,11 @@ enum CommandPaletteSwitcherSearchIndexer {
         if !portTokens.isEmpty {
             contextKeywords.append(contentsOf: ["port", "ports"])
         }
+        if !tagTokens.isEmpty {
+            contextKeywords.append(contentsOf: ["tag", "topic"])
+        }
 
-        return contextKeywords + directoryTokens + branchTokens + portTokens
+        return contextKeywords + directoryTokens + branchTokens + portTokens + tagTokens
     }
 
     private static func directoryTokensForSearch(
@@ -6330,6 +6380,13 @@ enum CommandPaletteSwitcherSearchIndexer {
         guard (1...65535).contains(port) else { return [] }
         let portText = String(port)
         return [portText, ":\(portText)"]
+    }
+
+    private static func tagTokensForSearch(_ rawTag: String) -> [String] {
+        let trimmed = rawTag.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return [] }
+        let components = trimmed.components(separatedBy: metadataDelimiters).filter { !$0.isEmpty }
+        return uniqueNormalizedPreservingOrder([trimmed] + components)
     }
 
     private static func uniqueNormalizedPreservingOrder(_ values: [String]) -> [String] {

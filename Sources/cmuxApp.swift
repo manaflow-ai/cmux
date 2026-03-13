@@ -3015,6 +3015,20 @@ enum ClaudeCodeIntegrationSettings {
         }
         return defaults.bool(forKey: hooksEnabledKey)
     }
+
+    static let sessionTagsEnabledKey = "cmdPSessionTags"
+    static let defaultSessionTagsEnabled = false
+
+    static func sessionTagsEnabled(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: sessionTagsEnabledKey) == nil {
+            return defaultSessionTagsEnabled
+        }
+        return defaults.bool(forKey: sessionTagsEnabledKey)
+    }
+
+    static func setSessionTagsEnabled(_ isEnabled: Bool, defaults: UserDefaults = .standard) {
+        defaults.set(isEnabled, forKey: sessionTagsEnabledKey)
+    }
 }
 
 enum WelcomeSettings {
