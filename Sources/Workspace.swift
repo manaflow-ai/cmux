@@ -999,6 +999,7 @@ final class Workspace: Identifiable, ObservableObject {
     @Published var surfaceListeningPorts: [UUID: [Int]] = [:]
     @Published var listeningPorts: [Int] = []
     var surfaceTTYNames: [UUID: String] = [:]
+    private var panelShellActivityStates: [UUID: PanelShellActivityState] = [:]
     private var restoredTerminalScrollbackByPanelId: [UUID: String] = [:]
 
     var focusedSurfaceId: UUID? { focusedPanelId }
@@ -1013,6 +1014,26 @@ final class Workspace: Identifiable, ObservableObject {
         static let terminal = "terminal"
         static let browser = "browser"
         static let markdown = "markdown"
+    }
+
+    enum PanelShellActivityState: String {
+        case unknown
+        case promptIdle
+        case commandRunning
+    }
+
+    nonisolated static func resolveCloseConfirmation(
+        shellActivityState: PanelShellActivityState?,
+        fallbackNeedsConfirmClose: Bool
+    ) -> Bool {
+        switch shellActivityState ?? .unknown {
+        case .promptIdle:
+            return false
+        case .commandRunning:
+            return true
+        case .unknown:
+            return fallbackNeedsConfirmClose
+        }
     }
 
     // MARK: - Initialization
@@ -1654,6 +1675,26 @@ final class Workspace: Identifiable, ObservableObject {
         if panelId == focusedPanelId, currentDirectory != trimmed {
             currentDirectory = trimmed
         }
+    }
+
+    func updatePanelShellActivityState(panelId: UUID, state: PanelShellActivityState) {
+        guard panels[panelId] != nil else { return }
+        let previousState = panelShellActivityStates[panelId] ?? .unknown
+        guard previousState != state else { return }
+        panelShellActivityStates[panelId] = state
+#if DEBUG
+        dlog(
+            "surface.shellState workspace=\(id.uuidString.prefix(5)) " +
+            "panel=\(panelId.uuidString.prefix(5)) from=\(previousState.rawValue) to=\(state.rawValue)"
+        )
+#endif
+    }
+
+    func panelNeedsConfirmClose(panelId: UUID, fallbackNeedsConfirmClose: Bool) -> Bool {
+        Self.resolveCloseConfirmation(
+            shellActivityState: panelShellActivityStates[panelId],
+            fallbackNeedsConfirmClose: fallbackNeedsConfirmClose
+        )
     }
 
     func updatePanelGitBranch(panelId: UUID, branch: String, isDirty: Bool) {

@@ -2527,6 +2527,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private let maxPendingTextBytes = 1_048_576
     private var backgroundSurfaceStartQueued = false
     private var surfaceCallbackContext: Unmanaged<GhosttySurfaceCallbackContext>?
+#if DEBUG
+    private var needsConfirmCloseOverrideForTesting: Bool?
+#endif
     private enum PortalLifecycleState: String {
         case live
         case closing
@@ -3272,6 +3275,11 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     func needsConfirmClose() -> Bool {
+#if DEBUG
+        if let needsConfirmCloseOverrideForTesting {
+            return needsConfirmCloseOverrideForTesting
+        }
+#endif
         guard let surface = surface else { return false }
         return ghostty_surface_needs_confirm_quit(surface)
     }
@@ -3390,6 +3398,11 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
 
 #if DEBUG
+    @MainActor
+    func setNeedsConfirmCloseOverrideForTesting(_ value: Bool?) {
+        needsConfirmCloseOverrideForTesting = value
+    }
+
     /// Test-only helper to deterministically simulate a released runtime surface.
     @MainActor
     func releaseSurfaceForTesting() {

@@ -5360,6 +5360,57 @@ final class TabManagerCloseWorkspacesWithConfirmationTests: XCTestCase {
 
 @MainActor
 final class TabManagerCloseCurrentPanelTests: XCTestCase {
+    func testRuntimeCloseSkipsConfirmationWhenShellReportsPromptIdle() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId,
+              let terminalPanel = workspace.terminalPanel(for: panelId) else {
+            XCTFail("Expected selected workspace and focused terminal panel")
+            return
+        }
+
+        terminalPanel.surface.setNeedsConfirmCloseOverrideForTesting(true)
+        workspace.updatePanelShellActivityState(panelId: panelId, state: .promptIdle)
+
+        var promptCount = 0
+        manager.confirmCloseHandler = { _, _, _ in
+            promptCount += 1
+            return false
+        }
+
+        manager.closeRuntimeSurfaceWithConfirmation(tabId: workspace.id, surfaceId: panelId)
+        drainMainQueue()
+        drainMainQueue()
+
+        XCTAssertEqual(promptCount, 0, "Runtime closes should honor prompt-idle shell state")
+        XCTAssertNil(workspace.panels[panelId], "Expected the original panel to close")
+        XCTAssertEqual(workspace.panels.count, 1, "Expected a replacement surface after closing the last panel")
+    }
+
+    func testRuntimeClosePromptsWhenShellReportsRunningCommand() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId,
+              let terminalPanel = workspace.terminalPanel(for: panelId) else {
+            XCTFail("Expected selected workspace and focused terminal panel")
+            return
+        }
+
+        terminalPanel.surface.setNeedsConfirmCloseOverrideForTesting(false)
+        workspace.updatePanelShellActivityState(panelId: panelId, state: .commandRunning)
+
+        var promptCount = 0
+        manager.confirmCloseHandler = { _, _, _ in
+            promptCount += 1
+            return false
+        }
+
+        manager.closeRuntimeSurfaceWithConfirmation(tabId: workspace.id, surfaceId: panelId)
+
+        XCTAssertEqual(promptCount, 1, "Running commands should still require confirmation")
+        XCTAssertNotNil(workspace.panels[panelId], "Prompt rejection should keep the original panel open")
+    }
+
     func testCloseCurrentPanelClosesWorkspaceWhenItOwnsTheLastSurface() {
         let manager = TabManager()
         let firstWorkspace = manager.tabs[0]
