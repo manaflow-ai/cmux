@@ -56,6 +56,14 @@ private func installCmuxUnitTestInspectorOverride() {
     cmuxUnitTestInspectorOverrideInstalled = true
 }
 
+private func drainMainQueue() {
+    let expectation = XCTestExpectation(description: "drain main queue")
+    DispatchQueue.main.async {
+        expectation.fulfill()
+    }
+    XCTWaiter().wait(for: [expectation], timeout: 1.0)
+}
+
 final class SplitShortcutTransientFocusGuardTests: XCTestCase {
     func testSuppressesWhenFirstResponderFallsBackAndHostedViewIsTiny() {
         XCTAssertTrue(
@@ -4636,6 +4644,43 @@ final class WorkspaceAutoReorderSettingsTests: XCTestCase {
     }
 }
 
+final class LastSurfaceCloseShortcutSettingsTests: XCTestCase {
+    func testDefaultKeepsWorkspaceOpen() {
+        let suiteName = "LastSurfaceCloseShortcutSettingsTests.Default.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        XCTAssertFalse(LastSurfaceCloseShortcutSettings.closesWorkspace(defaults: defaults))
+    }
+
+    func testStoredTrueClosesWorkspace() {
+        let suiteName = "LastSurfaceCloseShortcutSettingsTests.Enabled.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set(true, forKey: LastSurfaceCloseShortcutSettings.key)
+        XCTAssertTrue(LastSurfaceCloseShortcutSettings.closesWorkspace(defaults: defaults))
+    }
+
+    func testStoredFalseKeepsWorkspaceOpen() {
+        let suiteName = "LastSurfaceCloseShortcutSettingsTests.Disabled.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set(false, forKey: LastSurfaceCloseShortcutSettings.key)
+        XCTAssertFalse(LastSurfaceCloseShortcutSettings.closesWorkspace(defaults: defaults))
+    }
+}
+
 final class SidebarBranchLayoutSettingsTests: XCTestCase {
     func testDefaultUsesVerticalLayout() {
         let suiteName = "SidebarBranchLayoutSettingsTests.Default.\(UUID().uuidString)"
@@ -4661,6 +4706,92 @@ final class SidebarBranchLayoutSettingsTests: XCTestCase {
 
         defaults.set(true, forKey: SidebarBranchLayoutSettings.key)
         XCTAssertTrue(SidebarBranchLayoutSettings.usesVerticalLayout(defaults: defaults))
+    }
+}
+
+final class SidebarWorkspaceDetailSettingsTests: XCTestCase {
+    func testDefaultPreferencesWhenUnset() {
+        let suiteName = "SidebarWorkspaceDetailSettingsTests.Default.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        XCTAssertFalse(SidebarWorkspaceDetailSettings.hidesAllDetails(defaults: defaults))
+        XCTAssertTrue(SidebarWorkspaceDetailSettings.showsNotificationMessage(defaults: defaults))
+        XCTAssertTrue(
+            SidebarWorkspaceDetailSettings.resolvedNotificationMessageVisibility(
+                showNotificationMessage: SidebarWorkspaceDetailSettings.showsNotificationMessage(defaults: defaults),
+                hideAllDetails: SidebarWorkspaceDetailSettings.hidesAllDetails(defaults: defaults)
+            )
+        )
+    }
+
+    func testStoredPreferencesOverrideDefaults() {
+        let suiteName = "SidebarWorkspaceDetailSettingsTests.Stored.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set(true, forKey: SidebarWorkspaceDetailSettings.hideAllDetailsKey)
+        defaults.set(false, forKey: SidebarWorkspaceDetailSettings.showNotificationMessageKey)
+
+        XCTAssertTrue(SidebarWorkspaceDetailSettings.hidesAllDetails(defaults: defaults))
+        XCTAssertFalse(SidebarWorkspaceDetailSettings.showsNotificationMessage(defaults: defaults))
+        XCTAssertFalse(
+            SidebarWorkspaceDetailSettings.resolvedNotificationMessageVisibility(
+                showNotificationMessage: SidebarWorkspaceDetailSettings.showsNotificationMessage(defaults: defaults),
+                hideAllDetails: false
+            )
+        )
+        XCTAssertFalse(
+            SidebarWorkspaceDetailSettings.resolvedNotificationMessageVisibility(
+                showNotificationMessage: true,
+                hideAllDetails: SidebarWorkspaceDetailSettings.hidesAllDetails(defaults: defaults)
+            )
+        )
+    }
+}
+
+final class SidebarWorkspaceAuxiliaryDetailVisibilityTests: XCTestCase {
+    func testResolvedVisibilityPreservesPerRowTogglesWhenDetailsAreShown() {
+        XCTAssertEqual(
+            SidebarWorkspaceAuxiliaryDetailVisibility.resolved(
+                showMetadata: true,
+                showLog: false,
+                showProgress: true,
+                showBranchDirectory: false,
+                showPullRequests: true,
+                showPorts: false,
+                hideAllDetails: false
+            ),
+            SidebarWorkspaceAuxiliaryDetailVisibility(
+                showsMetadata: true,
+                showsLog: false,
+                showsProgress: true,
+                showsBranchDirectory: false,
+                showsPullRequests: true,
+                showsPorts: false
+            )
+        )
+    }
+
+    func testResolvedVisibilityHidesAllAuxiliaryRowsWhenDetailsAreHidden() {
+        XCTAssertEqual(
+            SidebarWorkspaceAuxiliaryDetailVisibility.resolved(
+                showMetadata: true,
+                showLog: true,
+                showProgress: true,
+                showBranchDirectory: true,
+                showPullRequests: true,
+                showPorts: true,
+                hideAllDetails: true
+            ),
+            .hidden
+        )
     }
 }
 
@@ -5054,6 +5185,229 @@ final class TabManagerWorkspaceOwnershipTests: XCTestCase {
         XCTAssertEqual(manager.selectedTabId, initialSelectedTabId)
         XCTAssertEqual(externalWorkspace.panels.count, externalPanelCountBefore)
         XCTAssertEqual(externalWorkspace.panelTitles, externalPanelTitlesBefore)
+    }
+}
+
+@MainActor
+final class TabManagerCloseWorkspacesWithConfirmationTests: XCTestCase {
+    func testCloseWorkspacesWithConfirmationPromptsOnceAndClosesAcceptedWorkspaces() {
+        let manager = TabManager()
+        let second = manager.addWorkspace()
+        let third = manager.addWorkspace()
+        manager.setCustomTitle(tabId: manager.tabs[0].id, title: "Alpha")
+        manager.setCustomTitle(tabId: second.id, title: "Beta")
+        manager.setCustomTitle(tabId: third.id, title: "Gamma")
+
+        var prompts: [(title: String, message: String, acceptCmdD: Bool)] = []
+        manager.confirmCloseHandler = { title, message, acceptCmdD in
+            prompts.append((title, message, acceptCmdD))
+            return true
+        }
+
+        manager.closeWorkspacesWithConfirmation([manager.tabs[0].id, second.id], allowPinned: true)
+
+        let expectedMessage = String(
+            format: String(
+                localized: "dialog.closeWorkspaces.message",
+                defaultValue: "This will close %1$lld workspaces and all of their panels:\n%2$@"
+            ),
+            locale: .current,
+            Int64(2),
+            "• Alpha\n• Beta"
+        )
+        XCTAssertEqual(prompts.count, 1, "Expected a single confirmation prompt for multi-close")
+        XCTAssertEqual(
+            prompts.first?.title,
+            String(localized: "dialog.closeWorkspaces.title", defaultValue: "Close workspaces?")
+        )
+        XCTAssertEqual(prompts.first?.message, expectedMessage)
+        XCTAssertEqual(prompts.first?.acceptCmdD, false)
+        XCTAssertEqual(manager.tabs.map(\.title), ["Gamma"])
+    }
+
+    func testCloseWorkspacesWithConfirmationKeepsWorkspacesWhenCancelled() {
+        let manager = TabManager()
+        let second = manager.addWorkspace()
+        manager.setCustomTitle(tabId: manager.tabs[0].id, title: "Alpha")
+        manager.setCustomTitle(tabId: second.id, title: "Beta")
+
+        var prompts: [(title: String, message: String, acceptCmdD: Bool)] = []
+        manager.confirmCloseHandler = { title, message, acceptCmdD in
+            prompts.append((title, message, acceptCmdD))
+            return false
+        }
+
+        manager.closeWorkspacesWithConfirmation([manager.tabs[0].id, second.id], allowPinned: true)
+
+        let expectedMessage = String(
+            format: String(
+                localized: "dialog.closeWorkspacesWindow.message",
+                defaultValue: "This will close the current window, its %1$lld workspaces, and all of their panels:\n%2$@"
+            ),
+            locale: .current,
+            Int64(2),
+            "• Alpha\n• Beta"
+        )
+        XCTAssertEqual(prompts.count, 1)
+        XCTAssertEqual(
+            prompts.first?.title,
+            String(localized: "dialog.closeWindow.title", defaultValue: "Close window?")
+        )
+        XCTAssertEqual(prompts.first?.message, expectedMessage)
+        XCTAssertEqual(prompts.first?.acceptCmdD, true)
+        XCTAssertEqual(manager.tabs.map(\.title), ["Alpha", "Beta"])
+    }
+
+    func testCloseCurrentWorkspaceWithConfirmationUsesSidebarMultiSelection() {
+        let manager = TabManager()
+        let second = manager.addWorkspace()
+        let third = manager.addWorkspace()
+        manager.setCustomTitle(tabId: manager.tabs[0].id, title: "Alpha")
+        manager.setCustomTitle(tabId: second.id, title: "Beta")
+        manager.setCustomTitle(tabId: third.id, title: "Gamma")
+        manager.selectWorkspace(second)
+        manager.setSidebarSelectedWorkspaceIds([manager.tabs[0].id, second.id])
+
+        var prompts: [(title: String, message: String, acceptCmdD: Bool)] = []
+        manager.confirmCloseHandler = { title, message, acceptCmdD in
+            prompts.append((title, message, acceptCmdD))
+            return false
+        }
+
+        manager.closeCurrentWorkspaceWithConfirmation()
+
+        let expectedMessage = String(
+            format: String(
+                localized: "dialog.closeWorkspaces.message",
+                defaultValue: "This will close %1$lld workspaces and all of their panels:\n%2$@"
+            ),
+            locale: .current,
+            Int64(2),
+            "• Alpha\n• Beta"
+        )
+        XCTAssertEqual(prompts.count, 1, "Expected Cmd+Shift+W path to reuse the multi-close summary dialog")
+        XCTAssertEqual(
+            prompts.first?.title,
+            String(localized: "dialog.closeWorkspaces.title", defaultValue: "Close workspaces?")
+        )
+        XCTAssertEqual(prompts.first?.message, expectedMessage)
+        XCTAssertEqual(prompts.first?.acceptCmdD, false)
+        XCTAssertEqual(manager.tabs.map(\.title), ["Alpha", "Beta", "Gamma"])
+    }
+}
+
+@MainActor
+final class TabManagerCloseCurrentPanelTests: XCTestCase {
+    func testCloseCurrentPanelKeepsWorkspaceOpenWhenItOwnsTheLastSurface() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let initialPanelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace and focused panel")
+            return
+        }
+
+        let initialWorkspaceId = workspace.id
+        XCTAssertEqual(manager.tabs.count, 1)
+        XCTAssertEqual(workspace.panels.count, 1)
+
+        manager.closeCurrentPanelWithConfirmation()
+        drainMainQueue()
+        drainMainQueue()
+
+        XCTAssertEqual(manager.tabs.count, 1, "Closing the last surface should not remove the workspace")
+        XCTAssertEqual(manager.selectedTabId, initialWorkspaceId)
+        XCTAssertEqual(manager.tabs.first?.id, initialWorkspaceId)
+        XCTAssertNil(workspace.panels[initialPanelId], "Expected the original surface to be closed")
+        XCTAssertEqual(workspace.panels.count, 1, "Expected the workspace to stay alive with a replacement surface")
+        XCTAssertNotEqual(workspace.focusedPanelId, initialPanelId)
+    }
+
+    func testCloseCurrentPanelClosesWorkspaceWhenLastSurfaceShortcutSettingEnabled() {
+        let defaults = UserDefaults.standard
+        let originalSetting = defaults.object(forKey: LastSurfaceCloseShortcutSettings.key)
+        defaults.set(true, forKey: LastSurfaceCloseShortcutSettings.key)
+        defer {
+            if let originalSetting {
+                defaults.set(originalSetting, forKey: LastSurfaceCloseShortcutSettings.key)
+            } else {
+                defaults.removeObject(forKey: LastSurfaceCloseShortcutSettings.key)
+            }
+        }
+
+        let manager = TabManager()
+        let firstWorkspace = manager.tabs[0]
+        let secondWorkspace = manager.addWorkspace()
+        manager.selectWorkspace(secondWorkspace)
+
+        XCTAssertEqual(manager.selectedTabId, secondWorkspace.id)
+        XCTAssertEqual(secondWorkspace.panels.count, 1)
+
+        manager.closeCurrentPanelWithConfirmation()
+
+        XCTAssertEqual(manager.tabs.map(\.id), [firstWorkspace.id])
+        XCTAssertEqual(manager.selectedTabId, firstWorkspace.id)
+    }
+
+    func testCloseCurrentPanelWithLegacySettingIgnoresStaleSurfaceId() {
+        let defaults = UserDefaults.standard
+        let originalSetting = defaults.object(forKey: LastSurfaceCloseShortcutSettings.key)
+        defaults.set(true, forKey: LastSurfaceCloseShortcutSettings.key)
+        defer {
+            if let originalSetting {
+                defaults.set(originalSetting, forKey: LastSurfaceCloseShortcutSettings.key)
+            } else {
+                defaults.removeObject(forKey: LastSurfaceCloseShortcutSettings.key)
+            }
+        }
+
+        let manager = TabManager()
+        let firstWorkspace = manager.tabs[0]
+        let secondWorkspace = manager.addWorkspace()
+
+        manager.closePanelWithConfirmation(tabId: secondWorkspace.id, surfaceId: UUID())
+
+        XCTAssertEqual(manager.tabs.map(\.id), [firstWorkspace.id, secondWorkspace.id])
+    }
+
+    func testCloseCurrentPanelClearsNotificationsForClosedSurface() {
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let manager = TabManager()
+        let store = TerminalNotificationStore.shared
+
+        let originalTabManager = appDelegate.tabManager
+        let originalNotificationStore = appDelegate.notificationStore
+        store.replaceNotificationsForTesting([])
+        store.configureNotificationDeliveryHandlerForTesting { _, _ in }
+        appDelegate.tabManager = manager
+        appDelegate.notificationStore = store
+
+        defer {
+            store.replaceNotificationsForTesting([])
+            store.resetNotificationDeliveryHandlerForTesting()
+            appDelegate.tabManager = originalTabManager
+            appDelegate.notificationStore = originalNotificationStore
+        }
+
+        guard let workspace = manager.selectedWorkspace,
+              let initialPanelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace and focused panel")
+            return
+        }
+
+        store.addNotification(
+            tabId: workspace.id,
+            surfaceId: initialPanelId,
+            title: "Unread",
+            subtitle: "",
+            body: ""
+        )
+        XCTAssertTrue(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: initialPanelId))
+
+        manager.closeCurrentPanelWithConfirmation()
+        drainMainQueue()
+        drainMainQueue()
+
+        XCTAssertFalse(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: initialPanelId))
     }
 }
 
@@ -7764,6 +8118,44 @@ final class NotificationDockBadgeTests: XCTestCase {
 
         defaults.set(true, forKey: NotificationBadgeSettings.dockBadgeEnabledKey)
         XCTAssertTrue(NotificationBadgeSettings.isDockBadgeEnabled(defaults: defaults))
+    }
+
+    func testNotificationPaneFlashPreferenceDefaultsToEnabled() {
+        let suiteName = "NotificationPaneFlashSettingsTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        XCTAssertTrue(NotificationPaneFlashSettings.isEnabled(defaults: defaults))
+
+        defaults.set(false, forKey: NotificationPaneFlashSettings.enabledKey)
+        XCTAssertFalse(NotificationPaneFlashSettings.isEnabled(defaults: defaults))
+
+        defaults.set(true, forKey: NotificationPaneFlashSettings.enabledKey)
+        XCTAssertTrue(NotificationPaneFlashSettings.isEnabled(defaults: defaults))
+    }
+
+    func testMenuBarExtraPreferenceDefaultsToVisible() {
+        let suiteName = "MenuBarExtraVisibilityTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        XCTAssertTrue(MenuBarExtraSettings.showsMenuBarExtra(defaults: defaults))
+
+        defaults.set(false, forKey: MenuBarExtraSettings.showInMenuBarKey)
+        XCTAssertFalse(MenuBarExtraSettings.showsMenuBarExtra(defaults: defaults))
+
+        defaults.set(true, forKey: MenuBarExtraSettings.showInMenuBarKey)
+        XCTAssertTrue(MenuBarExtraSettings.showsMenuBarExtra(defaults: defaults))
     }
 
     func testNotificationSoundUsesSystemSoundForDefaultAndNamedSounds() {

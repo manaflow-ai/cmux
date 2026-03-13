@@ -60,6 +60,18 @@ enum WorkspaceAutoReorderSettings {
     }
 }
 
+enum LastSurfaceCloseShortcutSettings {
+    static let key = "closeWorkspaceOnLastSurfaceShortcut"
+    static let defaultValue = false
+
+    static func closesWorkspace(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: key) == nil {
+            return defaultValue
+        }
+        return defaults.bool(forKey: key)
+    }
+}
+
 enum SidebarBranchLayoutSettings {
     static let key = "sidebarBranchVerticalLayout"
     static let defaultVerticalLayout = true
@@ -69,6 +81,72 @@ enum SidebarBranchLayoutSettings {
             return defaultVerticalLayout
         }
         return defaults.bool(forKey: key)
+    }
+}
+
+enum SidebarWorkspaceDetailSettings {
+    static let hideAllDetailsKey = "sidebarHideAllDetails"
+    static let showNotificationMessageKey = "sidebarShowNotificationMessage"
+    static let defaultHideAllDetails = false
+    static let defaultShowNotificationMessage = true
+
+    static func hidesAllDetails(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: hideAllDetailsKey) == nil {
+            return defaultHideAllDetails
+        }
+        return defaults.bool(forKey: hideAllDetailsKey)
+    }
+
+    static func showsNotificationMessage(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: showNotificationMessageKey) == nil {
+            return defaultShowNotificationMessage
+        }
+        return defaults.bool(forKey: showNotificationMessageKey)
+    }
+
+    static func resolvedNotificationMessageVisibility(
+        showNotificationMessage: Bool,
+        hideAllDetails: Bool
+    ) -> Bool {
+        showNotificationMessage && !hideAllDetails
+    }
+}
+
+struct SidebarWorkspaceAuxiliaryDetailVisibility: Equatable {
+    let showsMetadata: Bool
+    let showsLog: Bool
+    let showsProgress: Bool
+    let showsBranchDirectory: Bool
+    let showsPullRequests: Bool
+    let showsPorts: Bool
+
+    static let hidden = Self(
+        showsMetadata: false,
+        showsLog: false,
+        showsProgress: false,
+        showsBranchDirectory: false,
+        showsPullRequests: false,
+        showsPorts: false
+    )
+
+    static func resolved(
+        showMetadata: Bool,
+        showLog: Bool,
+        showProgress: Bool,
+        showBranchDirectory: Bool,
+        showPullRequests: Bool,
+        showPorts: Bool,
+        hideAllDetails: Bool
+    ) -> Self {
+        guard !hideAllDetails else { return .hidden }
+        return Self(
+            showsMetadata: showMetadata,
+            showsLog: showLog,
+            showsProgress: showProgress,
+            showsBranchDirectory: showBranchDirectory,
+            showsPullRequests: showPullRequests,
+            showsPorts: showPorts
+        )
     }
 }
 
@@ -656,6 +734,8 @@ class TabManager: ObservableObject {
     private var workspaceCycleGeneration: UInt64 = 0
     private var workspaceCycleCooldownTask: Task<Void, Never>?
     private var pendingWorkspaceUnfocusTarget: (tabId: UUID, panelId: UUID)?
+    private var sidebarSelectedWorkspaceIds: Set<UUID> = []
+    var confirmCloseHandler: ((String, String, Bool) -> Bool)?
 #if DEBUG
     private var debugWorkspaceSwitchCounter: UInt64 = 0
     private var debugWorkspaceSwitchId: UInt64 = 0
@@ -1260,6 +1340,8 @@ class TabManager: ObservableObject {
     func closeWorkspace(_ workspace: Workspace) {
         guard tabs.count > 1 else { return }
         sentryBreadcrumb("workspace.close", data: ["tabCount": tabs.count - 1])
+        clearInitialWorkspaceGitProbe(workspaceId: workspace.id)
+        sidebarSelectedWorkspaceIds.remove(workspace.id)
 
         AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: workspace.id)
         workspace.teardownAllPanels()
@@ -1284,6 +1366,8 @@ class TabManager: ObservableObject {
     @discardableResult
     func detachWorkspace(tabId: UUID) -> Workspace? {
         guard let index = tabs.firstIndex(where: { $0.id == tabId }) else { return nil }
+        clearInitialWorkspaceGitProbe(workspaceId: tabId)
+        sidebarSelectedWorkspaceIds.remove(tabId)
 
         let removed = tabs.remove(at: index)
         unwireClosedBrowserTracking(for: removed)
@@ -1361,6 +1445,11 @@ class TabManager: ObservableObject {
 #if DEBUG
         UITestRecorder.incrementInt("closeTabInvocations")
 #endif
+        let sidebarSelectionIds = orderedSidebarSelectedWorkspaceIds()
+        if sidebarSelectionIds.count > 1 {
+            closeWorkspacesWithConfirmation(sidebarSelectionIds, allowPinned: true)
+            return
+        }
         guard let selectedId = selectedTabId,
               let workspace = tabs.first(where: { $0.id == selectedId }) else { return }
         closeWorkspaceWithConfirmation(workspace)
@@ -1375,6 +1464,32 @@ class TabManager: ObservableObject {
         closeWorkspaceWithConfirmation(workspace)
     }
 
+    func setSidebarSelectedWorkspaceIds(_ workspaceIds: Set<UUID>) {
+        let existingIds = Set(tabs.map(\.id))
+        sidebarSelectedWorkspaceIds = workspaceIds.intersection(existingIds)
+    }
+
+    func closeWorkspacesWithConfirmation(_ workspaceIds: [UUID], allowPinned: Bool) {
+        let workspaces = orderedClosableWorkspaces(workspaceIds, allowPinned: allowPinned)
+        guard !workspaces.isEmpty else { return }
+        guard workspaces.count > 1 else {
+            closeWorkspaceWithConfirmation(workspaces[0])
+            return
+        }
+
+        let plan = closeWorkspacesPlan(for: workspaces)
+        guard confirmClose(
+            title: plan.title,
+            message: plan.message,
+            acceptCmdD: plan.acceptCmdD
+        ) else { return }
+
+        for workspace in plan.workspaces {
+            guard tabs.contains(where: { $0.id == workspace.id }) else { continue }
+            closeWorkspaceIfRunningProcess(workspace, requiresConfirmation: false)
+        }
+    }
+
     func selectWorkspace(_ workspace: Workspace) {
         selectedTabId = workspace.id
     }
@@ -1383,6 +1498,10 @@ class TabManager: ObservableObject {
     func selectTab(_ tab: Workspace) { selectWorkspace(tab) }
 
     private func confirmClose(title: String, message: String, acceptCmdD: Bool) -> Bool {
+        if let confirmCloseHandler {
+            return confirmCloseHandler(title, message, acceptCmdD)
+        }
+
         let alert = NSAlert()
         alert.messageText = title
         alert.informativeText = message
@@ -1408,6 +1527,13 @@ class TabManager: ObservableObject {
         let workspace: Workspace
         let panelIds: [UUID]
         let titles: [String]
+    }
+
+    private struct CloseWorkspacesPlan {
+        let workspaces: [Workspace]
+        let title: String
+        let message: String
+        let acceptCmdD: Bool
     }
 
     private func closeOtherTabsInFocusedPanePlan() -> CloseOtherTabsInFocusedPanePlan? {
@@ -1452,9 +1578,62 @@ class TabManager: ObservableObject {
         return "Untitled Tab"
     }
 
-    private func closeWorkspaceIfRunningProcess(_ workspace: Workspace) {
+    private func orderedClosableWorkspaces(_ workspaceIds: [UUID], allowPinned: Bool) -> [Workspace] {
+        let targetIds = Set(workspaceIds)
+        return tabs.compactMap { workspace in
+            guard targetIds.contains(workspace.id) else { return nil }
+            guard allowPinned || !workspace.isPinned else { return nil }
+            return workspace
+        }
+    }
+
+    private func orderedSidebarSelectedWorkspaceIds() -> [UUID] {
+        tabs.compactMap { workspace in
+            sidebarSelectedWorkspaceIds.contains(workspace.id) ? workspace.id : nil
+        }
+    }
+
+    private func closeWorkspacesPlan(for workspaces: [Workspace]) -> CloseWorkspacesPlan {
+        let willCloseWindow = workspaces.count == tabs.count
+        let title = willCloseWindow
+            ? String(localized: "dialog.closeWindow.title", defaultValue: "Close window?")
+            : String(localized: "dialog.closeWorkspaces.title", defaultValue: "Close workspaces?")
+        let titleLines = workspaces
+            .map { "• \(closeWorkspaceDisplayTitle($0.title))" }
+            .joined(separator: "\n")
+        let format = willCloseWindow
+            ? String(
+                localized: "dialog.closeWorkspacesWindow.message",
+                defaultValue: "This will close the current window, its %1$lld workspaces, and all of their panels:\n%2$@"
+            )
+            : String(
+                localized: "dialog.closeWorkspaces.message",
+                defaultValue: "This will close %1$lld workspaces and all of their panels:\n%2$@"
+            )
+        let message = String(format: format, locale: .current, Int64(workspaces.count), titleLines)
+        return CloseWorkspacesPlan(
+            workspaces: workspaces,
+            title: title,
+            message: message,
+            acceptCmdD: willCloseWindow
+        )
+    }
+
+    private func closeWorkspaceDisplayTitle(_ title: String?) -> String {
+        let collapsed = title?
+            .replacingOccurrences(of: "\n", with: " ")
+            .replacingOccurrences(of: "\r", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if let collapsed, !collapsed.isEmpty {
+            return collapsed
+        }
+        return String(localized: "workspace.displayName.fallback", defaultValue: "Workspace")
+    }
+
+    private func closeWorkspaceIfRunningProcess(_ workspace: Workspace, requiresConfirmation: Bool = true) {
         let willCloseWindow = tabs.count <= 1
-        if workspaceNeedsConfirmClose(workspace),
+        if requiresConfirmation,
+           workspaceNeedsConfirmClose(workspace),
            !confirmClose(
                title: String(localized: "dialog.closeWorkspace.title", defaultValue: "Close workspace?"),
                message: String(localized: "dialog.closeWorkspace.message", defaultValue: "This will close the workspace and all of its panels."),
@@ -1470,7 +1649,21 @@ class TabManager: ObservableObject {
         }
     }
 
+    private func shouldCloseWorkspaceOnLastSurfaceShortcut(_ workspace: Workspace) -> Bool {
+        LastSurfaceCloseShortcutSettings.closesWorkspace() && workspace.panels.count <= 1
+    }
+
     private func closePanelWithConfirmation(tab: Workspace, panelId: UUID) {
+        guard tab.panels[panelId] != nil else {
+#if DEBUG
+            dlog(
+                "surface.close.shortcut.skip tab=\(tab.id.uuidString.prefix(5)) " +
+                "panel=\(panelId.uuidString.prefix(5)) reason=missingPanel"
+            )
+#endif
+            return
+        }
+
         let bonsplitTabCount = tab.bonsplitController.allPaneIds.reduce(0) { partial, paneId in
             partial + tab.bonsplitController.tabs(inPane: paneId).count
         }
@@ -1484,77 +1677,21 @@ class TabManager: ObservableObject {
         dlog(
             "surface.close.shortcut.begin tab=\(tab.id.uuidString.prefix(5)) " +
             "panel=\(panelId.uuidString.prefix(5)) kind=\(panelKind) " +
-            "panelCount=\(tab.panels.count) bonsplitTabs=\(bonsplitTabCount)"
+            "panelCount=\(tab.panels.count) bonsplitTabs=\(bonsplitTabCount) " +
+            "closeWorkspaceOnLastSurface=\(shouldCloseWorkspaceOnLastSurfaceShortcut(tab) ? 1 : 0)"
         )
 #endif
 
-        // Cmd+W closes the focused Bonsplit tab (a "tab" in the UI). When the workspace only has
-        // a single tab left, closing it should close the workspace (and possibly the window),
-        // rather than creating a replacement terminal.
-        let effectiveSurfaceCount = max(tab.panels.count, bonsplitTabCount)
-        let isLastTabInWorkspace = effectiveSurfaceCount <= 1
-        if isLastTabInWorkspace {
-            let willCloseWindow = tabs.count <= 1
-            let needsConfirm = workspaceNeedsConfirmClose(tab)
-            if needsConfirm {
-                let message = willCloseWindow
-                    ? String(localized: "dialog.closeLastTabWindow.message", defaultValue: "This will close the last tab and close the window.")
-                    : String(localized: "dialog.closeLastTabWorkspace.message", defaultValue: "This will close the last tab and close its workspace.")
-#if DEBUG
-                dlog(
-                    "surface.close.shortcut.confirm tab=\(tab.id.uuidString.prefix(5)) " +
-                    "panel=\(panelId.uuidString.prefix(5)) reason=lastTab"
-                )
-#endif
-                guard confirmClose(
-                    title: String(localized: "dialog.closeTab.title", defaultValue: "Close tab?"),
-                    message: message,
-                    acceptCmdD: willCloseWindow
-                ) else {
-#if DEBUG
-                    dlog(
-                        "surface.close.shortcut.cancel tab=\(tab.id.uuidString.prefix(5)) " +
-                        "panel=\(panelId.uuidString.prefix(5)) reason=lastTabConfirmDismissed"
-                    )
-#endif
-                    return
-                }
-            }
-
-            AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: tab.id)
-            if willCloseWindow {
-                AppDelegate.shared?.closeMainWindowContainingTabId(tab.id)
-            } else {
-                closeWorkspace(tab)
-            }
+        // Cmd+W should match Bonsplit's tab close button semantics by default. Users can opt
+        // back into the legacy behavior where closing the last surface also closes its workspace.
+        if shouldCloseWorkspaceOnLastSurfaceShortcut(tab) {
+            closeWorkspaceIfRunningProcess(tab)
             return
         }
 
-        if let terminalPanel = tab.terminalPanel(for: panelId),
-           terminalPanel.needsConfirmClose() {
-#if DEBUG
-            dlog(
-                "surface.close.shortcut.confirm tab=\(tab.id.uuidString.prefix(5)) " +
-                "panel=\(panelId.uuidString.prefix(5)) reason=terminalNeedsConfirm"
-            )
-#endif
-            guard confirmClose(
-                title: String(localized: "dialog.closeTab.title", defaultValue: "Close tab?"),
-                message: String(localized: "dialog.closeTab.message", defaultValue: "This will close the current tab."),
-                acceptCmdD: false
-            ) else {
-#if DEBUG
-                dlog(
-                    "surface.close.shortcut.cancel tab=\(tab.id.uuidString.prefix(5)) " +
-                    "panel=\(panelId.uuidString.prefix(5)) reason=terminalConfirmDismissed"
-                )
-#endif
-                return
-            }
-        }
-
-        // We already confirmed (if needed); bypass Bonsplit's delegate gating.
-        let closed = tab.closePanel(panelId, force: true)
+        // Route the default Cmd+W path through Bonsplit/Workspace close handling so it matches
+        // the tab close button behavior, including shared confirmation and replacement-panel flow.
+        let closed = tab.closePanel(panelId)
 #if DEBUG
         dlog(
             "surface.close.shortcut tab=\(tab.id.uuidString.prefix(5)) " +

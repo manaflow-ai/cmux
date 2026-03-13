@@ -2,6 +2,23 @@
 
 All notable changes to cmux are documented here.
 
+## [0.62.1] - 2026-03-13
+
+### Added
+- Cmd+T (New tab) shortcut on the welcome screen ([#1258](https://github.com/manaflow-ai/cmux/pull/1258))
+
+### Fixed
+- Cmd+backtick window cycling skipping windows
+- Titlebar shortcut hint clipping ([#1259](https://github.com/manaflow-ai/cmux/pull/1259))
+- Terminal portals desyncing after sidebar changes ([#1253](https://github.com/manaflow-ai/cmux/pull/1253))
+- Background terminal focus retries reordering windows
+- Pure-style multiline prompt redraws in Ghostty
+- Return key not working on Cmd+Ctrl+W close confirmation ([#1279](https://github.com/manaflow-ai/cmux/pull/1279))
+- Concurrent remote daemon RPC calls timing out ([#1281](https://github.com/manaflow-ai/cmux/pull/1281))
+
+### Removed
+- SSH remote port proxying (reverted, will return in a future release)
+
 ## [0.62.0] - 2026-03-12
 
 ### Added

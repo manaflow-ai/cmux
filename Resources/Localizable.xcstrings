@@ -27944,6 +27944,57 @@
         }
       }
     },
+    "dialog.closeWorkspaces.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This will close %1$lld workspaces and all of their panels:\n%2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld 個のワークスペースと、それぞれのすべてのパネルを閉じます:\n%2$@"
+          }
+        }
+      }
+    },
+    "dialog.closeWorkspaces.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close workspaces?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースを閉じますか？"
+          }
+        }
+      }
+    },
+    "dialog.closeWorkspacesWindow.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This will close the current window, its %1$lld workspaces, and all of their panels:\n%2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在のウィンドウと、その %1$lld 個のワークスペースと、それぞれのすべてのパネルを閉じます:\n%2$@"
+          }
+        }
+      }
+    },
     "dialog.closeWorkspace.message": {
       "extractionState": "manual",
       "localizations": {
@@ -40504,6 +40555,40 @@
         }
       }
     },
+    "settings.app.showInMenuBar": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show in Menu Bar"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メニューバーに表示"
+          }
+        }
+      }
+    },
+    "settings.app.showInMenuBar.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep cmux in the menu bar for unread notifications and quick actions."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未読通知の確認やクイック操作のために、cmuxをメニューバーに表示します。"
+          }
+        }
+      }
+    },
     "settings.app.language": {
       "extractionState": "manual",
       "localizations": {
@@ -41182,6 +41267,57 @@
         }
       }
     },
+    "settings.app.closeWorkspaceOnLastSurfaceShortcut": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd+W Closes Workspace on Last Surface"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最後のサーフェスでCmd+Wがワークスペースも閉じる"
+          }
+        }
+      }
+    },
+    "settings.app.closeWorkspaceOnLastSurfaceShortcut.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When the focused surface is the last one in its workspace, Cmd+W closes only the surface and keeps the workspace open."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォーカス中のサーフェスがそのワークスペースの最後の1つでも、Cmd+Wはサーフェスだけを閉じ、ワークスペースは残します。"
+          }
+        }
+      }
+    },
+    "settings.app.closeWorkspaceOnLastSurfaceShortcut.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When the focused surface is the last one in its workspace, Cmd+W also closes the workspace."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォーカス中のサーフェスがそのワークスペースの最後の1つなら、Cmd+Wでワークスペースも閉じます。"
+          }
+        }
+      }
+    },
     "settings.app.openSidebarPRLinks": {
       "extractionState": "manual",
       "localizations": {
@@ -41517,6 +41653,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "Tıklamalar cmux tarayıcısında açılır."
+          }
+        }
+      }
+    },
+    "settings.app.hideAllSidebarDetails": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide All Sidebar Details"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーの詳細をすべて隠す"
+          }
+        }
+      }
+    },
+    "settings.app.hideAllSidebarDetails.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show secondary workspace details as controlled by the toggles below."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下のトグル設定に従って、ワークスペースの補助情報を表示します。"
+          }
+        }
+      }
+    },
+    "settings.app.hideAllSidebarDetails.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show only the workspace title row. Overrides the detail toggles below."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースのタイトル行だけを表示します。下の詳細トグルより優先されます。"
           }
         }
       }
@@ -42760,6 +42947,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "report_meta/set_status ve report_meta_block'tan özel üst veriyi göster."
+          }
+        }
+      }
+    },
+    "settings.app.showNotificationMessage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Notification Message in Sidebar"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーに通知メッセージを表示"
+          }
+        }
+      }
+    },
+    "settings.app.showNotificationMessage.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Display the latest notification message below the workspace title."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペース名の下に最新の通知メッセージを表示します。"
           }
         }
       }
@@ -45049,6 +45270,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "通知を受信したときに再生するサウンドです。"
+          }
+        }
+      }
+    },
+    "settings.notifications.paneRing.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show a blue ring around panes with unread notifications."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未読の通知があるペインの周囲に青いリングを表示します。"
+          }
+        }
+      }
+    },
+    "settings.notifications.paneFlash.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Briefly flash a blue outline when cmux highlights a pane."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux がペインを強調表示するときに短い青いアウトラインを表示します。"
+          }
+        }
+      }
+    },
+    "settings.notifications.paneFlash.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pane Flash"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペインフラッシュ"
+          }
+        }
+      }
+    },
+    "settings.notifications.paneRing.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unread Pane Ring"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未読ペインリング"
           }
         }
       }

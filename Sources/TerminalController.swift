@@ -2948,7 +2948,9 @@ class TerminalController {
                     "selected": ws.id == tabManager.selectedTabId,
                     "pinned": ws.isPinned,
                     "listening_ports": ws.listeningPorts,
-                    "remote": ws.remoteStatusPayload()
+                    "remote": ws.remoteStatusPayload(),
+                    "current_directory": v2OrNull(ws.currentDirectory),
+                    "custom_color": v2OrNull(ws.customColor)
                 ]
             }
         }
