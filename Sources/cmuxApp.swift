@@ -3442,15 +3442,6 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: 14) {
                     SettingsSectionHeader(title: String(localized: "settings.section.app", defaultValue: "App"))
                     SettingsCard {
-                        ThemePickerRow(
-                            selectedMode: appearanceMode,
-                            onSelect: { mode in
-                                appearanceMode = mode.rawValue
-                            }
-                        )
-
-                        SettingsCardDivider()
-
                         SettingsCardRow(
                             String(localized: "settings.app.language", defaultValue: "Language"),
                             subtitle: appLanguage != LanguageSettings.languageAtLaunch.rawValue
@@ -3479,6 +3470,15 @@ struct SettingsView: View {
                                 }
                             }
                         }
+
+                        SettingsCardDivider()
+
+                        ThemePickerRow(
+                            selectedMode: appearanceMode,
+                            onSelect: { mode in
+                                appearanceMode = mode.rawValue
+                            }
+                        )
 
                         SettingsCardDivider()
 
@@ -4933,6 +4933,7 @@ private struct ThemePickerRow: View {
                     }
                     .buttonStyle(.plain)
                     .focusable(false)
+                    .accessibilityAddTraits(isSelected ? .isSelected : [])
                 }
             }
             .layoutPriority(1)
@@ -5014,6 +5015,7 @@ private struct AppIconPickerRow: View {
                     }
                     .buttonStyle(.plain)
                     .focusable(false)
+                    .accessibilityAddTraits(isSelected ? .isSelected : [])
                 }
             }
             .layoutPriority(1)
