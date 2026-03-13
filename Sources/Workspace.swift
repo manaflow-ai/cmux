@@ -311,7 +311,8 @@ extension Workspace {
         switch panel.panelType {
         case .terminal:
             guard let terminalPanel = panel as? TerminalPanel else { return nil }
-            let capturedScrollback = includeScrollback
+            let shouldPersistScrollback = terminalPanel.shouldPersistScrollbackForSessionSnapshot()
+            let capturedScrollback = includeScrollback && shouldPersistScrollback
                 ? TerminalController.shared.readTerminalTextForSnapshot(
                     terminalPanel: terminalPanel,
                     includeScrollback: true,
@@ -321,7 +322,8 @@ extension Workspace {
             let resolvedScrollback = terminalSnapshotScrollback(
                 panelId: panelId,
                 capturedScrollback: capturedScrollback,
-                includeScrollback: includeScrollback
+                includeScrollback: includeScrollback,
+                allowFallbackScrollback: shouldPersistScrollback
             )
             terminalSnapshot = SessionTerminalPanelSnapshot(
                 workingDirectory: panelDirectories[panelId],
@@ -368,24 +370,28 @@ extension Workspace {
 
     nonisolated static func resolvedSnapshotTerminalScrollback(
         capturedScrollback: String?,
-        fallbackScrollback: String?
+        fallbackScrollback: String?,
+        allowFallbackScrollback: Bool = true
     ) -> String? {
         if let captured = SessionPersistencePolicy.truncatedScrollback(capturedScrollback) {
             return captured
         }
+        guard allowFallbackScrollback else { return nil }
         return SessionPersistencePolicy.truncatedScrollback(fallbackScrollback)
     }
 
     private func terminalSnapshotScrollback(
         panelId: UUID,
         capturedScrollback: String?,
-        includeScrollback: Bool
+        includeScrollback: Bool,
+        allowFallbackScrollback: Bool = true
     ) -> String? {
         guard includeScrollback else { return nil }
-        let fallback = restoredTerminalScrollbackByPanelId[panelId]
+        let fallback = allowFallbackScrollback ? restoredTerminalScrollbackByPanelId[panelId] : nil
         let resolved = Self.resolvedSnapshotTerminalScrollback(
             capturedScrollback: capturedScrollback,
-            fallbackScrollback: fallback
+            fallbackScrollback: fallback,
+            allowFallbackScrollback: allowFallbackScrollback
         )
         if let resolved {
             restoredTerminalScrollbackByPanelId[panelId] = resolved
