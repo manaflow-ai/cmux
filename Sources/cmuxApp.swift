@@ -3103,6 +3103,7 @@ struct SettingsView: View {
     @AppStorage(PopupTerminalSettings.widthPercentKey) private var popupWidth = PopupTerminalSettings.defaultWidthPercent
     @AppStorage(PopupTerminalSettings.heightPercentKey) private var popupHeight = PopupTerminalSettings.defaultHeightPercent
     @AppStorage(PopupTerminalSettings.autoHideOnFocusLossKey) private var popupAutoHide = PopupTerminalSettings.defaultAutoHideOnFocusLoss
+    @State private var popupShortcut = KeyboardShortcutSettings.shortcut(for: .togglePopupTerminal)
     @ObservedObject private var notificationStore = TerminalNotificationStore.shared
     @State private var shortcutResetToken = UUID()
     @State private var topBlurOpacity: Double = 0
@@ -3505,10 +3506,11 @@ struct SettingsView: View {
         .onChange(of: popupHeight) { _ in PopupTerminalController.shared.reposition() }
         .onChange(of: popupAutoHide) { _ in PopupTerminalController.shared.refreshAutoHideBehavior() }
         .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
-            // Re-register hotkey when the popup shortcut changes in ShortcutSettingRow.
-            // This fires on any UserDefaults change but registerPopupTerminalHotKey is
-            // idempotent (unregister + register), so the cost is negligible.
-            AppDelegate.shared?.registerPopupTerminalHotKey()
+            let latest = KeyboardShortcutSettings.shortcut(for: .togglePopupTerminal)
+            if latest != popupShortcut {
+                popupShortcut = latest
+                AppDelegate.shared?.registerPopupTerminalHotKey()
+            }
         }
     }
 
