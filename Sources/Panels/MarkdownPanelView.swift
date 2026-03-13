@@ -68,16 +68,49 @@ struct MarkdownPanelView: View {
     }
 
     private var filePathHeader: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "doc.richtext")
-                .foregroundColor(.secondary)
-                .font(.system(size: 12))
-            Text(panel.filePath)
-                .font(.system(size: 11, design: .monospaced))
-                .foregroundColor(.secondary)
-                .lineLimit(1)
-                .truncationMode(.middle)
-            Spacer()
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                Image(systemName: "doc.richtext")
+                    .foregroundColor(.secondary)
+                    .font(.system(size: 12))
+                Text(panel.filePath)
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer()
+            }
+
+            if !panel.frontmatter.isEmpty {
+                frontmatterTagsView
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var frontmatterTagsView: some View {
+        let isDark = colorScheme == .dark
+        // Display select frontmatter fields as inline tags.
+        let displayKeys = panel.frontmatter
+            .filter { $0.key != "title" && !$0.value.isEmpty }
+            .sorted { $0.key < $1.key }
+
+        if !displayKeys.isEmpty {
+            FlowLayout(spacing: 4) {
+                ForEach(displayKeys, id: \.key) { key, value in
+                    Text("\(key): \(value)")
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundColor(isDark ? .white.opacity(0.6) : .secondary)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(
+                            RoundedRectangle(cornerRadius: 4)
+                                .fill(isDark
+                                    ? Color.white.opacity(0.08)
+                                    : Color.black.opacity(0.06))
+                        )
+                }
+            }
         }
     }
 
@@ -351,5 +384,57 @@ final class MarkdownPanelPointerObserverView: NSView {
         eventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown]) { [weak self] event in
             self?.handleEventIfNeeded(event) ?? event
         }
+    }
+}
+
+// MARK: - FlowLayout
+
+/// A simple horizontal flow layout that wraps children to the next line
+/// when they exceed the available width.
+private struct FlowLayout: Layout {
+    var spacing: CGFloat = 4
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let rows = computeRows(proposal: proposal, subviews: subviews)
+        var height: CGFloat = 0
+        for (i, row) in rows.enumerated() {
+            let rowHeight = row.map { $0.sizeThatFits(.unspecified).height }.max() ?? 0
+            height += rowHeight
+            if i < rows.count - 1 { height += spacing }
+        }
+        return CGSize(width: proposal.width ?? 0, height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let rows = computeRows(proposal: proposal, subviews: subviews)
+        var y = bounds.minY
+        for (i, row) in rows.enumerated() {
+            var x = bounds.minX
+            let rowHeight = row.map { $0.sizeThatFits(.unspecified).height }.max() ?? 0
+            for subview in row {
+                let size = subview.sizeThatFits(.unspecified)
+                subview.place(at: CGPoint(x: x, y: y), proposal: .init(width: size.width, height: size.height))
+                x += size.width + spacing
+            }
+            y += rowHeight
+            if i < rows.count - 1 { y += spacing }
+        }
+    }
+
+    private func computeRows(proposal: ProposedViewSize, subviews: Subviews) -> [[LayoutSubviews.Element]] {
+        let maxWidth = proposal.width ?? .infinity
+        var rows: [[LayoutSubviews.Element]] = [[]]
+        var currentWidth: CGFloat = 0
+
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if currentWidth + size.width > maxWidth, !rows[rows.count - 1].isEmpty {
+                rows.append([])
+                currentWidth = 0
+            }
+            rows[rows.count - 1].append(subview)
+            currentWidth += size.width + spacing
+        }
+        return rows
     }
 }
