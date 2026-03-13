@@ -99,20 +99,30 @@ final class PopupTerminalController: NSObject {
         })
     }
 
-    func hide() {
+    /// Hide the popup. When `autoHideTriggered` is true (focus loss), we skip
+    /// restoring previousApp because the user already switched to a new app.
+    func hide(autoHideTriggered: Bool = false) {
         guard let panel, isVisible else { return }
 
         isVisible = false
         removeFocusLossObserver()
 
-        let appToRestore = previousApp
+        let appToRestore = autoHideTriggered ? nil : previousApp
         previousApp = nil
 
-        // Order out immediately — no animation on hide. This prevents the
-        // panel from reappearing if the user clicks the dock icon.
+        // Order out immediately — no animation on hide.
         panel.orderOut(nil)
 
         restoreFocus(to: appToRestore)
+    }
+
+    func refreshAutoHideBehavior() {
+        guard isVisible else { return }
+        if PopupTerminalSettings.autoHideOnFocusLoss {
+            installFocusLossObserver()
+        } else {
+            removeFocusLossObserver()
+        }
     }
 
     func reposition() {
@@ -271,7 +281,7 @@ final class PopupTerminalController: NSObject {
         ) { [weak self] _ in
             guard let self else { return }
             Task { @MainActor in
-                self.hide()
+                self.hide(autoHideTriggered: true)
             }
         }
     }
@@ -288,10 +298,11 @@ final class PopupTerminalController: NSObject {
 
 extension PopupTerminalController: NSWindowDelegate {
     nonisolated func windowWillClose(_ notification: Notification) {
-        Task { @MainActor in
-            self.removeFocusLossObserver()
+        MainActor.assumeIsolated {
+            if self.isVisible {
+                self.hide()
+            }
             self.panel = nil
-            self.isVisible = false
         }
     }
 }

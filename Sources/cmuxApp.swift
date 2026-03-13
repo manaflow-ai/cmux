@@ -3503,6 +3503,13 @@ struct SettingsView: View {
         .onChange(of: popupScreen) { _ in PopupTerminalController.shared.reposition() }
         .onChange(of: popupWidth) { _ in PopupTerminalController.shared.reposition() }
         .onChange(of: popupHeight) { _ in PopupTerminalController.shared.reposition() }
+        .onChange(of: popupAutoHide) { _ in PopupTerminalController.shared.refreshAutoHideBehavior() }
+        .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
+            // Re-register hotkey when the popup shortcut changes in ShortcutSettingRow.
+            // This fires on any UserDefaults change but registerPopupTerminalHotKey is
+            // idempotent (unregister + register), so the cost is negligible.
+            AppDelegate.shared?.registerPopupTerminalHotKey()
+        }
     }
 
     var body: some View {
@@ -4575,6 +4582,14 @@ struct SettingsView: View {
         socketPasswordDraft = ""
         socketPasswordStatusMessage = nil
         socketPasswordStatusIsError = false
+        popupEnabled = PopupTerminalSettings.defaultEnabled
+        popupPosition = PopupTerminalSettings.defaultPosition.rawValue
+        popupScreen = PopupTerminalSettings.defaultScreen.rawValue
+        popupWidth = PopupTerminalSettings.defaultWidthPercent
+        popupHeight = PopupTerminalSettings.defaultHeightPercent
+        popupAutoHide = PopupTerminalSettings.defaultAutoHideOnFocusLoss
+        AppDelegate.shared?.registerPopupTerminalHotKey()
+        PopupTerminalController.shared.reposition()
         KeyboardShortcutSettings.resetAll()
         WorkspaceTabColorSettings.reset()
         reloadWorkspaceTabColorSettings()

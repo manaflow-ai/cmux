@@ -7544,7 +7544,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let key = shortcut.key.lowercased()
 
         guard let fkCode = Self.functionKeyCodeMap[key] else {
-            print("[PopupTerminal] Shortcut key '\(shortcut.key)' is not a function key; hotkey not registered")
+            #if DEBUG
+            dlog("popupTerminal.hotkey skipped reason=nonFunctionKey key=\(shortcut.key)")
+            #endif
             return
         }
         let keyCode = UInt32(fkCode)
@@ -7563,7 +7565,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if status == noErr, let ref {
             globalHotkeyRef = ref
         } else {
-            print("[PopupTerminal] Failed to register hotkey '\(shortcut.key)': OSStatus \(status)")
+            #if DEBUG
+            dlog("popupTerminal.hotkey registerFailed key=\(shortcut.key) status=\(status)")
+            #endif
         }
     }
 

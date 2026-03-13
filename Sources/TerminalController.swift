@@ -2236,6 +2236,9 @@ class TerminalController {
             "browser.input_mouse",
             "browser.input_keyboard",
             "browser.input_touch",
+            "popup-terminal.toggle",
+            "popup-terminal.show",
+            "popup-terminal.hide",
         ]
 #if DEBUG
         methods.append(contentsOf: [

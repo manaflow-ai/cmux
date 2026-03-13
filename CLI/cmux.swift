@@ -5328,6 +5328,24 @@ struct CMUXCLI {
               cmux markdown ~/project/CHANGELOG.md
               cmux markdown open ./docs/design.md --workspace 0
             """
+        case "popup-terminal-toggle":
+            return """
+            Usage: cmux popup-terminal-toggle
+
+            Toggle the global popup terminal.
+            """
+        case "popup-terminal-show":
+            return """
+            Usage: cmux popup-terminal-show
+
+            Show the global popup terminal.
+            """
+        case "popup-terminal-hide":
+            return """
+            Usage: cmux popup-terminal-hide
+
+            Hide the global popup terminal.
+            """
         default:
             return nil
         }
