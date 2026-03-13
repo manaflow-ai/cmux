@@ -120,6 +120,17 @@ def _wait_shell_ready(client: cmux, surface_id: str, timeout: float = 20.0) -> N
     _wait_text(client, surface_id, token, timeout=timeout)
 
 
+def _assert_no_login_profile_noise(text: str) -> None:
+    _must(
+        "/Users/cmux/.profile:" not in text,
+        f"interactive ssh shell should not source ~/.profile via the bootstrap wrapper: {text[-1200:]!r}",
+    )
+    _must(
+        "No such file or directory" not in text,
+        f"interactive ssh shell still emitted startup file noise: {text[-1200:]!r}",
+    )
+
+
 def _run_remote_shell_command(client: cmux, surface_id: str, command: str, timeout: float = 12.0) -> tuple[int, str, str]:
     token = f"__CMUX_REMOTE_CMD_{secrets.token_hex(6)}__"
     start_marker = f"{token}:START"
@@ -174,7 +185,11 @@ def main() -> int:
 
             _wait_remote_ready(client, workspace_id)
             surface_id = _wait_surface_id(client, workspace_id)
+            initial_text = client.read_terminal_text(surface_id)
+            _assert_no_login_profile_noise(initial_text)
             _wait_shell_ready(client, surface_id)
+            shell_ready_text = client.read_terminal_text(surface_id)
+            _assert_no_login_profile_noise(shell_ready_text)
 
             which_status, which_output, which_text = _run_remote_shell_command(client, surface_id, "command -v cmux")
             _must(which_status == 0, f"`command -v cmux` failed: output={which_output!r} tail={which_text[-1200:]!r}")
