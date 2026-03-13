@@ -3784,7 +3784,8 @@ class TerminalController {
             guard let afterSurfaceId else { return }
 
             let paneId = resolvedPaneId?.id
-            let windowId = v2ResolveWindowId(tabManager: tabManager)
+            let resolvedTabManager = locatedPane?.tabManager ?? tabManager
+            let windowId = locatedPane?.windowId ?? v2ResolveWindowId(tabManager: resolvedTabManager)
             result = .ok([
                 "window_id": v2OrNull(windowId?.uuidString),
                 "window_ref": v2Ref(kind: .window, uuid: windowId),
