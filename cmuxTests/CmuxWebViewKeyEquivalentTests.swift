@@ -985,6 +985,25 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: imagePath))
     }
 
+    func testAttachmentOnlyRTFDNonImageClipboardDoesNotFallBackToImagePath() throws {
+        let pasteboard = NSPasteboard(name: .init("cmux-test-rtfd-non-image-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+
+        let wrapper = FileWrapper(regularFileWithContents: Data("hello".utf8))
+        wrapper.preferredFilename = "note.txt"
+
+        let attachment = NSTextAttachment(fileWrapper: wrapper)
+        let attributed = NSAttributedString(attachment: attachment)
+        let data = try attributed.data(
+            from: NSRange(location: 0, length: attributed.length),
+            documentAttributes: [.documentType: NSAttributedString.DocumentType.rtfd]
+        )
+        pasteboard.setData(data, forType: .rtfd)
+
+        XCTAssertNil(cmuxPasteboardStringContentsForTesting(pasteboard))
+        XCTAssertNil(cmuxPasteboardImagePathForTesting(pasteboard))
+    }
+
     func testRTFDClipboardWithVisibleTextPrefersText() throws {
         let pasteboard = NSPasteboard(name: .init("cmux-test-rtfd-text-\(UUID().uuidString)"))
         pasteboard.clearContents()

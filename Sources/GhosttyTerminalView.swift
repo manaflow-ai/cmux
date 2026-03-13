@@ -203,28 +203,43 @@ private enum GhosttyPasteboardHelper {
             guard let attachment = value as? NSTextAttachment else { return }
 
             if let fileWrapper = attachment.fileWrapper,
-               let data = fileWrapper.regularFileContents {
-                let fileExtension =
-                    (fileWrapper.preferredFilename as NSString?)?.pathExtension ?? ""
-                if !fileExtension.isEmpty {
-                    result = (data, fileExtension)
-                    stop.pointee = true
-                    return
-                }
+               let data = fileWrapper.regularFileContents,
+               let imageRepresentation = imageAttachmentRepresentation(
+                data: data,
+                preferredFilename: fileWrapper.preferredFilename
+               ) {
+                result = imageRepresentation
+                stop.pointee = true
             }
-
-            guard let image = attachment.image(
-                forBounds: .zero,
-                textContainer: nil,
-                characterIndex: 0
-            ),
-            let tiffData = image.tiffRepresentation else { return }
-
-            result = (tiffData, "tiff")
-            stop.pointee = true
         }
 
         return result
+    }
+
+    private static func imageAttachmentRepresentation(
+        data: Data,
+        preferredFilename: String?
+    ) -> (data: Data, fileExtension: String)? {
+        let pathExtension =
+            (preferredFilename as NSString?)?.pathExtension.trimmingCharacters(in: .whitespacesAndNewlines)
+            ?? ""
+        if let type = !pathExtension.isEmpty ? UTType(filenameExtension: pathExtension) : nil,
+           type.conforms(to: .image),
+           let fileExtension = type.preferredFilenameExtension ?? nonEmpty(pathExtension) {
+            return (data, fileExtension)
+        }
+
+        guard let imageSource = CGImageSourceCreateWithData(data as CFData, nil),
+              let typeIdentifier = CGImageSourceGetType(imageSource) as String?,
+              let type = UTType(typeIdentifier),
+              type.conforms(to: .image),
+              let fileExtension = type.preferredFilenameExtension else { return nil }
+        return (data, fileExtension)
+    }
+
+    private static func nonEmpty(_ value: String) -> String? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     private static func hasImageData(in pasteboard: NSPasteboard) -> Bool {
