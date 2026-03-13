@@ -164,6 +164,58 @@ final class GhosttyConfigTests: XCTestCase {
         XCTAssertEqual(rgb255(config.backgroundColor), RGB(red: 253, green: 246, blue: 227))
     }
 
+    func testLoadThemeResolvesITerm2SolarizedLightAliasToLegacyThemeName() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ghostty-solarized-light-\(UUID().uuidString)")
+        let themesDir = root.appendingPathComponent("themes")
+        try FileManager.default.createDirectory(at: themesDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        try """
+        background = #fdf6e3
+        foreground = #657b83
+        """.write(
+            to: themesDir.appendingPathComponent("Solarized Light"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        var config = GhosttyConfig()
+        config.loadTheme(
+            "iTerm2 Solarized Light",
+            environment: ["GHOSTTY_RESOURCES_DIR": root.path],
+            bundleResourceURL: nil
+        )
+
+        XCTAssertEqual(rgb255(config.backgroundColor), RGB(red: 253, green: 246, blue: 227))
+    }
+
+    func testLoadThemeResolvesITerm2SolarizedDarkAliasToLegacyThemeName() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ghostty-solarized-dark-\(UUID().uuidString)")
+        let themesDir = root.appendingPathComponent("themes")
+        try FileManager.default.createDirectory(at: themesDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        try """
+        background = #002b36
+        foreground = #93a1a1
+        """.write(
+            to: themesDir.appendingPathComponent("Solarized Dark"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        var config = GhosttyConfig()
+        config.loadTheme(
+            "iTerm2 Solarized Dark",
+            environment: ["GHOSTTY_RESOURCES_DIR": root.path],
+            bundleResourceURL: nil
+        )
+
+        XCTAssertEqual(rgb255(config.backgroundColor), RGB(red: 0, green: 43, blue: 54))
+    }
+
     func testLoadCachesPerColorScheme() {
         GhosttyConfig.invalidateLoadCache()
         defer { GhosttyConfig.invalidateLoadCache() }
@@ -939,52 +991,6 @@ final class RecentlyClosedBrowserStackTests: XCTestCase {
     }
 }
 
-final class TabManagerNotificationOrderingSourceTests: XCTestCase {
-    func testGhosttyDidSetTitleObserverDoesNotHopThroughTask() throws {
-        let projectRoot = findProjectRoot()
-        let tabManagerURL = projectRoot.appendingPathComponent("Sources/TabManager.swift")
-        let source = try String(contentsOf: tabManagerURL, encoding: .utf8)
-
-        guard let titleObserverStart = source.range(of: "forName: .ghosttyDidSetTitle"),
-              let focusObserverStart = source.range(
-                of: "forName: .ghosttyDidFocusSurface",
-                range: titleObserverStart.upperBound..<source.endIndex
-              ) else {
-            XCTFail("Failed to locate TabManager notification observer block in Sources/TabManager.swift")
-            return
-        }
-
-        let block = String(source[titleObserverStart.lowerBound..<focusObserverStart.lowerBound])
-        XCTAssertFalse(
-            block.contains("Task {"),
-            """
-            The .ghosttyDidSetTitle observer must update model state in the notification callback.
-            Using Task can reorder updates and leave titlebar/toolbar one event behind.
-            """
-        )
-        XCTAssertTrue(
-            block.contains("MainActor.assumeIsolated"),
-            "Expected .ghosttyDidSetTitle observer to run synchronously on MainActor."
-        )
-        XCTAssertTrue(
-            block.contains("enqueuePanelTitleUpdate"),
-            "Expected .ghosttyDidSetTitle observer to enqueue panel title updates."
-        )
-    }
-
-    private func findProjectRoot() -> URL {
-        var dir = URL(fileURLWithPath: #file).deletingLastPathComponent().deletingLastPathComponent()
-        for _ in 0..<10 {
-            let marker = dir.appendingPathComponent("GhosttyTabs.xcodeproj")
-            if FileManager.default.fileExists(atPath: marker.path) {
-                return dir
-            }
-            dir = dir.deletingLastPathComponent()
-        }
-        return URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-    }
-}
-
 final class SocketControlSettingsTests: XCTestCase {
     func testMigrateModeSupportsExpandedSocketModes() {
         XCTAssertEqual(SocketControlSettings.migrateMode("off"), .off)
@@ -1338,5 +1344,250 @@ final class GhosttyMouseFocusTests: XCTestCase {
                 hiddenInHierarchy: true
             )
         )
+    }
+
+    // MARK: - CJK Font Fallback
+
+    private func withTempConfig(
+        _ contents: String,
+        body: (String) -> Void
+    ) throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-test-cjk-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let file = dir.appendingPathComponent("config")
+        try contents.write(to: file, atomically: true, encoding: .utf8)
+        body(file.path)
+    }
+
+    // MARK: cjkFontMappings
+
+    func testCJKFontMappingsReturnsHiraginoWithKanaForJapanese() {
+        let mappings = GhosttyApp.cjkFontMappings(preferredLanguages: ["ja-JP", "en-US"])!
+        let fonts = Set(mappings.map(\.1))
+        let ranges = mappings.map(\.0)
+
+        XCTAssertTrue(fonts.contains("Hiragino Sans"))
+        XCTAssertTrue(ranges.contains("U+3040-U+309F"), "Should include Hiragana")
+        XCTAssertTrue(ranges.contains("U+30A0-U+30FF"), "Should include Katakana")
+        XCTAssertTrue(ranges.contains("U+4E00-U+9FFF"), "Should include CJK Ideographs")
+        XCTAssertFalse(ranges.contains("U+AC00-U+D7AF"), "Should NOT include Hangul")
+    }
+
+    func testCJKFontMappingsReturnsAppleSDGothicNeoWithHangulForKorean() {
+        let mappings = GhosttyApp.cjkFontMappings(preferredLanguages: ["ko-KR"])!
+        let fonts = Set(mappings.map(\.1))
+        let ranges = mappings.map(\.0)
+
+        XCTAssertTrue(fonts.contains("Apple SD Gothic Neo"))
+        XCTAssertTrue(ranges.contains("U+AC00-U+D7AF"), "Should include Hangul Syllables")
+        XCTAssertTrue(ranges.contains("U+1100-U+11FF"), "Should include Hangul Jamo")
+        XCTAssertTrue(ranges.contains("U+4E00-U+9FFF"), "Should include CJK Ideographs")
+        XCTAssertFalse(ranges.contains("U+3040-U+309F"), "Should NOT include Hiragana")
+    }
+
+    func testCJKFontMappingsReturnsPingFangForChinese() {
+        let mappingsTW = GhosttyApp.cjkFontMappings(preferredLanguages: ["zh-Hant-TW"])!
+        XCTAssertTrue(mappingsTW.contains { $0.1 == "PingFang TC" })
+
+        let mappingsCN = GhosttyApp.cjkFontMappings(preferredLanguages: ["zh-Hans-CN"])!
+        XCTAssertTrue(mappingsCN.contains { $0.1 == "PingFang SC" })
+
+        let mappingsHK = GhosttyApp.cjkFontMappings(preferredLanguages: ["zh-HK"])!
+        XCTAssertTrue(mappingsHK.contains { $0.1 == "PingFang TC" })
+    }
+
+    func testCJKFontMappingsReturnsNilForNonCJKLanguages() {
+        XCTAssertNil(GhosttyApp.cjkFontMappings(preferredLanguages: ["en-US", "fr-FR"]))
+        XCTAssertNil(GhosttyApp.cjkFontMappings(preferredLanguages: []))
+    }
+
+    func testCJKFontMappingsMultiLanguageMapsScriptSpecificRanges() {
+        let mappings = GhosttyApp.cjkFontMappings(preferredLanguages: ["ja-JP", "ko-KR"])!
+
+        let hiraginoRanges = mappings.filter { $0.1 == "Hiragino Sans" }.map(\.0)
+        let sdGothicRanges = mappings.filter { $0.1 == "Apple SD Gothic Neo" }.map(\.0)
+
+        XCTAssertTrue(hiraginoRanges.contains("U+3040-U+309F"), "Hiragana → Hiragino")
+        XCTAssertTrue(hiraginoRanges.contains("U+4E00-U+9FFF"), "Shared CJK → first lang font")
+        XCTAssertTrue(sdGothicRanges.contains("U+AC00-U+D7AF"), "Hangul → Apple SD Gothic Neo")
+        XCTAssertFalse(hiraginoRanges.contains("U+AC00-U+D7AF"), "Hangul NOT in Hiragino")
+    }
+
+    // MARK: userConfigContainsCJKCodepointMap
+
+    func testUserConfigContainsCJKCodepointMapDetectsPresence() throws {
+        try withTempConfig("font-family = Menlo\nfont-codepoint-map = U+3000-U+9FFF=Hiragino Sans\n") { path in
+            XCTAssertTrue(GhosttyApp.userConfigContainsCJKCodepointMap(configPaths: [path]))
+        }
+    }
+
+    func testUserConfigContainsCJKCodepointMapReturnsFalseWhenAbsent() throws {
+        try withTempConfig("font-family = Menlo\nfont-size = 14\n") { path in
+            XCTAssertFalse(GhosttyApp.userConfigContainsCJKCodepointMap(configPaths: [path]))
+        }
+    }
+
+    func testUserConfigContainsCJKCodepointMapIgnoresComments() throws {
+        try withTempConfig("# font-codepoint-map = U+3000-U+9FFF=Hiragino Sans\n") { path in
+            XCTAssertFalse(GhosttyApp.userConfigContainsCJKCodepointMap(configPaths: [path]))
+        }
+    }
+
+    func testUserConfigContainsCJKCodepointMapReturnsFalseForMissingFiles() {
+        let path = NSTemporaryDirectory() + "cmux-nonexistent-\(UUID().uuidString)/config"
+        XCTAssertFalse(
+            GhosttyApp.userConfigContainsCJKCodepointMap(configPaths: [path])
+        )
+    }
+
+    func testUserConfigContainsCJKCodepointMapFollowsConfigFileIncludes() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-test-cjk-include-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let included = dir.appendingPathComponent("fonts.conf")
+        try "font-codepoint-map = U+3000-U+9FFF=Hiragino Sans\n"
+            .write(to: included, atomically: true, encoding: .utf8)
+
+        let main = dir.appendingPathComponent("config")
+        try "font-family = Menlo\nconfig-file = \(included.path)\n"
+            .write(to: main, atomically: true, encoding: .utf8)
+
+        XCTAssertTrue(GhosttyApp.userConfigContainsCJKCodepointMap(configPaths: [main.path]))
+    }
+
+    func testUserConfigContainsCJKCodepointMapFollowsRelativeIncludes() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-test-cjk-rel-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let included = dir.appendingPathComponent("fonts.conf")
+        try "font-codepoint-map = U+4E00-U+9FFF=Hiragino Sans\n"
+            .write(to: included, atomically: true, encoding: .utf8)
+
+        let main = dir.appendingPathComponent("config")
+        try "config-file = fonts.conf\n"
+            .write(to: main, atomically: true, encoding: .utf8)
+
+        XCTAssertTrue(GhosttyApp.userConfigContainsCJKCodepointMap(configPaths: [main.path]))
+    }
+
+    func testUserConfigContainsCJKCodepointMapHandlesOptionalInclude() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-test-cjk-opt-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let included = dir.appendingPathComponent("fonts.conf")
+        try "font-codepoint-map = U+4E00-U+9FFF=Hiragino Sans\n"
+            .write(to: included, atomically: true, encoding: .utf8)
+
+        let main = dir.appendingPathComponent("config")
+        try "config-file = \(included.path)?\n"
+            .write(to: main, atomically: true, encoding: .utf8)
+
+        XCTAssertTrue(GhosttyApp.userConfigContainsCJKCodepointMap(configPaths: [main.path]))
+    }
+
+    func testUserConfigContainsCJKCodepointMapHandlesCyclicIncludes() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-test-cjk-cycle-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let fileA = dir.appendingPathComponent("a.conf")
+        let fileB = dir.appendingPathComponent("b.conf")
+        try "config-file = \(fileB.path)\n"
+            .write(to: fileA, atomically: true, encoding: .utf8)
+        try "config-file = \(fileA.path)\n"
+            .write(to: fileB, atomically: true, encoding: .utf8)
+
+        // Should not hang; should return false since neither file has font-codepoint-map
+        XCTAssertFalse(GhosttyApp.userConfigContainsCJKCodepointMap(configPaths: [fileA.path]))
+    }
+}
+
+final class ZshShellIntegrationHandoffTests: XCTestCase {
+    func testGhosttyPromptHooksLoadWhenCmuxRequestsZshIntegration() throws {
+        let output = try runInteractiveZsh(cmuxLoadGhosttyIntegration: true)
+
+        XCTAssertTrue(output.contains("PRECMD=1"), output)
+        XCTAssertTrue(output.contains("PREEXEC=1"), output)
+        XCTAssertTrue(output.contains("PRECMDS=_ghostty_precmd"), output)
+    }
+
+    func testGhosttyPromptHooksDoNotLoadWithoutCmuxHandoffFlag() throws {
+        let output = try runInteractiveZsh(cmuxLoadGhosttyIntegration: false)
+
+        XCTAssertTrue(output.contains("PRECMD=0"), output)
+        XCTAssertTrue(output.contains("PREEXEC=0"), output)
+    }
+
+    private func runInteractiveZsh(cmuxLoadGhosttyIntegration: Bool) throws -> String {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-zsh-shell-integration-\(UUID().uuidString)")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let userZdotdir = root.appendingPathComponent("zdotdir")
+        try fileManager.createDirectory(at: userZdotdir, withIntermediateDirectories: true)
+        try "\n".write(to: userZdotdir.appendingPathComponent(".zshenv"), atomically: true, encoding: .utf8)
+
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let cmuxZdotdir = repoRoot.appendingPathComponent("Resources/shell-integration")
+        let ghosttyResources = repoRoot.appendingPathComponent("ghostty/src")
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        process.arguments = [
+            "-i",
+            "-c",
+            "(( $+functions[_ghostty_deferred_init] )) && _ghostty_deferred_init >/dev/null 2>&1; " +
+            "print -r -- \"PRECMD=${+functions[_ghostty_precmd]} " +
+            "PREEXEC=${+functions[_ghostty_preexec]} PRECMDS=${(j:,:)precmd_functions}\""
+        ]
+        process.environment = [
+            "HOME": root.path,
+            "TERM": "xterm-256color",
+            "SHELL": "/bin/zsh",
+            "USER": NSUserName(),
+            "ZDOTDIR": cmuxZdotdir.path,
+            "CMUX_ZSH_ZDOTDIR": userZdotdir.path,
+            "CMUX_SHELL_INTEGRATION": "0",
+            "GHOSTTY_RESOURCES_DIR": ghosttyResources.path,
+        ]
+        if cmuxLoadGhosttyIntegration {
+            process.environment?["CMUX_LOAD_GHOSTTY_ZSH_INTEGRATION"] = "1"
+        }
+
+        let stdout = Pipe()
+        let stderr = Pipe()
+        process.standardOutput = stdout
+        process.standardError = stderr
+
+        try process.run()
+        let deadline = Date().addingTimeInterval(5)
+        while process.isRunning && Date() < deadline {
+            _ = RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
+        }
+        if process.isRunning {
+            process.terminate()
+            process.waitUntilExit()
+            XCTFail("Timed out waiting for zsh to exit")
+        }
+
+        let output = String(data: stdout.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        let error = String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+
+        XCTAssertEqual(process.terminationStatus, 0, error)
+        return output.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

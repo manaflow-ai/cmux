@@ -5,6 +5,8 @@ import AppKit
 /// View for rendering a terminal panel
 struct TerminalPanelView: View {
     @ObservedObject var panel: TerminalPanel
+    @AppStorage(NotificationPaneRingSettings.enabledKey)
+    private var notificationPaneRingEnabled = NotificationPaneRingSettings.defaultEnabled
     let isFocused: Bool
     let isVisibleInUI: Bool
     let portalPriority: Int
@@ -23,7 +25,7 @@ struct TerminalPanelView: View {
             isVisibleInUI: isVisibleInUI,
             portalZPriority: portalPriority,
             showsInactiveOverlay: isSplit && !isFocused,
-            showsUnreadNotificationRing: hasUnreadNotification,
+            showsUnreadNotificationRing: hasUnreadNotification && notificationPaneRingEnabled,
             inactiveOverlayColor: appearance.unfocusedOverlayNSColor,
             inactiveOverlayOpacity: appearance.unfocusedOverlayOpacity,
             searchState: panel.searchState,

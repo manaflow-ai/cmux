@@ -115,6 +115,210 @@
         }
       }
     },
+    "cli.claude-teams.usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux claude-teams [claude-args...]\n\nLaunch Claude Code with agent teams enabled.\n\nThis command:\n  - defaults Claude teammate mode to auto\n  - sets a tmux-like environment so Claude auto mode uses cmux splits\n  - sets CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1\n  - prepends a private tmux shim to PATH\n  - forwards all remaining arguments to claude\n\nThe tmux shim translates supported tmux window/pane commands into cmux\nworkspace and split operations in the current cmux session.\n\nExamples:\n  cmux claude-teams\n  cmux claude-teams --continue\n  cmux claude-teams --model sonnet"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使い方: cmux claude-teams [claude-args...]\n\nエージェントチームを有効にした状態で Claude Code を起動します。\n\nこのコマンドは次を行います:\n  - Claude の teammate mode を auto に設定\n  - Claude の auto mode が cmux の split を使うよう tmux 風の環境を設定\n  - CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 を設定\n  - 専用の tmux shim を PATH の先頭に追加\n  - 残りの引数をそのまま claude に渡す\n\ntmux shim は、対応している tmux の window/pane コマンドを、現在の cmux セッション内の workspace と split 操作に変換します。\n\n例:\n  cmux claude-teams\n  cmux claude-teams --continue\n  cmux claude-teams --model sonnet"
+          }
+        }
+      }
+    },
+    "applescript.error.disabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AppleScript is disabled by the macos-applescript configuration."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macos-applescript の設定で AppleScript は無効になっています。"
+          }
+        }
+      }
+    },
+    "applescript.error.failedToCreateSplit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to create split."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分割の作成に失敗しました。"
+          }
+        }
+      }
+    },
+    "applescript.error.failedToCreateWindow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to create window."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ウインドウの作成に失敗しました。"
+          }
+        }
+      }
+    },
+    "applescript.error.failedToCreateWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to create workspace."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースの作成に失敗しました。"
+          }
+        }
+      }
+    },
+    "applescript.error.missingAction": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Missing action string."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アクション文字列がありません。"
+          }
+        }
+      }
+    },
+    "applescript.error.missingInputText": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Missing input text."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "入力するテキストがありません。"
+          }
+        }
+      }
+    },
+    "applescript.error.missingSplitDirection": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Missing or unknown split direction."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分割方向がないか、不明です。"
+          }
+        }
+      }
+    },
+    "applescript.error.missingTerminalTarget": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Missing terminal target."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "対象のターミナルがありません。"
+          }
+        }
+      }
+    },
+    "applescript.error.terminalUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal is no longer available."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルはもう利用できません。"
+          }
+        }
+      }
+    },
+    "applescript.error.windowUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Window is no longer available."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ウインドウはもう利用できません。"
+          }
+        }
+      }
+    },
+    "applescript.error.workspaceUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace is no longer available."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースはもう利用できません。"
+          }
+        }
+      }
+    },
     "about.build": {
       "extractionState": "manual",
       "localizations": {
@@ -584,6 +788,23 @@
         }
       }
     },
+    "debug.menu.openStressWorkspacesWithLoadedSurfaces": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Stress Workspaces and Load All Terminals"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "負荷テスト用ワークスペースを開いてすべてのターミナルを読み込む"
+          }
+        }
+      }
+    },
     "debug.devBuildBanner.title": {
       "extractionState": "manual",
       "localizations": {
@@ -618,6 +839,23 @@
         }
       }
     },
+    "sidebar.help.welcome": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Welcome to cmux!"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmuxへようこそ！"
+          }
+        }
+      }
+    },
     "sidebar.help.changelog": {
       "extractionState": "manual",
       "localizations": {
@@ -631,6 +869,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "更新履歴"
+          }
+        }
+      }
+    },
+    "sidebar.help.discord": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Discord"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Discord"
           }
         }
       }
@@ -27587,6 +27842,91 @@
         }
       }
     },
+    "dialog.closeWindow.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This will close the current window and all of its workspaces."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在のウィンドウとそのすべてのワークスペースを閉じます。"
+          }
+        }
+      }
+    },
+    "dialog.closeWindow.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close window?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ウィンドウを閉じますか？"
+          }
+        }
+      }
+    },
+    "dialog.closeWorkspaces.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This will close %1$lld workspaces and all of their panels:\n%2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld 個のワークスペースと、それぞれのすべてのパネルを閉じます:\n%2$@"
+          }
+        }
+      }
+    },
+    "dialog.closeWorkspaces.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close workspaces?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースを閉じますか？"
+          }
+        }
+      }
+    },
+    "dialog.closeWorkspacesWindow.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This will close the current window, its %1$lld workspaces, and all of their panels:\n%2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在のウィンドウと、その %1$lld 個のワークスペースと、それぞれのすべてのパネルを閉じます:\n%2$@"
+          }
+        }
+      }
+    },
     "dialog.closeWorkspace.message": {
       "extractionState": "manual",
       "localizations": {
@@ -38774,6 +39114,23 @@
         }
       }
     },
+    "notifications.jumpToLatest": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jump to Latest"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最新へジャンプ"
+          }
+        }
+      }
+    },
     "notifications.jumpToLatestUnread": {
       "extractionState": "manual",
       "localizations": {
@@ -39904,6 +40261,119 @@
         }
       }
     },
+    "settings.app.appIcon.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock and app switcher"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dockとアプリスイッチャー"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "程序坞和应用切换器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock 和 App 切換器"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock 및 앱 전환기"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock und App-Umschalter"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock y selector de apps"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock et sélecteur d'apps"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock e selettore app"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock og appskifter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock i przełącznik aplikacji"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock и переключатель приложений"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock i prebacivač aplikacija"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "شريط Dock ومبدّل التطبيقات"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock og appbytter"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock e alternador de apps"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock และตัวสลับแอป"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock ve uygulama değiştirici"
+          }
+        }
+      }
+    },
     "settings.app.dockBadge": {
       "extractionState": "manual",
       "localizations": {
@@ -40126,6 +40596,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Uygulama simgesinde (Dock ve Cmd+Tab) okunmamış sayısını göster."
+          }
+        }
+      }
+    },
+    "settings.app.showInMenuBar": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show in Menu Bar"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メニューバーに表示"
+          }
+        }
+      }
+    },
+    "settings.app.showInMenuBar.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep cmux in the menu bar for unread notifications and quick actions."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未読通知の確認やクイック操作のために、cmuxをメニューバーに表示します。"
           }
         }
       }
@@ -40808,6 +41312,57 @@
         }
       }
     },
+    "settings.app.closeWorkspaceOnLastSurfaceShortcut": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Closing Last Surface Closes Workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最後のサーフェスを閉じるとワークスペースも閉じる"
+          }
+        }
+      }
+    },
+    "settings.app.closeWorkspaceOnLastSurfaceShortcut.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Closing the last surface keeps the workspace open. Use Cmd+Shift+W to close a workspace explicitly."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最後のサーフェスを閉じてもワークスペースは残ります。ワークスペースを明示的に閉じるにはCmd+Shift+Wを使います。"
+          }
+        }
+      }
+    },
+    "settings.app.closeWorkspaceOnLastSurfaceShortcut.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Closing the last surface also closes its workspace."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最後のサーフェスを閉じると、そのワークスペースも閉じます。"
+          }
+        }
+      }
+    },
     "settings.app.openSidebarPRLinks": {
       "extractionState": "manual",
       "localizations": {
@@ -41143,6 +41698,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "Tıklamalar cmux tarayıcısında açılır."
+          }
+        }
+      }
+    },
+    "settings.app.hideAllSidebarDetails": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide All Sidebar Details"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーの詳細をすべて隠す"
+          }
+        }
+      }
+    },
+    "settings.app.hideAllSidebarDetails.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show secondary workspace details as controlled by the toggles below."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下のトグル設定に従って、ワークスペースの補助情報を表示します。"
+          }
+        }
+      }
+    },
+    "settings.app.hideAllSidebarDetails.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show only the workspace title row. Overrides the detail toggles below."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースのタイトル行だけを表示します。下の詳細トグルより優先されます。"
           }
         }
       }
@@ -42386,6 +42992,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "report_meta/set_status ve report_meta_block'tan özel üst veriyi göster."
+          }
+        }
+      }
+    },
+    "settings.app.showNotificationMessage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Notification Message in Sidebar"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーに通知メッセージを表示"
+          }
+        }
+      }
+    },
+    "settings.app.showNotificationMessage.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Display the latest notification message below the workspace title."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペース名の下に最新の通知メッセージを表示します。"
           }
         }
       }
@@ -44641,6 +45281,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "通知を受信したときに再生するサウンドです。"
+          }
+        }
+      }
+    },
+    "settings.notifications.paneRing.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show a blue ring around panes with unread notifications."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未読の通知があるペインの周囲に青いリングを表示します。"
+          }
+        }
+      }
+    },
+    "settings.notifications.paneFlash.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Briefly flash a blue outline when cmux highlights a pane."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux がペインを強調表示するときに短い青いアウトラインを表示します。"
+          }
+        }
+      }
+    },
+    "settings.notifications.paneFlash.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pane Flash"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペインフラッシュ"
+          }
+        }
+      }
+    },
+    "settings.notifications.paneRing.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unread Pane Ring"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未読ペインリング"
           }
         }
       }

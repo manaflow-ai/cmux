@@ -304,9 +304,9 @@ struct GhosttyConfig {
 
     static func themeNameCandidates(from rawName: String) -> [String] {
         var candidates: [String] = []
-        let compatibilityAliases: [String: [String]] = [
-            "solarized light": ["iTerm2 Solarized Light"],
-            "solarized dark": ["iTerm2 Solarized Dark"],
+        let compatibilityAliasGroups: [[String]] = [
+            ["Solarized Light", "iTerm2 Solarized Light"],
+            ["Solarized Dark", "iTerm2 Solarized Dark"],
         ]
 
         func appendCandidate(_ value: String) {
@@ -316,10 +316,12 @@ struct GhosttyConfig {
                 candidates.append(trimmed)
             }
 
-            if let aliases = compatibilityAliases[trimmed.lowercased()] {
-                for alias in aliases {
-                    if !candidates.contains(alias) {
-                        candidates.append(alias)
+            for group in compatibilityAliasGroups {
+                if group.contains(where: { $0.caseInsensitiveCompare(trimmed) == .orderedSame }) {
+                    for alias in group where alias.caseInsensitiveCompare(trimmed) != .orderedSame {
+                        if !candidates.contains(alias) {
+                            candidates.append(alias)
+                        }
                     }
                 }
             }

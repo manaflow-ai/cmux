@@ -527,6 +527,23 @@ enum NotificationBadgeSettings {
     }
 }
 
+enum NotificationPaneRingSettings {
+    static let enabledKey = "notificationPaneRingEnabled"
+    static let defaultEnabled = true
+}
+
+enum NotificationPaneFlashSettings {
+    static let enabledKey = "notificationPaneFlashEnabled"
+    static let defaultEnabled = true
+
+    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: enabledKey) == nil {
+            return defaultEnabled
+        }
+        return defaults.bool(forKey: enabledKey)
+    }
+}
+
 enum TaggedRunBadgeSettings {
     static let environmentKey = "CMUX_TAG"
     private static let maxTagLength = 10
@@ -670,6 +687,11 @@ final class TerminalNotificationStore: ObservableObject {
     }
     private var notificationSettingsURLOpener: (URL) -> Void = { url in
         NSWorkspace.shared.open(url)
+    }
+    private var notificationDeliveryHandler: (TerminalNotificationStore, TerminalNotification) -> Void = {
+        store,
+        notification in
+        store.scheduleUserNotification(notification)
     }
     private var indexes = NotificationIndexes()
 
@@ -833,17 +855,10 @@ final class TerminalNotificationStore: ObservableObject {
         let isFocusedSurface = surfaceId == nil || focusedSurfaceId == surfaceId
         let isFocusedPanel = isActiveTab && isFocusedSurface
         let isAppFocused = AppFocusState.isAppFocused()
-        if isAppFocused && isFocusedPanel {
-            if !idsToClear.isEmpty {
-                notifications = updated
-                center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
-                center.removePendingNotificationRequestsOffMain(withIdentifiers: idsToClear)
-            }
-            return
-        }
+        let shouldSuppressExternalDelivery = isAppFocused && isFocusedPanel
 
         if WorkspaceAutoReorderSettings.isEnabled() {
-            AppDelegate.shared?.tabManager?.moveTabToTop(tabId)
+            AppDelegate.shared?.tabManager?.moveTabToTopForNotification(tabId)
         }
 
         let notification = TerminalNotification(
@@ -862,7 +877,9 @@ final class TerminalNotificationStore: ObservableObject {
             center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
             center.removePendingNotificationRequestsOffMain(withIdentifiers: idsToClear)
         }
-        scheduleUserNotification(notification)
+        if !shouldSuppressExternalDelivery {
+            notificationDeliveryHandler(self, notification)
+        }
     }
 
     func markRead(id: UUID) {
@@ -1231,6 +1248,18 @@ final class TerminalNotificationStore: ObservableObject {
             NSWorkspace.shared.open(url)
         }
         hasPromptedForSettings = false
+    }
+
+    func configureNotificationDeliveryHandlerForTesting(
+        _ handler: @escaping (TerminalNotificationStore, TerminalNotification) -> Void
+    ) {
+        notificationDeliveryHandler = handler
+    }
+
+    func resetNotificationDeliveryHandlerForTesting() {
+        notificationDeliveryHandler = { store, notification in
+            store.scheduleUserNotification(notification)
+        }
     }
 
     func promptToEnableNotificationsForTesting() {

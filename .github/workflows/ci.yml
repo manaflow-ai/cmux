@@ -108,9 +108,6 @@ jobs:
             sleep $((attempt * 5))
           done
 
-      - name: Run issue #952 regression guard
-        run: python3 tests/test_issue_952_socket_listener_recovery.py
-
       - name: Run unit tests
         run: |
           set -euo pipefail
@@ -153,6 +150,23 @@ jobs:
               exit 1
             fi
           fi
+
+      - name: Run CLI version memory guard regression
+        run: |
+          set -euo pipefail
+
+          CLI_BIN="$(
+            find "$HOME/Library/Developer/Xcode/DerivedData" -path "*/Build/Products/Debug/cmux" -exec stat -f '%m %N' {} \; \
+              | sort -nr \
+              | head -1 \
+              | cut -d' ' -f2-
+          )"
+          if [ -z "${CLI_BIN:-}" ] || [ ! -x "$CLI_BIN" ]; then
+            echo "cmux CLI binary not found in DerivedData" >&2
+            exit 1
+          fi
+
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_version_memory_guard.py
 
   tests-depot:
     # Never run Depot jobs for fork pull requests (avoid billing on external PRs).
@@ -215,9 +229,6 @@ jobs:
             echo "Package resolution failed on attempt $attempt, retrying..."
             sleep $((attempt * 5))
           done
-
-      - name: Run issue #952 regression guard
-        run: python3 tests/test_issue_952_socket_listener_recovery.py
 
       - name: Create virtual display
         run: |

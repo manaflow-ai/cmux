@@ -554,6 +554,150 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         )
     }
 
+    func testCmdShiftEnterKeepsBrowserOmnibarHittableAcrossZoomRoundTripWhenWebViewFocused() {
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
+        launchAndEnsureForeground(app)
+
+        XCTAssertTrue(
+            waitForData(keys: ["browserPanelId", "webViewFocused"], timeout: 10.0),
+            "Expected goto_split setup data to be written"
+        )
+
+        guard let setup = loadData() else {
+            XCTFail("Missing goto_split setup data")
+            return
+        }
+
+        guard let browserPanelId = setup["browserPanelId"] else {
+            XCTFail("Missing browserPanelId in goto_split setup data")
+            return
+        }
+
+        XCTAssertEqual(setup["webViewFocused"], "true", "Expected WKWebView to be first responder for this test")
+
+        let omnibar = app.textFields["BrowserOmnibarTextField"].firstMatch
+        let pill = app.descendants(matching: .any).matching(identifier: "BrowserOmnibarPill").firstMatch
+        XCTAssertTrue(omnibar.waitForExistence(timeout: 6.0), "Expected browser omnibar text field before zoom")
+        XCTAssertTrue(pill.waitForExistence(timeout: 6.0), "Expected browser omnibar pill before zoom")
+
+        // Reproduce the loaded-page state from the bug report before toggling zoom.
+        app.typeKey("l", modifierFlags: [.command])
+        XCTAssertTrue(waitForElementToBecomeHittable(pill, timeout: 6.0), "Expected browser omnibar pill before navigation")
+        pill.click()
+        app.typeKey("a", modifierFlags: [.command])
+        app.typeKey(XCUIKeyboardKey.delete.rawValue, modifierFlags: [])
+        app.typeText(zoomRoundTripPageURL)
+        app.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [])
+
+        XCTAssertTrue(
+            waitForOmnibarToContain(omnibar, value: "data:text/html", timeout: 8.0),
+            "Expected browser to finish navigating to the regression page before zoom. value=\(String(describing: omnibar.value))"
+        )
+
+        let browserPane = app.otherElements["BrowserPanelContent.\(browserPanelId)"].firstMatch
+        XCTAssertTrue(browserPane.waitForExistence(timeout: 6.0), "Expected browser pane content before zoom")
+        browserPane.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).click()
+
+        app.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [.command, .shift])
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 8.0) { data in
+                data["splitZoomedAfterToggle"] == "true" &&
+                    data["otherTerminalHostHiddenAfterToggle"] == "true" &&
+                    data["otherTerminalVisibleFlagAfterToggle"] == "false"
+            },
+            "Expected Cmd+Shift+Enter zoom-in to hide the non-browser terminal portal. data=\(loadData() ?? [:])"
+        )
+        app.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [.command, .shift])
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 8.0) { data in
+                data["splitZoomedAfterToggle"] == "false" &&
+                    data["otherTerminalHostHiddenAfterToggle"] == "false" &&
+                    data["otherTerminalVisibleFlagAfterToggle"] == "true"
+            },
+            "Expected Cmd+Shift+Enter zoom-out to restore the non-browser terminal portal. data=\(loadData() ?? [:])"
+        )
+
+        XCTAssertTrue(omnibar.waitForExistence(timeout: 6.0), "Expected browser omnibar text field after Cmd+Shift+Enter zoom round-trip")
+        XCTAssertTrue(pill.waitForExistence(timeout: 6.0), "Expected browser omnibar pill after Cmd+Shift+Enter zoom round-trip")
+        XCTAssertTrue(
+            waitForElementToBecomeHittable(pill, timeout: 6.0),
+            "Expected browser omnibar to stay hittable after Cmd+Shift+Enter zoom round-trip"
+        )
+        let page = app.webViews.firstMatch
+        XCTAssertTrue(page.waitForExistence(timeout: 6.0), "Expected browser web area after Cmd+Shift+Enter")
+        XCTAssertLessThanOrEqual(
+            pill.frame.maxY,
+            page.frame.minY + 12,
+            "Expected browser omnibar to remain above the web content after Cmd+Shift+Enter. pill=\(pill.frame) page=\(page.frame)"
+        )
+
+        pill.click()
+        app.typeKey("a", modifierFlags: [.command])
+        app.typeKey(XCUIKeyboardKey.delete.rawValue, modifierFlags: [])
+        app.typeText("issue1144")
+
+        XCTAssertTrue(
+            waitForOmnibarToContain(omnibar, value: "issue1144", timeout: 4.0),
+            "Expected browser omnibar to stay editable after Cmd+Shift+Enter. value=\(String(describing: omnibar.value))"
+        )
+    }
+
+    func testCmdShiftEnterHidesBrowserPortalWhenTerminalPaneZooms() {
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
+        app.launchEnvironment["CMUX_UI_TEST_FOCUS_SHORTCUTS"] = "1"
+        launchAndEnsureForeground(app)
+
+        XCTAssertTrue(
+            waitForData(keys: ["terminalPaneId", "browserPanelId", "webViewFocused"], timeout: 10.0),
+            "Expected goto_split setup data to be written"
+        )
+
+        guard let setup = loadData() else {
+            XCTFail("Missing goto_split setup data")
+            return
+        }
+
+        guard let expectedTerminalPaneId = setup["terminalPaneId"] else {
+            XCTFail("Missing terminalPaneId in goto_split setup data")
+            return
+        }
+
+        app.typeKey("h", modifierFlags: [.command, .control])
+
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 5.0) { data in
+                data["focusedPaneId"] == expectedTerminalPaneId && data["focusedPanelKind"] == "terminal"
+            },
+            "Expected Cmd+Ctrl+H to focus the terminal pane before zoom. data=\(loadData() ?? [:])"
+        )
+
+        app.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [.command, .shift])
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 8.0) { data in
+                data["splitZoomedAfterToggle"] == "true" &&
+                    data["browserContainerHiddenAfterToggle"] == "true" &&
+                    data["browserVisibleFlagAfterToggle"] == "false"
+            },
+            "Expected Cmd+Shift+Enter zoom-in on the terminal pane to hide the browser portal. data=\(loadData() ?? [:])"
+        )
+
+        app.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [.command, .shift])
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 8.0) { data in
+                data["splitZoomedAfterToggle"] == "false" &&
+                    data["browserContainerHiddenAfterToggle"] == "false" &&
+                    data["browserVisibleFlagAfterToggle"] == "true"
+            },
+            "Expected Cmd+Shift+Enter zoom-out from the terminal pane to restore the browser portal. data=\(loadData() ?? [:])"
+        )
+    }
+
     func testCmdDSplitsRightWhenOmnibarFocused() {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
@@ -806,8 +950,23 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         return value.contains(expectedSubstring)
     }
 
+    private func waitForElementToBecomeHittable(_ element: XCUIElement, timeout: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if element.exists && element.isHittable {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        return element.exists && element.isHittable
+    }
+
     private var autofocusRacePageURL: String {
         "data:text/html,%3Cinput%20id%3D%22q%22%3E%3Cscript%3EsetTimeout%28function%28%29%7Bdocument.getElementById%28%22q%22%29.focus%28%29%3Blocation.hash%3D%22focused%22%3B%7D%2C700%29%3B%3C%2Fscript%3E"
+    }
+
+    private var zoomRoundTripPageURL: String {
+        "data:text/html,%3Ctitle%3EIssue%201144%3C/title%3E%3Cbody%20style%3D%22margin:0;background:%231d1f24;color:white;font-family:system-ui;height:2200px%22%3E%3Cmain%20style%3D%22padding:32px%22%3E%3Ch1%3EIssue%201144%20Regression%20Page%3C/h1%3E%3Cp%3EZoom%20should%20not%20leave%20stale%20split%20chrome%20above%20the%20browser%20omnibar.%3C/p%3E%3C/main%3E%3C/body%3E"
     }
 
     private func launchAndEnsureForeground(_ app: XCUIApplication, timeout: TimeInterval = 12.0) {

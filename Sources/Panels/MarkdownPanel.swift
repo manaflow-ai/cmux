@@ -76,6 +76,7 @@ final class MarkdownPanel: Panel, ObservableObject {
     }
 
     func triggerFlash() {
+        guard NotificationPaneFlashSettings.isEnabled() else { return }
         focusFlashToken += 1
     }
 
