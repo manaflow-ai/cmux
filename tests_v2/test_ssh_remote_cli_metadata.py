@@ -74,15 +74,6 @@ def _extract_control_path(ssh_command: str) -> str:
     return match.group(1) if match else ""
 
 
-def _has_ssh_option_key(options: list[str], key: str) -> bool:
-    lowered_key = key.lower()
-    for option in options:
-        token = re.split(r"[=\s]+", str(option).strip(), maxsplit=1)[0].strip().lower()
-        if token == lowered_key:
-            return True
-    return False
-
-
 def _read_any_terminal_text(client: cmux, workspace_id: str, timeout: float = 8.0) -> str | None:
     deadline = time.time() + timeout
     last_exc: Exception | None = None
@@ -187,12 +178,36 @@ def main() -> int:
             _must("-o ControlPersist=600" in ssh_command, f"ssh command should keep master alive for reuse: {ssh_command!r}")
             _must("ControlPath=/tmp/cmux-ssh-" in ssh_command, f"ssh command should use shared control path template: {ssh_command!r}")
             _must(
-                (
-                    f"RemoteCommand=export PATH=\"$HOME/.cmux/bin:$PATH\"; "
-                    f"export CMUX_SOCKET_PATH={remote_socket_addr}; "
-                    "exec \"${SHELL:-/bin/zsh}\" -l"
-                ) in ssh_command,
-                f"cmux ssh should use -o RemoteCommand for PATH/bootstrap env pinning (not positional command): {ssh_command!r}",
+                "RemoteCommand=/bin/sh -lc " in ssh_command,
+                f"cmux ssh should route RemoteCommand through /bin/sh for non-POSIX login shells: {ssh_command!r}",
+            )
+            _must(
+                f"export PATH=\"$HOME/.cmux/bin:$PATH\"" in ssh_command,
+                f"cmux ssh should still prepend the remote cmux wrapper path: {ssh_command!r}",
+            )
+            _must(
+                f"export CMUX_SOCKET_PATH=127.0.0.1:{int(remote_relay_port)}" in ssh_command,
+                f"cmux ssh should still pin the relay socket path in RemoteCommand: {ssh_command!r}",
+            )
+            _must(
+                "case \"${CMUX_LOGIN_SHELL##*/}\" in" in ssh_command,
+                f"cmux ssh should still branch on the user's login shell when possible: {ssh_command!r}",
+            )
+            _must(
+                "cat > \"$cmux_shell_dir/.zshrc\"" in ssh_command,
+                f"cmux ssh should install a post-rc zsh wrapper so the remote cmux wrapper stays first on PATH: {ssh_command!r}",
+            )
+            _must(
+                "cmux_wait_attempt=0" in ssh_command,
+                f"cmux ssh should wait briefly for the authenticated relay before showing the remote shell: {ssh_command!r}",
+            )
+            _must(
+                "exec \"$CMUX_LOGIN_SHELL\" --rcfile \"$cmux_shell_dir/.bashrc\" -i" in ssh_command,
+                f"cmux ssh should still support bash login shells with a post-rc wrapper file: {ssh_command!r}",
+            )
+            _must(
+                "exec \"$CMUX_LOGIN_SHELL\" -i" in ssh_command,
+                f"cmux ssh should still hand off to the user's interactive login shell when possible: {ssh_command!r}",
             )
 
             listed_row = None
@@ -221,18 +236,17 @@ def main() -> int:
                 str(proxy.get("state") or "") in {"connecting", "ready", "error", "unavailable"},
                 f"remote payload should include proxy state metadata: {remote}",
             )
-            remote_ssh_options = [str(item) for item in (remote.get("ssh_options") or [])]
             _must(
-                _has_ssh_option_key(remote_ssh_options, "ControlMaster"),
-                f"workspace.remote.configure should include ControlMaster default: {remote}",
+                "ssh_options" not in remote,
+                f"workspace remote payload should not expose raw ssh_options: {remote}",
             )
             _must(
-                _has_ssh_option_key(remote_ssh_options, "ControlPersist"),
-                f"workspace.remote.configure should include ControlPersist default: {remote}",
+                "identity_file" not in remote,
+                f"workspace remote payload should not expose identity_file: {remote}",
             )
             _must(
-                _has_ssh_option_key(remote_ssh_options, "ControlPath"),
-                f"workspace.remote.configure should include ControlPath default: {remote}",
+                bool(remote.get("has_ssh_options")) is True,
+                f"workspace remote payload should indicate ssh options are configured: {remote}",
             )
             # Regression: cmux ssh should launch through initial_command, not visibly type a giant command into the shell.
             terminal_text = _read_any_terminal_text(client, workspace_id)
@@ -352,10 +366,13 @@ def main() -> int:
                 f"ssh command should not force default StrictHostKeyChecking when override is supplied: {ssh_command_strict_override!r}",
             )
             strict_override_remote = payload_strict_override.get("remote") or {}
-            strict_override_options = [str(item) for item in (strict_override_remote.get("ssh_options") or [])]
             _must(
-                any(item.lower() == "stricthostkeychecking=no" for item in strict_override_options),
-                f"workspace.remote.configure should preserve explicit StrictHostKeyChecking override: {strict_override_remote}",
+                "ssh_options" not in strict_override_remote,
+                f"workspace remote payload should not expose raw ssh_options: {strict_override_remote}",
+            )
+            _must(
+                bool(strict_override_remote.get("has_ssh_options")) is True,
+                f"workspace remote payload should indicate ssh options are configured: {strict_override_remote}",
             )
 
             payload_case_override = _run_cli_json(
@@ -420,38 +437,13 @@ def main() -> int:
                 f"ssh command should include exactly one ControlPath when lowercase override is supplied: {ssh_command_case_override!r}",
             )
             case_override_remote = payload_case_override.get("remote") or {}
-            case_override_options = [str(item) for item in (case_override_remote.get("ssh_options") or [])]
             _must(
-                any(item.lower() == "stricthostkeychecking=no" for item in case_override_options),
-                f"workspace.remote.configure should preserve lowercase StrictHostKeyChecking override: {case_override_remote}",
+                "ssh_options" not in case_override_remote,
+                f"workspace remote payload should not expose raw ssh_options: {case_override_remote}",
             )
             _must(
-                not any(item.lower() == "stricthostkeychecking=accept-new" for item in case_override_options),
-                f"workspace.remote.configure should not inject default StrictHostKeyChecking when lowercase override is supplied: {case_override_remote}",
-            )
-            _must(
-                any(item.lower() == "controlmaster=no" for item in case_override_options),
-                f"workspace.remote.configure should preserve lowercase ControlMaster override: {case_override_remote}",
-            )
-            _must(
-                not any(item.lower() == "controlmaster=auto" for item in case_override_options),
-                f"workspace.remote.configure should not inject default ControlMaster when lowercase override is supplied: {case_override_remote}",
-            )
-            _must(
-                any(item.lower() == "controlpersist=0" for item in case_override_options),
-                f"workspace.remote.configure should preserve lowercase ControlPersist override: {case_override_remote}",
-            )
-            _must(
-                not any(item.lower() == "controlpersist=600" for item in case_override_options),
-                f"workspace.remote.configure should not inject default ControlPersist when lowercase override is supplied: {case_override_remote}",
-            )
-            _must(
-                any(item.lower() == "controlpath=/tmp/cmux-ssh-%c-custom" for item in case_override_options),
-                f"workspace.remote.configure should preserve lowercase ControlPath override: {case_override_remote}",
-            )
-            _must(
-                sum(1 for item in case_override_options if item.lower().startswith("controlpath=")) == 1,
-                f"workspace.remote.configure should include exactly one ControlPath when lowercase override is supplied: {case_override_remote}",
+                bool(case_override_remote.get("has_ssh_options")) is True,
+                f"workspace remote payload should indicate ssh options are configured: {case_override_remote}",
             )
 
             payload3 = _run_cli_json(
@@ -475,7 +467,7 @@ def main() -> int:
                 except Exception:
                     pass
 
-            invalid_proxy_port_workspace = client._call("workspace.create", {"initial_command": "echo invalid-local-proxy-port"}) or {}
+            invalid_proxy_port_workspace = client._call("workspace.create", {}) or {}
             workspace_id_invalid_proxy_port = str(invalid_proxy_port_workspace.get("workspace_id") or "")
             if workspace_id_invalid_proxy_port:
                 workspaces_to_close.append(workspace_id_invalid_proxy_port)

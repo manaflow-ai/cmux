@@ -4828,25 +4828,16 @@ final class SidebarRemoteErrorCopySupportTests: XCTestCase {
         )
     }
 
-    func testParsedTargetAndDetailParsesCanonicalStatusValue() {
-        let parsed = SidebarRemoteErrorCopySupport.parsedTargetAndDetail(
-            from: "SSH error (devbox:22): failed to bootstrap daemon"
+    func testClipboardTextSingleEntryUsesStructuredEntryFields() {
+        let entry = SidebarRemoteErrorCopyEntry(
+            workspaceTitle: "alpha",
+            target: "devbox:22",
+            detail: "failed to bootstrap daemon"
         )
-        XCTAssertEqual(parsed?.target, "devbox:22")
-        XCTAssertEqual(parsed?.detail, "failed to bootstrap daemon")
-    }
-
-    func testParsedTargetAndDetailUsesFallbackTargetWhenStatusOmitsTarget() {
-        let parsed = SidebarRemoteErrorCopySupport.parsedTargetAndDetail(
-            from: "SSH error: connection refused",
-            fallbackTarget: "fallback-host"
+        XCTAssertEqual(
+            SidebarRemoteErrorCopySupport.clipboardText(for: [entry]),
+            "SSH error (devbox:22): failed to bootstrap daemon"
         )
-        XCTAssertEqual(parsed?.target, "fallback-host")
-        XCTAssertEqual(parsed?.detail, "connection refused")
-    }
-
-    func testParsedTargetAndDetailIgnoresNonSSHStatusValues() {
-        XCTAssertNil(SidebarRemoteErrorCopySupport.parsedTargetAndDetail(from: "All good"))
     }
 }
 

@@ -279,7 +279,7 @@ func TestDialTCPRetrySuccess(t *testing.T) {
 		conn.Close()
 	}()
 
-	conn, err := dialTCPRetry(addr, 3*time.Second, nil)
+	conn, _, err := dialTCPRetry(addr, 3*time.Second, nil)
 	if err != nil {
 		t.Fatalf("dialTCPRetry should succeed after retry, got: %v", err)
 	}
@@ -296,7 +296,7 @@ func TestDialTCPRetryTimeout(t *testing.T) {
 	ln.Close()
 
 	start := time.Now()
-	_, err = dialTCPRetry(addr, 600*time.Millisecond, nil)
+	_, _, err = dialTCPRetry(addr, 600*time.Millisecond, nil)
 	elapsed := time.Since(start)
 	if err == nil {
 		t.Fatal("dialTCPRetry should fail when nothing is listening")
@@ -422,7 +422,7 @@ func TestCLICloseWindowV1(t *testing.T) {
 	dir := t.TempDir()
 	sockPath := filepath.Join(dir, "cmux.sock")
 
-	var received string
+	receivedCh := make(chan string, 1)
 	ln, err := net.Listen("unix", sockPath)
 	if err != nil {
 		t.Fatalf("listen: %v", err)
@@ -436,7 +436,7 @@ func TestCLICloseWindowV1(t *testing.T) {
 		}
 		buf := make([]byte, 4096)
 		n, _ := conn.Read(buf)
-		received = strings.TrimSpace(string(buf[:n]))
+		receivedCh <- strings.TrimSpace(string(buf[:n]))
 		conn.Write([]byte("OK\n"))
 		conn.Close()
 	}()
@@ -445,8 +445,13 @@ func TestCLICloseWindowV1(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("close-window should return 0, got %d", code)
 	}
-	if received != "close_window win-42" {
-		t.Fatalf("expected 'close_window win-42', got %q", received)
+	select {
+	case received := <-receivedCh:
+		if received != "close_window win-42" {
+			t.Fatalf("expected 'close_window win-42', got %q", received)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for close-window payload")
 	}
 }
 
@@ -532,7 +537,7 @@ func TestCLIV2FlagMapping(t *testing.T) {
 	dir := t.TempDir()
 	sockPath := filepath.Join(dir, "cmux.sock")
 
-	var receivedParams map[string]any
+	receivedParamsCh := make(chan map[string]any, 1)
 	ln, err := net.Listen("unix", sockPath)
 	if err != nil {
 		t.Fatalf("listen: %v", err)
@@ -548,7 +553,8 @@ func TestCLIV2FlagMapping(t *testing.T) {
 		n, _ := conn.Read(buf)
 		var req map[string]any
 		json.Unmarshal(buf[:n], &req)
-		receivedParams, _ = req["params"].(map[string]any)
+		receivedParams, _ := req["params"].(map[string]any)
+		receivedParamsCh <- receivedParams
 		resp := map[string]any{"id": req["id"], "ok": true, "result": map[string]any{}}
 		payload, _ := json.Marshal(resp)
 		conn.Write(append(payload, '\n'))
@@ -559,8 +565,13 @@ func TestCLIV2FlagMapping(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("close-workspace should return 0, got %d", code)
 	}
-	if receivedParams["workspace_id"] != "ws-abc" {
-		t.Fatalf("expected workspace_id=ws-abc, got %v", receivedParams)
+	select {
+	case receivedParams := <-receivedParamsCh:
+		if receivedParams["workspace_id"] != "ws-abc" {
+			t.Fatalf("expected workspace_id=ws-abc, got %v", receivedParams)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for close-workspace payload")
 	}
 }
 
@@ -635,15 +646,23 @@ func TestFlagToParamKey(t *testing.T) {
 
 func TestParseFlags(t *testing.T) {
 	args := []string{"positional-cmd", "--workspace", "ws-1", "--surface", "sf-2", "--unknown", "val"}
-	result := parseFlags(args, []string{"workspace", "surface"})
+	_, err := parseFlags(args, []string{"workspace", "surface"})
+	if err == nil {
+		t.Fatal("parseFlags should reject unknown flags")
+	}
+}
+
+func TestParseFlagsCollectsKnownFlagsAndPositionalArgs(t *testing.T) {
+	args := []string{"positional-cmd", "--workspace", "ws-1", "--surface", "sf-2"}
+	result, err := parseFlags(args, []string{"workspace", "surface"})
+	if err != nil {
+		t.Fatalf("parseFlags should succeed for known flags: %v", err)
+	}
 	if result.flags["workspace"] != "ws-1" {
 		t.Errorf("expected workspace=ws-1, got %q", result.flags["workspace"])
 	}
 	if result.flags["surface"] != "sf-2" {
 		t.Errorf("expected surface=sf-2, got %q", result.flags["surface"])
-	}
-	if _, ok := result.flags["unknown"]; ok {
-		t.Errorf("unknown flag should not be parsed")
 	}
 	if len(result.positional) == 0 || result.positional[0] != "positional-cmd" {
 		t.Errorf("expected first positional=positional-cmd, got %v", result.positional)
@@ -655,7 +674,7 @@ func TestCLIEnvVarDefaults(t *testing.T) {
 	dir := t.TempDir()
 	sockPath := filepath.Join(dir, "cmux.sock")
 
-	var receivedParams map[string]any
+	receivedParamsCh := make(chan map[string]any, 1)
 	ln, err := net.Listen("unix", sockPath)
 	if err != nil {
 		t.Fatalf("listen: %v", err)
@@ -671,7 +690,8 @@ func TestCLIEnvVarDefaults(t *testing.T) {
 		n, _ := conn.Read(buf)
 		var req map[string]any
 		json.Unmarshal(buf[:n], &req)
-		receivedParams, _ = req["params"].(map[string]any)
+		receivedParams, _ := req["params"].(map[string]any)
+		receivedParamsCh <- receivedParams
 		resp := map[string]any{"id": req["id"], "ok": true, "result": map[string]any{}}
 		payload, _ := json.Marshal(resp)
 		conn.Write(append(payload, '\n'))
@@ -687,10 +707,15 @@ func TestCLIEnvVarDefaults(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("close-surface should return 0, got %d", code)
 	}
-	if receivedParams["workspace_id"] != "env-ws-id" {
-		t.Errorf("expected workspace_id from env, got %v", receivedParams["workspace_id"])
-	}
-	if receivedParams["surface_id"] != "env-sf-id" {
-		t.Errorf("expected surface_id from env, got %v", receivedParams["surface_id"])
+	select {
+	case receivedParams := <-receivedParamsCh:
+		if receivedParams["workspace_id"] != "env-ws-id" {
+			t.Errorf("expected workspace_id from env, got %v", receivedParams["workspace_id"])
+		}
+		if receivedParams["surface_id"] != "env-sf-id" {
+			t.Errorf("expected surface_id from env, got %v", receivedParams["surface_id"])
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for close-surface payload")
 	}
 }

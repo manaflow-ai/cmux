@@ -70,6 +70,8 @@ def _as_int(value: object, field: str) -> int:
     if isinstance(value, int):
         return value
     if isinstance(value, float):
+        if not value.is_integer():
+            raise cmuxError(f"{field} should be an integer value, got float {value!r}")
         return int(value)
     raise cmuxError(f"{field} has unexpected type {type(value).__name__}: {value!r}")
 

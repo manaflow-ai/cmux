@@ -11,8 +11,9 @@ import Darwin
 @MainActor
 final class TerminalControllerSocketSecurityTests: XCTestCase {
     private func makeSocketPath(_ name: String) -> String {
-        FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-socket-security-\(name)-\(UUID().uuidString).sock")
+        let shortID = UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(8)
+        return URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("csec-\(name.prefix(4))-\(shortID).sock")
             .path
     }
 
@@ -104,6 +105,33 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
 #else
         throw XCTSkip("Socket command policy snapshot helper is debug-only.")
 #endif
+    }
+
+    func testRemoteStatusPayloadOmitsSensitiveSSHConfiguration() {
+        let tabManager = TabManager()
+        let workspace = tabManager.addWorkspace(select: false, eagerLoadTerminal: false)
+
+        workspace.configureRemoteConnection(
+            .init(
+                destination: "example.com",
+                port: 2222,
+                identityFile: "/Users/test/.ssh/id_ed25519",
+                sshOptions: ["ControlMaster=auto", "ControlPersist=600"],
+                localProxyPort: 1080,
+                relayPort: 4444,
+                relayID: "relay-id",
+                relayToken: "relay-token",
+                localSocketPath: "/tmp/cmux-test.sock",
+                terminalStartupCommand: "ssh example.com"
+            ),
+            autoConnect: false
+        )
+
+        let payload = workspace.remoteStatusPayload()
+        XCTAssertNil(payload["identity_file"])
+        XCTAssertNil(payload["ssh_options"])
+        XCTAssertEqual(payload["has_identity_file"] as? Bool, true)
+        XCTAssertEqual(payload["has_ssh_options"] as? Bool, true)
     }
 
     private func waitForSocket(at path: String, timeout: TimeInterval = 2.0) throws {

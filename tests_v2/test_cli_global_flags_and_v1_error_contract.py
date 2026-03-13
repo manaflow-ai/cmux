@@ -67,6 +67,7 @@ def main() -> int:
         LAST_SOCKET_HINT_PATH.write_text(f"{SOCKET_PATH}\n", encoding="utf-8")
         auto_env = dict(os.environ)
         auto_env.pop("CMUX_SOCKET_PATH", None)
+        auto_env.pop("CMUX_SOCKET", None)
         auto_ping = _run([cli, "ping"], env=auto_env)
         auto_ping_out = _merged_output(auto_ping).lower()
         _must(auto_ping.returncode == 0, f"debug auto socket resolution should succeed: {auto_ping.returncode} {auto_ping_out!r}")

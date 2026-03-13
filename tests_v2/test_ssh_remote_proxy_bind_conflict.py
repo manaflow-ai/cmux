@@ -185,10 +185,10 @@ def main() -> int:
         host = f"root@{DOCKER_SSH_HOST}"
         _wait_for_ssh(host, host_ssh_port, key_path)
 
-        conflict_port = _find_free_loopback_port()
         conflict_listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         conflict_listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        conflict_listener.bind(("127.0.0.1", conflict_port))
+        conflict_listener.bind(("127.0.0.1", 0))
+        conflict_port = int(conflict_listener.getsockname()[1])
         conflict_listener.listen(1)
 
         with cmux(SOCKET_PATH) as client:

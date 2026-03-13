@@ -1192,6 +1192,189 @@ private final class WorkspaceRemoteDaemonRPCClient {
     }
 }
 
+enum RemoteLoopbackHTTPRequestRewriter {
+    private static let headerDelimiter = Data([0x0d, 0x0a, 0x0d, 0x0a])
+    private static let canonicalLoopbackHost = "localhost"
+    private static let requestLineMethods = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS", "TRACE", "PRI"]
+
+    static func rewriteIfNeeded(data: Data, aliasHost: String) -> Data {
+        guard let headerRange = data.range(of: headerDelimiter) else { return data }
+        let headerData = Data(data[..<headerRange.upperBound])
+        guard let headerText = String(data: headerData, encoding: .utf8) else { return data }
+
+        var lines = headerText.components(separatedBy: "\r\n")
+        guard !lines.isEmpty else { return data }
+        guard let requestLineIndex = lines.firstIndex(where: { !$0.isEmpty }) else { return data }
+        guard requestLineLooksHTTP(lines[requestLineIndex]) else { return data }
+
+        let rewrittenRequestLine = rewriteRequestLine(lines[requestLineIndex], aliasHost: aliasHost)
+        if rewrittenRequestLine != lines[requestLineIndex] {
+            lines[requestLineIndex] = rewrittenRequestLine
+        }
+
+        for index in (requestLineIndex + 1)..<lines.count where !lines[index].isEmpty {
+            lines[index] = rewriteHeaderLine(lines[index], aliasHost: aliasHost)
+        }
+
+        let rewrittenHeaderText = lines.joined(separator: "\r\n")
+        guard rewrittenHeaderText != headerText else { return data }
+        return Data(rewrittenHeaderText.utf8) + data[headerRange.upperBound...]
+    }
+
+    private static func requestLineLooksHTTP(_ requestLine: String) -> Bool {
+        let trimmed = requestLine.trimmingCharacters(in: .whitespacesAndNewlines)
+        let method = trimmed.split(separator: " ", maxSplits: 1).first.map(String.init)?.uppercased() ?? ""
+        return requestLineMethods.contains(method)
+    }
+
+    private static func rewriteRequestLine(_ requestLine: String, aliasHost: String) -> String {
+        let trimmed = requestLine.trimmingCharacters(in: .whitespacesAndNewlines)
+        let parts = trimmed.split(separator: " ", omittingEmptySubsequences: false)
+        guard parts.count >= 3 else { return requestLine }
+
+        var components = URLComponents(string: String(parts[1]))
+        guard let host = components?.host,
+              BrowserInsecureHTTPSettings.normalizeHost(host) == BrowserInsecureHTTPSettings.normalizeHost(aliasHost) else {
+            return requestLine
+        }
+        components?.host = canonicalLoopbackHost
+        guard let rewrittenURL = components?.string else { return requestLine }
+
+        var rewritten = parts
+        rewritten[1] = Substring(rewrittenURL)
+        let leadingTrivia = requestLine.prefix { $0.isWhitespace || $0.isNewline }
+        let trailingTrivia = String(requestLine.reversed().prefix { $0.isWhitespace || $0.isNewline }.reversed())
+        return String(leadingTrivia) + rewritten.joined(separator: " ") + trailingTrivia
+    }
+
+    private static func rewriteHeaderLine(_ line: String, aliasHost: String) -> String {
+        guard let colonIndex = line.firstIndex(of: ":") else { return line }
+        let name = line[..<colonIndex].trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let valueStart = line.index(after: colonIndex)
+        let rawValue = line[valueStart...].trimmingCharacters(in: .whitespacesAndNewlines)
+
+        switch name {
+        case "host":
+            guard let rewrittenHost = rewriteHostValue(rawValue, aliasHost: aliasHost) else { return line }
+            return "\(line[..<valueStart]) \(rewrittenHost)"
+        case "origin", "referer":
+            guard let rewrittenURL = rewriteURLValue(rawValue, aliasHost: aliasHost) else { return line }
+            return "\(line[..<valueStart]) \(rewrittenURL)"
+        default:
+            return line
+        }
+    }
+
+    private static func rewriteHostValue(_ value: String, aliasHost: String) -> String? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        if trimmed.hasPrefix("["),
+           let closing = trimmed.firstIndex(of: "]") {
+            let host = String(trimmed[trimmed.index(after: trimmed.startIndex)..<closing])
+            guard BrowserInsecureHTTPSettings.normalizeHost(host) == BrowserInsecureHTTPSettings.normalizeHost(aliasHost) else {
+                return nil
+            }
+            let remainder = String(trimmed[closing...].dropFirst())
+            return canonicalLoopbackHost + remainder
+        }
+
+        if let colonIndex = trimmed.lastIndex(of: ":"), !trimmed[..<colonIndex].contains(":") {
+            let host = String(trimmed[..<colonIndex])
+            guard BrowserInsecureHTTPSettings.normalizeHost(host) == BrowserInsecureHTTPSettings.normalizeHost(aliasHost) else {
+                return nil
+            }
+            return canonicalLoopbackHost + trimmed[colonIndex...]
+        }
+
+        guard BrowserInsecureHTTPSettings.normalizeHost(trimmed) == BrowserInsecureHTTPSettings.normalizeHost(aliasHost) else {
+            return nil
+        }
+        return canonicalLoopbackHost
+    }
+
+    private static func rewriteURLValue(_ value: String, aliasHost: String) -> String? {
+        var components = URLComponents(string: value)
+        guard let host = components?.host,
+              BrowserInsecureHTTPSettings.normalizeHost(host) == BrowserInsecureHTTPSettings.normalizeHost(aliasHost) else {
+            return nil
+        }
+        components?.host = canonicalLoopbackHost
+        return components?.string
+    }
+}
+
+enum RemoteLoopbackHTTPResponseRewriter {
+    private static let headerDelimiter = Data([0x0d, 0x0a, 0x0d, 0x0a])
+    private static let canonicalLoopbackHost = "localhost"
+
+    static func rewriteIfNeeded(data: Data, aliasHost: String) -> Data {
+        guard let headerRange = data.range(of: headerDelimiter) else { return data }
+        let headerData = Data(data[..<headerRange.upperBound])
+        guard let headerText = String(data: headerData, encoding: .utf8) else { return data }
+
+        var lines = headerText.components(separatedBy: "\r\n")
+        guard let statusLineIndex = lines.firstIndex(where: { !$0.isEmpty }) else { return data }
+        guard lines[statusLineIndex].uppercased().hasPrefix("HTTP/") else { return data }
+
+        for index in (statusLineIndex + 1)..<lines.count where !lines[index].isEmpty {
+            lines[index] = rewriteHeaderLine(lines[index], aliasHost: aliasHost)
+        }
+
+        let rewrittenHeaderText = lines.joined(separator: "\r\n")
+        guard rewrittenHeaderText != headerText else { return data }
+        return Data(rewrittenHeaderText.utf8) + data[headerRange.upperBound...]
+    }
+
+    private static func rewriteHeaderLine(_ line: String, aliasHost: String) -> String {
+        guard let colonIndex = line.firstIndex(of: ":") else { return line }
+        let name = line[..<colonIndex].trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let valueStart = line.index(after: colonIndex)
+        let rawValue = line[valueStart...].trimmingCharacters(in: .whitespacesAndNewlines)
+
+        switch name {
+        case "location", "content-location", "origin", "referer", "access-control-allow-origin":
+            guard let rewrittenURL = rewriteURLValue(rawValue, aliasHost: aliasHost) else { return line }
+            return "\(line[..<valueStart]) \(rewrittenURL)"
+        case "set-cookie":
+            guard let rewrittenCookie = rewriteCookieValue(rawValue, aliasHost: aliasHost) else { return line }
+            return "\(line[..<valueStart]) \(rewrittenCookie)"
+        default:
+            return line
+        }
+    }
+
+    private static func rewriteURLValue(_ value: String, aliasHost: String) -> String? {
+        var components = URLComponents(string: value)
+        guard let host = components?.host,
+              BrowserInsecureHTTPSettings.normalizeHost(host) == BrowserInsecureHTTPSettings.normalizeHost(canonicalLoopbackHost) else {
+            return nil
+        }
+        components?.host = aliasHost
+        return components?.string
+    }
+
+    private static func rewriteCookieValue(_ value: String, aliasHost: String) -> String? {
+        let parts = value.split(separator: ";", omittingEmptySubsequences: false).map(String.init)
+        guard !parts.isEmpty else { return nil }
+
+        var didRewrite = false
+        let rewrittenParts = parts.map { part -> String in
+            let trimmed = part.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard trimmed.lowercased().hasPrefix("domain=") else { return part }
+            let domainValue = String(trimmed.dropFirst("domain=".count))
+            guard BrowserInsecureHTTPSettings.normalizeHost(domainValue) == BrowserInsecureHTTPSettings.normalizeHost(canonicalLoopbackHost) else {
+                return part
+            }
+            didRewrite = true
+            let leadingWhitespace = part.prefix { $0.isWhitespace }
+            return "\(leadingWhitespace)Domain=\(aliasHost)"
+        }
+
+        return didRewrite ? rewrittenParts.joined(separator: ";") : nil
+    }
+}
+
 private final class WorkspaceRemoteDaemonProxyTunnel {
     private final class ProxySession {
         private static let maxHandshakeBytes = 64 * 1024
@@ -1229,6 +1412,9 @@ private final class WorkspaceRemoteDaemonProxyTunnel {
         private var handshakeBuffer = Data()
         private var streamID: String?
         private var localInputEOF = false
+        private var rewritesLoopbackHTTPHeaders = false
+        private var pendingRemoteHTTPHeaderBytes = Data()
+        private var hasForwardedRemoteHTTPHeaders = false
 
         init(
             connection: NWConnection,
@@ -1477,6 +1663,9 @@ private final class WorkspaceRemoteDaemonProxyTunnel {
         ) {
             guard !isClosed else { return }
             do {
+                rewritesLoopbackHTTPHeaders =
+                    BrowserInsecureHTTPSettings.normalizeHost(host)
+                    == BrowserInsecureHTTPSettings.normalizeHost(Self.remoteLoopbackProxyAliasHost)
                 let targetHost = Self.normalizedProxyTargetHost(host)
                 let streamID = try rpcClient.openStream(host: targetHost, port: port)
                 self.streamID = streamID
@@ -1501,7 +1690,13 @@ private final class WorkspaceRemoteDaemonProxyTunnel {
             guard !localInputEOF || allowAfterEOF else { return }
             guard let streamID else { return }
             do {
-                try rpcClient.writeStream(streamID: streamID, data: data)
+                let outgoingData = rewritesLoopbackHTTPHeaders
+                    ? RemoteLoopbackHTTPRequestRewriter.rewriteIfNeeded(
+                        data: data,
+                        aliasHost: Self.remoteLoopbackProxyAliasHost
+                    )
+                    : data
+                try rpcClient.writeStream(streamID: streamID, data: outgoingData)
             } catch {
                 close(reason: "proxy.write failed: \(error.localizedDescription)")
             }
@@ -1540,8 +1735,9 @@ private final class WorkspaceRemoteDaemonProxyTunnel {
                 return
             }
 
-            if !readResult.data.isEmpty {
-                connection.send(content: readResult.data, completion: .contentProcessed { [weak self] error in
+            let localData = rewriteRemoteResponseIfNeeded(readResult.data, eof: readResult.eof)
+            if !localData.isEmpty {
+                connection.send(content: localData, completion: .contentProcessed { [weak self] error in
                     guard let self else { return }
                     if let error {
                         self.close(reason: "proxy client send error: \(error)")
@@ -1561,6 +1757,30 @@ private final class WorkspaceRemoteDaemonProxyTunnel {
             } else {
                 scheduleRemoteReadLoop()
             }
+        }
+
+        private func rewriteRemoteResponseIfNeeded(_ data: Data, eof: Bool) -> Data {
+            guard rewritesLoopbackHTTPHeaders else { return data }
+            guard !data.isEmpty else { return data }
+            guard !hasForwardedRemoteHTTPHeaders else { return data }
+
+            pendingRemoteHTTPHeaderBytes.append(data)
+            let marker = Data([0x0D, 0x0A, 0x0D, 0x0A])
+            guard pendingRemoteHTTPHeaderBytes.range(of: marker) != nil else {
+                guard eof else { return Data() }
+                hasForwardedRemoteHTTPHeaders = true
+                let payload = pendingRemoteHTTPHeaderBytes
+                pendingRemoteHTTPHeaderBytes = Data()
+                return payload
+            }
+
+            hasForwardedRemoteHTTPHeaders = true
+            let payload = pendingRemoteHTTPHeaderBytes
+            pendingRemoteHTTPHeaderBytes = Data()
+            return RemoteLoopbackHTTPResponseRewriter.rewriteIfNeeded(
+                data: payload,
+                aliasHost: Self.remoteLoopbackProxyAliasHost
+            )
         }
 
         private func close(reason: String?) {
@@ -2387,38 +2607,79 @@ private final class WorkspaceRemoteCLIRelayServer {
     }
 
     func start() throws -> Int {
+        if let existingPort = queue.sync(execute: { localPort }) {
+            return existingPort
+        }
+
+        let listener = try Self.makeLoopbackListener()
+        let readySemaphore = DispatchSemaphore(value: 0)
+        let stateLock = NSLock()
         var capturedError: Error?
-        var boundPort: Int = 0
-        queue.sync {
-            do {
-                if let localPort {
-                    boundPort = localPort
-                    return
-                }
-                let listener = try Self.makeLoopbackListener()
-                listener.newConnectionHandler = { [weak self] connection in
-                    self?.queue.async {
-                        self?.acceptConnectionLocked(connection)
-                    }
-                }
-                listener.stateUpdateHandler = { _ in }
-                listener.start(queue: queue)
-                guard let tcpPort = listener.port?.rawValue else {
-                    throw NSError(domain: "cmux.remote.relay", code: 8, userInfo: [
-                        NSLocalizedDescriptionKey: "failed to bind local relay listener",
-                    ])
-                }
-                self.listener = listener
-                self.localPort = Int(tcpPort)
-                boundPort = Int(tcpPort)
-            } catch {
-                capturedError = error
+        var boundPort: Int?
+
+        listener.newConnectionHandler = { [weak self] connection in
+            self?.queue.async {
+                self?.acceptConnectionLocked(connection)
             }
         }
-        if let capturedError {
-            throw capturedError
+        listener.stateUpdateHandler = { listenerState in
+            switch listenerState {
+            case .ready:
+                stateLock.lock()
+                boundPort = listener.port.map { Int($0.rawValue) }
+                stateLock.unlock()
+                readySemaphore.signal()
+            case .failed(let error):
+                stateLock.lock()
+                capturedError = error
+                stateLock.unlock()
+                readySemaphore.signal()
+            default:
+                break
+            }
         }
-        return boundPort
+        listener.start(queue: queue)
+
+        let waitResult = readySemaphore.wait(timeout: .now() + 5.0)
+        stateLock.lock()
+        let startupError = capturedError
+        let startupPort = boundPort
+        stateLock.unlock()
+
+        if waitResult != .success {
+            listener.newConnectionHandler = nil
+            listener.stateUpdateHandler = nil
+            listener.cancel()
+            throw NSError(domain: "cmux.remote.relay", code: 8, userInfo: [
+                NSLocalizedDescriptionKey: "timed out waiting for local relay listener",
+            ])
+        }
+        if let startupError {
+            listener.newConnectionHandler = nil
+            listener.stateUpdateHandler = nil
+            listener.cancel()
+            throw startupError
+        }
+        guard let startupPort, startupPort > 0 else {
+            listener.newConnectionHandler = nil
+            listener.stateUpdateHandler = nil
+            listener.cancel()
+            throw NSError(domain: "cmux.remote.relay", code: 8, userInfo: [
+                NSLocalizedDescriptionKey: "failed to bind local relay listener",
+            ])
+        }
+
+        return try queue.sync {
+            if let localPort {
+                listener.newConnectionHandler = nil
+                listener.stateUpdateHandler = nil
+                listener.cancel()
+                return localPort
+            }
+            self.listener = listener
+            self.localPort = startupPort
+            return startupPort
+        }
     }
 
     func stop() {
@@ -2696,26 +2957,20 @@ private final class WorkspaceRemoteSessionController {
             cliRelayServer = relayServer
             reverseRelayStderrPipe = stderrPipe
             reverseRelayStderrBuffer = ""
+            writeRemoteRelayDaemonPathLocked(remotePath: remotePath)
+            do {
+                try writeRemoteRelayAuthLocked(relayPort: relayPort, relayID: relayID, relayToken: relayToken)
+            } catch {
+                debugLog("remote.relay.auth.error \(error.localizedDescription)")
+                stopReverseRelayLocked()
+                scheduleReverseRelayRestartLocked(remotePath: remotePath, delay: 2.0)
+                return
+            }
+            writeRemoteSocketAddrLocked(relayPort: relayPort)
             debugLog(
                 "remote.relay.start relayPort=\(relayPort) localRelayPort=\(localRelayPort) " +
                 "target=\(configuration.displayTarget)"
             )
-
-            queue.asyncAfter(deadline: .now() + 3.0) { [weak self] in
-                guard let self else { return }
-                guard !self.isStopping else { return }
-                guard self.reverseRelayProcess === process, process.isRunning else { return }
-                self.writeRemoteRelayDaemonPathLocked(remotePath: remotePath)
-                do {
-                    try self.writeRemoteRelayAuthLocked(relayPort: relayPort, relayID: relayID, relayToken: relayToken)
-                } catch {
-                    self.debugLog("remote.relay.auth.error \(error.localizedDescription)")
-                    self.stopReverseRelayLocked()
-                    self.scheduleReverseRelayRestartLocked(remotePath: remotePath, delay: 2.0)
-                    return
-                }
-                self.writeRemoteSocketAddrLocked(relayPort: relayPort)
-            }
         } catch {
             debugLog(
                 "remote.relay.startFailed relayPort=\(relayPort) " +
@@ -3177,20 +3432,21 @@ private final class WorkspaceRemoteSessionController {
         let platform = try resolveRemotePlatformLocked()
         let version = Self.remoteDaemonVersion()
         let remotePath = Self.remoteDaemonPath(version: version, goOS: platform.goOS, goArch: platform.goArch)
+        let forceDevOverrideInstall = Self.allowLocalDaemonBuildFallback()
         debugLog(
             "remote.bootstrap.platform os=\(platform.goOS) arch=\(platform.goArch) " +
-            "version=\(version) remotePath=\(remotePath)"
+            "version=\(version) remotePath=\(remotePath) devOverride=\(forceDevOverrideInstall ? 1 : 0)"
         )
 
         let hadExistingBinary = try remoteDaemonExistsLocked(remotePath: remotePath)
         debugLog("remote.bootstrap.binaryExists remotePath=\(remotePath) exists=\(hadExistingBinary ? 1 : 0)")
-        if !hadExistingBinary {
+        if forceDevOverrideInstall || !hadExistingBinary {
             let localBinary = try buildLocalDaemonBinary(goOS: platform.goOS, goArch: platform.goArch, version: version)
             try uploadRemoteDaemonBinaryLocked(localBinary: localBinary, remotePath: remotePath)
         }
 
         var hello = try helloRemoteDaemonLocked(remotePath: remotePath)
-        if hadExistingBinary, !hello.capabilities.contains("proxy.stream") {
+        if !forceDevOverrideInstall, hadExistingBinary, !hello.capabilities.contains("proxy.stream") {
             debugLog("remote.bootstrap.capabilityMissing remotePath=\(remotePath) capabilities=\(hello.capabilities.joined(separator: ","))")
             let localBinary = try buildLocalDaemonBinary(goOS: platform.goOS, goArch: platform.goArch, version: version)
             try uploadRemoteDaemonBinaryLocked(localBinary: localBinary, remotePath: remotePath)
@@ -5313,14 +5569,14 @@ final class Workspace: Identifiable, ObservableObject {
         if let remoteConfiguration {
             payload["destination"] = remoteConfiguration.destination
             payload["port"] = remoteConfiguration.port ?? NSNull()
-            payload["identity_file"] = remoteConfiguration.identityFile ?? NSNull()
-            payload["ssh_options"] = remoteConfiguration.sshOptions
+            payload["has_identity_file"] = remoteConfiguration.identityFile != nil
+            payload["has_ssh_options"] = !remoteConfiguration.sshOptions.isEmpty
             payload["local_proxy_port"] = remoteConfiguration.localProxyPort ?? NSNull()
         } else {
             payload["destination"] = NSNull()
             payload["port"] = NSNull()
-            payload["identity_file"] = NSNull()
-            payload["ssh_options"] = []
+            payload["has_identity_file"] = false
+            payload["has_ssh_options"] = false
             payload["local_proxy_port"] = NSNull()
         }
         return payload
@@ -5436,6 +5692,9 @@ final class Workspace: Identifiable, ObservableObject {
         guard activeRemoteTerminalSurfaceIds.isEmpty, remoteConfiguration != nil else { return }
         let hasBrowserPanels = panels.values.contains { $0 is BrowserPanel }
         if !hasBrowserPanels {
+            if remoteConnectionState == .error || remoteDaemonStatus.state == .error || remoteConnectionState == .connecting {
+                return
+            }
             disconnectRemoteConnection(clearConfiguration: true)
         }
     }

@@ -165,7 +165,11 @@ func execV1(socketPath string, spec *commandSpec, args []string, refreshAddr fun
 	cmd := spec.v1Cmd
 
 	if !spec.noParams {
-		parsed := parseFlags(args, spec.flagKeys)
+		parsed, err := parseFlags(args, spec.flagKeys)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "cmux: %v\n", err)
+			return 2
+		}
 		for _, key := range spec.flagKeys {
 			if val, ok := parsed.flags[key]; ok {
 				cmd += " " + val
@@ -190,7 +194,11 @@ func execV2(socketPath string, spec *commandSpec, args []string, jsonOutput bool
 	params := make(map[string]any)
 
 	if !spec.noParams {
-		parsed := parseFlags(args, spec.flagKeys)
+		parsed, err := parseFlags(args, spec.flagKeys)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "cmux: %v\n", err)
+			return 2
+		}
 		// Map flag keys to JSON param keys (e.g. "workspace" → "workspace_id" where appropriate)
 		for _, key := range spec.flagKeys {
 			if val, ok := parsed.flags[key]; ok {
@@ -292,7 +300,11 @@ func runBrowserRelay(socketPath string, args []string, jsonOutput bool, refreshA
 	}
 
 	params := make(map[string]any)
-	parsed := parseFlags(subArgs, flagKeys)
+	parsed, err := parseFlags(subArgs, flagKeys)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "cmux browser: %v\n", err)
+		return 2
+	}
 	for _, key := range flagKeys {
 		if val, ok := parsed.flags[key]; ok {
 			paramKey := flagToParamKey(key)
@@ -386,7 +398,7 @@ type parsedFlags struct {
 
 // parseFlags extracts --key value pairs from args for the given allowed keys.
 // Non-flag arguments are collected in positional.
-func parseFlags(args []string, keys []string) parsedFlags {
+func parseFlags(args []string, keys []string) (parsedFlags, error) {
 	allowed := make(map[string]bool, len(keys))
 	for _, k := range keys {
 		allowed[k] = true
@@ -394,20 +406,24 @@ func parseFlags(args []string, keys []string) parsedFlags {
 
 	result := parsedFlags{flags: make(map[string]string)}
 	for i := 0; i < len(args); i++ {
+		if args[i] == "--" {
+			result.positional = append(result.positional, args[i+1:]...)
+			break
+		}
 		if !strings.HasPrefix(args[i], "--") {
 			result.positional = append(result.positional, args[i])
 			continue
 		}
 		key := strings.TrimPrefix(args[i], "--")
 		if !allowed[key] {
-			continue
+			return parsedFlags{}, fmt.Errorf("unknown flag --%s", key)
 		}
 		if i+1 < len(args) {
 			result.flags[key] = args[i+1]
 			i++
 		}
 	}
-	return result
+	return result, nil
 }
 
 // readSocketAddrFile reads the socket address from ~/.cmux/socket_addr as a fallback
@@ -465,11 +481,11 @@ func currentRelayAuth(socketPath string) *relayAuthState {
 // refreshAddr, if non-nil, is called on each retry to pick up updated socket_addr files.
 func dialSocket(addr string, refreshAddr func() string) (net.Conn, error) {
 	if strings.Contains(addr, ":") && !strings.HasPrefix(addr, "/") {
-		conn, err := dialTCPRetry(addr, 15*time.Second, refreshAddr)
+		conn, connectedAddr, err := dialTCPRetry(addr, 15*time.Second, refreshAddr)
 		if err != nil {
 			return nil, err
 		}
-		if auth := currentRelayAuth(addr); auth != nil {
+		if auth := currentRelayAuth(connectedAddr); auth != nil {
 			if err := authenticateRelayConn(conn, auth); err != nil {
 				conn.Close()
 				return nil, err
@@ -484,21 +500,21 @@ func dialSocket(addr string, refreshAddr func() string) (net.Conn, error) {
 // This handles the case where the SSH reverse relay hasn't finished establishing yet.
 // If refreshAddr is non-nil, it's called on each retry to pick up updated addresses
 // (e.g. when socket_addr is rewritten by a new relay process).
-func dialTCPRetry(addr string, timeout time.Duration, refreshAddr func() string) (net.Conn, error) {
+func dialTCPRetry(addr string, timeout time.Duration, refreshAddr func() string) (net.Conn, string, error) {
 	deadline := time.Now().Add(timeout)
 	interval := 250 * time.Millisecond
 	printed := false
 	for {
 		conn, err := net.DialTimeout("tcp", addr, 2*time.Second)
 		if err == nil {
-			return conn, nil
+			return conn, addr, nil
 		}
 		if time.Now().After(deadline) {
-			return nil, err
+			return nil, addr, err
 		}
 		// Only retry on connection refused (relay not ready yet)
 		if !isConnectionRefused(err) {
-			return nil, err
+			return nil, addr, err
 		}
 		if !printed {
 			fmt.Fprintf(os.Stderr, "cmux: waiting for relay on %s...\n", addr)

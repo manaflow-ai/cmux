@@ -548,6 +548,7 @@ func (s *rpcServer) handleProxyRead(req rpcRequest) rpcResponse {
 	}
 
 	_ = conn.SetReadDeadline(time.Now().Add(time.Duration(timeoutMs) * time.Millisecond))
+	defer conn.SetReadDeadline(time.Time{})
 	buffer := make([]byte, maxBytes)
 	n, readErr := conn.Read(buffer)
 	data := buffer[:max(0, n)]

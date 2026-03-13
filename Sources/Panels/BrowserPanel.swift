@@ -1420,6 +1420,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
     /// The underlying web view
     private(set) var webView: WKWebView
+    private let websiteDataStore: WKWebsiteDataStore
 
     /// Monotonic identity for the current WKWebView instance.
     /// Incremented whenever we replace the underlying WKWebView after a process crash.
@@ -1975,13 +1976,13 @@ final class BrowserPanel: Panel, ObservableObject {
         false
     }
 
-    private static func makeWebView() -> CmuxWebView {
+    private static func makeWebView(websiteDataStore: WKWebsiteDataStore) -> CmuxWebView {
         let config = WKWebViewConfiguration()
         config.processPool = BrowserPanel.sharedProcessPool
         config.mediaTypesRequiringUserActionForPlayback = []
         // Ensure browser cookies/storage persist across navigations and launches.
         // This reduces repeated consent/bot-challenge flows on sites like Google.
-        config.websiteDataStore = .default()
+        config.websiteDataStore = websiteDataStore
 
         // Enable developer extras (DevTools)
         config.preferences.setValue(true, forKey: "developerExtrasEnabled")
@@ -2050,11 +2051,13 @@ final class BrowserPanel: Panel, ObservableObject {
         self.insecureHTTPBypassHostOnce = BrowserInsecureHTTPSettings.normalizeHost(bypassInsecureHTTPHostOnce ?? "")
         self.remoteProxyEndpoint = proxyEndpoint
         self.browserThemeMode = BrowserThemeSettings.mode()
+        self.websiteDataStore = isRemoteWorkspace
+            ? WKWebsiteDataStore(forIdentifier: self.id)
+            : .default()
 
-        let webView = Self.makeWebView()
+        let webView = Self.makeWebView(websiteDataStore: websiteDataStore)
         self.webView = webView
         self.insecureHTTPAlertFactory = { NSAlert() }
-        let _ = isRemoteWorkspace
         applyRemoteProxyConfigurationIfAvailable()
 
         // Set up navigation delegate
@@ -2245,7 +2248,7 @@ final class BrowserPanel: Panel, ObservableObject {
         let urlObserver = webView.observe(\.url, options: [.new]) { [weak self] webView, _ in
             Task { @MainActor in
                 guard let self, self.isCurrentWebView(webView, instanceID: observedWebViewInstanceID) else { return }
-                self.currentURL = webView.url
+                self.currentURL = Self.remoteProxyDisplayURL(for: webView.url)
             }
         }
         webViewObservers.append(urlObserver)
@@ -2314,7 +2317,7 @@ final class BrowserPanel: Panel, ObservableObject {
         guard terminatedWebView === webView else { return }
 
         let wasRenderable = shouldRenderWebView
-        let restoreURL = terminatedWebView.url ?? currentURL
+        let restoreURL = Self.remoteProxyDisplayURL(for: terminatedWebView.url) ?? currentURL
         let restoreURLString = restoreURL?.absoluteString
         let shouldRestoreURL = wasRenderable && restoreURLString != nil && restoreURLString != blankURLString
         let history = sessionNavigationHistorySnapshot()
@@ -2344,7 +2347,7 @@ final class BrowserPanel: Panel, ObservableObject {
             terminatedCmuxWebView.onContextMenuDownloadStateChanged = nil
         }
 
-        let replacement = Self.makeWebView()
+        let replacement = Self.makeWebView(websiteDataStore: websiteDataStore)
         replacement.pageZoom = desiredZoom
         webViewInstanceID = UUID()
         webView = replacement
@@ -2401,7 +2404,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
         // If nothing meaningful is loaded yet, prefer letting the omnibar take focus.
         if !webView.isLoading {
-            let urlString = webView.url?.absoluteString ?? currentURL?.absoluteString
+            let urlString = Self.remoteProxyDisplayURL(for: webView.url)?.absoluteString ?? currentURL?.absoluteString
             if urlString == nil || urlString == "about:blank" {
                 return
             }
@@ -2694,6 +2697,16 @@ final class BrowserPanel: Panel, ObservableObject {
         return rewrittenRequest
     }
 
+    private static func remoteProxyDisplayURL(for url: URL?) -> URL? {
+        guard let url else { return nil }
+        guard let host = BrowserInsecureHTTPSettings.normalizeHost(url.host ?? "") else { return url }
+        guard host == BrowserInsecureHTTPSettings.normalizeHost(remoteLoopbackProxyAliasHost) else { return url }
+
+        var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        components?.host = "localhost"
+        return components?.url ?? url
+    }
+
     private static func remoteProxyLoopbackAliasURL(for url: URL) -> URL? {
         guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else { return nil }
         guard let host = BrowserInsecureHTTPSettings.normalizeHost(url.host ?? "") else { return nil }
@@ -2924,7 +2937,7 @@ extension BrowserPanel {
             oldCmuxWebView.onContextMenuDownloadStateChanged = nil
         }
 
-        let replacement = Self.makeWebView()
+        let replacement = Self.makeWebView(websiteDataStore: websiteDataStore)
         webViewInstanceID = UUID()
         webView = replacement
         shouldRenderWebView = false
@@ -4159,7 +4172,7 @@ extension BrowserPanel {
     /// Returns the most reliable URL string for omnibar-related matching and UI decisions.
     /// `currentURL` can lag behind navigation changes, so prefer the live WKWebView URL.
     func preferredURLStringForOmnibar() -> String? {
-        if let webViewURL = webView.url?.absoluteString
+        if let webViewURL = Self.remoteProxyDisplayURL(for: webView.url)?.absoluteString
             .trimmingCharacters(in: .whitespacesAndNewlines),
            !webViewURL.isEmpty,
            webViewURL != blankURLString {
@@ -4177,7 +4190,7 @@ extension BrowserPanel {
     }
 
     private func resolvedCurrentSessionHistoryURL() -> URL? {
-        if let webViewURL = webView.url,
+        if let webViewURL = Self.remoteProxyDisplayURL(for: webView.url),
            Self.serializableSessionHistoryURLString(webViewURL) != nil {
             return webViewURL
         }

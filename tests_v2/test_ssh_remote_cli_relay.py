@@ -207,7 +207,7 @@ def main() -> int:
             remote_relay_port = payload.get("remote_relay_port")
             _must(remote_relay_port is not None, f"cmux ssh output missing remote_relay_port: {payload}")
             remote_relay_port = int(remote_relay_port)
-            _must(49152 <= remote_relay_port <= 65535, f"remote_relay_port should be in ephemeral range: {remote_relay_port}")
+            _must(1 <= remote_relay_port <= 65535, f"remote_relay_port should be a valid TCP port: {remote_relay_port}")
             remote_socket_addr = f"127.0.0.1:{remote_relay_port}"
             startup_cmd = str(payload.get("ssh_startup_command") or "")
             _must(
@@ -288,7 +288,7 @@ def main() -> int:
             remote_relay_port_2 = payload_2.get("remote_relay_port")
             _must(remote_relay_port_2 is not None, f"second cmux ssh output missing remote_relay_port: {payload_2}")
             remote_relay_port_2 = int(remote_relay_port_2)
-            _must(49152 <= remote_relay_port_2 <= 65535, f"second remote_relay_port out of range: {remote_relay_port_2}")
+            _must(1 <= remote_relay_port_2 <= 65535, f"second remote_relay_port should be a valid TCP port: {remote_relay_port_2}")
             _must(
                 remote_relay_port_2 != remote_relay_port,
                 f"relay ports should differ per workspace: {remote_relay_port_2} vs {remote_relay_port}",

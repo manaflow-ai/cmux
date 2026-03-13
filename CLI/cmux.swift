@@ -1722,6 +1722,87 @@ struct CMUXCLI {
             let response = try sendV1Command(socketCmd, client: client)
             print(response)
 
+        case "set-status":
+            let response = try forwardSidebarMetadataCommand(
+                "set_status",
+                commandArgs: commandArgs,
+                client: client,
+                windowOverride: windowId
+            )
+            print(response)
+
+        case "clear-status":
+            let response = try forwardSidebarMetadataCommand(
+                "clear_status",
+                commandArgs: commandArgs,
+                client: client,
+                windowOverride: windowId
+            )
+            print(response)
+
+        case "list-status":
+            let response = try forwardSidebarMetadataCommand(
+                "list_status",
+                commandArgs: commandArgs,
+                client: client,
+                windowOverride: windowId
+            )
+            print(response)
+
+        case "set-progress":
+            let response = try forwardSidebarMetadataCommand(
+                "set_progress",
+                commandArgs: commandArgs,
+                client: client,
+                windowOverride: windowId
+            )
+            print(response)
+
+        case "clear-progress":
+            let response = try forwardSidebarMetadataCommand(
+                "clear_progress",
+                commandArgs: commandArgs,
+                client: client,
+                windowOverride: windowId
+            )
+            print(response)
+
+        case "log":
+            let response = try forwardSidebarMetadataCommand(
+                "log",
+                commandArgs: commandArgs,
+                client: client,
+                windowOverride: windowId
+            )
+            print(response)
+
+        case "clear-log":
+            let response = try forwardSidebarMetadataCommand(
+                "clear_log",
+                commandArgs: commandArgs,
+                client: client,
+                windowOverride: windowId
+            )
+            print(response)
+
+        case "list-log":
+            let response = try forwardSidebarMetadataCommand(
+                "list_log",
+                commandArgs: commandArgs,
+                client: client,
+                windowOverride: windowId
+            )
+            print(response)
+
+        case "sidebar-state":
+            let response = try forwardSidebarMetadataCommand(
+                "sidebar_state",
+                commandArgs: commandArgs,
+                client: client,
+                windowOverride: windowId
+            )
+            print(response)
+
         case "claude-hook":
             cliTelemetry.breadcrumb("claude-hook.dispatch")
             do {
@@ -3153,42 +3234,86 @@ struct CMUXCLI {
     }
 
     private func buildInteractiveRemoteShellCommand(remoteRelayPort: Int, shellFeatures: String) -> String {
-        let relayExport = remoteRelayPort > 0
-            ? "export CMUX_SOCKET_PATH=127.0.0.1:\(remoteRelayPort)"
-            : nil
-        let remoteEnvExports = interactiveRemoteShellExports(shellFeatures: shellFeatures)
-        let innerCommand = [
-            remoteEnvExports,
-            "export PATH=\"$HOME/.cmux/bin:$PATH\"",
-            relayExport,
-            "exec \"${SHELL:-/bin/zsh}\" -i",
+        let remoteEnvExportLines = interactiveRemoteShellExportLines(shellFeatures: shellFeatures)
+        let relaySocket = remoteRelayPort > 0 ? "127.0.0.1:\(remoteRelayPort)" : nil
+        let commonShellLines = remoteEnvExportLines
+            + ["export PATH=\"$HOME/.cmux/bin:$PATH\""]
+            + (relaySocket.map { ["export CMUX_SOCKET_PATH=\($0)"] } ?? [])
+            + [
+                "hash -r >/dev/null 2>&1 || true",
+                "rehash >/dev/null 2>&1 || true",
+            ]
+        let zshEnvLines = [
+            "export CMUX_REAL_ZDOTDIR=\"${CMUX_REAL_ZDOTDIR:-$HOME}\"",
+            "[ -f \"$HOME/.zshenv\" ] && source \"$HOME/.zshenv\"",
         ]
-        .compactMap { $0 }
-        .joined(separator: "; ")
+        let zshRCLines = [
+            "export ZDOTDIR=\"${CMUX_REAL_ZDOTDIR:-$HOME}\"",
+            "[ -f \"$HOME/.zshrc\" ] && source \"$HOME/.zshrc\"",
+        ] + commonShellLines
+        let bashRCLines = [
+            "[ -f \"$HOME/.bashrc\" ] && . \"$HOME/.bashrc\"",
+        ] + commonShellLines
+        let relayWarmupLines = interactiveRemoteRelayWarmupLines(remoteRelayPort: remoteRelayPort)
+        let shellStateDir = "$HOME/.cmux/relay/\(max(remoteRelayPort, 0)).shell"
 
-        let outerCommand = [
+        var outerLines: [String] = [
             "CMUX_LOGIN_SHELL=\"${SHELL:-/bin/zsh}\"",
             "case \"${CMUX_LOGIN_SHELL##*/}\" in",
-            "  zsh|bash)",
-            "    exec \"$CMUX_LOGIN_SHELL\" -lc \(shellQuote(innerCommand))",
+            "  zsh)",
+            "    mkdir -p \"$HOME/.cmux/relay\"",
+            "    cmux_shell_dir=\"\(shellStateDir)\"",
+            "    mkdir -p \"$cmux_shell_dir\"",
+            "    cat > \"$cmux_shell_dir/.zshenv\" <<'CMUXZSHENV'",
+        ]
+        outerLines.append(contentsOf: zshEnvLines)
+        outerLines += [
+            "CMUXZSHENV",
+            "    cat > \"$cmux_shell_dir/.zshrc\" <<'CMUXZSHRC'",
+        ]
+        outerLines.append(contentsOf: zshRCLines)
+        outerLines += [
+            "CMUXZSHRC",
+            "    chmod 600 \"$cmux_shell_dir/.zshenv\" \"$cmux_shell_dir/.zshrc\" >/dev/null 2>&1 || true",
+        ]
+        outerLines.append(contentsOf: relayWarmupLines.map { "    " + $0 })
+        outerLines += [
+            "    export ZDOTDIR=\"$cmux_shell_dir\"",
+            "    exec \"$CMUX_LOGIN_SHELL\" -i",
+            "    ;;",
+            "  bash)",
+            "    mkdir -p \"$HOME/.cmux/relay\"",
+            "    cmux_shell_dir=\"\(shellStateDir)\"",
+            "    mkdir -p \"$cmux_shell_dir\"",
+            "    cat > \"$cmux_shell_dir/.bashrc\" <<'CMUXBASHRC'",
+        ]
+        outerLines.append(contentsOf: bashRCLines)
+        outerLines += [
+            "CMUXBASHRC",
+            "    chmod 600 \"$cmux_shell_dir/.bashrc\" >/dev/null 2>&1 || true",
+        ]
+        outerLines.append(contentsOf: relayWarmupLines.map { "    " + $0 })
+        outerLines += [
+            "    exec \"$CMUX_LOGIN_SHELL\" --rcfile \"$cmux_shell_dir/.bashrc\" -i",
             "    ;;",
             "  *)",
-            remoteEnvExports,
-            "    export PATH=\"$HOME/.cmux/bin:$PATH\"",
-            relayExport,
+        ]
+        outerLines.append(contentsOf: commonShellLines.map { "    " + $0 })
+        outerLines.append(contentsOf: relayWarmupLines.map { "    " + $0 })
+        outerLines += [
             "    exec \"$CMUX_LOGIN_SHELL\" -i",
             "    ;;",
             "esac",
         ]
-        .compactMap { $0 }
-        .joined(separator: "; ")
 
-        return outerCommand
+        let outerCommand = outerLines.joined(separator: "\n")
+
+        return "/bin/sh -lc \(shellQuote(outerCommand))"
     }
 
-    private func interactiveRemoteShellExports(shellFeatures: String) -> String {
+    private func interactiveRemoteShellExportLines(shellFeatures: String) -> [String] {
         let environment = ProcessInfo.processInfo.environment
-        let term = Self.normalizedEnvValue(environment["TERM"]) ?? "xterm-ghostty"
+        let term = "xterm-ghostty"
         let colorTerm = Self.normalizedEnvValue(environment["COLORTERM"]) ?? "truecolor"
         let termProgram = Self.normalizedEnvValue(environment["TERM_PROGRAM"]) ?? "ghostty"
         let termProgramVersion = Self.normalizedEnvValue(environment["TERM_PROGRAM_VERSION"])
@@ -3207,7 +3332,21 @@ struct CMUXCLI {
         if !trimmedShellFeatures.isEmpty {
             exports.append("export GHOSTTY_SHELL_FEATURES=\(shellQuote(trimmedShellFeatures))")
         }
-        return exports.joined(separator: "; ")
+        return exports
+    }
+
+    private func interactiveRemoteRelayWarmupLines(remoteRelayPort: Int) -> [String] {
+        guard remoteRelayPort > 0 else { return [] }
+        return [
+            "cmux_wait_attempt=0",
+            "while [ \"$cmux_wait_attempt\" -lt 40 ]; do",
+            "  if [ -x \"$HOME/.cmux/bin/cmux\" ] && [ -f \"$HOME/.cmux/relay/\(remoteRelayPort).auth\" ] && CMUX_SOCKET_PATH=127.0.0.1:\(remoteRelayPort) \"$HOME/.cmux/bin/cmux\" ping >/dev/null 2>&1; then",
+            "    break",
+            "  fi",
+            "  cmux_wait_attempt=$((cmux_wait_attempt + 1))",
+            "  sleep 0.2",
+            "done",
+        ]
     }
 
     private func baseSSHArguments(_ options: SSHCommandOptions) -> [String] {
@@ -4000,7 +4139,13 @@ struct CMUXCLI {
                 throw CLIError(message: "browser eval requires a script")
             }
             let payload = try client.sendV2(method: "browser.eval", params: ["surface_id": sid, "script": trimmed])
-            output(payload, fallback: "OK")
+            let fallback: String
+            if let value = payload["value"] {
+                fallback = displayBrowserValue(value)
+            } else {
+                fallback = "OK"
+            }
+            output(payload, fallback: fallback)
             return
         }
 
@@ -6305,6 +6450,49 @@ struct CMUXCLI {
         // When --window is explicitly targeted, don't fall back to env workspace from a different window
         if windowOverride != nil { return nil }
         return ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
+    }
+
+    private func forwardSidebarMetadataCommand(
+        _ socketCommand: String,
+        commandArgs: [String],
+        client: SocketClient,
+        windowOverride: String?
+    ) throws -> String {
+        var forwardedArgs: [String] = []
+        var resolvedExplicitWorkspace = false
+        var index = 0
+
+        while index < commandArgs.count {
+            let arg = commandArgs[index]
+            if arg == "--workspace", index + 1 < commandArgs.count {
+                let workspaceId = try resolveWorkspaceId(commandArgs[index + 1], client: client)
+                forwardedArgs.append("--tab=\(workspaceId)")
+                resolvedExplicitWorkspace = true
+                index += 2
+                continue
+            }
+            if arg.hasPrefix("--workspace=") {
+                let rawWorkspace = String(arg.dropFirst("--workspace=".count))
+                let workspaceId = try resolveWorkspaceId(rawWorkspace, client: client)
+                forwardedArgs.append("--tab=\(workspaceId)")
+                resolvedExplicitWorkspace = true
+                index += 1
+                continue
+            }
+            forwardedArgs.append(arg)
+            index += 1
+        }
+
+        if !resolvedExplicitWorkspace,
+           let workspaceArg = workspaceFromArgsOrEnv(commandArgs, windowOverride: windowOverride) {
+            let workspaceId = try resolveWorkspaceId(workspaceArg, client: client)
+            forwardedArgs.append("--tab=\(workspaceId)")
+        }
+
+        let command = ([socketCommand] + forwardedArgs)
+            .map(shellQuote)
+            .joined(separator: " ")
+        return try sendV1Command(command, client: client)
     }
 
     /// Pick the display handle for an item dict based on --id-format.

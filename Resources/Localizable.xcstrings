@@ -25486,6 +25486,40 @@
         }
       }
     },
+    "clipboard.sshError.item": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld. %@ (%@): %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld. %@ (%@): %@"
+          }
+        }
+      }
+    },
+    "clipboard.sshError.single": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH error (%@): %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH エラー (%@): %@"
+          }
+        }
+      }
+    },
     "contextMenu.copySshError": {
       "extractionState": "manual",
       "localizations": {
@@ -61638,6 +61672,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "リモートホスト"
+          }
+        }
+      }
+    },
+    "sidebar.activeTabIndicator.leftRail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Left Rail"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "左レール"
+          }
+        }
+      }
+    },
+    "sidebar.activeTabIndicator.solidFill": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solid Fill"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "塗りつぶし"
           }
         }
       }

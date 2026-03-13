@@ -68,7 +68,6 @@ DAEMON_ROOT="${REPO_ROOT}/daemon/remote"
 mkdir -p "$OUTPUT_DIR"
 rm -f "$OUTPUT_DIR"/cmuxd-remote-* "$OUTPUT_DIR"/cmuxd-remote-checksums.txt "$OUTPUT_DIR"/cmuxd-remote-manifest.json
 
-RELEASE_URL="https://github.com/${REPO}/releases/download/${RELEASE_TAG}"
 CHECKSUMS_ASSET_NAME="cmuxd-remote-checksums.txt"
 CHECKSUMS_PATH="${OUTPUT_DIR}/${CHECKSUMS_ASSET_NAME}"
 MANIFEST_PATH="${OUTPUT_DIR}/cmuxd-remote-manifest.json"
@@ -80,8 +79,10 @@ TARGETS=(
   "linux amd64"
 )
 
-declare -a manifest_entries=()
 : > "$CHECKSUMS_PATH"
+ENTRIES_FILE="$(mktemp "${TMPDIR:-/tmp}/cmuxd-remote-entries.XXXXXX")"
+trap 'rm -f "$ENTRIES_FILE"' EXIT
+: > "$ENTRIES_FILE"
 
 for target in "${TARGETS[@]}"; do
   read -r GOOS GOARCH <<<"$target"
@@ -102,29 +103,33 @@ for target in "${TARGETS[@]}"; do
   SHA256="$(shasum -a 256 "$OUTPUT_PATH" | awk '{print $1}')"
   printf '%s  %s\n' "$SHA256" "$ASSET_NAME" >> "$CHECKSUMS_PATH"
 
-  manifest_entries+=("{\"goOS\":\"${GOOS}\",\"goArch\":\"${GOARCH}\",\"assetName\":\"${ASSET_NAME}\",\"downloadURL\":\"${RELEASE_URL}/${ASSET_NAME}\",\"sha256\":\"${SHA256}\"}")
+  printf '%s\t%s\t%s\t%s\n' "$GOOS" "$GOARCH" "$ASSET_NAME" "$SHA256" >> "$ENTRIES_FILE"
 done
 
-ENTRIES_FILE="$(mktemp "${TMPDIR:-/tmp}/cmuxd-remote-entries.XXXXXX")"
-trap 'rm -f "$ENTRIES_FILE"' EXIT
-printf '%s\n' "${manifest_entries[@]}" > "$ENTRIES_FILE"
-ENTRIES_JSON="$(python3 - <<'PY' "$ENTRIES_FILE"
+python3 - <<'PY' "$VERSION" "$RELEASE_TAG" "$REPO" "$CHECKSUMS_ASSET_NAME" "$CHECKSUMS_PATH" "$MANIFEST_PATH" "$ENTRIES_FILE"
 import json
 import sys
+import urllib.parse
 from pathlib import Path
 
-entries = [json.loads(line) for line in Path(sys.argv[1]).read_text(encoding="utf-8").splitlines() if line.strip()]
-print(json.dumps(entries, separators=(",", ":")))
-PY
-)"
+version, release_tag, repo, checksums_asset_name, checksums_path, manifest_path, entries_file = sys.argv[1:]
+quoted_tag = urllib.parse.quote(release_tag, safe="")
+release_url = f"https://github.com/{repo}/releases/download/{quoted_tag}"
+checksums_url = f"{release_url}/{urllib.parse.quote(checksums_asset_name, safe='')}"
 
-python3 - <<'PY' "$VERSION" "$RELEASE_TAG" "$RELEASE_URL" "$CHECKSUMS_ASSET_NAME" "$CHECKSUMS_PATH" "$MANIFEST_PATH" "$ENTRIES_JSON"
-import json
-import sys
-from pathlib import Path
+entries = []
+for line in Path(entries_file).read_text(encoding="utf-8").splitlines():
+    if not line.strip():
+        continue
+    go_os, go_arch, asset_name, sha256 = line.split("\t")
+    entries.append({
+        "goOS": go_os,
+        "goArch": go_arch,
+        "assetName": asset_name,
+        "downloadURL": f"{release_url}/{urllib.parse.quote(asset_name, safe='')}",
+        "sha256": sha256,
+    })
 
-version, release_tag, release_url, checksums_asset_name, checksums_path, manifest_path, entries_json = sys.argv[1:]
-checksums_url = f"{release_url}/{checksums_asset_name}"
 manifest = {
     "schemaVersion": 1,
     "appVersion": version,
@@ -132,7 +137,7 @@ manifest = {
     "releaseURL": release_url,
     "checksumsAssetName": checksums_asset_name,
     "checksumsURL": checksums_url,
-    "entries": json.loads(entries_json),
+    "entries": entries,
 }
 Path(manifest_path).write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 PY

@@ -2811,9 +2811,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
         env["CMUX_PANEL_ID"] = id.uuidString
         env["CMUX_TAB_ID"] = tabId.uuidString
         env["CMUX_SOCKET_PATH"] = SocketControlSettings.socketPath()
-        if let bundledCLIPath = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux").path,
-           !bundledCLIPath.isEmpty {
-            env["CMUX_BUNDLED_CLI_PATH"] = bundledCLIPath
+        if let bundledCLIURL = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux"),
+           FileManager.default.isExecutableFile(atPath: bundledCLIURL.path) {
+            env["CMUX_BUNDLED_CLI_PATH"] = bundledCLIURL.path
         }
         if let bundleId = Bundle.main.bundleIdentifier, !bundleId.isEmpty {
             env["CMUX_BUNDLE_ID"] = bundleId
@@ -2883,7 +2883,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         }
 
         if !initialEnvironmentOverrides.isEmpty {
-            for (key, value) in initialEnvironmentOverrides {
+            for (key, value) in initialEnvironmentOverrides where !key.hasPrefix("CMUX_") {
                 env[key] = value
             }
         }

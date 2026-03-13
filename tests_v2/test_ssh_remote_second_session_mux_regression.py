@@ -131,6 +131,10 @@ def main() -> int:
             second = _run_cli_json(cli, ["ssh", SSH_HOST])
             second_workspace_id = _workspace_id_from_payload(client, second)
             _must(bool(second_workspace_id), f"second cmux ssh output missing workspace_id: {second}")
+            _must(
+                second_workspace_id != first_workspace_id,
+                f"second cmux ssh should create a distinct workspace: {first_workspace_id} vs {second_workspace_id}",
+            )
             workspace_ids.append(second_workspace_id)
             _wait_remote_ready(client, second_workspace_id)
 

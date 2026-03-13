@@ -92,26 +92,22 @@ enum SidebarRemoteErrorCopySupport {
     static func clipboardText(for entries: [SidebarRemoteErrorCopyEntry]) -> String? {
         guard !entries.isEmpty else { return nil }
         if entries.count == 1, let entry = entries.first {
-            return "SSH error (\(entry.target)): \(entry.detail)"
+            return String.localizedStringWithFormat(
+                String(localized: "clipboard.sshError.single", defaultValue: "SSH error (%@): %@"),
+                entry.target,
+                entry.detail
+            )
         }
 
         return entries.enumerated().map { index, entry in
-            "\(index + 1). \(entry.workspaceTitle) (\(entry.target)): \(entry.detail)"
+            String.localizedStringWithFormat(
+                String(localized: "clipboard.sshError.item", defaultValue: "%lld. %@ (%@): %@"),
+                Int64(index + 1),
+                entry.workspaceTitle,
+                entry.target,
+                entry.detail
+            )
         }.joined(separator: "\n")
-    }
-
-    static func parsedTargetAndDetail(from value: String, fallbackTarget: String? = nil) -> (target: String, detail: String)? {
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.hasPrefix("SSH error") else { return nil }
-
-        if let match = trimmed.firstMatch(of: /^SSH error \((.+?)\):\s*(.+)$/) {
-            return (String(match.1), String(match.2))
-        }
-        if let match = trimmed.firstMatch(of: /^SSH error:\s*(.+)$/) {
-            guard let fallbackTarget, !fallbackTarget.isEmpty else { return nil }
-            return (fallbackTarget, String(match.1))
-        }
-        return nil
     }
 }
 
@@ -7220,6 +7216,13 @@ struct VerticalTabsSidebar: View {
 
                         LazyVStack(spacing: tabRowSpacing) {
                             ForEach(Array(tabManager.tabs.enumerated()), id: \.element.id) { index, tab in
+                                let selectedContextIds: Set<UUID> = selectedTabIds.contains(tab.id) ? selectedTabIds : [tab.id]
+                                let contextTargetIds = tabManager.tabs.compactMap { workspace in
+                                    selectedContextIds.contains(workspace.id) ? workspace.id : nil
+                                }
+                                let remoteContextMenuTargets = tabManager.tabs.filter { workspace in
+                                    contextTargetIds.contains(workspace.id) && workspace.isRemoteWorkspace
+                                }
                                 TabItemView(
                                     tabManager: tabManager,
                                     notificationStore: notificationStore,
@@ -7241,7 +7244,10 @@ struct VerticalTabsSidebar: View {
                                     showsModifierShortcutHints: modifierKeyMonitor.isModifierPressed,
                                     dragAutoScrollController: dragAutoScrollController,
                                     draggedTabId: $draggedTabId,
-                                    dropIndicator: $dropIndicator
+                                    dropIndicator: $dropIndicator,
+                                    remoteContextMenuWorkspaceIds: remoteContextMenuTargets.map(\.id),
+                                    allRemoteContextMenuTargetsConnecting: !remoteContextMenuTargets.isEmpty && remoteContextMenuTargets.allSatisfy { $0.remoteConnectionState == .connecting },
+                                    allRemoteContextMenuTargetsDisconnected: !remoteContextMenuTargets.isEmpty && remoteContextMenuTargets.allSatisfy { $0.remoteConnectionState == .disconnected }
                                 )
                                 .equatable()
                             }
@@ -9497,7 +9503,10 @@ private struct TabItemView: View, Equatable {
         lhs.unreadCount == rhs.unreadCount &&
         lhs.latestNotificationText == rhs.latestNotificationText &&
         lhs.rowSpacing == rhs.rowSpacing &&
-        lhs.showsModifierShortcutHints == rhs.showsModifierShortcutHints
+        lhs.showsModifierShortcutHints == rhs.showsModifierShortcutHints &&
+        lhs.remoteContextMenuWorkspaceIds == rhs.remoteContextMenuWorkspaceIds &&
+        lhs.allRemoteContextMenuTargetsConnecting == rhs.allRemoteContextMenuTargetsConnecting &&
+        lhs.allRemoteContextMenuTargetsDisconnected == rhs.allRemoteContextMenuTargetsDisconnected
     }
 
     // Use plain references instead of @EnvironmentObject to avoid subscribing
@@ -9520,6 +9529,9 @@ private struct TabItemView: View, Equatable {
     let dragAutoScrollController: SidebarDragAutoScrollController
     @Binding var draggedTabId: UUID?
     @Binding var dropIndicator: SidebarDropIndicator?
+    let remoteContextMenuWorkspaceIds: [UUID]
+    let allRemoteContextMenuTargetsConnecting: Bool
+    let allRemoteContextMenuTargetsDisconnected: Bool
     @State private var isHovering = false
     @State private var rowHeight: CGFloat = 1
     @AppStorage(ShortcutHintDebugSettings.sidebarHintXKey) private var sidebarShortcutHintXOffset = ShortcutHintDebugSettings.defaultSidebarHintX
@@ -9645,15 +9657,28 @@ private struct TabItemView: View, Equatable {
     }
 
     private var copyableSidebarSSHError: String? {
+        let fallbackTarget = tab.remoteDisplayTarget ?? String(
+            localized: "sidebar.remote.help.targetFallback",
+            defaultValue: "remote host"
+        )
         let trimmedDetail = tab.remoteConnectionDetail?.trimmingCharacters(in: .whitespacesAndNewlines)
         if tab.remoteConnectionState == .error, let trimmedDetail, !trimmedDetail.isEmpty {
-            let target = tab.remoteDisplayTarget ?? "unknown"
-            return "SSH error (\(target)): \(trimmedDetail)"
+            let entry = SidebarRemoteErrorCopyEntry(
+                workspaceTitle: tab.title,
+                target: fallbackTarget,
+                detail: trimmedDetail
+            )
+            return SidebarRemoteErrorCopySupport.clipboardText(for: [entry])
         }
         if let statusValue = tab.statusEntries["remote.error"]?.value
             .trimmingCharacters(in: .whitespacesAndNewlines),
            !statusValue.isEmpty {
-            return statusValue
+            let entry = SidebarRemoteErrorCopyEntry(
+                workspaceTitle: tab.title,
+                target: fallbackTarget,
+                detail: statusValue
+            )
+            return SidebarRemoteErrorCopySupport.clipboardText(for: [entry])
         }
         return nil
     }
@@ -10080,14 +10105,19 @@ private struct TabItemView: View, Equatable {
         isMulti ? multi : single
     }
 
+    private func remoteContextMenuWorkspaces() -> [Workspace] {
+        guard !remoteContextMenuWorkspaceIds.isEmpty else { return [] }
+        return remoteContextMenuWorkspaceIds.compactMap { workspaceId in
+            tabManager.tabs.first(where: { $0.id == workspaceId })
+        }
+    }
+
     @ViewBuilder
     private var workspaceContextMenu: some View {
         let targetIds = contextTargetIds()
         let isMulti = targetIds.count > 1
         let tabColorPalette = WorkspaceTabColorSettings.palette()
         let shouldPin = !tab.isPinned
-        let targetWorkspaces = targetIds.compactMap { id in tabManager.tabs.first(where: { $0.id == id }) }
-        let remoteTargetWorkspaces = targetWorkspaces.filter { $0.isRemoteWorkspace }
         let reconnectLabel = contextMenuLabel(
             multi: String(localized: "contextMenu.reconnectWorkspaces", defaultValue: "Reconnect Workspaces"),
             single: String(localized: "contextMenu.reconnectWorkspace", defaultValue: "Reconnect Workspace"),
@@ -10145,22 +10175,22 @@ private struct TabItemView: View, Equatable {
             }
         }
 
-        if !remoteTargetWorkspaces.isEmpty {
+        if !remoteContextMenuWorkspaceIds.isEmpty {
             Divider()
 
             Button(reconnectLabel) {
-                for workspace in remoteTargetWorkspaces {
+                for workspace in remoteContextMenuWorkspaces() {
                     workspace.reconnectRemoteConnection()
                 }
             }
-            .disabled(remoteTargetWorkspaces.allSatisfy { $0.remoteConnectionState == .connecting })
+            .disabled(allRemoteContextMenuTargetsConnecting)
 
             Button(disconnectLabel) {
-                for workspace in remoteTargetWorkspaces {
+                for workspace in remoteContextMenuWorkspaces() {
                     workspace.disconnectRemoteConnection(clearConfiguration: false)
                 }
             }
-            .disabled(remoteTargetWorkspaces.allSatisfy { $0.remoteConnectionState == .disconnected })
+            .disabled(allRemoteContextMenuTargetsDisconnected)
         }
 
         Menu(String(localized: "contextMenu.workspaceColor", defaultValue: "Workspace Color")) {
