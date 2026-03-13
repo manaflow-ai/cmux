@@ -1997,7 +1997,9 @@ private final class WorkspaceRemoteDaemonProxyTunnel {
                 NSLocalizedDescriptionKey: "invalid local proxy port \(port)",
             ])
         }
-        let parameters = NWParameters.tcp
+        let tcpOptions = NWProtocolTCP.Options()
+        tcpOptions.noDelay = true
+        let parameters = NWParameters(tls: nil, tcp: tcpOptions)
         parameters.allowLocalEndpointReuse = true
         parameters.requiredLocalEndpoint = .hostPort(host: NWEndpoint.Host("127.0.0.1"), port: localPort)
         return try NWListener(using: parameters)
@@ -2719,7 +2721,9 @@ private final class WorkspaceRemoteCLIRelayServer {
     }
 
     private static func makeLoopbackListener() throws -> NWListener {
-        let parameters = NWParameters.tcp
+        let tcpOptions = NWProtocolTCP.Options()
+        tcpOptions.noDelay = true
+        let parameters = NWParameters(tls: nil, tcp: tcpOptions)
         parameters.allowLocalEndpointReuse = true
         parameters.requiredLocalEndpoint = .hostPort(host: NWEndpoint.Host("127.0.0.1"), port: .any)
         return try NWListener(using: parameters)
@@ -3806,7 +3810,7 @@ private final class WorkspaceRemoteSessionController {
         let ldflags = "-s -w -X main.version=\(version)"
         let result = try runProcess(
             executable: goBinary,
-            arguments: ["build", "-trimpath", "-ldflags", ldflags, "-o", output.path, "./cmd/cmuxd-remote"],
+            arguments: ["build", "-trimpath", "-buildvcs=false", "-ldflags", ldflags, "-o", output.path, "./cmd/cmuxd-remote"],
             environment: env,
             currentDirectory: daemonRoot,
             stdin: nil,

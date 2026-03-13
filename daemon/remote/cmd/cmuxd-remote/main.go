@@ -173,6 +173,14 @@ func runStdioServer(stdin io.Reader, stdout io.Writer) error {
 	}
 }
 
+func setTCPNoDelay(conn net.Conn) {
+	tcpConn, ok := conn.(*net.TCPConn)
+	if !ok {
+		return
+	}
+	_ = tcpConn.SetNoDelay(true)
+}
+
 func readRPCFrame(reader *bufio.Reader, maxBytes int) ([]byte, bool, error) {
 	frame := make([]byte, 0, 1024)
 	for {
@@ -345,6 +353,7 @@ func (s *rpcServer) handleProxyOpen(req rpcRequest) rpcResponse {
 			},
 		}
 	}
+	setTCPNoDelay(conn)
 
 	s.mu.Lock()
 	streamID := fmt.Sprintf("s-%d", s.nextStreamID)

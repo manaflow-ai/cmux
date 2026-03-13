@@ -68,6 +68,14 @@ DAEMON_ROOT="${REPO_ROOT}/daemon/remote"
 mkdir -p "$OUTPUT_DIR"
 rm -f "$OUTPUT_DIR"/cmuxd-remote-* "$OUTPUT_DIR"/cmuxd-remote-checksums.txt "$OUTPUT_DIR"/cmuxd-remote-manifest.json
 
+DAEMON_GO_LDFLAGS="-s -w -X main.version=${VERSION}"
+DAEMON_GO_BUILD_ARGS=(
+  build
+  -trimpath
+  -buildvcs=false
+  -ldflags "$DAEMON_GO_LDFLAGS"
+)
+
 CHECKSUMS_ASSET_NAME="cmuxd-remote-checksums.txt"
 CHECKSUMS_PATH="${OUTPUT_DIR}/${CHECKSUMS_ASSET_NAME}"
 MANIFEST_PATH="${OUTPUT_DIR}/cmuxd-remote-manifest.json"
@@ -94,7 +102,7 @@ for target in "${TARGETS[@]}"; do
     GOOS="$GOOS" \
     GOARCH="$GOARCH" \
     CGO_ENABLED=0 \
-    go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" \
+    go "${DAEMON_GO_BUILD_ARGS[@]}" \
       -o "$OUTPUT_PATH" \
       ./cmd/cmuxd-remote
   )

@@ -507,6 +507,7 @@ func dialTCPRetry(addr string, timeout time.Duration, refreshAddr func() string)
 	for {
 		conn, err := net.DialTimeout("tcp", addr, 2*time.Second)
 		if err == nil {
+			setTCPNoDelay(conn)
 			return conn, addr, nil
 		}
 		if time.Now().After(deadline) {
