@@ -19932,6 +19932,57 @@
         }
       }
     },
+    "commandPalette.kind.browser": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browser"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザ"
+          }
+        }
+      }
+    },
+    "commandPalette.kind.markdown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Markdown"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Markdown"
+          }
+        }
+      }
+    },
+    "commandPalette.kind.terminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナル"
+          }
+        }
+      }
+    },
     "commandPalette.kind.workspace": {
       "extractionState": "manual",
       "localizations": {
@@ -21627,6 +21678,23 @@
         }
       }
     },
+    "commandPalette.search.switcherEmptyAllSurfaces": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No workspaces or surfaces match your search."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "検索に一致するワークスペースまたはサーフェスはありません。"
+          }
+        }
+      }
+    },
     "commandPalette.search.switcherPlaceholder": {
       "extractionState": "manual",
       "localizations": {
@@ -21736,6 +21804,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Çalışma alanlarını ara"
+          }
+        }
+      }
+    },
+    "commandPalette.search.switcherPlaceholderAllSurfaces": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search workspaces and surfaces"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースとサーフェスを検索"
           }
         }
       }
@@ -41308,6 +41393,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "Yeni Çalışma Alanı Konumu"
+          }
+        }
+      }
+    },
+    "settings.app.commandPaletteSearchAllSurfaces": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command Palette Searches All Surfaces"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コマンドパレットですべてのサーフェスを検索"
+          }
+        }
+      }
+    },
+    "settings.app.commandPaletteSearchAllSurfaces.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd+P matches workspace rows only."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd+Pはワークスペース行だけを対象にします。"
+          }
+        }
+      }
+    },
+    "settings.app.commandPaletteSearchAllSurfaces.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd+P also matches terminal, browser, and markdown surfaces across workspaces."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd+Pでワークスペースをまたいだターミナル、ブラウザ、Markdownのサーフェスも検索できます。"
           }
         }
       }

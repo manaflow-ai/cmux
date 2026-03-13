@@ -294,3 +294,364 @@ final class FeedbackComposerShortcutUITests: XCTestCase {
         )
     }
 }
+
+final class CommandPaletteAllSurfacesUITests: XCTestCase {
+    private var socketPath = ""
+    private let hiddenSurfaceToken = "cmux-command-palette-hidden-surface"
+    private let visibleSurfaceToken = "cmux-command-palette-visible-surface"
+
+    override func setUp() {
+        super.setUp()
+        continueAfterFailure = false
+        socketPath = "/tmp/cmux-ui-test-command-palette-\(UUID().uuidString).sock"
+        try? FileManager.default.removeItem(atPath: socketPath)
+    }
+
+    override func tearDown() {
+        try? FileManager.default.removeItem(atPath: socketPath)
+        super.tearDown()
+    }
+
+    func testCmdPSearchCanIncludeSurfacesFromOtherWorkspacesWhenEnabled() throws {
+        let app = XCUIApplication()
+        app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_SHOW_SETTINGS"] = "1"
+        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        launchAndActivate(app)
+
+        XCTAssertTrue(
+            sidebarHelpPollUntil(timeout: 8.0) {
+                app.windows.count >= 2
+            },
+            "Expected the main window and Settings window to be visible"
+        )
+        XCTAssertTrue(waitForSocketPong(timeout: 12.0), "Expected control socket at \(socketPath)")
+
+        let mainWindowId = try XCTUnwrap(socketCommand("current_window")?.trimmingCharacters(in: .whitespacesAndNewlines))
+        let secondaryWorkspaceId = try XCTUnwrap(okUUID(from: socketCommand("new_workspace")))
+        let initialSurfaceId = try XCTUnwrap(waitForSurfaceIDs(minimumCount: 1, timeout: 5.0).first)
+        let hiddenSurfaceId = try XCTUnwrap(okUUID(from: socketCommand("new_surface --type=terminal")))
+
+        XCTAssertEqual(
+            socketCommand("report_pwd /tmp/\(hiddenSurfaceToken) --tab=\(secondaryWorkspaceId) --panel=\(hiddenSurfaceId)"),
+            "OK"
+        )
+        XCTAssertEqual(socketCommand("focus_surface \(initialSurfaceId)"), "OK")
+        XCTAssertEqual(
+            socketCommand("report_pwd /tmp/\(visibleSurfaceToken) --tab=\(secondaryWorkspaceId) --panel=\(initialSurfaceId)"),
+            "OK"
+        )
+        XCTAssertEqual(socketCommand("select_workspace 0"), "OK")
+        XCTAssertEqual(socketCommand("focus_window \(mainWindowId)"), "OK")
+
+        RunLoop.current.run(until: Date().addingTimeInterval(0.4))
+
+        openCommandPalette(app: app, query: hiddenSurfaceToken)
+        let disabledSnapshot = try XCTUnwrap(
+            waitForCommandPaletteSnapshot(windowId: mainWindowId, query: hiddenSurfaceToken, timeout: 5.0) { snapshot in
+                self.commandPaletteResultRows(from: snapshot).isEmpty
+            }
+        )
+        XCTAssertEqual(commandPaletteResultRows(from: disabledSnapshot).count, 0)
+        dismissCommandPalette(app: app)
+
+        focusSettingsWindow(app: app)
+        let toggle = try requireSearchAllSurfacesToggle(app: app)
+        if !toggleIsOn(toggle) {
+            toggle.click()
+        }
+        XCTAssertTrue(
+            sidebarHelpPollUntil(timeout: 3.0) {
+                toggle.exists && toggleIsOn(toggle)
+            },
+            "Expected the all-surfaces search setting to be enabled"
+        )
+
+        XCTAssertEqual(socketCommand("focus_window \(mainWindowId)"), "OK")
+
+        openCommandPalette(app: app, query: hiddenSurfaceToken)
+        let enabledSnapshot = try XCTUnwrap(
+            waitForCommandPaletteSnapshot(windowId: mainWindowId, query: hiddenSurfaceToken, timeout: 5.0) { snapshot in
+                self.commandPaletteResultRows(from: snapshot).contains { row in
+                    let commandId = row["command_id"] as? String ?? ""
+                    let trailingLabel = row["trailing_label"] as? String ?? ""
+                    return commandId.hasPrefix("switcher.surface.") && trailingLabel == "Terminal"
+                }
+            }
+        )
+
+        XCTAssertTrue(
+            commandPaletteResultRows(from: enabledSnapshot).contains { row in
+                let commandId = row["command_id"] as? String ?? ""
+                let trailingLabel = row["trailing_label"] as? String ?? ""
+                return commandId.hasPrefix("switcher.surface.") && trailingLabel == "Terminal"
+            },
+            "Expected Cmd+P to surface the hidden terminal when all-surfaces search is enabled. snapshot=\(enabledSnapshot)"
+        )
+    }
+
+    private func launchAndActivate(_ app: XCUIApplication) {
+        app.launch()
+        XCTAssertTrue(
+            sidebarHelpPollUntil(timeout: 4.0) {
+                guard app.state != .runningForeground else { return true }
+                app.activate()
+                return app.state == .runningForeground
+            },
+            "App did not reach runningForeground before UI interactions"
+        )
+    }
+
+    private func openCommandPalette(app: XCUIApplication, query: String) {
+        let searchField = app.textFields["CommandPaletteSearchField"]
+        app.typeKey("p", modifierFlags: [.command])
+        XCTAssertTrue(searchField.waitForExistence(timeout: 5.0), "Expected command palette search field")
+        searchField.click()
+        searchField.typeText(query)
+    }
+
+    private func dismissCommandPalette(app: XCUIApplication) {
+        let searchField = app.textFields["CommandPaletteSearchField"]
+        for _ in 0..<2 {
+            app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
+            if sidebarHelpPollUntil(timeout: 1.0) { !searchField.exists } {
+                return
+            }
+        }
+        XCTAssertFalse(searchField.exists, "Expected command palette to dismiss")
+    }
+
+    private func focusSettingsWindow(app: XCUIApplication) {
+        app.typeKey(",", modifierFlags: [.command])
+    }
+
+    private func requireSearchAllSurfacesToggle(app: XCUIApplication) throws -> XCUIElement {
+        let toggleId = "CommandPaletteSearchAllSurfacesToggle"
+        let scrollView = app.scrollViews.firstMatch
+        let candidates = [
+            app.switches[toggleId],
+            app.checkBoxes[toggleId],
+            app.buttons[toggleId],
+            app.otherElements[toggleId],
+        ]
+
+        for _ in 0..<8 {
+            if let element = firstExistingElement(candidates: candidates, timeout: 0.4), element.isHittable {
+                return element
+            }
+            if scrollView.exists {
+                scrollView.swipeUp()
+            }
+        }
+
+        throw XCTSkip("Could not find the command palette all-surfaces toggle")
+    }
+
+    private func toggleIsOn(_ element: XCUIElement) -> Bool {
+        let value = String(describing: element.value ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return value == "1" || value == "true" || value == "on"
+    }
+
+    private func firstExistingElement(
+        candidates: [XCUIElement],
+        timeout: TimeInterval
+    ) -> XCUIElement? {
+        var match: XCUIElement?
+        let found = sidebarHelpPollUntil(timeout: timeout) {
+            for candidate in candidates where candidate.exists {
+                match = candidate
+                return true
+            }
+            return false
+        }
+        return found ? match : nil
+    }
+
+    private func waitForSocketPong(timeout: TimeInterval) -> Bool {
+        sidebarHelpPollUntil(timeout: timeout) {
+            socketCommand("ping") == "PONG"
+        }
+    }
+
+    private func waitForSurfaceIDs(minimumCount: Int, timeout: TimeInterval) -> [String] {
+        var ids: [String] = []
+        let found = sidebarHelpPollUntil(timeout: timeout) {
+            ids = surfaceIDs()
+            return ids.count >= minimumCount
+        }
+        return found ? ids : surfaceIDs()
+    }
+
+    private func surfaceIDs() -> [String] {
+        guard let response = socketCommand("list_surfaces"), !response.isEmpty, !response.hasPrefix("No surfaces") else {
+            return []
+        }
+        return response
+            .split(separator: "\n")
+            .compactMap { line in
+                guard let range = line.range(of: ": ") else { return nil }
+                return String(line[range.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+    }
+
+    private func okUUID(from response: String?) -> String? {
+        guard let response, response.hasPrefix("OK ") else { return nil }
+        let value = String(response.dropFirst(3)).trimmingCharacters(in: .whitespacesAndNewlines)
+        return UUID(uuidString: value) != nil ? value : nil
+    }
+
+    private func socketCommand(_ command: String) -> String? {
+        ControlSocketClient(path: socketPath, responseTimeout: 2.0).sendLine(command)
+    }
+
+    private func commandPaletteResultRows(from snapshot: [String: Any]) -> [[String: Any]] {
+        snapshot["results"] as? [[String: Any]] ?? []
+    }
+
+    private func waitForCommandPaletteSnapshot(
+        windowId: String,
+        query: String,
+        timeout: TimeInterval,
+        predicate: (([String: Any]) -> Bool)? = nil
+    ) -> [String: Any]? {
+        var latest: [String: Any]?
+        let matched = sidebarHelpPollUntil(timeout: timeout) {
+            guard let snapshot = commandPaletteSnapshot(windowId: windowId) else { return false }
+            latest = snapshot
+            guard (snapshot["visible"] as? Bool) == true else { return false }
+            guard (snapshot["mode"] as? String) == "switcher" else { return false }
+            guard (snapshot["query"] as? String) == query else { return false }
+            return predicate?(snapshot) ?? true
+        }
+        return matched ? latest : latest
+    }
+
+    private func commandPaletteSnapshot(windowId: String) -> [String: Any]? {
+        let envelope = socketJSON(
+            method: "debug.command_palette.results",
+            params: [
+                "window_id": windowId,
+                "limit": 20,
+            ]
+        )
+        guard let ok = envelope?["ok"] as? Bool, ok else { return nil }
+        return envelope?["result"] as? [String: Any]
+    }
+
+    private func socketJSON(method: String, params: [String: Any]) -> [String: Any]? {
+        let request: [String: Any] = [
+            "id": UUID().uuidString,
+            "method": method,
+            "params": params,
+        ]
+        return ControlSocketClient(path: socketPath, responseTimeout: 2.0).sendJSON(request)
+    }
+
+    private final class ControlSocketClient {
+        private let path: String
+        private let responseTimeout: TimeInterval
+
+        init(path: String, responseTimeout: TimeInterval) {
+            self.path = path
+            self.responseTimeout = responseTimeout
+        }
+
+        func sendJSON(_ object: [String: Any]) -> [String: Any]? {
+            guard JSONSerialization.isValidJSONObject(object),
+                  let data = try? JSONSerialization.data(withJSONObject: object),
+                  let line = String(data: data, encoding: .utf8),
+                  let response = sendLine(line),
+                  let responseData = response.data(using: .utf8),
+                  let parsed = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any] else {
+                return nil
+            }
+            return parsed
+        }
+
+        func sendLine(_ line: String) -> String? {
+            let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+            guard fd >= 0 else { return nil }
+            defer { close(fd) }
+
+#if os(macOS)
+            var noSigPipe: Int32 = 1
+            _ = withUnsafePointer(to: &noSigPipe) { ptr in
+                setsockopt(
+                    fd,
+                    SOL_SOCKET,
+                    SO_NOSIGPIPE,
+                    ptr,
+                    socklen_t(MemoryLayout<Int32>.size)
+                )
+            }
+#endif
+
+            var addr = sockaddr_un()
+            memset(&addr, 0, MemoryLayout<sockaddr_un>.size)
+            addr.sun_family = sa_family_t(AF_UNIX)
+
+            let maxLen = MemoryLayout.size(ofValue: addr.sun_path)
+            let bytes = Array(path.utf8CString)
+            guard bytes.count <= maxLen else { return nil }
+            withUnsafeMutablePointer(to: &addr.sun_path) { ptr in
+                let raw = UnsafeMutableRawPointer(ptr).assumingMemoryBound(to: CChar.self)
+                memset(raw, 0, maxLen)
+                for index in 0..<bytes.count {
+                    raw[index] = bytes[index]
+                }
+            }
+
+            let pathOffset = MemoryLayout<sockaddr_un>.offset(of: \.sun_path) ?? 0
+            let addrLen = socklen_t(pathOffset + bytes.count)
+#if os(macOS)
+            addr.sun_len = UInt8(min(Int(addrLen), 255))
+#endif
+
+            let connected = withUnsafePointer(to: &addr) { ptr in
+                ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
+                    connect(fd, sa, addrLen)
+                }
+            }
+            guard connected == 0 else { return nil }
+
+            let payload = line + "\n"
+            let wrote: Bool = payload.withCString { cString in
+                var remaining = strlen(cString)
+                var pointer = UnsafeRawPointer(cString)
+                while remaining > 0 {
+                    let written = write(fd, pointer, remaining)
+                    if written <= 0 { return false }
+                    remaining -= written
+                    pointer = pointer.advanced(by: written)
+                }
+                return true
+            }
+            guard wrote else { return nil }
+
+            let deadline = Date().addingTimeInterval(responseTimeout)
+            var buffer = [UInt8](repeating: 0, count: 4096)
+            var accumulator = ""
+            while Date() < deadline {
+                var pollDescriptor = pollfd(fd: fd, events: Int16(POLLIN), revents: 0)
+                let ready = poll(&pollDescriptor, 1, 100)
+                if ready < 0 {
+                    return nil
+                }
+                if ready == 0 {
+                    continue
+                }
+                let count = read(fd, &buffer, buffer.count)
+                if count <= 0 { break }
+                if let chunk = String(bytes: buffer[0..<count], encoding: .utf8) {
+                    accumulator.append(chunk)
+                    if let newline = accumulator.firstIndex(of: "\n") {
+                        return String(accumulator[..<newline])
+                    }
+                }
+            }
+
+            return accumulator.isEmpty ? nil : accumulator.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+    }
+}
