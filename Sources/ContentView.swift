@@ -4659,7 +4659,7 @@ struct ContentView: View {
                 keywords: ["vscode", "inline", "serve-web", "stop", "server"],
                 when: { context in
                     context.bool(CommandPaletteContextKeys.panelIsTerminal)
-                        && context.bool(CommandPaletteContextKeys.terminalOpenTargetAvailable(.vscode))
+                        && context.bool(CommandPaletteContextKeys.terminalOpenTargetAvailable(.vscodeInline))
                 }
             )
         )
@@ -4671,7 +4671,7 @@ struct ContentView: View {
                 keywords: ["vscode", "inline", "serve-web", "restart", "server"],
                 when: { context in
                     context.bool(CommandPaletteContextKeys.panelIsTerminal)
-                        && context.bool(CommandPaletteContextKeys.terminalOpenTargetAvailable(.vscode))
+                        && context.bool(CommandPaletteContextKeys.terminalOpenTargetAvailable(.vscodeInline))
                 }
             )
         )
@@ -6102,7 +6102,7 @@ struct ContentView: View {
         case .finder:
             NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: directoryURL.path)
             return true
-        case .vscode:
+        case .vscodeInline:
             return openFocusedDirectoryInInlineVSCode(directoryURL)
         default:
             guard let applicationURL = target.applicationURL() else { return false }
@@ -6113,7 +6113,7 @@ struct ContentView: View {
     }
 
     private func openFocusedDirectoryInInlineVSCode(_ directoryURL: URL) -> Bool {
-        guard let vscodeApplicationURL = TerminalDirectoryOpenTarget.vscode.applicationURL(),
+        guard let vscodeApplicationURL = TerminalDirectoryOpenTarget.vscodeInline.applicationURL(),
               let workspace = tabManager.selectedWorkspace,
               let sourcePanelId = workspace.focusedPanelId else {
             return false
@@ -6149,7 +6149,7 @@ struct ContentView: View {
     }
 
     private func restartInlineVSCodeServeWeb() -> Bool {
-        guard let vscodeApplicationURL = TerminalDirectoryOpenTarget.vscode.applicationURL() else {
+        guard let vscodeApplicationURL = TerminalDirectoryOpenTarget.vscodeInline.applicationURL() else {
             return false
         }
         VSCodeServeWebController.shared.restart(vscodeApplicationURL: vscodeApplicationURL) { serveWebURL in

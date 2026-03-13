@@ -392,6 +392,7 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
     case terminal
     case tower
     case vscode
+    case vscodeInline
     case warp
     case windsurf
     case xcode
@@ -442,6 +443,8 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
         case .tower:
             return String(localized: "menu.openInTower", defaultValue: "Open Current Directory in Tower")
         case .vscode:
+            return String(localized: "menu.openInVSCodeDesktop", defaultValue: "Open Current Directory in VS Code")
+        case .vscodeInline:
             return String(localized: "menu.openInVSCode", defaultValue: "Open Current Directory in VS Code (Inline)")
         case .warp:
             return String(localized: "menu.openInWarp", defaultValue: "Open Current Directory in Warp")
@@ -474,6 +477,8 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
         case .tower:
             return common + ["tower", "git", "client"]
         case .vscode:
+            return common + ["vs", "code", "visual", "studio", "desktop", "app"]
+        case .vscodeInline:
             return common + ["vs", "code", "visual", "studio", "inline", "browser", "serve-web"]
         case .warp:
             return common + ["warp", "terminal", "shell"]
@@ -488,7 +493,7 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
 
     func isAvailable(in environment: DetectionEnvironment = .live) -> Bool {
         guard let applicationPath = applicationPath(in: environment) else { return false }
-        guard self == .vscode else { return true }
+        guard self == .vscodeInline else { return true }
         return VSCodeCLILaunchConfigurationBuilder.launchConfiguration(
             vscodeApplicationURL: URL(fileURLWithPath: applicationPath, isDirectory: true),
             isExecutableAtPath: environment.isExecutableFileAtPath
@@ -549,6 +554,11 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
         case .tower:
             return ["/Applications/Tower.app"]
         case .vscode:
+            return [
+                "/Applications/Visual Studio Code.app",
+                "/Applications/Code.app",
+            ]
+        case .vscodeInline:
             return [
                 "/Applications/Visual Studio Code.app",
                 "/Applications/Code.app",
