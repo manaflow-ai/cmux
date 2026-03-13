@@ -86,6 +86,20 @@ touch the same stale-frame mitigation path and tend to conflict in the same file
 
 The fork branch HEAD is now the section 6 zsh redraw commit.
 
+### 7) cmux theme picker helper hooks
+
+- Commit: `0c52c987b` (Add cmux theme picker helper hooks)
+- Files:
+  - `build.zig`
+  - `src/cli/list_themes.zig`
+  - `src/main_ghostty.zig`
+- Summary:
+  - Adds a `zig build cli-helper` step so cmux can bundle Ghostty's CLI helper binary on macOS.
+  - Lets `+list-themes` switch into a cmux-managed mode via env vars, writing the cmux theme override file and posting the existing cmux reload notification for live app-wide preview.
+  - Fixes the helper-only `app-runtime=none` stdout path so the Ghostty CLI binary builds with the current Zig toolchain.
+
+The fork branch HEAD is now the section 7 cmux theme picker helper commit.
+
 ## Upstreamed fork changes
 
 ### cursor-click-to-move respects OSC 133 click-to-move
@@ -108,5 +122,10 @@ These files change frequently upstream; be careful when rebasing the fork:
   - Prompt marker handling is easy to regress when upstream adjusts zsh redraw behavior. Keep the
     `OSC 133;A` vs `OSC 133;P` split intact for redraw-heavy themes. Pure-style `\n%{\r%}`
     prompt newlines should not get an extra explicit continuation marker after the hidden CR.
+
+- `src/cli/list_themes.zig`
+  - cmux now relies on the upstream picker UI plus local env-driven hooks for live preview and restore.
+    If upstream reorganizes the preview loop or key handling, re-check the cmux mode path and keep the
+    stock Ghostty behavior unchanged when the cmux env vars are absent.
 
 If you resolve a conflict, update this doc with what changed.

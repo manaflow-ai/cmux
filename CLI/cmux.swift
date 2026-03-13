@@ -4281,8 +4281,11 @@ struct CMUXCLI {
                    cmux themes set --dark <theme> [--light <theme>]
                    cmux themes clear
 
-            List bundled and discovered Ghostty themes, show the current cmux light/dark
-            theme defaults, and update the default theme override used by cmux.
+            When run in a TTY, `cmux themes` opens an interactive theme picker with
+            live app preview. Use `cmux themes list` for a plain listing.
+
+            The picker previews the selected theme across the running cmux app and
+            lets you apply it to the light theme, dark theme, or both defaults.
 
             Commands:
               list                      List available themes and mark the current light/dark defaults
@@ -4293,6 +4296,7 @@ struct CMUXCLI {
 
             Examples:
               cmux themes
+              cmux themes list
               cmux themes set "Catppuccin Mocha"
               cmux themes set --light "Catppuccin Latte" --dark "Catppuccin Mocha"
               cmux themes clear
@@ -5380,8 +5384,145 @@ struct CMUXCLI {
         let targetBundleIdentifier: String
     }
 
+    private enum ThemePickerTargetMode: String {
+        case both
+        case light
+        case dark
+    }
+
+    private func shouldUseInteractiveThemePicker(jsonOutput: Bool) -> Bool {
+        guard !jsonOutput else { return false }
+        return isatty(STDIN_FILENO) == 1 && isatty(STDOUT_FILENO) == 1
+    }
+
+    private func runInteractiveThemes() throws {
+        guard let helperURL = bundledHelperURL(named: "ghostty") else {
+            throw CLIError(message: "Bundled Ghostty theme picker helper not found")
+        }
+
+        let selection = currentThemeSelection()
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_THEME_PICKER_CONFIG"] = try cmuxThemeOverrideConfigURL().path
+        environment["CMUX_THEME_PICKER_BUNDLE_ID"] = currentCmuxAppBundleIdentifier() ?? Self.cmuxThemeOverrideBundleIdentifier
+        environment["CMUX_THEME_PICKER_TARGET"] = defaultThemePickerTargetMode(current: selection).rawValue
+        if let light = selection.light {
+            environment["CMUX_THEME_PICKER_INITIAL_LIGHT"] = light
+        }
+        if let dark = selection.dark {
+            environment["CMUX_THEME_PICKER_INITIAL_DARK"] = dark
+        }
+        if let resourcesURL = bundledGhosttyResourcesURL() {
+            environment["GHOSTTY_RESOURCES_DIR"] = resourcesURL.path
+        }
+
+        let process = Process()
+        process.executableURL = helperURL
+        process.arguments = ["+list-themes"]
+        process.environment = environment
+        process.standardInput = FileHandle.standardInput
+        process.standardOutput = FileHandle.standardOutput
+        process.standardError = FileHandle.standardError
+        try process.run()
+        process.waitUntilExit()
+
+        guard process.terminationReason == .exit else {
+            throw CLIError(message: "Interactive theme picker terminated unexpectedly")
+        }
+        guard process.terminationStatus == 0 else {
+            throw CLIError(message: "Interactive theme picker failed with status \(process.terminationStatus)")
+        }
+    }
+
+    private func defaultThemePickerTargetMode(current: ThemeSelection) -> ThemePickerTargetMode {
+        if let light = current.light,
+           let dark = current.dark,
+           light.caseInsensitiveCompare(dark) == .orderedSame {
+            return .both
+        }
+        return defaultAppearancePrefersDarkThemes() ? .dark : .light
+    }
+
+    private func defaultAppearancePrefersDarkThemes() -> Bool {
+        let globalDefaults = UserDefaults.standard.persistentDomain(forName: UserDefaults.globalDomain)
+        let interfaceStyle = (globalDefaults?["AppleInterfaceStyle"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return interfaceStyle?.caseInsensitiveCompare("Dark") == .orderedSame
+    }
+
+    private func bundledHelperURL(named helperName: String) -> URL? {
+        let fileManager = FileManager.default
+        guard let executableURL = resolvedExecutableURL() else { return nil }
+
+        var candidates: [URL] = [
+            executableURL.deletingLastPathComponent().appendingPathComponent(helperName, isDirectory: false)
+        ]
+
+        var current = executableURL.deletingLastPathComponent().standardizedFileURL
+        while true {
+            if current.lastPathComponent == "Contents" {
+                candidates.append(
+                    current
+                        .appendingPathComponent("Resources", isDirectory: true)
+                        .appendingPathComponent("bin", isDirectory: true)
+                        .appendingPathComponent(helperName, isDirectory: false)
+                )
+            }
+
+            let projectMarker = current.appendingPathComponent("GhosttyTabs.xcodeproj/project.pbxproj", isDirectory: false)
+            let repoHelper = current
+                .appendingPathComponent("ghostty", isDirectory: true)
+                .appendingPathComponent("zig-out", isDirectory: true)
+                .appendingPathComponent("bin", isDirectory: true)
+                .appendingPathComponent(helperName, isDirectory: false)
+            if fileManager.fileExists(atPath: projectMarker.path),
+               fileManager.isExecutableFile(atPath: repoHelper.path) {
+                candidates.append(repoHelper)
+                break
+            }
+
+            guard let parent = parentSearchURL(for: current) else { break }
+            current = parent
+        }
+
+        return candidates.first(where: { fileManager.isExecutableFile(atPath: $0.path) })
+    }
+
+    private func bundledGhosttyResourcesURL() -> URL? {
+        let fileManager = FileManager.default
+        guard let executableURL = resolvedExecutableURL() else { return nil }
+
+        var current = executableURL.deletingLastPathComponent().standardizedFileURL
+        while true {
+            if current.lastPathComponent == "Contents" {
+                let candidate = current
+                    .appendingPathComponent("Resources", isDirectory: true)
+                    .appendingPathComponent("ghostty", isDirectory: true)
+                if fileManager.fileExists(atPath: candidate.path) {
+                    return candidate
+                }
+            }
+
+            let projectMarker = current.appendingPathComponent("GhosttyTabs.xcodeproj/project.pbxproj", isDirectory: false)
+            let repoResources = current
+                .appendingPathComponent("Resources", isDirectory: true)
+                .appendingPathComponent("ghostty", isDirectory: true)
+            if fileManager.fileExists(atPath: projectMarker.path),
+               fileManager.fileExists(atPath: repoResources.path) {
+                return repoResources
+            }
+
+            guard let parent = parentSearchURL(for: current) else { break }
+            current = parent
+        }
+
+        return Bundle.main.resourceURL?.appendingPathComponent("ghostty", isDirectory: true)
+    }
+
     private func runThemes(commandArgs: [String], jsonOutput: Bool) throws {
         if commandArgs.isEmpty {
+            if shouldUseInteractiveThemePicker(jsonOutput: jsonOutput) {
+                try runInteractiveThemes()
+                return
+            }
             try printThemesList(jsonOutput: jsonOutput)
             return
         }
