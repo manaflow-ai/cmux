@@ -5193,6 +5193,33 @@ final class TabManagerCloseWorkspacesWithConfirmationTests: XCTestCase {
 }
 
 @MainActor
+final class TabManagerCloseCurrentPanelTests: XCTestCase {
+    func testCloseCurrentPanelKeepsWorkspaceOpenWhenItOwnsTheLastSurface() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let initialPanelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace and focused panel")
+            return
+        }
+
+        let initialWorkspaceId = workspace.id
+        XCTAssertEqual(manager.tabs.count, 1)
+        XCTAssertEqual(workspace.panels.count, 1)
+
+        manager.closeCurrentPanelWithConfirmation()
+        drainMainQueue()
+        drainMainQueue()
+
+        XCTAssertEqual(manager.tabs.count, 1, "Closing the last surface should not remove the workspace")
+        XCTAssertEqual(manager.selectedTabId, initialWorkspaceId)
+        XCTAssertEqual(manager.tabs.first?.id, initialWorkspaceId)
+        XCTAssertNil(workspace.panels[initialPanelId], "Expected the original surface to be closed")
+        XCTAssertEqual(workspace.panels.count, 1, "Expected the workspace to stay alive with a replacement surface")
+        XCTAssertNotEqual(workspace.focusedPanelId, initialPanelId)
+    }
+}
+
+@MainActor
 final class TabManagerPendingUnfocusPolicyTests: XCTestCase {
     func testDoesNotUnfocusWhenPendingTabIsCurrentlySelected() {
         let tabId = UUID()
