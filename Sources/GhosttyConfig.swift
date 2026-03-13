@@ -20,6 +20,12 @@ struct GhosttyConfig {
     var unfocusedSplitFill: NSColor?
     var splitDividerColor: NSColor?
 
+    // Quick terminal settings
+    var quickTerminalKeybindRaw: String?
+    var quickTerminalPosition: String?
+    var quickTerminalAnimationDuration: Double?
+    var quickTerminalScreenFraction: Double?
+
     // Colors (from theme or config)
     var backgroundColor: NSColor = NSColor(hex: "#272822")!
     var backgroundOpacity: Double = 1.0
@@ -303,6 +309,20 @@ struct GhosttyConfig {
                 case "sidebar-tint-opacity":
                     if let opacity = Double(value) {
                         sidebarTintOpacity = min(max(opacity, 0), 1)
+                    }
+                case "keybind":
+                    if value.contains("toggle_quick_terminal") {
+                        quickTerminalKeybindRaw = value
+                    }
+                case "quick-terminal-position":
+                    quickTerminalPosition = value
+                case "quick-terminal-animation-duration":
+                    if let dur = Double(value) {
+                        quickTerminalAnimationDuration = dur
+                    }
+                case "quick-terminal-screen-fraction":
+                    if let frac = Double(value) {
+                        quickTerminalScreenFraction = frac
                     }
                 default:
                     break

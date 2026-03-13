@@ -75066,6 +75066,23 @@
           }
         }
       }
+    },
+    "quickTerminal.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quick Terminal"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クイックターミナル"
+          }
+        }
+      }
     }
   }
 }

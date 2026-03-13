@@ -351,6 +351,7 @@ struct SessionWindowSnapshot: Codable, Sendable {
     var display: SessionDisplaySnapshot?
     var tabManager: SessionTabManagerSnapshot
     var sidebar: SessionSidebarSnapshot
+    var isQuickTerminal: Bool?
 }
 
 struct AppSessionSnapshot: Codable, Sendable {

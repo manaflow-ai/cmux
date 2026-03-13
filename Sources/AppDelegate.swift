@@ -2240,6 +2240,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 self?.observeDuplicateLaunches()
             }
         }
+        // Load quick terminal config early, before any window creation can
+        // trigger session restore (which checks visorEnabled).
+        installQuickTerminal()
+
         NSWindow.allowsAutomaticWindowTabbing = false
         disableNativeTabbingShortcut()
         ensureApplicationIcon()
@@ -2487,7 +2491,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard let primaryContext = contextForMainTerminalWindow(primaryWindow) else { return }
 
         let startupSnapshot = startupSessionSnapshot
-        let primaryWindowSnapshot = startupSnapshot?.windows.first
+
+        // Separate quick terminal snapshot from regular windows
+        let quickTerminalSnapshot = startupSnapshot?.windows.first(where: { $0.isQuickTerminal == true })
+        let regularWindows = startupSnapshot?.windows.filter { $0.isQuickTerminal != true } ?? []
+
+        // Ensure quick terminal config is loaded (installQuickTerminal may not
+        // have run yet since SwiftUI window creation can precede didFinishLaunching).
+        QuickTerminalController.shared.loadConfiguration()
+
+        // Stash the visor snapshot for deferred restore when the visor window
+        // is first created (on toggle or immediately below).
+        if let quickTerminalSnapshot, QuickTerminalController.shared.keybind != nil {
+            QuickTerminalController.shared.restoreSession(quickTerminalSnapshot)
+        }
+
+        let primaryWindowSnapshot = regularWindows.first
         if let primaryWindowSnapshot {
             isApplyingStartupSessionRestore = true
 #if DEBUG
@@ -2502,6 +2521,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 to: primaryContext,
                 window: primaryWindow
             )
+        } else if quickTerminalSnapshot != nil, QuickTerminalController.shared.keybind != nil {
+            // No regular windows to restore — hide the SwiftUI-created primary
+            // window and show the visor with the restored session.
+            primaryWindow.orderOut(nil)
+            DispatchQueue.main.async {
+                primaryWindow.close()
+                QuickTerminalController.shared.toggle()
+            }
         } else {
             let displays = currentDisplayGeometries()
             let fallbackGeometry = persistedWindowGeometry()
@@ -2516,9 +2543,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
 
-        if let startupSnapshot {
-            let additionalWindows = Array(startupSnapshot
-                .windows
+        if startupSnapshot != nil {
+            let additionalWindows = Array(regularWindows
                 .dropFirst()
                 .prefix(max(0, SessionPersistencePolicy.maxWindowsPerSnapshot - 1)))
 #if DEBUG
@@ -3392,6 +3418,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             .prefix(SessionPersistencePolicy.maxWindowsPerSnapshot)
             .map { context in
                 let window = context.window ?? windowForMainWindowId(context.windowId)
+                let isQuickTerminal = context.windowId == QuickTerminalController.shared.windowId
                 return SessionWindowSnapshot(
                     frame: window.map { SessionRectSnapshot($0.frame) },
                     display: displaySnapshot(for: window),
@@ -3400,7 +3427,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                         isVisible: context.sidebarState.isVisible,
                         selection: SessionSidebarSelection(selection: context.sidebarSelectionState.selection),
                         width: SessionPersistencePolicy.sanitizedSidebarWidth(Double(context.sidebarState.persistedWidth))
-                    )
+                    ),
+                    isQuickTerminal: isQuickTerminal ? true : nil
                 )
             }
 
@@ -7667,6 +7695,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             guard refreshedManagers.insert(identifier).inserted else { continue }
             manager.refreshSplitButtonTooltips()
         }
+    }
+
+    private func installQuickTerminal() {
+        let controller = QuickTerminalController.shared
+        controller.loadConfiguration()
+        controller.installGlobalHotkey()
     }
 
     private func installGhosttyConfigObserver() {
