@@ -1,6 +1,7 @@
 import XCTest
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 import WebKit
 import SwiftUI
 import ObjectiveC.runtime
@@ -924,6 +925,36 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
 
         XCTAssertEqual(cmuxPasteboardStringContentsForTesting(pasteboard), "Hello")
         XCTAssertNil(cmuxPasteboardImagePathForTesting(pasteboard))
+    }
+
+    func testJPEGClipboardFallsBackToImagePath() throws {
+        let pasteboard = NSPasteboard(name: .init("cmux-test-jpeg-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+
+        let image = NSImage(size: NSSize(width: 1, height: 1))
+        image.lockFocus()
+        NSColor.green.setFill()
+        NSRect(x: 0, y: 0, width: 1, height: 1).fill()
+        image.unlockFocus()
+
+        let tiffData = try XCTUnwrap(image.tiffRepresentation)
+        let bitmap = try XCTUnwrap(NSBitmapImageRep(data: tiffData))
+        let jpegData = try XCTUnwrap(
+            bitmap.representation(
+                using: .jpeg,
+                properties: [.compressionFactor: 1.0]
+            )
+        )
+        pasteboard.setData(
+            jpegData,
+            forType: NSPasteboard.PasteboardType(UTType.jpeg.identifier)
+        )
+
+        let imagePath = try XCTUnwrap(cmuxPasteboardImagePathForTesting(pasteboard))
+        defer { try? FileManager.default.removeItem(atPath: imagePath) }
+
+        XCTAssertTrue(imagePath.hasSuffix(".jpeg"))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: imagePath))
     }
 }
 
