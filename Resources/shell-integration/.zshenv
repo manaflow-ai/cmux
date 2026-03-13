@@ -34,8 +34,13 @@ fi
         #
         # We can't rely on GHOSTTY_ZSH_ZDOTDIR here because Ghostty's own zsh
         # bootstrap unsets it before chaining into this cmux wrapper.
-        if [[ "${CMUX_LOAD_GHOSTTY_ZSH_INTEGRATION:-0}" == "1" && -n "${GHOSTTY_RESOURCES_DIR:-}" ]]; then
-            builtin typeset _cmux_ghostty="$GHOSTTY_RESOURCES_DIR/shell-integration/zsh/ghostty-integration"
+        if [[ "${CMUX_LOAD_GHOSTTY_ZSH_INTEGRATION:-0}" == "1" ]]; then
+            if [[ -n "${CMUX_SHELL_INTEGRATION_DIR:-}" ]]; then
+                builtin typeset _cmux_ghostty="$CMUX_SHELL_INTEGRATION_DIR/ghostty-integration.zsh"
+            fi
+            if [[ ! -r "${_cmux_ghostty:-}" && -n "${GHOSTTY_RESOURCES_DIR:-}" ]]; then
+                builtin typeset _cmux_ghostty="$GHOSTTY_RESOURCES_DIR/shell-integration/zsh/ghostty-integration"
+            fi
             [[ -r "$_cmux_ghostty" ]] && builtin source -- "$_cmux_ghostty"
         fi
 
