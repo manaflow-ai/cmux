@@ -845,13 +845,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Welcome"
+            "value": "Welcome to cmux!"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ようこそ"
+            "value": "cmuxへようこそ！"
           }
         }
       }
