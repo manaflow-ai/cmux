@@ -452,10 +452,9 @@ struct cmuxApp: App {
                 Divider()
 
                 // Terminal semantics:
-                // Cmd+W closes the focused tab/surface (with confirmation if needed) and keeps
-                // the workspace open by default. Cmd+Shift+W is the explicit workspace-close
-                // action, unless the user opts into closing the workspace when its last surface
-                // is closed.
+                // Cmd+W closes the focused tab/surface (with confirmation if needed). When that
+                // was the last surface in the workspace, cmux removes the workspace and closes
+                // the window if it was also the last workspace.
                 Button(String(localized: "menu.file.closeTab", defaultValue: "Close Tab")) {
                     closePanelOrWindow()
                 }
@@ -3077,8 +3076,6 @@ struct SettingsView: View {
     @AppStorage(ShortcutHintDebugSettings.alwaysShowHintsKey)
     private var alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
     @AppStorage(WorkspacePlacementSettings.placementKey) private var newWorkspacePlacement = WorkspacePlacementSettings.defaultPlacement.rawValue
-    @AppStorage(LastSurfaceCloseShortcutSettings.key)
-    private var closeWorkspaceOnLastSurfaceShortcut = LastSurfaceCloseShortcutSettings.defaultValue
     @AppStorage(WorkspaceAutoReorderSettings.key) private var workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
     @AppStorage(SidebarWorkspaceDetailSettings.hideAllDetailsKey)
     private var sidebarHideAllDetails = SidebarWorkspaceDetailSettings.defaultHideAllDetails
@@ -3122,19 +3119,6 @@ struct SettingsView: View {
 
     private var selectedWorkspacePlacement: NewWorkspacePlacement {
         NewWorkspacePlacement(rawValue: newWorkspacePlacement) ?? WorkspacePlacementSettings.defaultPlacement
-    }
-
-    private var closeWorkspaceOnLastSurfaceShortcutSubtitle: String {
-        if closeWorkspaceOnLastSurfaceShortcut {
-            return String(
-                localized: "settings.app.closeWorkspaceOnLastSurfaceShortcut.subtitleOn",
-                defaultValue: "Closing the last surface also closes its workspace."
-            )
-        }
-        return String(
-            localized: "settings.app.closeWorkspaceOnLastSurfaceShortcut.subtitleOff",
-            defaultValue: "Closing the last surface keeps the workspace open. Use Cmd+Shift+W to close a workspace explicitly."
-        )
     }
 
     private var selectedSidebarActiveTabIndicatorStyle: SidebarActiveTabIndicatorStyle {
@@ -3501,17 +3485,6 @@ struct SettingsView: View {
                             ForEach(NewWorkspacePlacement.allCases) { placement in
                                 Text(placement.displayName).tag(placement.rawValue)
                             }
-                        }
-
-                        SettingsCardDivider()
-
-                        SettingsCardRow(
-                            String(localized: "settings.app.closeWorkspaceOnLastSurfaceShortcut", defaultValue: "Closing Last Surface Closes Workspace"),
-                            subtitle: closeWorkspaceOnLastSurfaceShortcutSubtitle
-                        ) {
-                            Toggle("", isOn: $closeWorkspaceOnLastSurfaceShortcut)
-                                .labelsHidden()
-                                .controlSize(.small)
                         }
 
                         SettingsCardDivider()
@@ -4485,7 +4458,6 @@ struct SettingsView: View {
         ShortcutHintDebugSettings.resetVisibilityDefaults()
         alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
         newWorkspacePlacement = WorkspacePlacementSettings.defaultPlacement.rawValue
-        closeWorkspaceOnLastSurfaceShortcut = LastSurfaceCloseShortcutSettings.defaultValue
         workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
         sidebarHideAllDetails = SidebarWorkspaceDetailSettings.defaultHideAllDetails
         sidebarShowNotificationMessage = SidebarWorkspaceDetailSettings.defaultShowNotificationMessage

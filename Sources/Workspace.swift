@@ -1182,6 +1182,9 @@ final class Workspace: Identifiable, ObservableObject {
         bonsplitController.onExternalTabDrop = { [weak self] request in
             self?.handleExternalTabDrop(request) ?? false
         }
+        bonsplitController.onTabCloseRequest = { [weak self] tabId, _ in
+            self?.markExplicitClose(surfaceId: tabId)
+        }
 
         // Set ourselves as delegate
         bonsplitController.delegate = self
@@ -1227,6 +1230,10 @@ final class Workspace: Identifiable, ObservableObject {
     /// Tab IDs that are currently showing (or about to show) a close confirmation prompt.
     /// Prevents repeated close gestures (e.g., middle-click spam) from stacking dialogs.
     private var pendingCloseConfirmTabIds: Set<TabID> = []
+
+    /// Tab IDs whose next close attempt came from an explicit user close gesture
+    /// (Cmd+W or the tab-strip X button), rather than an internal close/move flow.
+    private var explicitUserCloseTabIds: Set<TabID> = []
 
     /// Deterministic tab selection to apply after a tab closes.
     /// Keyed by the closing tab ID, value is the tab ID we want to select next.
@@ -1292,6 +1299,10 @@ final class Workspace: Identifiable, ObservableObject {
 
     func panelIdFromSurfaceId(_ surfaceId: TabID) -> UUID? {
         surfaceIdToPanelId[surfaceId]
+    }
+
+    func markExplicitClose(surfaceId: TabID) {
+        explicitUserCloseTabIds.insert(surfaceId)
     }
 
     func surfaceIdFromPanelId(_ panelId: UUID) -> TabID? {
@@ -4118,8 +4129,7 @@ extension Workspace: BonsplitDelegate {
     @MainActor
     private func shouldCloseWorkspaceOnLastSurface(for tabId: TabID) -> Bool {
         let manager = owningTabManager ?? AppDelegate.shared?.tabManagerFor(tabId: id) ?? AppDelegate.shared?.tabManager
-        guard LastSurfaceCloseShortcutSettings.closesWorkspace(),
-              panels.count <= 1,
+        guard panels.count <= 1,
               panelIdFromSurfaceId(tabId) != nil,
               let manager,
               manager.tabs.contains(where: { $0.id == id }) else {
@@ -4136,6 +4146,10 @@ extension Workspace: BonsplitDelegate {
         alert.alertStyle = .warning
         alert.addButton(withTitle: String(localized: "dialog.closeTab.close", defaultValue: "Close"))
         alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
+
+        if let closeButton = alert.buttons.first {
+            alert.window.defaultButtonCell = closeButton.cell as? NSButtonCell
+        }
 
         // Prefer a sheet if we can find a window, otherwise fall back to modal.
         if let window = NSApp.keyWindow ?? NSApp.mainWindow {
@@ -4530,6 +4544,8 @@ extension Workspace: BonsplitDelegate {
             }
         }
 
+        let explicitUserClose = explicitUserCloseTabIds.remove(tab.id) != nil
+
         if forceCloseTabIds.contains(tab.id) {
             stageClosedBrowserRestoreSnapshotIfNeeded(for: tab, inPane: pane)
             recordPostCloseSelection()
@@ -4543,7 +4559,7 @@ extension Workspace: BonsplitDelegate {
             return false
         }
 
-        if shouldCloseWorkspaceOnLastSurface(for: tab.id) {
+        if explicitUserClose && shouldCloseWorkspaceOnLastSurface(for: tab.id) {
             clearStagedClosedBrowserRestoreSnapshot(for: tab.id)
             owningTabManager?.closeWorkspaceWithConfirmation(self)
             return false
