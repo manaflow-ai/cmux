@@ -39,13 +39,16 @@ def _find_cli_binary() -> str:
     return candidates[0]
 
 
-def _run_cli(cli: str, args: list[str]) -> str:
+def _run_cli(cli: str, args: list[str], *, extra_env: dict[str, str] | None = None) -> str:
+    env = dict(os.environ)
+    if extra_env:
+        env.update(extra_env)
     proc = subprocess.run(
         [cli, "--socket", SOCKET_PATH, *args],
         capture_output=True,
         text=True,
         check=False,
-        env=dict(os.environ),
+        env=env,
     )
     if proc.returncode != 0:
         merged = f"{proc.stdout}\n{proc.stderr}".strip()
@@ -73,8 +76,16 @@ def main() -> int:
             log_response = _run_cli(cli, ["log", "--workspace", workspace_id, "--", "ship it"])
             _must(log_response.startswith("OK"), f"log should succeed, got {log_response!r}")
 
+            env_log_response = _run_cli(
+                cli,
+                ["log", "--", "env scoped log"],
+                extra_env={"CMUX_WORKSPACE_ID": workspace_id},
+            )
+            _must(env_log_response.startswith("OK"), f"log with env workspace should succeed, got {env_log_response!r}")
+
             log_list = _run_cli(cli, ["list-log", "--workspace", workspace_id, "--limit", "5"])
             _must("ship it" in log_list, f"list-log should include the appended log entry: {log_list!r}")
+            _must("env scoped log" in log_list, f"list-log should include env-routed log entry: {log_list!r}")
 
             sidebar_state = _run_cli(cli, ["sidebar-state", "--workspace", workspace_id])
             _must("status_count=1" in sidebar_state, f"sidebar-state should include the status entry count: {sidebar_state!r}")

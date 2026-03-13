@@ -7,6 +7,40 @@ import XCTest
 #endif
 
 final class SessionPersistenceTests: XCTestCase {
+    @MainActor
+    func testWorkspaceSessionSnapshotRestoresMarkdownPanel() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-session-markdown-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let markdownURL = root.appendingPathComponent("note.md")
+        try "# hello\n".write(to: markdownURL, atomically: true, encoding: .utf8)
+
+        let workspace = Workspace()
+        let paneId = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let panel = try XCTUnwrap(
+            workspace.newMarkdownSurface(
+                inPane: paneId,
+                filePath: markdownURL.path,
+                focus: true
+            )
+        )
+        workspace.setCustomTitle("Docs")
+        workspace.setPanelCustomTitle(panelId: panel.id, title: "Readme")
+
+        let snapshot = workspace.sessionSnapshot(includeScrollback: false)
+
+        let restored = Workspace()
+        restored.restoreSessionSnapshot(snapshot)
+
+        let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
+        let restoredPanel = try XCTUnwrap(restored.markdownPanel(for: restoredPanelId))
+        XCTAssertEqual(restoredPanel.filePath, markdownURL.path)
+        XCTAssertEqual(restored.customTitle, "Docs")
+        XCTAssertEqual(restored.panelTitle(panelId: restoredPanelId), "Readme")
+    }
+
     func testSaveAndLoadRoundTripWithCustomSnapshotPath() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-session-tests-\(UUID().uuidString)", isDirectory: true)

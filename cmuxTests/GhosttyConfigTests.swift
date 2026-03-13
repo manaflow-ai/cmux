@@ -1713,7 +1713,33 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
         XCTAssertTrue(output.contains("PREEXEC=0"), output)
     }
 
+    func testGhosttySemanticPatchRetriesAfterDeferredInitCreatesLiveHooks() throws {
+        let output = try runInteractiveZsh(
+            cmuxLoadGhosttyIntegration: true,
+            command: """
+            _cmux_patch_ghostty_semantic_redraw
+            (( $+functions[_ghostty_deferred_init] )) && _ghostty_deferred_init >/dev/null 2>&1
+            _cmux_patch_ghostty_semantic_redraw
+            print -r -- "PRECMD_BODY=${functions[_ghostty_precmd]}"
+            print -r -- "PREEXEC_BODY=${functions[_ghostty_preexec]}"
+            """
+        )
+
+        XCTAssertTrue(output.contains("PRECMD_BODY="), output)
+        XCTAssertTrue(output.contains("PREEXEC_BODY="), output)
+        XCTAssertTrue(output.contains("133;A;redraw=last;cl=line"), output)
+    }
+
     private func runInteractiveZsh(cmuxLoadGhosttyIntegration: Bool) throws -> String {
+        try runInteractiveZsh(
+            cmuxLoadGhosttyIntegration: cmuxLoadGhosttyIntegration,
+            command: "(( $+functions[_ghostty_deferred_init] )) && _ghostty_deferred_init >/dev/null 2>&1; " +
+                "print -r -- \"PRECMD=${+functions[_ghostty_precmd]} " +
+                "PREEXEC=${+functions[_ghostty_preexec]} PRECMDS=${(j:,:)precmd_functions}\""
+        )
+    }
+
+    private func runInteractiveZsh(cmuxLoadGhosttyIntegration: Bool, command: String) throws -> String {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-zsh-shell-integration-\(UUID().uuidString)")
@@ -1734,10 +1760,7 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
         process.executableURL = URL(fileURLWithPath: "/bin/zsh")
         process.arguments = [
             "-i",
-            "-c",
-            "(( $+functions[_ghostty_deferred_init] )) && _ghostty_deferred_init >/dev/null 2>&1; " +
-            "print -r -- \"PRECMD=${+functions[_ghostty_precmd]} " +
-            "PREEXEC=${+functions[_ghostty_preexec]} PRECMDS=${(j:,:)precmd_functions}\""
+            "-c", command
         ]
         process.environment = [
             "HOME": root.path,
