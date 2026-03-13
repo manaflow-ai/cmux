@@ -421,6 +421,39 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         XCTAssertEqual(previewCandidateIDs.last, "command.191")
     }
 
+    func testPendingVisibleResultsPreserveCurrentRowsWhenPreviewIsEmpty() {
+        XCTAssertEqual(
+            ContentView.commandPalettePendingVisibleResultIDs(
+                previewResultIDs: [],
+                currentVisibleResultIDs: ["workspace.1", "workspace.2"],
+                canReuseCurrentVisibleResults: true
+            ),
+            ["workspace.1", "workspace.2"]
+        )
+    }
+
+    func testPendingVisibleResultsDoNotPreserveRowsAcrossScopeRefresh() {
+        XCTAssertEqual(
+            ContentView.commandPalettePendingVisibleResultIDs(
+                previewResultIDs: [],
+                currentVisibleResultIDs: ["workspace.1", "workspace.2"],
+                canReuseCurrentVisibleResults: false
+            ),
+            []
+        )
+    }
+
+    func testPendingVisibleResultsPreferFreshPreviewMatches() {
+        XCTAssertEqual(
+            ContentView.commandPalettePendingVisibleResultIDs(
+                previewResultIDs: ["workspace.9"],
+                currentVisibleResultIDs: ["workspace.1", "workspace.2"],
+                canReuseCurrentVisibleResults: true
+            ),
+            ["workspace.9"]
+        )
+    }
+
     func testSynchronousSeedRunsOnlyWhenScopeChanges() {
         XCTAssertTrue(
             ContentView.commandPaletteShouldSynchronouslySeedResults(
@@ -431,6 +464,32 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
             ContentView.commandPaletteShouldSynchronouslySeedResults(
                 hasVisibleResultsForScope: true
             )
+        )
+    }
+
+    func testCommandPaletteListViewportUsesCompactRenderedRowHeight() {
+        XCTAssertEqual(
+            ContentView.commandPaletteListViewportHeight(resultCount: 0),
+            30
+        )
+        XCTAssertEqual(
+            ContentView.commandPaletteListViewportHeight(resultCount: 1),
+            20
+        )
+        XCTAssertEqual(
+            ContentView.commandPaletteListViewportHeight(resultCount: 17),
+            340
+        )
+    }
+
+    func testCommandPaletteListViewportCapsAtMaximumHeight() {
+        XCTAssertEqual(
+            ContentView.commandPaletteListViewportHeight(resultCount: 32),
+            450
+        )
+        XCTAssertEqual(
+            ContentView.commandPaletteListViewportHeight(resultCount: 80),
+            450
         )
     }
 

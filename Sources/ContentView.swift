@@ -1634,6 +1634,10 @@ struct ContentView: View {
     private static let commandPaletteCommandsPrefix = ">"
     private static let commandPaletteVisiblePreviewResultLimit = 48
     private static let commandPaletteVisiblePreviewCandidateLimit = 192
+    private static let commandPaletteListMaxHeight: CGFloat = 450
+    private static let commandPaletteRowHeight: CGFloat = 20
+    private static let commandPaletteEmptyStateHeight: CGFloat = 30
+    private static let commandPaletteEmptyStateVerticalPadding: CGFloat = 7
     private static let minimumSidebarWidth: CGFloat = 186
     private static let maximumSidebarWidthRatio: CGFloat = 1.0 / 3.0
 
@@ -3006,13 +3010,9 @@ struct ContentView: View {
     private var commandPaletteCommandListView: some View {
         let visibleResults = commandPaletteVisibleResults
         let selectedIndex = commandPaletteSelectedIndex(resultCount: visibleResults.count)
-        let commandPaletteListMaxHeight: CGFloat = 450
-        let commandPaletteRowHeight: CGFloat = 24
-        let commandPaletteEmptyStateHeight: CGFloat = 44
-        let commandPaletteListContentHeight = visibleResults.isEmpty
-            ? commandPaletteEmptyStateHeight
-            : CGFloat(visibleResults.count) * commandPaletteRowHeight
-        let commandPaletteListHeight = min(commandPaletteListMaxHeight, commandPaletteListContentHeight)
+        let commandPaletteListHeight = Self.commandPaletteListViewportHeight(
+            resultCount: visibleResults.count
+        )
         return VStack(spacing: 0) {
             HStack(spacing: 8) {
                 TextField(commandPaletteSearchPlaceholder, text: $commandPaletteQuery)
@@ -3057,13 +3057,15 @@ struct ContentView: View {
                             Text(commandPaletteEmptyStateText)
                                 .font(.system(size: 13, weight: .regular))
                                 .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(.horizontal, 12)
-                                .padding(.vertical, 12)
+                                .padding(.vertical, Self.commandPaletteEmptyStateVerticalPadding)
                         } else {
                             Color.clear
                                 .frame(maxWidth: .infinity)
-                                .frame(height: commandPaletteEmptyStateHeight)
+                                .frame(height: Self.commandPaletteEmptyStateHeight)
                         }
                     } else {
                         ForEach(Array(visibleResults.enumerated()), id: \.element.id) { index, result in
@@ -3104,6 +3106,7 @@ struct ContentView: View {
                                 }
                                 .padding(.horizontal, 9)
                                 .padding(.vertical, 2)
+                                .frame(minHeight: Self.commandPaletteRowHeight, alignment: .leading)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .background(rowBackground)
                                 .contentShape(Rectangle())
@@ -3428,9 +3431,10 @@ struct ContentView: View {
         queryIsEmpty: Bool,
         historyTimestamp: TimeInterval
     ) {
+        let canReuseCurrentVisibleResults = commandPaletteVisibleResultsScope == scope
+            && commandPaletteVisibleResultsFingerprint == fingerprint
         let candidateCommandIDs: [String]
-        if commandPaletteVisibleResultsScope == scope,
-           commandPaletteVisibleResultsFingerprint == fingerprint {
+        if canReuseCurrentVisibleResults {
             candidateCommandIDs = Self.commandPalettePreviewCandidateCommandIDs(
                 resultIDs: commandPaletteVisibleResults.map(\.id),
                 limit: Self.commandPaletteVisiblePreviewCandidateLimit
@@ -3454,8 +3458,19 @@ struct ContentView: View {
             matches: previewMatches,
             commandsByID: commandPaletteSearchCommandsByID
         )
+        let nextVisibleResultIDs = Self.commandPalettePendingVisibleResultIDs(
+            previewResultIDs: previewResults.map(\.id),
+            currentVisibleResultIDs: commandPaletteVisibleResults.map(\.id),
+            canReuseCurrentVisibleResults: canReuseCurrentVisibleResults
+        )
+        let nextVisibleResults: [CommandPaletteSearchResult]
+        if nextVisibleResultIDs == previewResults.map(\.id) {
+            nextVisibleResults = previewResults
+        } else {
+            nextVisibleResults = commandPaletteVisibleResults
+        }
         setCommandPaletteVisibleResults(
-            previewResults,
+            nextVisibleResults,
             scope: scope,
             fingerprint: fingerprint
         )
@@ -3546,10 +3561,34 @@ struct ContentView: View {
         return Array(resultIDs.prefix(limit))
     }
 
+    static func commandPalettePendingVisibleResultIDs(
+        previewResultIDs: [String],
+        currentVisibleResultIDs: [String],
+        canReuseCurrentVisibleResults: Bool
+    ) -> [String] {
+        guard canReuseCurrentVisibleResults else {
+            return previewResultIDs
+        }
+        if previewResultIDs.isEmpty, !currentVisibleResultIDs.isEmpty {
+            return currentVisibleResultIDs
+        }
+        return previewResultIDs
+    }
+
     static func commandPaletteShouldSynchronouslySeedResults(
         hasVisibleResultsForScope: Bool
     ) -> Bool {
         !hasVisibleResultsForScope
+    }
+
+    static func commandPaletteListViewportHeight(resultCount: Int) -> CGFloat {
+        let contentHeight: CGFloat
+        if resultCount > 0 {
+            contentHeight = CGFloat(resultCount) * Self.commandPaletteRowHeight
+        } else {
+            contentHeight = Self.commandPaletteEmptyStateHeight
+        }
+        return min(Self.commandPaletteListMaxHeight, contentHeight)
     }
 
     private func scheduleCommandPaletteResultsRefresh(forceSearchCorpusRefresh: Bool = false) {
