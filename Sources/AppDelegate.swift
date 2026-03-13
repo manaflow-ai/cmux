@@ -4679,12 +4679,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         commandPaletteSelectionByWindowId.removeValue(forKey: context.windowId)
         commandPaletteSnapshotByWindowId.removeValue(forKey: context.windowId)
 
-        if let store = notificationStore {
-            for tab in context.tabManager.tabs {
-                store.clearNotifications(forTabId: tab.id)
-            }
-        }
-
         if tabManager === context.tabManager {
             if let nextContext = mainWindowContexts.values.first(where: { resolvedWindow(for: $0) != nil }) {
                 tabManager = nextContext.tabManager
@@ -4696,6 +4690,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 sidebarState = nil
                 sidebarSelectionState = nil
                 TerminalController.shared.setActiveTabManager(nil)
+            }
+        }
+
+        if let store = notificationStore {
+            for tab in context.tabManager.tabs {
+                store.clearNotifications(forTabId: tab.id)
             }
         }
     }
