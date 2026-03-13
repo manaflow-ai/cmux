@@ -2275,11 +2275,15 @@ class TerminalController {
 
     private func v2Identify(params: [String: Any]) -> [String: Any] {
         guard let tabManager = v2ResolveTabManager(params: params) else {
-            return [
+            var payload: [String: Any] = [
                 "socket_path": socketPath,
                 "focused": NSNull(),
                 "caller": NSNull()
             ]
+            if let appInfo = v2AppVersionInfo() {
+                payload["app_info"] = appInfo
+            }
+            return payload
         }
 
         var focused: [String: Any] = [:]
@@ -2352,11 +2356,45 @@ class TerminalController {
             }
         }
 
-        return [
+        var payload: [String: Any] = [
             "socket_path": socketPath,
             "focused": focused.isEmpty ? NSNull() : focused,
             "caller": v2OrNull(resolvedCaller)
         ]
+        if let appInfo = v2AppVersionInfo() {
+            payload["app_info"] = appInfo
+        }
+        return payload
+    }
+
+    private func v2AppVersionInfo() -> [String: String]? {
+        guard let infoDictionary = Bundle.main.infoDictionary else {
+            return nil
+        }
+
+        var appInfo: [String: String] = [:]
+
+        if let version = (infoDictionary["CFBundleShortVersionString"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !version.isEmpty {
+            appInfo["CFBundleShortVersionString"] = version
+        }
+
+        if let build = (infoDictionary["CFBundleVersion"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !build.isEmpty {
+            appInfo["CFBundleVersion"] = build
+        }
+
+        let rawCommit =
+            (infoDictionary["CMUXCommit"] as? String) ??
+            ProcessInfo.processInfo.environment["CMUX_COMMIT"]
+        if let commit = rawCommit?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !commit.isEmpty {
+            appInfo["CMUXCommit"] = commit
+        }
+
+        return appInfo.isEmpty ? nil : appInfo
     }
 
     private func v2SystemTree(params: [String: Any]) -> V2CallResult {
