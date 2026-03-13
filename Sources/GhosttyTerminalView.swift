@@ -151,18 +151,10 @@ private enum GhosttyPasteboardHelper {
         type: NSPasteboard.PasteboardType,
         documentType: NSAttributedString.DocumentType
     ) -> String? {
-        let data =
-            pasteboard.data(forType: type)
-            ?? pasteboard.string(forType: type)?.data(using: .utf8)
-        guard let data else { return nil }
-
-        let attributed = try? NSAttributedString(
-            data: data,
-            options: [
-                .documentType: documentType,
-                .characterEncoding: String.Encoding.utf8.rawValue
-            ],
-            documentAttributes: nil
+        let attributed = attributedString(
+            from: pasteboard,
+            type: type,
+            documentType: documentType
         )
 
         let sanitized = attributed?.string
@@ -172,6 +164,67 @@ private enum GhosttyPasteboardHelper {
 
         guard let sanitized, !sanitized.isEmpty else { return nil }
         return sanitized
+    }
+
+    private static func attributedString(
+        from pasteboard: NSPasteboard,
+        type: NSPasteboard.PasteboardType,
+        documentType: NSAttributedString.DocumentType
+    ) -> NSAttributedString? {
+        let data =
+            pasteboard.data(forType: type)
+            ?? pasteboard.string(forType: type)?.data(using: .utf8)
+        guard let data else { return nil }
+
+        return try? NSAttributedString(
+            data: data,
+            options: [
+                .documentType: documentType,
+                .characterEncoding: String.Encoding.utf8.rawValue
+            ],
+            documentAttributes: nil
+        )
+    }
+
+    private static func rtfdAttachmentImageRepresentation(
+        in pasteboard: NSPasteboard
+    ) -> (data: Data, fileExtension: String)? {
+        guard let attributed = attributedString(
+            from: pasteboard,
+            type: .rtfd,
+            documentType: .rtfd
+        ) else { return nil }
+
+        var result: (data: Data, fileExtension: String)?
+        attributed.enumerateAttribute(
+            .attachment,
+            in: NSRange(location: 0, length: attributed.length)
+        ) { value, _, stop in
+            guard let attachment = value as? NSTextAttachment else { return }
+
+            if let fileWrapper = attachment.fileWrapper,
+               let data = fileWrapper.regularFileContents {
+                let fileExtension =
+                    (fileWrapper.preferredFilename as NSString?)?.pathExtension ?? ""
+                if !fileExtension.isEmpty {
+                    result = (data, fileExtension)
+                    stop.pointee = true
+                    return
+                }
+            }
+
+            guard let image = attachment.image(
+                forBounds: .zero,
+                textContainer: nil,
+                characterIndex: 0
+            ),
+            let tiffData = image.tiffRepresentation else { return }
+
+            result = (tiffData, "tiff")
+            stop.pointee = true
+        }
+
+        return result
     }
 
     private static func hasImageData(in pasteboard: NSPasteboard) -> Bool {
@@ -226,7 +279,7 @@ private enum GhosttyPasteboardHelper {
     }
 
     /// When the clipboard contains only image data (or rich text that resolves to
-    /// an attachment-only image), saves it as a temporary PNG file and returns the
+    /// an attachment-only image), saves it as a temporary image file and returns the
     /// shell-escaped file path. Returns nil if the clipboard contains text or no image.
     static func saveClipboardImageIfNeeded(
         from pasteboard: NSPasteboard = .general,
@@ -239,6 +292,9 @@ private enum GhosttyPasteboardHelper {
         if let directImage = directImageRepresentation(in: pasteboard) {
             imageData = directImage.data
             fileExtension = directImage.fileExtension
+        } else if let rtfdAttachment = rtfdAttachmentImageRepresentation(in: pasteboard) {
+            imageData = rtfdAttachment.data
+            fileExtension = rtfdAttachment.fileExtension
         } else {
             guard hasImageData(in: pasteboard),
                   let image = NSImage(pasteboard: pasteboard),
