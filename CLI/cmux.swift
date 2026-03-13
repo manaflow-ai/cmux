@@ -5415,22 +5415,11 @@ struct CMUXCLI {
             environment["GHOSTTY_RESOURCES_DIR"] = resourcesURL.path
         }
 
-        let process = Process()
-        process.executableURL = helperURL
-        process.arguments = ["+list-themes"]
-        process.environment = environment
-        process.standardInput = FileHandle.standardInput
-        process.standardOutput = FileHandle.standardOutput
-        process.standardError = FileHandle.standardError
-        try process.run()
-        process.waitUntilExit()
-
-        guard process.terminationReason == .exit else {
-            throw CLIError(message: "Interactive theme picker terminated unexpectedly")
-        }
-        guard process.terminationStatus == 0 else {
-            throw CLIError(message: "Interactive theme picker failed with status \(process.terminationStatus)")
-        }
+        try execInteractiveHelper(
+            executablePath: helperURL.path,
+            arguments: ["+list-themes"],
+            environment: environment
+        )
     }
 
     private func defaultThemePickerTargetMode(current: ThemeSelection) -> ThemePickerTargetMode {
@@ -5484,6 +5473,33 @@ struct CMUXCLI {
         }
 
         return candidates.first(where: { fileManager.isExecutableFile(atPath: $0.path) })
+    }
+
+    private func execInteractiveHelper(
+        executablePath: String,
+        arguments: [String],
+        environment: [String: String]
+    ) throws -> Never {
+        var argv = ([executablePath] + arguments).map { strdup($0) }
+        defer {
+            for item in argv {
+                free(item)
+            }
+        }
+        argv.append(nil)
+
+        var envp = environment
+            .map { key, value in strdup("\(key)=\(value)") }
+        defer {
+            for item in envp {
+                free(item)
+            }
+        }
+        envp.append(nil)
+
+        execve(executablePath, &argv, &envp)
+        let code = errno
+        throw CLIError(message: "Failed to launch interactive theme picker: \(String(cString: strerror(code)))")
     }
 
     private func bundledGhosttyResourcesURL() -> URL? {
