@@ -137,9 +137,8 @@ private enum GhosttyPasteboardHelper {
     /// When the clipboard contains only image data (no text/HTML), saves it as
     /// a temporary PNG file and returns the shell-escaped file path. Returns nil
     /// if the clipboard contains text or no image.
-    static func saveClipboardImageIfNeeded() -> String? {
-        let pb = NSPasteboard.general
-        let types = pb.types ?? []
+    static func saveClipboardImageIfNeeded(from pasteboard: NSPasteboard = .general) -> String? {
+        let types = pasteboard.types ?? []
 
         // If pasteboard has text/HTML, this is a normal copy.
         let hasText = types.contains(.string) || types.contains(.html)
@@ -148,7 +147,7 @@ private enum GhosttyPasteboardHelper {
 
         // Check for image types (TIFF from screenshots, PNG from some tools).
         guard types.contains(.tiff) || types.contains(.png) else { return nil }
-        guard let image = NSImage(pasteboard: pb),
+        guard let image = NSImage(pasteboard: pasteboard),
               let tiffData = image.tiffRepresentation,
               let bitmap = NSBitmapImageRep(data: tiffData),
               let pngData = bitmap.representation(using: .png, properties: [:]) else { return nil }
@@ -179,6 +178,16 @@ private enum GhosttyPasteboardHelper {
         return escapeForShell(path)
     }
 }
+
+#if DEBUG
+func cmuxPasteboardStringContentsForTesting(_ pasteboard: NSPasteboard) -> String? {
+    GhosttyPasteboardHelper.stringContents(from: pasteboard)
+}
+
+func cmuxPasteboardImagePathForTesting(_ pasteboard: NSPasteboard) -> String? {
+    GhosttyPasteboardHelper.saveClipboardImageIfNeeded(from: pasteboard)
+}
+#endif
 
 enum TerminalOpenURLTarget: Equatable {
     case embeddedBrowser(URL)
