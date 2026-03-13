@@ -27684,6 +27684,23 @@
         }
       }
     },
+    "dialog.closeTab.cancel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キャンセル"
+          }
+        }
+      }
+    },
     "dialog.closeTab.message": {
       "extractionState": "manual",
       "localizations": {

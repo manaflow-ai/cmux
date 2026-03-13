@@ -102,6 +102,20 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertTrue(focusV2.insideSuppressed)
         XCTAssertTrue(focusV2.insideAllowsFocus)
         XCTAssertFalse(focusV2.outsideSuppressed)
+
+        let moveWorkspace = TerminalController.debugSocketCommandPolicySnapshot(
+            commandKey: "workspace.move_to_window",
+            isV2: true
+        )
+        XCTAssertTrue(moveWorkspace.insideSuppressed)
+        XCTAssertFalse(moveWorkspace.insideAllowsFocus)
+
+        let triggerFlash = TerminalController.debugSocketCommandPolicySnapshot(
+            commandKey: "surface.trigger_flash",
+            isV2: true
+        )
+        XCTAssertTrue(triggerFlash.insideSuppressed)
+        XCTAssertFalse(triggerFlash.insideAllowsFocus)
 #else
         throw XCTSkip("Socket command policy snapshot helper is debug-only.")
 #endif

@@ -9758,11 +9758,6 @@ private struct TabItemView: View, Equatable {
     private var remoteWorkspaceSection: some View {
         if sidebarShowSSH, let remoteWorkspaceSidebarText {
             VStack(alignment: .leading, spacing: 2) {
-                Text(String(localized: "sidebar.remote.badge", defaultValue: "SSH"))
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundColor(activeSecondaryColor(0.62))
-                    .textCase(.uppercase)
-
                 HStack(spacing: 6) {
                     Text(remoteWorkspaceSidebarText)
                         .font(.system(size: 10, design: .monospaced))

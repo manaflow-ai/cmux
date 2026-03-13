@@ -3117,7 +3117,7 @@ class TerminalController {
         guard let windowId = v2UUID(params, "window_id") else {
             return .err(code: "invalid_params", message: "Missing or invalid window_id", data: nil)
         }
-        let focus = v2Bool(params, "focus") ?? true
+        let focus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? false)
 
         var result: V2CallResult = .err(code: "internal_error", message: "Failed to move workspace", data: nil)
         v2MainSync {
@@ -4149,14 +4149,6 @@ class TerminalController {
                 result = .err(code: "not_found", message: "Workspace not found", data: nil)
                 return
             }
-            if let windowId = v2ResolveWindowId(tabManager: tabManager) {
-                _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
-                setActiveTabManager(tabManager)
-            }
-            if tabManager.selectedTabId != ws.id {
-                tabManager.selectWorkspace(ws)
-            }
-
             let targetSurfaceId: UUID? = v2UUID(params, "surface_id") ?? ws.focusedPanelId
             guard let targetSurfaceId else {
                 result = .err(code: "not_found", message: "No focused surface", data: nil)
@@ -4166,6 +4158,9 @@ class TerminalController {
                 result = .err(code: "not_found", message: "Surface not found", data: ["surface_id": targetSurfaceId.uuidString])
                 return
             }
+
+            v2MaybeFocusWindow(for: tabManager)
+            v2MaybeSelectWorkspace(tabManager, workspace: ws)
 
             if let newId = tabManager.newSplit(tabId: ws.id, surfaceId: targetSurfaceId, direction: direction) {
                 let paneUUID = ws.paneId(forPanelId: newId)?.id
@@ -4340,7 +4335,7 @@ class TerminalController {
         let beforeSurfaceId = v2UUID(params, "before_surface_id")
         let afterSurfaceId = v2UUID(params, "after_surface_id")
         let explicitIndex = v2Int(params, "index")
-        let focus = v2Bool(params, "focus") ?? true
+        let focus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? false)
 
         let anchorCount = (beforeSurfaceId != nil ? 1 : 0) + (afterSurfaceId != nil ? 1 : 0)
         if anchorCount > 1 {
@@ -4451,7 +4446,7 @@ class TerminalController {
                     ?? sourceWorkspace.bonsplitController.focusedPaneId
                     ?? sourceWorkspace.bonsplitController.allPaneIds.first
                 if let rollbackPane {
-                    _ = sourceWorkspace.attachDetachedSurface(transfer, inPane: rollbackPane, atIndex: sourceIndex, focus: true)
+                    _ = sourceWorkspace.attachDetachedSurface(transfer, inPane: rollbackPane, atIndex: sourceIndex, focus: focus)
                 }
                 result = .err(code: "internal_error", message: "Failed to attach surface to destination", data: nil)
                 return
@@ -4919,15 +4914,6 @@ class TerminalController {
                 return
             }
 
-            // Ensure the flash is visible in the active UI.
-            if let windowId = v2ResolveWindowId(tabManager: tabManager) {
-                _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
-                setActiveTabManager(tabManager)
-            }
-            if tabManager.selectedTabId != ws.id {
-                tabManager.selectWorkspace(ws)
-            }
-
             let surfaceId = v2UUID(params, "surface_id") ?? ws.focusedPanelId
             guard let surfaceId else {
                 result = .err(code: "not_found", message: "No focused surface", data: nil)
@@ -4937,6 +4923,9 @@ class TerminalController {
                 result = .err(code: "not_found", message: "Surface not found", data: ["surface_id": surfaceId.uuidString])
                 return
             }
+
+            v2MaybeFocusWindow(for: tabManager)
+            v2MaybeSelectWorkspace(tabManager, workspace: ws)
 
             ws.triggerFocusFlash(panelId: surfaceId)
             result = .ok(["workspace_id": ws.id.uuidString, "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id), "surface_id": surfaceId.uuidString, "surface_ref": v2Ref(kind: .surface, uuid: surfaceId), "window_id": v2OrNull(v2ResolveWindowId(tabManager: tabManager)?.uuidString), "window_ref": v2Ref(kind: .window, uuid: v2ResolveWindowId(tabManager: tabManager))])
@@ -11017,6 +11006,7 @@ class TerminalController {
         guard let windowId = UUID(uuidString: parts[1]) else { return "ERROR: Invalid window id" }
 
         var ok = false
+        let focus = socketCommandAllowsInAppFocusMutations()
         v2MainSync {
             guard let srcTM = AppDelegate.shared?.tabManagerFor(tabId: wsId),
                   let dstTM = AppDelegate.shared?.tabManagerFor(windowId: windowId),
@@ -11024,9 +11014,11 @@ class TerminalController {
                 ok = false
                 return
             }
-            dstTM.attachWorkspace(ws, select: true)
-            _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
-            setActiveTabManager(dstTM)
+            dstTM.attachWorkspace(ws, select: focus)
+            if focus {
+                _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
+                setActiveTabManager(dstTM)
+            }
             ok = true
         }
 

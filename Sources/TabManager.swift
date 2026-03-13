@@ -1506,8 +1506,8 @@ class TabManager: ObservableObject {
         alert.messageText = title
         alert.informativeText = message
         alert.alertStyle = .warning
-        alert.addButton(withTitle: "Close")
-        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: String(localized: "dialog.closeTab.close", defaultValue: "Close"))
+        alert.addButton(withTitle: String(localized: "dialog.closeTab.cancel", defaultValue: "Cancel"))
 
         // macOS convention: Cmd+D = confirm destructive close (e.g. "Don't Save").
         // We only opt into this for the "close last workspace => close window" path to avoid
