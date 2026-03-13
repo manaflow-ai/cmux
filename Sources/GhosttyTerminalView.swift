@@ -2526,6 +2526,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private let configTemplate: ghostty_surface_config_s?
     private let workingDirectory: String?
     var requestedWorkingDirectory: String? { workingDirectory }
+    private let command: String?
     private var additionalEnvironment: [String: String]
     let hostedView: GhosttySurfaceScrollView
     private let surfaceView: GhosttyNSView
@@ -2597,6 +2598,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         context: ghostty_surface_context_e,
         configTemplate: ghostty_surface_config_s?,
         workingDirectory: String? = nil,
+        command: String? = nil,
         additionalEnvironment: [String: String] = [:]
     ) {
         self.id = UUID()
@@ -2604,6 +2606,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         self.surfaceContext = context
         self.configTemplate = configTemplate
         self.workingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.command = command?.trimmingCharacters(in: .whitespacesAndNewlines)
         self.additionalEnvironment = additionalEnvironment
         // Match Ghostty's own SurfaceView: ensure a non-zero initial frame so the backing layer
         // has non-zero bounds and the renderer can initialize without presenting a blank/stretched
@@ -3098,13 +3101,24 @@ final class TerminalSurface: Identifiable, ObservableObject {
             }
         }
 
+        let applyCommandAndCreate = {
+            if let command = self.command, !command.isEmpty {
+                command.withCString { cCommand in
+                    surfaceConfig.command = cCommand
+                    createSurface()
+                }
+            } else {
+                createSurface()
+            }
+        }
+
         if let workingDirectory, !workingDirectory.isEmpty {
             workingDirectory.withCString { cWorkingDir in
                 surfaceConfig.working_directory = cWorkingDir
-                createSurface()
+                applyCommandAndCreate()
             }
         } else {
-            createSurface()
+            applyCommandAndCreate()
         }
 
         if surface == nil {

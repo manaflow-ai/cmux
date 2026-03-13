@@ -2174,6 +2174,11 @@ class TerminalController {
         case "surface.read_text":
             return v2Result(id: id, self.v2SurfaceReadText(params: params))
 
+        // Session export/import
+        case "session.save":
+            return v2Result(id: id, self.v2SessionSave(params: params))
+        case "session.open":
+            return v2Result(id: id, self.v2SessionOpen(params: params))
 
 #if DEBUG
         // Debug / test-only
@@ -6208,6 +6213,87 @@ class TerminalController {
             ])
         }
         return result
+    }
+
+    // MARK: - Session export/import
+
+    private func v2SessionSave(params: [String: Any]) -> V2CallResult {
+        guard let rawPath = v2String(params, "path") else {
+            return .err(code: "invalid_params", message: "Missing 'path' parameter", data: nil)
+        }
+
+        let expandedPath = NSString(string: rawPath).expandingTildeInPath
+        let filePath = NSString(string: expandedPath).standardizingPath
+
+        guard filePath.hasPrefix("/") else {
+            return .err(code: "invalid_params", message: "Path must be absolute: \(filePath)", data: ["path": filePath])
+        }
+
+        // Ensure the parent directory exists and is writable
+        let parentDir = (filePath as NSString).deletingLastPathComponent
+        var isDir: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: parentDir, isDirectory: &isDir), isDir.boolValue else {
+            return .err(code: "not_found", message: "Parent directory not found: \(parentDir)", data: ["path": filePath])
+        }
+        guard FileManager.default.isWritableFile(atPath: parentDir) else {
+            return .err(code: "permission_denied", message: "Parent directory not writable: \(parentDir)", data: ["path": filePath])
+        }
+
+        // Build snapshot on main thread
+        guard let snapshot = v2MainSync({ AppDelegate.shared?.buildSessionSnapshotForExport() }) else {
+            return .err(code: "internal_error", message: "Failed to build session snapshot", data: nil)
+        }
+
+        let url = URL(fileURLWithPath: filePath)
+        guard SessionExportStore.save(snapshot, to: url) else {
+            return .err(code: "internal_error", message: "Failed to write session file", data: ["path": filePath])
+        }
+
+        return .ok(["path": filePath])
+    }
+
+    private func v2SessionOpen(params: [String: Any]) -> V2CallResult {
+        guard let rawPath = v2String(params, "path") else {
+            return .err(code: "invalid_params", message: "Missing 'path' parameter", data: nil)
+        }
+
+        let expandedPath = NSString(string: rawPath).expandingTildeInPath
+        let filePath = NSString(string: expandedPath).standardizingPath
+
+        guard filePath.hasPrefix("/") else {
+            return .err(code: "invalid_params", message: "Path must be absolute: \(filePath)", data: ["path": filePath])
+        }
+
+        var isDirCheck: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: filePath, isDirectory: &isDirCheck) else {
+            return .err(code: "not_found", message: "File not found: \(filePath)", data: ["path": filePath])
+        }
+        guard !isDirCheck.boolValue else {
+            return .err(code: "invalid_params", message: "Path is a directory, not a file: \(filePath)", data: ["path": filePath])
+        }
+        guard FileManager.default.isReadableFile(atPath: filePath) else {
+            return .err(code: "permission_denied", message: "File not readable: \(filePath)", data: ["path": filePath])
+        }
+
+        let url = URL(fileURLWithPath: filePath)
+        guard let snapshot = SessionExportStore.load(from: url) else {
+            return .err(code: "invalid_data", message: "Failed to parse session file", data: ["path": filePath])
+        }
+
+        var windowIds: [String] = []
+        v2MainSync {
+            for windowSnapshot in snapshot.windows.prefix(SessionPersistencePolicy.maxWindowsPerSnapshot) {
+                if let windowId = AppDelegate.shared?.createMainWindow(sessionWindowSnapshot: windowSnapshot) {
+                    windowIds.append(windowId.uuidString)
+                }
+            }
+        }
+
+        return .ok([
+            "path": filePath,
+            "windows_created": windowIds.count,
+            "window_ids": windowIds
+        ])
     }
 
     // MARK: - Browser

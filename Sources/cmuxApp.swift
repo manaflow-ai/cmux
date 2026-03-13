@@ -433,6 +433,18 @@ struct cmuxApp: App {
                         }
                     }
                 }
+
+                Divider()
+
+                Button(String(localized: "menu.file.saveSession", defaultValue: "Save Session…")) {
+                    appDelegate.saveSessionToFile(nil)
+                }
+                .keyboardShortcut("s", modifiers: [.command, .shift])
+
+                Button(String(localized: "menu.file.openSession", defaultValue: "Open Session…")) {
+                    appDelegate.openSessionFromFile(nil)
+                }
+                .keyboardShortcut("o", modifiers: [.command, .shift])
             }
 
             // Close tab/workspace

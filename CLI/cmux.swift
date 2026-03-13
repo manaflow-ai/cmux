@@ -1926,6 +1926,10 @@ struct CMUXCLI {
         case "markdown":
             try runMarkdownCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
 
+        // Session export/import
+        case "session":
+            try runSessionCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
+
         default:
             print(usage())
             throw CLIError(message: "Unknown command: \(command)")
@@ -2065,6 +2069,52 @@ struct CMUXCLI {
             let paneText = formatHandle(payload, kind: "pane", idFormat: idFormat) ?? "unknown"
             let filePath = (payload["path"] as? String) ?? absolutePath
             print("OK surface=\(surfaceText) pane=\(paneText) path=\(filePath)")
+        }
+    }
+
+    // MARK: - Session Commands
+
+    private func runSessionCommand(
+        commandArgs: [String],
+        client: SocketClient,
+        jsonOutput: Bool,
+        idFormat: CLIIDFormat
+    ) throws {
+        guard let subcommand = commandArgs.first?.lowercased() else {
+            throw CLIError(message: "session requires save|open <path>. Usage: cmux session save <path> | cmux session open <path>")
+        }
+        let subArgs = Array(commandArgs.dropFirst())
+
+        switch subcommand {
+        case "save":
+            guard let rawPath = subArgs.first, !rawPath.isEmpty else {
+                throw CLIError(message: "session save requires a file path. Usage: cmux session save <path>")
+            }
+            let absolutePath = resolvePath(rawPath)
+            let payload = try client.sendV2(method: "session.save", params: ["path": absolutePath])
+            if jsonOutput {
+                print(jsonString(formatIDs(payload, mode: idFormat)))
+            } else {
+                let savedPath = (payload["path"] as? String) ?? absolutePath
+                print("OK path=\(savedPath)")
+            }
+
+        case "open":
+            guard let rawPath = subArgs.first, !rawPath.isEmpty else {
+                throw CLIError(message: "session open requires a file path. Usage: cmux session open <path>")
+            }
+            let absolutePath = resolvePath(rawPath)
+            let payload = try client.sendV2(method: "session.open", params: ["path": absolutePath])
+            if jsonOutput {
+                print(jsonString(formatIDs(payload, mode: idFormat)))
+            } else {
+                let windowCount = (payload["windows_created"] as? Int) ?? 0
+                let savedPath = (payload["path"] as? String) ?? absolutePath
+                print("OK windows_created=\(windowCount) path=\(savedPath)")
+            }
+
+        default:
+            throw CLIError(message: "Unknown session subcommand: \(subcommand). Usage: cmux session save <path> | cmux session open <path>")
         }
     }
 
@@ -5502,6 +5552,23 @@ struct CMUXCLI {
               cmux markdown open plan.md
               cmux markdown ~/project/CHANGELOG.md
               cmux markdown open ./docs/design.md --workspace 0
+            """
+        case "session":
+            return """
+            Usage: cmux session save <path>
+                   cmux session open <path>
+
+            Save or restore a cmux session to/from a .cmux-session JSON file.
+
+            Subcommands:
+              save <path>   Save the current session (all windows, workspaces, tabs, splits)
+                            to a .cmux-session file. Does not include scrollback history.
+              open <path>   Open a .cmux-session file, restoring each saved window as a
+                            new window. Existing windows are not affected.
+
+            Examples:
+              cmux session save ~/my-project.cmux-session
+              cmux session open ~/my-project.cmux-session
             """
         default:
             return nil
@@ -9589,6 +9656,9 @@ struct CMUXCLI {
           display-message [-p|--print] <text>
 
           markdown [open] <path>             (open markdown file in formatted viewer panel with live reload)
+
+          session save <path>                  (save current session to a .cmux-session file)
+          session open <path>                  (open a .cmux-session file, restoring windows as new windows)
 
           browser [--surface <id|ref|index> | <surface>] <subcommand> ...
           browser open [url]                   (create browser split in caller's workspace; if surface supplied, behaves like navigate)

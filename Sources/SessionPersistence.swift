@@ -224,6 +224,7 @@ struct SessionGitBranchSnapshot: Codable, Sendable {
 struct SessionTerminalPanelSnapshot: Codable, Sendable {
     var workingDirectory: String?
     var scrollback: String?
+    var command: String?
 }
 
 struct SessionBrowserPanelSnapshot: Codable, Sendable {
@@ -414,6 +415,38 @@ enum SessionPersistenceStore {
         return resolvedAppSupport
             .appendingPathComponent("cmux", isDirectory: true)
             .appendingPathComponent("session-\(safeBundleId).json", isDirectory: false)
+    }
+}
+
+enum SessionExportStore {
+    static let fileExtension = "cmux-session"
+
+    @discardableResult
+    static func save(_ snapshot: AppSessionSnapshot, to fileURL: URL) -> Bool {
+        let directory = fileURL.deletingLastPathComponent()
+        do {
+            try FileManager.default.createDirectory(
+                at: directory,
+                withIntermediateDirectories: true,
+                attributes: nil
+            )
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            let data = try encoder.encode(snapshot)
+            try data.write(to: fileURL, options: .atomic)
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    static func load(from fileURL: URL) -> AppSessionSnapshot? {
+        guard let data = try? Data(contentsOf: fileURL) else { return nil }
+        let decoder = JSONDecoder()
+        guard let snapshot = try? decoder.decode(AppSessionSnapshot.self, from: data) else { return nil }
+        guard snapshot.version == SessionSnapshotSchema.currentVersion else { return nil }
+        guard !snapshot.windows.isEmpty else { return nil }
+        return snapshot
     }
 }
 
