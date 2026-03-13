@@ -4617,7 +4617,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             case .control:
                 hasFlag = (translationModsGhostty.rawValue & GHOSTTY_MODS_CTRL.rawValue) != 0
             case .option:
-                hasFlag = (translationModsGhostty.rawValue & GHOSTTY_MODS_ALT.rawValue) != 0
+                hasFlag = (translationModsGhostty.rawValue & (GHOSTTY_MODS_ALT.rawValue | GHOSTTY_MODS_ALT_RIGHT.rawValue)) != 0
             case .command:
                 hasFlag = (translationModsGhostty.rawValue & GHOSTTY_MODS_SUPER.rawValue) != 0
             default:
@@ -4917,10 +4917,27 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     private func modsFromEvent(_ event: NSEvent) -> ghostty_input_mods_e {
         var mods = GHOSTTY_MODS_NONE.rawValue
-        if event.modifierFlags.contains(.shift) { mods |= GHOSTTY_MODS_SHIFT.rawValue }
-        if event.modifierFlags.contains(.control) { mods |= GHOSTTY_MODS_CTRL.rawValue }
-        if event.modifierFlags.contains(.option) { mods |= GHOSTTY_MODS_ALT.rawValue }
-        if event.modifierFlags.contains(.command) { mods |= GHOSTTY_MODS_SUPER.rawValue }
+        let raw = event.modifierFlags.rawValue
+        if event.modifierFlags.contains(.shift) {
+            // NX_DEVICERSHIFTKEYMASK = 0x04
+            if raw & 0x04 != 0 { mods |= GHOSTTY_MODS_SHIFT_RIGHT.rawValue }
+            else { mods |= GHOSTTY_MODS_SHIFT.rawValue }
+        }
+        if event.modifierFlags.contains(.control) {
+            // NX_DEVICERCTLKEYMASK = 0x2000
+            if raw & 0x2000 != 0 { mods |= GHOSTTY_MODS_CTRL_RIGHT.rawValue }
+            else { mods |= GHOSTTY_MODS_CTRL.rawValue }
+        }
+        if event.modifierFlags.contains(.option) {
+            // NX_DEVICERALTKEYMASK = 0x40
+            if raw & 0x40 != 0 { mods |= GHOSTTY_MODS_ALT_RIGHT.rawValue }
+            else { mods |= GHOSTTY_MODS_ALT.rawValue }
+        }
+        if event.modifierFlags.contains(.command) {
+            // NX_DEVICERCMDKEYMASK = 0x10
+            if raw & 0x10 != 0 { mods |= GHOSTTY_MODS_SUPER_RIGHT.rawValue }
+            else { mods |= GHOSTTY_MODS_SUPER.rawValue }
+        }
         return ghostty_input_mods_e(rawValue: mods)
     }
 
@@ -4929,10 +4946,17 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// should be excluded from consumed_mods.
     private func consumedModsFromFlags(_ flags: NSEvent.ModifierFlags) -> ghostty_input_mods_e {
         var mods = GHOSTTY_MODS_NONE.rawValue
+        let raw = flags.rawValue
         // Only include Shift and Option as potentially consumed
         // Control and Command are never consumed for text translation
-        if flags.contains(.shift) { mods |= GHOSTTY_MODS_SHIFT.rawValue }
-        if flags.contains(.option) { mods |= GHOSTTY_MODS_ALT.rawValue }
+        if flags.contains(.shift) {
+            if raw & 0x04 != 0 { mods |= GHOSTTY_MODS_SHIFT_RIGHT.rawValue }
+            else { mods |= GHOSTTY_MODS_SHIFT.rawValue }
+        }
+        if flags.contains(.option) {
+            if raw & 0x40 != 0 { mods |= GHOSTTY_MODS_ALT_RIGHT.rawValue }
+            else { mods |= GHOSTTY_MODS_ALT.rawValue }
+        }
         return ghostty_input_mods_e(rawValue: mods)
     }
 
@@ -5032,7 +5056,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             case .control:
                 hasFlag = (translationModsGhostty.rawValue & GHOSTTY_MODS_CTRL.rawValue) != 0
             case .option:
-                hasFlag = (translationModsGhostty.rawValue & GHOSTTY_MODS_ALT.rawValue) != 0
+                hasFlag = (translationModsGhostty.rawValue & (GHOSTTY_MODS_ALT.rawValue | GHOSTTY_MODS_ALT_RIGHT.rawValue)) != 0
             case .command:
                 hasFlag = (translationModsGhostty.rawValue & GHOSTTY_MODS_SUPER.rawValue) != 0
             default:
