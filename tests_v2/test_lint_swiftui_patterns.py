@@ -9,6 +9,7 @@ This test checks for:
 
 from __future__ import annotations
 
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -94,6 +95,48 @@ def check_autoupdating_text_styles(files: List[Path]) -> List[Tuple[Path, int, s
     return violations
 
 
+def check_command_palette_caret_tint(repo_root: Path) -> List[str]:
+    """Ensure command palette text inputs keep a white caret tint."""
+    content_view = repo_root / "Sources" / "ContentView.swift"
+    if not content_view.exists():
+        return [f"Missing expected file: {content_view}"]
+
+    try:
+        content = content_view.read_text()
+    except Exception as e:
+        return [f"Could not read {content_view}: {e}"]
+
+    checks = [
+        (
+            "search input",
+            r"TextField\(commandPaletteSearchPlaceholder, text: \$commandPaletteQuery\)(?P<body>.*?)"
+            r"\.focused\(\$isCommandPaletteSearchFocused\)",
+        ),
+        (
+            "rename input",
+            r"TextField\(target\.placeholder, text: \$commandPaletteRenameDraft\)(?P<body>.*?)"
+            r"\.focused\(\$isCommandPaletteRenameFocused\)",
+        ),
+    ]
+
+    violations: List[str] = []
+    for label, pattern in checks:
+        match = re.search(pattern, content, flags=re.DOTALL)
+        if not match:
+            violations.append(
+                f"Could not locate command palette {label} TextField block in Sources/ContentView.swift"
+            )
+            continue
+
+        body = match.group("body")
+        if ".tint(.white)" not in body:
+            violations.append(
+                f"Command palette {label} TextField must use `.tint(.white)` in Sources/ContentView.swift"
+            )
+
+    return violations
+
+
 def main():
     """Run the lint checks."""
     repo_root = get_repo_root()
@@ -102,15 +145,18 @@ def main():
     print(f"Checking {len(swift_files)} Swift files for performance issues...")
 
     # Check for auto-updating Text styles
-    violations = check_autoupdating_text_styles(swift_files)
+    style_violations = check_autoupdating_text_styles(swift_files)
+    tint_violations = check_command_palette_caret_tint(repo_root)
+    has_failures = False
 
-    if violations:
+    if style_violations:
+        has_failures = True
         print("\n❌ LINT FAILURES: Auto-updating Text styles found")
         print("=" * 60)
         print("These patterns cause continuous SwiftUI view updates and high CPU usage:")
         print()
 
-        for file_path, line_num, line in violations:
+        for file_path, line_num, line in style_violations:
             rel_path = file_path.relative_to(repo_root)
             print(f"  {rel_path}:{line_num}")
             print(f"    {line}")
@@ -120,9 +166,23 @@ def main():
         print("  Instead of:  Text(date, style: .time)")
         print("  Use:         Text(date.formatted(date: .omitted, time: .shortened))")
         print()
+
+    if tint_violations:
+        has_failures = True
+        print("\n❌ LINT FAILURES: Command palette caret tint drifted")
+        print("=" * 60)
+        print("The command palette search and rename text fields must keep a white caret:")
+        print()
+        for message in tint_violations:
+            print(f"  {message}")
+        print()
+        print("FIX: Set command palette TextField tint modifiers to `.white`.")
+        print()
+
+    if has_failures:
         return 1
 
-    print("✅ No auto-updating Text style patterns found")
+    print("✅ No linted SwiftUI pattern regressions found")
     return 0
 
 

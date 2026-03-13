@@ -61,7 +61,7 @@ echo "Pre-flight checks passed"
 # --- Build GhosttyKit (if needed) ---
 if [ ! -d "GhosttyKit.xcframework" ]; then
   echo "Building GhosttyKit..."
-  cd ghostty && zig build -Demit-xcframework=true -Demit-macos-app=false -Dxcframework-target=native -Doptimize=ReleaseFast && cd ..
+  cd ghostty && zig build -Demit-xcframework=true -Demit-macos-app=false -Dxcframework-target=universal -Doptimize=ReleaseFast && cd ..
   rm -rf GhosttyKit.xcframework
   cp -R ghostty/macos/GhosttyKit.xcframework GhosttyKit.xcframework
 else
@@ -177,6 +177,7 @@ cask "cmux" do
   depends_on macos: ">= :ventura"
 
   app "cmux.app"
+  binary "#{appdir}/cmux.app/Contents/Resources/bin/cmux"
 
   zap trash: [
     "~/Library/Application Support/cmux",

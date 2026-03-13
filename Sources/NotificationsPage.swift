@@ -1,3 +1,4 @@
+import Bonsplit
 import SwiftUI
 
 struct NotificationsPage: View {
@@ -5,6 +6,7 @@ struct NotificationsPage: View {
     @EnvironmentObject var tabManager: TabManager
     @Binding var selection: SidebarSelection
     @FocusState private var focusedNotificationId: UUID?
+    @AppStorage(KeyboardShortcutSettings.Action.jumpToUnread.defaultsKey) private var jumpToUnreadShortcutData = Data()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -66,14 +68,16 @@ struct NotificationsPage: View {
 
     private var header: some View {
         HStack {
-            Text("Notifications")
+            Text(String(localized: "notifications.title", defaultValue: "Notifications"))
                 .font(.title2)
                 .fontWeight(.semibold)
 
             Spacer()
 
             if !notificationStore.notifications.isEmpty {
-                Button("Clear All") {
+                jumpToUnreadButton
+
+                Button(String(localized: "notifications.clearAll", defaultValue: "Clear All")) {
                     notificationStore.clearAll()
                 }
                 .buttonStyle(.bordered)
@@ -88,17 +92,92 @@ struct NotificationsPage: View {
             Image(systemName: "bell.slash")
                 .font(.system(size: 32))
                 .foregroundColor(.secondary)
-            Text("No notifications yet")
+            Text(String(localized: "notifications.empty.title", defaultValue: "No notifications yet"))
                 .font(.headline)
-            Text("Desktop notifications will appear here for quick review.")
+            Text(String(localized: "notifications.empty.description", defaultValue: "Desktop notifications will appear here for quick review."))
                 .font(.subheadline)
                 .foregroundColor(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
+    @ViewBuilder
+    private var jumpToUnreadButton: some View {
+        if let key = jumpToUnreadShortcut.keyEquivalent {
+            Button(action: {
+                AppDelegate.shared?.jumpToLatestUnread()
+            }) {
+                HStack(spacing: 6) {
+                    Text(String(localized: "notifications.jumpToLatestUnread", defaultValue: "Jump to Latest Unread"))
+                    ShortcutAnnotation(text: jumpToUnreadShortcut.displayString)
+                }
+            }
+            .buttonStyle(.bordered)
+            .keyboardShortcut(key, modifiers: jumpToUnreadShortcut.eventModifiers)
+            .safeHelp(KeyboardShortcutSettings.Action.jumpToUnread.tooltip(String(localized: "notifications.jumpToLatestUnread", defaultValue: "Jump to Latest Unread")))
+            .disabled(!hasUnreadNotifications)
+        } else {
+            Button(action: {
+                AppDelegate.shared?.jumpToLatestUnread()
+            }) {
+                HStack(spacing: 6) {
+                    Text(String(localized: "notifications.jumpToLatestUnread", defaultValue: "Jump to Latest Unread"))
+                    ShortcutAnnotation(text: jumpToUnreadShortcut.displayString)
+                }
+            }
+            .buttonStyle(.bordered)
+            .safeHelp(KeyboardShortcutSettings.Action.jumpToUnread.tooltip(String(localized: "notifications.jumpToLatestUnread", defaultValue: "Jump to Latest Unread")))
+            .disabled(!hasUnreadNotifications)
+        }
+    }
+
+    private var jumpToUnreadShortcut: StoredShortcut {
+        decodeShortcut(
+            from: jumpToUnreadShortcutData,
+            fallback: KeyboardShortcutSettings.Action.jumpToUnread.defaultShortcut
+        )
+    }
+
+    private var hasUnreadNotifications: Bool {
+        notificationStore.notifications.contains(where: { !$0.isRead })
+    }
+
+    private func decodeShortcut(from data: Data, fallback: StoredShortcut) -> StoredShortcut {
+        guard !data.isEmpty,
+              let shortcut = try? JSONDecoder().decode(StoredShortcut.self, from: data) else {
+            return fallback
+        }
+        return shortcut
+    }
+
     private func tabTitle(for tabId: UUID) -> String? {
         AppDelegate.shared?.tabTitle(for: tabId) ?? tabManager.tabs.first(where: { $0.id == tabId })?.title
+    }
+}
+
+struct ShortcutAnnotation: View {
+    let text: String
+    var accessibilityIdentifier: String? = nil
+
+    @ViewBuilder
+    var body: some View {
+        if let accessibilityIdentifier {
+            badge.accessibilityIdentifier(accessibilityIdentifier)
+        } else {
+            badge
+        }
+    }
+
+    private var badge: some View {
+        Text(text)
+            .font(.system(size: 10, weight: .semibold, design: .rounded))
+            .foregroundStyle(.primary)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(
+                RoundedRectangle(cornerRadius: 5)
+                    .fill(Color(nsColor: .controlBackgroundColor))
+            )
     }
 }
 
@@ -114,11 +193,11 @@ private struct NotificationRow: View {
             Button(action: onOpen) {
                 HStack(alignment: .top, spacing: 12) {
                     Circle()
-                        .fill(notification.isRead ? Color.clear : Color.accentColor)
+                        .fill(notification.isRead ? Color.clear : cmuxAccentColor())
                         .frame(width: 8, height: 8)
                         .overlay(
                             Circle()
-                                .stroke(Color.accentColor.opacity(notification.isRead ? 0.2 : 1), lineWidth: 1)
+                                .stroke(cmuxAccentColor().opacity(notification.isRead ? 0.2 : 1), lineWidth: 1)
                         )
                         .padding(.top, 6)
 

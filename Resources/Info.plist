@@ -26,8 +26,32 @@
 	<string></string>
 	<key>NSMainStoryboardFile</key>
 	<string></string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>A program running within cmux would like to use your microphone.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>A program running within cmux would like to use your camera.</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>CFBundleURLName</key>
+			<string>$(PRODUCT_BUNDLE_IDENTIFIER).web</string>
+			<key>LSHandlerRank</key>
+			<string>Default</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>http</string>
+				<string>https</string>
+			</array>
+		</dict>
+	</array>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
+	<key>NSAppleScriptEnabled</key>
+	<true/>
+	<key>OSAScriptingDefinition</key>
+	<string>cmux.sdef</string>
 	<key>NSServices</key>
 	<array>
 		<dict>
@@ -69,27 +93,15 @@
 			</array>
 		</dict>
 	</array>
-	<key>UTExportedTypeDeclarations</key>
+	<key>UTImportedTypeDeclarations</key>
 	<array>
 		<dict>
 			<key>UTTypeIdentifier</key>
 			<string>com.splittabbar.tabtransfer</string>
-			<key>UTTypeDescription</key>
-			<string>Bonsplit Tab Transfer</string>
-			<key>UTTypeConformsTo</key>
-			<array>
-				<string>public.data</string>
-			</array>
 		</dict>
 		<dict>
 			<key>UTTypeIdentifier</key>
 			<string>com.cmux.sidebar-tab-reorder</string>
-			<key>UTTypeDescription</key>
-			<string>cmux Sidebar Tab Reorder</string>
-			<key>UTTypeConformsTo</key>
-			<array>
-				<string>public.data</string>
-			</array>
 		</dict>
 	</array>
 	<key>NSAppTransportSecurity</key>

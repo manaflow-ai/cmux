@@ -1,5 +1,7 @@
 import Foundation
+#if canImport(Security)
 import Security
+#endif
 
 enum SocketControlMode: String, CaseIterable, Identifiable {
     case off
@@ -16,30 +18,30 @@ enum SocketControlMode: String, CaseIterable, Identifiable {
     var displayName: String {
         switch self {
         case .off:
-            return "Off"
+            return String(localized: "socketControl.off.name", defaultValue: "Off")
         case .cmuxOnly:
-            return "cmux processes only"
+            return String(localized: "socketControl.cmuxOnly.name", defaultValue: "cmux processes only")
         case .automation:
-            return "Automation mode"
+            return String(localized: "socketControl.automation.name", defaultValue: "Automation mode")
         case .password:
-            return "Password mode"
+            return String(localized: "socketControl.password.name", defaultValue: "Password mode")
         case .allowAll:
-            return "Full open access"
+            return String(localized: "socketControl.allowAll.name", defaultValue: "Full open access")
         }
     }
 
     var description: String {
         switch self {
         case .off:
-            return "Disable the local control socket."
+            return String(localized: "socketControl.off.description", defaultValue: "Disable the local control socket.")
         case .cmuxOnly:
-            return "Only processes started inside cmux terminals can send commands."
+            return String(localized: "socketControl.cmuxOnly.description", defaultValue: "Only processes started inside cmux terminals can send commands.")
         case .automation:
-            return "Allow external local automation clients from this macOS user (no ancestry check)."
+            return String(localized: "socketControl.automation.description", defaultValue: "Allow external local automation clients from this macOS user (no ancestry check).")
         case .password:
-            return "Require socket authentication with a password stored in your keychain."
+            return String(localized: "socketControl.password.description", defaultValue: "Require socket authentication with a password stored in a local file.")
         case .allowAll:
-            return "Allow any local process and user to connect with no auth. Unsafe."
+            return String(localized: "socketControl.allowAll.description", defaultValue: "Allow any local process and user to connect with no auth. Unsafe.")
         }
     }
 
@@ -58,103 +60,228 @@ enum SocketControlMode: String, CaseIterable, Identifiable {
 }
 
 enum SocketControlPasswordStore {
-    static let service = "com.cmuxterm.app.socket-control"
-    static let account = "local-socket-password"
-
-    private static var baseQuery: [String: Any] {
-        [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-        ]
+    static let directoryName = "cmux"
+    static let fileName = "socket-control-password"
+    private static let keychainMigrationDefaultsKey = "socketControlPasswordMigrationVersion"
+    private static let keychainMigrationVersion = 1
+    private static let legacyKeychainService = "com.cmuxterm.app.socket-control"
+    private static let legacyKeychainAccount = "local-socket-password"
+    private struct LazyKeychainFallbackCache {
+        var hasLoaded = false
+        var password: String?
     }
+    private static let lazyKeychainFallbackLock = NSLock()
+    private static var lazyKeychainFallbackCache = LazyKeychainFallbackCache()
 
     static func configuredPassword(
-        environment: [String: String] = ProcessInfo.processInfo.environment
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        fileURL: URL? = nil,
+        allowLazyKeychainFallback: Bool = false,
+        loadKeychainPassword: () -> String? = { loadLegacyPasswordFromKeychain() }
     ) -> String? {
-        if let envPassword = environment[SocketControlSettings.socketPasswordEnvKey], !envPassword.isEmpty {
+        if let envPassword = normalized(environment[SocketControlSettings.socketPasswordEnvKey]) {
             return envPassword
         }
-        return try? loadPassword()
+        let filePassword: String?
+        do {
+            filePassword = try loadPassword(fileURL: fileURL)
+        } catch {
+            filePassword = nil
+        }
+        if let filePassword {
+            return filePassword
+        }
+        guard allowLazyKeychainFallback else {
+            return nil
+        }
+        return cachedLazyKeychainFallbackPassword(loadKeychainPassword: loadKeychainPassword)
     }
 
     static func hasConfiguredPassword(
-        environment: [String: String] = ProcessInfo.processInfo.environment
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        fileURL: URL? = nil,
+        allowLazyKeychainFallback: Bool = false,
+        loadKeychainPassword: () -> String? = { loadLegacyPasswordFromKeychain() }
     ) -> Bool {
-        guard let configured = configuredPassword(environment: environment) else { return false }
+        guard let configured = configuredPassword(
+            environment: environment,
+            fileURL: fileURL,
+            allowLazyKeychainFallback: allowLazyKeychainFallback,
+            loadKeychainPassword: loadKeychainPassword
+        ) else { return false }
         return !configured.isEmpty
     }
 
     static func verify(
         password candidate: String,
-        environment: [String: String] = ProcessInfo.processInfo.environment
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        fileURL: URL? = nil,
+        allowLazyKeychainFallback: Bool = false,
+        loadKeychainPassword: () -> String? = { loadLegacyPasswordFromKeychain() }
     ) -> Bool {
-        guard let expected = configuredPassword(environment: environment), !expected.isEmpty else {
+        guard let expected = configuredPassword(
+            environment: environment,
+            fileURL: fileURL,
+            allowLazyKeychainFallback: allowLazyKeychainFallback,
+            loadKeychainPassword: loadKeychainPassword
+        ), !expected.isEmpty else {
             return false
         }
         return expected == candidate
     }
 
-    static func loadPassword() throws -> String? {
-        var query = baseQuery
-        query[kSecReturnData as String] = true
-        query[kSecMatchLimit as String] = kSecMatchLimitOne
-
-        var result: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
-        if status == errSecItemNotFound {
-            return nil
-        }
-        guard status == errSecSuccess else {
-            throw NSError(domain: NSOSStatusErrorDomain, code: Int(status))
-        }
-        guard let data = result as? Data else {
-            return nil
-        }
-        return String(data: data, encoding: .utf8)
-    }
-
-    static func savePassword(_ password: String) throws {
-        let normalized = password.trimmingCharacters(in: .newlines)
-        if normalized.isEmpty {
-            try clearPassword()
+    static func migrateLegacyKeychainPasswordIfNeeded(
+        defaults: UserDefaults = .standard,
+        fileURL: URL? = nil,
+        loadLegacyPassword: () -> String? = { loadLegacyPasswordFromKeychain() },
+        deleteLegacyPassword: () -> Bool = { deleteLegacyPasswordFromKeychain() }
+    ) {
+        guard defaults.integer(forKey: keychainMigrationDefaultsKey) < keychainMigrationVersion else {
             return
         }
 
-        let data = Data(normalized.utf8)
-        var lookup = baseQuery
-        lookup[kSecReturnData as String] = true
-        lookup[kSecMatchLimit as String] = kSecMatchLimitOne
+        guard let legacyPassword = normalized(loadLegacyPassword()) else {
+            defaults.set(keychainMigrationVersion, forKey: keychainMigrationDefaultsKey)
+            return
+        }
 
-        var existing: CFTypeRef?
-        let lookupStatus = SecItemCopyMatching(lookup as CFDictionary, &existing)
-        switch lookupStatus {
-        case errSecSuccess:
-            let attrsToUpdate: [String: Any] = [
-                kSecValueData as String: data
-            ]
-            let updateStatus = SecItemUpdate(baseQuery as CFDictionary, attrsToUpdate as CFDictionary)
-            guard updateStatus == errSecSuccess else {
-                throw NSError(domain: NSOSStatusErrorDomain, code: Int(updateStatus))
+        do {
+            if try loadPassword(fileURL: fileURL) == nil {
+                try savePassword(legacyPassword, fileURL: fileURL)
             }
-        case errSecItemNotFound:
-            var add = baseQuery
-            add[kSecValueData as String] = data
-            add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-            let addStatus = SecItemAdd(add as CFDictionary, nil)
-            guard addStatus == errSecSuccess else {
-                throw NSError(domain: NSOSStatusErrorDomain, code: Int(addStatus))
+            guard deleteLegacyPassword() else {
+                return
             }
-        default:
-            throw NSError(domain: NSOSStatusErrorDomain, code: Int(lookupStatus))
+            defaults.set(keychainMigrationVersion, forKey: keychainMigrationDefaultsKey)
+        } catch {
+            // Leave migration unset so it retries on next launch.
         }
     }
 
-    static func clearPassword() throws {
-        let status = SecItemDelete(baseQuery as CFDictionary)
-        guard status == errSecSuccess || status == errSecItemNotFound else {
-            throw NSError(domain: NSOSStatusErrorDomain, code: Int(status))
+    static func loadPassword(fileURL: URL? = nil) throws -> String? {
+        guard let fileURL = fileURL ?? defaultPasswordFileURL() else {
+            return nil
         }
+        guard FileManager.default.fileExists(atPath: fileURL.path) else {
+            return nil
+        }
+        let data = try Data(contentsOf: fileURL)
+        guard let password = String(data: data, encoding: .utf8) else {
+            return nil
+        }
+        return normalized(password)
+    }
+
+    static func savePassword(_ password: String, fileURL: URL? = nil) throws {
+        let normalized = password.trimmingCharacters(in: .newlines)
+        if normalized.isEmpty {
+            try clearPassword(fileURL: fileURL)
+            return
+        }
+
+        guard let fileURL = fileURL ?? defaultPasswordFileURL() else {
+            throw NSError(
+                domain: NSCocoaErrorDomain,
+                code: NSFileNoSuchFileError,
+                userInfo: [NSLocalizedDescriptionKey: String(localized: "socketControl.error.passwordFilePath", defaultValue: "Unable to resolve socket password file path.")]
+            )
+        }
+        let directory = fileURL.deletingLastPathComponent()
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
+        )
+        let data = Data(normalized.utf8)
+        try data.write(to: fileURL, options: .atomic)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
+    }
+
+    static func clearPassword(fileURL: URL? = nil) throws {
+        guard let fileURL = fileURL ?? defaultPasswordFileURL() else {
+            return
+        }
+        guard FileManager.default.fileExists(atPath: fileURL.path) else {
+            return
+        }
+        try FileManager.default.removeItem(at: fileURL)
+    }
+
+    static func resetLazyKeychainFallbackCacheForTests() {
+        lazyKeychainFallbackLock.lock()
+        lazyKeychainFallbackCache = LazyKeychainFallbackCache()
+        lazyKeychainFallbackLock.unlock()
+    }
+
+    static func defaultPasswordFileURL(
+        appSupportDirectory: URL? = nil,
+        fileManager: FileManager = .default
+    ) -> URL? {
+        let resolvedAppSupport: URL
+        if let appSupportDirectory {
+            resolvedAppSupport = appSupportDirectory
+        } else if let discovered = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
+            resolvedAppSupport = discovered
+        } else {
+            return nil
+        }
+        return resolvedAppSupport
+            .appendingPathComponent(directoryName, isDirectory: true)
+            .appendingPathComponent(fileName, isDirectory: false)
+    }
+
+    private static func loadLegacyPasswordFromKeychain() -> String? {
+#if canImport(Security)
+        let query: [CFString: Any] = [
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrService: legacyKeychainService,
+            kSecAttrAccount: legacyKeychainAccount,
+            kSecReturnData: true,
+            kSecMatchLimit: kSecMatchLimitOne,
+        ]
+
+        var result: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        guard status == errSecSuccess, let data = result as? Data else {
+            return nil
+        }
+        return String(data: data, encoding: .utf8)
+#else
+        return nil
+#endif
+    }
+
+    private static func deleteLegacyPasswordFromKeychain() -> Bool {
+#if canImport(Security)
+        let query: [CFString: Any] = [
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrService: legacyKeychainService,
+            kSecAttrAccount: legacyKeychainAccount,
+        ]
+        let status = SecItemDelete(query as CFDictionary)
+        return status == errSecSuccess || status == errSecItemNotFound
+#else
+        return false
+#endif
+    }
+
+    private static func cachedLazyKeychainFallbackPassword(
+        loadKeychainPassword: () -> String?
+    ) -> String? {
+        lazyKeychainFallbackLock.lock()
+        defer { lazyKeychainFallbackLock.unlock() }
+        if lazyKeychainFallbackCache.hasLoaded {
+            return lazyKeychainFallbackCache.password
+        }
+        lazyKeychainFallbackCache.hasLoaded = true
+        lazyKeychainFallbackCache.password = normalized(loadKeychainPassword())
+        return lazyKeychainFallbackCache.password
+    }
+
+    private static func normalized(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .newlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 }
 
@@ -163,6 +290,8 @@ struct SocketControlSettings {
     static let legacyEnabledKey = "socketControlEnabled"
     static let allowSocketPathOverrideKey = "CMUX_ALLOW_SOCKET_OVERRIDE"
     static let socketPasswordEnvKey = "CMUX_SOCKET_PASSWORD"
+    static let launchTagEnvKey = "CMUX_TAG"
+    static let baseDebugBundleIdentifier = "com.cmuxterm.app.debug"
 
     private static func normalizeMode(_ raw: String) -> String {
         raw
@@ -209,6 +338,65 @@ struct SocketControlSettings {
 #else
         false
 #endif
+    }
+
+    static func launchTag(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> String? {
+        guard let raw = environment[launchTagEnvKey] else { return nil }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    static func shouldBlockUntaggedDebugLaunch(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        bundleIdentifier: String? = Bundle.main.bundleIdentifier,
+        isDebugBuild: Bool = SocketControlSettings.isDebugBuild
+    ) -> Bool {
+        guard isDebugBuild else { return false }
+        if isRunningUnderXCTest(environment: environment) {
+            return false
+        }
+        // XCUITest launches the app as a separate process without XCTest env vars,
+        // so isRunningUnderXCTest() misses it. Check for any CMUX_UI_TEST_ env var.
+        if environment.keys.contains(where: { $0.hasPrefix("CMUX_UI_TEST_") }) {
+            return false
+        }
+
+        guard let bundleIdentifier = bundleIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !bundleIdentifier.isEmpty else {
+            return false
+        }
+
+        if bundleIdentifier.hasPrefix("\(baseDebugBundleIdentifier).") {
+            return false
+        }
+
+        guard bundleIdentifier == baseDebugBundleIdentifier else {
+            return false
+        }
+
+        return launchTag(environment: environment) == nil
+    }
+
+    static func isRunningUnderXCTest(environment: [String: String]) -> Bool {
+        let indicators = [
+            "XCTestConfigurationFilePath",
+            "XCTestBundlePath",
+            "XCTestSessionIdentifier",
+            "XCInjectBundle",
+            "XCInjectBundleInto",
+        ]
+        if indicators.contains(where: { key in
+            guard let value = environment[key] else { return false }
+            return !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }) {
+            return true
+        }
+        if environment["DYLD_INSERT_LIBRARIES"]?.contains("libXCTest") == true {
+            return true
+        }
+        return false
     }
 
     static func socketPath(

@@ -10,6 +10,7 @@ if [ -f "$STATE_FILE" ]; then
 fi
 
 cmux browser "$SURFACE" goto "$DASHBOARD_URL"
+cmux browser "$SURFACE" get url
 cmux browser "$SURFACE" wait --load-state complete --timeout-ms 15000
 cmux browser "$SURFACE" snapshot --interactive
 

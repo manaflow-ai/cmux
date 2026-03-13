@@ -1,5 +1,366 @@
 import AppKit
+import Bonsplit
 import SwiftUI
+
+private func windowDragHandleFormatPoint(_ point: NSPoint) -> String {
+    String(format: "(%.1f,%.1f)", point.x, point.y)
+}
+
+private func windowDragHandleEventTypeDescription(_ eventType: NSEvent.EventType?) -> String {
+    eventType.map { String(describing: $0) } ?? "nil"
+}
+
+private enum WindowDragHandleBreadcrumbLimiter {
+    private static let lock = NSLock()
+    private static var lastEmissionByKey: [String: CFAbsoluteTime] = [:]
+
+    static func shouldEmit(key: String, minInterval: CFTimeInterval) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+
+        let now = CFAbsoluteTimeGetCurrent()
+        if let previous = lastEmissionByKey[key], (now - previous) < minInterval {
+            return false
+        }
+        lastEmissionByKey[key] = now
+        if lastEmissionByKey.count > 128 {
+            let staleThreshold = now - max(minInterval * 4, 60)
+            lastEmissionByKey = lastEmissionByKey.filter { _, timestamp in
+                timestamp >= staleThreshold
+            }
+        }
+        return true
+    }
+}
+
+private func windowDragHandleEmitBreadcrumb(
+    _ message: String,
+    window: NSWindow?,
+    eventType: NSEvent.EventType?,
+    point: NSPoint,
+    minInterval: CFTimeInterval = 10,
+    extraData: [String: Any] = [:]
+) {
+    let windowNumber = window?.windowNumber ?? -1
+    let key = "\(message):\(windowNumber)"
+    guard WindowDragHandleBreadcrumbLimiter.shouldEmit(key: key, minInterval: minInterval) else {
+        return
+    }
+
+    var data: [String: Any] = [
+        "event_type": windowDragHandleEventTypeDescription(eventType),
+        "point": windowDragHandleFormatPoint(point),
+        "window_number": windowNumber,
+        "window_present": window != nil
+    ]
+    for (name, value) in extraData {
+        data[name] = value
+    }
+    sentryBreadcrumb(message, category: "titlebar.drag", data: data)
+}
+
+private func windowDragHandleShouldResolveActiveHitCapture(
+    for eventType: NSEvent.EventType?,
+    eventWindow: NSWindow?,
+    dragHandleWindow: NSWindow?
+) -> Bool {
+    // We only need active hit resolution for titlebar mouse-down handling.
+    // During launch, NSApp.currentEvent can transiently point at a stale
+    // leftMouseDown from outside this window (for example Finder/Dock
+    // activation). Treat those as passive events so we never walk SwiftUI/
+    // AppKit hierarchy while initial layout is mutating it.
+    guard eventType == .leftMouseDown else {
+        return false
+    }
+    guard let dragHandleWindow else {
+        // Test-only views may not be attached to a window.
+        return true
+    }
+    guard let eventWindow else {
+        return false
+    }
+    return eventWindow === dragHandleWindow
+}
+
+/// Runs the same action macOS titlebars use for double-click:
+/// zoom by default, or minimize when the user preference is set.
+@discardableResult
+func performStandardTitlebarDoubleClick(window: NSWindow?) -> Bool {
+    guard let window else { return false }
+
+    let globalDefaults = UserDefaults.standard.persistentDomain(forName: UserDefaults.globalDomain) ?? [:]
+    if let action = (globalDefaults["AppleActionOnDoubleClick"] as? String)?
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+        .lowercased() {
+        switch action {
+        case "minimize":
+            window.miniaturize(nil)
+            return true
+        case "none":
+            return false
+        case "maximize", "zoom":
+            window.zoom(nil)
+            return true
+        default:
+            break
+        }
+    }
+
+    if let miniaturizeOnDoubleClick = globalDefaults["AppleMiniaturizeOnDoubleClick"] as? Bool,
+       miniaturizeOnDoubleClick {
+        window.miniaturize(nil)
+        return true
+    }
+
+    window.zoom(nil)
+    return true
+}
+
+private enum WindowDragHandleAssociatedObjectKeys {
+    private static let suppressionDepthToken = NSObject()
+
+    static let suppressionDepth = UnsafeRawPointer(Unmanaged.passUnretained(suppressionDepthToken).toOpaque())
+}
+
+func beginWindowDragSuppression(window: NSWindow?) -> Int? {
+    guard let window else { return nil }
+    let current = windowDragSuppressionDepth(window: window)
+    let next = current + 1
+    objc_setAssociatedObject(
+        window,
+        WindowDragHandleAssociatedObjectKeys.suppressionDepth,
+        NSNumber(value: next),
+        .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+    )
+    return next
+}
+
+@discardableResult
+func endWindowDragSuppression(window: NSWindow?) -> Int {
+    guard let window else { return 0 }
+    let current = windowDragSuppressionDepth(window: window)
+    let next = max(0, current - 1)
+    if next == 0 {
+        objc_setAssociatedObject(
+            window,
+            WindowDragHandleAssociatedObjectKeys.suppressionDepth,
+            nil,
+            .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+        )
+    } else {
+        objc_setAssociatedObject(
+            window,
+            WindowDragHandleAssociatedObjectKeys.suppressionDepth,
+            NSNumber(value: next),
+            .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+        )
+    }
+    return next
+}
+
+func windowDragSuppressionDepth(window: NSWindow?) -> Int {
+    guard let window,
+          let value = objc_getAssociatedObject(window, WindowDragHandleAssociatedObjectKeys.suppressionDepth) as? NSNumber else {
+        return 0
+    }
+    return value.intValue
+}
+
+func isWindowDragSuppressed(window: NSWindow?) -> Bool {
+    windowDragSuppressionDepth(window: window) > 0
+}
+
+@discardableResult
+func clearWindowDragSuppression(window: NSWindow?) -> Int {
+    guard let window else { return 0 }
+    var depth = windowDragSuppressionDepth(window: window)
+    while depth > 0 {
+        depth = endWindowDragSuppression(window: window)
+    }
+    return depth
+}
+
+/// Temporarily enables window movability for explicit drag-handle drags, then
+/// restores the previous movability state after `body` finishes.
+@discardableResult
+func withTemporaryWindowMovableEnabled(window: NSWindow?, _ body: () -> Void) -> Bool? {
+    guard let window else {
+        body()
+        return nil
+    }
+
+    let previousMovableState = window.isMovable
+    if !previousMovableState {
+        window.isMovable = true
+    }
+    defer {
+        if window.isMovable != previousMovableState {
+            window.isMovable = previousMovableState
+        }
+    }
+
+    body()
+    return previousMovableState
+}
+
+/// SwiftUI/AppKit hosting wrappers can appear as the top hit even for empty
+/// titlebar space. Treat those as pass-through so explicit sibling checks decide.
+func windowDragHandleShouldTreatTopHitAsPassiveHost(_ view: NSView) -> Bool {
+    let className = String(describing: type(of: view))
+    if className.contains("HostContainerView")
+        || className.contains("AppKitWindowHostingView")
+        || className.contains("NSHostingView") {
+        return true
+    }
+    if let window = view.window, view === window.contentView {
+        return true
+    }
+    return false
+}
+
+/// Re-entrancy guard for the sibling hit-test walk. When `sibling.hitTest()`
+/// triggers SwiftUI view-body evaluation, AppKit can call back into this
+/// function before the outer invocation finishes, causing a Swift
+/// exclusive-access violation (SIGABRT). Main-thread only, no lock needed.
+private var _windowDragHandleIsResolvingSiblingHits = false
+
+/// Returns whether the titlebar drag handle should capture a hit at `point`.
+/// We only claim the hit when no sibling view already handles it, so interactive
+/// controls layered in the titlebar (e.g. proxy folder icon) keep their gestures.
+func windowDragHandleShouldCaptureHit(
+    _ point: NSPoint,
+    in dragHandleView: NSView,
+    eventType: NSEvent.EventType? = NSApp.currentEvent?.type,
+    eventWindow: NSWindow? = NSApp.currentEvent?.window
+) -> Bool {
+    let dragHandleWindow = dragHandleView.window
+
+    // Suppression recovery runs first so stale depth is cleared even for
+    // passive events — the associated-object reads/writes here are pure ObjC
+    // runtime calls and cannot trigger Swift exclusive-access violations.
+    if isWindowDragSuppressed(window: dragHandleWindow) {
+        // Recover from stale suppression if a prior interaction missed cleanup.
+        // We only keep suppression active while the left mouse button is down.
+        if (NSEvent.pressedMouseButtons & 0x1) == 0 {
+            let clearedDepth = clearWindowDragSuppression(window: dragHandleWindow)
+            windowDragHandleEmitBreadcrumb(
+                "titlebar.dragHandle.suppression.recovered",
+                window: dragHandleWindow,
+                eventType: eventType,
+                point: point,
+                minInterval: 20,
+                extraData: [
+                    "cleared_depth": clearedDepth
+                ]
+            )
+            #if DEBUG
+            dlog(
+                "titlebar.dragHandle.hitTest suppressionRecovered clearedDepth=\(clearedDepth) point=\(windowDragHandleFormatPoint(point))"
+            )
+            #endif
+        } else {
+        #if DEBUG
+            let depth = windowDragSuppressionDepth(window: dragHandleWindow)
+            dlog(
+                "titlebar.dragHandle.hitTest capture=false reason=suppressed depth=\(depth) point=\(windowDragHandleFormatPoint(point))"
+            )
+        #endif
+            return false
+        }
+    }
+
+    // Bail out before the view-hierarchy walk so we never re-enter SwiftUI
+    // views during a layout pass — which causes exclusive-access crashes (#490).
+    if !windowDragHandleShouldResolveActiveHitCapture(
+        for: eventType,
+        eventWindow: eventWindow,
+        dragHandleWindow: dragHandleWindow
+    ) {
+        #if DEBUG
+        let eventTypeDescription = eventType.map { String(describing: $0) } ?? "nil"
+        let eventWindowNumber = eventWindow?.windowNumber ?? -1
+        let dragWindowNumber = dragHandleWindow?.windowNumber ?? -1
+        dlog(
+            "titlebar.dragHandle.hitTest capture=false reason=passiveEvent eventType=\(eventTypeDescription) eventWindow=\(eventWindowNumber) dragWindow=\(dragWindowNumber) point=\(windowDragHandleFormatPoint(point))"
+        )
+        #endif
+        return false
+    }
+
+    guard dragHandleView.bounds.contains(point) else {
+        #if DEBUG
+        dlog("titlebar.dragHandle.hitTest capture=false reason=outside point=\(windowDragHandleFormatPoint(point))")
+        #endif
+        return false
+    }
+
+    guard let superview = dragHandleView.superview else {
+        #if DEBUG
+        dlog("titlebar.dragHandle.hitTest capture=true reason=noSuperview point=\(windowDragHandleFormatPoint(point))")
+        #endif
+        return true
+    }
+
+    // Bail out if we're already inside a sibling hit-test walk. This happens
+    // when sibling.hitTest() re-enters SwiftUI layout, which calls hitTest on
+    // this drag handle again. Proceeding would trigger an exclusive-access
+    // violation in the Swift runtime.
+    guard !_windowDragHandleIsResolvingSiblingHits else {
+        #if DEBUG
+        dlog("titlebar.dragHandle.hitTest capture=false reason=reentrant point=\(windowDragHandleFormatPoint(point))")
+        #endif
+        return false
+    }
+
+    _windowDragHandleIsResolvingSiblingHits = true
+    defer { _windowDragHandleIsResolvingSiblingHits = false }
+
+    let siblingSnapshot = Array(superview.subviews.reversed())
+
+    #if DEBUG
+    let siblingCount = siblingSnapshot.count
+    #endif
+
+    for sibling in siblingSnapshot {
+        guard sibling !== dragHandleView else { continue }
+        guard !sibling.isHidden, sibling.alphaValue > 0 else { continue }
+
+        let pointInSibling = dragHandleView.convert(point, to: sibling)
+        if let hitView = sibling.hitTest(pointInSibling) {
+            let passiveHostHit = windowDragHandleShouldTreatTopHitAsPassiveHost(hitView)
+            if passiveHostHit {
+                #if DEBUG
+                dlog(
+                    "titlebar.dragHandle.hitTest capture=defer point=\(windowDragHandleFormatPoint(point)) sibling=\(type(of: sibling)) hit=\(type(of: hitView)) passiveHost=true"
+                )
+                #endif
+                continue
+            }
+            #if DEBUG
+            dlog(
+                "titlebar.dragHandle.hitTest capture=false point=\(windowDragHandleFormatPoint(point)) siblingCount=\(siblingCount) sibling=\(type(of: sibling)) hit=\(type(of: hitView)) passiveHost=false"
+            )
+            #endif
+            windowDragHandleEmitBreadcrumb(
+                "titlebar.dragHandle.hitTest.blockedBySiblingHit",
+                window: dragHandleWindow,
+                eventType: eventType,
+                point: point,
+                minInterval: 8,
+                extraData: [
+                    "sibling_type": String(describing: type(of: sibling)),
+                    "hit_type": String(describing: type(of: hitView))
+                ]
+            )
+            return false
+        }
+    }
+
+    #if DEBUG
+    dlog("titlebar.dragHandle.hitTest capture=true point=\(windowDragHandleFormatPoint(point)) siblingCount=\(siblingCount)")
+    #endif
+    return true
+}
 
 /// A transparent view that enables dragging the window when clicking in empty titlebar space.
 /// This lets us keep `window.isMovableByWindowBackground = false` so drags in the app content
@@ -14,8 +375,68 @@ struct WindowDragHandleView: NSViewRepresentable {
     }
 
     private final class DraggableView: NSView {
-        override var mouseDownCanMoveWindow: Bool { true }
-        override func hitTest(_ point: NSPoint) -> NSView? { self }
+        override var mouseDownCanMoveWindow: Bool { false }
+
+        override func hitTest(_ point: NSPoint) -> NSView? {
+            let currentEvent = NSApp.currentEvent
+            // Fast bail-out: only claim hits for left-mouse-down events.
+            // For mouseMoved / mouseEntered / etc., return nil immediately
+            // to avoid re-entering SwiftUI view state during layout passes,
+            // which causes exclusive-access crashes.
+            guard currentEvent?.type == .leftMouseDown else {
+                return nil
+            }
+            let shouldCapture = windowDragHandleShouldCaptureHit(
+                point,
+                in: self,
+                eventType: currentEvent?.type,
+                eventWindow: currentEvent?.window
+            )
+            #if DEBUG
+            dlog(
+                "titlebar.dragHandle.hitTestResult capture=\(shouldCapture) point=\(windowDragHandleFormatPoint(point)) window=\(window != nil)"
+            )
+            #endif
+            return shouldCapture ? self : nil
+        }
+
+        override func mouseDown(with event: NSEvent) {
+            #if DEBUG
+            let point = convert(event.locationInWindow, from: nil)
+            let depth = windowDragSuppressionDepth(window: window)
+            dlog(
+                "titlebar.dragHandle.mouseDown point=\(windowDragHandleFormatPoint(point)) clickCount=\(event.clickCount) depth=\(depth)"
+            )
+            #endif
+
+            if event.clickCount >= 2 {
+                let handled = performStandardTitlebarDoubleClick(window: window)
+                #if DEBUG
+                dlog("titlebar.dragHandle.mouseDownDoubleClick handled=\(handled ? 1 : 0)")
+                #endif
+                if handled {
+                    return
+                }
+            }
+
+            guard !isWindowDragSuppressed(window: window) else {
+                #if DEBUG
+                dlog("titlebar.dragHandle.mouseDownIgnored reason=suppressed")
+                #endif
+                return
+            }
+
+            if let window {
+                let previousMovableState = withTemporaryWindowMovableEnabled(window: window) {
+                    window.performDrag(with: event)
+                }
+                #if DEBUG
+                let restored = previousMovableState.map { String($0) } ?? "nil"
+                dlog("titlebar.dragHandle.mouseDownComplete restoredMovable=\(restored) nowMovable=\(window.isMovable)")
+                #endif
+            } else {
+                super.mouseDown(with: event)
+            }
+        }
     }
 }
-

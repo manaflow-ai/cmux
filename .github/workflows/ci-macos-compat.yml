@@ -1,0 +1,171 @@
+name: macOS Compatibility
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  compat-tests:
+    # Only run for the repo itself, not forks (GhosttyKit download needs repo access).
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, macos-15]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          submodules: recursive
+
+      - name: Select Xcode
+        run: |
+          set -euo pipefail
+          # Pick the latest Xcode installed on the runner. GitHub-hosted macos-14
+          # defaults to Xcode 15.4, but the project needs Xcode 16+ (Swift tools
+          # version 6.0 required by sentry-cocoa).
+          XCODE_APP="$(ls -d /Applications/Xcode_*.app 2>/dev/null | sort | tail -n 1)"
+          if [ -z "$XCODE_APP" ]; then
+            XCODE_APP="/Applications/Xcode.app"
+          fi
+          XCODE_DIR="$XCODE_APP/Contents/Developer"
+          if [ ! -d "$XCODE_DIR" ]; then
+            echo "No Xcode found under /Applications" >&2
+            exit 1
+          fi
+          echo "Selected: $XCODE_APP"
+          echo "DEVELOPER_DIR=$XCODE_DIR" >> "$GITHUB_ENV"
+          export DEVELOPER_DIR="$XCODE_DIR"
+          xcodebuild -version
+          xcrun --sdk macosx --show-sdk-path
+          sw_vers
+
+      - name: Download pre-built GhosttyKit.xcframework
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          GHOSTTY_SHA=$(git -C ghostty rev-parse HEAD)
+          TAG="xcframework-$GHOSTTY_SHA"
+          URL="https://github.com/manaflow-ai/ghostty/releases/download/$TAG/GhosttyKit.xcframework.tar.gz"
+          echo "Downloading xcframework for ghostty $GHOSTTY_SHA"
+          MAX_RETRIES=30
+          RETRY_DELAY=20
+          for i in $(seq 1 $MAX_RETRIES); do
+            if curl -fSL -o GhosttyKit.xcframework.tar.gz "$URL"; then
+              echo "Download succeeded on attempt $i"
+              break
+            fi
+            if [ "$i" -eq "$MAX_RETRIES" ]; then
+              echo "Failed to download xcframework after $MAX_RETRIES attempts" >&2
+              exit 1
+            fi
+            echo "Attempt $i/$MAX_RETRIES failed, retrying in ${RETRY_DELAY}s..."
+            sleep $RETRY_DELAY
+          done
+          tar xzf GhosttyKit.xcframework.tar.gz
+          rm GhosttyKit.xcframework.tar.gz
+          test -d GhosttyKit.xcframework
+
+      - name: Clean DerivedData
+        run: rm -rf ~/Library/Developer/Xcode/DerivedData/GhosttyTabs-*
+
+      - name: Cache Swift packages
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4
+        with:
+          path: .ci-source-packages
+          key: spm-${{ matrix.os }}-${{ hashFiles('GhosttyTabs.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: spm-${{ matrix.os }}-
+
+      - name: Resolve Swift packages
+        run: |
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          mkdir -p "$SOURCE_PACKAGES_DIR"
+
+          for attempt in 1 2 3; do
+            if xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux-unit -configuration Debug \
+              -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+              -resolvePackageDependencies; then
+              exit 0
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              echo "Failed to resolve Swift packages after 3 attempts" >&2
+              exit 1
+            fi
+            echo "Package resolution failed on attempt $attempt, retrying..."
+            sleep $((attempt * 5))
+          done
+
+      - name: Run unit tests
+        run: |
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          run_unit_tests() {
+            xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux-unit -configuration Debug \
+              -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+              -disableAutomaticPackageResolution \
+              -destination "platform=macOS" test 2>&1
+          }
+
+          set +e
+          OUTPUT=$(run_unit_tests)
+          EXIT_CODE=$?
+          set -e
+
+          # SwiftPM binary artifact resolution can occasionally fail on ephemeral
+          # runners. Retry once after clearing caches.
+          if [ "$EXIT_CODE" -ne 0 ] && echo "$OUTPUT" | grep -q "Could not resolve package dependencies"; then
+            echo "SwiftPM package resolution failed, clearing caches and retrying once"
+            rm -rf ~/Library/Caches/org.swift.swiftpm
+            mkdir -p ~/Library/Caches/org.swift.swiftpm
+            rm -rf ~/Library/Developer/Xcode/DerivedData/GhosttyTabs-*
+            set +e
+            OUTPUT=$(run_unit_tests)
+            EXIT_CODE=$?
+            set -e
+          fi
+
+          echo "$OUTPUT"
+          if [ "$EXIT_CODE" -ne 0 ]; then
+            SUMMARY=$(echo "$OUTPUT" | grep "Executed.*tests.*with.*failures" | tail -1)
+            if echo "$SUMMARY" | grep -q "(0 unexpected)"; then
+              echo "All failures are expected, treating as pass"
+            else
+              echo "Unexpected test failures detected"
+              exit 1
+            fi
+          fi
+
+      - name: Create virtual display
+        run: |
+          set -euo pipefail
+          echo "=== Display before ==="
+          system_profiler SPDisplaysDataType 2>/dev/null || echo "(no display info)"
+          echo ""
+          clang -framework Foundation -framework CoreGraphics \
+            -o /tmp/create-virtual-display scripts/create-virtual-display.m
+          /tmp/create-virtual-display &
+          VDISPLAY_PID=$!
+          echo "VDISPLAY_PID=$VDISPLAY_PID" >> "$GITHUB_ENV"
+          sleep 3
+          echo "=== Display after ==="
+          system_profiler SPDisplaysDataType 2>/dev/null || echo "(no display info)"
+
+      - name: Build app for smoke test
+        run: |
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+            -disableAutomaticPackageResolution \
+            -destination "platform=macOS" build
+
+      - name: Smoke test
+        run: |
+          set -euo pipefail
+          chmod +x scripts/smoke-test-ci.sh
+          scripts/smoke-test-ci.sh

@@ -91,6 +91,32 @@ def _run_cli_text(cli: str, args: list[str], retries: int = 3) -> str:
 
     raise cmuxError(f"CLI failed ({' '.join(args)}): {last_merged}")
 
+
+def _run_cli_tail_json(cli: str, args: list[str], retries: int = 3) -> dict:
+    last_merged = ""
+    for attempt in range(1, retries + 1):
+        proc = subprocess.run(
+            [cli, "--socket", SOCKET_PATH] + args,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if proc.returncode == 0:
+            try:
+                return json.loads(proc.stdout or "{}")
+            except Exception as exc:  # noqa: BLE001
+                raise cmuxError(f"Invalid CLI JSON output for {' '.join(args)}: {proc.stdout!r} ({exc})")
+
+        merged = f"{proc.stdout}\n{proc.stderr}".strip()
+        last_merged = merged
+        if "Command timed out" in merged and attempt < retries:
+            time.sleep(0.2)
+            continue
+        raise cmuxError(f"CLI failed ({' '.join(args)}): {merged}")
+
+    raise cmuxError(f"CLI failed ({' '.join(args)}): {last_merged}")
+
+
 def _run_cli_expect_failure(cli: str, args: list[str], needles: list[str]) -> None:
     proc = subprocess.run(
         [cli, "--socket", SOCKET_PATH, "--json"] + args,
@@ -144,15 +170,6 @@ def main() -> int:
     cli = _find_cli_binary()
 
     with _local_test_server() as page_url:
-        opened = _run_cli_json(cli, ["browser", "open", page_url])
-        surface = str(opened.get("surface_ref") or opened.get("surface_id") or "")
-        _must(bool(surface), f"browser open returned no surface handle: {opened}")
-        _must(surface.startswith("surface:"), f"Expected short surface ref from browser open, got: {opened}")
-
-        _run_cli_json(cli, ["browser", surface, "wait", "--load-state", "complete", "--timeout-ms", "15000"])
-        snapshot_text = _run_cli_text(cli, ["browser", surface, "snapshot", "--interactive"])
-        _must("ref=e" in snapshot_text, f"Expected snapshot text with refs from CLI: {snapshot_text!r}")
-
         identify = _run_cli_json(cli, ["identify"])
         focused = identify.get("focused") or {}
         workspace = str(
@@ -163,6 +180,34 @@ def main() -> int:
             or ""
         )
         _must(bool(workspace), f"Expected workspace handle from identify: {identify}")
+        os.environ["CMUX_WORKSPACE_ID"] = workspace
+
+        opened_tail_json = _run_cli_tail_json(
+            cli,
+            ["browser", "open", page_url, "--workspace", workspace, "--id-format", "both", "--json"],
+        )
+        tail_surface = str(opened_tail_json.get("surface_ref") or "")
+        _must(tail_surface.startswith("surface:"), f"Expected trailing --json browser open to return surface_ref: {opened_tail_json}")
+        _must(bool(opened_tail_json.get("surface_id")), f"Expected trailing --id-format both to preserve surface_id: {opened_tail_json}")
+        _must("--json" not in str(opened_tail_json.get("url") or ""), f"Trailing output flags leaked into browser open URL: {opened_tail_json}")
+        _run_cli_json(cli, ["browser", tail_surface, "wait", "--load-state", "complete", "--timeout-ms", "15000"])
+        tail_url_payload = _run_cli_json(cli, ["browser", tail_surface, "url"])
+        _must(str(tail_url_payload.get("url") or "").startswith(page_url), f"Expected trailing --json browser open to navigate: {tail_url_payload}")
+
+        opened = _run_cli_json(cli, ["browser", "open", page_url])
+        surface = str(opened.get("surface_ref") or opened.get("surface_id") or "")
+        _must(bool(surface), f"browser open returned no surface handle: {opened}")
+        _must(surface.startswith("surface:"), f"Expected short surface ref from browser open, got: {opened}")
+
+        _run_cli_json(cli, ["browser", surface, "wait", "--load-state", "complete", "--timeout-ms", "15000"])
+        snapshot_text = _run_cli_text(cli, ["browser", surface, "snapshot", "--interactive"])
+        _must("ref=e" in snapshot_text, f"Expected snapshot text with refs from CLI: {snapshot_text!r}")
+
+        blank_opened = _run_cli_json(cli, ["browser", "open", "about:blank", "--workspace", workspace])
+        blank_surface = str(blank_opened.get("surface_ref") or blank_opened.get("surface_id") or "")
+        _must(bool(blank_surface), f"Expected about:blank browser open to return a surface: {blank_opened}")
+        blank_snapshot = _run_cli_text(cli, ["browser", blank_surface, "snapshot", "--interactive"])
+        _must("about:blank" in blank_snapshot and "get url" in blank_snapshot, f"Expected empty snapshot diagnostics for about:blank: {blank_snapshot!r}")
 
         opened_routed = _run_cli_json(cli, ["browser", "open", page_url, "--workspace", workspace])
         routed_surface = str(opened_routed.get("surface_ref") or opened_routed.get("surface_id") or "")
@@ -172,6 +217,14 @@ def main() -> int:
         routed_url = str(routed_url_payload.get("url") or "")
         _must(routed_url.startswith(page_url), f"Expected routed URL to start with page URL, got: {routed_url_payload}")
         _must("--workspace" not in routed_url and "--window" not in routed_url, f"Routing flags leaked into URL: {routed_url_payload}")
+
+        goto_url = f"{page_url}?goto=1"
+        goto_payload = _run_cli_json(cli, ["browser", surface, "goto", goto_url, "--snapshot-after"])
+        _must(bool(goto_payload.get("post_action_snapshot")), f"Expected goto --snapshot-after to include post_action_snapshot: {goto_payload}")
+        goto_url_payload = _run_cli_json(cli, ["browser", surface, "url"])
+        current_goto_url = str(goto_url_payload.get("url") or "")
+        _must(current_goto_url.startswith(goto_url), f"Expected goto --snapshot-after current URL to match target URL: {goto_url_payload}")
+        _must("--snapshot-after" not in current_goto_url, f"Expected goto URL to exclude trailing flag text: {goto_url_payload}")
 
         find_text = _run_cli_json(cli, ["browser", surface, "find", "text", "row-b"])
         _must(str(find_text.get("element_ref") or "").startswith("@e"), f"Expected element_ref from find text: {find_text}")

@@ -1,0 +1,4 @@
+interface:
+  display_name: "cmux Markdown Viewer"
+  short_description: "Open markdown files in a formatted panel with live reload alongside the terminal."
+  default_prompt: "Use this skill to display markdown plans, docs, or notes in a cmux panel: write to a .md file, run 'cmux markdown open <path>', and the panel auto-updates when the file changes."

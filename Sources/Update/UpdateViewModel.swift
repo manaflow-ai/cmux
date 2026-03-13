@@ -22,27 +22,29 @@ class UpdateViewModel: ObservableObject {
         case .idle:
             return ""
         case .permissionRequest:
-            return "Enable Automatic Updates?"
+            return String(localized: "update.permissionRequest.text", defaultValue: "Enable Automatic Updates?")
         case .checking:
-            return "Checking for Updates…"
+            return String(localized: "update.checking", defaultValue: "Checking for Updates…")
         case .updateAvailable(let update):
             let version = update.appcastItem.displayVersionString
             if !version.isEmpty {
-                return "Update Available: \(version)"
+                return String(localized: "update.available.withVersion", defaultValue: "Update Available: \(version)")
             }
-            return "Update Available"
+            return String(localized: "update.available.short", defaultValue: "Update Available")
         case .downloading(let download):
             if let expectedLength = download.expectedLength, expectedLength > 0 {
                 let progress = Double(download.progress) / Double(expectedLength)
-                return String(format: "Downloading: %.0f%%", progress * 100)
+                let percent = String(format: "%.0f%%", progress * 100)
+                return String(localized: "update.downloading.progress", defaultValue: "Downloading: \(percent)")
             }
-            return "Downloading…"
+            return String(localized: "update.downloading.status", defaultValue: "Downloading…")
         case .extracting(let extracting):
-            return String(format: "Preparing: %.0f%%", extracting.progress * 100)
+            let percent = String(format: "%.0f%%", extracting.progress * 100)
+            return String(localized: "update.extracting.progress", defaultValue: "Preparing: \(percent)")
         case .installing(let install):
-            return install.isAutoUpdate ? "Restart to Complete Update" : "Installing…"
+            return install.isAutoUpdate ? String(localized: "update.restartToComplete", defaultValue: "Restart to Complete Update") : String(localized: "update.installing.status", defaultValue: "Installing…")
         case .notFound:
-            return "No Updates Available"
+            return String(localized: "update.noUpdates.title", defaultValue: "No Updates Available")
         case .error(let err):
             return Self.userFacingErrorTitle(for: err.error)
         }
@@ -87,19 +89,19 @@ class UpdateViewModel: ObservableObject {
         case .idle:
             return ""
         case .permissionRequest:
-            return "Configure automatic update preferences"
+            return String(localized: "update.configureAutoUpdates", defaultValue: "Configure automatic update preferences")
         case .checking:
-            return "Please wait while we check for available updates"
+            return String(localized: "update.pleaseWait", defaultValue: "Please wait while we check for available updates")
         case .updateAvailable(let update):
-            return update.releaseNotes?.label ?? "Download and install the latest version"
+            return update.releaseNotes?.label ?? String(localized: "update.downloadAndInstall", defaultValue: "Download and install the latest version")
         case .downloading:
-            return "Downloading the update package"
+            return String(localized: "update.downloadingPackage", defaultValue: "Downloading the update package")
         case .extracting:
-            return "Extracting and preparing the update"
+            return String(localized: "update.preparingUpdate", defaultValue: "Extracting and preparing the update")
         case let .installing(install):
-            return install.isAutoUpdate ? "Restart to Complete Update" : "Installing update and preparing to restart"
+            return install.isAutoUpdate ? String(localized: "update.restartToComplete", defaultValue: "Restart to Complete Update") : String(localized: "update.installingAndRestarting", defaultValue: "Installing update and preparing to restart")
         case .notFound:
-            return "You are running the latest version"
+            return String(localized: "update.noUpdates.message", defaultValue: "You are running the latest version")
         case .error(let err):
             return Self.userFacingErrorMessage(for: err.error)
         }
@@ -132,7 +134,7 @@ class UpdateViewModel: ObservableObject {
         case .checking:
             return .secondary
         case .updateAvailable:
-            return .accentColor
+            return cmuxAccentColor()
         case .downloading, .extracting, .installing:
             return .secondary
         case .notFound:
@@ -147,7 +149,7 @@ class UpdateViewModel: ObservableObject {
         case .permissionRequest:
             return Color(nsColor: NSColor.systemBlue.blended(withFraction: 0.3, of: .black) ?? .systemBlue)
         case .updateAvailable:
-            return .accentColor
+            return cmuxAccentColor()
         case .notFound:
             return Color(nsColor: NSColor.systemBlue.blended(withFraction: 0.5, of: .black) ?? .systemBlue)
         case .error:
@@ -177,21 +179,21 @@ class UpdateViewModel: ObservableObject {
         if let networkError = networkError(from: nsError) {
             switch networkError.code {
             case NSURLErrorNotConnectedToInternet:
-                return "No Internet Connection"
+                return String(localized: "update.error.noInternet.title", defaultValue: "No Internet Connection")
             case NSURLErrorTimedOut:
-                return "Update Timed Out"
+                return String(localized: "update.error.timedOut.title", defaultValue: "Update Timed Out")
             case NSURLErrorCannotFindHost:
-                return "Server Not Found"
+                return String(localized: "update.error.serverNotFound.title", defaultValue: "Server Not Found")
             case NSURLErrorCannotConnectToHost:
-                return "Server Unreachable"
+                return String(localized: "update.error.serverUnreachable.title", defaultValue: "Server Unreachable")
             case NSURLErrorNetworkConnectionLost:
-                return "Connection Lost"
+                return String(localized: "update.error.connectionLost.title", defaultValue: "Connection Lost")
             case NSURLErrorSecureConnectionFailed,
                  NSURLErrorServerCertificateUntrusted,
                  NSURLErrorServerCertificateHasBadDate,
                  NSURLErrorServerCertificateHasUnknownRoot,
                  NSURLErrorServerCertificateNotYetValid:
-                return "Secure Connection Failed"
+                return String(localized: "update.error.secureConnectionFailed.title", defaultValue: "Secure Connection Failed")
             default:
                 break
             }
@@ -199,24 +201,24 @@ class UpdateViewModel: ObservableObject {
         if nsError.domain == SUSparkleErrorDomain {
             switch nsError.code {
             case 4005:
-                return "Updater Permission Error"
+                return String(localized: "update.error.permissionError.title", defaultValue: "Updater Permission Error")
             case 2001:
-                return "Couldn't Download Update"
+                return String(localized: "update.error.downloadFailed.title", defaultValue: "Couldn't Download Update")
             case 1000, 1002:
-                return "Update Feed Error"
+                return String(localized: "update.error.feedError.title", defaultValue: "Update Feed Error")
             case 4:
-                return "Invalid Update Feed"
+                return String(localized: "update.error.invalidFeed.title", defaultValue: "Invalid Update Feed")
             case 3:
-                return "Insecure Update Feed"
+                return String(localized: "update.error.insecureFeed.title", defaultValue: "Insecure Update Feed")
             case 1, 2, 3001, 3002:
-                return "Update Signature Error"
+                return String(localized: "update.error.signatureError.title", defaultValue: "Update Signature Error")
             case 1003, 1005:
-                return "App Location Issue"
+                return String(localized: "update.error.appLocation.title", defaultValue: "App Location Issue")
             default:
                 break
             }
         }
-        return "Update Failed"
+        return String(localized: "update.error.failed.title", defaultValue: "Update Failed")
     }
 
     static func userFacingErrorMessage(for error: Swift.Error) -> String {
@@ -224,21 +226,21 @@ class UpdateViewModel: ObservableObject {
         if let networkError = networkError(from: nsError) {
             switch networkError.code {
             case NSURLErrorNotConnectedToInternet:
-                return "cmux can’t reach the update server. Check your internet connection and try again."
+                return String(localized: "update.error.noInternet.message", defaultValue: "cmux can’t reach the update server. Check your internet connection and try again.")
             case NSURLErrorTimedOut:
-                return "The update server took too long to respond. Try again in a moment."
+                return String(localized: "update.error.timedOut.message", defaultValue: "The update server took too long to respond. Try again in a moment.")
             case NSURLErrorCannotFindHost:
-                return "The update server can’t be found. Check your connection or try again later."
+                return String(localized: "update.error.serverNotFound.message", defaultValue: "The update server can’t be found. Check your connection or try again later.")
             case NSURLErrorCannotConnectToHost:
-                return "cmux couldn’t connect to the update server. Check your connection or try again later."
+                return String(localized: "update.error.serverUnreachable.message", defaultValue: "cmux couldn’t connect to the update server. Check your connection or try again later.")
             case NSURLErrorNetworkConnectionLost:
-                return "The network connection was lost while checking for updates. Try again."
+                return String(localized: "update.error.connectionLost.message", defaultValue: "The network connection was lost while checking for updates. Try again.")
             case NSURLErrorSecureConnectionFailed,
                  NSURLErrorServerCertificateUntrusted,
                  NSURLErrorServerCertificateHasBadDate,
                  NSURLErrorServerCertificateHasUnknownRoot,
                  NSURLErrorServerCertificateNotYetValid:
-                return "A secure connection to the update server couldn’t be established. Try again later."
+                return String(localized: "update.error.secureConnectionFailed.message", defaultValue: "A secure connection to the update server couldn’t be established. Try again later.")
             default:
                 break
             }
@@ -246,17 +248,17 @@ class UpdateViewModel: ObservableObject {
         if nsError.domain == SUSparkleErrorDomain {
             switch nsError.code {
             case 2001:
-                return "cmux couldn't download the update feed. Check your connection and try again."
+                return String(localized: "update.error.feedDownload.message", defaultValue: "cmux couldn't download the update feed. Check your connection and try again.")
             case 1000, 1002:
-                return "The update feed could not be read. Please try again later."
+                return String(localized: "update.error.feedRead.message", defaultValue: "The update feed could not be read. Please try again later.")
             case 4:
-                return "The update feed URL is invalid. Please contact support."
+                return String(localized: "update.error.invalidFeed.message", defaultValue: "The update feed URL is invalid. Please contact support.")
             case 3:
-                return "The update feed is insecure. Please contact support."
+                return String(localized: "update.error.insecureFeed.message", defaultValue: "The update feed is insecure. Please contact support.")
             case 1, 2, 3001, 3002:
-                return "The update's signature could not be verified. Please try again later."
+                return String(localized: "update.error.signatureError.message", defaultValue: "The update's signature could not be verified. Please try again later.")
             case 1003, 1005, 4005:
-                return "Move cmux into Applications and relaunch to enable updates."
+                return String(localized: "update.error.permissionError.message", defaultValue: "Move cmux into Applications and relaunch to enable updates.")
             default:
                 break
             }
@@ -487,8 +489,8 @@ enum UpdateState: Equatable {
 
         var label: String {
             switch self {
-            case .commit: return "View GitHub Commit"
-            case .tagged: return "View Release Notes"
+            case .commit: return String(localized: "update.viewGitHubCommit", defaultValue: "View GitHub Commit")
+            case .tagged: return String(localized: "update.viewReleaseNotes", defaultValue: "View Release Notes")
             }
         }
     }

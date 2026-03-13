@@ -1,0 +1,466 @@
+#!/usr/bin/env bash
+# cmux open wrapper - routes HTTP(S) URLs to cmux's in-app browser
+#
+# When running inside a cmux terminal (CMUX_SOCKET_PATH is set), this wrapper
+# intercepts `open https://...` invocations and opens them in cmux's built-in
+# browser within the same workspace. All other arguments pass through to
+# /usr/bin/open unchanged.
+
+SYSTEM_OPEN_BIN="${CMUX_OPEN_WRAPPER_SYSTEM_OPEN:-/usr/bin/open}"
+DEFAULTS_BIN="${CMUX_OPEN_WRAPPER_DEFAULTS:-/usr/bin/defaults}"
+PYTHON3_BIN="${CMUX_OPEN_WRAPPER_PYTHON3:-}"
+
+if [[ ! -x "$SYSTEM_OPEN_BIN" ]]; then
+    SYSTEM_OPEN_BIN="/usr/bin/open"
+fi
+
+if [[ ! -x "$DEFAULTS_BIN" ]]; then
+    DEFAULTS_BIN="/usr/bin/defaults"
+fi
+
+if [[ -n "$PYTHON3_BIN" ]]; then
+    if [[ ! -x "$PYTHON3_BIN" ]]; then
+        PYTHON3_BIN=""
+    fi
+elif command -v python3 >/dev/null 2>&1; then
+    PYTHON3_BIN="$(command -v python3)"
+fi
+
+settings_domain="${CMUX_BUNDLE_ID:-}"
+whitelist_raw=""
+whitelist_patterns=()
+
+system_open() {
+    exec "$SYSTEM_OPEN_BIN" "$@"
+}
+
+trim() {
+    local value="$1"
+    value="${value#"${value%%[![:space:]]*}"}"
+    value="${value%"${value##*[![:space:]]}"}"
+    printf '%s' "$value"
+}
+
+to_lower_ascii() {
+    # Bash 3.2-compatible lowercase conversion.
+    LC_ALL=C printf '%s' "$1" | tr '[:upper:]' '[:lower:]'
+}
+
+normalize_boolean() {
+    to_lower_ascii "$(trim "$1")"
+}
+
+is_false_setting() {
+    local normalized
+    normalized="$(normalize_boolean "$1")"
+    case "$normalized" in
+        0|false|no|off)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
+canonicalize_idn_host() {
+    local value="$1"
+    [[ -z "$PYTHON3_BIN" ]] && {
+        printf '%s' "$value"
+        return 0
+    }
+
+    local canonicalized
+    canonicalized="$("$PYTHON3_BIN" - "$value" <<'PY' 2>/dev/null || true
+import sys
+
+host = sys.argv[1].strip().rstrip(".")
+if not host:
+    raise SystemExit(1)
+
+labels = host.split(".")
+if any(not label for label in labels):
+    raise SystemExit(1)
+
+try:
+    canonical = ".".join(label.encode("idna").decode("ascii") for label in labels)
+except Exception:
+    raise SystemExit(1)
+
+sys.stdout.write(canonical.lower())
+PY
+)"
+    if [[ -n "$canonicalized" ]]; then
+        printf '%s' "$canonicalized"
+        return 0
+    fi
+    printf '%s' "$value"
+}
+
+is_http_url() {
+    local value="$1"
+    case "$value" in
+        [Hh][Tt][Tt][Pp]://*|[Hh][Tt][Tt][Pp][Ss]://*)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
+is_file_url() {
+    local value="$1"
+    case "$value" in
+        [Ff][Ii][Ll][Ee]://*)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
+has_uri_scheme() {
+    local value="$1"
+    [[ "$value" =~ ^[A-Za-z][A-Za-z0-9+.-]*: ]]
+}
+
+is_html_extension() {
+    local value
+    value="$(to_lower_ascii "$(trim "$1")")"
+    case "$value" in
+        *.html|*.htm)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
+is_explicit_local_path() {
+    local value="$1"
+    case "$value" in
+        /*|./*|../*|~|~/*)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
+file_url_points_to_html() {
+    local value="$1"
+    if [[ -n "$PYTHON3_BIN" ]]; then
+        "$PYTHON3_BIN" - "$value" <<'PY' >/dev/null 2>&1
+import sys
+from urllib.parse import unquote, urlsplit
+
+value = sys.argv[1].strip()
+if not value:
+    raise SystemExit(1)
+
+parts = urlsplit(value)
+path = unquote(parts.path or "")
+lower = path.lower()
+if lower.endswith(".html") or lower.endswith(".htm"):
+    raise SystemExit(0)
+raise SystemExit(1)
+PY
+        return $?
+    fi
+
+    local without_fragment="${value%%\#*}"
+    local without_query="${without_fragment%%\?*}"
+    local remainder path_part
+
+    case "$without_query" in
+        [Ff][Ii][Ll][Ee]://*)
+            remainder="${without_query#*://}"
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+
+    if [[ "$remainder" == /* ]]; then
+        path_part="$remainder"
+    elif [[ "$remainder" == */* ]]; then
+        path_part="/${remainder#*/}"
+    else
+        return 1
+    fi
+
+    is_html_extension "$path_part"
+}
+
+path_to_file_url_without_python() {
+    local raw="$1"
+    local expanded="$raw"
+    case "$expanded" in
+        "~")
+            expanded="$HOME"
+            ;;
+        "~/"*)
+            expanded="$HOME/${expanded#~/}"
+            ;;
+    esac
+
+    local absolute
+    if [[ "$expanded" == /* ]]; then
+        absolute="$expanded"
+    else
+        absolute="$(pwd)/$expanded"
+    fi
+
+    local directory="$absolute"
+    local basename=""
+    if [[ "$absolute" == */* ]]; then
+        directory="${absolute%/*}"
+        basename="${absolute##*/}"
+    fi
+
+    local resolved_directory
+    if resolved_directory="$(cd "$directory" 2>/dev/null && pwd -P)"; then
+        absolute="$resolved_directory"
+        if [[ -n "$basename" ]]; then
+            absolute="$absolute/$basename"
+        fi
+    fi
+
+    local encoded=""
+    local length=${#absolute}
+    local index char hex
+    local LC_ALL=C
+    for ((index = 0; index < length; index++)); do
+        char="${absolute:index:1}"
+        case "$char" in
+            [a-zA-Z0-9.~_-]|/)
+                encoded+="$char"
+                ;;
+            *)
+                printf -v hex '%02X' "'$char"
+                encoded+="%$hex"
+                ;;
+        esac
+    done
+    printf 'file://%s\n' "$encoded"
+}
+
+path_to_file_url() {
+    local raw="$1"
+    if [[ -n "$PYTHON3_BIN" ]]; then
+        local converted
+        if converted="$("$PYTHON3_BIN" - "$raw" <<'PY' 2>/dev/null
+import pathlib
+import sys
+
+raw = sys.argv[1]
+if not raw:
+    raise SystemExit(1)
+
+path = pathlib.Path(raw).expanduser()
+if path.is_absolute():
+    resolved = path.resolve(strict=False)
+else:
+    resolved = (pathlib.Path.cwd() / path).resolve(strict=False)
+
+sys.stdout.write(resolved.as_uri())
+PY
+        )"; then
+            printf '%s\n' "$converted"
+            return 0
+        fi
+    fi
+
+    path_to_file_url_without_python "$raw"
+}
+
+normalize_host() {
+    local value
+    value="$(trim "$1")"
+    value="$(to_lower_ascii "$value")"
+    [[ -z "$value" ]] && return 1
+
+    if [[ "$value" == *"://"* ]]; then
+        value="${value#*://}"
+    fi
+
+    value="${value%%/*}"
+    value="${value%%\?*}"
+    value="${value%%\#*}"
+
+    if [[ "$value" == *"@"* ]]; then
+        value="${value##*@}"
+    fi
+
+    if [[ "$value" == \[* ]]; then
+        value="${value#\[}"
+        value="${value%%\]*}"
+    elif [[ "$value" == *:* ]]; then
+        local colons="${value//[^:]}"
+        if [[ ${#colons} -eq 1 ]] && [[ "$value" =~ :[0-9]+$ ]]; then
+            value="${value%:*}"
+        fi
+    fi
+
+    while [[ "$value" == .* ]]; do
+        value="${value#.}"
+    done
+    while [[ "$value" == *. ]]; do
+        value="${value%.}"
+    done
+
+    [[ -z "$value" ]] && return 1
+    value="$(canonicalize_idn_host "$value")"
+    printf '%s' "$value"
+}
+
+normalize_whitelist_pattern() {
+    local value
+    value="$(trim "$1")"
+    value="$(to_lower_ascii "$value")"
+    [[ -z "$value" ]] && return 1
+
+    if [[ "$value" == \*.* ]]; then
+        local suffix
+        suffix="$(normalize_host "${value#*.}")" || return 1
+        printf '*.%s' "$suffix"
+        return 0
+    fi
+
+    normalize_host "$value"
+}
+
+host_matches_pattern() {
+    local host="$1"
+    local pattern="$2"
+
+    if [[ "$pattern" == \*.* ]]; then
+        local suffix="${pattern#*.}"
+        [[ "$host" == "$suffix" ]] && return 0
+        [[ "$host" == *".$suffix" ]] && return 0
+        return 1
+    fi
+
+    [[ "$host" == "$pattern" ]]
+}
+
+host_matches_whitelist() {
+    local url="$1"
+    if [[ ${#whitelist_patterns[@]} -eq 0 ]]; then
+        return 0
+    fi
+
+    local host
+    host="$(normalize_host "$url")" || return 1
+    for pattern in "${whitelist_patterns[@]}"; do
+        if host_matches_pattern "$host" "$pattern"; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+load_whitelist_patterns() {
+    local raw="$1"
+    local line
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        local normalized
+        normalized="$(normalize_whitelist_pattern "$line")" || continue
+        whitelist_patterns+=("$normalized")
+    done <<< "$raw"
+}
+
+# Pass through immediately if not in a cmux terminal.
+if [[ -z "$CMUX_SOCKET_PATH" ]]; then
+    system_open "$@"
+fi
+
+# No arguments → pass through.
+if [[ $# -eq 0 ]]; then
+    system_open "$@"
+fi
+
+# Scan for flags that indicate explicit user intent → pass through.
+# Also collect non-flag arguments and route eligible browser targets to cmux.
+passthrough=false
+cmux_targets=()
+passthrough_args=()
+for arg in "$@"; do
+    case "$arg" in
+        -a|-b|-R|-e|-t|-f|-W|-g|-n|-h|-s|-j|-u|--env|--stdin|--stdout|--stderr)
+            passthrough=true
+            break
+            ;;
+        -*)
+            # Unknown flag → be conservative, pass through
+            passthrough=true
+            break
+            ;;
+        *)
+            if is_http_url "$arg"; then
+                cmux_targets+=("$arg")
+            elif is_file_url "$arg"; then
+                if file_url_points_to_html "$arg"; then
+                    cmux_targets+=("$arg")
+                else
+                    passthrough_args+=("$arg")
+                fi
+            elif has_uri_scheme "$arg"; then
+                passthrough_args+=("$arg")
+            elif is_html_extension "$arg"; then
+                if is_explicit_local_path "$arg" || [[ -e "$arg" ]]; then
+                    if local_file_url="$(path_to_file_url "$arg")"; then
+                        cmux_targets+=("$local_file_url")
+                    else
+                        passthrough_args+=("$arg")
+                    fi
+                else
+                    passthrough_args+=("$arg")
+                fi
+            else
+                passthrough_args+=("$arg")
+            fi
+            ;;
+    esac
+done
+
+if [[ "$passthrough" == true ]] || [[ ${#cmux_targets[@]} -eq 0 ]]; then
+    system_open "$@"
+fi
+
+# Respect the same settings used for terminal link clicks.
+if [[ -n "$settings_domain" ]]; then
+    open_in_cmux="$("$DEFAULTS_BIN" read "$settings_domain" browserInterceptTerminalOpenCommandInCmuxBrowser 2>/dev/null || true)"
+    if [[ -z "$open_in_cmux" ]]; then
+        # Backward compatibility for installs that predate the dedicated open-wrapper toggle.
+        open_in_cmux="$("$DEFAULTS_BIN" read "$settings_domain" browserOpenTerminalLinksInCmuxBrowser 2>/dev/null || true)"
+    fi
+    if is_false_setting "$open_in_cmux"; then
+        system_open "$@"
+    fi
+
+    whitelist_raw="$("$DEFAULTS_BIN" read "$settings_domain" browserHostWhitelist 2>/dev/null || true)"
+    if [[ -n "$whitelist_raw" ]]; then
+        load_whitelist_patterns "$whitelist_raw"
+    fi
+
+fi
+
+# Find cmux CLI (same directory as this script).
+SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
+CMUX_CLI="$SELF_DIR/cmux"
+
+if [[ ! -x "$CMUX_CLI" ]]; then
+    system_open "$@"
+fi
+
+# Open each URL in cmux's in-app browser; track failures individually.
+# External-open pattern rules are evaluated in-app (NSRegularExpression) so
+# terminal link clicks and intercepted `open` commands share one regex dialect.
+failed_urls=()
+for url in "${cmux_targets[@]}"; do
+    if is_http_url "$url" && ! host_matches_whitelist "$url"; then
+        failed_urls+=("$url")
+        continue
+    fi
+    CMUX_RESPECT_EXTERNAL_OPEN_RULES=1 "$CMUX_CLI" browser open "$url" 2>/dev/null || failed_urls+=("$url")
+done
+
+# Fall back to system open for unmatched args and URLs that failed.
+if [[ ${#passthrough_args[@]} -gt 0 ]] || [[ ${#failed_urls[@]} -gt 0 ]]; then
+    system_open "${passthrough_args[@]}" "${failed_urls[@]}"
+fi

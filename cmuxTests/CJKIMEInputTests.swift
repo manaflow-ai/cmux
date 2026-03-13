@@ -7,43 +7,6 @@ import AppKit
 @testable import cmux
 #endif
 
-// MARK: - Test helpers
-
-/// Helper to make `NSApp.currentEvent` non-nil for insertText calls.
-/// NSTextInputClient.insertText guards on currentEvent because it should
-/// only fire during actual key event processing. In tests we simulate this
-/// by posting and immediately processing a synthetic key event.
-private func withSyntheticCurrentEvent(_ body: () -> Void) {
-    _ = NSApplication.shared // ensure NSApp exists
-    guard let event = NSEvent.keyEvent(
-        with: .keyDown,
-        location: .zero,
-        modifierFlags: [],
-        timestamp: ProcessInfo.processInfo.systemUptime,
-        windowNumber: 0,
-        context: nil,
-        characters: "",
-        charactersIgnoringModifiers: "",
-        isARepeat: false,
-        keyCode: 0
-    ) else {
-        body()
-        return
-    }
-    NSApp.postEvent(event, atStart: true)
-    // Process the event so that currentEvent becomes non-nil.
-    // Use a short timeout since we just posted the event.
-    if let posted = NSApp.nextEvent(matching: .keyDown, until: Date(timeIntervalSinceNow: 0.05), inMode: .default, dequeue: true) {
-        // We're now inside event processing; currentEvent should be set.
-        // However, currentEvent is only set during sendEvent. We need to
-        // actually invoke sendEvent. Since we can't do that cleanly in a
-        // unit test, we use a different approach: call insertText indirectly
-        // via a direct test of the accumulator + unmarkText path.
-        _ = posted
-    }
-    body()
-}
-
 // MARK: - NSTextInputClient protocol: marked text (preedit) lifecycle
 
 /// Tests that the GhosttyNSView NSTextInputClient implementation correctly
@@ -104,6 +67,30 @@ final class CJKIMEMarkedTextTests: XCTestCase {
         view.setKeyTextAccumulatorForTesting(acc)
         XCTAssertEqual(view.keyTextAccumulatorForTesting, ["한"], "Committed Korean text should be accumulated")
         view.setKeyTextAccumulatorForTesting(nil)
+    }
+
+    /// Third-party voice input apps often commit text outside an active keyDown
+    /// event. `insertText` should still clear marked text in that path.
+    func testInsertTextWithoutCurrentEventClearsMarkedText() {
+        let view = GhosttyNSView(frame: .zero)
+
+        view.setMarkedText("한", selectedRange: NSRange(location: 0, length: 1), replacementRange: NSRange(location: NSNotFound, length: 0))
+        XCTAssertTrue(view.hasMarkedText())
+
+        view.insertText("한", replacementRange: NSRange(location: NSNotFound, length: 0))
+        XCTAssertFalse(view.hasMarkedText(), "insertText should clear marked text even without an active currentEvent")
+    }
+
+    /// The responder-chain `insertText:` action (single argument) should route
+    /// to NSTextInputClient insertion so external text-injection tools work.
+    func testResponderChainInsertTextSelectorClearsMarkedText() {
+        let view = GhosttyNSView(frame: .zero)
+
+        view.setMarkedText("ni", selectedRange: NSRange(location: 2, length: 0), replacementRange: NSRange(location: NSNotFound, length: 0))
+        XCTAssertTrue(view.hasMarkedText())
+
+        view.insertText("你")
+        XCTAssertFalse(view.hasMarkedText(), "single-argument insertText should follow the same commit path")
     }
 
     // MARK: - Chinese (中文) pinyin candidate selection
@@ -759,5 +746,188 @@ final class CJKIMEKeyTextAccumulatorTests: XCTestCase {
         // insertText with nil accumulator and no surface/currentEvent is a no-op,
         // but the important thing is that it doesn't crash or accumulate.
         XCTAssertNil(view.keyTextAccumulatorForTesting)
+    }
+}
+
+// MARK: - Shift+Space fallback suppression (IME source-switch shortcut)
+
+final class CJKIMEShiftSpaceFallbackTests: XCTestCase {
+    func testSuppressesShiftSpaceFallbackWhenNoMarkedTextAndNoIMECommit() {
+        let view = GhosttyNSView(frame: .zero)
+        guard let event = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.shift],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: 0,
+            context: nil,
+            characters: " ",
+            charactersIgnoringModifiers: " ",
+            isARepeat: false,
+            keyCode: 49
+        ) else {
+            XCTFail("Failed to create Shift+Space event")
+            return
+        }
+
+        XCTAssertTrue(
+            view.shouldSuppressShiftSpaceFallbackTextForTesting(event: event, markedTextBefore: false),
+            "Shift+Space should suppress synthesized space fallback when IME did not commit text"
+        )
+    }
+
+    func testDoesNotSuppressRegularSpaceFallback() {
+        let view = GhosttyNSView(frame: .zero)
+        guard let event = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: 0,
+            context: nil,
+            characters: " ",
+            charactersIgnoringModifiers: " ",
+            isARepeat: false,
+            keyCode: 49
+        ) else {
+            XCTFail("Failed to create Space event")
+            return
+        }
+
+        XCTAssertFalse(
+            view.shouldSuppressShiftSpaceFallbackTextForTesting(event: event, markedTextBefore: false),
+            "Only Shift+Space should be suppressed"
+        )
+    }
+}
+
+// MARK: - Space release regression (Codex hold-to-talk in cmux)
+
+@MainActor
+final class GhosttySpaceReleaseRegressionTests: XCTestCase {
+    func testSyntheticSpaceReleaseCarriesUnshiftedCodepoint() {
+        _ = NSApplication.shared
+
+        let surface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        let hostedView = surface.hostedView
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer {
+            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = nil
+            window.orderOut(nil)
+        }
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+        hostedView.frame = contentView.bounds
+        hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostedView)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        hostedView.setVisibleInUI(true)
+        hostedView.setActive(true)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        var releaseEvent: ghostty_input_key_s?
+        GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
+            if keyEvent.action == GHOSTTY_ACTION_RELEASE, keyEvent.keycode == 49 {
+                releaseEvent = keyEvent
+            }
+        }
+
+        let sent = hostedView.debugSendSyntheticKeyPressAndReleaseForUITest(
+            characters: " ",
+            charactersIgnoringModifiers: " ",
+            keyCode: 49
+        )
+        XCTAssertTrue(sent, "Expected synthetic Space key press/release to be dispatched")
+
+        guard let releaseEvent else {
+            XCTFail("Expected to capture synthetic Space key release event")
+            return
+        }
+
+        XCTAssertEqual(releaseEvent.action, GHOSTTY_ACTION_RELEASE)
+        XCTAssertEqual(releaseEvent.keycode, 49)
+        XCTAssertEqual(releaseEvent.unshifted_codepoint, " ".unicodeScalars.first!.value)
+        XCTAssertEqual(releaseEvent.consumed_mods.rawValue, GHOSTTY_MODS_NONE.rawValue)
+        XCTAssertFalse(releaseEvent.composing)
+        XCTAssertNil(releaseEvent.text)
+    }
+}
+
+final class GhosttyBackquoteRegressionTests: XCTestCase {
+    func testShiftBackquoteEscFallbackSendsLiteralTilde() {
+        _ = NSApplication.shared
+
+        let surface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        let hostedView = surface.hostedView
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer {
+            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = nil
+            window.orderOut(nil)
+        }
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+        hostedView.frame = contentView.bounds
+        hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostedView)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        hostedView.setVisibleInUI(true)
+        hostedView.setActive(true)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        var pressText: String?
+        var pressUnshiftedCodepoint: UInt32?
+        GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
+            guard keyEvent.action == GHOSTTY_ACTION_PRESS, keyEvent.keycode == 50 else { return }
+            pressUnshiftedCodepoint = keyEvent.unshifted_codepoint
+            if let text = keyEvent.text {
+                pressText = String(cString: text)
+            } else {
+                pressText = nil
+            }
+        }
+
+        let sent = hostedView.debugSendSyntheticKeyPressAndReleaseForUITest(
+            characters: "\u{1B}",
+            charactersIgnoringModifiers: "`",
+            keyCode: 50,
+            modifierFlags: [.shift]
+        )
+        XCTAssertTrue(sent, "Expected synthetic Shift+backquote event to be dispatched")
+        XCTAssertEqual(pressText, "~")
+        XCTAssertEqual(pressUnshiftedCodepoint, "`".unicodeScalars.first?.value)
     }
 }

@@ -9,21 +9,21 @@ on:
 permissions:
   contents: write
 
+env:
+  CREATE_DMG_VERSION: 8.0.0
+
 jobs:
   build-sign-notarize:
-    runs-on: self-hosted
-    concurrency:
-      group: self-hosted-build
-      cancel-in-progress: false
+    runs-on: depot-macos-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           submodules: recursive
 
       - name: Guard immutable release assets
         id: guard_release_assets
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         with:
           script: |
             const { evaluateReleaseAssetGuard } = require('./scripts/release_asset_guard');
@@ -99,37 +99,20 @@ jobs:
       - name: Install build deps
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         run: |
-          brew update
-          brew install zig
-          npm install --global create-dmg
+          npm install --global "create-dmg@${CREATE_DMG_VERSION}"
 
-      - name: Download Metal Toolchain
-        if: steps.guard_release_assets.outputs.skip_all != 'true'
-        run: xcodebuild -downloadComponent MetalToolchain
-
-      - name: Build GhosttyKit.xcframework
+      - name: Download pre-built GhosttyKit.xcframework
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         run: |
-          cd ghostty
-          zig build -Demit-xcframework=true -Demit-macos-app=false -Doptimize=ReleaseFast
-          cd ..
-          rm -rf GhosttyKit.xcframework
-          cp -R ghostty/macos/GhosttyKit.xcframework GhosttyKit.xcframework
+          ./scripts/download-prebuilt-ghosttykit.sh
 
-      - name: Clear SPM cache
+      - name: Cache Swift packages
         if: steps.guard_release_assets.outputs.skip_all != 'true'
-        run: |
-          rm -rf ~/Library/Caches/org.swift.swiftpm
-          rm -rf ~/Library/Developer/Xcode/DerivedData/GhosttyTabs-*
-
-      - name: Configure SwiftPM cache
-        if: steps.guard_release_assets.outputs.skip_all != 'true'
-        run: |
-          set -euo pipefail
-          CACHE_DIR="${RUNNER_TEMP}/swiftpm-cache/${GITHUB_RUN_ID}"
-          rm -rf "$CACHE_DIR"
-          mkdir -p "$CACHE_DIR"
-          echo "SWIFTPM_CACHE_PATH=$CACHE_DIR" >> "$GITHUB_ENV"
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4
+        with:
+          path: .spm-cache
+          key: spm-${{ hashFiles('GhosttyTabs.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: spm-
 
       - name: Derive Sparkle public key from private key
         if: steps.guard_release_assets.outputs.skip_all != 'true'
@@ -147,7 +130,17 @@ jobs:
       - name: Build app (Release)
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         run: |
-          xcodebuild -scheme cmux -configuration Release -derivedDataPath build CODE_SIGNING_ALLOWED=NO build
+          xcodebuild -scheme cmux -configuration Release -derivedDataPath build \
+            -clonedSourcePackagesDirPath .spm-cache \
+            CODE_SIGNING_ALLOWED=NO build
+
+      - name: Run CLI version memory guard regression
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        run: |
+          set -euo pipefail
+          CLI_BINARY="build/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux"
+          [ -x "$CLI_BINARY" ] || { echo "cmux CLI binary not found at $CLI_BINARY" >&2; exit 1; }
+          CMUX_CLI_BIN="$CLI_BINARY" python3 tests/test_cli_version_memory_guard.py
 
       - name: Inject Sparkle keys into Info.plist
         if: steps.guard_release_assets.outputs.skip_all != 'true'
@@ -250,6 +243,20 @@ jobs:
           xcrun stapler staple "$DMG_RELEASE"
           xcrun stapler validate "$DMG_RELEASE"
 
+      - name: Upload dSYMs to Sentry
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: manaflow
+          SENTRY_PROJECT: cmuxterm-macos
+        run: |
+          if [ -z "$SENTRY_AUTH_TOKEN" ]; then
+            echo "SENTRY_AUTH_TOKEN not set, skipping dSYM upload"
+            exit 0
+          fi
+          brew install getsentry/tools/sentry-cli || true
+          sentry-cli debug-files upload --include-sources build/Build/Products/Release/
+
       - name: Generate Sparkle appcast
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         env:
@@ -263,7 +270,7 @@ jobs:
 
       - name: Upload release asset
         if: steps.guard_release_assets.outputs.skip_upload != 'true'
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2
         with:
           files: |
             cmux-macos.dmg

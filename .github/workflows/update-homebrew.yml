@@ -37,11 +37,22 @@ jobs:
             echo "Could not determine version" >&2
             exit 1
           fi
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+              echo "Invalid version: ${VERSION}" >&2
+              exit 1
+            fi
+            echo "Skipping homebrew cask update for non-release ref: ${VERSION}"
+            echo "skip=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          echo "skip=false" >> $GITHUB_OUTPUT
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "Updating homebrew cask to version $VERSION"
 
       - name: Download DMG and get SHA256
         id: sha
+        if: steps.version.outputs.skip != 'true'
         run: |
           VERSION="${{ steps.version.outputs.version }}"
           URL="https://github.com/manaflow-ai/cmux/releases/download/v${VERSION}/cmux-macos.dmg"
@@ -65,13 +76,15 @@ jobs:
           echo "DMG SHA256: $SHA256"
 
       - name: Checkout homebrew-cmux
-        uses: actions/checkout@v4
+        if: steps.version.outputs.skip != 'true'
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           repository: manaflow-ai/homebrew-cmux
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           path: homebrew-cmux
 
       - name: Update cask formula
+        if: steps.version.outputs.skip != 'true'
         env:
           VERSION: ${{ steps.version.outputs.version }}
           SHA256: ${{ steps.sha.outputs.sha256 }}
@@ -94,6 +107,7 @@ jobs:
             depends_on macos: ">= :sonoma"
 
             app "cmux.app"
+            binary "#{appdir}/cmux.app/Contents/Resources/bin/cmux"
 
             zap trash: [
               "~/Library/Application Support/cmux",
@@ -106,6 +120,7 @@ jobs:
           sed -i 's/^          //' homebrew-cmux/Casks/cmux.rb
 
       - name: Verify cask SHA matches DMG
+        if: steps.version.outputs.skip != 'true'
         run: |
           CASK_SHA=$(grep 'sha256' homebrew-cmux/Casks/cmux.rb | sed 's/.*"\(.*\)".*/\1/')
           ACTUAL_SHA=$(shasum -a 256 cmux.dmg | cut -d' ' -f1)
@@ -116,6 +131,7 @@ jobs:
           echo "SHA verification passed: $CASK_SHA"
 
       - name: Commit and push
+        if: steps.version.outputs.skip != 'true'
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |

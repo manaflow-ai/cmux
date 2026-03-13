@@ -2,10 +2,13 @@ import Foundation
 import AppKit
 
 struct GhosttyConfig {
-    enum ColorSchemePreference {
+    enum ColorSchemePreference: Hashable {
         case light
         case dark
     }
+
+    private static let loadCacheLock = NSLock()
+    private static var cachedConfigsByColorScheme: [ColorSchemePreference: GhosttyConfig] = [:]
 
     var fontFamily: String = "Menlo"
     var fontSize: CGFloat = 12
@@ -18,6 +21,7 @@ struct GhosttyConfig {
 
     // Colors (from theme or config)
     var backgroundColor: NSColor = NSColor(hex: "#272822")!
+    var backgroundOpacity: Double = 1.0
     var foregroundColor: NSColor = NSColor(hex: "#fdfff1")!
     var cursorColor: NSColor = NSColor(hex: "#c0c1b5")!
     var cursorTextColor: NSColor = NSColor(hex: "#8d8e82")!
@@ -45,7 +49,45 @@ struct GhosttyConfig {
         return backgroundColor.darken(by: isLightBackground ? 0.08 : 0.4)
     }
 
-    static func load() -> GhosttyConfig {
+    static func load(
+        preferredColorScheme: ColorSchemePreference? = nil,
+        useCache: Bool = true,
+        loadFromDisk: (_ preferredColorScheme: ColorSchemePreference) -> GhosttyConfig = Self.loadFromDisk
+    ) -> GhosttyConfig {
+        let resolvedColorScheme = preferredColorScheme ?? currentColorSchemePreference()
+        if useCache, let cached = cachedLoad(for: resolvedColorScheme) {
+            return cached
+        }
+
+        let loaded = loadFromDisk(resolvedColorScheme)
+        if useCache {
+            storeCachedLoad(loaded, for: resolvedColorScheme)
+        }
+        return loaded
+    }
+
+    static func invalidateLoadCache() {
+        loadCacheLock.lock()
+        cachedConfigsByColorScheme.removeAll()
+        loadCacheLock.unlock()
+    }
+
+    private static func cachedLoad(for colorScheme: ColorSchemePreference) -> GhosttyConfig? {
+        loadCacheLock.lock()
+        defer { loadCacheLock.unlock() }
+        return cachedConfigsByColorScheme[colorScheme]
+    }
+
+    private static func storeCachedLoad(
+        _ config: GhosttyConfig,
+        for colorScheme: ColorSchemePreference
+    ) {
+        loadCacheLock.lock()
+        cachedConfigsByColorScheme[colorScheme] = config
+        loadCacheLock.unlock()
+    }
+
+    private static func loadFromDisk(preferredColorScheme: ColorSchemePreference) -> GhosttyConfig {
         var config = GhosttyConfig()
 
         // Match Ghostty's default load order on macOS.
@@ -64,7 +106,12 @@ struct GhosttyConfig {
 
         // Load theme if specified
         if let themeName = config.theme {
-            config.loadTheme(themeName)
+            config.loadTheme(
+                themeName,
+                environment: ProcessInfo.processInfo.environment,
+                bundleResourceURL: Bundle.main.resourceURL,
+                preferredColorScheme: preferredColorScheme
+            )
         }
 
         return config
@@ -101,6 +148,10 @@ struct GhosttyConfig {
                 case "background":
                     if let color = NSColor(hex: value) {
                         backgroundColor = color
+                    }
+                case "background-opacity":
+                    if let opacity = Double(value) {
+                        backgroundOpacity = opacity
                     }
                 case "foreground":
                     if let color = NSColor(hex: value) {
