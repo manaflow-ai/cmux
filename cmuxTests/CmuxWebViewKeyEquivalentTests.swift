@@ -5222,6 +5222,27 @@ final class TabManagerPendingUnfocusPolicyTests: XCTestCase {
 }
 
 @MainActor
+final class TabManagerClosePanelWithConfirmationTests: XCTestCase {
+    func testCloseCurrentPanelWithConfirmationKeepsWorkspaceWhenClosingLastSurface() {
+        let manager = TabManager()
+        let originalWorkspace = try? XCTUnwrap(manager.selectedWorkspace)
+        let secondWorkspace = manager.addWorkspace()
+        let closedWorkspaceId = secondWorkspace.id
+        let originalPanelIds = Set(secondWorkspace.panels.keys)
+
+        manager.confirmCloseHandler = { _, _, _ in true }
+        manager.closeCurrentPanelWithConfirmation()
+
+        XCTAssertEqual(manager.tabs.count, 2, "Expected Cmd+W to preserve the workspace when closing its last surface")
+        XCTAssertTrue(manager.tabs.contains(where: { $0.id == closedWorkspaceId }), "Expected workspace to remain after Cmd+W")
+        XCTAssertEqual(manager.selectedTabId, closedWorkspaceId, "Expected Cmd+W to keep the current workspace selected")
+        XCTAssertEqual(secondWorkspace.panels.count, 1, "Expected Cmd+W to leave one replacement surface in the workspace")
+        XCTAssertNotEqual(Set(secondWorkspace.panels.keys), originalPanelIds, "Expected the original last surface to be replaced")
+        XCTAssertEqual(manager.tabs.first?.id, originalWorkspace?.id, "Expected unrelated workspaces to remain untouched")
+    }
+}
+
+@MainActor
 final class TabManagerSurfaceCreationTests: XCTestCase {
     func testNewSurfaceFocusesCreatedSurface() {
         let manager = TabManager()

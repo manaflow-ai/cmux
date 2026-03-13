@@ -452,8 +452,8 @@ struct cmuxApp: App {
                 Divider()
 
                 // Terminal semantics:
-                // Cmd+W closes the focused tab (with confirmation if needed). If this is the last
-                // tab in the last workspace, it closes the window.
+                // Cmd+W closes the focused surface (with confirmation if needed) and keeps the
+                // workspace open, matching the tab close button behavior.
                 Button(String(localized: "menu.file.closeTab", defaultValue: "Close Tab")) {
                     closePanelOrWindow()
                 }

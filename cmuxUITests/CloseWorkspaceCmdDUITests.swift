@@ -2,9 +2,13 @@ import XCTest
 import Foundation
 
 final class CloseWorkspaceCmdDUITests: XCTestCase {
+    private var socketPath = ""
+
     override func setUp() {
         super.setUp()
         continueAfterFailure = false
+        socketPath = "/tmp/cmux-ui-test-close-workspace-cmdui-\(UUID().uuidString).sock"
+        try? FileManager.default.removeItem(atPath: socketPath)
     }
 
     func testCmdDConfirmsCloseWhenClosingLastWorkspaceClosesWindow() {
@@ -27,23 +31,48 @@ final class CloseWorkspaceCmdDUITests: XCTestCase {
         )
     }
 
-    func testCmdDConfirmsCloseWhenClosingLastTabClosesWindow() {
+    func testCmdWOnLastTabKeepsWorkspaceOpen() throws {
         let app = XCUIApplication()
-        // Closing the last tab should also present a confirmation and accept Cmd+D when it would close the window.
-        app.launchEnvironment["CMUX_UI_TEST_FORCE_CONFIRM_CLOSE_WORKSPACE"] = "1"
+        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
         app.launch()
         app.activate()
 
-        // Close current tab (Cmd+W). With a single workspace and a single tab, this will close the window after confirmation.
-        app.typeKey("w", modifierFlags: [.command])
-        XCTAssertTrue(waitForCloseTabAlert(app: app, timeout: 5.0))
+        XCTAssertTrue(waitForSocketPong(timeout: 12.0), "Expected control socket to respond at \(socketPath)")
+        XCTAssertEqual(workspaceCount(), 1, "Expected a single workspace before Cmd+W")
+        let surfaceIdBefore = try XCTUnwrap(firstSurfaceId(), "Expected a focused surface before Cmd+W")
 
-        // Cmd+D should accept the destructive close and close the window.
-        app.typeKey("d", modifierFlags: [.command])
+        app.typeKey("w", modifierFlags: [.command])
+
+        if waitForCloseTabAlert(app: app, timeout: 5.0) {
+            XCTAssertFalse(
+                app.staticTexts["This will close the last tab and close the window."].exists,
+                "Cmd+W should not warn that closing the last surface closes the window"
+            )
+            XCTAssertFalse(
+                app.staticTexts["This will close the last tab and close its workspace."].exists,
+                "Cmd+W should not warn that closing the last surface closes the workspace"
+            )
+            clickCloseOnAlert(app: app)
+        }
 
         XCTAssertTrue(
-            waitForNoWindowsOrAppNotRunningForeground(app: app, timeout: 6.0),
-            "Expected Cmd+D to confirm close and close the last window"
+            waitForWindowCount(app: app, atLeast: 1, timeout: 6.0),
+            "Expected Cmd+W on the last surface to keep the window open"
+        )
+        XCTAssertTrue(
+            waitForWorkspaceCount(1, timeout: 6.0),
+            "Expected Cmd+W on the last surface to keep the workspace open. list=" + (socketCommand("list_workspaces") ?? "<nil>")
+        )
+        XCTAssertTrue(
+            waitForSurfaceCount(1, timeout: 6.0),
+            "Expected Cmd+W on the last surface to leave a single replacement surface. list=" + (socketCommand("list_surfaces") ?? "<nil>")
+        )
+
+        let surfaceIdAfter = try XCTUnwrap(firstSurfaceId(), "Expected a focused surface after Cmd+W")
+        XCTAssertNotEqual(
+            surfaceIdAfter,
+            surfaceIdBefore,
+            "Expected Cmd+W on the last surface to close and replace the focused surface, not keep it open"
         )
     }
 
@@ -616,6 +645,28 @@ final class CloseWorkspaceCmdDUITests: XCTestCase {
         return false
     }
 
+    private func clickCloseOnAlert(app: XCUIApplication) {
+        let dialog = app.dialogs.containing(.staticText, identifier: "Close tab?").firstMatch
+        if dialog.exists {
+            dialog.buttons["Close"].firstMatch.click()
+            return
+        }
+        let alert = app.alerts.containing(.staticText, identifier: "Close tab?").firstMatch
+        if alert.exists {
+            alert.buttons["Close"].firstMatch.click()
+            return
+        }
+        let anyDialog = app.dialogs.firstMatch
+        if anyDialog.exists, anyDialog.buttons["Close"].exists {
+            anyDialog.buttons["Close"].firstMatch.click()
+            return
+        }
+        let anyAlert = app.alerts.firstMatch
+        if anyAlert.exists, anyAlert.buttons["Close"].exists {
+            anyAlert.buttons["Close"].firstMatch.click()
+        }
+    }
+
     private func waitForWindowCount(app: XCUIApplication, toBe count: Int, timeout: TimeInterval) -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
@@ -632,6 +683,106 @@ final class CloseWorkspaceCmdDUITests: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         }
         return app.windows.count >= count
+    }
+
+    private func waitForSocketPong(timeout: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if socketCommand("ping") == "PONG" {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        return socketCommand("ping") == "PONG"
+    }
+
+    private func waitForWorkspaceCount(_ expectedCount: Int, timeout: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if workspaceCount() == expectedCount {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        return workspaceCount() == expectedCount
+    }
+
+    private func waitForSurfaceCount(_ expectedCount: Int, timeout: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if surfaceCount() == expectedCount {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        return surfaceCount() == expectedCount
+    }
+
+    private func workspaceCount() -> Int {
+        guard let response = socketCommand("list_workspaces") else { return -1 }
+        if response == "No workspaces" {
+            return 0
+        }
+        return response
+            .split(separator: "\n")
+            .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            .count
+    }
+
+    private func surfaceCount() -> Int {
+        guard let response = socketCommand("list_surfaces") else { return -1 }
+        if response == "No surfaces" {
+            return 0
+        }
+        return response
+            .split(separator: "\n")
+            .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            .count
+    }
+
+    private func firstSurfaceId() -> String? {
+        guard let response = socketCommand("list_surfaces"), response != "No surfaces" else { return nil }
+        guard let firstLine = response
+            .split(separator: "\n")
+            .map({ $0.trimmingCharacters(in: .whitespacesAndNewlines) })
+            .first(where: { !$0.isEmpty }) else {
+            return nil
+        }
+        guard let uuidComponent = firstLine.split(separator: " ").last else { return nil }
+        return String(uuidComponent)
+    }
+
+    private func socketCommand(_ cmd: String) -> String? {
+        let nc = "/usr/bin/nc"
+        guard FileManager.default.isExecutableFile(atPath: nc) else { return nil }
+
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: nc)
+        proc.arguments = ["-U", socketPath, "-w", "2"]
+
+        let inPipe = Pipe()
+        let outPipe = Pipe()
+        let errPipe = Pipe()
+        proc.standardInput = inPipe
+        proc.standardOutput = outPipe
+        proc.standardError = errPipe
+
+        do {
+            try proc.run()
+        } catch {
+            return nil
+        }
+
+        if let data = (cmd + "\n").data(using: .utf8) {
+            inPipe.fileHandleForWriting.write(data)
+        }
+        inPipe.fileHandleForWriting.closeFile()
+
+        proc.waitUntilExit()
+
+        let outData = outPipe.fileHandleForReading.readDataToEndOfFile()
+        guard let outStr = String(data: outData, encoding: .utf8) else { return nil }
+        return outStr.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func waitForNoWindowsOrAppNotRunningForeground(app: XCUIApplication, timeout: TimeInterval) -> Bool {

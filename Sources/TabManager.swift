@@ -1650,9 +1650,6 @@ class TabManager: ObservableObject {
     }
 
     private func closePanelWithConfirmation(tab: Workspace, panelId: UUID) {
-        let bonsplitTabCount = tab.bonsplitController.allPaneIds.reduce(0) { partial, paneId in
-            partial + tab.bonsplitController.tabs(inPane: paneId).count
-        }
         let panelKind: String = {
             guard let panel = tab.panels[panelId] else { return "missing" }
             if panel is TerminalPanel { return "terminal" }
@@ -1663,51 +1660,15 @@ class TabManager: ObservableObject {
         dlog(
             "surface.close.shortcut.begin tab=\(tab.id.uuidString.prefix(5)) " +
             "panel=\(panelId.uuidString.prefix(5)) kind=\(panelKind) " +
-            "panelCount=\(tab.panels.count) bonsplitTabs=\(bonsplitTabCount)"
+            "panelCount=\(tab.panels.count)"
         )
 #endif
 
-        // Cmd+W closes the focused Bonsplit tab (a "tab" in the UI). When the workspace only has
-        // a single tab left, closing it should close the workspace (and possibly the window),
-        // rather than creating a replacement terminal.
-        let effectiveSurfaceCount = max(tab.panels.count, bonsplitTabCount)
-        let isLastTabInWorkspace = effectiveSurfaceCount <= 1
-        if isLastTabInWorkspace {
-            let willCloseWindow = tabs.count <= 1
-            let needsConfirm = workspaceNeedsConfirmClose(tab)
-            if needsConfirm {
-                let message = willCloseWindow
-                    ? String(localized: "dialog.closeLastTabWindow.message", defaultValue: "This will close the last tab and close the window.")
-                    : String(localized: "dialog.closeLastTabWorkspace.message", defaultValue: "This will close the last tab and close its workspace.")
-#if DEBUG
-                dlog(
-                    "surface.close.shortcut.confirm tab=\(tab.id.uuidString.prefix(5)) " +
-                    "panel=\(panelId.uuidString.prefix(5)) reason=lastTab"
-                )
-#endif
-                guard confirmClose(
-                    title: String(localized: "dialog.closeTab.title", defaultValue: "Close tab?"),
-                    message: message,
-                    acceptCmdD: willCloseWindow
-                ) else {
-#if DEBUG
-                    dlog(
-                        "surface.close.shortcut.cancel tab=\(tab.id.uuidString.prefix(5)) " +
-                        "panel=\(panelId.uuidString.prefix(5)) reason=lastTabConfirmDismissed"
-                    )
-#endif
-                    return
-                }
-            }
+        guard tab.panels[panelId] != nil else { return }
 
-            AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: tab.id)
-            if willCloseWindow {
-                AppDelegate.shared?.closeMainWindowContainingTabId(tab.id)
-            } else {
-                closeWorkspace(tab)
-            }
-            return
-        }
+        // Keep the keyboard shortcut aligned with the tab close button: close only the addressed
+        // surface and let Workspace maintain the replacement-surface invariant when needed.
+        reconcileFocusedPanelFromFirstResponderForKeyboard()
 
         if let terminalPanel = tab.terminalPanel(for: panelId),
            terminalPanel.needsConfirmClose() {
@@ -1741,6 +1702,7 @@ class TabManager: ObservableObject {
             "panelsAfterCall=\(tab.panels.count)"
         )
 #endif
+        AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: tab.id, surfaceId: panelId)
     }
 
     func closePanelWithConfirmation(tabId: UUID, surfaceId: UUID) {
