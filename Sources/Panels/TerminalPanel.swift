@@ -187,10 +187,12 @@ final class TerminalPanel: Panel, ObservableObject {
     }
 
     func triggerFlash() {
+        guard NotificationPaneFlashSettings.isEnabled() else { return }
         hostedView.triggerFlash()
     }
 
     func triggerNotificationDismissFlash() {
+        guard NotificationPaneFlashSettings.isEnabled() else { return }
         hostedView.triggerFlash(style: .notificationDismiss)
     }
 
