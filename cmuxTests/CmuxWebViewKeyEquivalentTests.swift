@@ -4698,6 +4698,12 @@ final class SidebarWorkspaceDetailSettingsTests: XCTestCase {
         XCTAssertFalse(SidebarWorkspaceDetailSettings.showsNotificationMessage(defaults: defaults))
         XCTAssertFalse(
             SidebarWorkspaceDetailSettings.resolvedNotificationMessageVisibility(
+                showNotificationMessage: SidebarWorkspaceDetailSettings.showsNotificationMessage(defaults: defaults),
+                hideAllDetails: false
+            )
+        )
+        XCTAssertFalse(
+            SidebarWorkspaceDetailSettings.resolvedNotificationMessageVisibility(
                 showNotificationMessage: true,
                 hideAllDetails: SidebarWorkspaceDetailSettings.hidesAllDetails(defaults: defaults)
             )

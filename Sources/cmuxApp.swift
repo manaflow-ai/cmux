@@ -3656,7 +3656,7 @@ struct SettingsView: View {
                             String(localized: "settings.app.hideAllSidebarDetails", defaultValue: "Hide All Sidebar Details"),
                             subtitle: sidebarHideAllDetails
                                 ? String(localized: "settings.app.hideAllSidebarDetails.subtitleOn", defaultValue: "Show only the workspace title row. Overrides the detail toggles below.")
-                                : String(localized: "settings.app.hideAllSidebarDetails.subtitleOff", defaultValue: "Hide all secondary workspace details without changing the toggles below.")
+                                : String(localized: "settings.app.hideAllSidebarDetails.subtitleOff", defaultValue: "Show secondary workspace details as controlled by the toggles below.")
                         ) {
                             Toggle("", isOn: $sidebarHideAllDetails)
                                 .labelsHidden()

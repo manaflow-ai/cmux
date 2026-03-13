@@ -41459,13 +41459,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hide all secondary workspace details without changing the toggles below."
+            "value": "Show secondary workspace details as controlled by the toggles below."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "下のトグル設定は保持したまま、ワークスペースの補助情報をすべて隠します。"
+            "value": "下のトグル設定に従って、ワークスペースの補助情報を表示します。"
           }
         }
       }
