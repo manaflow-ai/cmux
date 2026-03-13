@@ -7162,10 +7162,21 @@ struct VerticalTabsSidebar: View {
     @StateObject private var dragFailsafeMonitor = SidebarDragFailsafeMonitor()
     @State private var draggedTabId: UUID?
     @State private var dropIndicator: SidebarDropIndicator?
+    @AppStorage(SidebarWorkspaceDetailSettings.hideAllDetailsKey)
+    private var sidebarHideAllDetails = SidebarWorkspaceDetailSettings.defaultHideAllDetails
+    @AppStorage(SidebarWorkspaceDetailSettings.showNotificationMessageKey)
+    private var sidebarShowNotificationMessage = SidebarWorkspaceDetailSettings.defaultShowNotificationMessage
 
     /// Space at top of sidebar for traffic light buttons
     private let trafficLightPadding: CGFloat = 28
     private let tabRowSpacing: CGFloat = 2
+
+    private var showsSidebarNotificationMessage: Bool {
+        SidebarWorkspaceDetailSettings.resolvedNotificationMessageVisibility(
+            showNotificationMessage: sidebarShowNotificationMessage,
+            hideAllDetails: sidebarHideAllDetails
+        )
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -7187,7 +7198,10 @@ struct VerticalTabsSidebar: View {
                                     tabCount: tabManager.tabs.count,
                                     unreadCount: notificationStore.unreadCount(forTabId: tab.id),
                                     latestNotificationText: {
-                                        guard let notification = notificationStore.latestNotification(forTabId: tab.id) else { return nil }
+                                        guard showsSidebarNotificationMessage,
+                                              let notification = notificationStore.latestNotification(forTabId: tab.id) else {
+                                            return nil
+                                        }
                                         let text = notification.body.isEmpty ? notification.title : notification.body
                                         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
                                         return trimmed.isEmpty ? nil : trimmed
@@ -9493,6 +9507,8 @@ private struct TabItemView: View, Equatable {
     @AppStorage("sidebarShowLog") private var sidebarShowLog = true
     @AppStorage("sidebarShowProgress") private var sidebarShowProgress = true
     @AppStorage("sidebarShowStatusPills") private var sidebarShowMetadata = true
+    @AppStorage(SidebarWorkspaceDetailSettings.hideAllDetailsKey)
+    private var sidebarHideAllDetails = SidebarWorkspaceDetailSettings.defaultHideAllDetails
     @AppStorage(SidebarActiveTabIndicatorSettings.styleKey)
     private var activeTabIndicatorStyleRaw = SidebarActiveTabIndicatorSettings.defaultStyle.rawValue
 
@@ -9591,17 +9607,30 @@ private struct TabItemView: View, Equatable {
         )
     }
 
+    private var visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility {
+        SidebarWorkspaceAuxiliaryDetailVisibility.resolved(
+            showMetadata: sidebarShowMetadata,
+            showLog: sidebarShowLog,
+            showProgress: sidebarShowProgress,
+            showBranchDirectory: sidebarShowBranchDirectory,
+            showPullRequests: sidebarShowPullRequest,
+            showPorts: sidebarShowPorts,
+            hideAllDetails: sidebarHideAllDetails
+        )
+    }
+
     var body: some View {
         let closeWorkspaceTooltip = String(localized: "sidebar.closeWorkspace.tooltip", defaultValue: "Close Workspace")
         let accessibilityHintText = String(localized: "sidebar.workspace.accessibilityHint", defaultValue: "Activate to focus this workspace. Drag to reorder, or use Move Up and Move Down actions.")
         let moveUpActionText = String(localized: "sidebar.workspace.moveUpAction", defaultValue: "Move Up")
         let moveDownActionText = String(localized: "sidebar.workspace.moveDownAction", defaultValue: "Move Down")
         let latestNotificationSubtitle = latestNotificationText
-        let orderedPanelIds: [UUID]? = (sidebarShowBranchDirectory || sidebarShowPullRequest)
+        let detailVisibility = visibleAuxiliaryDetails
+        let orderedPanelIds: [UUID]? = (detailVisibility.showsBranchDirectory || detailVisibility.showsPullRequests)
             ? tab.sidebarOrderedPanelIds()
             : nil
         let compactGitBranchSummaryText: String? = {
-            guard sidebarShowBranchDirectory,
+            guard detailVisibility.showsBranchDirectory,
                   !sidebarBranchVerticalLayout,
                   sidebarShowGitBranch,
                   let orderedPanelIds else {
@@ -9610,7 +9639,7 @@ private struct TabItemView: View, Equatable {
             return gitBranchSummaryText(orderedPanelIds: orderedPanelIds)
         }()
         let compactDirectorySummaryText: String? = {
-            guard sidebarShowBranchDirectory,
+            guard detailVisibility.showsBranchDirectory,
                   !sidebarBranchVerticalLayout,
                   let orderedPanelIds else {
                 return nil
@@ -9622,7 +9651,7 @@ private struct TabItemView: View, Equatable {
             directorySummary: compactDirectorySummaryText
         )
         let branchDirectoryLines: [VerticalBranchDirectoryLine] = {
-            guard sidebarShowBranchDirectory,
+            guard detailVisibility.showsBranchDirectory,
                   sidebarBranchVerticalLayout,
                   let orderedPanelIds else {
                 return []
@@ -9631,7 +9660,7 @@ private struct TabItemView: View, Equatable {
         }()
         let branchLinesContainBranch = sidebarShowGitBranch && branchDirectoryLines.contains { $0.branch != nil }
         let pullRequestRows: [PullRequestDisplay] = {
-            guard sidebarShowPullRequest, let orderedPanelIds else { return [] }
+            guard detailVisibility.showsPullRequests, let orderedPanelIds else { return [] }
             return pullRequestDisplays(orderedPanelIds: orderedPanelIds)
         }()
 
@@ -9709,7 +9738,7 @@ private struct TabItemView: View, Equatable {
                     .multilineTextAlignment(.leading)
             }
 
-            if sidebarShowMetadata {
+            if detailVisibility.showsMetadata {
                 let metadataEntries = tab.sidebarStatusEntriesInDisplayOrder()
                 let metadataBlocks = tab.sidebarMetadataBlocksInDisplayOrder()
                 if !metadataEntries.isEmpty {
@@ -9731,7 +9760,7 @@ private struct TabItemView: View, Equatable {
             }
 
             // Latest log entry
-            if sidebarShowLog, let latestLog = tab.logEntries.last {
+            if detailVisibility.showsLog, let latestLog = tab.logEntries.last {
                 HStack(spacing: 4) {
                     Image(systemName: logLevelIcon(latestLog.level))
                         .font(.system(size: 8))
@@ -9746,7 +9775,7 @@ private struct TabItemView: View, Equatable {
             }
 
             // Progress bar
-            if sidebarShowProgress, let progress = tab.progress {
+            if detailVisibility.showsProgress, let progress = tab.progress {
                 VStack(alignment: .leading, spacing: 2) {
                     GeometryReader { geo in
                         ZStack(alignment: .leading) {
@@ -9770,7 +9799,7 @@ private struct TabItemView: View, Equatable {
             }
 
             // Branch + directory row
-            if sidebarShowBranchDirectory {
+            if detailVisibility.showsBranchDirectory {
                 if sidebarBranchVerticalLayout {
                     if !branchDirectoryLines.isEmpty {
                         HStack(alignment: .top, spacing: 3) {
@@ -9824,7 +9853,7 @@ private struct TabItemView: View, Equatable {
             }
 
             // Pull request rows
-            if sidebarShowPullRequest, !pullRequestRows.isEmpty {
+            if detailVisibility.showsPullRequests, !pullRequestRows.isEmpty {
                 VStack(alignment: .leading, spacing: 1) {
                     ForEach(pullRequestRows) { pullRequest in
                         Button(action: {
@@ -9853,7 +9882,7 @@ private struct TabItemView: View, Equatable {
             }
 
             // Ports row
-            if sidebarShowPorts, !tab.listeningPorts.isEmpty {
+            if detailVisibility.showsPorts, !tab.listeningPorts.isEmpty {
                 Text(tab.listeningPorts.map { ":\($0)" }.joined(separator: ", "))
                     .font(.system(size: 10, design: .monospaced))
                     .foregroundColor(activeSecondaryColor(0.75))

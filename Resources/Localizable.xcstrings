@@ -41436,6 +41436,57 @@
         }
       }
     },
+    "settings.app.hideAllSidebarDetails": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide All Sidebar Details"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーの詳細をすべて隠す"
+          }
+        }
+      }
+    },
+    "settings.app.hideAllSidebarDetails.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show secondary workspace details as controlled by the toggles below."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下のトグル設定に従って、ワークスペースの補助情報を表示します。"
+          }
+        }
+      }
+    },
+    "settings.app.hideAllSidebarDetails.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show only the workspace title row. Overrides the detail toggles below."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースのタイトル行だけを表示します。下の詳細トグルより優先されます。"
+          }
+        }
+      }
+    },
     "settings.app.renameSelectsName": {
       "extractionState": "manual",
       "localizations": {
@@ -42675,6 +42726,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "report_meta/set_status ve report_meta_block'tan özel üst veriyi göster."
+          }
+        }
+      }
+    },
+    "settings.app.showNotificationMessage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Notification Message in Sidebar"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーに通知メッセージを表示"
+          }
+        }
+      }
+    },
+    "settings.app.showNotificationMessage.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Display the latest notification message below the workspace title."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペース名の下に最新の通知メッセージを表示します。"
           }
         }
       }

@@ -63,6 +63,72 @@ enum SidebarBranchLayoutSettings {
     }
 }
 
+enum SidebarWorkspaceDetailSettings {
+    static let hideAllDetailsKey = "sidebarHideAllDetails"
+    static let showNotificationMessageKey = "sidebarShowNotificationMessage"
+    static let defaultHideAllDetails = false
+    static let defaultShowNotificationMessage = true
+
+    static func hidesAllDetails(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: hideAllDetailsKey) == nil {
+            return defaultHideAllDetails
+        }
+        return defaults.bool(forKey: hideAllDetailsKey)
+    }
+
+    static func showsNotificationMessage(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: showNotificationMessageKey) == nil {
+            return defaultShowNotificationMessage
+        }
+        return defaults.bool(forKey: showNotificationMessageKey)
+    }
+
+    static func resolvedNotificationMessageVisibility(
+        showNotificationMessage: Bool,
+        hideAllDetails: Bool
+    ) -> Bool {
+        showNotificationMessage && !hideAllDetails
+    }
+}
+
+struct SidebarWorkspaceAuxiliaryDetailVisibility: Equatable {
+    let showsMetadata: Bool
+    let showsLog: Bool
+    let showsProgress: Bool
+    let showsBranchDirectory: Bool
+    let showsPullRequests: Bool
+    let showsPorts: Bool
+
+    static let hidden = Self(
+        showsMetadata: false,
+        showsLog: false,
+        showsProgress: false,
+        showsBranchDirectory: false,
+        showsPullRequests: false,
+        showsPorts: false
+    )
+
+    static func resolved(
+        showMetadata: Bool,
+        showLog: Bool,
+        showProgress: Bool,
+        showBranchDirectory: Bool,
+        showPullRequests: Bool,
+        showPorts: Bool,
+        hideAllDetails: Bool
+    ) -> Self {
+        guard !hideAllDetails else { return .hidden }
+        return Self(
+            showsMetadata: showMetadata,
+            showsLog: showLog,
+            showsProgress: showProgress,
+            showsBranchDirectory: showBranchDirectory,
+            showsPullRequests: showPullRequests,
+            showsPorts: showPorts
+        )
+    }
+}
+
 enum SidebarActiveTabIndicatorStyle: String, CaseIterable, Identifiable {
     case leftRail
     case solidFill

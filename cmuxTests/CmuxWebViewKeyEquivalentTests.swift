@@ -4664,6 +4664,92 @@ final class SidebarBranchLayoutSettingsTests: XCTestCase {
     }
 }
 
+final class SidebarWorkspaceDetailSettingsTests: XCTestCase {
+    func testDefaultPreferencesWhenUnset() {
+        let suiteName = "SidebarWorkspaceDetailSettingsTests.Default.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        XCTAssertFalse(SidebarWorkspaceDetailSettings.hidesAllDetails(defaults: defaults))
+        XCTAssertTrue(SidebarWorkspaceDetailSettings.showsNotificationMessage(defaults: defaults))
+        XCTAssertTrue(
+            SidebarWorkspaceDetailSettings.resolvedNotificationMessageVisibility(
+                showNotificationMessage: SidebarWorkspaceDetailSettings.showsNotificationMessage(defaults: defaults),
+                hideAllDetails: SidebarWorkspaceDetailSettings.hidesAllDetails(defaults: defaults)
+            )
+        )
+    }
+
+    func testStoredPreferencesOverrideDefaults() {
+        let suiteName = "SidebarWorkspaceDetailSettingsTests.Stored.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set(true, forKey: SidebarWorkspaceDetailSettings.hideAllDetailsKey)
+        defaults.set(false, forKey: SidebarWorkspaceDetailSettings.showNotificationMessageKey)
+
+        XCTAssertTrue(SidebarWorkspaceDetailSettings.hidesAllDetails(defaults: defaults))
+        XCTAssertFalse(SidebarWorkspaceDetailSettings.showsNotificationMessage(defaults: defaults))
+        XCTAssertFalse(
+            SidebarWorkspaceDetailSettings.resolvedNotificationMessageVisibility(
+                showNotificationMessage: SidebarWorkspaceDetailSettings.showsNotificationMessage(defaults: defaults),
+                hideAllDetails: false
+            )
+        )
+        XCTAssertFalse(
+            SidebarWorkspaceDetailSettings.resolvedNotificationMessageVisibility(
+                showNotificationMessage: true,
+                hideAllDetails: SidebarWorkspaceDetailSettings.hidesAllDetails(defaults: defaults)
+            )
+        )
+    }
+}
+
+final class SidebarWorkspaceAuxiliaryDetailVisibilityTests: XCTestCase {
+    func testResolvedVisibilityPreservesPerRowTogglesWhenDetailsAreShown() {
+        XCTAssertEqual(
+            SidebarWorkspaceAuxiliaryDetailVisibility.resolved(
+                showMetadata: true,
+                showLog: false,
+                showProgress: true,
+                showBranchDirectory: false,
+                showPullRequests: true,
+                showPorts: false,
+                hideAllDetails: false
+            ),
+            SidebarWorkspaceAuxiliaryDetailVisibility(
+                showsMetadata: true,
+                showsLog: false,
+                showsProgress: true,
+                showsBranchDirectory: false,
+                showsPullRequests: true,
+                showsPorts: false
+            )
+        )
+    }
+
+    func testResolvedVisibilityHidesAllAuxiliaryRowsWhenDetailsAreHidden() {
+        XCTAssertEqual(
+            SidebarWorkspaceAuxiliaryDetailVisibility.resolved(
+                showMetadata: true,
+                showLog: true,
+                showProgress: true,
+                showBranchDirectory: true,
+                showPullRequests: true,
+                showPorts: true,
+                hideAllDetails: true
+            ),
+            .hidden
+        )
+    }
+}
+
 final class SidebarActiveTabIndicatorSettingsTests: XCTestCase {
     func testDefaultStyleWhenUnset() {
         let suiteName = "SidebarActiveTabIndicatorSettingsTests.Default.\(UUID().uuidString)"

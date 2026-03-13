@@ -3077,6 +3077,10 @@ struct SettingsView: View {
     private var alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
     @AppStorage(WorkspacePlacementSettings.placementKey) private var newWorkspacePlacement = WorkspacePlacementSettings.defaultPlacement.rawValue
     @AppStorage(WorkspaceAutoReorderSettings.key) private var workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
+    @AppStorage(SidebarWorkspaceDetailSettings.hideAllDetailsKey)
+    private var sidebarHideAllDetails = SidebarWorkspaceDetailSettings.defaultHideAllDetails
+    @AppStorage(SidebarWorkspaceDetailSettings.showNotificationMessageKey)
+    private var sidebarShowNotificationMessage = SidebarWorkspaceDetailSettings.defaultShowNotificationMessage
     @AppStorage(SidebarBranchLayoutSettings.key) private var sidebarBranchVerticalLayout = SidebarBranchLayoutSettings.defaultVerticalLayout
     @AppStorage(SidebarActiveTabIndicatorSettings.styleKey)
     private var sidebarActiveTabIndicatorStyle = SidebarActiveTabIndicatorSettings.defaultStyle.rawValue
@@ -3648,6 +3652,19 @@ struct SettingsView: View {
 
                         SettingsCardDivider()
 
+                        SettingsCardRow(
+                            String(localized: "settings.app.hideAllSidebarDetails", defaultValue: "Hide All Sidebar Details"),
+                            subtitle: sidebarHideAllDetails
+                                ? String(localized: "settings.app.hideAllSidebarDetails.subtitleOn", defaultValue: "Show only the workspace title row. Overrides the detail toggles below.")
+                                : String(localized: "settings.app.hideAllSidebarDetails.subtitleOff", defaultValue: "Show secondary workspace details as controlled by the toggles below.")
+                        ) {
+                            Toggle("", isOn: $sidebarHideAllDetails)
+                                .labelsHidden()
+                                .controlSize(.small)
+                        }
+
+                        SettingsCardDivider()
+
                         SettingsPickerRow(
                             String(localized: "settings.app.sidebarBranchLayout", defaultValue: "Sidebar Branch Layout"),
                             subtitle: sidebarBranchVerticalLayout
@@ -3659,6 +3676,19 @@ struct SettingsView: View {
                             Text(String(localized: "settings.app.sidebarBranchLayout.vertical", defaultValue: "Vertical")).tag(true)
                             Text(String(localized: "settings.app.sidebarBranchLayout.inline", defaultValue: "Inline")).tag(false)
                         }
+                        .disabled(sidebarHideAllDetails)
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            String(localized: "settings.app.showNotificationMessage", defaultValue: "Show Notification Message in Sidebar"),
+                            subtitle: String(localized: "settings.app.showNotificationMessage.subtitle", defaultValue: "Display the latest notification message below the workspace title.")
+                        ) {
+                            Toggle("", isOn: $sidebarShowNotificationMessage)
+                                .labelsHidden()
+                                .controlSize(.small)
+                        }
+                        .disabled(sidebarHideAllDetails)
 
                         SettingsCardDivider()
 
@@ -3670,6 +3700,7 @@ struct SettingsView: View {
                                 .labelsHidden()
                                 .controlSize(.small)
                         }
+                        .disabled(sidebarHideAllDetails)
 
                         SettingsCardDivider()
 
@@ -3681,6 +3712,7 @@ struct SettingsView: View {
                                 .labelsHidden()
                                 .controlSize(.small)
                         }
+                        .disabled(sidebarHideAllDetails)
 
                         SettingsCardDivider()
 
@@ -3694,6 +3726,7 @@ struct SettingsView: View {
                                 .labelsHidden()
                                 .controlSize(.small)
                         }
+                        .disabled(sidebarHideAllDetails)
 
                         SettingsCardDivider()
 
@@ -3705,6 +3738,7 @@ struct SettingsView: View {
                                 .labelsHidden()
                                 .controlSize(.small)
                         }
+                        .disabled(sidebarHideAllDetails)
 
                         SettingsCardDivider()
 
@@ -3716,6 +3750,7 @@ struct SettingsView: View {
                                 .labelsHidden()
                                 .controlSize(.small)
                         }
+                        .disabled(sidebarHideAllDetails)
 
                         SettingsCardDivider()
 
@@ -3727,6 +3762,7 @@ struct SettingsView: View {
                                 .labelsHidden()
                                 .controlSize(.small)
                         }
+                        .disabled(sidebarHideAllDetails)
 
                         SettingsCardDivider()
 
@@ -3738,6 +3774,7 @@ struct SettingsView: View {
                                 .labelsHidden()
                                 .controlSize(.small)
                         }
+                        .disabled(sidebarHideAllDetails)
                     }
 
                     SettingsSectionHeader(title: String(localized: "settings.section.workspaceColors", defaultValue: "Workspace Colors"))
@@ -4376,6 +4413,8 @@ struct SettingsView: View {
         alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
         newWorkspacePlacement = WorkspacePlacementSettings.defaultPlacement.rawValue
         workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
+        sidebarHideAllDetails = SidebarWorkspaceDetailSettings.defaultHideAllDetails
+        sidebarShowNotificationMessage = SidebarWorkspaceDetailSettings.defaultShowNotificationMessage
         sidebarBranchVerticalLayout = SidebarBranchLayoutSettings.defaultVerticalLayout
         sidebarActiveTabIndicatorStyle = SidebarActiveTabIndicatorSettings.defaultStyle.rawValue
         sidebarShowBranchDirectory = true
