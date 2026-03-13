@@ -235,6 +235,48 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(secondManager.tabs.count, secondCount + 1, "Menu-driven add workspace should still route to key window context when object-key lookup misses")
     }
 
+    func testAddWorkspaceInPreferredMainWindowPrunesOrphanedContextWithoutLiveWindow() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let orphanWindowId = UUID()
+        let orphanManager = TabManager()
+        let orphanSidebarState = SidebarState()
+        let orphanSidebarSelectionState = SidebarSelectionState()
+
+        autoreleasepool {
+            var orphanWindow: NSWindow? = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+                styleMask: [.titled, .closable, .resizable],
+                backing: .buffered,
+                defer: false
+            )
+            orphanWindow?.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(orphanWindowId.uuidString)")
+            appDelegate.registerMainWindow(
+                orphanWindow!,
+                windowId: orphanWindowId,
+                tabManager: orphanManager,
+                sidebarState: orphanSidebarState,
+                sidebarSelectionState: orphanSidebarSelectionState
+            )
+            orphanWindow = nil
+        }
+
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        XCTAssertNil(appDelegate.mainWindow(for: orphanWindowId), "Test precondition: orphaned context should not have a live window")
+
+        let orphanCount = orphanManager.tabs.count
+        XCTAssertNil(
+            appDelegate.addWorkspaceInPreferredMainWindow(),
+            "Workspace creation should refuse orphaned contexts with no live window"
+        )
+        XCTAssertEqual(orphanManager.tabs.count, orphanCount, "Orphaned manager must not receive a new workspace")
+        XCTAssertNil(appDelegate.tabManagerFor(windowId: orphanWindowId), "Orphaned context should be pruned after failed resolution")
+    }
+
     func testCmdDigitRoutesToEventWindowWhenActiveManagerIsStale() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")

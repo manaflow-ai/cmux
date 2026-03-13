@@ -4578,6 +4578,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return NSApp.windows.first(where: { $0.identifier?.rawValue == expectedIdentifier })
     }
 
+    private func resolvedWindow(for context: MainWindowContext) -> NSWindow? {
+        guard let window = context.window ?? windowForMainWindowId(context.windowId) else {
+            return nil
+        }
+        context.window = window
+        return window
+    }
+
     private func mainWindowId(from window: NSWindow) -> UUID? {
         guard let raw = window.identifier?.rawValue else { return nil }
         let prefix = "cmux.main."
@@ -4653,6 +4661,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             mainWindowContexts.removeValue(forKey: key)
         }
         return removed
+    }
+
+    private func discardOrphanedMainWindowContext(_ context: MainWindowContext) {
+        let contextKeys = mainWindowContexts.compactMap { key, value in
+            value === context ? key : nil
+        }
+        for key in contextKeys {
+            mainWindowContexts.removeValue(forKey: key)
+        }
+
+        commandPaletteVisibilityByWindowId.removeValue(forKey: context.windowId)
+        commandPalettePendingOpenByWindowId.removeValue(forKey: context.windowId)
+        commandPaletteRecentRequestAtByWindowId.removeValue(forKey: context.windowId)
+        commandPaletteEscapeSuppressionByWindowId.remove(context.windowId)
+        commandPaletteEscapeSuppressionStartedAtByWindowId.removeValue(forKey: context.windowId)
+        commandPaletteSelectionByWindowId.removeValue(forKey: context.windowId)
+        commandPaletteSnapshotByWindowId.removeValue(forKey: context.windowId)
+
+        if tabManager === context.tabManager {
+            if let nextContext = mainWindowContexts.values.first(where: { resolvedWindow(for: $0) != nil }) {
+                tabManager = nextContext.tabManager
+                sidebarState = nextContext.sidebarState
+                sidebarSelectionState = nextContext.sidebarSelectionState
+                TerminalController.shared.setActiveTabManager(nextContext.tabManager)
+            } else {
+                tabManager = nil
+                sidebarState = nil
+                sidebarSelectionState = nil
+                TerminalController.shared.setActiveTabManager(nil)
+            }
+        }
+
+        if let store = notificationStore {
+            for tab in context.tabManager.tabs {
+                store.clearNotifications(forTabId: tab.id)
+            }
+        }
     }
 
     private func mainWindowId(for window: NSWindow) -> UUID? {
@@ -5080,11 +5125,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             #endif
             return nil
         }
-        if let window = context.window ?? windowForMainWindowId(context.windowId) {
-            setActiveMainWindow(window)
-            if shouldBringToFront {
-                bringToFront(window)
-            }
+        guard let window = resolvedWindow(for: context) else {
+            #if DEBUG
+            logWorkspaceCreationRouting(
+                phase: "no_context",
+                source: debugSource,
+                reason: "context_window_missing",
+                event: event,
+                chosenContext: context,
+                workingDirectory: workingDirectory
+            )
+            #endif
+            discardOrphanedMainWindowContext(context)
+            return nil
+        }
+        setActiveMainWindow(window)
+        if shouldBringToFront {
+            bringToFront(window)
         }
 
         let workspace: Workspace
@@ -5173,7 +5230,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
 
-        let fallback = mainWindowContexts.values.first
+        let fallback = mainWindowContexts.values.first(where: { resolvedWindow(for: $0) != nil })
         #if DEBUG
         logWorkspaceCreationRouting(
             phase: "choose",
