@@ -1838,6 +1838,7 @@ final class Workspace: Identifiable, ObservableObject {
         manualUnreadMarkedAt = manualUnreadMarkedAt.filter { validSurfaceIds.contains($0.key) }
         surfaceListeningPorts = surfaceListeningPorts.filter { validSurfaceIds.contains($0.key) }
         surfaceTTYNames = surfaceTTYNames.filter { validSurfaceIds.contains($0.key) }
+        panelShellActivityStates = panelShellActivityStates.filter { validSurfaceIds.contains($0.key) }
         panelPullRequests = panelPullRequests.filter { validSurfaceIds.contains($0.key) }
         recomputeListeningPorts()
     }
@@ -3526,9 +3527,9 @@ final class Workspace: Identifiable, ObservableObject {
 
     /// Check if any panel needs close confirmation
     func needsConfirmClose() -> Bool {
-        for panel in panels.values {
+        for (panelId, panel) in panels {
             if let terminalPanel = panel as? TerminalPanel,
-               terminalPanel.needsConfirmClose() {
+               panelNeedsConfirmClose(panelId: panelId, fallbackNeedsConfirmClose: terminalPanel.needsConfirmClose()) {
                 return true
             }
         }
@@ -4617,7 +4618,7 @@ extension Workspace: BonsplitDelegate {
         // If confirmation is required, Bonsplit will call into this delegate and we must return false.
         // Show an app-level confirmation, then re-attempt the close with forceCloseTabIds to bypass
         // this gating on the second pass.
-        if terminalPanel.needsConfirmClose() {
+        if panelNeedsConfirmClose(panelId: panelId, fallbackNeedsConfirmClose: terminalPanel.needsConfirmClose()) {
             clearStagedClosedBrowserRestoreSnapshot(for: tab.id)
             if pendingCloseConfirmTabIds.contains(tab.id) {
                 return false
@@ -4717,6 +4718,7 @@ extension Workspace: BonsplitDelegate {
         manualUnreadPanelIds.remove(panelId)
         manualUnreadMarkedAt.removeValue(forKey: panelId)
         panelSubscriptions.removeValue(forKey: panelId)
+        panelShellActivityStates.removeValue(forKey: panelId)
         surfaceTTYNames.removeValue(forKey: panelId)
         restoredTerminalScrollbackByPanelId.removeValue(forKey: panelId)
         PortScanner.shared.unregisterPanel(workspaceId: id, panelId: panelId)
@@ -4896,6 +4898,7 @@ extension Workspace: BonsplitDelegate {
                 pinnedPanelIds.remove(panelId)
                 manualUnreadPanelIds.remove(panelId)
                 panelSubscriptions.removeValue(forKey: panelId)
+                panelShellActivityStates.removeValue(forKey: panelId)
                 surfaceTTYNames.removeValue(forKey: panelId)
                 surfaceListeningPorts.removeValue(forKey: panelId)
                 restoredTerminalScrollbackByPanelId.removeValue(forKey: panelId)
@@ -4933,7 +4936,7 @@ extension Workspace: BonsplitDelegate {
             if forceCloseTabIds.contains(tab.id) { continue }
             if let panelId = panelIdFromSurfaceId(tab.id),
                let terminalPanel = terminalPanel(for: panelId),
-               terminalPanel.needsConfirmClose() {
+               panelNeedsConfirmClose(panelId: panelId, fallbackNeedsConfirmClose: terminalPanel.needsConfirmClose()) {
                 pendingPaneClosePanelIds.removeValue(forKey: pane.id)
                 return false
             }

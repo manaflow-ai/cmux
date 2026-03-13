@@ -320,7 +320,9 @@ class TerminalController {
     private final class SocketFastPathState: @unchecked Sendable {
         private let queue = DispatchQueue(label: "com.cmux.socket-fast-path")
         private var lastReportedDirectories: [SocketSurfaceKey: String] = [:]
+        private var lastReportedShellStates: [SocketSurfaceKey: Workspace.PanelShellActivityState] = [:]
         private let maxTrackedDirectories = 4096
+        private let maxTrackedShellStates = 4096
 
         func shouldPublishDirectory(workspaceId: UUID, panelId: UUID, directory: String) -> Bool {
             let key = SocketSurfaceKey(workspaceId: workspaceId, panelId: panelId)
@@ -332,6 +334,24 @@ class TerminalController {
                     lastReportedDirectories.removeAll(keepingCapacity: true)
                 }
                 lastReportedDirectories[key] = directory
+                return true
+            }
+        }
+
+        func shouldPublishShellActivity(
+            workspaceId: UUID,
+            panelId: UUID,
+            state: Workspace.PanelShellActivityState
+        ) -> Bool {
+            let key = SocketSurfaceKey(workspaceId: workspaceId, panelId: panelId)
+            return queue.sync {
+                if lastReportedShellStates[key] == state {
+                    return false
+                }
+                if lastReportedShellStates.count >= maxTrackedShellStates {
+                    lastReportedShellStates.removeAll(keepingCapacity: true)
+                }
+                lastReportedShellStates[key] = state
                 return true
             }
         }
@@ -360,6 +380,21 @@ class TerminalController {
             return url.path
         }
         return trimmed
+    }
+
+    nonisolated static func parseReportedShellActivityState(
+        _ rawState: String
+    ) -> Workspace.PanelShellActivityState? {
+        switch rawState.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "prompt", "idle":
+            return .promptIdle
+        case "running", "busy", "command":
+            return .commandRunning
+        case "unknown", "clear":
+            return .unknown
+        default:
+            return nil
+        }
     }
 
     /// Update which window's TabManager receives socket commands.
@@ -1455,6 +1490,9 @@ class TerminalController {
 
         case "ports_kick":
             return portsKick(args)
+
+        case "report_shell_state":
+            return reportShellState(args)
 
         case "report_pwd":
             return reportPwd(args)
@@ -9701,6 +9739,7 @@ class TerminalController {
           report_ports <port1> [port2...] [--tab=X] [--panel=Y] - Report listening ports
           report_tty <tty_name> [--tab=X] [--panel=Y] - Register TTY for batched port scanning
           ports_kick [--tab=X] [--panel=Y] - Request batched port scan for panel
+          report_shell_state <prompt|running> [--tab=X] [--panel=Y] - Report whether the shell is idle at a prompt or running a command
           report_pwd <path> [--tab=X] [--panel=Y] - Report current working directory
           clear_ports [--tab=X] [--panel=Y] - Clear listening ports
           sidebar_state [--tab=X] - Dump sidebar metadata
@@ -13595,6 +13634,72 @@ class TerminalController {
             }
 
             tabManager.updateSurfaceDirectory(tabId: tab.id, surfaceId: surfaceId, directory: directory)
+        }
+        return result
+    }
+
+    private func reportShellState(_ args: String) -> String {
+        let parsed = parseOptions(args)
+        guard let rawState = parsed.positional.first, !rawState.isEmpty else {
+            return "ERROR: Missing shell state — usage: report_shell_state <prompt|running> [--tab=X] [--panel=Y]"
+        }
+        guard let state = Self.parseReportedShellActivityState(rawState) else {
+            return "ERROR: Invalid shell state '\(rawState)' — expected prompt or running"
+        }
+
+        if let scope = Self.explicitSocketScope(options: parsed.options) {
+            guard Self.socketFastPathState.shouldPublishShellActivity(
+                workspaceId: scope.workspaceId,
+                panelId: scope.panelId,
+                state: state
+            ) else {
+                return "OK"
+            }
+            DispatchQueue.main.async {
+                guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: scope.workspaceId) else { return }
+                tabManager.updateSurfaceShellActivity(tabId: scope.workspaceId, surfaceId: scope.panelId, state: state)
+            }
+            return "OK"
+        }
+
+        guard let tabManager else { return "ERROR: TabManager not available" }
+
+        var result = "OK"
+        DispatchQueue.main.sync {
+            guard let tab = resolveTabForReport(args) else {
+                result = parsed.options["tab"] != nil ? "ERROR: Tab not found" : "ERROR: No tab selected"
+                return
+            }
+
+            let validSurfaceIds = Set(tab.panels.keys)
+            tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
+
+            let panelArg = parsed.options["panel"] ?? parsed.options["surface"]
+            let surfaceId: UUID
+            if let panelArg {
+                if panelArg.isEmpty {
+                    result = "ERROR: Missing panel id — usage: report_shell_state <prompt|running> [--tab=X] [--panel=Y]"
+                    return
+                }
+                guard let parsedId = UUID(uuidString: panelArg) else {
+                    result = "ERROR: Invalid panel id '\(panelArg)'"
+                    return
+                }
+                surfaceId = parsedId
+            } else {
+                guard let focused = tab.focusedPanelId else {
+                    result = "ERROR: Missing panel id (no focused surface)"
+                    return
+                }
+                surfaceId = focused
+            }
+
+            guard validSurfaceIds.contains(surfaceId) else {
+                result = "ERROR: Panel not found '\(surfaceId.uuidString)'"
+                return
+            }
+
+            tabManager.updateSurfaceShellActivity(tabId: tab.id, surfaceId: surfaceId, state: state)
         }
         return result
     }
