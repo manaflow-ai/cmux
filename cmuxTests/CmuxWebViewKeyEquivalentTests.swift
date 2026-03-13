@@ -11001,6 +11001,27 @@ final class InternalTabDragConfigurationTests: XCTestCase {
         )
     }
 }
+
+@MainActor
+final class InternalTabDragBundleDeclarationTests: XCTestCase {
+    private func exportedTypeIdentifiers(bundle: Bundle) -> Set<String> {
+        let declarations = (bundle.object(forInfoDictionaryKey: "UTExportedTypeDeclarations") as? [[String: Any]]) ?? []
+        return Set(declarations.compactMap { $0["UTTypeIdentifier"] as? String })
+    }
+
+    func testAppBundleExportsInternalDragTypes() {
+        let exported = exportedTypeIdentifiers(bundle: Bundle(for: AppDelegate.self))
+
+        XCTAssertTrue(
+            exported.contains("com.splittabbar.tabtransfer"),
+            "Expected app bundle to export bonsplit tab-transfer type, got \(exported)"
+        )
+        XCTAssertTrue(
+            exported.contains("com.cmux.sidebar-tab-reorder"),
+            "Expected app bundle to export sidebar tab-reorder type, got \(exported)"
+        )
+    }
+}
 #endif
 
 @MainActor
