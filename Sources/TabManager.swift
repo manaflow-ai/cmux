@@ -908,6 +908,7 @@ class TabManager: ObservableObject {
             initialTerminalCommand: initialTerminalCommand,
             initialTerminalEnvironment: initialTerminalEnvironment
         )
+        newWorkspace.owningTabManager = self
         wireClosedBrowserTracking(for: newWorkspace)
         let insertIndex = newTabInsertIndex(placementOverride: placementOverride)
         if insertIndex >= 0 && insertIndex <= tabs.count {
@@ -1347,6 +1348,7 @@ class TabManager: ObservableObject {
         workspace.teardownAllPanels()
         workspace.teardownRemoteConnection()
         unwireClosedBrowserTracking(for: workspace)
+        workspace.owningTabManager = nil
 
         if let index = tabs.firstIndex(where: { $0.id == workspace.id }) {
             tabs.remove(at: index)
@@ -1371,6 +1373,7 @@ class TabManager: ObservableObject {
 
         let removed = tabs.remove(at: index)
         unwireClosedBrowserTracking(for: removed)
+        removed.owningTabManager = nil
         lastFocusedPanelByTab.removeValue(forKey: removed.id)
 
         if tabs.isEmpty {
@@ -1389,6 +1392,7 @@ class TabManager: ObservableObject {
 
     /// Attach an existing workspace to this window.
     func attachWorkspace(_ workspace: Workspace, at index: Int? = nil, select: Bool = true) {
+        workspace.owningTabManager = self
         wireClosedBrowserTracking(for: workspace)
         let insertIndex: Int = {
             guard let index else { return tabs.count }
@@ -1649,10 +1653,6 @@ class TabManager: ObservableObject {
         }
     }
 
-    private func shouldCloseWorkspaceOnLastSurfaceShortcut(_ workspace: Workspace) -> Bool {
-        LastSurfaceCloseShortcutSettings.closesWorkspace() && workspace.panels.count <= 1
-    }
-
     private func closePanelWithConfirmation(tab: Workspace, panelId: UUID) {
         guard tab.panels[panelId] != nil else {
 #if DEBUG
@@ -1678,19 +1678,13 @@ class TabManager: ObservableObject {
             "surface.close.shortcut.begin tab=\(tab.id.uuidString.prefix(5)) " +
             "panel=\(panelId.uuidString.prefix(5)) kind=\(panelKind) " +
             "panelCount=\(tab.panels.count) bonsplitTabs=\(bonsplitTabCount) " +
-            "closeWorkspaceOnLastSurface=\(shouldCloseWorkspaceOnLastSurfaceShortcut(tab) ? 1 : 0)"
+            "closeWorkspaceOnLastSurfaceSetting=\(LastSurfaceCloseShortcutSettings.closesWorkspace() ? 1 : 0)"
         )
 #endif
 
-        // Cmd+W should match Bonsplit's tab close button semantics by default. Users can opt
-        // back into the legacy behavior where closing the last surface also closes its workspace.
-        if shouldCloseWorkspaceOnLastSurfaceShortcut(tab) {
-            closeWorkspaceIfRunningProcess(tab)
-            return
-        }
-
-        // Route the default Cmd+W path through Bonsplit/Workspace close handling so it matches
-        // the tab close button behavior, including shared confirmation and replacement-panel flow.
+        // Route Cmd+W through Bonsplit/Workspace close handling so it matches the tab close
+        // button, including shared confirmation, setting-controlled last-surface behavior, and
+        // replacement-panel flow.
         let closed = tab.closePanel(panelId)
 #if DEBUG
         dlog(
@@ -3950,6 +3944,7 @@ extension TabManager {
                 workingDirectory: workspaceSnapshot.currentDirectory,
                 portOrdinal: ordinal
             )
+            workspace.owningTabManager = self
             workspace.restoreSessionSnapshot(workspaceSnapshot)
             wireClosedBrowserTracking(for: workspace)
             newTabs.append(workspace)
@@ -3959,6 +3954,7 @@ extension TabManager {
             let ordinal = Self.nextPortOrdinal
             Self.nextPortOrdinal += 1
             let fallback = Workspace(title: "Terminal 1", portOrdinal: ordinal)
+            fallback.owningTabManager = self
             wireClosedBrowserTracking(for: fallback)
             newTabs.append(fallback)
         }
