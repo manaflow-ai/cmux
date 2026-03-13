@@ -5962,11 +5962,7 @@ struct ContentView: View {
     }
 
     private func closeWorkspaceIds(_ workspaceIds: [UUID], allowPinned: Bool) {
-        for workspaceId in workspaceIds {
-            guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { continue }
-            guard allowPinned || !workspace.isPinned else { continue }
-            tabManager.closeWorkspaceWithConfirmation(workspace)
-        }
+        tabManager.closeWorkspacesWithConfirmation(workspaceIds, allowPinned: allowPinned)
     }
 
     private func closeOtherSelectedWorkspaces() {
@@ -5976,14 +5972,14 @@ struct ContentView: View {
     }
 
     private func closeSelectedWorkspacesBelow() {
-        guard let workspace = tabManager.selectedWorkspace,
+        guard tabManager.selectedWorkspace != nil,
               let anchorIndex = selectedWorkspaceIndex() else { return }
         let workspaceIds = tabManager.tabs.suffix(from: anchorIndex + 1).map(\.id)
         closeWorkspaceIds(workspaceIds, allowPinned: false)
     }
 
     private func closeSelectedWorkspacesAbove() {
-        guard let workspace = tabManager.selectedWorkspace,
+        guard tabManager.selectedWorkspace != nil,
               let anchorIndex = selectedWorkspaceIndex() else { return }
         let workspaceIds = tabManager.tabs.prefix(upTo: anchorIndex).map(\.id)
         closeWorkspaceIds(workspaceIds, allowPinned: false)
@@ -10289,16 +10285,7 @@ private struct TabItemView: View, Equatable {
     }
 
     private func closeTabs(_ targetIds: [UUID], allowPinned: Bool) {
-        let idsToClose = targetIds.filter { id in
-            guard let tab = tabManager.tabs.first(where: { $0.id == id }) else { return false }
-            return allowPinned || !tab.isPinned
-        }
-        for id in idsToClose {
-            if let tab = tabManager.tabs.first(where: { $0.id == id }) {
-                tabManager.closeWorkspaceWithConfirmation(tab)
-            }
-        }
-        selectedTabIds.subtract(idsToClose)
+        tabManager.closeWorkspacesWithConfirmation(targetIds, allowPinned: allowPinned)
         syncSelectionAfterMutation()
     }
 

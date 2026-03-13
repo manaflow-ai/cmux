@@ -881,11 +881,7 @@ struct cmuxApp: App {
         in manager: TabManager,
         allowPinned: Bool
     ) {
-        for workspaceId in workspaceIds {
-            guard let workspace = manager.tabs.first(where: { $0.id == workspaceId }) else { continue }
-            guard allowPinned || !workspace.isPinned else { continue }
-            manager.closeWorkspaceWithConfirmation(workspace)
-        }
+        manager.closeWorkspacesWithConfirmation(workspaceIds, allowPinned: allowPinned)
     }
 
     private func closeOtherSelectedWorkspacePeers(in manager: TabManager) {
