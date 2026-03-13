@@ -2045,6 +2045,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var lastTypingActivityAt: TimeInterval = 0
     private var didHandleExplicitOpenIntentAtStartup = false
     private var isTerminatingApp = false
+    private var quitSessionRestoreTerminationPending = false
     private var didInstallLifecycleSnapshotObservers = false
     private var didDisableSuddenTermination = false
     private var commandPaletteVisibilityByWindowId: [UUID: Bool] = [:]
@@ -2057,6 +2058,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private static let commandPaletteRequestGraceInterval: TimeInterval = 1.25
     private static let commandPalettePendingOpenMaxAge: TimeInterval = 8.0
     private static let sessionAutosaveTypingQuietPeriod: TimeInterval = 0.65
+    private static let quitSessionRestoreFollowupInterruptDelays: [TimeInterval] = [0.6, 1.2]
+    private static let quitSessionRestorePollInterval: TimeInterval = 0.12
+    private static let quitSessionRestoreQuietPeriod: TimeInterval = 0.35
+    private static let quitSessionRestoreMaximumWait: TimeInterval = 2.5
 
     var updateViewModel: UpdateViewModel {
         updateController.viewModel
@@ -2304,6 +2309,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         isTerminatingApp = true
+        if prepareQuitSessionRestoreSnapshotIfNeeded() {
+            return .terminateLater
+        }
         _ = saveSessionSnapshot(includeScrollback: true, removeWhenEmpty: false)
         return .terminateNow
     }
@@ -3138,6 +3146,171 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     nonisolated static func shouldRunSessionAutosaveTick(isTerminatingApp: Bool) -> Bool {
         !isTerminatingApp
+    }
+
+    nonisolated static func shouldDelayQuitTerminationForSessionRestore(interruptTargetCount: Int) -> Bool {
+        interruptTargetCount > 0
+    }
+
+    private struct QuitSessionRestoreObservation {
+        var lastScrollbackByPanelId: [UUID: String?]
+        var lastActivityAt: TimeInterval
+    }
+
+    private func prepareQuitSessionRestoreSnapshotIfNeeded() -> Bool {
+        if quitSessionRestoreTerminationPending {
+            return true
+        }
+
+        let targetPanelIds = quitSessionRestoreInterruptTargetPanelIds()
+        guard Self.shouldDelayQuitTerminationForSessionRestore(interruptTargetCount: targetPanelIds.count) else {
+            return false
+        }
+
+        quitSessionRestoreTerminationPending = true
+#if DEBUG
+        dlog("session.quit_prepare.begin targets=\(targetPanelIds.count)")
+#endif
+        sendQuitSessionRestoreInterrupts(to: targetPanelIds, attempt: 1)
+
+        let deadlineUptime = ProcessInfo.processInfo.systemUptime + Self.quitSessionRestoreMaximumWait
+        let observation = QuitSessionRestoreObservation(
+            lastScrollbackByPanelId: captureQuitSessionRestoreScrollback(for: targetPanelIds),
+            lastActivityAt: ProcessInfo.processInfo.systemUptime
+        )
+
+        for (offset, delay) in Self.quitSessionRestoreFollowupInterruptDelays.enumerated() {
+            let attempt = offset + 2
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                guard let self, self.quitSessionRestoreTerminationPending else { return }
+                self.sendQuitSessionRestoreInterrupts(to: targetPanelIds, attempt: attempt)
+            }
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.quitSessionRestorePollInterval) { [weak self] in
+            guard let self, self.quitSessionRestoreTerminationPending else { return }
+            self.pollQuitSessionRestoreSnapshot(
+                panelIds: targetPanelIds,
+                observation: observation,
+                deadlineUptime: deadlineUptime
+            )
+        }
+
+        return true
+    }
+
+    private func quitSessionRestoreInterruptTargetPanelIds() -> [UUID] {
+        var panelIds: [UUID] = []
+        var seen = Set<UUID>()
+        forEachTerminalPanel { terminalPanel in
+            guard terminalPanel.surface.surface != nil else { return }
+            guard terminalPanel.needsConfirmClose() else { return }
+            guard seen.insert(terminalPanel.id).inserted else { return }
+            panelIds.append(terminalPanel.id)
+        }
+        panelIds.sort { $0.uuidString < $1.uuidString }
+        return panelIds
+    }
+
+    private func sendQuitSessionRestoreInterrupts(to panelIds: [UUID], attempt: Int) {
+        var sentCount = 0
+        for panelId in panelIds {
+            guard let (workspace, _) = workspaceContainingPanel(panelId: panelId),
+                  let terminalPanel = workspace.terminalPanel(for: panelId),
+                  terminalPanel.needsConfirmClose() else {
+                continue
+            }
+            guard terminalPanel.sendControlCharacter(.etx) else { continue }
+            terminalPanel.surface.forceRefresh(reason: "sessionQuitRestore.etx.\(attempt)")
+            sentCount += 1
+        }
+#if DEBUG
+        dlog("session.quit_prepare.interrupt attempt=\(attempt) sent=\(sentCount)")
+#endif
+    }
+
+    private func captureQuitSessionRestoreScrollback(for panelIds: [UUID]) -> [UUID: String?] {
+        var scrollbackByPanelId: [UUID: String?] = [:]
+        scrollbackByPanelId.reserveCapacity(panelIds.count)
+        for panelId in panelIds {
+            guard let (workspace, _) = workspaceContainingPanel(panelId: panelId),
+                  let terminalPanel = workspace.terminalPanel(for: panelId) else {
+                scrollbackByPanelId[panelId] = nil
+                continue
+            }
+            scrollbackByPanelId[panelId] = TerminalController.shared.readTerminalTextForSnapshot(
+                terminalPanel: terminalPanel,
+                includeScrollback: true,
+                lineLimit: SessionPersistencePolicy.maxScrollbackLinesPerTerminal
+            )
+        }
+        return scrollbackByPanelId
+    }
+
+    private func pollQuitSessionRestoreSnapshot(
+        panelIds: [UUID],
+        observation: QuitSessionRestoreObservation,
+        deadlineUptime: TimeInterval
+    ) {
+        guard quitSessionRestoreTerminationPending else { return }
+
+        let now = ProcessInfo.processInfo.systemUptime
+        var nextObservation = observation
+        var busyCount = 0
+        var changedCount = 0
+
+        for panelId in panelIds {
+            guard let (workspace, _) = workspaceContainingPanel(panelId: panelId),
+                  let terminalPanel = workspace.terminalPanel(for: panelId) else {
+                continue
+            }
+            if terminalPanel.needsConfirmClose() {
+                busyCount += 1
+            }
+
+            let currentScrollback = TerminalController.shared.readTerminalTextForSnapshot(
+                terminalPanel: terminalPanel,
+                includeScrollback: true,
+                lineLimit: SessionPersistencePolicy.maxScrollbackLinesPerTerminal
+            )
+            if currentScrollback != nextObservation.lastScrollbackByPanelId[panelId] {
+                nextObservation.lastScrollbackByPanelId[panelId] = currentScrollback
+                nextObservation.lastActivityAt = now
+                changedCount += 1
+            }
+        }
+
+        let quietEnough = (now - nextObservation.lastActivityAt) >= Self.quitSessionRestoreQuietPeriod
+        if busyCount == 0, quietEnough {
+            finishQuitSessionRestoreSnapshot(reason: "settled", busyCount: busyCount, changedCount: changedCount)
+            return
+        }
+
+        if now >= deadlineUptime {
+            finishQuitSessionRestoreSnapshot(reason: "timeout", busyCount: busyCount, changedCount: changedCount)
+            return
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.quitSessionRestorePollInterval) { [weak self] in
+            guard let self, self.quitSessionRestoreTerminationPending else { return }
+            self.pollQuitSessionRestoreSnapshot(
+                panelIds: panelIds,
+                observation: nextObservation,
+                deadlineUptime: deadlineUptime
+            )
+        }
+    }
+
+    private func finishQuitSessionRestoreSnapshot(reason: String, busyCount: Int, changedCount: Int) {
+        guard quitSessionRestoreTerminationPending else { return }
+        quitSessionRestoreTerminationPending = false
+#if DEBUG
+        dlog(
+            "session.quit_prepare.capture reason=\(reason) busy=\(busyCount) changed=\(changedCount)"
+        )
+#endif
+        _ = saveSessionSnapshot(includeScrollback: true, removeWhenEmpty: false)
+        NSApp.reply(toApplicationShouldTerminate: true)
     }
 
     private func remainingSessionAutosaveTypingQuietPeriod(
