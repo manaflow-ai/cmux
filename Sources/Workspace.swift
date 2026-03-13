@@ -946,6 +946,7 @@ final class Workspace: Identifiable, ObservableObject {
 
     /// Callback used by TabManager to capture recently closed browser panels for Cmd+Shift+T restore.
     var onClosedBrowserPanel: ((ClosedBrowserPanelRestoreSnapshot) -> Void)?
+    weak var owningTabManager: TabManager?
 
 
     // Closing tabs mutates split layout immediately; terminal views handle their own AppKit
@@ -4115,6 +4116,19 @@ final class Workspace: Identifiable, ObservableObject {
 
 extension Workspace: BonsplitDelegate {
     @MainActor
+    private func shouldCloseWorkspaceOnLastSurface(for tabId: TabID) -> Bool {
+        let manager = owningTabManager ?? AppDelegate.shared?.tabManagerFor(tabId: id) ?? AppDelegate.shared?.tabManager
+        guard LastSurfaceCloseShortcutSettings.closesWorkspace(),
+              panels.count <= 1,
+              panelIdFromSurfaceId(tabId) != nil,
+              let manager,
+              manager.tabs.contains(where: { $0.id == id }) else {
+            return false
+        }
+        return true
+    }
+
+    @MainActor
     private func confirmClosePanel(for tabId: TabID) async -> Bool {
         let alert = NSAlert()
         alert.messageText = String(localized: "dialog.closeTab.title", defaultValue: "Close tab?")
@@ -4526,6 +4540,12 @@ extension Workspace: BonsplitDelegate {
            pinnedPanelIds.contains(panelId) {
             clearStagedClosedBrowserRestoreSnapshot(for: tab.id)
             NSSound.beep()
+            return false
+        }
+
+        if shouldCloseWorkspaceOnLastSurface(for: tab.id) {
+            clearStagedClosedBrowserRestoreSnapshot(for: tab.id)
+            owningTabManager?.closeWorkspaceWithConfirmation(self)
             return false
         }
 
