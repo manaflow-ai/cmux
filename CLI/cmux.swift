@@ -4878,7 +4878,11 @@ struct CMUXCLI {
                 throw CLIError(message: "Unsupported browser console subcommand: \(consoleVerb)")
             }
             let payload = try client.sendV2(method: method, params: ["surface_id": sid])
-            output(payload, fallback: "OK")
+            if effectiveJSONOutput || consoleVerb == "clear" {
+                output(payload, fallback: "OK")
+            } else {
+                print(displayBrowserLogItems(payload["entries"]) ?? "No console entries")
+            }
             return
         }
 
@@ -4892,7 +4896,11 @@ struct CMUXCLI {
                 throw CLIError(message: "Unsupported browser errors subcommand: \(errorsVerb)")
             }
             let payload = try client.sendV2(method: "browser.errors.list", params: params)
-            output(payload, fallback: "OK")
+            if effectiveJSONOutput || errorsVerb == "clear" {
+                output(payload, fallback: "OK")
+            } else {
+                print(displayBrowserLogItems(payload["errors"]) ?? "No browser errors")
+            }
             return
         }
 
@@ -6458,6 +6466,14 @@ struct CMUXCLI {
         client: SocketClient,
         windowOverride: String?
     ) throws -> String {
+        func insertArgumentBeforeSeparator(_ value: String, into args: inout [String]) {
+            if let separatorIndex = args.firstIndex(of: "--") {
+                args.insert(value, at: separatorIndex)
+            } else {
+                args.append(value)
+            }
+        }
+
         var forwardedArgs: [String] = []
         var resolvedExplicitWorkspace = false
         var index = 0
@@ -6486,7 +6502,7 @@ struct CMUXCLI {
         if !resolvedExplicitWorkspace,
            let workspaceArg = workspaceFromArgsOrEnv(commandArgs, windowOverride: windowOverride) {
             let workspaceId = try resolveWorkspaceId(workspaceArg, client: client)
-            forwardedArgs.append("--tab=\(workspaceId)")
+            insertArgumentBeforeSeparator("--tab=\(workspaceId)", into: &forwardedArgs)
         }
 
         let command = ([socketCommand] + forwardedArgs)

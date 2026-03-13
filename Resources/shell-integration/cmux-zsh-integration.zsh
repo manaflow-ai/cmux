@@ -85,8 +85,6 @@ _cmux_ensure_ghostty_preexec_strips_both_marks() {
 }
 
 _cmux_patch_ghostty_semantic_redraw() {
-    (( _CMUX_GHOSTTY_SEMANTIC_PATCHED )) && return 0
-
     local old_frag new_frag
     old_frag='133;A;cl=line'
     new_frag='133;A;redraw=last;cl=line'

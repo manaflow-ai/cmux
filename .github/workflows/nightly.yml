@@ -471,16 +471,13 @@ jobs:
           path: |
             cmux-nightly-macos*.dmg
             appcast.xml
-<<<<<<< HEAD
             remote-daemon-assets/cmuxd-remote-darwin-arm64
             remote-daemon-assets/cmuxd-remote-darwin-amd64
             remote-daemon-assets/cmuxd-remote-linux-arm64
             remote-daemon-assets/cmuxd-remote-linux-amd64
             remote-daemon-assets/cmuxd-remote-checksums.txt
             remote-daemon-assets/cmuxd-remote-manifest.json
-=======
             appcast-universal.xml
->>>>>>> origin/main
           if-no-files-found: error
 
       - name: Move nightly tag to built commit

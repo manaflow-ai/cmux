@@ -568,7 +568,16 @@ extension Workspace {
             applySessionPanelMetadata(snapshot, toPanelId: browserPanel.id)
             return browserPanel.id
         case .markdown:
-            return nil
+            guard let filePath = snapshot.markdown?.filePath,
+                  let markdownPanel = newMarkdownSurface(
+                    inPane: paneId,
+                    filePath: filePath,
+                    focus: false
+                  ) else {
+                return nil
+            }
+            applySessionPanelMetadata(snapshot, toPanelId: markdownPanel.id)
+            return markdownPanel.id
         }
     }
 
