@@ -8437,8 +8437,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        // Safari defaults:
-        // - Option+Command+I => Show/Toggle Web Inspector
+        // Browser shortcuts:
+        // - Command+I => Show/Toggle Developer Tools
         // - Option+Command+C => Show JavaScript Console
         if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .toggleBrowserDeveloperTools)) {
 #if DEBUG
@@ -8975,10 +8975,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         let chars = (event.charactersIgnoringModifiers ?? "").lowercased()
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        if flags == [.command, .option] {
+        if flags == [.command] {
             if chars == "i" || event.keyCode == 34 {
                 return "toggle.literal"
             }
+        }
+        if flags == [.command, .option] {
             if chars == "c" || event.keyCode == 8 {
                 return "console.literal"
             }
@@ -9260,9 +9262,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return event.keyCode == 36 || event.keyCode == 76
         }
 
-        let eventCharsIgnoringModifiers = event.charactersIgnoringModifiers
+        let eventCharacters = event.characters
         if shortcutCharacterMatches(
-            eventCharacter: eventCharsIgnoringModifiers,
+            eventCharacter: eventCharacters,
             shortcutKey: shortcutKey,
             applyShiftSymbolNormalization: flags.contains(.shift),
             eventKeyCode: event.keyCode
@@ -9270,10 +9272,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        // For command-based shortcuts, trust AppKit's layout-aware characters when present.
-        // Keep this strict for letter shortcuts to avoid physical-key collisions across layouts,
-        // while still allowing keyCode fallback for digit/punctuation shortcuts on non-US layouts.
-        let hasEventChars = !(eventCharsIgnoringModifiers?.isEmpty ?? true)
+        let eventCharsIgnoringModifiers = event.charactersIgnoringModifiers
+        if eventCharsIgnoringModifiers != eventCharacters,
+           shortcutCharacterMatches(
+               eventCharacter: eventCharsIgnoringModifiers,
+               shortcutKey: shortcutKey,
+               applyShiftSymbolNormalization: flags.contains(.shift),
+               eventKeyCode: event.keyCode
+           ) {
+            return true
+        }
+
+        // Prefer the semantic command character when available. Some input sources
+        // report the translated command key in `characters` while leaving
+        // `charactersIgnoringModifiers` tied to the physical ANSI key.
+        //
+        // Keep command-letter shortcuts strict once either event field carries a
+        // concrete character so layout-aware copy/paste-style shortcuts don't fall
+        // through to physical-key matching.
+        let hasEventChars =
+            !(eventCharacters?.isEmpty ?? true)
+            || !(eventCharsIgnoringModifiers?.isEmpty ?? true)
         if hasEventChars,
            flags.contains(.command),
            !flags.contains(.control),

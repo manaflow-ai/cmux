@@ -129,7 +129,7 @@ enum KeyboardShortcutSettings {
             case .sendFeedback:
                 return StoredShortcut(key: "f", command: true, shift: false, option: true, control: false)
             case .showNotifications:
-                return StoredShortcut(key: "i", command: true, shift: false, option: false, control: false)
+                return StoredShortcut(key: "i", command: true, shift: true, option: false, control: false)
             case .jumpToUnread:
                 return StoredShortcut(key: "u", command: true, shift: true, option: false, control: false)
             case .triggerFlash:
@@ -173,10 +173,8 @@ enum KeyboardShortcutSettings {
             case .openBrowser:
                 return StoredShortcut(key: "l", command: true, shift: true, option: false, control: false)
             case .toggleBrowserDeveloperTools:
-                // Safari default: Show Web Inspector.
-                return StoredShortcut(key: "i", command: true, shift: false, option: true, control: false)
+                return StoredShortcut(key: "i", command: true, shift: false, option: false, control: false)
             case .showBrowserJavaScriptConsole:
-                // Safari default: Show JavaScript Console.
                 return StoredShortcut(key: "c", command: true, shift: false, option: true, control: false)
             }
         }

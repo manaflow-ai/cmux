@@ -422,7 +422,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertNil(self.window(withId: windowId), "Confirming Cmd+Ctrl+W should close the window")
     }
 
-    func testCmdPhysicalIWithDvorakCharactersDoesNotTriggerShowNotifications() {
+    func testCmdPhysicalIWithDvorakCharactersDoesNotTriggerCmdIAppShortcuts() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
             return
@@ -436,9 +436,15 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        withTemporaryShortcut(action: .showNotifications) {
-            // Dvorak: physical ANSI "I" key can produce the character "c".
-            // This should behave like Cmd+C (copy), not match the Cmd+I app shortcut.
+        withTemporaryShortcut(
+            action: .showNotifications,
+            shortcut: StoredShortcut(key: "i", command: true, shift: false, option: false, control: false)
+        ) {
+            // Dvorak-style command layouts can translate the semantic shortcut
+            // into `characters` while leaving the physical ANSI key in
+            // `charactersIgnoringModifiers`.
+            // This should behave like Cmd+C (copy), not match either Cmd+I app
+            // shortcut in this scope.
             guard let event = NSEvent.keyEvent(
                 with: .keyDown,
                 location: .zero,
@@ -447,7 +453,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                 windowNumber: window.windowNumber,
                 context: nil,
                 characters: "c",
-                charactersIgnoringModifiers: "c",
+                charactersIgnoringModifiers: "i",
                 isARepeat: false,
                 keyCode: 34 // kVK_ANSI_I
             ) else {
@@ -488,7 +494,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
         defer { NotificationCenter.default.removeObserver(token) }
 
-        // Dvorak: physical ANSI "P" key can produce "l".
+        // Dvorak-style command layouts can keep the physical ANSI key in
+        // `charactersIgnoringModifiers` while `characters` reflects Cmd+L.
         // This should behave as Cmd+L, not as physical Cmd+P.
         guard let event = NSEvent.keyEvent(
             with: .keyDown,
@@ -498,7 +505,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             windowNumber: window.windowNumber,
             context: nil,
             characters: "l",
-            charactersIgnoringModifiers: "l",
+            charactersIgnoringModifiers: "p",
             isARepeat: false,
             keyCode: 35 // kVK_ANSI_P
         ) else {
@@ -740,7 +747,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
         defer { NotificationCenter.default.removeObserver(token) }
 
-        // Dvorak: physical ANSI "P" key can produce "l".
+        // Dvorak-style command layouts can keep the physical ANSI key in
+        // `charactersIgnoringModifiers` while `characters` reflects Cmd+Shift+L.
         // This should behave as Cmd+Shift+L, not as physical Cmd+Shift+P.
         guard let event = NSEvent.keyEvent(
             with: .keyDown,
@@ -750,7 +758,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             windowNumber: window.windowNumber,
             context: nil,
             characters: "l",
-            charactersIgnoringModifiers: "l",
+            charactersIgnoringModifiers: "p",
             isARepeat: false,
             keyCode: 35 // kVK_ANSI_P
         ) else {
@@ -781,7 +789,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        // Dvorak: physical ANSI "T" key can produce "y".
+        // Dvorak-style command layouts can keep the physical ANSI key in
+        // `charactersIgnoringModifiers` while `characters` reflects Cmd+Option+Y.
         // This should not match the Cmd+Option+T app shortcut.
         guard let event = NSEvent.keyEvent(
             with: .keyDown,
@@ -791,7 +800,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             windowNumber: window.windowNumber,
             context: nil,
             characters: "y",
-            charactersIgnoringModifiers: "y",
+            charactersIgnoringModifiers: "t",
             isARepeat: false,
             keyCode: 17 // kVK_ANSI_T
         ) else {
@@ -824,7 +833,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         let panelCountBefore = workspace.panels.count
 
-        // Dvorak: physical ANSI "W" key can produce ",".
+        // Dvorak-style command layouts can keep the physical ANSI key in
+        // `charactersIgnoringModifiers` while `characters` reflects Cmd+,.
         // This should not match the Cmd+W close-panel shortcut.
         guard let event = NSEvent.keyEvent(
             with: .keyDown,
@@ -834,7 +844,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             windowNumber: window.windowNumber,
             context: nil,
             characters: ",",
-            charactersIgnoringModifiers: ",",
+            charactersIgnoringModifiers: "w",
             isARepeat: false,
             keyCode: 13 // kVK_ANSI_W
         ) else {
@@ -850,7 +860,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(workspace.panels.count, panelCountBefore)
     }
 
-    func testCmdIStillTriggersShowNotificationsShortcut() {
+    func testCmdShiftIStillTriggersShowNotificationsShortcut() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
             return
@@ -868,7 +878,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             guard let event = NSEvent.keyEvent(
                 with: .keyDown,
                 location: .zero,
-                modifierFlags: [.command],
+                modifierFlags: [.command, .shift],
                 timestamp: ProcessInfo.processInfo.systemUptime,
                 windowNumber: window.windowNumber,
                 context: nil,
@@ -877,7 +887,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                 isARepeat: false,
                 keyCode: 34 // kVK_ANSI_I
             ) else {
-                XCTFail("Failed to construct Cmd+I event")
+                XCTFail("Failed to construct Cmd+Shift+I event")
                 return
             }
 
@@ -1232,7 +1242,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         defer { NotificationCenter.default.removeObserver(switcherToken) }
 
         withTemporaryShortcut(action: .renameTab) {
-            // Dvorak: physical ANSI "O" key can produce "r".
+            // Dvorak-style command layouts can keep the physical ANSI key in
+            // `charactersIgnoringModifiers` while `characters` reflects Cmd+R.
             // This should behave as semantic Cmd+R (rename tab), not Cmd+P.
             guard let event = NSEvent.keyEvent(
                 with: .keyDown,
@@ -1242,7 +1253,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                 windowNumber: window.windowNumber,
                 context: nil,
                 characters: "r",
-                charactersIgnoringModifiers: "r",
+                charactersIgnoringModifiers: "o",
                 isARepeat: false,
                 keyCode: 31 // kVK_ANSI_O
             ) else {
@@ -1298,7 +1309,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
         defer { NotificationCenter.default.removeObserver(renameTabToken) }
 
-        // Dvorak: physical ANSI "R" key can produce "p".
+        // Dvorak-style command layouts can keep the physical ANSI key in
+        // `charactersIgnoringModifiers` while `characters` reflects Cmd+P.
         // This should behave as semantic Cmd+P (palette switcher), not Cmd+R.
         guard let event = NSEvent.keyEvent(
             with: .keyDown,
@@ -1308,7 +1320,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             windowNumber: window.windowNumber,
             context: nil,
             characters: "p",
-            charactersIgnoringModifiers: "p",
+            charactersIgnoringModifiers: "r",
             isARepeat: false,
             keyCode: 15 // kVK_ANSI_R
         ) else {
