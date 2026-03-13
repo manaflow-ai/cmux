@@ -873,6 +873,23 @@
         }
       }
     },
+    "sidebar.help.discord": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Discord"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Discord"
+          }
+        }
+      }
+    },
     "sidebar.help.githubIssues": {
       "extractionState": "manual",
       "localizations": {

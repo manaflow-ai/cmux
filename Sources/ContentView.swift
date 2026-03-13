@@ -8437,6 +8437,7 @@ private enum SidebarHelpMenuAction {
     case changelog
     case github
     case githubIssues
+    case discord
     case checkForUpdates
     case sendFeedback
     case welcome
@@ -8937,6 +8938,7 @@ private struct SidebarHelpMenuButton: View {
     private let changelogURL = URL(string: "https://cmux.dev/docs/changelog")
     private let githubURL = URL(string: "https://github.com/manaflow-ai/cmux")
     private let githubIssuesURL = URL(string: "https://github.com/manaflow-ai/cmux/issues")
+    private let discordURL = URL(string: "https://discord.gg/xsgFEVrWCZ")
     private let helpTitle = String(localized: "sidebar.help.button", defaultValue: "Help")
     private let buttonSize: CGFloat = 22
     private let iconSize: CGFloat = 11
@@ -9032,6 +9034,14 @@ private struct SidebarHelpMenuButton: View {
                     isExternalLink: true
                 )
             }
+            if discordURL != nil {
+                helpOptionButton(
+                    title: String(localized: "sidebar.help.discord", defaultValue: "Discord"),
+                    action: .discord,
+                    accessibilityIdentifier: "SidebarHelpMenuOptionDiscord",
+                    isExternalLink: true
+                )
+            }
             helpOptionButton(
                 title: String(localized: "command.checkForUpdates.title", defaultValue: "Check for Updates"),
                 action: .checkForUpdates,
@@ -9122,6 +9132,9 @@ private struct SidebarHelpMenuButton: View {
         case .githubIssues:
             guard let githubIssuesURL else { return }
             NSWorkspace.shared.open(githubIssuesURL)
+        case .discord:
+            guard let discordURL else { return }
+            NSWorkspace.shared.open(discordURL)
         case .checkForUpdates:
             Task { @MainActor in
                 AppDelegate.shared?.checkForUpdates(nil)
