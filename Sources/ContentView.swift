@@ -4037,6 +4037,8 @@ struct ContentView: View {
             return .toggleSplitZoom
         case "palette.triggerFlash":
             return .triggerFlash
+        case "palette.forkClaudeSession":
+            return .forkClaudeSession
         default:
             return nil
         }
@@ -4839,6 +4841,16 @@ struct ContentView: View {
             )
         )
 
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.forkClaudeSession",
+                title: constant(String(localized: "command.forkClaudeSession.title", defaultValue: "Fork Claude Session")),
+                subtitle: constant(String(localized: "command.forkClaudeSession.subtitle", defaultValue: "AI Agent")),
+                keywords: ["claude", "fork", "session", "branch", "agent"],
+                when: { $0.bool(CommandPaletteContextKeys.panelIsTerminal) }
+            )
+        )
+
         return contributions
     }
 
@@ -5145,6 +5157,9 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.terminalSplitDown") {
             tabManager.createSplit(direction: .down)
+        }
+        registry.register(commandId: "palette.forkClaudeSession") {
+            AppDelegate.shared?.performForkClaudeSession()
         }
         registry.register(commandId: "palette.terminalSplitBrowserRight") {
             _ = tabManager.createBrowserSplit(direction: .right)

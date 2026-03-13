@@ -250,6 +250,7 @@ struct SessionPanelSnapshot: Codable, Sendable {
     var gitBranch: SessionGitBranchSnapshot?
     var listeningPorts: [Int]
     var ttyName: String?
+    var claudeSessionId: String?
     var terminal: SessionTerminalPanelSnapshot?
     var browser: SessionBrowserPanelSnapshot?
     var markdown: SessionMarkdownPanelSnapshot?
