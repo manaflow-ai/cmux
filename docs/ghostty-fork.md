@@ -77,14 +77,16 @@ touch the same stale-frame mitigation path and tend to conflict in the same file
 - Commits:
   - `0cf559581` (zsh: fix Pure-style multiline prompt redraws)
   - `312c7b23a` (zsh: avoid extra Pure continuation markers)
+  - `404a3f175` (Fix Pure prompt redraw markers)
 - Files:
   - `src/shell-integration/zsh/ghostty-integration`
 - Summary:
   - Handles multiline prompts that use `\n%{\r%}` to return to column 0 before the visible prompt line.
   - Keeps redraw-safe prompt-start markers for async themes.
   - Avoids inserting an explicit continuation marker after Pure's hidden carriage return, because Ghostty already tracks the newline as prompt continuation and the extra marker duplicates the preprompt row.
+  - Restores that prompt-marker behavior on top of the current Ghostty `main` base after the older redraw fix drifted out during later submodule updates.
 
-The fork branch HEAD is now the section 6 zsh redraw commit.
+The fork branch HEAD is now the section 6 zsh redraw follow-up commit.
 
 ## Upstreamed fork changes
 
