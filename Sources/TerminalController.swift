@@ -2037,6 +2037,8 @@ class TerminalController {
             return v2Result(id: id, self.v2DebugCommandPaletteRenameInputSelectAll(params: params))
         case "debug.browser.address_bar_focused":
             return v2Result(id: id, self.v2DebugBrowserAddressBarFocused(params: params))
+        case "debug.browser.favicon":
+            return v2Result(id: id, self.v2DebugBrowserFavicon(params: params))
         case "debug.sidebar.visible":
             return v2Result(id: id, self.v2DebugSidebarVisible(params: params))
         case "debug.terminal.is_focused":
@@ -2245,6 +2247,7 @@ class TerminalController {
             "debug.command_palette.rename_input.selection",
             "debug.command_palette.rename_input.select_all",
             "debug.browser.address_bar_focused",
+            "debug.browser.favicon",
             "debug.sidebar.visible",
             "debug.terminal.is_focused",
             "debug.terminal.read_text",
@@ -9631,6 +9634,21 @@ class TerminalController {
         }
 
         return .ok(payload)
+    }
+
+    private func v2DebugBrowserFavicon(params: [String: Any]) -> V2CallResult {
+        return v2BrowserWithPanel(params: params) { _, ws, surfaceId, browserPanel in
+            let pngData = browserPanel.faviconPNGData
+            return .ok([
+                "workspace_id": ws.id.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
+                "surface_id": surfaceId.uuidString,
+                "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
+                "has_favicon": pngData != nil,
+                "png_base64": pngData?.base64EncodedString() ?? "",
+                "current_url": v2OrNull(browserPanel.currentURL?.absoluteString)
+            ])
+        }
     }
 
     private func v2DebugSidebarVisible(params: [String: Any]) -> V2CallResult {
