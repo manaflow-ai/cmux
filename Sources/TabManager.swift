@@ -51,18 +51,6 @@ enum WorkspaceAutoReorderSettings {
     }
 }
 
-enum LastSurfaceCloseShortcutSettings {
-    static let key = "closeWorkspaceOnLastSurfaceShortcut"
-    static let defaultValue = false
-
-    static func closesWorkspace(defaults: UserDefaults = .standard) -> Bool {
-        if defaults.object(forKey: key) == nil {
-            return defaultValue
-        }
-        return defaults.bool(forKey: key)
-    }
-}
-
 enum SidebarBranchLayoutSettings {
     static let key = "sidebarBranchVerticalLayout"
     static let defaultVerticalLayout = true
@@ -1607,15 +1595,17 @@ class TabManager: ObservableObject {
         alert.addButton(withTitle: String(localized: "common.close", defaultValue: "Close"))
         alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
 
+        if let closeButton = alert.buttons.first {
+            // Keep Return/Enter bound to the primary destructive action for all close prompts.
+            alert.window.defaultButtonCell = closeButton.cell as? NSButtonCell
+        }
+
         // macOS convention: Cmd+D = confirm destructive close (e.g. "Don't Save").
         // We only opt into this for the "close last workspace => close window" path to avoid
         // conflicting with app-level Cmd+D (split right) during normal usage.
         if acceptCmdD, let closeButton = alert.buttons.first {
             closeButton.keyEquivalent = "d"
             closeButton.keyEquivalentModifierMask = [.command]
-
-            // Keep Return/Enter behavior by explicitly setting the default button cell.
-            alert.window.defaultButtonCell = closeButton.cell as? NSButtonCell
         }
 
         return alert.runModal() == .alertFirstButtonReturn
@@ -1741,7 +1731,11 @@ class TabManager: ObservableObject {
         }
         if tabs.count <= 1 {
             // Last workspace in this window: close the window (Cmd+Shift+W behavior).
-            AppDelegate.shared?.closeMainWindowContainingTabId(workspace.id)
+            if let window {
+                window.performClose(nil)
+            } else {
+                AppDelegate.shared?.closeMainWindowContainingTabId(workspace.id)
+            }
         } else {
             closeWorkspace(workspace)
         }
@@ -1771,14 +1765,16 @@ class TabManager: ObservableObject {
         dlog(
             "surface.close.shortcut.begin tab=\(tab.id.uuidString.prefix(5)) " +
             "panel=\(panelId.uuidString.prefix(5)) kind=\(panelKind) " +
-            "panelCount=\(tab.panels.count) bonsplitTabs=\(bonsplitTabCount) " +
-            "closeWorkspaceOnLastSurfaceSetting=\(LastSurfaceCloseShortcutSettings.closesWorkspace() ? 1 : 0)"
+            "panelCount=\(tab.panels.count) bonsplitTabs=\(bonsplitTabCount)"
         )
 #endif
 
         // Route Cmd+W through Bonsplit/Workspace close handling so it matches the tab close
-        // button, including shared confirmation, setting-controlled last-surface behavior, and
-        // replacement-panel flow.
+        // button, including shared confirmation, last-surface workspace/window-close behavior,
+        // and the usual replacement-panel flow when the close does not collapse the workspace.
+        if let surfaceId = tab.surfaceIdFromPanelId(panelId) {
+            tab.markExplicitClose(surfaceId: surfaceId)
+        }
         let closed = tab.closePanel(panelId)
 #if DEBUG
         dlog(

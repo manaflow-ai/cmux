@@ -529,6 +529,48 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertNil(self.window(withId: windowId), "Confirming Cmd+Ctrl+W should close the window")
     }
 
+    func testCmdWClosesWindowWhenClosingLastSurfaceInLastWorkspace() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let targetWindow = window(withId: windowId),
+              let manager = appDelegate.tabManagerFor(windowId: windowId) else {
+            XCTFail("Expected test window and manager")
+            return
+        }
+
+        XCTAssertEqual(manager.tabs.count, 1)
+        XCTAssertEqual(manager.tabs[0].panels.count, 1)
+
+        guard let event = makeKeyDownEvent(
+            key: "w",
+            modifiers: [.command],
+            keyCode: 13,
+            windowNumber: targetWindow.windowNumber
+        ) else {
+            XCTFail("Failed to construct Cmd+W event")
+            return
+        }
+
+#if DEBUG
+        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        XCTAssertNil(
+            self.window(withId: windowId),
+            "Cmd+W on the last surface in the last workspace should close the window"
+        )
+    }
+
     func testCmdPhysicalIWithDvorakCharactersDoesNotTriggerShowNotifications() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
