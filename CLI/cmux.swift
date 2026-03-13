@@ -3308,7 +3308,7 @@ struct CMUXCLI {
 
         let outerCommand = outerLines.joined(separator: "\n")
 
-        return "/bin/sh -lc \(shellQuote(outerCommand))"
+        return "/bin/sh -c \(shellQuote(outerCommand))"
     }
 
     private func interactiveRemoteShellExportLines(shellFeatures: String) -> [String] {
