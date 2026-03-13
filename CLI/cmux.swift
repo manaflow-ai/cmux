@@ -5996,10 +5996,11 @@ struct CMUXCLI {
 
     private func removingManagedThemeOverride(from contents: String) -> String {
         let pattern = #"(?ms)\n?# cmux themes start\n.*?\n# cmux themes end\n?"#
-        guard let range = contents.range(of: pattern, options: [.regularExpression]) else {
+        guard let regex = try? NSRegularExpression(pattern: pattern) else {
             return contents
         }
-        return contents.replacingCharacters(in: range, with: "")
+        let fullRange = NSRange(contents.startIndex..<contents.endIndex, in: contents)
+        return regex.stringByReplacingMatches(in: contents, options: [], range: fullRange, withTemplate: "")
     }
 
     private func reloadThemesIfPossible() -> ThemeReloadStatus {
