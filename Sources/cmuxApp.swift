@@ -452,8 +452,9 @@ struct cmuxApp: App {
                 Divider()
 
                 // Terminal semantics:
-                // Cmd+W closes the focused tab (with confirmation if needed). If this is the last
-                // tab in the last workspace, it closes the window.
+                // Cmd+W closes the focused tab/surface (with confirmation if needed) and keeps
+                // the workspace open by default. Cmd+Shift+W is the explicit workspace-close
+                // action, unless the user opts back into the legacy last-surface Cmd+W behavior.
                 Button(String(localized: "menu.file.closeTab", defaultValue: "Close Tab")) {
                     closePanelOrWindow()
                 }
@@ -3075,6 +3076,8 @@ struct SettingsView: View {
     @AppStorage(ShortcutHintDebugSettings.alwaysShowHintsKey)
     private var alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
     @AppStorage(WorkspacePlacementSettings.placementKey) private var newWorkspacePlacement = WorkspacePlacementSettings.defaultPlacement.rawValue
+    @AppStorage(LastSurfaceCloseShortcutSettings.key)
+    private var closeWorkspaceOnLastSurfaceShortcut = LastSurfaceCloseShortcutSettings.defaultValue
     @AppStorage(WorkspaceAutoReorderSettings.key) private var workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
     @AppStorage(SidebarWorkspaceDetailSettings.hideAllDetailsKey)
     private var sidebarHideAllDetails = SidebarWorkspaceDetailSettings.defaultHideAllDetails
@@ -3118,6 +3121,19 @@ struct SettingsView: View {
 
     private var selectedWorkspacePlacement: NewWorkspacePlacement {
         NewWorkspacePlacement(rawValue: newWorkspacePlacement) ?? WorkspacePlacementSettings.defaultPlacement
+    }
+
+    private var closeWorkspaceOnLastSurfaceShortcutSubtitle: String {
+        if closeWorkspaceOnLastSurfaceShortcut {
+            return String(
+                localized: "settings.app.closeWorkspaceOnLastSurfaceShortcut.subtitleOn",
+                defaultValue: "When the focused surface is the last one in its workspace, Cmd+W also closes the workspace."
+            )
+        }
+        return String(
+            localized: "settings.app.closeWorkspaceOnLastSurfaceShortcut.subtitleOff",
+            defaultValue: "When the focused surface is the last one in its workspace, Cmd+W closes only the surface and keeps the workspace open."
+        )
     }
 
     private var selectedSidebarActiveTabIndicatorStyle: SidebarActiveTabIndicatorStyle {
@@ -3483,6 +3499,17 @@ struct SettingsView: View {
                             ForEach(NewWorkspacePlacement.allCases) { placement in
                                 Text(placement.displayName).tag(placement.rawValue)
                             }
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            String(localized: "settings.app.closeWorkspaceOnLastSurfaceShortcut", defaultValue: "Cmd+W Closes Workspace on Last Surface"),
+                            subtitle: closeWorkspaceOnLastSurfaceShortcutSubtitle
+                        ) {
+                            Toggle("", isOn: $closeWorkspaceOnLastSurfaceShortcut)
+                                .labelsHidden()
+                                .controlSize(.small)
                         }
 
                         SettingsCardDivider()
@@ -4456,6 +4483,7 @@ struct SettingsView: View {
         ShortcutHintDebugSettings.resetVisibilityDefaults()
         alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
         newWorkspacePlacement = WorkspacePlacementSettings.defaultPlacement.rawValue
+        closeWorkspaceOnLastSurfaceShortcut = LastSurfaceCloseShortcutSettings.defaultValue
         workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
         sidebarHideAllDetails = SidebarWorkspaceDetailSettings.defaultHideAllDetails
         sidebarShowNotificationMessage = SidebarWorkspaceDetailSettings.defaultShowNotificationMessage

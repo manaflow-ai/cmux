@@ -27,23 +27,32 @@ final class CloseWorkspaceCmdDUITests: XCTestCase {
         )
     }
 
-    func testCmdDConfirmsCloseWhenClosingLastTabClosesWindow() {
+    func testCmdWClosingLastTabKeepsWorkspaceWindowOpen() {
         let app = XCUIApplication()
-        // Closing the last tab should also present a confirmation and accept Cmd+D when it would close the window.
-        app.launchEnvironment["CMUX_UI_TEST_FORCE_CONFIRM_CLOSE_WORKSPACE"] = "1"
+        let keyequivPath = "/tmp/cmux-ui-test-keyequiv-\(UUID().uuidString).json"
+        try? FileManager.default.removeItem(atPath: keyequivPath)
+        app.launchEnvironment["CMUX_UI_TEST_KEYEQUIV_PATH"] = keyequivPath
         app.launch()
         app.activate()
 
-        // Close current tab (Cmd+W). With a single workspace and a single tab, this will close the window after confirmation.
+        let baseline = loadJSON(atPath: keyequivPath)?["closePanelInvocations"].flatMap(Int.init) ?? 0
         app.typeKey("w", modifierFlags: [.command])
-        XCTAssertTrue(waitForCloseTabAlert(app: app, timeout: 5.0))
+        XCTAssertTrue(
+            waitForKeyequivInt("closePanelInvocations", toBeAtLeast: baseline + 1, atPath: keyequivPath, timeout: 5.0),
+            "Expected Cmd+W to route through the close-current-tab action"
+        )
 
-        // Cmd+D should accept the destructive close and close the window.
-        app.typeKey("d", modifierFlags: [.command])
+        if waitForCloseTabAlert(app: app, timeout: 5.0) {
+            clickCloseOnCloseTabAlert(app: app)
+            XCTAssertFalse(
+                isCloseTabAlertPresent(app: app),
+                "Expected close tab confirmation to dismiss after confirming the close"
+            )
+        }
 
         XCTAssertTrue(
-            waitForNoWindowsOrAppNotRunningForeground(app: app, timeout: 6.0),
-            "Expected Cmd+D to confirm close and close the last window"
+            waitForWindowCount(app: app, atLeast: 1, timeout: 6.0),
+            "Expected Cmd+W on the last tab to keep the workspace window open"
         )
     }
 
@@ -608,12 +617,37 @@ final class CloseWorkspaceCmdDUITests: XCTestCase {
     private func waitForCloseTabAlert(app: XCUIApplication, timeout: TimeInterval) -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
-            if app.dialogs.containing(.staticText, identifier: "Close tab?").firstMatch.exists { return true }
-            if app.alerts.containing(.staticText, identifier: "Close tab?").firstMatch.exists { return true }
-            if app.staticTexts["Close tab?"].exists { return true }
+            if isCloseTabAlertPresent(app: app) { return true }
             RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         }
-        return false
+        return isCloseTabAlertPresent(app: app)
+    }
+
+    // Must match the defaultValue for dialog.closeTab.title in TabManager.
+    private func isCloseTabAlertPresent(app: XCUIApplication) -> Bool {
+        if app.dialogs.containing(.staticText, identifier: "Close tab?").firstMatch.exists { return true }
+        if app.alerts.containing(.staticText, identifier: "Close tab?").firstMatch.exists { return true }
+        return app.staticTexts["Close tab?"].exists
+    }
+
+    // Must match the defaultValue for dialog.closeTab.title in TabManager.
+    private func clickCloseOnCloseTabAlert(app: XCUIApplication) {
+        let dialog = app.dialogs.containing(.staticText, identifier: "Close tab?").firstMatch
+        if dialog.exists {
+            dialog.buttons["Close"].firstMatch.click()
+            return
+        }
+
+        let alert = app.alerts.containing(.staticText, identifier: "Close tab?").firstMatch
+        if alert.exists {
+            alert.buttons["Close"].firstMatch.click()
+            return
+        }
+
+        let anyDialog = app.dialogs.firstMatch
+        if anyDialog.exists, anyDialog.buttons["Close"].exists {
+            anyDialog.buttons["Close"].firstMatch.click()
+        }
     }
 
     private func waitForWindowCount(app: XCUIApplication, toBe count: Int, timeout: TimeInterval) -> Bool {
@@ -642,6 +676,17 @@ final class CloseWorkspaceCmdDUITests: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         }
         return app.state != .runningForeground || app.windows.count == 0
+    }
+
+    private func waitForKeyequivInt(_ key: String, toBeAtLeast expected: Int, atPath path: String, timeout: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            let value = loadJSON(atPath: path)?[key].flatMap(Int.init) ?? 0
+            if value >= expected { return true }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        let value = loadJSON(atPath: path)?[key].flatMap(Int.init) ?? 0
+        return value >= expected
     }
 
     private func waitForAnyJSON(atPath path: String, timeout: TimeInterval) -> Bool {

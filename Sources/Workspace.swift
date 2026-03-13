@@ -4647,6 +4647,7 @@ extension Workspace: BonsplitDelegate {
         if lastTerminalConfigInheritancePanelId == panelId {
             lastTerminalConfigInheritancePanelId = nil
         }
+        AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: id, surfaceId: panelId)
 
         // Keep the workspace invariant for normal close paths.
         // Detach/move flows intentionally allow a temporary empty workspace so AppDelegate can

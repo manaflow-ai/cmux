@@ -51,6 +51,18 @@ enum WorkspaceAutoReorderSettings {
     }
 }
 
+enum LastSurfaceCloseShortcutSettings {
+    static let key = "closeWorkspaceOnLastSurfaceShortcut"
+    static let defaultValue = false
+
+    static func closesWorkspace(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: key) == nil {
+            return defaultValue
+        }
+        return defaults.bool(forKey: key)
+    }
+}
+
 enum SidebarBranchLayoutSettings {
     static let key = "sidebarBranchVerticalLayout"
     static let defaultVerticalLayout = true
@@ -1649,7 +1661,21 @@ class TabManager: ObservableObject {
         }
     }
 
+    private func shouldCloseWorkspaceOnLastSurfaceShortcut(_ workspace: Workspace) -> Bool {
+        LastSurfaceCloseShortcutSettings.closesWorkspace() && workspace.panels.count <= 1
+    }
+
     private func closePanelWithConfirmation(tab: Workspace, panelId: UUID) {
+        guard tab.panels[panelId] != nil else {
+#if DEBUG
+            dlog(
+                "surface.close.shortcut.skip tab=\(tab.id.uuidString.prefix(5)) " +
+                "panel=\(panelId.uuidString.prefix(5)) reason=missingPanel"
+            )
+#endif
+            return
+        }
+
         let bonsplitTabCount = tab.bonsplitController.allPaneIds.reduce(0) { partial, paneId in
             partial + tab.bonsplitController.tabs(inPane: paneId).count
         }
@@ -1663,77 +1689,21 @@ class TabManager: ObservableObject {
         dlog(
             "surface.close.shortcut.begin tab=\(tab.id.uuidString.prefix(5)) " +
             "panel=\(panelId.uuidString.prefix(5)) kind=\(panelKind) " +
-            "panelCount=\(tab.panels.count) bonsplitTabs=\(bonsplitTabCount)"
+            "panelCount=\(tab.panels.count) bonsplitTabs=\(bonsplitTabCount) " +
+            "closeWorkspaceOnLastSurface=\(shouldCloseWorkspaceOnLastSurfaceShortcut(tab) ? 1 : 0)"
         )
 #endif
 
-        // Cmd+W closes the focused Bonsplit tab (a "tab" in the UI). When the workspace only has
-        // a single tab left, closing it should close the workspace (and possibly the window),
-        // rather than creating a replacement terminal.
-        let effectiveSurfaceCount = max(tab.panels.count, bonsplitTabCount)
-        let isLastTabInWorkspace = effectiveSurfaceCount <= 1
-        if isLastTabInWorkspace {
-            let willCloseWindow = tabs.count <= 1
-            let needsConfirm = workspaceNeedsConfirmClose(tab)
-            if needsConfirm {
-                let message = willCloseWindow
-                    ? String(localized: "dialog.closeLastTabWindow.message", defaultValue: "This will close the last tab and close the window.")
-                    : String(localized: "dialog.closeLastTabWorkspace.message", defaultValue: "This will close the last tab and close its workspace.")
-#if DEBUG
-                dlog(
-                    "surface.close.shortcut.confirm tab=\(tab.id.uuidString.prefix(5)) " +
-                    "panel=\(panelId.uuidString.prefix(5)) reason=lastTab"
-                )
-#endif
-                guard confirmClose(
-                    title: String(localized: "dialog.closeTab.title", defaultValue: "Close tab?"),
-                    message: message,
-                    acceptCmdD: willCloseWindow
-                ) else {
-#if DEBUG
-                    dlog(
-                        "surface.close.shortcut.cancel tab=\(tab.id.uuidString.prefix(5)) " +
-                        "panel=\(panelId.uuidString.prefix(5)) reason=lastTabConfirmDismissed"
-                    )
-#endif
-                    return
-                }
-            }
-
-            AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: tab.id)
-            if willCloseWindow {
-                AppDelegate.shared?.closeMainWindowContainingTabId(tab.id)
-            } else {
-                closeWorkspace(tab)
-            }
+        // Cmd+W should match Bonsplit's tab close button semantics by default. Users can opt
+        // back into the legacy behavior where closing the last surface also closes its workspace.
+        if shouldCloseWorkspaceOnLastSurfaceShortcut(tab) {
+            closeWorkspaceIfRunningProcess(tab)
             return
         }
 
-        if let terminalPanel = tab.terminalPanel(for: panelId),
-           terminalPanel.needsConfirmClose() {
-#if DEBUG
-            dlog(
-                "surface.close.shortcut.confirm tab=\(tab.id.uuidString.prefix(5)) " +
-                "panel=\(panelId.uuidString.prefix(5)) reason=terminalNeedsConfirm"
-            )
-#endif
-            guard confirmClose(
-                title: String(localized: "dialog.closeTab.title", defaultValue: "Close tab?"),
-                message: String(localized: "dialog.closeTab.message", defaultValue: "This will close the current tab."),
-                acceptCmdD: false
-            ) else {
-#if DEBUG
-                dlog(
-                    "surface.close.shortcut.cancel tab=\(tab.id.uuidString.prefix(5)) " +
-                    "panel=\(panelId.uuidString.prefix(5)) reason=terminalConfirmDismissed"
-                )
-#endif
-                return
-            }
-        }
-
-        // We already confirmed (if needed); bypass Bonsplit's delegate gating.
-        let closed = tab.closePanel(panelId, force: true)
+        // Route the default Cmd+W path through Bonsplit/Workspace close handling so it matches
+        // the tab close button behavior, including shared confirmation and replacement-panel flow.
+        let closed = tab.closePanel(panelId)
 #if DEBUG
         dlog(
             "surface.close.shortcut tab=\(tab.id.uuidString.prefix(5)) " +
