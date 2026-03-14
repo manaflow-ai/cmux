@@ -5828,6 +5828,19 @@ private final class GhosttyScrollView: NSScrollView {
     // Keep keyboard routing on the terminal surface; this wrapper is viewport plumbing.
     override var acceptsFirstResponder: Bool { false }
 
+    // MARK: - Accessibility
+
+    /// Report this scroll view as a text area so that AX clients (e.g. Typeless
+    /// voice input) recognize it as an editable input target rather than a plain
+    /// scroll area.
+    override func accessibilityRole() -> NSAccessibility.Role? {
+        .textArea
+    }
+
+    override func isAccessibilityElement() -> Bool {
+        true
+    }
+
     override func scrollWheel(with event: NSEvent) {
         guard let surfaceView else {
             super.scrollWheel(with: event)
