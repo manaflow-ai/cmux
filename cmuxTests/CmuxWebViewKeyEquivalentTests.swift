@@ -5505,7 +5505,7 @@ final class TabManagerNotificationFocusTests: XCTestCase {
         XCTAssertTrue(workspace.toggleSplitZoom(panelId: leftPanelId), "Expected split zoom to enable")
         XCTAssertTrue(workspace.bonsplitController.isSplitZoomed, "Expected workspace to start zoomed")
 
-        manager.focusTabFromNotification(workspace.id, surfaceId: rightPanel.id)
+        XCTAssertTrue(manager.focusTabFromNotification(workspace.id, surfaceId: rightPanel.id))
         drainMainQueue()
         drainMainQueue()
 
@@ -5514,6 +5514,16 @@ final class TabManagerNotificationFocusTests: XCTestCase {
             "Expected notification focus to exit split zoom so the target pane becomes visible"
         )
         XCTAssertEqual(workspace.focusedPanelId, rightPanel.id, "Expected notification target panel to be focused")
+    }
+
+    func testFocusTabFromNotificationReturnsFalseForMissingPanel() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace else {
+            XCTFail("Expected selected workspace")
+            return
+        }
+
+        XCTAssertFalse(manager.focusTabFromNotification(workspace.id, surfaceId: UUID()))
     }
 }
 

@@ -11099,7 +11099,9 @@ class TerminalController {
                 result = "ERROR: Surface not found"
                 return
             }
-            tabManager.focusTabFromNotification(tab.id, surfaceId: surfaceId)
+            if !tabManager.focusTabFromNotification(tab.id, surfaceId: surfaceId) {
+                result = "ERROR: Focus failed"
+            }
         }
         return result
     }
