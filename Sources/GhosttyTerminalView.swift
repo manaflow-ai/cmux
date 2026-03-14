@@ -2515,6 +2515,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private let surfaceContext: ghostty_surface_context_e
     private let configTemplate: ghostty_surface_config_s?
     private let workingDirectory: String?
+    var requestedWorkingDirectory: String? { workingDirectory }
     private let additionalEnvironment: [String: String]
     let hostedView: GhosttySurfaceScrollView
     private let surfaceView: GhosttyNSView
@@ -3030,6 +3031,27 @@ final class TerminalSurface: Identifiable, ObservableObject {
                 }
 
                 env["ZDOTDIR"] = integrationDir
+            } else if shellName == "bash" {
+                if GhosttyApp.shared.shellIntegrationMode() != "none" {
+                    env["CMUX_LOAD_GHOSTTY_BASH_INTEGRATION"] = "1"
+                }
+                // macOS ships /bin/bash 3.2, where Ghostty's automatic bash
+                // integration is unsupported and HOME-based wrapper startup is
+                // not reliable. Bootstrap cmux bash integration on the first
+                // interactive prompt instead.
+                env["PROMPT_COMMAND"] = """
+                unset PROMPT_COMMAND; \
+                if [[ "${CMUX_LOAD_GHOSTTY_BASH_INTEGRATION:-0}" == "1" && -n "${GHOSTTY_RESOURCES_DIR:-}" ]]; then \
+                _cmux_ghostty_bash="$GHOSTTY_RESOURCES_DIR/shell-integration/bash/ghostty.bash"; \
+                [[ -r "$_cmux_ghostty_bash" ]] && source "$_cmux_ghostty_bash"; \
+                fi; \
+                if [[ "${CMUX_SHELL_INTEGRATION:-1}" != "0" && -n "${CMUX_SHELL_INTEGRATION_DIR:-}" ]]; then \
+                _cmux_bash_integration="$CMUX_SHELL_INTEGRATION_DIR/cmux-bash-integration.bash"; \
+                [[ -r "$_cmux_bash_integration" ]] && source "$_cmux_bash_integration"; \
+                fi; \
+                unset _cmux_ghostty_bash _cmux_bash_integration; \
+                if declare -F _cmux_prompt_command >/dev/null 2>&1; then _cmux_prompt_command; fi
+                """
             }
         }
 

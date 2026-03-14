@@ -2074,12 +2074,26 @@ final class Workspace: Identifiable, ObservableObject {
         let inheritedConfig = inheritedTerminalConfig(preferredPanelId: panelId, inPane: paneId)
 
         // Inherit working directory: prefer the source panel's reported cwd,
-        // fall back to the workspace's current directory.
-        let splitWorkingDirectory: String? = panelDirectories[panelId]
-            ?? (currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                ? nil : currentDirectory)
+        // then its requested startup cwd if shell integration has not reported
+        // back yet, and finally fall back to the workspace's current directory.
+        let splitWorkingDirectory: String? = {
+            if let panelDirectory = panelDirectories[panelId]?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !panelDirectory.isEmpty {
+                return panelDirectory
+            }
+            if let requestedWorkingDirectory = terminalPanel(for: panelId)?
+                .requestedWorkingDirectory?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+               !requestedWorkingDirectory.isEmpty {
+                return requestedWorkingDirectory
+            }
+            let workspaceDirectory = currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+            return workspaceDirectory.isEmpty ? nil : workspaceDirectory
+        }()
 #if DEBUG
-        dlog("split.cwd panelId=\(panelId.uuidString.prefix(5)) panelDir=\(panelDirectories[panelId] ?? "nil") currentDir=\(currentDirectory) resolved=\(splitWorkingDirectory ?? "nil")")
+        dlog(
+            "split.cwd panelId=\(panelId.uuidString.prefix(5)) panelDir=\(panelDirectories[panelId] ?? "nil") requestedDir=\(terminalPanel(for: panelId)?.requestedWorkingDirectory ?? "nil") currentDir=\(currentDirectory) resolved=\(splitWorkingDirectory ?? "nil")"
+        )
 #endif
 
         // Create the new terminal panel.

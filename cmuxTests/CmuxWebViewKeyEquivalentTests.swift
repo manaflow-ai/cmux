@@ -5230,6 +5230,54 @@ final class WorkspaceTeardownTests: XCTestCase {
 }
 
 @MainActor
+final class WorkspaceSplitWorkingDirectoryTests: XCTestCase {
+    func testNewTerminalSplitFallsBackToRequestedWorkingDirectoryWhenReportedDirectoryIsStale() {
+        let workspace = Workspace()
+        guard let sourcePaneId = workspace.bonsplitController.focusedPaneId else {
+            XCTFail("Expected focused pane in new workspace")
+            return
+        }
+
+        let staleCurrentDirectory = workspace.currentDirectory
+        let requestedDirectory = "/tmp/cmux-requested-split-cwd-\(UUID().uuidString)"
+        guard let sourcePanel = workspace.newTerminalSurface(
+            inPane: sourcePaneId,
+            focus: false,
+            workingDirectory: requestedDirectory
+        ) else {
+            XCTFail("Expected source terminal panel to be created")
+            return
+        }
+
+        XCTAssertEqual(sourcePanel.requestedWorkingDirectory, requestedDirectory)
+        XCTAssertNil(
+            workspace.panelDirectories[sourcePanel.id],
+            "Expected requested cwd to exist before shell integration reports a live cwd"
+        )
+        XCTAssertEqual(
+            workspace.currentDirectory,
+            staleCurrentDirectory,
+            "Expected focused workspace cwd to remain stale before panel directory updates"
+        )
+
+        guard let splitPanel = workspace.newTerminalSplit(
+            from: sourcePanel.id,
+            orientation: .horizontal,
+            focus: false
+        ) else {
+            XCTFail("Expected split terminal panel to be created")
+            return
+        }
+
+        XCTAssertEqual(
+            splitPanel.requestedWorkingDirectory,
+            requestedDirectory,
+            "Expected split to inherit the source terminal's requested cwd when no reported cwd exists yet"
+        )
+    }
+}
+
+@MainActor
 final class TabManagerWorkspaceOwnershipTests: XCTestCase {
     func testCloseWorkspaceIgnoresWorkspaceNotOwnedByManager() {
         let manager = TabManager()
