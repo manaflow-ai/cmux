@@ -37,6 +37,7 @@
     "twitter": "X / Twitter",
     "discord": "Discord",
     "contact": "Kontakt",
+    "nightly": "Nightly",
     "copyright": "© {year} Manaflow",
     "language": "Jezik"
   },
@@ -580,6 +581,15 @@
     "bchris91": "Ovo je tačno ono što sam htio. Nevjerovatan posao, hvala!",
     "connorelsea": "Koristim ovo sedmicu i fantastično je. Vertikalni tab za svaki zadatak u toku. Unutra, Claude na jednoj strani a preglednik sa PR-ovima i resursima na drugoj, prebacujem se između zadataka i ostajam organizovan. Pomiješajte to sa skillovima da Claude prati CI rekurzivno itd. osjećam se prosvijećenim iskreno",
     "tonkotsuboy": "Prešao sam sa Warpa na Ghostty početkom godine, ali sad sam prešao na cmux. Vertikalni tabovi su praktični, i cijenim što dobijem notifikaciju kada Claude Code zadaci završe. Baziran je na Ghostty-ju tako da munjevite performanse ostaju. Prikaz grane i completioni koje sam podesio u Ghostty-ju i dalje rade."
+  },
+  "nightly": {
+    "title": "cmux NIGHTLY",
+    "subtitle": "Najnovije verzije iz main grane",
+    "metaTitle": "cmux NIGHTLY — Nightly verzije",
+    "metaDescription": "Preuzmite cmux NIGHTLY, zasebnu aplikaciju koja se automatski kompajlira iz posljednjeg commita na main. Radi uporedo sa stabilnom verzijom s vlastitim automatskim ažuriranjima.",
+    "description": "cmux NIGHTLY se automatski kompajlira iz posljednjeg commita na main. Ima vlastiti bundle ID, pa radi uporedo sa stabilnom verzijom bez konflikata. Koristite ga za testiranje novih funkcija prije objavljivanja.",
+    "download": "Preuzmi NIGHTLY za Mac",
+    "warning": "Nightly verzije mogu sadržavati greške ili nepotpune funkcije. Ako nešto ne radi, prijavite to na <githubLink>GitHubu</githubLink> ili u <discordLink>#nightly-bugs na Discordu</discordLink> i prebacite se na stabilnu verziju."
   },
   "languageSwitcher": {
     "label": "Jezik"

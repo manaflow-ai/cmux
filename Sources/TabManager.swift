@@ -60,18 +60,6 @@ enum WorkspaceAutoReorderSettings {
     }
 }
 
-enum LastSurfaceCloseShortcutSettings {
-    static let key = "closeWorkspaceOnLastSurfaceShortcut"
-    static let defaultValue = false
-
-    static func closesWorkspace(defaults: UserDefaults = .standard) -> Bool {
-        if defaults.object(forKey: key) == nil {
-            return defaultValue
-        }
-        return defaults.bool(forKey: key)
-    }
-}
-
 enum SidebarBranchLayoutSettings {
     static let key = "sidebarBranchVerticalLayout"
     static let defaultVerticalLayout = true
@@ -763,6 +751,15 @@ class TabManager: ObservableObject {
     private var pendingWorkspaceUnfocusTarget: (tabId: UUID, panelId: UUID)?
     private var sidebarSelectedWorkspaceIds: Set<UUID> = []
     var confirmCloseHandler: ((String, String, Bool) -> Bool)?
+    private struct WorkspaceCreationSnapshot {
+        let tabs: [Workspace]
+        let selectedTabId: UUID?
+
+        var selectedWorkspace: Workspace? {
+            guard let selectedTabId else { return nil }
+            return tabs.first(where: { $0.id == selectedTabId })
+        }
+    }
 #if DEBUG
     private var debugWorkspaceSwitchCounter: UInt64 = 0
     private var debugWorkspaceSwitchId: UInt64 = 0
@@ -925,13 +922,18 @@ class TabManager: ObservableObject {
         placementOverride: NewWorkspacePlacement? = nil,
         autoWelcomeIfNeeded: Bool = true
     ) -> Workspace {
-        sentryBreadcrumb("workspace.create", data: ["tabCount": tabs.count + 1])
-        let workingDirectory = normalizedWorkingDirectory(overrideWorkingDirectory) ?? preferredWorkingDirectoryForNewTab()
-        let inheritedConfig = inheritedTerminalConfigForNewWorkspace()
+        // Snapshot current published state once so workspace creation doesn't repeatedly
+        // bounce through Combine-backed accessors while we're preparing the new workspace.
+        let snapshot = workspaceCreationSnapshot()
+        let nextTabCount = snapshot.tabs.count + 1
+        sentryBreadcrumb("workspace.create", data: ["tabCount": nextTabCount])
+        let explicitWorkingDirectory = normalizedWorkingDirectory(overrideWorkingDirectory)
+        let workingDirectory = explicitWorkingDirectory ?? preferredWorkingDirectoryForNewTab(snapshot: snapshot)
+        let inheritedConfig = inheritedTerminalConfigForNewWorkspace(snapshot: snapshot)
         let ordinal = Self.nextPortOrdinal
         Self.nextPortOrdinal += 1
         let newWorkspace = Workspace(
-            title: "Terminal \(tabs.count + 1)",
+            title: "Terminal \(nextTabCount)",
             workingDirectory: workingDirectory,
             portOrdinal: ordinal,
             configTemplate: inheritedConfig,
@@ -940,19 +942,20 @@ class TabManager: ObservableObject {
         )
         newWorkspace.owningTabManager = self
         wireClosedBrowserTracking(for: newWorkspace)
-        let insertIndex = newTabInsertIndex(placementOverride: placementOverride)
-        if insertIndex >= 0 && insertIndex <= tabs.count {
-            tabs.insert(newWorkspace, at: insertIndex)
+        let insertIndex = newTabInsertIndex(snapshot: snapshot, placementOverride: placementOverride)
+        var updatedTabs = snapshot.tabs
+        if insertIndex >= 0 && insertIndex <= updatedTabs.count {
+            updatedTabs.insert(newWorkspace, at: insertIndex)
         } else {
-            tabs.append(newWorkspace)
+            updatedTabs.append(newWorkspace)
         }
-        if overrideWorkingDirectory != nil,
-           let workingDirectory,
-           let panelId = newWorkspace.focusedTerminalPanel?.id {
+        tabs = updatedTabs
+        if let explicitWorkingDirectory,
+           let terminalPanel = newWorkspace.focusedTerminalPanel {
             scheduleInitialWorkspaceGitMetadataRefresh(
                 workspaceId: newWorkspace.id,
-                panelId: panelId,
-                directory: workingDirectory
+                panelId: terminalPanel.id,
+                directory: explicitWorkingDirectory
             )
         }
         if eagerLoadTerminal {
@@ -972,8 +975,8 @@ class TabManager: ObservableObject {
 #if DEBUG
         UITestRecorder.incrementInt("addTabInvocations")
         UITestRecorder.record([
-            "tabCount": String(tabs.count),
-            "selectedTabId": select ? newWorkspace.id.uuidString : (selectedTabId?.uuidString ?? "")
+            "tabCount": String(updatedTabs.count),
+            "selectedTabId": select ? newWorkspace.id.uuidString : (snapshot.selectedTabId?.uuidString ?? "")
         ])
 #endif
         if autoWelcomeIfNeeded && select && !UserDefaults.standard.bool(forKey: WelcomeSettings.shownKey) {
@@ -1201,7 +1204,20 @@ class TabManager: ObservableObject {
     }
 
     func terminalPanelForWorkspaceConfigInheritanceSource() -> TerminalPanel? {
-        guard let workspace = selectedWorkspace else { return nil }
+        terminalPanelForWorkspaceConfigInheritanceSource(snapshot: workspaceCreationSnapshot())
+    }
+
+    private func workspaceCreationSnapshot() -> WorkspaceCreationSnapshot {
+        WorkspaceCreationSnapshot(
+            tabs: tabs,
+            selectedTabId: selectedTabId
+        )
+    }
+
+    private func terminalPanelForWorkspaceConfigInheritanceSource(
+        snapshot: WorkspaceCreationSnapshot
+    ) -> TerminalPanel? {
+        guard let workspace = snapshot.selectedWorkspace else { return nil }
         if let focusedTerminal = workspace.focusedTerminalPanel {
             return focusedTerminal
         }
@@ -1216,13 +1232,19 @@ class TabManager: ObservableObject {
     }
 
     private func inheritedTerminalConfigForNewWorkspace() -> ghostty_surface_config_s? {
-        if let sourceSurface = terminalPanelForWorkspaceConfigInheritanceSource()?.surface.surface {
+        inheritedTerminalConfigForNewWorkspace(snapshot: workspaceCreationSnapshot())
+    }
+
+    private func inheritedTerminalConfigForNewWorkspace(
+        snapshot: WorkspaceCreationSnapshot
+    ) -> ghostty_surface_config_s? {
+        if let sourceSurface = terminalPanelForWorkspaceConfigInheritanceSource(snapshot: snapshot)?.surface.surface {
             return cmuxInheritedSurfaceConfig(
                 sourceSurface: sourceSurface,
                 context: GHOSTTY_SURFACE_CONTEXT_TAB
             )
         }
-        if let fallbackFontPoints = selectedWorkspace?.lastRememberedTerminalFontPointsForConfigInheritance() {
+        if let fallbackFontPoints = snapshot.selectedWorkspace?.lastRememberedTerminalFontPointsForConfigInheritance() {
             var config = ghostty_surface_config_new()
             config.font_size = fallbackFontPoints
             return config
@@ -1238,24 +1260,36 @@ class TabManager: ObservableObject {
     }
 
     private func newTabInsertIndex(placementOverride: NewWorkspacePlacement? = nil) -> Int {
+        newTabInsertIndex(snapshot: workspaceCreationSnapshot(), placementOverride: placementOverride)
+    }
+
+    private func newTabInsertIndex(
+        snapshot: WorkspaceCreationSnapshot,
+        placementOverride: NewWorkspacePlacement? = nil
+    ) -> Int {
         let placement = placementOverride ?? WorkspacePlacementSettings.current()
-        let pinnedCount = tabs.filter { $0.isPinned }.count
-        let selectedIndex = selectedTabId.flatMap { tabId in
-            tabs.firstIndex(where: { $0.id == tabId })
+        let pinnedCount = snapshot.tabs.filter { $0.isPinned }.count
+        let selectedIndex = snapshot.selectedTabId.flatMap { tabId in
+            snapshot.tabs.firstIndex(where: { $0.id == tabId })
         }
-        let selectedIsPinned = selectedIndex.map { tabs[$0].isPinned } ?? false
+        let selectedIsPinned = selectedIndex.map { snapshot.tabs[$0].isPinned } ?? false
         return WorkspacePlacementSettings.insertionIndex(
             placement: placement,
             selectedIndex: selectedIndex,
             selectedIsPinned: selectedIsPinned,
             pinnedCount: pinnedCount,
-            totalCount: tabs.count
+            totalCount: snapshot.tabs.count
         )
     }
 
     private func preferredWorkingDirectoryForNewTab() -> String? {
-        guard let selectedTabId,
-              let tab = tabs.first(where: { $0.id == selectedTabId }) else {
+        preferredWorkingDirectoryForNewTab(snapshot: workspaceCreationSnapshot())
+    }
+
+    private func preferredWorkingDirectoryForNewTab(
+        snapshot: WorkspaceCreationSnapshot
+    ) -> String? {
+        guard let tab = snapshot.selectedWorkspace else {
             return nil
         }
         let focusedDirectory = tab.focusedPanelId
@@ -1367,6 +1401,15 @@ class TabManager: ObservableObject {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
         let normalized = normalizeDirectory(directory)
         tab.updatePanelDirectory(panelId: surfaceId, directory: normalized)
+    }
+
+    func updateSurfaceShellActivity(
+        tabId: UUID,
+        surfaceId: UUID,
+        state: Workspace.PanelShellActivityState
+    ) {
+        guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
+        tab.updatePanelShellActivityState(panelId: surfaceId, state: state)
     }
 
     private func normalizeDirectory(_ directory: String) -> String {
@@ -1550,6 +1593,7 @@ class TabManager: ObservableObject {
         if let confirmCloseHandler {
             return confirmCloseHandler(title, message, acceptCmdD)
         }
+        _ = acceptCmdD
 
         let alert = NSAlert()
         alert.messageText = title
@@ -1558,15 +1602,18 @@ class TabManager: ObservableObject {
         alert.addButton(withTitle: String(localized: "dialog.closeTab.close", defaultValue: "Close"))
         alert.addButton(withTitle: String(localized: "dialog.closeTab.cancel", defaultValue: "Cancel"))
 
-        // macOS convention: Cmd+D = confirm destructive close (e.g. "Don't Save").
-        // We only opt into this for the "close last workspace => close window" path to avoid
-        // conflicting with app-level Cmd+D (split right) during normal usage.
-        if acceptCmdD, let closeButton = alert.buttons.first {
-            closeButton.keyEquivalent = "d"
-            closeButton.keyEquivalentModifierMask = [.command]
-
-            // Keep Return/Enter behavior by explicitly setting the default button cell.
+        if let closeButton = alert.buttons.first {
+            closeButton.keyEquivalent = "\r"
+            closeButton.keyEquivalentModifierMask = []
             alert.window.defaultButtonCell = closeButton.cell as? NSButtonCell
+            alert.window.initialFirstResponder = closeButton
+        }
+        if let cancelButton = alert.buttons.dropFirst().first {
+            cancelButton.keyEquivalent = "\u{1b}"
+        }
+
+        if NSApp.activationPolicy() == .regular {
+            NSApp.activate(ignoringOtherApps: true)
         }
 
         return alert.runModal() == .alertFirstButtonReturn
@@ -1692,7 +1739,11 @@ class TabManager: ObservableObject {
         }
         if tabs.count <= 1 {
             // Last workspace in this window: close the window (Cmd+Shift+W behavior).
-            AppDelegate.shared?.closeMainWindowContainingTabId(workspace.id)
+            if let window {
+                window.performClose(nil)
+            } else {
+                AppDelegate.shared?.closeMainWindowContainingTabId(workspace.id)
+            }
         } else {
             closeWorkspace(workspace)
         }
@@ -1722,14 +1773,16 @@ class TabManager: ObservableObject {
         dlog(
             "surface.close.shortcut.begin tab=\(tab.id.uuidString.prefix(5)) " +
             "panel=\(panelId.uuidString.prefix(5)) kind=\(panelKind) " +
-            "panelCount=\(tab.panels.count) bonsplitTabs=\(bonsplitTabCount) " +
-            "closeWorkspaceOnLastSurfaceSetting=\(LastSurfaceCloseShortcutSettings.closesWorkspace() ? 1 : 0)"
+            "panelCount=\(tab.panels.count) bonsplitTabs=\(bonsplitTabCount)"
         )
 #endif
 
         // Route Cmd+W through Bonsplit/Workspace close handling so it matches the tab close
-        // button, including shared confirmation, setting-controlled last-surface behavior, and
-        // replacement-panel flow.
+        // button, including shared confirmation, last-surface workspace/window-close behavior,
+        // and the usual replacement-panel flow when the close does not collapse the workspace.
+        if let surfaceId = tab.surfaceIdFromPanelId(panelId) {
+            tab.markExplicitClose(surfaceId: surfaceId)
+        }
         let closed = tab.closePanel(panelId)
 #if DEBUG
         dlog(
@@ -1752,7 +1805,7 @@ class TabManager: ObservableObject {
         guard tab.panels[surfaceId] != nil else { return }
 
         if let terminalPanel = tab.terminalPanel(for: surfaceId),
-           terminalPanel.needsConfirmClose() {
+           tab.panelNeedsConfirmClose(panelId: surfaceId, fallbackNeedsConfirmClose: terminalPanel.needsConfirmClose()) {
             guard confirmClose(
                 title: String(localized: "dialog.closeTab.title", defaultValue: "Close tab?"),
                 message: String(localized: "dialog.closeTab.message", defaultValue: "This will close the current tab."),
@@ -2154,14 +2207,33 @@ class TabManager: ObservableObject {
         }
     }
 
-    func focusTabFromNotification(_ tabId: UUID, surfaceId: UUID? = nil) {
+    @discardableResult
+    func focusTabFromNotification(_ tabId: UUID, surfaceId: UUID? = nil) -> Bool {
         let wasSelected = selectedTabId == tabId
-        let desiredPanelId = surfaceId ?? tabs.first(where: { $0.id == tabId })?.focusedPanelId
+        guard let tab = tabs.first(where: { $0.id == tabId }) else {
+#if DEBUG
+            dlog("notification.focus.fail tab=\(tabId.uuidString.prefix(5)) reason=missingTab")
+#endif
+            return false
+        }
+        if let surfaceId, tab.panels[surfaceId] == nil {
+#if DEBUG
+            dlog(
+                "notification.focus.fail tab=\(tabId.uuidString.prefix(5)) " +
+                "panel=\(surfaceId.uuidString.prefix(5)) reason=missingPanel"
+            )
+#endif
+            return false
+        }
+        let desiredPanelId = surfaceId ?? tab.focusedPanelId
 #if DEBUG
         if let desiredPanelId {
             AppDelegate.shared?.armJumpUnreadFocusRecord(tabId: tabId, surfaceId: desiredPanelId)
         }
 #endif
+        // Jump-to-unread should reveal the destination pane instead of keeping an old split-zoom
+        // state active around it.
+        tab.clearSplitZoom()
         suppressFocusFlash = true
         focusTab(tabId, surfaceId: desiredPanelId, suppressFlash: true)
         if wasSelected {
@@ -2179,6 +2251,7 @@ class TabManager: ObservableObject {
             tab.triggerNotificationFocusFlash(panelId: targetPanelId, requiresSplit: false, shouldFocus: true)
             notificationStore.markRead(forTabId: tabId, surfaceId: targetPanelId)
         }
+        return true
     }
 
     func focusSurface(tabId: UUID, surfaceId: UUID) {

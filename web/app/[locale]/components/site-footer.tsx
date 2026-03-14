@@ -16,6 +16,7 @@ export async function SiteFooter() {
       links: [
         { label: t("blog"), href: "/blog" },
         { label: t("community"), href: "/community" },
+        { label: t("nightly"), href: "/nightly" },
       ],
     },
     {

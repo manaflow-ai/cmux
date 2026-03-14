@@ -4754,7 +4754,7 @@ struct ContentView: View {
                 keywords: ["vscode", "inline", "serve-web", "stop", "server"],
                 when: { context in
                     context.bool(CommandPaletteContextKeys.panelIsTerminal)
-                        && context.bool(CommandPaletteContextKeys.terminalOpenTargetAvailable(.vscode))
+                        && context.bool(CommandPaletteContextKeys.terminalOpenTargetAvailable(.vscodeInline))
                 }
             )
         )
@@ -4766,7 +4766,7 @@ struct ContentView: View {
                 keywords: ["vscode", "inline", "serve-web", "restart", "server"],
                 when: { context in
                     context.bool(CommandPaletteContextKeys.panelIsTerminal)
-                        && context.bool(CommandPaletteContextKeys.terminalOpenTargetAvailable(.vscode))
+                        && context.bool(CommandPaletteContextKeys.terminalOpenTargetAvailable(.vscodeInline))
                 }
             )
         )
@@ -6227,7 +6227,7 @@ struct ContentView: View {
         case .finder:
             NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: directoryURL.path)
             return true
-        case .vscode:
+        case .vscodeInline:
             return openFocusedDirectoryInInlineVSCode(directoryURL)
         default:
             guard let applicationURL = target.applicationURL() else { return false }
@@ -6238,7 +6238,7 @@ struct ContentView: View {
     }
 
     private func openFocusedDirectoryInInlineVSCode(_ directoryURL: URL) -> Bool {
-        guard let vscodeApplicationURL = TerminalDirectoryOpenTarget.vscode.applicationURL(),
+        guard let vscodeApplicationURL = TerminalDirectoryOpenTarget.vscodeInline.applicationURL(),
               let workspace = tabManager.selectedWorkspace,
               let sourcePanelId = workspace.focusedPanelId else {
             return false
@@ -6274,7 +6274,7 @@ struct ContentView: View {
     }
 
     private func restartInlineVSCodeServeWeb() -> Bool {
-        guard let vscodeApplicationURL = TerminalDirectoryOpenTarget.vscode.applicationURL() else {
+        guard let vscodeApplicationURL = TerminalDirectoryOpenTarget.vscodeInline.applicationURL() else {
             return false
         }
         VSCodeServeWebController.shared.restart(vscodeApplicationURL: vscodeApplicationURL) { serveWebURL in
@@ -8486,6 +8486,7 @@ private enum SidebarHelpMenuAction {
     case changelog
     case github
     case githubIssues
+    case discord
     case checkForUpdates
     case sendFeedback
     case welcome
@@ -8986,6 +8987,7 @@ private struct SidebarHelpMenuButton: View {
     private let changelogURL = URL(string: "https://cmux.dev/docs/changelog")
     private let githubURL = URL(string: "https://github.com/manaflow-ai/cmux")
     private let githubIssuesURL = URL(string: "https://github.com/manaflow-ai/cmux/issues")
+    private let discordURL = URL(string: "https://discord.gg/xsgFEVrWCZ")
     private let helpTitle = String(localized: "sidebar.help.button", defaultValue: "Help")
     private let buttonSize: CGFloat = 22
     private let iconSize: CGFloat = 11
@@ -9030,7 +9032,7 @@ private struct SidebarHelpMenuButton: View {
     private var helpPopover: some View {
         VStack(alignment: .leading, spacing: 2) {
             helpOptionButton(
-                title: String(localized: "sidebar.help.welcome", defaultValue: "Welcome"),
+                title: String(localized: "sidebar.help.welcome", defaultValue: "Welcome to cmux!"),
                 action: .welcome,
                 accessibilityIdentifier: "SidebarHelpMenuOptionWelcome",
                 isExternalLink: false
@@ -9078,6 +9080,14 @@ private struct SidebarHelpMenuButton: View {
                     title: String(localized: "sidebar.help.githubIssues", defaultValue: "GitHub Issues"),
                     action: .githubIssues,
                     accessibilityIdentifier: "SidebarHelpMenuOptionGitHubIssues",
+                    isExternalLink: true
+                )
+            }
+            if discordURL != nil {
+                helpOptionButton(
+                    title: String(localized: "sidebar.help.discord", defaultValue: "Discord"),
+                    action: .discord,
+                    accessibilityIdentifier: "SidebarHelpMenuOptionDiscord",
                     isExternalLink: true
                 )
             }
@@ -9171,6 +9181,9 @@ private struct SidebarHelpMenuButton: View {
         case .githubIssues:
             guard let githubIssuesURL else { return }
             NSWorkspace.shared.open(githubIssuesURL)
+        case .discord:
+            guard let discordURL else { return }
+            NSWorkspace.shared.open(discordURL)
         case .checkForUpdates:
             Task { @MainActor in
                 AppDelegate.shared?.checkForUpdates(nil)

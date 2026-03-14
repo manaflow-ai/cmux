@@ -845,13 +845,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Welcome"
+            "value": "Welcome to cmux!"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ようこそ"
+            "value": "cmuxへようこそ！"
           }
         }
       }
@@ -869,6 +869,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "更新履歴"
+          }
+        }
+      }
+    },
+    "sidebar.help.discord": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Discord"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Discord"
           }
         }
       }
@@ -35131,6 +35148,23 @@
         }
       }
     },
+    "menu.openInVSCodeDesktop": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Current Directory in VS Code"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在のディレクトリを VS Code で開く"
+          }
+        }
+      }
+    },
     "menu.openInWarp": {
       "extractionState": "manual",
       "localizations": {
@@ -40342,6 +40376,119 @@
           "stringUnit": {
             "state": "translated",
             "value": "Uygulama Simgesi"
+          }
+        }
+      }
+    },
+    "settings.app.appIcon.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock and app switcher"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dockとアプリスイッチャー"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "程序坞和应用切换器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock 和 App 切換器"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock 및 앱 전환기"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock und App-Umschalter"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock y selector de apps"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock et sélecteur d'apps"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock e selettore app"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock og appskifter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock i przełącznik aplikacji"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock и переключатель приложений"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock i prebacivač aplikacija"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "شريط Dock ومبدّل التطبيقات"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock og appbytter"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock e alternador de apps"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock และตัวสลับแอป"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock ve uygulama değiştirici"
           }
         }
       }

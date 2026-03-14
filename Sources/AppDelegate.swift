@@ -9,6 +9,10 @@ import Combine
 import ObjectiveC.runtime
 import Darwin
 
+private enum CmuxThemeNotifications {
+    static let reloadConfig = Notification.Name("com.cmuxterm.themes.reload-config")
+}
+
 #if DEBUG
 enum CmuxTypingTiming {
     static let isEnabled: Bool = {
@@ -392,6 +396,7 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
     case terminal
     case tower
     case vscode
+    case vscodeInline
     case warp
     case windsurf
     case xcode
@@ -442,6 +447,8 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
         case .tower:
             return String(localized: "menu.openInTower", defaultValue: "Open Current Directory in Tower")
         case .vscode:
+            return String(localized: "menu.openInVSCodeDesktop", defaultValue: "Open Current Directory in VS Code")
+        case .vscodeInline:
             return String(localized: "menu.openInVSCode", defaultValue: "Open Current Directory in VS Code (Inline)")
         case .warp:
             return String(localized: "menu.openInWarp", defaultValue: "Open Current Directory in Warp")
@@ -474,6 +481,8 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
         case .tower:
             return common + ["tower", "git", "client"]
         case .vscode:
+            return common + ["vs", "code", "visual", "studio", "desktop", "app"]
+        case .vscodeInline:
             return common + ["vs", "code", "visual", "studio", "inline", "browser", "serve-web"]
         case .warp:
             return common + ["warp", "terminal", "shell"]
@@ -488,7 +497,7 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
 
     func isAvailable(in environment: DetectionEnvironment = .live) -> Bool {
         guard let applicationPath = applicationPath(in: environment) else { return false }
-        guard self == .vscode else { return true }
+        guard self == .vscodeInline else { return true }
         return VSCodeCLILaunchConfigurationBuilder.launchConfiguration(
             vscodeApplicationURL: URL(fileURLWithPath: applicationPath, isDirectory: true),
             isExecutableAtPath: environment.isExecutableFileAtPath
@@ -549,6 +558,11 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
         case .tower:
             return ["/Applications/Tower.app"]
         case .vscode:
+            return [
+                "/Applications/Visual Studio Code.app",
+                "/Applications/Code.app",
+            ]
+        case .vscodeInline:
             return [
                 "/Applications/Visual Studio Code.app",
                 "/Applications/Code.app",
@@ -2119,6 +2133,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let isRunningUnderXCTest = isRunningUnderXCTest(env)
         let telemetryEnabled = TelemetrySettings.enabledForCurrentLaunch
 
+        DistributedNotificationCenter.default().addObserver(
+            self,
+            selector: #selector(handleThemesReloadNotification(_:)),
+            name: CmuxThemeNotifications.reloadConfig,
+            object: nil,
+            suspensionBehavior: .deliverImmediately
+        )
+
 #if DEBUG
         // UI tests run on a shared VM user profile, so persisted shortcuts can drift and make
         // key-equivalent routing flaky. Force defaults for deterministic tests.
@@ -2924,13 +2946,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func restartSocketListenerIfEnabled(source: String) {
         guard let tabManager,
               let config = socketListenerConfigurationIfEnabled() else { return }
+        let restartPath = TerminalController.shared.activeSocketPath(preferredPath: config.path)
         sentryBreadcrumb("socket.listener.restart", category: "socket", data: [
             "mode": config.mode.rawValue,
-            "path": config.path,
+            "path": restartPath,
             "source": source
         ])
         TerminalController.shared.stop()
-        TerminalController.shared.start(tabManager: tabManager, socketPath: config.path, accessMode: config.mode)
+        TerminalController.shared.start(tabManager: tabManager, socketPath: restartPath, accessMode: config.mode)
     }
 
     private func startSocketListenerHealthMonitorIfNeeded() {
@@ -2958,8 +2981,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func restartSocketListenerIfNeededForHealthCheck(source: String) {
         guard !socketListenerHealthCheckInFlight,
               let config = socketListenerConfigurationIfEnabled() else { return }
-        let expectedSocketPath = config.path
         let terminalController = TerminalController.shared
+        let expectedSocketPath = terminalController.activeSocketPath(preferredPath: config.path)
         socketListenerHealthCheckInFlight = true
         Thread.detachNewThread { [weak self, expectedSocketPath, source, terminalController] in
             let health = terminalController.socketListenerHealth(expectedSocketPath: expectedSocketPath)
@@ -2980,8 +3003,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         source: String,
         expectedSocketPath: String
     ) {
-        guard let config = socketListenerConfigurationIfEnabled(),
-              config.path == expectedSocketPath else { return }
+        guard let config = socketListenerConfigurationIfEnabled() else { return }
+        let currentExpectedSocketPath = TerminalController.shared.activeSocketPath(preferredPath: config.path)
+        guard currentExpectedSocketPath == expectedSocketPath else { return }
         guard !health.isHealthy else {
             lastSocketListenerUnhealthyCaptureAt = .distantPast
             return
@@ -2989,7 +3013,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let failureSignals = health.failureSignals
         var data: [String: Any] = [
             "source": source,
-            "path": config.path,
+            "path": currentExpectedSocketPath,
             "isRunning": health.isRunning ? 1 : 0,
             "acceptLoopAlive": health.acceptLoopAlive ? 1 : 0,
             "socketPathMatches": health.socketPathMatches ? 1 : 0,
@@ -4578,6 +4602,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return NSApp.windows.first(where: { $0.identifier?.rawValue == expectedIdentifier })
     }
 
+    private func resolvedWindow(for context: MainWindowContext) -> NSWindow? {
+        guard let window = context.window ?? windowForMainWindowId(context.windowId) else {
+            return nil
+        }
+        context.window = window
+        return window
+    }
+
     private func mainWindowId(from window: NSWindow) -> UUID? {
         guard let raw = window.identifier?.rawValue else { return nil }
         let prefix = "cmux.main."
@@ -4653,6 +4685,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             mainWindowContexts.removeValue(forKey: key)
         }
         return removed
+    }
+
+    private func discardOrphanedMainWindowContext(_ context: MainWindowContext) {
+        let contextKeys = mainWindowContexts.compactMap { key, value in
+            value === context ? key : nil
+        }
+        for key in contextKeys {
+            mainWindowContexts.removeValue(forKey: key)
+        }
+
+        commandPaletteVisibilityByWindowId.removeValue(forKey: context.windowId)
+        commandPalettePendingOpenByWindowId.removeValue(forKey: context.windowId)
+        commandPaletteRecentRequestAtByWindowId.removeValue(forKey: context.windowId)
+        commandPaletteEscapeSuppressionByWindowId.remove(context.windowId)
+        commandPaletteEscapeSuppressionStartedAtByWindowId.removeValue(forKey: context.windowId)
+        commandPaletteSelectionByWindowId.removeValue(forKey: context.windowId)
+        commandPaletteSnapshotByWindowId.removeValue(forKey: context.windowId)
+
+        if tabManager === context.tabManager {
+            if let nextContext = mainWindowContexts.values.first(where: { resolvedWindow(for: $0) != nil }) {
+                tabManager = nextContext.tabManager
+                sidebarState = nextContext.sidebarState
+                sidebarSelectionState = nextContext.sidebarSelectionState
+                TerminalController.shared.setActiveTabManager(nextContext.tabManager)
+            } else {
+                tabManager = nil
+                sidebarState = nil
+                sidebarSelectionState = nil
+                TerminalController.shared.setActiveTabManager(nil)
+            }
+        }
+
+        if let store = notificationStore {
+            for tab in context.tabManager.tabs {
+                store.clearNotifications(forTabId: tab.id)
+            }
+        }
     }
 
     private func mainWindowId(for window: NSWindow) -> UUID? {
@@ -5080,11 +5149,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             #endif
             return nil
         }
-        if let window = context.window ?? windowForMainWindowId(context.windowId) {
-            setActiveMainWindow(window)
-            if shouldBringToFront {
-                bringToFront(window)
-            }
+        guard let window = resolvedWindow(for: context) else {
+            #if DEBUG
+            logWorkspaceCreationRouting(
+                phase: "no_context",
+                source: debugSource,
+                reason: "context_window_missing",
+                event: event,
+                chosenContext: context,
+                workingDirectory: workingDirectory
+            )
+            #endif
+            discardOrphanedMainWindowContext(context)
+            return nil
+        }
+        setActiveMainWindow(window)
+        if shouldBringToFront {
+            bringToFront(window)
         }
 
         let workspace: Workspace
@@ -5173,7 +5254,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
 
-        let fallback = mainWindowContexts.values.first
+        let fallback = mainWindowContexts.values.first(where: { resolvedWindow(for: $0) != nil })
         #if DEBUG
         logWorkspaceCreationRouting(
             phase: "choose",
@@ -9901,7 +9982,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         context.sidebarSelectionState.selection = .tabs
         bringToFront(window)
-        context.tabManager.focusTabFromNotification(tabId, surfaceId: surfaceId)
+        guard context.tabManager.focusTabFromNotification(tabId, surfaceId: surfaceId) else {
+#if DEBUG
+            recordMultiWindowNotificationOpenFailureIfNeeded(
+                tabId: tabId,
+                surfaceId: surfaceId,
+                notificationId: notificationId,
+                reason: "focus_failed"
+            )
+            if ProcessInfo.processInfo.environment["CMUX_UI_TEST_JUMP_UNREAD_SETUP"] == "1" {
+                writeJumpUnreadTestData(["jumpUnreadOpenResult": "0"])
+            }
+#endif
+            return false
+        }
 
 #if DEBUG
         // UI test support: Jump-to-unread asserts that the correct workspace/panel is focused.
@@ -9966,7 +10060,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         sidebarSelectionState?.selection = .tabs
         bringToFront(window)
-        tabManager.focusTabFromNotification(tabId, surfaceId: surfaceId)
+        guard tabManager.focusTabFromNotification(tabId, surfaceId: surfaceId) else {
+#if DEBUG
+            if ProcessInfo.processInfo.environment["CMUX_UI_TEST_JUMP_UNREAD_SETUP"] == "1" {
+                writeJumpUnreadTestData([
+                    "jumpUnreadFallbackFail": "focus_failed",
+                    "jumpUnreadOpenResult": "0",
+                ])
+            }
+#endif
+            return false
+        }
 
 #if DEBUG
         recordJumpUnreadFocusFromModelIfNeeded(
@@ -10812,6 +10916,14 @@ private extension NSApplication {
     }
 }
 
+private extension AppDelegate {
+    @objc func handleThemesReloadNotification(_ notification: Notification) {
+        DispatchQueue.main.async {
+            GhosttyApp.shared.reloadConfiguration(source: "distributed.cmux.themes")
+        }
+    }
+}
+
 private extension NSWindow {
     @objc func cmux_makeFirstResponder(_ responder: NSResponder?) -> Bool {
         if cmuxIsWindowFirstResponderBypassActive() {
@@ -11422,4 +11534,5 @@ private extension NSWindow {
         }
         return hitWebView === webView
     }
+
 }

@@ -36,7 +36,7 @@ class TerminalController {
 
     static let shared = TerminalController()
 
-    private nonisolated(unsafe) var socketPath = "/tmp/cmux.sock"
+    private nonisolated(unsafe) var socketPath = SocketControlSettings.stableDefaultSocketPath
     private nonisolated(unsafe) var serverSocket: Int32 = -1
     private nonisolated(unsafe) var isRunning = false
     private nonisolated(unsafe) var acceptLoopAlive = false
@@ -73,6 +73,13 @@ class TerminalController {
         let acceptLoopAlive: Bool
         let activeGeneration: UInt64
         let pendingRearmGeneration: UInt64?
+        let listenerStartInProgress: Bool
+    }
+
+    private enum SocketBindAttemptResult {
+        case success(path: String)
+        case pathTooLong(path: String)
+        case failure(path: String, stage: String, errnoCode: Int32)
     }
 
     private static let focusIntentV1Commands: Set<String> = [
@@ -174,9 +181,18 @@ class TerminalController {
                 isRunning: isRunning,
                 acceptLoopAlive: acceptLoopAlive,
                 activeGeneration: activeAcceptLoopGeneration,
-                pendingRearmGeneration: pendingAcceptLoopRearmGeneration
+                pendingRearmGeneration: pendingAcceptLoopRearmGeneration,
+                listenerStartInProgress: listenerStartInProgress
             )
         }
+    }
+
+    nonisolated func activeSocketPath(preferredPath: String) -> String {
+        let snapshot = listenerStateSnapshot()
+        if snapshot.isRunning || snapshot.acceptLoopAlive || snapshot.listenerStartInProgress || snapshot.serverSocket >= 0 {
+            return snapshot.socketPath
+        }
+        return preferredPath
     }
 
     private nonisolated func shouldContinueAcceptLoop(generation: UInt64) -> Bool {
@@ -333,6 +349,52 @@ class TerminalController {
         return currentSorted != nextSorted
     }
 
+    private struct SocketSurfaceKey: Hashable {
+        let workspaceId: UUID
+        let panelId: UUID
+    }
+
+    private final class SocketFastPathState: @unchecked Sendable {
+        private let queue = DispatchQueue(label: "com.cmux.socket-fast-path")
+        private var lastReportedDirectories: [SocketSurfaceKey: String] = [:]
+        private var lastReportedShellStates: [SocketSurfaceKey: Workspace.PanelShellActivityState] = [:]
+        private let maxTrackedDirectories = 4096
+        private let maxTrackedShellStates = 4096
+
+        func shouldPublishDirectory(workspaceId: UUID, panelId: UUID, directory: String) -> Bool {
+            let key = SocketSurfaceKey(workspaceId: workspaceId, panelId: panelId)
+            return queue.sync {
+                if lastReportedDirectories[key] == directory {
+                    return false
+                }
+                if lastReportedDirectories.count >= maxTrackedDirectories {
+                    lastReportedDirectories.removeAll(keepingCapacity: true)
+                }
+                lastReportedDirectories[key] = directory
+                return true
+            }
+        }
+
+        func shouldPublishShellActivity(
+            workspaceId: UUID,
+            panelId: UUID,
+            state: Workspace.PanelShellActivityState
+        ) -> Bool {
+            let key = SocketSurfaceKey(workspaceId: workspaceId, panelId: panelId)
+            return queue.sync {
+                if lastReportedShellStates[key] == state {
+                    return false
+                }
+                if lastReportedShellStates.count >= maxTrackedShellStates {
+                    lastReportedShellStates.removeAll(keepingCapacity: true)
+                }
+                lastReportedShellStates[key] = state
+                return true
+            }
+        }
+    }
+
+    private static let socketFastPathState = SocketFastPathState()
     nonisolated static func explicitSocketScope(
         options: [String: String]
     ) -> (workspaceId: UUID, panelId: UUID)? {
@@ -384,6 +446,21 @@ class TerminalController {
         let directory = fileURL.deletingLastPathComponent().standardizedFileURL
         let temporary = temporaryDirectory.standardizedFileURL
         return directory.path.hasPrefix(temporary.path + "/")
+    }
+
+    nonisolated static func parseReportedShellActivityState(
+        _ rawState: String
+    ) -> Workspace.PanelShellActivityState? {
+        switch rawState.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "prompt", "idle":
+            return .promptIdle
+        case "running", "busy", "command":
+            return .commandRunning
+        case "unknown", "clear":
+            return .unknown
+        default:
+            return nil
+        }
     }
 
     /// Update which window's TabManager receives socket commands.
@@ -639,6 +716,60 @@ class TerminalController {
         return (false, connectErrno)
     }
 
+    private nonisolated static func bindListenerSocket(_ socket: Int32, path: String) -> SocketBindAttemptResult {
+        if let errnoCode = ensureSocketParentDirectoryExists(path: path) {
+            return .failure(path: path, stage: "create_directory", errnoCode: errnoCode)
+        }
+        if unlink(path) != 0, errno != ENOENT {
+            return .failure(path: path, stage: "unlink", errnoCode: errno)
+        }
+
+        guard let bindResult = bindUnixSocket(socket, path: path) else {
+            return .pathTooLong(path: path)
+        }
+        guard bindResult >= 0 else {
+            return .failure(path: path, stage: "bind", errnoCode: errno)
+        }
+        return .success(path: path)
+    }
+
+    private nonisolated static func ensureSocketParentDirectoryExists(path: String) -> Int32? {
+        let parentURL = URL(fileURLWithPath: path).deletingLastPathComponent()
+        do {
+            try FileManager.default.createDirectory(
+                at: parentURL,
+                withIntermediateDirectories: true,
+                attributes: [.posixPermissions: 0o700]
+            )
+            return nil
+        } catch let error as NSError {
+            if error.domain == NSPOSIXErrorDomain {
+                return Int32(error.code)
+            }
+            return EIO
+        }
+    }
+
+    nonisolated static func fallbackSocketPathAfterBindFailure(
+        requestedPath: String,
+        stage: String,
+        errnoCode: Int32,
+        currentUserID: uid_t = getuid()
+    ) -> String? {
+        guard requestedPath == SocketControlSettings.stableDefaultSocketPath else {
+            return nil
+        }
+
+        switch stage {
+        case "unlink" where errnoCode == EACCES || errnoCode == EPERM:
+            return SocketControlSettings.userScopedStableSocketPath(currentUserID: currentUserID)
+        case "bind" where errnoCode == EACCES || errnoCode == EPERM || errnoCode == EADDRINUSE:
+            return SocketControlSettings.userScopedStableSocketPath(currentUserID: currentUserID)
+        default:
+            return nil
+        }
+    }
+
     func start(tabManager: TabManager, socketPath: String, accessMode: SocketControlMode) {
         self.tabManager = tabManager
         self.accessMode = accessMode
@@ -657,8 +788,9 @@ class TerminalController {
             stop()
         }
 
+        var activeSocketPath = socketPath
         withListenerState {
-            self.socketPath = socketPath
+            self.socketPath = activeSocketPath
             listenerStartInProgress = true
         }
         var listenerActivated = false
@@ -669,9 +801,6 @@ class TerminalController {
                 }
             }
         }
-
-        // Remove existing socket file
-        unlink(socketPath)
 
         // Create socket
         let newServerSocket = socket(AF_UNIX, SOCK_STREAM, 0)
@@ -686,29 +815,58 @@ class TerminalController {
             return
         }
 
-        // Bind to path
-        guard let bindResult = Self.bindUnixSocket(newServerSocket, path: socketPath) else {
+        var bindAttempt = Self.bindListenerSocket(newServerSocket, path: activeSocketPath)
+        if case .failure(let failedPath, let failedStage, let failedErrnoCode) = bindAttempt,
+           let fallbackPath = Self.fallbackSocketPathAfterBindFailure(
+               requestedPath: failedPath,
+               stage: failedStage,
+               errnoCode: failedErrnoCode
+           ),
+           fallbackPath != failedPath {
+            sentryBreadcrumb(
+                "socket.listener.path.fallback",
+                category: "socket",
+                data: [
+                    "requestedPath": failedPath,
+                    "fallbackPath": fallbackPath,
+                    "stage": failedStage,
+                    "errno": Int(failedErrnoCode)
+                ]
+            )
+            activeSocketPath = fallbackPath
+            withListenerState {
+                self.socketPath = activeSocketPath
+            }
+            bindAttempt = Self.bindListenerSocket(newServerSocket, path: activeSocketPath)
+        }
+
+        switch bindAttempt {
+        case .success(let boundPath):
+            activeSocketPath = boundPath
+            withListenerState {
+                self.socketPath = activeSocketPath
+            }
+        case .pathTooLong(let failedPath):
             close(newServerSocket)
             reportSocketListenerFailure(
                 message: "socket.listener.start.failed",
                 stage: "bind_path_too_long",
                 errnoCode: ENAMETOOLONG,
                 extra: [
-                    "pathLength": socketPath.utf8.count,
+                    "path": failedPath,
+                    "pathLength": failedPath.utf8.count,
                     "maxPathLength": Self.unixSocketPathMaxLength
                 ]
             )
             return
-        }
-
-        guard bindResult >= 0 else {
-            let errnoCode = errno
+        case .failure(let failedPath, let failedStage, let failedErrnoCode):
             print("TerminalController: Failed to bind socket")
             close(newServerSocket)
             reportSocketListenerFailure(
                 message: "socket.listener.start.failed",
-                stage: "bind",
-                errnoCode: errnoCode
+                stage: failedStage,
+                errnoCode: failedErrnoCode,
+                extra: ["path": failedPath]
             )
             return
         }
@@ -728,6 +886,8 @@ class TerminalController {
             return
         }
 
+        SocketControlSettings.recordLastSocketPath(activeSocketPath)
+
         let generation = withListenerState {
             isRunning = true
             pendingAcceptLoopRearmGeneration = nil
@@ -740,12 +900,12 @@ class TerminalController {
         }
         listenerActivated = true
         let listenerSocket = newServerSocket
-        print("TerminalController: Listening on \(socketPath)")
+        print("TerminalController: Listening on \(activeSocketPath)")
         sentryBreadcrumb(
             "socket.listener.listening",
             category: "socket",
             data: [
-                "path": socketPath,
+                "path": activeSocketPath,
                 "mode": accessMode.rawValue,
                 "generation": generation,
                 "backlog": Self.socketListenBacklog
@@ -1469,6 +1629,9 @@ class TerminalController {
         case "ports_kick":
             return portsKick(args)
 
+        case "report_shell_state":
+            return reportShellState(args)
+
         case "report_pwd":
             return reportPwd(args)
 
@@ -1631,6 +1794,9 @@ class TerminalController {
 
         case "close_surface":
             return closeSurface(args)
+
+        case "reload_config":
+            return reloadConfig(args)
 
         case "refresh_surfaces":
             return refreshSurfaces()
@@ -4892,21 +5058,133 @@ class TerminalController {
         return "OK \(base64)"
     }
 
-    func readTerminalTextForSessionSnapshot(
+    private struct PasteboardItemSnapshot {
+        let representations: [(type: NSPasteboard.PasteboardType, data: Data)]
+    }
+
+    private func snapshotPasteboardItems(_ pasteboard: NSPasteboard) -> [PasteboardItemSnapshot] {
+        guard let items = pasteboard.pasteboardItems else { return [] }
+        return items.map { item in
+            let representations = item.types.compactMap { type -> (type: NSPasteboard.PasteboardType, data: Data)? in
+                guard let data = item.data(forType: type) else { return nil }
+                return (type: type, data: data)
+            }
+            return PasteboardItemSnapshot(representations: representations)
+        }
+    }
+
+    private func restorePasteboardItems(
+        _ snapshots: [PasteboardItemSnapshot],
+        to pasteboard: NSPasteboard
+    ) {
+        _ = pasteboard.clearContents()
+        guard !snapshots.isEmpty else { return }
+
+        let restoredItems = snapshots.compactMap { snapshot -> NSPasteboardItem? in
+            guard !snapshot.representations.isEmpty else { return nil }
+            let item = NSPasteboardItem()
+            for representation in snapshot.representations {
+                item.setData(representation.data, forType: representation.type)
+            }
+            return item
+        }
+        guard !restoredItems.isEmpty else { return }
+        _ = pasteboard.writeObjects(restoredItems)
+    }
+
+    private func readGeneralPasteboardString(_ pasteboard: NSPasteboard) -> String? {
+        if let urls = pasteboard.readObjects(forClasses: [NSURL.self]) as? [URL],
+           let firstURL = urls.first,
+           firstURL.isFileURL {
+            return firstURL.path
+        }
+        if let value = pasteboard.string(forType: .string) {
+            return value
+        }
+        return pasteboard.string(forType: NSPasteboard.PasteboardType("public.utf8-plain-text"))
+    }
+
+    private func readTerminalTextFromVTExportForSnapshot(
+        terminalPanel: TerminalPanel,
+        lineLimit: Int?
+    ) -> String? {
+        let pasteboard = NSPasteboard.general
+        let snapshot = snapshotPasteboardItems(pasteboard)
+        defer {
+            restorePasteboardItems(snapshot, to: pasteboard)
+        }
+
+        let initialChangeCount = pasteboard.changeCount
+        guard terminalPanel.performBindingAction("write_screen_file:copy,vt") else {
+            return nil
+        }
+        guard pasteboard.changeCount != initialChangeCount else {
+            return nil
+        }
+        guard let exportedPath = Self.normalizedExportedScreenPath(readGeneralPasteboardString(pasteboard)) else {
+            return nil
+        }
+
+        let fileURL = URL(fileURLWithPath: exportedPath)
+        defer {
+            if Self.shouldRemoveExportedScreenFile(fileURL: fileURL) {
+                try? FileManager.default.removeItem(at: fileURL)
+                if Self.shouldRemoveExportedScreenDirectory(fileURL: fileURL) {
+                    try? FileManager.default.removeItem(at: fileURL.deletingLastPathComponent())
+                }
+            }
+        }
+
+        guard let data = try? Data(contentsOf: fileURL),
+              var output = String(data: data, encoding: .utf8) else {
+            return nil
+        }
+        if let lineLimit {
+            output = tailTerminalLines(output, maxLines: lineLimit)
+        }
+        return output
+    }
+
+    func readTerminalTextForSnapshot(
         terminalPanel: TerminalPanel,
         includeScrollback: Bool = false,
         lineLimit: Int? = nil
     ) -> String? {
+        if includeScrollback,
+           let vtOutput = readTerminalTextFromVTExportForSnapshot(
+               terminalPanel: terminalPanel,
+               lineLimit: lineLimit
+           ) {
+            return vtOutput
+        }
+
         let response = readTerminalTextBase64(
             terminalPanel: terminalPanel,
             includeScrollback: includeScrollback,
             lineLimit: lineLimit
         )
         guard response.hasPrefix("OK ") else { return nil }
-        let payload = String(response.dropFirst(3)).trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !payload.isEmpty else { return "" }
-        guard let data = Data(base64Encoded: payload) else { return nil }
-        return String(decoding: data, as: UTF8.self)
+        let base64 = String(response.dropFirst(3)).trimmingCharacters(in: .whitespacesAndNewlines)
+        if base64.isEmpty {
+            return ""
+        }
+        guard let data = Data(base64Encoded: base64),
+              let decoded = String(data: data, encoding: .utf8) else {
+            return nil
+        }
+        return decoded
+    }
+
+    func readTerminalTextForSessionSnapshot(
+        terminalPanel: TerminalPanel,
+        includeScrollback: Bool = false,
+        lineLimit: Int? = nil
+    ) -> String? {
+        readTerminalTextForSnapshot(
+            terminalPanel: terminalPanel,
+            includeScrollback: includeScrollback,
+            lineLimit: lineLimit
+        )
     }
 
     private func v2SurfaceTriggerFlash(params: [String: Any]) -> V2CallResult {
@@ -9966,6 +10244,7 @@ class TerminalController {
           focus_pane <pane-id|index>      - Focus a pane
           focus_surface_by_panel <panel_id> - Focus surface by panel ID
           close_surface [id|idx]          - Close surface (collapse split)
+          reload_config [soft]            - Reload Ghostty config and refresh terminals
           refresh_surfaces                - Force refresh all terminals
           surface_health [workspace]      - Check view health of all surfaces
 
@@ -10006,6 +10285,7 @@ class TerminalController {
           report_ports <port1> [port2...] [--tab=X] [--panel=Y] - Report listening ports
           report_tty <tty_name> [--tab=X] [--panel=Y] - Register TTY for batched port scanning
           ports_kick [--tab=X] [--panel=Y] - Request batched port scan for panel
+          report_shell_state <prompt|running> [--tab=X] [--panel=Y] - Report whether the shell is idle at a prompt or running a command
           report_pwd <path> [--tab=X] [--panel=Y] - Report current working directory
           clear_ports [--tab=X] [--panel=Y] - Clear listening ports
           sidebar_state [--tab=X] - Dump sidebar metadata
@@ -11348,7 +11628,9 @@ class TerminalController {
                 result = "ERROR: Surface not found"
                 return
             }
-            tabManager.focusTabFromNotification(tab.id, surfaceId: surfaceId)
+            if !tabManager.focusTabFromNotification(tab.id, surfaceId: surfaceId) {
+                result = "ERROR: Focus failed"
+            }
         }
         return result
     }
@@ -13761,6 +14043,72 @@ class TerminalController {
         return result
     }
 
+    private func reportShellState(_ args: String) -> String {
+        let parsed = parseOptions(args)
+        guard let rawState = parsed.positional.first, !rawState.isEmpty else {
+            return "ERROR: Missing shell state — usage: report_shell_state <prompt|running> [--tab=X] [--panel=Y]"
+        }
+        guard let state = Self.parseReportedShellActivityState(rawState) else {
+            return "ERROR: Invalid shell state '\(rawState)' — expected prompt or running"
+        }
+
+        if let scope = Self.explicitSocketScope(options: parsed.options) {
+            guard Self.socketFastPathState.shouldPublishShellActivity(
+                workspaceId: scope.workspaceId,
+                panelId: scope.panelId,
+                state: state
+            ) else {
+                return "OK"
+            }
+            DispatchQueue.main.async {
+                guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: scope.workspaceId) else { return }
+                tabManager.updateSurfaceShellActivity(tabId: scope.workspaceId, surfaceId: scope.panelId, state: state)
+            }
+            return "OK"
+        }
+
+        guard let tabManager else { return "ERROR: TabManager not available" }
+
+        var result = "OK"
+        DispatchQueue.main.sync {
+            guard let tab = resolveTabForReport(args) else {
+                result = parsed.options["tab"] != nil ? "ERROR: Tab not found" : "ERROR: No tab selected"
+                return
+            }
+
+            let validSurfaceIds = Set(tab.panels.keys)
+            tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
+
+            let panelArg = parsed.options["panel"] ?? parsed.options["surface"]
+            let surfaceId: UUID
+            if let panelArg {
+                if panelArg.isEmpty {
+                    result = "ERROR: Missing panel id — usage: report_shell_state <prompt|running> [--tab=X] [--panel=Y]"
+                    return
+                }
+                guard let parsedId = UUID(uuidString: panelArg) else {
+                    result = "ERROR: Invalid panel id '\(panelArg)'"
+                    return
+                }
+                surfaceId = parsedId
+            } else {
+                guard let focused = tab.focusedPanelId else {
+                    result = "ERROR: Missing panel id (no focused surface)"
+                    return
+                }
+                surfaceId = focused
+            }
+
+            guard validSurfaceIds.contains(surfaceId) else {
+                result = "ERROR: Panel not found '\(surfaceId.uuidString)'"
+                return
+            }
+
+            tabManager.updateSurfaceShellActivity(tabId: tab.id, surfaceId: surfaceId, state: state)
+        }
+        return result
+    }
+
     private func clearPorts(_ args: String) -> String {
         let parsed = parseOptions(args)
         var result = "OK"
@@ -13957,6 +14305,24 @@ class TerminalController {
             tab.resetSidebarContext(reason: "reset_sidebar")
         }
         return result
+    }
+
+    private func reloadConfig(_ args: String) -> String {
+        let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let soft: Bool
+        switch trimmed {
+        case "", "full":
+            soft = false
+        case "soft":
+            soft = true
+        default:
+            return "ERROR: Usage: reload_config [soft]"
+        }
+
+        v2MainSync {
+            GhosttyApp.shared.reloadConfiguration(soft: soft, source: "socket.reload_config")
+        }
+        return soft ? "OK Reloaded config (soft)" : "OK Reloaded config"
     }
 
     private func refreshSurfaces() -> String {

@@ -37,6 +37,7 @@
     "twitter": "X / Twitter",
     "discord": "Discord",
     "contact": "İletişim",
+    "nightly": "Nightly",
     "copyright": "© {year} Manaflow",
     "language": "Dil"
   },
@@ -580,6 +581,15 @@
     "bchris91": "Bu tam olarak istediğim şey. Harika iş, teşekkürler!",
     "connorelsea": "Bir haftadır kullanıyorum ve harika. Her devam eden görev için dikey sekme. İçinde bir tarafta Claude'lar, diğer tarafta PR ve kaynaklarla tarayıcı, görevler arasında geçiş yapıp düzenli kalıyorum. Bunu Claude'un CI'ı özyinelemeli izlemesi için skill'lerle birleştirin, vs. aydınlanmış hissediyorum açıkçası",
     "tonkotsuboy": "Yılın başında Warp'tan Ghostty'ye geçtim ama şimdi cmux'a geçtim. Dikey sekmeler kullanışlı ve Claude Code görevleri bittiğinde bildirim almayı takdir ediyorum. Ghostty tabanlı olduğu için çok hızlı performans aynen devam ediyor. Ghostty'de ayarladığım dal gösterimi ve tamamlamalar da hâlâ çalışıyor."
+  },
+  "nightly": {
+    "title": "cmux NIGHTLY",
+    "subtitle": "main dalından güncel derlemeler",
+    "metaTitle": "cmux NIGHTLY — Nightly Derlemeler",
+    "metaDescription": "cmux NIGHTLY indirin. main deki en son commit ten otomatik olarak derlenen bağımsız bir uygulama. Kararlı sürümle yan yana çalışır ve kendi otomatik güncellemelerine sahiptir.",
+    "description": "cmux NIGHTLY, main deki en son commit ten otomatik olarak derlenir. Kendi bundle ID sine sahip olduğundan kararlı sürümle çakışmadan yan yana çalışır. Yeni özellikleri yayınlanmadan önce test etmek için kullanın.",
+    "download": "Mac için NIGHTLY indir",
+    "warning": "Nightly derlemeler hatalar veya tamamlanmamış özellikler içerebilir. Bir sorun oluşursa <githubLink>GitHub</githubLink> veya <discordLink>Discord daki #nightly-bugs</discordLink> kanalında bildirin ve kararlı sürüme geçin."
   },
   "languageSwitcher": {
     "label": "Dil"

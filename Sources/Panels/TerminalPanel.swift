@@ -63,6 +63,10 @@ final class TerminalPanel: Panel, ObservableObject {
         surface.hostedView
     }
 
+    var requestedWorkingDirectory: String? {
+        surface.requestedWorkingDirectory
+    }
+
     init(workspaceId: UUID, surface: TerminalSurface) {
         self.id = surface.id
         self.workspaceId = workspaceId
@@ -95,32 +99,11 @@ final class TerminalPanel: Panel, ObservableObject {
             configTemplate: configTemplate,
             workingDirectory: workingDirectory,
             initialCommand: initialCommand,
-            initialEnvironmentOverrides: Self.mergedNormalizedEnvironment(
-                base: additionalEnvironment,
-                overrides: initialEnvironmentOverrides
-            )
+            initialEnvironmentOverrides: initialEnvironmentOverrides,
+            additionalEnvironment: additionalEnvironment
         )
         surface.portOrdinal = portOrdinal
         self.init(workspaceId: workspaceId, surface: surface)
-    }
-
-    private static func mergedNormalizedEnvironment(
-        base: [String: String],
-        overrides: [String: String]
-    ) -> [String: String] {
-        var merged: [String: String] = [:]
-        merged.reserveCapacity(base.count + overrides.count)
-        for (rawKey, value) in base {
-            let key = rawKey.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !key.isEmpty else { continue }
-            merged[key] = value
-        }
-        for (rawKey, value) in overrides {
-            let key = rawKey.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !key.isEmpty else { continue }
-            merged[key] = value
-        }
-        return merged
     }
 
     func updateTitle(_ newTitle: String) {
@@ -209,6 +192,12 @@ final class TerminalPanel: Panel, ObservableObject {
 
     func needsConfirmClose() -> Bool {
         surface.needsConfirmClose()
+    }
+
+    func shouldPersistScrollbackForSessionSnapshot() -> Bool {
+        // Session restore only replays terminal output into a fresh shell. If Ghostty
+        // says we are not safely at a prompt, replaying that state later is misleading.
+        !surface.needsConfirmClose()
     }
 
     func triggerFlash() {

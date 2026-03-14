@@ -37,6 +37,7 @@
     "twitter": "X / Twitter",
     "discord": "Discord",
     "contact": "ติดต่อ",
+    "nightly": "Nightly",
     "copyright": "© {year} Manaflow",
     "language": "ภาษา"
   },
@@ -576,6 +577,15 @@
     "bchris91": "นี่คือสิ่งที่ผมต้องการเป๊ะเลย ทำได้ยอดเยี่ยม ขอบคุณ!",
     "connorelsea": "ใช้มาสัปดาห์นึงแล้ว เยี่ยมมาก แท็บแนวตั้งสำหรับแต่ละงานที่ทำอยู่ ข้างในมี Claude อยู่ด้านนึงและเบราว์เซอร์กับ PR และทรัพยากรอยู่อีกด้าน สลับไปมาระหว่างงานได้อย่างเป็นระเบียบ ผสมกับ skills ให้ Claude คอยดู CI แบบ recursive ฯลฯ รู้สึกตาสว่างเลย",
     "tonkotsuboy": "ผมเปลี่ยนจาก Warp มา Ghostty ตอนต้นปี แต่ตอนนี้เปลี่ยนมา cmux แล้ว แท็บแนวตั้งสะดวกดี และชอบที่แจ้งเตือนเมื่องาน Claude Code เสร็จ มันใช้ Ghostty เป็นฐานก็เลยเร็วเหมือนเดิม การแสดง branch และ completion ที่ตั้งไว้ใน Ghostty ก็ยังใช้ได้อยู่"
+  },
+  "nightly": {
+    "title": "cmux NIGHTLY",
+    "subtitle": "บิลด์ล่าสุดจาก main",
+    "metaTitle": "cmux NIGHTLY — บิลด์ Nightly",
+    "metaDescription": "ดาวน์โหลด cmux NIGHTLY แอปแยกที่สร้างอัตโนมัติจาก commit ล่าสุดบน main ทำงานควบคู่กับเวอร์ชันเสถียรพร้อมอัปเดตอัตโนมัติของตัวเอง",
+    "description": "cmux NIGHTLY สร้างอัตโนมัติจาก commit ล่าสุดบน main มี bundle ID เป็นของตัวเอง จึงทำงานควบคู่กับเวอร์ชันเสถียรได้โดยไม่ขัดแย้ง ใช้เพื่อทดสอบฟีเจอร์ใหม่ก่อนเปิดตัว",
+    "download": "ดาวน์โหลด NIGHTLY สำหรับ Mac",
+    "warning": "บิลด์ nightly อาจมีบั๊กหรือฟีเจอร์ที่ยังไม่สมบูรณ์ หากพบปัญหา รายงานบน <githubLink>GitHub</githubLink> หรือใน <discordLink>#nightly-bugs บน Discord</discordLink> แล้วสลับกลับไปใช้เวอร์ชันเสถียร"
   },
   "languageSwitcher": {
     "label": "ภาษา"

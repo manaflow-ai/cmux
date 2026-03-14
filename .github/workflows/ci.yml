@@ -31,6 +31,9 @@ jobs:
       - name: Validate release asset guard
         run: node scripts/release_asset_guard.test.js
 
+      - name: Validate current GhosttyKit checksum pin
+        run: ./tests/test_ci_ghosttykit_checksum_present.sh
+
   remote-daemon-tests:
     runs-on: ubuntu-latest
     steps:

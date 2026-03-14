@@ -37,6 +37,7 @@
     "twitter": "X / Twitter",
     "discord": "Discord",
     "contact": "Contact",
+    "nightly": "Nightly",
     "copyright": "© {year} Manaflow",
     "language": "Langue"
   },
@@ -580,6 +581,15 @@
     "bchris91": "C'est exactement ce que je voulais. Travail incroyable, merci !",
     "connorelsea": "Je l'utilise depuis une semaine et c'est fantastique. Un onglet vertical par tache en cours. A l'interieur, Claude d'un cote et le navigateur avec la PR et les ressources de l'autre. Basculer entre les taches en restant organise. En combinant avec les skills pour que Claude surveille le CI recursivement, etc. Franchement, je me sens eclaire.",
     "tonkotsuboy": "J'etais passe de Warp a Ghostty en debut d'annee, mais maintenant je suis passe a cmux. Les onglets verticaux sont pratiques, et j'apprecie les notifications quand les taches Claude Code sont terminees. Comme c'est base sur Ghostty, les performances ultra-rapides sont conservees. L'affichage des branches et les completions que j'avais configures dans Ghostty fonctionnent toujours."
+  },
+  "nightly": {
+    "title": "cmux NIGHTLY",
+    "subtitle": "Builds de pointe depuis main",
+    "metaTitle": "cmux NIGHTLY — Builds Nightly",
+    "metaDescription": "Téléchargez cmux NIGHTLY, une app séparée compilée automatiquement depuis le dernier commit sur main. Fonctionne à côté de la version stable avec ses propres mises à jour automatiques.",
+    "description": "cmux NIGHTLY est compilé automatiquement depuis le dernier commit sur main. Il possède son propre bundle ID et fonctionne donc à côté de la version stable sans conflit. Utilisez-le pour tester les nouvelles fonctionnalités avant leur sortie.",
+    "download": "Télécharger NIGHTLY pour Mac",
+    "warning": "Les builds nightly peuvent contenir des bugs ou des fonctionnalités incomplètes. En cas de problème, signalez-le sur <githubLink>GitHub</githubLink> ou dans <discordLink>#nightly-bugs sur Discord</discordLink> et revenez à la version stable."
   },
   "languageSwitcher": {
     "label": "Langue"

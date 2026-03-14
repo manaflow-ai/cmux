@@ -11,6 +11,8 @@ DERIVED_SET=0
 TAG=""
 CMUX_DEBUG_LOG=""
 CLI_PATH=""
+LAST_SOCKET_PATH_DIR="$HOME/Library/Application Support/cmux"
+LAST_SOCKET_PATH_FILE="${LAST_SOCKET_PATH_DIR}/last-socket-path"
 
 write_dev_cli_shim() {
   local target="$1"
@@ -88,6 +90,13 @@ select_cmux_shim_target() {
   done
 
   return 1
+}
+
+write_last_socket_path() {
+  local socket_path="$1"
+  mkdir -p "$LAST_SOCKET_PATH_DIR"
+  echo "$socket_path" > "$LAST_SOCKET_PATH_FILE" || true
+  echo "$socket_path" > /tmp/cmux-last-socket-path || true
 }
 
 usage() {
@@ -349,7 +358,7 @@ if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
       CMUXD_SOCKET="${APP_SUPPORT_DIR}/cmuxd-dev-${TAG_SLUG}.sock"
       CMUX_SOCKET="/tmp/cmux-debug-${TAG_SLUG}.sock"
       CMUX_DEBUG_LOG="/tmp/cmux-debug-${TAG_SLUG}.log"
-      echo "$CMUX_SOCKET" > /tmp/cmux-last-socket-path || true
+      write_last_socket_path "$CMUX_SOCKET"
       echo "$CMUX_DEBUG_LOG" > /tmp/cmux-last-debug-log-path || true
       /usr/libexec/PlistBuddy -c "Add :LSEnvironment dict" "$INFO_PLIST" 2>/dev/null || true
       /usr/libexec/PlistBuddy -c "Set :LSEnvironment:CMUXD_UNIX_PATH \"${CMUXD_SOCKET}\"" "$INFO_PLIST" 2>/dev/null \
@@ -404,14 +413,24 @@ else
 fi
 sleep 0.3
 CMUXD_SRC="$PWD/cmuxd/zig-out/bin/cmuxd"
+GHOSTTY_HELPER_SRC="$PWD/ghostty/zig-out/bin/ghostty"
 if [[ -d "$PWD/cmuxd" ]]; then
   (cd "$PWD/cmuxd" && zig build -Doptimize=ReleaseFast)
+fi
+if [[ -d "$PWD/ghostty" ]]; then
+  (cd "$PWD/ghostty" && zig build cli-helper -Dapp-runtime=none -Demit-macos-app=false -Demit-xcframework=false -Doptimize=ReleaseFast)
 fi
 if [[ -x "$CMUXD_SRC" ]]; then
   BIN_DIR="$APP_PATH/Contents/Resources/bin"
   mkdir -p "$BIN_DIR"
   cp "$CMUXD_SRC" "$BIN_DIR/cmuxd"
   chmod +x "$BIN_DIR/cmuxd"
+fi
+if [[ -x "$GHOSTTY_HELPER_SRC" ]]; then
+  BIN_DIR="$APP_PATH/Contents/Resources/bin"
+  mkdir -p "$BIN_DIR"
+  cp "$GHOSTTY_HELPER_SRC" "$BIN_DIR/ghostty"
+  chmod +x "$BIN_DIR/ghostty"
 fi
 CLI_PATH="$APP_PATH/Contents/Resources/bin/cmux"
 if [[ -x "$CLI_PATH" ]]; then

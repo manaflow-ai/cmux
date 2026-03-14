@@ -510,16 +510,13 @@ jobs:
             cmux-nightly-macos-${{ github.run_id }}*.dmg
             cmux-nightly-macos.dmg
             appcast.xml
-<<<<<<< HEAD
             remote-daemon-assets/cmuxd-remote-darwin-arm64
             remote-daemon-assets/cmuxd-remote-darwin-amd64
             remote-daemon-assets/cmuxd-remote-linux-arm64
             remote-daemon-assets/cmuxd-remote-linux-amd64
             remote-daemon-assets/cmuxd-remote-checksums.txt
             remote-daemon-assets/cmuxd-remote-manifest.json
-=======
             appcast-universal.xml
->>>>>>> origin/main
           overwrite_files: true
 
       - name: Cleanup keychain

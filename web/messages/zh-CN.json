@@ -37,6 +37,7 @@
     "twitter": "X / Twitter",
     "discord": "Discord",
     "contact": "联系我们",
+    "nightly": "每夜构建",
     "copyright": "© {year} Manaflow",
     "language": "语言"
   },
@@ -580,6 +581,15 @@
     "bchris91": "这正是我想要的。做得太好了，谢谢！",
     "connorelsea": "用了一周，非常棒。每个进行中的任务一个垂直标签页。里面一边是 Claude，另一边是浏览器看 PR 和资料，在任务之间切换保持有序。配合 skill 让 Claude 递归监控 CI 等等。感觉开悟了。",
     "tonkotsuboy": "年初从 Warp 换到 Ghostty，现在又换到了 cmux。垂直标签页很方便，Claude Code 任务完成时收到通知很实用。基于 Ghostty 所以依然飞快。之前在 Ghostty 里设置的分支显示和补全也都能用。"
+  },
+  "nightly": {
+    "title": "cmux NIGHTLY",
+    "subtitle": "来自 main 分支的最新构建",
+    "metaTitle": "cmux NIGHTLY — 每夜构建",
+    "metaDescription": "下载 cmux NIGHTLY，从最新 main 提交自动构建的独立应用。与稳定版并行运行，拥有独立的自动更新。",
+    "description": "cmux NIGHTLY 从 main 的最新提交自动构建。它拥有独立的 Bundle ID，因此可以与稳定版并行运行，互不冲突。用它来测试尚未发布的新功能。",
+    "download": "下载 Mac 版 NIGHTLY",
+    "warning": "每夜构建可能包含错误或不完整的功能。如果遇到问题，请在 <githubLink>GitHub</githubLink> 或 <discordLink>Discord 的 #nightly-bugs</discordLink> 上报告，并切换回稳定版。"
   },
   "languageSwitcher": {
     "label": "语言"

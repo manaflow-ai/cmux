@@ -37,6 +37,7 @@
     "twitter": "X / Twitter",
     "discord": "Discord",
     "contact": "お問い合わせ",
+    "nightly": "ナイトリー",
     "copyright": "© {year} Manaflow",
     "language": "言語"
   },
@@ -580,6 +581,15 @@
     "bchris91": "まさに欲しかったもの。最高です、ありがとう！",
     "connorelsea": "1週間使ってるけど最高。WIPタスクごとに縦タブ。中にはClaudeを片側に、PRやリソースのブラウザをもう片側に。タスクを切り替えながら整理できる。スキルでClaudeにCIを再帰的に監視させたり。正直、悟りを開いた気分。",
     "tonkotsuboy": "年初にWarpからGhosttyに乗り換えたけど、今はcmuxに乗り換えた💻 垂直タブが便利で、Claude Codeのタスクの終了が通知されるのがありがたい。Ghosttyベースだから爆速動作はそのまま。ghosttyでやったブランチ表示や補完もそのまま使える"
+  },
+  "nightly": {
+    "title": "cmux NIGHTLY",
+    "subtitle": "mainブランチからの最新ビルド",
+    "metaTitle": "cmux NIGHTLY — ナイトリービルド",
+    "metaDescription": "cmux NIGHTLYをダウンロード。mainの最新コミットから自動ビルドされる独立アプリ。安定版と並行して動作し、独自の自動アップデート機能付き。",
+    "description": "cmux NIGHTLYはmainの最新コミットから自動ビルドされます。独自のバンドルIDを持つため、安定版と競合せず並行して動作します。新機能をリリース前にテストできます。",
+    "download": "Mac版 NIGHTLYをダウンロード",
+    "warning": "ナイトリービルドにはバグや未完成の機能が含まれる場合があります。問題が発生した場合は<githubLink>GitHub</githubLink>または<discordLink>Discordの#nightly-bugs</discordLink>で報告し、安定版に切り替えてください。"
   },
   "languageSwitcher": {
     "label": "言語"
