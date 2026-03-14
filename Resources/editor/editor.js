@@ -404,10 +404,14 @@
     }
 
     let lastGitSnapshot = '';
+    let pollRunning = false;
 
     async function poll() {
         if (inlineInputActive) return;
-        if (dragSourcePath) return; // don't refresh during drag
+        if (dragSourcePath) return;
+        if (pollRunning) return; // prevent overlapping async polls
+        pollRunning = true;
+        try {
         const snap = await buildSnapshot('');
         const oldGitSnap = lastGitSnapshot;
         await refreshGitStatus();
@@ -420,6 +424,7 @@
             lastTreeSnapshot = snap;
             await refreshTree();
         }
+        } finally { pollRunning = false; }
     }
 
     function startWatching() {
@@ -723,14 +728,14 @@
             const content = await readFile(path);
             const lang = getLang(name);
             const model = monacoInstance.editor.createModel(content, lang);
+            const fileEntry = { model, viewState: null, isDirty: false, originalContent: content };
             model.onDidChangeContent(() => {
-                const f = openFiles.get(path);
-                if (!f) return;
-                const was = f.isDirty;
-                f.isDirty = model.getValue() !== f.originalContent;
-                if (was !== f.isDirty) { renderTabs(); notifyDirty(); }
+                // Use fileEntry directly instead of path lookup — survives rename
+                const was = fileEntry.isDirty;
+                fileEntry.isDirty = model.getValue() !== fileEntry.originalContent;
+                if (was !== fileEntry.isDirty) { renderTabs(); notifyDirty(); }
             });
-            openFiles.set(path, { model, viewState: null, isDirty: false, originalContent: content });
+            openFiles.set(path, fileEntry);
             switchToFile(path);
         } catch (err) { console.error('Open failed:', err); }
     }
@@ -755,6 +760,7 @@
     function closeFileTab(path) {
         const f = openFiles.get(path);
         if (!f) return;
+        if (f.isDirty && !confirm(`Discard unsaved changes in "${path.split('/').pop()}"?`)) return;
         f.model.dispose();
         openFiles.delete(path);
         if (activeFilePath === path) {
@@ -935,7 +941,10 @@
             dropDir = targetIsDir ? targetPath : (targetPath.substring(0, targetPath.lastIndexOf('/')) || '');
         }
 
-        const sources = Array.from(dragSourcePaths);
+        // De-duplicate nested selections: if parent and child are both selected, only move parent
+        const sources = Array.from(dragSourcePaths)
+            .sort((a, b) => a.length - b.length)
+            .filter((src, i, arr) => !arr.slice(0, i).some(parent => src.startsWith(parent + '/')));
         dragSourcePath = null;
         dragSourcePaths = new Set();
         dragMouseStart = null;

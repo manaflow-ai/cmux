@@ -12366,12 +12366,12 @@ class TerminalController {
         guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
 
         let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
+        let shouldFocus = Self.socketCommandAllowsInAppFocusMutations()
 
         var result = "ERROR: Failed to create editor panel"
         DispatchQueue.main.sync {
             let rootPath: String
             if trimmed.isEmpty {
-                // Default to the current workspace's directory
                 guard let tabId = tabManager.selectedTabId,
                       let tab = tabManager.tabs.first(where: { $0.id == tabId }) else {
                     return
@@ -12381,7 +12381,7 @@ class TerminalController {
                 rootPath = trimmed
             }
 
-            if let panelId = tabManager.openEditor(rootPath: rootPath) {
+            if let panelId = tabManager.openEditor(rootPath: rootPath, focus: shouldFocus) {
                 result = "OK \(panelId.uuidString)"
             }
         }

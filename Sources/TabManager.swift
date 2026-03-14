@@ -2858,14 +2858,16 @@ class TabManager: ObservableObject {
 
     /// Open an editor panel in the currently focused pane showing the given directory.
     @discardableResult
-    func openEditor(rootPath: String) -> UUID? {
+    func openEditor(rootPath: String, focus: Bool = true) -> UUID? {
         guard let tabId = selectedTabId,
               let workspace = tabs.first(where: { $0.id == tabId }) else { return nil }
         guard let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first,
-              let editorPanel = workspace.newEditorSurface(inPane: paneId, rootPath: rootPath, focus: true) else {
+              let editorPanel = workspace.newEditorSurface(inPane: paneId, rootPath: rootPath, focus: focus) else {
             return nil
         }
-        rememberFocusedSurface(tabId: tabId, surfaceId: editorPanel.id)
+        if focus {
+            rememberFocusedSurface(tabId: tabId, surfaceId: editorPanel.id)
+        }
         return editorPanel.id
     }
 

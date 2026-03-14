@@ -143,7 +143,10 @@ final class EditorMessageHandler: NSObject, WKScriptMessageHandler {
             let parentDir = (fullPath as NSString).deletingLastPathComponent
             do {
                 try fm.createDirectory(atPath: parentDir, withIntermediateDirectories: true)
-                fm.createFile(atPath: fullPath, contents: nil)
+                guard fm.createFile(atPath: fullPath, contents: nil) else {
+                    self.sendError(requestId: requestId, message: "Failed to create file", webView: webView)
+                    return
+                }
                 self.sendResponse(requestId: requestId, data: ["success": true], webView: webView)
             } catch {
                 self.sendError(requestId: requestId, message: error.localizedDescription, webView: webView)
@@ -271,16 +274,17 @@ final class EditorMessageHandler: NSObject, WKScriptMessageHandler {
                     status = "untracked"
                 } else if index == "!" && workTree == "!" {
                     status = "ignored"
+                } else if index == "U" || workTree == "U" ||
+                          (index == "A" && workTree == "A") ||
+                          (index == "D" && workTree == "D") {
+                    // Conflict checks must come before generic A/D checks
+                    status = "conflict"
                 } else if index == "A" || workTree == "A" {
                     status = "added"
                 } else if index == "D" || workTree == "D" {
                     status = "deleted"
                 } else if index == "R" {
                     status = "renamed"
-                } else if index == "U" || workTree == "U" ||
-                          (index == "A" && workTree == "A") ||
-                          (index == "D" && workTree == "D") {
-                    status = "conflict"
                 } else if index == "M" || workTree == "M" {
                     status = "modified"
                 } else {
