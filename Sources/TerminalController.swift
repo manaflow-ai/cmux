@@ -1657,6 +1657,9 @@ class TerminalController {
         case "close_surface":
             return closeSurface(args)
 
+        case "reload_config":
+            return reloadConfig(args)
+
         case "refresh_surfaces":
             return refreshSurfaces()
 
@@ -9699,6 +9702,7 @@ class TerminalController {
           focus_pane <pane-id|index>      - Focus a pane
           focus_surface_by_panel <panel_id> - Focus surface by panel ID
           close_surface [id|idx]          - Close surface (collapse split)
+          reload_config [soft]            - Reload Ghostty config and refresh terminals
           refresh_surfaces                - Force refresh all terminals
           surface_health [workspace]      - Check view health of all surfaces
 
@@ -13923,6 +13927,24 @@ class TerminalController {
             tab.resetSidebarContext(reason: "reset_sidebar")
         }
         return result
+    }
+
+    private func reloadConfig(_ args: String) -> String {
+        let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let soft: Bool
+        switch trimmed {
+        case "", "full":
+            soft = false
+        case "soft":
+            soft = true
+        default:
+            return "ERROR: Usage: reload_config [soft]"
+        }
+
+        v2MainSync {
+            GhosttyApp.shared.reloadConfiguration(soft: soft, source: "socket.reload_config")
+        }
+        return soft ? "OK Reloaded config (soft)" : "OK Reloaded config"
     }
 
     private func refreshSurfaces() -> String {
