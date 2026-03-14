@@ -23,6 +23,102 @@ private final class CLISocketSentryTelemetry {
     private static let startupLock = NSLock()
     private static var started = false
     private static let dsn = "https://ecba1ec90ecaee02a102fba931b6d2b3@o4507547940749312.ingest.us.sentry.io/4510796264636416"
+
+    private static func currentSentryReleaseName() -> String? {
+        guard let bundleIdentifier = currentSentryBundleIdentifier(),
+              let version = currentBundleVersionValue(forKey: "CFBundleShortVersionString"),
+              let build = currentBundleVersionValue(forKey: "CFBundleVersion")
+        else {
+            return nil
+        }
+        return "\(bundleIdentifier)@\(version)+\(build)"
+    }
+
+    private static func currentSentryBundleIdentifier() -> String? {
+        if let bundleIdentifier = ProcessInfo.processInfo.environment["CMUX_BUNDLE_ID"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !bundleIdentifier.isEmpty {
+            return bundleIdentifier
+        }
+
+        if let bundleIdentifier = currentSentryBundle()?.bundleIdentifier?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !bundleIdentifier.isEmpty {
+            return bundleIdentifier
+        }
+
+        return nil
+    }
+
+    private static func currentBundleVersionValue(forKey key: String) -> String? {
+        guard let value = currentSentryBundle()?.infoDictionary?[key] as? String else {
+            return nil
+        }
+
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !trimmed.contains("$(") else {
+            return nil
+        }
+        return trimmed
+    }
+
+    private static func currentSentryBundle() -> Bundle? {
+        if Bundle.main.bundleIdentifier?.isEmpty == false {
+            return Bundle.main
+        }
+
+        guard let executableURL = currentExecutableURL() else {
+            return Bundle.main
+        }
+
+        var current = executableURL.deletingLastPathComponent().standardizedFileURL
+        while true {
+            if current.pathExtension == "app", let bundle = Bundle(url: current) {
+                return bundle
+            }
+
+            if current.lastPathComponent == "Contents" {
+                let appURL = current.deletingLastPathComponent().standardizedFileURL
+                if appURL.pathExtension == "app", let bundle = Bundle(url: appURL) {
+                    return bundle
+                }
+            }
+
+            guard let parent = parentSearchURL(for: current) else {
+                break
+            }
+            current = parent
+        }
+
+        return Bundle.main
+    }
+
+    private static func currentExecutableURL() -> URL? {
+        var size: UInt32 = 0
+        _ = _NSGetExecutablePath(nil, &size)
+        if size > 0 {
+            var buffer = Array<CChar>(repeating: 0, count: Int(size))
+            if _NSGetExecutablePath(&buffer, &size) == 0 {
+                return URL(fileURLWithPath: String(cString: buffer)).standardizedFileURL
+            }
+        }
+
+        return Bundle.main.executableURL?.standardizedFileURL
+    }
+
+    private static func parentSearchURL(for url: URL) -> URL? {
+        let standardized = url.standardizedFileURL
+        let path = standardized.path
+        guard !path.isEmpty, path != "/" else {
+            return nil
+        }
+
+        let parent = standardized.deletingLastPathComponent().standardizedFileURL
+        guard parent.path != path else {
+            return nil
+        }
+        return parent
+    }
 #endif
 
     init(command: String, commandArgs: [String], socketPath: String, processEnv: [String: String]) {
@@ -173,6 +269,7 @@ private final class CLISocketSentryTelemetry {
         guard !started else { return }
         SentrySDK.start { options in
             options.dsn = dsn
+            options.releaseName = currentSentryReleaseName()
 #if DEBUG
             options.environment = "development-cli"
 #else
