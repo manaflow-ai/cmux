@@ -195,20 +195,11 @@ extension Workspace {
         setCustomColor(snapshot.customColor)
         isPinned = snapshot.isPinned
 
-        statusEntries = Dictionary(
-            uniqueKeysWithValues: snapshot.statusEntries.map { entry in
-                (
-                    entry.key,
-                    SidebarStatusEntry(
-                        key: entry.key,
-                        value: entry.value,
-                        icon: entry.icon,
-                        color: entry.color,
-                        timestamp: Date(timeIntervalSince1970: entry.timestamp)
-                    )
-                )
-            }
-        )
+        // Status entries and agent PIDs are ephemeral runtime state tied to running
+        // processes (e.g. claude_code "Running"). Don't restore them across app
+        // restarts because the processes that set them are gone.
+        statusEntries.removeAll()
+        agentPIDs.removeAll()
         logEntries = snapshot.logEntries.map { entry in
             SidebarLogEntry(
                 message: entry.message,
@@ -1006,6 +997,9 @@ final class Workspace: Identifiable, ObservableObject {
     @Published var listeningPorts: [Int] = []
     var surfaceTTYNames: [UUID: String] = [:]
     private var panelShellActivityStates: [UUID: PanelShellActivityState] = [:]
+    /// PIDs associated with agent status entries (e.g. claude_code), keyed by status key.
+    /// Used for stale-session detection: if the PID is dead, the status entry is cleared.
+    var agentPIDs: [String: pid_t] = [:]
     private var restoredTerminalScrollbackByPanelId: [UUID: String] = [:]
 
     var focusedSurfaceId: UUID? { focusedPanelId }
@@ -1747,6 +1741,7 @@ final class Workspace: Identifiable, ObservableObject {
 
     func resetSidebarContext(reason: String = "unspecified") {
         statusEntries.removeAll()
+        agentPIDs.removeAll()
         logEntries.removeAll()
         progress = nil
         gitBranch = nil

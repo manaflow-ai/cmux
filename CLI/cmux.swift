@@ -316,6 +316,7 @@ private struct ClaudeHookSessionRecord: Codable {
     var workspaceId: String
     var surfaceId: String
     var cwd: String?
+    var pid: Int?
     var lastSubtitle: String?
     var lastBody: String?
     var startedAt: TimeInterval
@@ -363,6 +364,7 @@ private final class ClaudeHookSessionStore {
         workspaceId: String,
         surfaceId: String,
         cwd: String?,
+        pid: Int? = nil,
         lastSubtitle: String? = nil,
         lastBody: String? = nil
     ) throws {
@@ -375,15 +377,21 @@ private final class ClaudeHookSessionStore {
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
                 cwd: nil,
+                pid: nil,
                 lastSubtitle: nil,
                 lastBody: nil,
                 startedAt: now,
                 updatedAt: now
             )
             record.workspaceId = workspaceId
-            record.surfaceId = surfaceId
+            if !surfaceId.isEmpty {
+                record.surfaceId = surfaceId
+            }
             if let cwd = normalizeOptional(cwd) {
                 record.cwd = cwd
+            }
+            if let pid {
+                record.pid = pid
             }
             if let subtitle = normalizeOptional(lastSubtitle) {
                 record.lastSubtitle = subtitle
@@ -8477,39 +8485,68 @@ struct CMUXCLI {
                 workspaceId: workspaceId,
                 client: client
             )
+            let claudePid: Int? = {
+                guard let raw = ProcessInfo.processInfo.environment["CMUX_CLAUDE_PID"]?
+                    .trimmingCharacters(in: .whitespacesAndNewlines),
+                    let pid = Int(raw),
+                    pid > 0 else {
+                    return nil
+                }
+                return pid
+            }()
             if let sessionId = parsedInput.sessionId {
                 try? sessionStore.upsert(
                     sessionId: sessionId,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
-                    cwd: parsedInput.cwd
+                    cwd: parsedInput.cwd,
+                    pid: claudePid
                 )
             }
-            try setClaudeStatus(
-                client: client,
-                workspaceId: workspaceId,
-                value: "Running",
-                icon: "bolt.fill",
-                color: "#4C8DFF"
-            )
+            // Register PID for stale-session detection and OSC suppression,
+            // but don't set a visible status. "Running" only appears when the
+            // user submits a prompt (UserPromptSubmit) or Claude starts working
+            // (PreToolUse).
+            if let claudePid {
+                _ = try? sendV1Command(
+                    "set_agent_pid claude_code \(claudePid) --tab=\(workspaceId)",
+                    client: client
+                )
+            }
             print("OK")
 
         case "stop", "idle":
             telemetry.breadcrumb("claude-hook.stop")
-            let consumedSession = try? sessionStore.consume(
-                sessionId: parsedInput.sessionId,
-                workspaceId: fallbackWorkspaceId,
-                surfaceId: fallbackSurfaceId
-            )
-            let workspaceId = consumedSession?.workspaceId ?? fallbackWorkspaceId
-            try clearClaudeStatus(client: client, workspaceId: workspaceId)
+            // Turn ended. Don't consume session or clear PID — Claude is still alive.
+            // Notification hook handles user-facing notifications; SessionEnd handles cleanup.
+            var workspaceId = fallbackWorkspaceId
+            var surfaceId = surfaceArg
+            if let sessionId = parsedInput.sessionId,
+               let mapped = try? sessionStore.lookup(sessionId: sessionId),
+               let mappedWorkspace = try? resolveWorkspaceIdForClaudeHook(mapped.workspaceId, client: client) {
+                workspaceId = mappedWorkspace
+                surfaceId = mapped.surfaceId
+            }
 
-            if let completion = summarizeClaudeHookStop(
+            // Update session with transcript summary and send completion notification.
+            let completion = summarizeClaudeHookStop(
                 parsedInput: parsedInput,
-                sessionRecord: consumedSession
-            ) {
-                let surfaceId = try resolveSurfaceIdForClaudeHook(
-                    consumedSession?.surfaceId ?? surfaceArg,
+                sessionRecord: (try? sessionStore.lookup(sessionId: parsedInput.sessionId ?? ""))
+            )
+            if let sessionId = parsedInput.sessionId, let completion {
+                try? sessionStore.upsert(
+                    sessionId: sessionId,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId ?? "",
+                    cwd: parsedInput.cwd,
+                    lastSubtitle: completion.subtitle,
+                    lastBody: completion.body
+                )
+            }
+
+            if let completion {
+                let resolvedSurface = try resolveSurfaceIdForClaudeHook(
+                    surfaceId,
                     workspaceId: workspaceId,
                     client: client
                 )
@@ -8517,11 +8554,17 @@ struct CMUXCLI {
                 let subtitle = sanitizeNotificationField(completion.subtitle)
                 let body = sanitizeNotificationField(completion.body)
                 let payload = "\(title)|\(subtitle)|\(body)"
-                let response = try sendV1Command("notify_target \(workspaceId) \(surfaceId) \(payload)", client: client)
-                print(response)
-            } else {
-                print("OK")
+                _ = try? sendV1Command("notify_target \(workspaceId) \(resolvedSurface) \(payload)", client: client)
             }
+
+            try setClaudeStatus(
+                client: client,
+                workspaceId: workspaceId,
+                value: "Idle",
+                icon: "pause.circle.fill",
+                color: "#8E8E93"
+            )
+            print("OK")
 
         case "prompt-submit":
             telemetry.breadcrumb("claude-hook.prompt-submit")
@@ -8543,7 +8586,7 @@ struct CMUXCLI {
 
         case "notification", "notify":
             telemetry.breadcrumb("claude-hook.notification")
-            let summary = summarizeClaudeHookNotification(rawInput: rawInput)
+            var summary = summarizeClaudeHookNotification(rawInput: rawInput)
 
             var workspaceId = fallbackWorkspaceId
             var preferredSurface = surfaceArg
@@ -8552,6 +8595,12 @@ struct CMUXCLI {
                let mappedWorkspace = try? resolveWorkspaceIdForClaudeHook(mapped.workspaceId, client: client) {
                 workspaceId = mappedWorkspace
                 preferredSurface = mapped.surfaceId
+                // If PreToolUse saved a richer message (e.g. from AskUserQuestion),
+                // use it instead of the generic notification text.
+                if let savedBody = mapped.lastBody, !savedBody.isEmpty,
+                   summary.body.contains("needs your attention") || summary.body.contains("needs your input") {
+                    summary = (subtitle: mapped.lastSubtitle ?? summary.subtitle, body: savedBody)
+                }
             }
 
             let surfaceId = try resolveSurfaceIdForClaudeHook(
@@ -8586,11 +8635,86 @@ struct CMUXCLI {
             )
             print(response)
 
+        case "session-end":
+            telemetry.breadcrumb("claude-hook.session-end")
+            // Final cleanup when Claude process exits.
+            // Only clear when we are the primary cleanup path (Stop didn't fire first).
+            // If Stop already consumed the session, consumedSession is nil and we skip
+            // to avoid wiping the completion notification that Stop just delivered.
+            let consumedSession = try? sessionStore.consume(
+                sessionId: parsedInput.sessionId,
+                workspaceId: fallbackWorkspaceId,
+                surfaceId: fallbackSurfaceId
+            )
+            if let consumedSession {
+                let workspaceId = consumedSession.workspaceId
+                _ = try? clearClaudeStatus(client: client, workspaceId: workspaceId)
+                _ = try? sendV1Command("clear_agent_pid claude_code --tab=\(workspaceId)", client: client)
+                _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
+            }
+            print("OK")
+
+        case "pre-tool-use":
+            telemetry.breadcrumb("claude-hook.pre-tool-use")
+            // Clears "Needs input" status and notification when Claude resumes work
+            // (e.g. after permission grant). Runs async so it doesn't block tool execution.
+            var workspaceId = fallbackWorkspaceId
+            var claudePid: Int? = nil
+            if let sessionId = parsedInput.sessionId,
+               let mapped = try? sessionStore.lookup(sessionId: sessionId),
+               let mappedWorkspace = try? resolveWorkspaceIdForClaudeHook(mapped.workspaceId, client: client) {
+                workspaceId = mappedWorkspace
+                claudePid = mapped.pid
+            }
+
+            // AskUserQuestion means Claude is about to ask the user something.
+            // Save question text in session so the Notification handler can use it
+            // instead of the generic "Claude Code needs your attention".
+            if let toolName = parsedInput.object?["tool_name"] as? String,
+               toolName == "AskUserQuestion",
+               let question = describeAskUserQuestion(parsedInput.object),
+               let sessionId = parsedInput.sessionId {
+                // Preserve the existing surfaceId from SessionStart; passing ""
+                // would overwrite it and cause notifications to target the wrong workspace.
+                let existingSurfaceId = (try? sessionStore.lookup(sessionId: sessionId))?.surfaceId ?? ""
+                try? sessionStore.upsert(
+                    sessionId: sessionId,
+                    workspaceId: workspaceId,
+                    surfaceId: existingSurfaceId,
+                    cwd: parsedInput.cwd,
+                    lastSubtitle: "Waiting",
+                    lastBody: question
+                )
+                // Don't clear notifications or set status here.
+                // The Notification hook fires right after and will use the saved question.
+                print("OK")
+                return
+            }
+
+            _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
+
+            let statusValue: String
+            if UserDefaults.standard.bool(forKey: "claudeCodeVerboseStatus"),
+               let toolStatus = describeToolUse(parsedInput.object) {
+                statusValue = toolStatus
+            } else {
+                statusValue = "Running"
+            }
+            try setClaudeStatus(
+                client: client,
+                workspaceId: workspaceId,
+                value: statusValue,
+                icon: "bolt.fill",
+                color: "#4C8DFF",
+                pid: claudePid
+            )
+            print("OK")
+
         case "help", "--help", "-h":
             telemetry.breadcrumb("claude-hook.help")
             print(
                 """
-                cmux claude-hook <session-start|stop|notification> [--workspace <id|index>] [--surface <id|index>]
+                cmux claude-hook <session-start|stop|session-end|notification|prompt-submit|pre-tool-use> [--workspace <id|index>] [--surface <id|index>]
                 """
             )
 
@@ -8604,15 +8728,103 @@ struct CMUXCLI {
         workspaceId: String,
         value: String,
         icon: String,
-        color: String
+        color: String,
+        pid: Int? = nil
     ) throws {
-        _ = try client.send(
-            command: "set_status claude_code \(value) --icon=\(icon) --color=\(color) --tab=\(workspaceId)"
-        )
+        var cmd = "set_status claude_code \(value) --icon=\(icon) --color=\(color) --tab=\(workspaceId)"
+        if let pid {
+            cmd += " --pid=\(pid)"
+        }
+        _ = try client.send(command: cmd)
     }
 
     private func clearClaudeStatus(client: SocketClient, workspaceId: String) throws {
         _ = try client.send(command: "clear_status claude_code --tab=\(workspaceId)")
+    }
+
+    private func describeAskUserQuestion(_ object: [String: Any]?) -> String? {
+        guard let object,
+              let input = object["tool_input"] as? [String: Any],
+              let questions = input["questions"] as? [[String: Any]],
+              let first = questions.first else { return nil }
+
+        var parts: [String] = []
+
+        if let question = first["question"] as? String, !question.isEmpty {
+            parts.append(question)
+        } else if let header = first["header"] as? String, !header.isEmpty {
+            parts.append(header)
+        }
+
+        if let options = first["options"] as? [[String: Any]] {
+            let labels = options.compactMap { $0["label"] as? String }
+            if !labels.isEmpty {
+                parts.append(labels.map { "[\($0)]" }.joined(separator: " "))
+            }
+        }
+
+        if parts.isEmpty { return "Asking a question" }
+        return parts.joined(separator: "\n")
+    }
+
+    private func describeToolUse(_ object: [String: Any]?) -> String? {
+        guard let object, let toolName = object["tool_name"] as? String else { return nil }
+        let input = object["tool_input"] as? [String: Any]
+
+        switch toolName {
+        case "Read":
+            if let path = input?["file_path"] as? String {
+                return "Reading \(shortenPath(path))"
+            }
+            return "Reading file"
+        case "Edit":
+            if let path = input?["file_path"] as? String {
+                return "Editing \(shortenPath(path))"
+            }
+            return "Editing file"
+        case "Write":
+            if let path = input?["file_path"] as? String {
+                return "Writing \(shortenPath(path))"
+            }
+            return "Writing file"
+        case "Bash":
+            if let cmd = input?["command"] as? String {
+                let first = cmd.components(separatedBy: .whitespacesAndNewlines).first ?? cmd
+                let short = String(first.prefix(30))
+                return "Running \(short)"
+            }
+            return "Running command"
+        case "Glob":
+            if let pattern = input?["pattern"] as? String {
+                return "Searching \(String(pattern.prefix(30)))"
+            }
+            return "Searching files"
+        case "Grep":
+            if let pattern = input?["pattern"] as? String {
+                return "Grep \(String(pattern.prefix(30)))"
+            }
+            return "Searching code"
+        case "Agent":
+            if let desc = input?["description"] as? String {
+                return String(desc.prefix(40))
+            }
+            return "Subagent"
+        case "WebFetch":
+            return "Fetching URL"
+        case "WebSearch":
+            if let query = input?["query"] as? String {
+                return "Search: \(String(query.prefix(30)))"
+            }
+            return "Web search"
+        default:
+            return toolName
+        }
+    }
+
+    private func shortenPath(_ path: String) -> String {
+        let url = URL(fileURLWithPath: path)
+        let name = url.lastPathComponent
+        return name.isEmpty ? String(path.suffix(30)) : name
     }
 
     private func resolveWorkspaceIdForClaudeHook(_ raw: String?, client: SocketClient) throws -> String {
@@ -8816,20 +9028,13 @@ struct CMUXCLI {
         let signal = signalParts.compactMap { $0 }.joined(separator: " ")
         var classified = classifyClaudeNotification(signal: signal, message: normalizedMessage)
 
-        if let session, !session.isEmpty {
-            let shortSession = String(session.prefix(8))
-            if !classified.body.contains(shortSession) {
-                classified.body = "\(classified.body) [\(shortSession)]"
-            }
-        }
-
         classified.body = truncate(classified.body, maxLength: 180)
         return classified
     }
 
     private func classifyClaudeNotification(signal: String, message: String) -> (subtitle: String, body: String) {
         let lower = "\(signal) \(message)".lowercased()
-        if lower.contains("permission") || lower.contains("approve") || lower.contains("approval") {
+        if lower.contains("permission") || lower.contains("approve") || lower.contains("approval") || lower.contains("permission_prompt") {
             let body = message.isEmpty ? "Approval needed" : message
             return ("Permission", body)
         }
@@ -8837,12 +9042,19 @@ struct CMUXCLI {
             let body = message.isEmpty ? "Claude reported an error" : message
             return ("Error", body)
         }
-        if lower.contains("idle") || lower.contains("wait") || lower.contains("input") || lower.contains("prompt") {
-            let body = message.isEmpty ? "Claude is waiting for your input" : message
+        if lower.contains("complet") || lower.contains("finish") || lower.contains("done") || lower.contains("success") {
+            let body = message.isEmpty ? "Task completed" : message
+            return ("Completed", body)
+        }
+        if lower.contains("idle") || lower.contains("wait") || lower.contains("input") || lower.contains("idle_prompt") {
+            let body = message.isEmpty ? "Waiting for input" : message
             return ("Waiting", body)
         }
-        let body = message.isEmpty ? "Claude needs your input" : message
-        return ("Attention", body)
+        // Use the message directly if it's meaningful (not a generic placeholder).
+        if !message.isEmpty, message != "Claude needs your input" {
+            return ("Attention", message)
+        }
+        return ("Attention", "Claude needs your attention")
     }
 
     private func dedupeBranchContextLines(_ value: String) -> String {
@@ -8906,9 +9118,8 @@ struct CMUXCLI {
     }
 
     private func sanitizeNotificationField(_ value: String) -> String {
-        let normalized = normalizedSingleLine(value)
+        return normalizedSingleLine(value)
             .replacingOccurrences(of: "|", with: "¦")
-        return truncate(normalized, maxLength: 180)
     }
 
     private func versionSummary() -> String {
