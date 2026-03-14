@@ -6995,9 +6995,13 @@ final class Workspace: Identifiable, ObservableObject {
         if let terminalPanel = detached.panel as? TerminalPanel {
             terminalPanel.updateWorkspaceId(id)
         } else if let browserPanel = detached.panel as? BrowserPanel {
-            browserPanel.updateWorkspaceId(id)
-            browserPanel.setRemoteProxyEndpoint(remoteProxyEndpoint)
-            browserPanel.setRemoteWorkspaceStatus(browserRemoteWorkspaceStatusSnapshot())
+            browserPanel.reattachToWorkspace(
+                id,
+                isRemoteWorkspace: isRemoteWorkspace,
+                remoteWebsiteDataStoreIdentifier: isRemoteWorkspace ? id : nil,
+                proxyEndpoint: remoteProxyEndpoint,
+                remoteStatus: browserRemoteWorkspaceStatusSnapshot()
+            )
             installBrowserPanelSubscription(browserPanel)
         }
 

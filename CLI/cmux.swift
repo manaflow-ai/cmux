@@ -3383,9 +3383,10 @@ struct CMUXCLI {
         return merged
     }
 
-    private func buildInteractiveRemoteShellCommand(remoteRelayPort: Int, shellFeatures: String) -> String {
+    func buildInteractiveRemoteShellCommand(remoteRelayPort: Int, shellFeatures: String) -> String {
         let remoteEnvExportLines = interactiveRemoteShellExportLines(shellFeatures: shellFeatures)
         let relaySocket = remoteRelayPort > 0 ? "127.0.0.1:\(remoteRelayPort)" : nil
+        let shellStateDir = "$HOME/.cmux/relay/\(max(remoteRelayPort, 0)).shell"
         let commonShellLines = remoteEnvExportLines
             + ["export PATH=\"$HOME/.cmux/bin:$PATH\""]
             + (relaySocket.map { ["export CMUX_SOCKET_PATH=\($0)"] } ?? [])
@@ -3394,18 +3395,17 @@ struct CMUXCLI {
                 "rehash >/dev/null 2>&1 || true",
             ]
         let zshEnvLines = [
-            "export CMUX_REAL_ZDOTDIR=\"${CMUX_REAL_ZDOTDIR:-$HOME}\"",
-            "[ -f \"$HOME/.zshenv\" ] && source \"$HOME/.zshenv\"",
+            "[ -f \"$CMUX_REAL_ZDOTDIR/.zshenv\" ] && source \"$CMUX_REAL_ZDOTDIR/.zshenv\"",
+            "if [ -n \"${ZDOTDIR:-}\" ] && [ \"$ZDOTDIR\" != \"\(shellStateDir)\" ]; then export CMUX_REAL_ZDOTDIR=\"$ZDOTDIR\"; fi",
+            "export ZDOTDIR=\"\(shellStateDir)\"",
         ]
         let zshRCLines = [
-            "export ZDOTDIR=\"${CMUX_REAL_ZDOTDIR:-$HOME}\"",
-            "[ -f \"$HOME/.zshrc\" ] && source \"$HOME/.zshrc\"",
+            "[ -f \"$CMUX_REAL_ZDOTDIR/.zshrc\" ] && source \"$CMUX_REAL_ZDOTDIR/.zshrc\"",
         ] + commonShellLines
         let bashRCLines = [
             "[ -f \"$HOME/.bashrc\" ] && . \"$HOME/.bashrc\"",
         ] + commonShellLines
         let relayWarmupLines = interactiveRemoteRelayWarmupLines(remoteRelayPort: remoteRelayPort)
-        let shellStateDir = "$HOME/.cmux/relay/\(max(remoteRelayPort, 0)).shell"
 
         var outerLines: [String] = [
             "CMUX_LOGIN_SHELL=\"${SHELL:-/bin/zsh}\"",
@@ -3428,6 +3428,7 @@ struct CMUXCLI {
         ]
         outerLines.append(contentsOf: relayWarmupLines.map { "    " + $0 })
         outerLines += [
+            "    export CMUX_REAL_ZDOTDIR=\"${ZDOTDIR:-$HOME}\"",
             "    export ZDOTDIR=\"$cmux_shell_dir\"",
             "    exec \"$CMUX_LOGIN_SHELL\" -i",
             "    ;;",

@@ -1421,7 +1421,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
     /// The underlying web view
     private(set) var webView: WKWebView
-    private let websiteDataStore: WKWebsiteDataStore
+    private var websiteDataStore: WKWebsiteDataStore
 
     /// Monotonic identity for the current WKWebView instance.
     /// Incremented whenever we replace the underlying WKWebView after a process crash.
@@ -1798,7 +1798,7 @@ final class BrowserPanel: Panel, ObservableObject {
     private let developerToolsRestoreRetryMaxAttempts: Int = 40
     private var remoteProxyEndpoint: BrowserProxyEndpoint?
     @Published private(set) var remoteWorkspaceStatus: BrowserRemoteWorkspaceStatus?
-    private let usesRemoteWorkspaceProxy: Bool
+    private var usesRemoteWorkspaceProxy: Bool
     private struct PendingRemoteNavigation {
         let request: URLRequest
         let recordTypedNavigation: Bool
@@ -2211,6 +2211,33 @@ final class BrowserPanel: Panel, ObservableObject {
         workspaceId = newWorkspaceId
     }
 
+    func reattachToWorkspace(
+        _ newWorkspaceId: UUID,
+        isRemoteWorkspace: Bool,
+        remoteWebsiteDataStoreIdentifier: UUID? = nil,
+        proxyEndpoint: BrowserProxyEndpoint?,
+        remoteStatus: BrowserRemoteWorkspaceStatus?
+    ) {
+        workspaceId = newWorkspaceId
+        usesRemoteWorkspaceProxy = isRemoteWorkspace
+        let targetStore = isRemoteWorkspace
+            ? WKWebsiteDataStore(forIdentifier: remoteWebsiteDataStoreIdentifier ?? newWorkspaceId)
+            : .default()
+        let needsStoreSwap = webView.configuration.websiteDataStore !== targetStore
+        websiteDataStore = targetStore
+        remoteProxyEndpoint = proxyEndpoint
+        remoteWorkspaceStatus = remoteStatus
+        if needsStoreSwap {
+            replaceWebViewPreservingState(
+                from: webView,
+                websiteDataStore: targetStore,
+                reason: "workspace_reattach"
+            )
+        }
+        applyRemoteProxyConfigurationIfAvailable()
+        resumePendingRemoteNavigationIfNeeded()
+    }
+
     func triggerFlash() {
         guard NotificationPaneFlashSettings.isEnabled() else { return }
         focusFlashToken &+= 1
@@ -2326,20 +2353,33 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     private func replaceWebViewAfterContentProcessTermination(for terminatedWebView: WKWebView) {
-        guard terminatedWebView === webView else { return }
+        replaceWebViewPreservingState(
+            from: terminatedWebView,
+            websiteDataStore: websiteDataStore,
+            reason: "webcontent_process_terminated"
+        )
+    }
+
+    private func replaceWebViewPreservingState(
+        from oldWebView: WKWebView,
+        websiteDataStore: WKWebsiteDataStore,
+        reason: String
+    ) {
+        guard oldWebView === webView else { return }
 
         let wasRenderable = shouldRenderWebView
-        let restoreURL = Self.remoteProxyDisplayURL(for: terminatedWebView.url) ?? currentURL
+        let restoreURL = Self.remoteProxyDisplayURL(for: oldWebView.url) ?? currentURL
         let restoreURLString = restoreURL?.absoluteString
         let shouldRestoreURL = wasRenderable && restoreURLString != nil && restoreURLString != blankURLString
         let history = sessionNavigationHistorySnapshot()
         let historyCurrentURL = preferredURLStringForOmnibar()
-        let desiredZoom = max(minPageZoom, min(maxPageZoom, terminatedWebView.pageZoom))
+        let desiredZoom = max(minPageZoom, min(maxPageZoom, oldWebView.pageZoom))
         let restoreDevTools = preferredDeveloperToolsVisible
 
 #if DEBUG
         dlog(
             "browser.webview.replace.begin panel=\(id.uuidString.prefix(5)) " +
+            "reason=\(reason) " +
             "renderable=\(wasRenderable ? 1 : 0) restoreURL=\(restoreURLString ?? "nil") " +
             "restoreHistoryBack=\(history.backHistoryURLStrings.count) " +
             "restoreHistoryForward=\(history.forwardHistoryURLStrings.count)"
@@ -2351,12 +2391,12 @@ final class BrowserPanel: Panel, ObservableObject {
         faviconTask?.cancel()
         faviconTask = nil
         faviconRefreshGeneration &+= 1
-        BrowserWindowPortalRegistry.detach(webView: terminatedWebView)
-        terminatedWebView.stopLoading()
-        terminatedWebView.navigationDelegate = nil
-        terminatedWebView.uiDelegate = nil
-        if let terminatedCmuxWebView = terminatedWebView as? CmuxWebView {
-            terminatedCmuxWebView.onContextMenuDownloadStateChanged = nil
+        BrowserWindowPortalRegistry.detach(webView: oldWebView)
+        oldWebView.stopLoading()
+        oldWebView.navigationDelegate = nil
+        oldWebView.uiDelegate = nil
+        if let oldCmuxWebView = oldWebView as? CmuxWebView {
+            oldCmuxWebView.onContextMenuDownloadStateChanged = nil
         }
 
         let replacement = Self.makeWebView(websiteDataStore: websiteDataStore)
@@ -2387,12 +2427,13 @@ final class BrowserPanel: Panel, ObservableObject {
         }
 
         if restoreDevTools {
-            requestDeveloperToolsRefreshAfterNextAttach(reason: "webcontent_process_terminated")
+            requestDeveloperToolsRefreshAfterNextAttach(reason: reason)
         }
 
 #if DEBUG
         dlog(
             "browser.webview.replace.end panel=\(id.uuidString.prefix(5)) " +
+            "reason=\(reason) " +
             "instance=\(webViewInstanceID.uuidString.prefix(6)) " +
             "restoreURL=\(restoreURLString ?? "nil") shouldRestore=\(shouldRestoreURL ? 1 : 0)"
         )
