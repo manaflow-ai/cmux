@@ -28,6 +28,12 @@ final class EditorMessageHandler: NSObject, WKScriptMessageHandler {
             handleCreateFile(body: body, webView: message.webView)
         case "createDir":
             handleCreateDir(body: body, webView: message.webView)
+        case "deleteFile":
+            handleDeleteFile(body: body, webView: message.webView)
+        case "renameFile":
+            handleRenameFile(body: body, webView: message.webView)
+        case "gitStatus":
+            handleGitStatus(body: body, webView: message.webView)
         case "dirtyState":
             let dirty = body["isDirty"] as? Bool ?? false
             DispatchQueue.main.async { self.onDirtyStateChanged?(dirty) }
@@ -165,6 +171,137 @@ final class EditorMessageHandler: NSObject, WKScriptMessageHandler {
         }
     }
 
+    private func handleDeleteFile(body: [String: Any], webView: WKWebView?) {
+        let relativePath = body["path"] as? String ?? ""
+        let requestId = body["requestId"] as? String ?? ""
+
+        DispatchQueue.global(qos: .userInitiated).async { [rootPath] in
+            let fullPath = self.resolvedPath(relativePath, rootPath: rootPath)
+            guard let fullPath else {
+                self.sendError(requestId: requestId, message: "Invalid path", webView: webView)
+                return
+            }
+            do {
+                try FileManager.default.removeItem(atPath: fullPath)
+                self.sendResponse(requestId: requestId, data: ["success": true], webView: webView)
+            } catch {
+                self.sendError(requestId: requestId, message: error.localizedDescription, webView: webView)
+            }
+        }
+    }
+
+    private func handleRenameFile(body: [String: Any], webView: WKWebView?) {
+        let oldRelPath = body["oldPath"] as? String ?? ""
+        let newRelPath = body["newPath"] as? String ?? ""
+        let requestId = body["requestId"] as? String ?? ""
+
+        DispatchQueue.global(qos: .userInitiated).async { [rootPath] in
+            let oldFull = self.resolvedPath(oldRelPath, rootPath: rootPath)
+            let newFull = self.resolvedPath(newRelPath, rootPath: rootPath)
+            guard let oldFull, let newFull else {
+                self.sendError(requestId: requestId, message: "Invalid path", webView: webView)
+                return
+            }
+            do {
+                // Create parent directory if needed
+                let parentDir = (newFull as NSString).deletingLastPathComponent
+                try FileManager.default.createDirectory(atPath: parentDir, withIntermediateDirectories: true)
+                try FileManager.default.moveItem(atPath: oldFull, toPath: newFull)
+                self.sendResponse(requestId: requestId, data: ["success": true], webView: webView)
+            } catch {
+                self.sendError(requestId: requestId, message: error.localizedDescription, webView: webView)
+            }
+        }
+    }
+
+    private func handleGitStatus(body: [String: Any], webView: WKWebView?) {
+        let requestId = body["requestId"] as? String ?? ""
+
+        DispatchQueue.global(qos: .userInitiated).async { [rootPath] in
+            // Run git status --porcelain=v1 -uall
+            let statusProcess = Process()
+            let statusPipe = Pipe()
+            statusProcess.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+            statusProcess.arguments = ["-C", rootPath, "status", "--porcelain=v1", "-uall"]
+            statusProcess.standardOutput = statusPipe
+            statusProcess.standardError = FileHandle.nullDevice
+
+            // Run git ls-files --others --ignored --exclude-standard
+            let ignoredProcess = Process()
+            let ignoredPipe = Pipe()
+            ignoredProcess.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+            ignoredProcess.arguments = ["-C", rootPath, "ls-files", "--others", "--ignored", "--exclude-standard"]
+            ignoredProcess.standardOutput = ignoredPipe
+            ignoredProcess.standardError = FileHandle.nullDevice
+
+            do {
+                try statusProcess.run()
+                try ignoredProcess.run()
+                statusProcess.waitUntilExit()
+                ignoredProcess.waitUntilExit()
+            } catch {
+                self.sendError(requestId: requestId, message: "git not available", webView: webView)
+                return
+            }
+
+            let statusData = statusPipe.fileHandleForReading.readDataToEndOfFile()
+            let statusOutput = String(data: statusData, encoding: .utf8) ?? ""
+
+            let ignoredData = ignoredPipe.fileHandleForReading.readDataToEndOfFile()
+            let ignoredOutput = String(data: ignoredData, encoding: .utf8) ?? ""
+
+            // Parse git status --porcelain output
+            // Format: XY path (or XY oldpath -> newpath for renames)
+            var files: [[String: String]] = []
+            for line in statusOutput.components(separatedBy: "\n") where line.count >= 3 {
+                let index = String(line[line.index(line.startIndex, offsetBy: 0)])
+                let workTree = String(line[line.index(line.startIndex, offsetBy: 1)])
+                var path = String(line[line.index(line.startIndex, offsetBy: 3)...])
+
+                // Handle renames: "R  old -> new"
+                if path.contains(" -> ") {
+                    let parts = path.components(separatedBy: " -> ")
+                    path = parts.last ?? path
+                }
+
+                // Determine effective status
+                let status: String
+                if index == "?" && workTree == "?" {
+                    status = "untracked"
+                } else if index == "!" && workTree == "!" {
+                    status = "ignored"
+                } else if index == "A" || workTree == "A" {
+                    status = "added"
+                } else if index == "D" || workTree == "D" {
+                    status = "deleted"
+                } else if index == "R" {
+                    status = "renamed"
+                } else if index == "U" || workTree == "U" ||
+                          (index == "A" && workTree == "A") ||
+                          (index == "D" && workTree == "D") {
+                    status = "conflict"
+                } else if index == "M" || workTree == "M" {
+                    status = "modified"
+                } else {
+                    status = "modified"
+                }
+
+                files.append(["path": path, "status": status])
+            }
+
+            // Parse ignored files
+            let ignoredFiles = ignoredOutput.components(separatedBy: "\n")
+                .filter { !$0.isEmpty }
+                .map { ["path": $0, "status": "ignored"] as [String: String] }
+
+            let result: [String: Any] = [
+                "files": files,
+                "ignored": ignoredFiles
+            ]
+            self.sendResponse(requestId: requestId, data: result, webView: webView)
+        }
+    }
+
     // MARK: - Path Safety
 
     /// Resolve a relative path within rootPath, preventing directory traversal.
@@ -241,6 +378,7 @@ final class EditorPanel: Panel, ObservableObject {
 
     private var messageHandler: EditorMessageHandler?
     private var isClosed: Bool = false
+    private var themeObserver: NSObjectProtocol?
 
     init(workspaceId: UUID, rootPath: String) {
         self.id = UUID()
@@ -276,6 +414,23 @@ final class EditorPanel: Panel, ObservableObject {
         }
 
         loadEditorHTML()
+
+        // Listen for theme changes
+        themeObserver = NotificationCenter.default.addObserver(
+            forName: .ghosttyDefaultBackgroundDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.injectThemeColors()
+            }
+        }
+    }
+
+    deinit {
+        if let observer = themeObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
     }
 
     private func loadEditorHTML() {
@@ -287,7 +442,70 @@ final class EditorPanel: Panel, ObservableObject {
             return
         }
         let editorDir = editorURL.deletingLastPathComponent()
+        webView.navigationDelegate = themeInjector
         webView.loadFileURL(editorURL, allowingReadAccessTo: editorDir)
+    }
+
+    /// Lazily created navigation delegate that injects theme colors on page load.
+    private lazy var themeInjector: EditorThemeInjector = {
+        let injector = EditorThemeInjector()
+        injector.panel = self
+        return injector
+    }()
+
+    /// Inject current cmux/Ghostty theme colors into the editor CSS variables.
+    func injectThemeColors() {
+        let bgColor = GhosttyBackgroundTheme.currentColor()
+        let bgHex = bgColor.hexString()
+
+        // Derive related colors from the background
+        let isDark = bgColor.perceivedBrightness < 0.5
+        let sidebarBg = bgHex
+        let editorBg = isDark
+            ? bgColor.adjustBrightness(by: 0.03).hexString()
+            : bgColor.adjustBrightness(by: -0.02).hexString()
+        let borderColor = isDark
+            ? bgColor.adjustBrightness(by: 0.08).hexString()
+            : bgColor.adjustBrightness(by: -0.08).hexString()
+        let hoverBg = isDark
+            ? bgColor.adjustBrightness(by: 0.06).hexString()
+            : bgColor.adjustBrightness(by: -0.04).hexString()
+        let selectedBg = isDark
+            ? bgColor.adjustBrightness(by: 0.10).hexString()
+            : bgColor.adjustBrightness(by: -0.08).hexString()
+        let fg = isDark ? "#cccccc" : "#333333"
+        let fgSecondary = isDark ? "#969696" : "#666666"
+        let indentGuide = isDark
+            ? bgColor.adjustBrightness(by: 0.20).hexString()
+            : bgColor.adjustBrightness(by: -0.15).hexString()
+
+        let js = """
+        (function() {
+            var r = document.documentElement.style;
+            r.setProperty('--sidebar-bg', '\(sidebarBg)');
+            r.setProperty('--sidebar-fg', '\(fg)');
+            r.setProperty('--sidebar-border', '\(borderColor)');
+            r.setProperty('--sidebar-header-bg', '\(sidebarBg)');
+            r.setProperty('--editor-bg', '\(editorBg)');
+            r.setProperty('--editor-fg', '\(fg)');
+            r.setProperty('--tab-bg', '\(sidebarBg)');
+            r.setProperty('--tab-active-bg', '\(editorBg)');
+            r.setProperty('--tab-border', '\(borderColor)');
+            r.setProperty('--tab-inactive-fg', '\(fgSecondary)');
+            r.setProperty('--tab-hover-bg', '\(hoverBg)');
+            r.setProperty('--list-hover-bg', '\(hoverBg)');
+            r.setProperty('--list-inactive-selection-bg', '\(selectedBg)');
+            r.setProperty('--tree-indent-guide', '\(indentGuide)');
+            r.setProperty('--input-bg', '\(hoverBg)');
+            r.setProperty('--input-border', '\(borderColor)');
+            r.setProperty('--input-fg', '\(fg)');
+            r.setProperty('--context-menu-bg', '\(editorBg)');
+            if (typeof window.cmux !== 'undefined' && typeof window.cmux.updateMonacoTheme === 'function') {
+                window.cmux.updateMonacoTheme('\(editorBg)', '\(fg)');
+            }
+        })();
+        """
+        webView.evaluateJavaScript(js, completionHandler: nil)
     }
 
     func focus() {
@@ -315,5 +533,36 @@ final class EditorPanel: Panel, ObservableObject {
     func triggerFlash() {
         guard NotificationPaneFlashSettings.isEnabled() else { return }
         focusFlashToken += 1
+    }
+}
+
+// MARK: - Navigation delegate to inject theme on page load
+
+final class EditorThemeInjector: NSObject, WKNavigationDelegate {
+    weak var panel: EditorPanel?
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        Task { @MainActor in
+            panel?.injectThemeColors()
+        }
+    }
+}
+
+// MARK: - NSColor helpers
+
+extension NSColor {
+    var perceivedBrightness: CGFloat {
+        guard let rgb = usingColorSpace(.sRGB) else { return 0.5 }
+        return rgb.redComponent * 0.299 + rgb.greenComponent * 0.587 + rgb.blueComponent * 0.114
+    }
+
+    func adjustBrightness(by amount: CGFloat) -> NSColor {
+        guard let rgb = usingColorSpace(.sRGB) else { return self }
+        return NSColor(
+            red: max(0, min(1, rgb.redComponent + amount)),
+            green: max(0, min(1, rgb.greenComponent + amount)),
+            blue: max(0, min(1, rgb.blueComponent + amount)),
+            alpha: rgb.alphaComponent
+        )
     }
 }
