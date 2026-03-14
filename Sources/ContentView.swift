@@ -1371,6 +1371,8 @@ struct ContentView: View {
     @State private var isFeedbackComposerPresented = false
     @AppStorage(CommandPaletteRenameSelectionSettings.selectAllOnFocusKey)
     private var commandPaletteRenameSelectAllOnFocus = CommandPaletteRenameSelectionSettings.defaultSelectAllOnFocus
+    @AppStorage(CommandPaletteSwitcherSearchSettings.searchAllSurfacesKey)
+    private var commandPaletteSearchAllSurfaces = CommandPaletteSwitcherSearchSettings.defaultSearchAllSurfaces
     @AppStorage(BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowserKey)
     private var openSidebarPullRequestLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenSidebarPullRequestLinksInCmuxBrowser
     @FocusState private var isCommandPaletteSearchFocused: Bool
@@ -1476,6 +1478,7 @@ struct ContentView: View {
         let title: String
         let subtitle: String
         let shortcutHint: String?
+        let kindLabel: String?
         let keywords: [String]
         let dismissOnRun: Bool
         let action: () -> Void
@@ -1618,6 +1621,14 @@ struct ContentView: View {
         let id: UUID
         let displayName: String
         let metadata: CommandPaletteSwitcherSearchMetadata
+        let surfaces: [CommandPaletteSwitcherFingerprintSurface]
+    }
+
+    struct CommandPaletteSwitcherFingerprintSurface: Sendable {
+        let id: UUID
+        let displayName: String
+        let kindLabel: String
+        let metadata: CommandPaletteSwitcherSearchMetadata
     }
 
     struct CommandPaletteSwitcherFingerprintContext: Sendable {
@@ -1632,7 +1643,7 @@ struct ContentView: View {
         hotSpot: NSCursor.resizeLeftRight.hotSpot
     )
     private static let commandPaletteUsageDefaultsKey = "commandPalette.commandUsage.v1"
-    private static let commandPaletteCommandsPrefix = ">"
+    nonisolated private static let commandPaletteCommandsPrefix = ">"
     private static let commandPaletteVisiblePreviewResultLimit = 48
     private static let commandPaletteVisiblePreviewCandidateLimit = 192
     private static let minimumSidebarWidth: CGFloat = 186
@@ -3197,20 +3208,38 @@ struct ContentView: View {
             updateCommandPaletteScrollTarget(resultCount: commandPaletteVisibleResults.count, animated: false)
             resetCommandPaletteSearchFocus()
         }
-        .onChange(of: commandPaletteQuery) { _ in
+        .onChange(of: commandPaletteQuery) { oldValue, newValue in
             commandPaletteSelectedResultIndex = 0
             commandPaletteSelectionAnchorCommandID = nil
             commandPaletteHoveredResultIndex = nil
             commandPaletteScrollTargetIndex = nil
             commandPaletteScrollTargetAnchor = nil
-            scheduleCommandPaletteResultsRefresh()
+            if Self.commandPaletteShouldResetVisibleResultsForQueryTransition(
+                oldQuery: oldValue,
+                newQuery: newValue,
+                hasVisibleResults: commandPaletteVisibleResultsScope != nil
+            ) {
+                cachedCommandPaletteResults = []
+                commandPaletteVisibleResults = []
+                commandPaletteVisibleResultsScope = nil
+                commandPaletteVisibleResultsFingerprint = nil
+            }
+            scheduleCommandPaletteResultsRefresh(query: newValue)
             updateCommandPaletteScrollTarget(resultCount: commandPaletteVisibleResults.count, animated: false)
             syncCommandPaletteDebugStateForObservedWindow()
         }
         .onChange(of: commandPaletteCurrentSearchFingerprint) { _ in
-            scheduleCommandPaletteResultsRefresh(forceSearchCorpusRefresh: true)
-            updateCommandPaletteScrollTarget(resultCount: commandPaletteVisibleResults.count, animated: false)
-            syncCommandPaletteDebugStateForObservedWindow()
+            Task { @MainActor in
+                // Let the query-state transition settle first so the forced corpus refresh
+                // cannot rebuild the old command list after deleting the ">" prefix.
+                await Task.yield()
+                scheduleCommandPaletteResultsRefresh(
+                    query: commandPaletteQuery,
+                    forceSearchCorpusRefresh: true
+                )
+                updateCommandPaletteScrollTarget(resultCount: commandPaletteVisibleResults.count, animated: false)
+                syncCommandPaletteDebugStateForObservedWindow()
+            }
         }
         .onChange(of: commandPaletteResultsRevision) { _ in
             let resultIDs = cachedCommandPaletteResults.map(\.id)
@@ -3335,14 +3364,36 @@ struct ContentView: View {
     }
 
     private var commandPaletteListScope: CommandPaletteListScope {
-        if commandPaletteQuery.hasPrefix(Self.commandPaletteCommandsPrefix) {
+        Self.commandPaletteListScope(for: commandPaletteQuery)
+    }
+
+    private var commandPaletteCurrentSearchFingerprint: Int {
+        commandPaletteEntriesFingerprint(
+            for: commandPaletteListScope,
+            includeSurfaces: commandPaletteSwitcherIncludesSurfaceEntries
+        )
+    }
+
+    nonisolated private static func commandPaletteListScope(for query: String) -> CommandPaletteListScope {
+        if query.hasPrefix(Self.commandPaletteCommandsPrefix) {
             return .commands
         }
         return .switcher
     }
 
-    private var commandPaletteCurrentSearchFingerprint: Int {
-        commandPaletteEntriesFingerprint(for: commandPaletteListScope)
+    static func commandPaletteShouldResetVisibleResultsForQueryTransition(
+        oldQuery: String,
+        newQuery: String,
+        hasVisibleResults: Bool
+    ) -> Bool {
+        hasVisibleResults && commandPaletteListScope(for: oldQuery) != commandPaletteListScope(for: newQuery)
+    }
+
+    private var commandPaletteSwitcherIncludesSurfaceEntries: Bool {
+        Self.commandPaletteSwitcherIncludesSurfaceEntries(
+            searchAllSurfaces: commandPaletteSearchAllSurfaces,
+            query: commandPaletteQuery
+        )
     }
 
     private var commandPaletteSearchPlaceholder: String {
@@ -3350,7 +3401,9 @@ struct ContentView: View {
         case .commands:
             return String(localized: "commandPalette.search.commandsPlaceholder", defaultValue: "Type a command")
         case .switcher:
-            return String(localized: "commandPalette.search.switcherPlaceholder", defaultValue: "Search workspaces")
+            return commandPaletteSearchAllSurfaces
+                ? String(localized: "commandPalette.search.switcherPlaceholderAllSurfaces", defaultValue: "Search workspaces and surfaces")
+                : String(localized: "commandPalette.search.switcherPlaceholder", defaultValue: "Search workspaces")
         }
     }
 
@@ -3359,37 +3412,109 @@ struct ContentView: View {
         case .commands:
             return String(localized: "commandPalette.search.commandsEmpty", defaultValue: "No commands match your search.")
         case .switcher:
-            return String(localized: "commandPalette.search.switcherEmpty", defaultValue: "No workspaces match your search.")
+            return commandPaletteSearchAllSurfaces
+                ? String(localized: "commandPalette.search.switcherEmptyAllSurfaces", defaultValue: "No workspaces or surfaces match your search.")
+                : String(localized: "commandPalette.search.switcherEmpty", defaultValue: "No workspaces match your search.")
         }
     }
 
     private var commandPaletteQueryForMatching: String {
-        switch commandPaletteListScope {
+        Self.commandPaletteQueryForMatching(
+            query: commandPaletteQuery,
+            scope: commandPaletteListScope
+        )
+    }
+
+    nonisolated private static func commandPaletteRefreshQuery(
+        stateQuery: String,
+        observedQuery: String?
+    ) -> String {
+        observedQuery ?? stateQuery
+    }
+
+    nonisolated static func commandPaletteRefreshInputsForTests(
+        stateQuery: String,
+        observedQuery: String?,
+        searchAllSurfaces: Bool
+    ) -> (scope: String, matchingQuery: String, includesSurfaces: Bool) {
+        let effectiveQuery = commandPaletteRefreshQuery(
+            stateQuery: stateQuery,
+            observedQuery: observedQuery
+        )
+        let scope = commandPaletteListScope(for: effectiveQuery)
+        return (
+            scope: scope.rawValue,
+            matchingQuery: commandPaletteQueryForMatching(query: effectiveQuery, scope: scope),
+            includesSurfaces: commandPaletteSwitcherIncludesSurfaceEntries(
+                searchAllSurfaces: searchAllSurfaces,
+                query: effectiveQuery
+            )
+        )
+    }
+
+    nonisolated private static func commandPaletteQueryForMatching(
+        query: String,
+        scope: CommandPaletteListScope
+    ) -> String {
+        switch scope {
         case .commands:
-            let suffix = String(commandPaletteQuery.dropFirst(Self.commandPaletteCommandsPrefix.count))
+            let suffix = String(query.dropFirst(Self.commandPaletteCommandsPrefix.count))
             return suffix.trimmingCharacters(in: .whitespacesAndNewlines)
         case .switcher:
-            return commandPaletteQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+            return query.trimmingCharacters(in: .whitespacesAndNewlines)
         }
     }
 
     private func commandPaletteEntries(for scope: CommandPaletteListScope) -> [CommandPaletteCommand] {
+        commandPaletteEntries(
+            for: scope,
+            includeSurfaces: commandPaletteSwitcherIncludesSurfaceEntries
+        )
+    }
+
+    private func commandPaletteEntries(
+        for scope: CommandPaletteListScope,
+        includeSurfaces: Bool
+    ) -> [CommandPaletteCommand] {
         switch scope {
         case .commands:
             return commandPaletteCommands()
         case .switcher:
-            return commandPaletteSwitcherEntries()
+            return commandPaletteSwitcherEntries(includeSurfaces: includeSurfaces)
         }
     }
 
-    private func refreshCommandPaletteSearchCorpus(force: Bool = false) {
-        let scope = commandPaletteListScope
-        let fingerprint = commandPaletteEntriesFingerprint(for: scope)
+    nonisolated private static func commandPaletteSwitcherIncludesSurfaceEntries(
+        searchAllSurfaces: Bool,
+        query: String
+    ) -> Bool {
+        let scope = commandPaletteListScope(for: query)
+        guard scope == .switcher else { return false }
+        return searchAllSurfaces && !commandPaletteQueryForMatching(query: query, scope: scope).isEmpty
+    }
+
+    private func refreshCommandPaletteSearchCorpus(
+        force: Bool = false,
+        query: String? = nil
+    ) {
+        let effectiveQuery = Self.commandPaletteRefreshQuery(
+            stateQuery: commandPaletteQuery,
+            observedQuery: query
+        )
+        let scope = Self.commandPaletteListScope(for: effectiveQuery)
+        let includeSurfaces = Self.commandPaletteSwitcherIncludesSurfaceEntries(
+            searchAllSurfaces: commandPaletteSearchAllSurfaces,
+            query: effectiveQuery
+        )
+        let fingerprint = commandPaletteEntriesFingerprint(
+            for: scope,
+            includeSurfaces: includeSurfaces
+        )
         guard force || cachedCommandPaletteScope != scope || cachedCommandPaletteFingerprint != fingerprint else {
             return
         }
 
-        let entries = commandPaletteEntries(for: scope)
+        let entries = commandPaletteEntries(for: scope, includeSurfaces: includeSurfaces)
         commandPaletteSearchCommandsByID = Dictionary(uniqueKeysWithValues: entries.map { ($0.id, $0) })
         let searchCorpus = entries.map { entry in
             CommandPaletteSearchCorpusEntry(
@@ -3597,18 +3722,32 @@ struct ContentView: View {
         !hasVisibleResultsForScope
     }
 
-    private func scheduleCommandPaletteResultsRefresh(forceSearchCorpusRefresh: Bool = false) {
-        refreshCommandPaletteSearchCorpus(force: forceSearchCorpusRefresh)
+    private func scheduleCommandPaletteResultsRefresh(
+        query: String? = nil,
+        forceSearchCorpusRefresh: Bool = false
+    ) {
+        let effectiveQuery = Self.commandPaletteRefreshQuery(
+            stateQuery: commandPaletteQuery,
+            observedQuery: query
+        )
+        let scope = Self.commandPaletteListScope(for: effectiveQuery)
+        let matchingQuery = Self.commandPaletteQueryForMatching(
+            query: effectiveQuery,
+            scope: scope
+        )
+
+        refreshCommandPaletteSearchCorpus(
+            force: forceSearchCorpusRefresh,
+            query: effectiveQuery
+        )
 
         commandPaletteSearchRequestID &+= 1
         let requestID = commandPaletteSearchRequestID
-        let query = commandPaletteQueryForMatching
-        let scope = commandPaletteListScope
         let fingerprint = cachedCommandPaletteFingerprint
         let searchCorpus = commandPaletteSearchCorpus
         let commandsByID = commandPaletteSearchCommandsByID
         let usageHistory = commandPaletteUsageHistoryByCommandId
-        let queryIsEmpty = CommandPaletteFuzzyMatcher.preparedQuery(query).isEmpty
+        let queryIsEmpty = CommandPaletteFuzzyMatcher.preparedQuery(matchingQuery).isEmpty
         let historyTimestamp = Date().timeIntervalSince1970
         commandPalettePendingActivation = nil
         cancelCommandPaletteSearch()
@@ -3617,7 +3756,7 @@ struct ContentView: View {
         ) {
             let matches = Self.commandPaletteResolvedSearchMatches(
                 searchCorpus: searchCorpus,
-                query: query,
+                query: matchingQuery,
                 usageHistory: usageHistory,
                 queryIsEmpty: queryIsEmpty,
                 historyTimestamp: historyTimestamp
@@ -3641,7 +3780,7 @@ struct ContentView: View {
         refreshPendingCommandPaletteVisibleResults(
             scope: scope,
             fingerprint: fingerprint,
-            query: query,
+            query: matchingQuery,
             usageHistory: usageHistory,
             queryIsEmpty: queryIsEmpty,
             historyTimestamp: historyTimestamp
@@ -3651,7 +3790,7 @@ struct ContentView: View {
         commandPaletteSearchTask = Task.detached(priority: .userInitiated) {
             let matches = Self.commandPaletteResolvedSearchMatches(
                 searchCorpus: searchCorpus,
-                query: query,
+                query: matchingQuery,
                 usageHistory: usageHistory,
                 queryIsEmpty: queryIsEmpty,
                 historyTimestamp: historyTimestamp,
@@ -3661,10 +3800,14 @@ struct ContentView: View {
             guard !Task.isCancelled else { return }
 
             await MainActor.run {
+                let currentScope = Self.commandPaletteListScope(for: commandPaletteQuery)
                 guard commandPaletteSearchRequestID == requestID,
                       isCommandPalettePresented,
-                      commandPaletteListScope == scope,
-                      commandPaletteQueryForMatching == query,
+                      currentScope == scope,
+                      Self.commandPaletteQueryForMatching(
+                          query: commandPaletteQuery,
+                          scope: currentScope
+                      ) == matchingQuery,
                       cachedCommandPaletteFingerprint == fingerprint else {
                     return
                 }
@@ -3704,11 +3847,21 @@ struct ContentView: View {
     }
 
     private func commandPaletteEntriesFingerprint(for scope: CommandPaletteListScope) -> Int {
+        commandPaletteEntriesFingerprint(
+            for: scope,
+            includeSurfaces: commandPaletteSwitcherIncludesSurfaceEntries
+        )
+    }
+
+    private func commandPaletteEntriesFingerprint(
+        for scope: CommandPaletteListScope,
+        includeSurfaces: Bool
+    ) -> Int {
         switch scope {
         case .commands:
             return commandPaletteCommandsFingerprint()
         case .switcher:
-            return commandPaletteSwitcherEntriesFingerprint()
+            return commandPaletteSwitcherEntriesFingerprint(includeSurfaces: includeSurfaces)
         }
     }
 
@@ -3719,7 +3872,7 @@ struct ContentView: View {
         return hasher.finalize()
     }
 
-    private func commandPaletteSwitcherEntriesFingerprint() -> Int {
+    private func commandPaletteSwitcherEntriesFingerprint(includeSurfaces: Bool) -> Int {
         let windowContexts = commandPaletteSwitcherWindowContexts()
         let fingerprintContexts = windowContexts.map { context in
             CommandPaletteSwitcherFingerprintContext(
@@ -3730,7 +3883,25 @@ struct ContentView: View {
                     CommandPaletteSwitcherFingerprintWorkspace(
                         id: workspace.id,
                         displayName: workspaceDisplayName(workspace),
-                        metadata: commandPaletteWorkspaceSearchMetadata(for: workspace)
+                        metadata: commandPaletteWorkspaceSearchMetadata(for: workspace),
+                        surfaces: includeSurfaces
+                            ? commandPaletteOrderedSwitcherPanels(for: workspace).compactMap { panelId in
+                                guard let panel = workspace.panels[panelId] else { return nil }
+                                return CommandPaletteSwitcherFingerprintSurface(
+                                    id: panelId,
+                                    displayName: panelDisplayName(
+                                        workspace: workspace,
+                                        panelId: panelId,
+                                        fallback: panel.displayTitle
+                                    ),
+                                    kindLabel: commandPaletteSurfaceKindLabel(for: panel.panelType),
+                                    metadata: commandPaletteSurfaceSearchMetadata(
+                                        for: workspace,
+                                        panelId: panelId
+                                    )
+                                )
+                            }
+                            : []
                     )
                 }
             )
@@ -3771,20 +3942,24 @@ struct ContentView: View {
             return CommandPaletteTrailingLabel(text: shortcutHint, style: .shortcut)
         }
 
-        guard commandPaletteListScope == .switcher else { return nil }
-        if command.id.hasPrefix("switcher.workspace.") {
-            return CommandPaletteTrailingLabel(text: String(localized: "commandPalette.kind.workspace", defaultValue: "Workspace"), style: .kind)
+        if let kindLabel = command.kindLabel {
+            return CommandPaletteTrailingLabel(text: kindLabel, style: .kind)
         }
         return nil
     }
 
-    private func commandPaletteSwitcherEntries() -> [CommandPaletteCommand] {
+    private func commandPaletteSwitcherEntries(includeSurfaces: Bool) -> [CommandPaletteCommand] {
         let windowContexts = commandPaletteSwitcherWindowContexts()
         guard !windowContexts.isEmpty else { return [] }
 
         var entries: [CommandPaletteCommand] = []
         let estimatedCount = windowContexts.reduce(0) { partial, context in
-            partial + context.tabManager.tabs.count
+            let workspaceCount = context.tabManager.tabs.count
+            guard includeSurfaces else { return partial + workspaceCount }
+            let surfaceCount = context.tabManager.tabs.reduce(0) { count, workspace in
+                count + commandPaletteOrderedSwitcherPanels(for: workspace).count
+            }
+            return partial + workspaceCount + surfaceCount
         }
         entries.reserveCapacity(estimatedCount)
         var nextRank = 0
@@ -3818,6 +3993,7 @@ struct ContentView: View {
                         title: workspaceName,
                         subtitle: commandPaletteSwitcherSubtitle(base: String(localized: "commandPalette.switcher.workspaceLabel", defaultValue: "Workspace"), windowLabel: context.windowLabel),
                         shortcutHint: nil,
+                        kindLabel: String(localized: "commandPalette.kind.workspace", defaultValue: "Workspace"),
                         keywords: workspaceKeywords,
                         dismissOnRun: true,
                         action: {
@@ -3830,6 +4006,53 @@ struct ContentView: View {
                     )
                 )
                 nextRank += 1
+
+                guard includeSurfaces else { continue }
+
+                for panelId in commandPaletteOrderedSwitcherPanels(for: workspace) {
+                    guard let panel = workspace.panels[panelId] else { continue }
+                    let surfaceName = panelDisplayName(
+                        workspace: workspace,
+                        panelId: panelId,
+                        fallback: panel.displayTitle
+                    )
+                    let surfaceKindLabel = commandPaletteSurfaceKindLabel(for: panel.panelType)
+                    let surfaceCommandId = "switcher.surface.\(panelId.uuidString.lowercased())"
+                    let surfaceKeywords = CommandPaletteSwitcherSearchIndexer.keywords(
+                        baseKeywords: [
+                            "surface",
+                            "tab",
+                            "switch",
+                            "go",
+                            "open",
+                            surfaceName,
+                            workspaceName
+                        ] + commandPaletteSurfaceKeywords(for: panel.panelType) + windowKeywords,
+                        metadata: commandPaletteSurfaceSearchMetadata(for: workspace, panelId: panelId),
+                        detail: .surface
+                    )
+                    entries.append(
+                        CommandPaletteCommand(
+                            id: surfaceCommandId,
+                            rank: nextRank,
+                            title: surfaceName,
+                            subtitle: commandPaletteSwitcherSubtitle(base: workspaceName, windowLabel: context.windowLabel),
+                            shortcutHint: nil,
+                            kindLabel: surfaceKindLabel,
+                            keywords: surfaceKeywords,
+                            dismissOnRun: true,
+                            action: {
+                                focusCommandPaletteSwitcherSurfaceTarget(
+                                    windowId: windowId,
+                                    tabManager: windowTabManager,
+                                    workspaceId: workspace.id,
+                                    panelId: panelId
+                                )
+                            }
+                        )
+                    )
+                    nextRank += 1
+                }
             }
         }
 
@@ -3911,6 +4134,19 @@ struct ContentView: View {
         return workspaces
     }
 
+    private func commandPaletteOrderedSwitcherPanels(for workspace: Workspace) -> [UUID] {
+        let orderedPanelIds = workspace.sidebarOrderedPanelIds()
+        guard orderedPanelIds.count < workspace.panels.count else { return orderedPanelIds }
+
+        var panelIds = orderedPanelIds
+        var seen = Set(orderedPanelIds)
+        for panelId in workspace.panels.keys.sorted(by: { $0.uuidString < $1.uuidString })
+        where seen.insert(panelId).inserted {
+            panelIds.append(panelId)
+        }
+        return panelIds
+    }
+
     private func focusCommandPaletteSwitcherTarget(
         windowId: UUID,
         tabManager: TabManager,
@@ -3925,6 +4161,18 @@ struct ContentView: View {
         }
     }
 
+    private func focusCommandPaletteSwitcherSurfaceTarget(
+        windowId: UUID,
+        tabManager: TabManager,
+        workspaceId: UUID,
+        panelId: UUID
+    ) {
+        DispatchQueue.main.async {
+            _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
+            tabManager.focusTab(workspaceId, surfaceId: panelId, suppressFlash: true)
+        }
+    }
+
     private func commandPaletteWorkspaceSearchMetadata(for workspace: Workspace) -> CommandPaletteSwitcherSearchMetadata {
         // Keep workspace rows coarse and stable for predictable workspace switching queries.
         let directories = [workspace.currentDirectory]
@@ -3935,6 +4183,42 @@ struct ContentView: View {
             branches: branches,
             ports: ports
         )
+    }
+
+    private func commandPaletteSurfaceSearchMetadata(
+        for workspace: Workspace,
+        panelId: UUID
+    ) -> CommandPaletteSwitcherSearchMetadata {
+        let directories = [workspace.panelDirectories[panelId]].compactMap { $0 }
+        let branches = [workspace.panelGitBranches[panelId]?.branch].compactMap { $0 }
+        let ports = workspace.surfaceListeningPorts[panelId] ?? []
+        return CommandPaletteSwitcherSearchMetadata(
+            directories: directories,
+            branches: branches,
+            ports: ports
+        )
+    }
+
+    private func commandPaletteSurfaceKindLabel(for panelType: PanelType) -> String {
+        switch panelType {
+        case .terminal:
+            return String(localized: "commandPalette.kind.terminal", defaultValue: "Terminal")
+        case .browser:
+            return String(localized: "commandPalette.kind.browser", defaultValue: "Browser")
+        case .markdown:
+            return String(localized: "commandPalette.kind.markdown", defaultValue: "Markdown")
+        }
+    }
+
+    private func commandPaletteSurfaceKeywords(for panelType: PanelType) -> [String] {
+        switch panelType {
+        case .terminal:
+            return ["terminal", "shell", "console"]
+        case .browser:
+            return ["browser", "web", "page"]
+        case .markdown:
+            return ["markdown", "note", "preview"]
+        }
     }
 
     private func commandPaletteCommands() -> [CommandPaletteCommand] {
@@ -3960,6 +4244,7 @@ struct ContentView: View {
                     title: contribution.title(context),
                     subtitle: contribution.subtitle(context),
                     shortcutHint: commandPaletteShortcutHint(for: contribution, context: context),
+                    kindLabel: nil,
                     keywords: contribution.keywords,
                     dismissOnRun: contribution.dismissOnRun,
                     action: action
@@ -5285,6 +5570,13 @@ struct ContentView: View {
                 hasher.combine(workspace.id)
                 hasher.combine(workspace.displayName)
                 combineCommandPaletteSwitcherSearchMetadata(workspace.metadata, into: &hasher)
+                hasher.combine(workspace.surfaces.count)
+                for surface in workspace.surfaces {
+                    hasher.combine(surface.id)
+                    hasher.combine(surface.displayName)
+                    hasher.combine(surface.kindLabel)
+                    combineCommandPaletteSwitcherSearchMetadata(surface.metadata, into: &hasher)
+                }
             }
         }
         return hasher.finalize()

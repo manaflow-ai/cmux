@@ -3006,6 +3006,18 @@ enum CommandPaletteRenameSelectionSettings {
     }
 }
 
+enum CommandPaletteSwitcherSearchSettings {
+    static let searchAllSurfacesKey = "commandPalette.switcherSearchAllSurfaces"
+    static let defaultSearchAllSurfaces = false
+
+    static func searchAllSurfacesEnabled(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: searchAllSurfacesKey) == nil {
+            return defaultSearchAllSurfaces
+        }
+        return defaults.bool(forKey: searchAllSurfacesKey)
+    }
+}
+
 enum ClaudeCodeIntegrationSettings {
     static let hooksEnabledKey = "claudeCodeHooksEnabled"
     static let defaultHooksEnabled = true
@@ -3073,6 +3085,8 @@ struct SettingsView: View {
     @AppStorage(QuitWarningSettings.warnBeforeQuitKey) private var warnBeforeQuitShortcut = QuitWarningSettings.defaultWarnBeforeQuit
     @AppStorage(CommandPaletteRenameSelectionSettings.selectAllOnFocusKey)
     private var commandPaletteRenameSelectAllOnFocus = CommandPaletteRenameSelectionSettings.defaultSelectAllOnFocus
+    @AppStorage(CommandPaletteSwitcherSearchSettings.searchAllSurfacesKey)
+    private var commandPaletteSearchAllSurfaces = CommandPaletteSwitcherSearchSettings.defaultSearchAllSurfaces
     @AppStorage(ShortcutHintDebugSettings.alwaysShowHintsKey)
     private var alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
     @AppStorage(WorkspacePlacementSettings.placementKey) private var newWorkspacePlacement = WorkspacePlacementSettings.defaultPlacement.rawValue
@@ -3691,6 +3705,23 @@ struct SettingsView: View {
                             Toggle("", isOn: $commandPaletteRenameSelectAllOnFocus)
                                 .labelsHidden()
                                 .controlSize(.small)
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            String(localized: "settings.app.commandPaletteSearchAllSurfaces", defaultValue: "Command Palette Searches All Surfaces"),
+                            subtitle: commandPaletteSearchAllSurfaces
+                                ? String(localized: "settings.app.commandPaletteSearchAllSurfaces.subtitleOn", defaultValue: "Cmd+P also matches terminal, browser, and markdown surfaces across workspaces.")
+                                : String(localized: "settings.app.commandPaletteSearchAllSurfaces.subtitleOff", defaultValue: "Cmd+P matches workspace rows only.")
+                        ) {
+                            Toggle("", isOn: $commandPaletteSearchAllSurfaces)
+                                .labelsHidden()
+                                .controlSize(.small)
+                                .accessibilityIdentifier("CommandPaletteSearchAllSurfacesToggle")
+                                .accessibilityLabel(
+                                    String(localized: "settings.app.commandPaletteSearchAllSurfaces", defaultValue: "Command Palette Searches All Surfaces")
+                                )
                         }
 
                         SettingsCardDivider()
@@ -4455,6 +4486,7 @@ struct SettingsView: View {
         showMenuBarExtra = MenuBarExtraSettings.defaultShowInMenuBar
         warnBeforeQuitShortcut = QuitWarningSettings.defaultWarnBeforeQuit
         commandPaletteRenameSelectAllOnFocus = CommandPaletteRenameSelectionSettings.defaultSelectAllOnFocus
+        commandPaletteSearchAllSurfaces = CommandPaletteSwitcherSearchSettings.defaultSearchAllSurfaces
         ShortcutHintDebugSettings.resetVisibilityDefaults()
         alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
         newWorkspacePlacement = WorkspacePlacementSettings.defaultPlacement.rawValue
