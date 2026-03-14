@@ -2442,6 +2442,23 @@ struct ContentView: View {
 #endif
         })
 
+        // When the system appearance changes or Ghostty reloads its config, the default
+        // background color updates. Only the currently-mounted WorkspaceContentView
+        // receives this notification — non-mounted workspaces keep stale bonsplit
+        // chrome until they mount. Push the updated chrome to ALL workspaces here
+        // so every tab's split bar reflects the current appearance immediately.
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)) { _ in
+            let backgroundColor = GhosttyApp.shared.defaultBackgroundColor
+            let backgroundOpacity = GhosttyApp.shared.defaultBackgroundOpacity
+            for workspace in tabManager.tabs {
+                workspace.applyGhosttyChrome(
+                    backgroundColor: backgroundColor,
+                    backgroundOpacity: backgroundOpacity,
+                    reason: "contentView.ghosttyDefaultBackgroundDidChange"
+                )
+            }
+        })
+
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .commandPaletteToggleRequested)) { notification in
             let requestedWindow = notification.object as? NSWindow
             guard Self.shouldHandleCommandPaletteRequest(
