@@ -8229,7 +8229,6 @@ extension GhosttyNSView: NSTextInputClient {
         if range.length == 0, w > 0 {
             // Dictation expects a caret rect for insertion points rather than a box.
             w = 0
-            x += cellSize.width * Double(range.location + range.length)
         }
 
         // Ghostty coordinates are top-left origin; AppKit expects bottom-left.
