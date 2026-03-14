@@ -360,6 +360,40 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
             },
             "Expected deleting the command prefix to restore workspace rows. snapshot=\(switcherSnapshot)"
         )
+
+        let rows = commandPaletteResultRows(from: switcherSnapshot)
+        let firstRowCommandId = rows.first?["command_id"] as? String ?? ""
+        XCTAssertTrue(
+            firstRowCommandId.hasPrefix("switcher.workspace."),
+            "Expected the first restored row to be a workspace. snapshot=\(switcherSnapshot)"
+        )
+
+        let firstWorkspaceRow = try XCTUnwrap(
+            rows.first(where: { row in
+                let commandId = row["command_id"] as? String ?? ""
+                return commandId.hasPrefix("switcher.workspace.")
+            }),
+            "Expected a workspace row in the restored switcher results. snapshot=\(switcherSnapshot)"
+        )
+        let workspaceTitle = try XCTUnwrap(
+            firstWorkspaceRow["title"] as? String,
+            "Expected the restored workspace row to include a title. snapshot=\(switcherSnapshot)"
+        )
+        let workspaceLabel = app.staticTexts[workspaceTitle].firstMatch
+        XCTAssertTrue(
+            sidebarHelpPollUntil(timeout: 2.0) {
+                workspaceLabel.exists && workspaceLabel.isHittable
+            },
+            "Expected the restored workspace row to be visibly rendered. title=\(workspaceTitle) snapshot=\(switcherSnapshot)"
+        )
+
+        let staleCommandLabel = app.staticTexts["Close Other Workspaces"].firstMatch
+        XCTAssertTrue(
+            sidebarHelpPollUntil(timeout: 2.0) {
+                !staleCommandLabel.exists || !staleCommandLabel.isHittable
+            },
+            "Expected the stale command row to disappear after deleting the command prefix. snapshot=\(switcherSnapshot)"
+        )
     }
 
     func testCmdPSearchCanIncludeSurfacesFromOtherWorkspacesWhenEnabled() throws {
