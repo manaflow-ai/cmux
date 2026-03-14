@@ -5248,6 +5248,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             if scalar.value >= 0xF700 && scalar.value <= 0xF8FF {
                 return nil
             }
+
+            // When Option transforms a control/special key into a printable
+            // Unicode character (e.g. Option+Delete → "∂"), suppress the text
+            // so Ghostty's key encoder handles Alt+key instead.
+            if let unmodified = event.charactersIgnoringModifiers?.unicodeScalars.first,
+               (unmodified.value < 0x20 || unmodified.value == 0x7F),
+               scalar.value != unmodified.value {
+                return nil
+            }
         }
 
         return chars
