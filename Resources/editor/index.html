@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>cmux Editor</title>
+    <link rel="stylesheet" href="editor.css">
+    <link rel="stylesheet" data-name="vs/editor/editor.main" href="https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs/editor/editor.main.css">
+</head>
+<body>
+    <div id="app">
+        <div id="sidebar">
+            <div id="sidebar-header">
+                <span id="project-name">Project</span>
+            </div>
+            <div id="file-tree"></div>
+        </div>
+        <div id="sidebar-resize-handle"></div>
+        <div id="editor-area">
+            <div id="tabs-bar"></div>
+            <div id="editor-container"></div>
+            <div id="welcome" class="welcome-visible">
+                <div class="welcome-icon">&#xf15c;</div>
+                <p>Open a file from the sidebar</p>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs/loader.js"></script>
+    <script src="editor.js"></script>
+</body>
+</html>

@@ -1742,6 +1742,10 @@ class TerminalController {
         case "help":
             return helpText()
 
+        // Editor panel commands
+        case "open_editor":
+            return openEditor(args)
+
         // Browser panel commands
         case "open_browser":
             return openBrowser(args)
@@ -12354,6 +12358,34 @@ class TerminalController {
 
         if let error { return error }
         return success ? "OK" : "ERROR: Unknown key '\(keyName)'"
+    }
+
+    // MARK: - Editor Panel Commands
+
+    private func openEditor(_ args: String) -> String {
+        guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
+
+        let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        var result = "ERROR: Failed to create editor panel"
+        DispatchQueue.main.sync {
+            let rootPath: String
+            if trimmed.isEmpty {
+                // Default to the current workspace's directory
+                guard let tabId = tabManager.selectedTabId,
+                      let tab = tabManager.tabs.first(where: { $0.id == tabId }) else {
+                    return
+                }
+                rootPath = tab.currentDirectory
+            } else {
+                rootPath = trimmed
+            }
+
+            if let panelId = tabManager.openEditor(rootPath: rootPath) {
+                result = "OK \(panelId.uuidString)"
+            }
+        }
+        return result
     }
 
     // MARK: - Browser Panel Commands
