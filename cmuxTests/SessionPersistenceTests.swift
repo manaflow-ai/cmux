@@ -187,6 +187,58 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertNil(decoded.forwardHistoryURLStrings)
     }
 
+    @MainActor
+    func testWorkspaceSessionSnapshotRoundTripsMultipleTopTabs() {
+        let workspace = Workspace()
+        guard let firstTopTab = workspace.selectedTopTab else {
+            XCTFail("Expected initial top tab")
+            return
+        }
+
+        let secondTopTab = workspace.addTopTab(select: true)
+        workspace.setTopTabCustomTitle(topTabId: secondTopTab.id, title: "Docs")
+        workspace.selectTopTab(firstTopTab)
+
+        let snapshot = workspace.sessionSnapshot(includeScrollback: false)
+
+        let restored = Workspace()
+        restored.restoreSessionSnapshot(snapshot)
+
+        XCTAssertEqual(restored.topTabs.count, 2, "Expected both top tabs to be restored")
+        XCTAssertEqual(restored.selectedTopTabId, restored.topTabs.first?.id, "Selected top tab index should round-trip")
+        XCTAssertEqual(restored.topTabs.last?.customTitle, Optional("Docs"), "Top-tab custom titles should round-trip")
+        XCTAssertEqual(restored.panelIds(in: restored.topTabs[0]).count, 1)
+        XCTAssertEqual(restored.panelIds(in: restored.topTabs[1]).count, 1)
+    }
+
+    @MainActor
+    func testRestoreLegacyWorkspaceSnapshotCreatesSingleTopTab() {
+        let workspace = Workspace()
+        let legacySource = workspace.sessionSnapshot(includeScrollback: false)
+        let legacySnapshot = SessionWorkspaceSnapshot(
+            processTitle: legacySource.processTitle,
+            customTitle: legacySource.customTitle,
+            customColor: legacySource.customColor,
+            isPinned: legacySource.isPinned,
+            currentDirectory: legacySource.currentDirectory,
+            focusedPanelId: legacySource.focusedPanelId,
+            layout: legacySource.layout,
+            panels: legacySource.panels,
+            statusEntries: legacySource.statusEntries,
+            logEntries: legacySource.logEntries,
+            progress: legacySource.progress,
+            gitBranch: legacySource.gitBranch,
+            selectedTopTabIndex: nil,
+            topTabs: nil
+        )
+
+        let restored = Workspace()
+        restored.restoreSessionSnapshot(legacySnapshot)
+
+        XCTAssertEqual(restored.topTabs.count, 1, "Legacy snapshots should restore into a single top tab")
+        XCTAssertEqual(restored.selectedTopTabPanelCount, 1, "Legacy restore should preserve the original terminal panel")
+    }
+
     func testScrollbackReplayEnvironmentWritesReplayFile() {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-scrollback-replay-\(UUID().uuidString)", isDirectory: true)
@@ -717,7 +769,9 @@ final class SessionPersistenceTests: XCTestCase {
             statusEntries: [],
             logEntries: [],
             progress: nil,
-            gitBranch: nil
+            gitBranch: nil,
+            selectedTopTabIndex: nil,
+            topTabs: nil
         )
 
         let tabManager = SessionTabManagerSnapshot(

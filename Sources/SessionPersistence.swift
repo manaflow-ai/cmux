@@ -328,6 +328,7 @@ indirect enum SessionWorkspaceLayoutSnapshot: Codable, Sendable {
 
 struct SessionWorkspaceSnapshot: Codable, Sendable {
     var processTitle: String
+    var workspaceTitle: String? = nil
     var customTitle: String?
     var customColor: String?
     var isPinned: Bool
@@ -339,6 +340,16 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var logEntries: [SessionLogEntrySnapshot]
     var progress: SessionProgressSnapshot?
     var gitBranch: SessionGitBranchSnapshot?
+    var selectedTopTabIndex: Int?
+    var topTabs: [SessionWorkspaceTopTabSnapshot]?
+}
+
+struct SessionWorkspaceTopTabSnapshot: Codable, Sendable {
+    var processTitle: String
+    var customTitle: String?
+    var focusedPanelId: UUID?
+    var layout: SessionWorkspaceLayoutSnapshot
+    var panels: [SessionPanelSnapshot]
 }
 
 struct SessionTabManagerSnapshot: Codable, Sendable {

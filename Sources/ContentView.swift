@@ -1403,6 +1403,7 @@ struct ContentView: View {
         enum Kind: Equatable {
             case workspace(workspaceId: UUID)
             case tab(workspaceId: UUID, panelId: UUID)
+            case topTab(workspaceId: UUID, topTabId: UUID)
         }
 
         let kind: Kind
@@ -1412,7 +1413,7 @@ struct ContentView: View {
             switch kind {
             case .workspace:
                 return String(localized: "commandPalette.rename.workspaceTitle", defaultValue: "Rename Workspace")
-            case .tab:
+            case .tab, .topTab:
                 return String(localized: "commandPalette.rename.tabTitle", defaultValue: "Rename Tab")
             }
         }
@@ -1421,7 +1422,7 @@ struct ContentView: View {
             switch kind {
             case .workspace:
                 return String(localized: "commandPalette.rename.workspaceDescription", defaultValue: "Choose a custom workspace name.")
-            case .tab:
+            case .tab, .topTab:
                 return String(localized: "commandPalette.rename.tabDescription", defaultValue: "Choose a custom tab name.")
             }
         }
@@ -1430,7 +1431,7 @@ struct ContentView: View {
             switch kind {
             case .workspace:
                 return String(localized: "commandPalette.rename.workspacePlaceholder", defaultValue: "Workspace name")
-            case .tab:
+            case .tab, .topTab:
                 return String(localized: "commandPalette.rename.tabPlaceholder", defaultValue: "Tab name")
             }
         }
@@ -3575,7 +3576,7 @@ struct ContentView: View {
         switch target.kind {
         case .workspace:
             return String(localized: "commandPalette.rename.workspaceInputHint", defaultValue: "Enter a workspace name. Press Enter to rename, Escape to cancel.")
-        case .tab:
+        case .tab, .topTab:
             return String(localized: "commandPalette.rename.tabInputHint", defaultValue: "Enter a tab name. Press Enter to rename, Escape to cancel.")
         }
     }
@@ -3584,7 +3585,7 @@ struct ContentView: View {
         switch target.kind {
         case .workspace:
             return String(localized: "commandPalette.rename.workspaceConfirmHint", defaultValue: "Press Enter to apply this workspace name, or Escape to cancel.")
-        case .tab:
+        case .tab, .topTab:
             return String(localized: "commandPalette.rename.tabConfirmHint", defaultValue: "Press Enter to apply this tab name, or Escape to cancel.")
         }
     }
@@ -4734,7 +4735,7 @@ struct ContentView: View {
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.newTerminalTab",
-                title: constant(String(localized: "command.newTerminalTab.title", defaultValue: "New Tab (Terminal)")),
+                title: constant(String(localized: "command.newTerminalTab.title", defaultValue: "New Tab")),
                 subtitle: constant(String(localized: "command.newTerminalTab.subtitle", defaultValue: "Tab")),
                 shortcutHint: "⌘T",
                 keywords: ["new", "terminal", "tab"]
@@ -5520,6 +5521,11 @@ struct ContentView: View {
             beginRenameTabFlow()
         }
         registry.register(commandId: "palette.clearTabName") {
+            if let workspace = tabManager.selectedWorkspace, workspace.usesTopTabsAsPrimaryTabUI,
+               let topTab = workspace.selectedTopTab {
+                workspace.setTopTabCustomTitle(topTabId: topTab.id, title: nil)
+                return
+            }
             guard let panelContext = focusedPanelContext else {
                 NSSound.beep()
                 return
@@ -6601,18 +6607,27 @@ struct ContentView: View {
     }
 
     private func beginRenameTabFlow() {
+        if let workspace = tabManager.selectedWorkspace, workspace.usesTopTabsAsPrimaryTabUI,
+           let topTab = workspace.selectedTopTab {
+            let target = CommandPaletteRenameTarget(
+                kind: .topTab(workspaceId: workspace.id, topTabId: topTab.id),
+                currentName: workspace.topTabTitle(topTab)
+            )
+            startRenameFlow(target)
+            return
+        }
+
         guard let panelContext = focusedPanelContext else {
             NSSound.beep()
             return
         }
-        let panelName = panelDisplayName(
-            workspace: panelContext.workspace,
-            panelId: panelContext.panelId,
-            fallback: panelContext.panel.displayTitle
-        )
         let target = CommandPaletteRenameTarget(
             kind: .tab(workspaceId: panelContext.workspace.id, panelId: panelContext.panelId),
-            currentName: panelName
+            currentName: panelDisplayName(
+                workspace: panelContext.workspace,
+                panelId: panelContext.panelId,
+                fallback: panelContext.panel.displayTitle
+            )
         )
         startRenameFlow(target)
     }
@@ -6643,6 +6658,12 @@ struct ContentView: View {
                 return
             }
             workspace.setPanelCustomTitle(panelId: panelId, title: normalizedName)
+        case .topTab(let workspaceId, let topTabId):
+            guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else {
+                NSSound.beep()
+                return
+            }
+            workspace.setTopTabCustomTitle(topTabId: topTabId, title: normalizedName)
         }
 
         dismissCommandPalette()

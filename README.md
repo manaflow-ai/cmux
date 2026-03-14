@@ -136,25 +136,27 @@ For more info on how to configure cmux, [head over to our docs](https://cmux.dev
 | ⌘ ⇧ R | Rename workspace |
 | ⌘ B | Toggle sidebar |
 
-### Surfaces
+### Tabs
 
 | Shortcut | Action |
 |----------|--------|
-| ⌘ T | New surface |
-| ⌘ ⇧ ] | Next surface |
-| ⌘ ⇧ [ | Previous surface |
-| ⌃ Tab | Next surface |
-| ⌃ ⇧ Tab | Previous surface |
-| ⌃ 1–8 | Jump to surface 1–8 |
-| ⌃ 9 | Jump to last surface |
-| ⌘ W | Close surface |
+| ⌘ T | New tab |
+| ⌘ ⇧ ] | Next tab |
+| ⌘ ⇧ [ | Previous tab |
+| ⌃ Tab | Next tab |
+| ⌃ ⇧ Tab | Previous tab |
+| ⌃ 1–8 | Jump to tab 1–8 |
+| ⌃ 9 | Jump to last tab |
+| ⌘ W | Close focused split, or close the tab when it becomes empty |
+
+When `Settings → App → Top Tabs Own Splits` is enabled, each top tab owns a full split layout. `⌘T` creates a fresh full tab, while split shortcuts continue operating inside the selected tab.
 
 ### Split Panes
 
 | Shortcut | Action |
 |----------|--------|
-| ⌘ D | Split right |
-| ⌘ ⇧ D | Split down |
+| ⌘ D | Split right in current tab |
+| ⌘ ⇧ D | Split down in current tab |
 | ⌥ ⌘ ← → ↑ ↓ | Focus pane directionally |
 | ⌘ ⇧ H | Flash focused panel |
 

@@ -5657,26 +5657,98 @@ final class TabManagerPendingUnfocusPolicyTests: XCTestCase {
 
 @MainActor
 final class TabManagerSurfaceCreationTests: XCTestCase {
-    func testNewSurfaceFocusesCreatedSurface() {
+    override func setUp() {
+        super.setUp()
+        UserDefaults.standard.removeObject(forKey: WorkspaceTopTabsFeatureSettings.key)
+    }
+
+    override func tearDown() {
+        UserDefaults.standard.removeObject(forKey: WorkspaceTopTabsFeatureSettings.key)
+        super.tearDown()
+    }
+
+    func testNewSurfaceCreatesPaneLocalSurfaceWhenTopTabsFeatureDisabled() {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace else {
             XCTFail("Expected a selected workspace")
             return
         }
 
+        let beforeTopTabCount = workspace.topTabs.count
+        let beforeSelectedTopTabId = workspace.selectedTopTabId
+        let beforeFocusedPaneId = workspace.bonsplitController.focusedPaneId
         let beforePanels = Set(workspace.panels.keys)
+
+        manager.newSurface()
+
+        let afterPanels = Set(workspace.panels.keys)
+        let createdPanels = afterPanels.subtracting(beforePanels)
+        XCTAssertEqual(createdPanels.count, 1, "Cmd+T should still create one pane-local surface when top tabs are disabled")
+        XCTAssertEqual(workspace.topTabs.count, beforeTopTabCount, "Cmd+T should not create a new top tab when the feature is disabled")
+        XCTAssertEqual(workspace.selectedTopTabId, beforeSelectedTopTabId, "Pane-local creation should keep the current top tab selected")
+        XCTAssertEqual(workspace.bonsplitController.focusedPaneId, beforeFocusedPaneId, "Pane-local creation should stay in the focused pane")
+    }
+
+    func testNewSurfaceCreatesNewTopTabWithSingleTerminalAndFocusesIt() {
+        UserDefaults.standard.set(true, forKey: WorkspaceTopTabsFeatureSettings.key)
+
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace else {
+            XCTFail("Expected a selected workspace")
+            return
+        }
+
+        let beforeWorkspaceCount = manager.tabs.count
+        let beforeTopTabCount = workspace.topTabs.count
+        let beforePanels = Set(workspace.panels.keys)
+        let previousTopTabId = workspace.selectedTopTabId
         manager.newSurface()
         let afterPanels = Set(workspace.panels.keys)
 
         let createdPanels = afterPanels.subtracting(beforePanels)
-        XCTAssertEqual(createdPanels.count, 1, "Expected one new surface for Cmd+T path")
+        XCTAssertEqual(manager.tabs.count, beforeWorkspaceCount, "Cmd+T should stay in the current workspace")
+        XCTAssertEqual(workspace.topTabs.count, beforeTopTabCount + 1, "Cmd+T should create a new top tab")
+        XCTAssertNotEqual(workspace.selectedTopTabId, previousTopTabId, "New top tab should become selected")
+        XCTAssertEqual(createdPanels.count, 1, "Expected one new terminal in the created top tab")
         guard let createdPanelId = createdPanels.first else { return }
+        guard let selectedTopTab = workspace.selectedTopTab else {
+            XCTFail("Expected the new top tab to be selected")
+            return
+        }
 
         XCTAssertEqual(
             workspace.focusedPanelId,
             createdPanelId,
-            "Expected newly created surface to be focused"
+            "Expected newly created terminal to be focused"
         )
+        XCTAssertEqual(selectedTopTab.bonsplitController.allPaneIds.count, 1, "New top tab should start unsplit")
+        XCTAssertEqual(workspace.panelIds(in: selectedTopTab).count, 1, "New top tab should contain exactly one panel")
+        XCTAssertEqual(workspace.topTab(containingPanelId: createdPanelId)?.id, selectedTopTab.id)
+    }
+
+    func testFocusPanelSelectsOwningTopTab() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let firstTopTab = workspace.selectedTopTab,
+              let firstPanelId = workspace.focusedPanelId else {
+            XCTFail("Expected initial workspace state")
+            return
+        }
+
+        _ = workspace.addTopTab(select: true)
+        guard let secondTopTab = workspace.selectedTopTab,
+              let secondPanelId = workspace.focusedPanelId else {
+            XCTFail("Expected second top tab to be selected")
+            return
+        }
+
+        XCTAssertNotEqual(firstTopTab.id, secondTopTab.id)
+
+        workspace.focusPanel(firstPanelId)
+        XCTAssertEqual(workspace.selectedTopTabId, firstTopTab.id, "Focusing a panel should select its owning top tab")
+
+        workspace.focusPanel(secondPanelId)
+        XCTAssertEqual(workspace.selectedTopTabId, secondTopTab.id, "Cross-tab focus should route back to the second top tab")
     }
 
     func testOpenBrowserInsertAtEndPlacesNewBrowserAtPaneEnd() {
