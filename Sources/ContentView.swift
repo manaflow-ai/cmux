@@ -3229,9 +3229,17 @@ struct ContentView: View {
             syncCommandPaletteDebugStateForObservedWindow()
         }
         .onChange(of: commandPaletteCurrentSearchFingerprint) { _ in
-            scheduleCommandPaletteResultsRefresh(forceSearchCorpusRefresh: true)
-            updateCommandPaletteScrollTarget(resultCount: commandPaletteVisibleResults.count, animated: false)
-            syncCommandPaletteDebugStateForObservedWindow()
+            Task { @MainActor in
+                // Let the query-state transition settle first so the forced corpus refresh
+                // cannot rebuild the old command list after deleting the ">" prefix.
+                await Task.yield()
+                scheduleCommandPaletteResultsRefresh(
+                    query: commandPaletteQuery,
+                    forceSearchCorpusRefresh: true
+                )
+                updateCommandPaletteScrollTarget(resultCount: commandPaletteVisibleResults.count, animated: false)
+                syncCommandPaletteDebugStateForObservedWindow()
+            }
         }
         .onChange(of: commandPaletteResultsRevision) { _ in
             let resultIDs = cachedCommandPaletteResults.map(\.id)
