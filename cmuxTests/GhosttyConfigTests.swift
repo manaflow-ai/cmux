@@ -863,6 +863,50 @@ final class RemoteLoopbackHTTPRequestRewriterTests: XCTestCase {
     }
 }
 
+final class GhosttyTerminalStartupEnvironmentTests: XCTestCase {
+    func testMergedStartupEnvironmentAllowsSessionReplayAndInitialEnvCMUXKeys() {
+        let replayPath = "/tmp/cmux-replay-\(UUID().uuidString)"
+        let merged = TerminalSurface.mergedStartupEnvironment(
+            base: [
+                "PATH": "/usr/bin",
+                "CMUX_SURFACE_ID": "managed-surface"
+            ],
+            protectedKeys: ["PATH", "CMUX_SURFACE_ID"],
+            additionalEnvironment: [
+                SessionScrollbackReplayStore.environmentKey: replayPath
+            ],
+            initialEnvironmentOverrides: [
+                "CMUX_INITIAL_ENV_TOKEN": "token-123"
+            ]
+        )
+
+        XCTAssertEqual(merged[SessionScrollbackReplayStore.environmentKey], replayPath)
+        XCTAssertEqual(merged["CMUX_INITIAL_ENV_TOKEN"], "token-123")
+    }
+
+    func testMergedStartupEnvironmentProtectsManagedKeysOnly() {
+        let merged = TerminalSurface.mergedStartupEnvironment(
+            base: [
+                "PATH": "/usr/bin",
+                "CMUX_SURFACE_ID": "managed-surface"
+            ],
+            protectedKeys: ["PATH", "CMUX_SURFACE_ID"],
+            additionalEnvironment: [
+                "CMUX_SURFACE_ID": "user-surface",
+                "CUSTOM_FLAG": "1"
+            ],
+            initialEnvironmentOverrides: [
+                "PATH": "/tmp/bin",
+                "CMUX_SURFACE_ID": "override-surface"
+            ]
+        )
+
+        XCTAssertEqual(merged["PATH"], "/usr/bin")
+        XCTAssertEqual(merged["CMUX_SURFACE_ID"], "managed-surface")
+        XCTAssertEqual(merged["CUSTOM_FLAG"], "1")
+    }
+}
+
 @MainActor
 final class BrowserPanelRemoteStoreTests: XCTestCase {
     func testRemoteWorkspacePanelsShareWorkspaceScopedWebsiteDataStore() {

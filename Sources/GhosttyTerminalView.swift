@@ -2634,6 +2634,22 @@ final class TerminalSurface: Identifiable, ObservableObject {
         return merged
     }
 
+    static func mergedStartupEnvironment(
+        base: [String: String],
+        protectedKeys: Set<String>,
+        additionalEnvironment: [String: String],
+        initialEnvironmentOverrides: [String: String]
+    ) -> [String: String] {
+        var merged = base
+        for (key, value) in additionalEnvironment where !key.isEmpty && !value.isEmpty && !protectedKeys.contains(key) {
+            merged[key] = value
+        }
+        for (key, value) in initialEnvironmentOverrides where !protectedKeys.contains(key) {
+            merged[key] = value
+        }
+        return merged
+    }
+
     func isAttached(to view: GhosttyNSView) -> Bool {
         attachedView === view && surface != nil
     }
@@ -2986,31 +3002,37 @@ final class TerminalSurface: Identifiable, ObservableObject {
             }
         }
 
-        env["CMUX_SURFACE_ID"] = id.uuidString
-        env["CMUX_WORKSPACE_ID"] = tabId.uuidString
+        var protectedStartupEnvironmentKeys: Set<String> = []
+        func setManagedEnvironmentValue(_ key: String, _ value: String) {
+            env[key] = value
+            protectedStartupEnvironmentKeys.insert(key)
+        }
+
+        setManagedEnvironmentValue("CMUX_SURFACE_ID", id.uuidString)
+        setManagedEnvironmentValue("CMUX_WORKSPACE_ID", tabId.uuidString)
         // Backward-compatible shell integration keys used by existing scripts/tests.
-        env["CMUX_PANEL_ID"] = id.uuidString
-        env["CMUX_TAB_ID"] = tabId.uuidString
-        env["CMUX_SOCKET_PATH"] = SocketControlSettings.socketPath()
+        setManagedEnvironmentValue("CMUX_PANEL_ID", id.uuidString)
+        setManagedEnvironmentValue("CMUX_TAB_ID", tabId.uuidString)
+        setManagedEnvironmentValue("CMUX_SOCKET_PATH", SocketControlSettings.socketPath())
         if let bundledCLIURL = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux"),
            FileManager.default.isExecutableFile(atPath: bundledCLIURL.path) {
-            env["CMUX_BUNDLED_CLI_PATH"] = bundledCLIURL.path
+            setManagedEnvironmentValue("CMUX_BUNDLED_CLI_PATH", bundledCLIURL.path)
         }
         if let bundleId = Bundle.main.bundleIdentifier, !bundleId.isEmpty {
-            env["CMUX_BUNDLE_ID"] = bundleId
+            setManagedEnvironmentValue("CMUX_BUNDLE_ID", bundleId)
         }
 
         // Port range for this workspace (base/range snapshotted once per app session)
         do {
             let startPort = Self.sessionPortBase + portOrdinal * Self.sessionPortRangeSize
-            env["CMUX_PORT"] = String(startPort)
-            env["CMUX_PORT_END"] = String(startPort + Self.sessionPortRangeSize - 1)
-            env["CMUX_PORT_RANGE"] = String(Self.sessionPortRangeSize)
+            setManagedEnvironmentValue("CMUX_PORT", String(startPort))
+            setManagedEnvironmentValue("CMUX_PORT_END", String(startPort + Self.sessionPortRangeSize - 1))
+            setManagedEnvironmentValue("CMUX_PORT_RANGE", String(Self.sessionPortRangeSize))
         }
 
         let claudeHooksEnabled = ClaudeCodeIntegrationSettings.hooksEnabled()
         if !claudeHooksEnabled {
-            env["CMUX_CLAUDE_HOOKS_DISABLED"] = "1"
+            setManagedEnvironmentValue("CMUX_CLAUDE_HOOKS_DISABLED", "1")
         }
 
         if let cliBinPath = Bundle.main.resourceURL?.appendingPathComponent("bin").path {
@@ -3020,7 +3042,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
                 ?? ""
             if !currentPath.split(separator: ":").contains(Substring(cliBinPath)) {
                 let separator = currentPath.isEmpty ? "" : ":"
-                env["PATH"] = "\(cliBinPath)\(separator)\(currentPath)"
+                setManagedEnvironmentValue("PATH", "\(cliBinPath)\(separator)\(currentPath)")
             }
         }
 
@@ -3028,8 +3050,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
         let shellIntegrationEnabled = UserDefaults.standard.object(forKey: "sidebarShellIntegration") as? Bool ?? true
         if shellIntegrationEnabled,
            let integrationDir = Bundle.main.resourceURL?.appendingPathComponent("shell-integration").path {
-            env["CMUX_SHELL_INTEGRATION"] = "1"
-            env["CMUX_SHELL_INTEGRATION_DIR"] = integrationDir
+            setManagedEnvironmentValue("CMUX_SHELL_INTEGRATION", "1")
+            setManagedEnvironmentValue("CMUX_SHELL_INTEGRATION_DIR", integrationDir)
 
             let shell = (env["SHELL"]?.isEmpty == false ? env["SHELL"] : nil)
                 ?? getenv("SHELL").map { String(cString: $0) }
@@ -3038,7 +3060,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
             let shellName = URL(fileURLWithPath: shell).lastPathComponent
             if shellName == "zsh" {
                 if GhosttyApp.shared.shellIntegrationMode() != "none" {
-                    env["CMUX_LOAD_GHOSTTY_ZSH_INTEGRATION"] = "1"
+                    setManagedEnvironmentValue("CMUX_LOAD_GHOSTTY_ZSH_INTEGRATION", "1")
                 }
                 let candidateZdotdir = (env["ZDOTDIR"]?.isEmpty == false ? env["ZDOTDIR"] : nil)
                     ?? getenv("ZDOTDIR").map { String(cString: $0) }
@@ -3055,20 +3077,20 @@ final class TerminalSurface: Identifiable, ObservableObject {
                         isGhosttyInjected = (candidateZdotdir == ghosttyZdotdir)
                     }
                     if !isGhosttyInjected {
-                        env["CMUX_ZSH_ZDOTDIR"] = candidateZdotdir
+                        setManagedEnvironmentValue("CMUX_ZSH_ZDOTDIR", candidateZdotdir)
                     }
                 }
 
-                env["ZDOTDIR"] = integrationDir
+                setManagedEnvironmentValue("ZDOTDIR", integrationDir)
             } else if shellName == "bash" {
                 if GhosttyApp.shared.shellIntegrationMode() != "none" {
-                    env["CMUX_LOAD_GHOSTTY_BASH_INTEGRATION"] = "1"
+                    setManagedEnvironmentValue("CMUX_LOAD_GHOSTTY_BASH_INTEGRATION", "1")
                 }
                 // macOS ships /bin/bash 3.2, where Ghostty's automatic bash
                 // integration is unsupported and HOME-based wrapper startup is
                 // not reliable. Bootstrap cmux bash integration on the first
                 // interactive prompt instead.
-                env["PROMPT_COMMAND"] = """
+                setManagedEnvironmentValue("PROMPT_COMMAND", """
                 unset PROMPT_COMMAND; \
                 if [[ "${CMUX_LOAD_GHOSTTY_BASH_INTEGRATION:-0}" == "1" && -n "${GHOSTTY_RESOURCES_DIR:-}" ]]; then \
                 _cmux_ghostty_bash="$GHOSTTY_RESOURCES_DIR/shell-integration/bash/ghostty.bash"; \
@@ -3080,22 +3102,15 @@ final class TerminalSurface: Identifiable, ObservableObject {
                 fi; \
                 unset _cmux_ghostty_bash _cmux_bash_integration; \
                 if declare -F _cmux_prompt_command >/dev/null 2>&1; then _cmux_prompt_command; fi
-                """
+                """)
             }
         }
-
-        let startupEnvironment = additionalEnvironment
-        if !startupEnvironment.isEmpty {
-            for (key, value) in startupEnvironment where !key.isEmpty && !value.isEmpty && !key.hasPrefix("CMUX_") {
-                env[key] = value
-            }
-        }
-
-        if !initialEnvironmentOverrides.isEmpty {
-            for (key, value) in initialEnvironmentOverrides where !key.hasPrefix("CMUX_") {
-                env[key] = value
-            }
-        }
+        env = Self.mergedStartupEnvironment(
+            base: env,
+            protectedKeys: protectedStartupEnvironmentKeys,
+            additionalEnvironment: additionalEnvironment,
+            initialEnvironmentOverrides: initialEnvironmentOverrides
+        )
 
         if !env.isEmpty {
             envVars.reserveCapacity(env.count)
