@@ -331,11 +331,7 @@ final class EditorMessageHandler: NSObject, WKScriptMessageHandler {
         guard let jsonData = try? JSONSerialization.data(withJSONObject: data),
               let jsonString = String(data: jsonData, encoding: .utf8) else { return }
 
-        // Use JSON encoding for safe string transport
-        guard let encodedPayload = try? JSONSerialization.data(withJSONObject: jsonString),
-              let safePayload = String(data: encodedPayload, encoding: .utf8) else { return }
-
-        let js = "window.cmux.handleResponse(\(Self.jsStringLiteral(requestId)), \(safePayload))"
+        let js = "window.cmux.handleResponse(\(Self.jsStringLiteral(requestId)), \(jsonString))"
         DispatchQueue.main.async {
             webView.evaluateJavaScript(js, completionHandler: nil)
         }
@@ -351,11 +347,16 @@ final class EditorMessageHandler: NSObject, WKScriptMessageHandler {
 
     /// Encode a Swift string as a safe JavaScript string literal using JSON serialization.
     private static func jsStringLiteral(_ value: String) -> String {
-        guard let data = try? JSONSerialization.data(withJSONObject: value),
-              let encoded = String(data: data, encoding: .utf8) else {
+        // Wrap in array, serialize, then strip the [ ] brackets
+        guard let data = try? JSONSerialization.data(withJSONObject: [value]),
+              let arrayStr = String(data: data, encoding: .utf8),
+              arrayStr.count > 2 else {
             return "\"\""
         }
-        return encoded
+        // "[\"escaped string\"]" → "\"escaped string\""
+        let start = arrayStr.index(after: arrayStr.startIndex)
+        let end = arrayStr.index(before: arrayStr.endIndex)
+        return String(arrayStr[start..<end])
     }
 }
 
