@@ -5270,19 +5270,11 @@ extension Workspace: BonsplitDelegate {
             _ = newBrowserSurface(inPane: pane)
         case "editor":
             _ = newEditorSurface(inPane: pane, rootPath: currentDirectory)
-        case "claude":
-            launchClaudeInTerminal(inPane: pane)
         default:
             _ = newTerminalSurface(inPane: pane)
         }
     }
 
-    private func launchClaudeInTerminal(inPane pane: PaneID) {
-        guard let terminalPanel = newTerminalSurface(inPane: pane) else { return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            terminalPanel.sendText("claude --dangerously-skip-permissions\n")
-        }
-    }
 
     func splitTabBar(_ controller: BonsplitController, didRequestTabContextAction action: TabContextAction, for tab: Bonsplit.Tab, inPane pane: PaneID) {
         switch action {
