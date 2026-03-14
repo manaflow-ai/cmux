@@ -2895,7 +2895,7 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     private static func remoteProxyLoopbackAliasURL(for url: URL) -> URL? {
-        guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else { return nil }
+        guard let scheme = url.scheme?.lowercased(), scheme == "http" else { return nil }
         guard let host = BrowserInsecureHTTPSettings.normalizeHost(url.host ?? "") else { return nil }
         guard remoteLoopbackHosts.contains(host) else { return nil }
 

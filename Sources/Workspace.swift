@@ -2209,15 +2209,7 @@ private final class WorkspaceRemoteProxyBroker {
     }
 
     private static func transportKey(for configuration: WorkspaceRemoteConfiguration) -> String {
-        let destination = configuration.destination.trimmingCharacters(in: .whitespacesAndNewlines)
-        let port = configuration.port.map(String.init) ?? ""
-        let identity = configuration.identityFile?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let localProxyPort = configuration.localProxyPort.map(String.init) ?? ""
-        let options = configuration.sshOptions
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-            .joined(separator: "\u{1f}")
-        return [destination, port, identity, options, localProxyPort].joined(separator: "\u{1e}")
+        configuration.proxyBrokerTransportKey
     }
 
     private static func allocateLoopbackPort() -> Int? {
@@ -4229,6 +4221,36 @@ struct WorkspaceRemoteConfiguration: Equatable {
     var displayTarget: String {
         guard let port else { return destination }
         return "\(destination):\(port)"
+    }
+
+    var proxyBrokerTransportKey: String {
+        let normalizedDestination = destination.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedPort = port.map(String.init) ?? ""
+        let normalizedIdentity = identityFile?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let normalizedLocalProxyPort = localProxyPort.map(String.init) ?? ""
+        let normalizedOptions = Self.proxyBrokerSSHOptions(sshOptions).joined(separator: "\u{1f}")
+        return [normalizedDestination, normalizedPort, normalizedIdentity, normalizedOptions, normalizedLocalProxyPort]
+            .joined(separator: "\u{1e}")
+    }
+
+    private static func proxyBrokerSSHOptions(_ options: [String]) -> [String] {
+        options.compactMap { option in
+            let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return nil }
+            return trimmed
+        }.filter { option in
+            proxyBrokerSSHOptionKey(option) != "controlpath"
+        }
+    }
+
+    private static func proxyBrokerSSHOptionKey(_ option: String) -> String? {
+        let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return trimmed
+            .split(whereSeparator: { $0 == "=" || $0.isWhitespace })
+            .first
+            .map(String.init)?
+            .lowercased()
     }
 }
 

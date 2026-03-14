@@ -909,6 +909,28 @@ final class BrowserPanelRemoteStoreTests: XCTestCase {
         XCTAssertEqual(panel.webView.url?.host, "cmux-loopback.localtest.me")
     }
 
+    func testRemoteWorkspaceKeepsHTTPSLoopbackUnaliased() {
+        let remoteWorkspaceId = UUID()
+        let url = URL(string: "https://localhost:3443/demo")!
+        let panel = BrowserPanel(
+            workspaceId: remoteWorkspaceId,
+            initialURL: url,
+            isRemoteWorkspace: true,
+            remoteWebsiteDataStoreIdentifier: remoteWorkspaceId
+        )
+
+        XCTAssertEqual(panel.preferredURLStringForOmnibar(), url.absoluteString)
+        XCTAssertNil(panel.webView.url)
+
+        panel.setRemoteProxyEndpoint(BrowserProxyEndpoint(host: "127.0.0.1", port: 9876))
+
+        let deadline = Date().addingTimeInterval(1.0)
+        while panel.webView.url == nil, RunLoop.main.run(mode: .default, before: deadline), Date() < deadline {}
+
+        XCTAssertEqual(panel.preferredURLStringForOmnibar(), url.absoluteString)
+        XCTAssertEqual(panel.webView.url?.host, "localhost")
+    }
+
     func testNewTerminalSurfaceStaysRemoteWhileBrowserPanelsKeepWorkspaceRemote() throws {
         let workspace = Workspace()
         let paneId = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
@@ -938,6 +960,45 @@ final class BrowserPanelRemoteStoreTests: XCTestCase {
 
         XCTAssertTrue(workspace.isRemoteWorkspace)
         XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 1)
+    }
+}
+
+final class WorkspaceRemoteConfigurationTransportKeyTests: XCTestCase {
+    func testProxyBrokerTransportKeyIgnoresControlPath() {
+        let first = WorkspaceRemoteConfiguration(
+            destination: "cmux-macmini",
+            port: 22,
+            identityFile: "~/.ssh/id_ed25519",
+            sshOptions: [
+                "Compression=yes",
+                "ControlMaster=auto",
+                "ControlPath=/tmp/cmux-ssh-501-64000-%C",
+            ],
+            localProxyPort: 9000,
+            relayPort: 64000,
+            relayID: "relay-a",
+            relayToken: "token-a",
+            localSocketPath: "/tmp/cmux-a.sock",
+            terminalStartupCommand: "ssh cmux-macmini"
+        )
+        let second = WorkspaceRemoteConfiguration(
+            destination: "cmux-macmini",
+            port: 22,
+            identityFile: "~/.ssh/id_ed25519",
+            sshOptions: [
+                "Compression=yes",
+                "ControlMaster=auto",
+                "ControlPath=/tmp/cmux-ssh-501-64001-%C",
+            ],
+            localProxyPort: 9000,
+            relayPort: 64001,
+            relayID: "relay-b",
+            relayToken: "token-b",
+            localSocketPath: "/tmp/cmux-b.sock",
+            terminalStartupCommand: "ssh cmux-macmini"
+        )
+
+        XCTAssertEqual(first.proxyBrokerTransportKey, second.proxyBrokerTransportKey)
     }
 }
 
