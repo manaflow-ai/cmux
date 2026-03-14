@@ -1580,10 +1580,13 @@ class GhosttyApp {
         }
         loadDefaultConfigFilesWithLegacyFallback(newConfig)
         ghostty_app_update_config(app, newConfig)
+        // Must use .surface scope: ghostty_app_update_config fires surface-scoped
+        // CONFIG_CHANGE callbacks synchronously, and the last surface may carry a
+        // stale color from the previous appearance. This write comes after and must win.
         updateDefaultBackground(
             from: newConfig,
             source: "reloadConfiguration(source=\(source))",
-            scope: .unscoped
+            scope: .surface
         )
         DispatchQueue.main.async {
             self.applyBackgroundToKeyWindow()
@@ -3812,11 +3815,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         layoutSubtreeIfNeeded()
         updateSurfaceSize()
         applySurfaceBackground()
-        applySurfaceColorScheme(force: true)
+        // Synchronize theme before applySurfaceColorScheme, which triggers a soft
+        // reload that updates lastAppearanceColorScheme as a side effect.
         GhosttyApp.shared.synchronizeThemeWithAppearance(
             effectiveAppearance,
             source: "surface.viewDidMoveToWindow"
         )
+        applySurfaceColorScheme(force: true)
         applyWindowBackgroundIfActive()
         invalidateTextInputCoordinates()
     }
@@ -3829,11 +3834,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 "surface appearance changed tab=\(tabId?.uuidString ?? "nil") surface=\(terminalSurface?.id.uuidString ?? "nil") bestMatch=\(bestMatch?.rawValue ?? "nil")"
             )
         }
-        applySurfaceColorScheme()
+        // Synchronize theme before applySurfaceColorScheme, which triggers a soft
+        // reload that updates lastAppearanceColorScheme as a side effect.
         GhosttyApp.shared.synchronizeThemeWithAppearance(
             effectiveAppearance,
             source: "surface.viewDidChangeEffectiveAppearance"
         )
+        applySurfaceColorScheme()
     }
 
     fileprivate func updateOcclusionState() {
