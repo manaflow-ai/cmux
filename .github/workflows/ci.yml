@@ -28,6 +28,9 @@ jobs:
       - name: Validate GhosttyKit checksum verification
         run: ./tests/test_ci_ghosttykit_checksum_verification.sh
 
+      - name: Validate current GhosttyKit checksum pin
+        run: ./tests/test_ci_ghosttykit_checksum_present.sh
+
   web-typecheck:
     runs-on: ubuntu-latest
     defaults:
