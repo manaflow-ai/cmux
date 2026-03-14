@@ -37,6 +37,7 @@
     "twitter": "X / Twitter",
     "discord": "Discord",
     "contact": "Kontakt",
+    "nightly": "Nightly",
     "copyright": "© {year} Manaflow",
     "language": "Język"
   },
@@ -580,6 +581,15 @@
     "bchris91": "To jest dokładnie to, czego chciałem. Świetna robota, dziękuję!",
     "connorelsea": "Używam tego od tygodnia i jest fantastyczne. Pionowa karta dla każdego zadania w toku. Wewnątrz, Claude po jednej stronie a przeglądarka z PR i zasobami po drugiej, przełączam się między zadaniami i utrzymuję porządek. Połącz to ze skillami żeby Claude monitorował CI rekursywnie itp. czuję się oświecony szczerze mówiąc",
     "tonkotsuboy": "Na początku roku przeszedłem z Warpa na Ghostty, ale teraz przeszedłem na cmux. Pionowe karty są wygodne i doceniam powiadomienia gdy zadania Claude Code się kończą. Jest oparty na Ghostty więc błyskawiczna wydajność zostaje. Wyświetlanie brancha i uzupełniania które skonfigurowałem w Ghostty nadal działają."
+  },
+  "nightly": {
+    "title": "cmux NIGHTLY",
+    "subtitle": "Najnowsze buildy z gałęzi main",
+    "metaTitle": "cmux NIGHTLY — Buildy Nightly",
+    "metaDescription": "Pobierz cmux NIGHTLY, osobną aplikację budowaną automatycznie z najnowszego commita na main. Działa obok wersji stabilnej z własnymi aktualizacjami automatycznymi.",
+    "description": "cmux NIGHTLY jest budowany automatycznie z najnowszego commita na main. Ma własne bundle ID, więc działa obok wersji stabilnej bez konfliktów. Używaj go, aby testować nowe funkcje przed ich wydaniem.",
+    "download": "Pobierz NIGHTLY na Maca",
+    "warning": "Buildy nightly mogą zawierać błędy lub niekompletne funkcje. W razie problemów zgłoś je na <githubLink>GitHubie</githubLink> lub w <discordLink>#nightly-bugs na Discordzie</discordLink> i przełącz się na wersję stabilną."
   },
   "languageSwitcher": {
     "label": "Język"

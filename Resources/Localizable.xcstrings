@@ -845,13 +845,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Welcome"
+            "value": "Welcome to cmux!"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ようこそ"
+            "value": "cmuxへようこそ！"
           }
         }
       }
@@ -869,6 +869,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "更新履歴"
+          }
+        }
+      }
+    },
+    "sidebar.help.discord": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Discord"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Discord"
           }
         }
       }
@@ -27859,6 +27876,57 @@
         }
       }
     },
+    "dialog.closeWorkspaces.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This will close %1$lld workspaces and all of their panels:\n%2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld 個のワークスペースと、それぞれのすべてのパネルを閉じます:\n%2$@"
+          }
+        }
+      }
+    },
+    "dialog.closeWorkspaces.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close workspaces?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースを閉じますか？"
+          }
+        }
+      }
+    },
+    "dialog.closeWorkspacesWindow.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This will close the current window, its %1$lld workspaces, and all of their panels:\n%2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在のウィンドウと、その %1$lld 個のワークスペースと、それぞれのすべてのパネルを閉じます:\n%2$@"
+          }
+        }
+      }
+    },
     "dialog.closeWorkspace.message": {
       "extractionState": "manual",
       "localizations": {
@@ -34978,6 +35046,23 @@
         }
       }
     },
+    "menu.openInVSCodeDesktop": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Current Directory in VS Code"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在のディレクトリを VS Code で開く"
+          }
+        }
+      }
+    },
     "menu.openInWarp": {
       "extractionState": "manual",
       "localizations": {
@@ -40193,6 +40278,119 @@
         }
       }
     },
+    "settings.app.appIcon.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock and app switcher"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dockとアプリスイッチャー"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "程序坞和应用切换器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock 和 App 切換器"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock 및 앱 전환기"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock und App-Umschalter"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock y selector de apps"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock et sélecteur d'apps"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock e selettore app"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock og appskifter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock i przełącznik aplikacji"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock и переключатель приложений"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock i prebacivač aplikacija"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "شريط Dock ومبدّل التطبيقات"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock og appbytter"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock e alternador de apps"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock และตัวสลับแอป"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock ve uygulama değiştirici"
+          }
+        }
+      }
+    },
     "settings.app.dockBadge": {
       "extractionState": "manual",
       "localizations": {
@@ -40415,6 +40613,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Uygulama simgesinde (Dock ve Cmd+Tab) okunmamış sayısını göster."
+          }
+        }
+      }
+    },
+    "settings.app.showInMenuBar": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show in Menu Bar"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メニューバーに表示"
+          }
+        }
+      }
+    },
+    "settings.app.showInMenuBar.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep cmux in the menu bar for unread notifications and quick actions."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未読通知の確認やクイック操作のために、cmuxをメニューバーに表示します。"
           }
         }
       }
@@ -41093,6 +41325,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "Yeni Çalışma Alanı Konumu"
+          }
+        }
+      }
+    },
+    "settings.app.closeWorkspaceOnLastSurfaceShortcut": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Closing Last Surface Closes Workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最後のサーフェスを閉じるとワークスペースも閉じる"
+          }
+        }
+      }
+    },
+    "settings.app.closeWorkspaceOnLastSurfaceShortcut.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Closing the last surface keeps the workspace open. Use Cmd+Shift+W to close a workspace explicitly."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最後のサーフェスを閉じてもワークスペースは残ります。ワークスペースを明示的に閉じるにはCmd+Shift+Wを使います。"
+          }
+        }
+      }
+    },
+    "settings.app.closeWorkspaceOnLastSurfaceShortcut.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Closing the last surface also closes its workspace."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最後のサーフェスを閉じると、そのワークスペースも閉じます。"
           }
         }
       }
@@ -45015,6 +45298,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "通知を受信したときに再生するサウンドです。"
+          }
+        }
+      }
+    },
+    "settings.notifications.paneRing.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show a blue ring around panes with unread notifications."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未読の通知があるペインの周囲に青いリングを表示します。"
+          }
+        }
+      }
+    },
+    "settings.notifications.paneFlash.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Briefly flash a blue outline when cmux highlights a pane."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux がペインを強調表示するときに短い青いアウトラインを表示します。"
+          }
+        }
+      }
+    },
+    "settings.notifications.paneFlash.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pane Flash"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペインフラッシュ"
+          }
+        }
+      }
+    },
+    "settings.notifications.paneRing.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unread Pane Ring"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未読ペインリング"
           }
         }
       }

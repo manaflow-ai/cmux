@@ -1,6 +1,7 @@
 import XCTest
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 import WebKit
 import SwiftUI
 import ObjectiveC.runtime
@@ -54,6 +55,14 @@ private func installCmuxUnitTestInspectorOverride() {
     }
 
     cmuxUnitTestInspectorOverrideInstalled = true
+}
+
+private func drainMainQueue() {
+    let expectation = XCTestExpectation(description: "drain main queue")
+    DispatchQueue.main.async {
+        expectation.fulfill()
+    }
+    XCTWaiter().wait(for: [expectation], timeout: 1.0)
 }
 
 final class SplitShortcutTransientFocusGuardTests: XCTestCase {
@@ -861,6 +870,163 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
             isARepeat: false,
             keyCode: keyCode
         )
+    }
+}
+
+@MainActor
+final class GhosttyPasteboardHelperTests: XCTestCase {
+    func testHTMLOnlyPasteboardExtractsPlainText() {
+        let pasteboard = NSPasteboard(name: .init("cmux-test-html-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+        pasteboard.setString("<p>Hello <strong>world</strong></p>", forType: .html)
+
+        XCTAssertEqual(cmuxPasteboardStringContentsForTesting(pasteboard), "Hello world")
+        XCTAssertNil(cmuxPasteboardImagePathForTesting(pasteboard))
+    }
+
+    func testImageHTMLClipboardFallsBackToImagePath() throws {
+        let pasteboard = NSPasteboard(name: .init("cmux-test-image-html-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+        pasteboard.setString("<meta charset='utf-8'><img src=\"https://example.com/keyboard.png\">", forType: .html)
+
+        let image = NSImage(size: NSSize(width: 1, height: 1))
+        image.lockFocus()
+        NSColor.red.setFill()
+        NSRect(x: 0, y: 0, width: 1, height: 1).fill()
+        image.unlockFocus()
+        let tiffData = try XCTUnwrap(image.tiffRepresentation)
+        let bitmap = try XCTUnwrap(NSBitmapImageRep(data: tiffData))
+        let pngData = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
+        pasteboard.setData(pngData, forType: .png)
+
+        XCTAssertNil(cmuxPasteboardStringContentsForTesting(pasteboard))
+
+        let imagePath = try XCTUnwrap(cmuxPasteboardImagePathForTesting(pasteboard))
+        defer { try? FileManager.default.removeItem(atPath: imagePath) }
+
+        XCTAssertTrue(imagePath.hasSuffix(".png"))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: imagePath))
+    }
+
+    func testImageHTMLClipboardWithVisibleTextPrefersText() throws {
+        let pasteboard = NSPasteboard(name: .init("cmux-test-image-html-text-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+        pasteboard.setString("<p>Hello <img src=\"https://example.com/keyboard.png\"></p>", forType: .html)
+
+        let image = NSImage(size: NSSize(width: 1, height: 1))
+        image.lockFocus()
+        NSColor.blue.setFill()
+        NSRect(x: 0, y: 0, width: 1, height: 1).fill()
+        image.unlockFocus()
+        let tiffData = try XCTUnwrap(image.tiffRepresentation)
+        let bitmap = try XCTUnwrap(NSBitmapImageRep(data: tiffData))
+        let pngData = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
+        pasteboard.setData(pngData, forType: .png)
+
+        XCTAssertEqual(cmuxPasteboardStringContentsForTesting(pasteboard), "Hello")
+        XCTAssertNil(cmuxPasteboardImagePathForTesting(pasteboard))
+    }
+
+    func testJPEGClipboardFallsBackToImagePath() throws {
+        let pasteboard = NSPasteboard(name: .init("cmux-test-jpeg-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+
+        let image = NSImage(size: NSSize(width: 1, height: 1))
+        image.lockFocus()
+        NSColor.green.setFill()
+        NSRect(x: 0, y: 0, width: 1, height: 1).fill()
+        image.unlockFocus()
+
+        let tiffData = try XCTUnwrap(image.tiffRepresentation)
+        let bitmap = try XCTUnwrap(NSBitmapImageRep(data: tiffData))
+        let jpegData = try XCTUnwrap(
+            bitmap.representation(
+                using: .jpeg,
+                properties: [.compressionFactor: 1.0]
+            )
+        )
+        pasteboard.setData(
+            jpegData,
+            forType: NSPasteboard.PasteboardType(UTType.jpeg.identifier)
+        )
+
+        let imagePath = try XCTUnwrap(cmuxPasteboardImagePathForTesting(pasteboard))
+        defer { try? FileManager.default.removeItem(atPath: imagePath) }
+
+        XCTAssertTrue(imagePath.hasSuffix(".jpeg"))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: imagePath))
+    }
+
+    func testAttachmentOnlyRTFDClipboardFallsBackToImagePath() throws {
+        let pasteboard = NSPasteboard(name: .init("cmux-test-rtfd-attachment-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+
+        let image = NSImage(size: NSSize(width: 1, height: 1))
+        image.lockFocus()
+        NSColor.orange.setFill()
+        NSRect(x: 0, y: 0, width: 1, height: 1).fill()
+        image.unlockFocus()
+
+        let attachment = NSTextAttachment()
+        attachment.image = image
+        let attributed = NSAttributedString(attachment: attachment)
+        let data = try attributed.data(
+            from: NSRange(location: 0, length: attributed.length),
+            documentAttributes: [.documentType: NSAttributedString.DocumentType.rtfd]
+        )
+        pasteboard.setData(data, forType: .rtfd)
+
+        XCTAssertNil(cmuxPasteboardStringContentsForTesting(pasteboard))
+
+        let imagePath = try XCTUnwrap(cmuxPasteboardImagePathForTesting(pasteboard))
+        defer { try? FileManager.default.removeItem(atPath: imagePath) }
+
+        XCTAssertTrue(imagePath.hasSuffix(".tiff"))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: imagePath))
+    }
+
+    func testAttachmentOnlyRTFDNonImageClipboardDoesNotFallBackToImagePath() throws {
+        let pasteboard = NSPasteboard(name: .init("cmux-test-rtfd-non-image-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+
+        let wrapper = FileWrapper(regularFileWithContents: Data("hello".utf8))
+        wrapper.preferredFilename = "note.txt"
+
+        let attachment = NSTextAttachment(fileWrapper: wrapper)
+        let attributed = NSAttributedString(attachment: attachment)
+        let data = try attributed.data(
+            from: NSRange(location: 0, length: attributed.length),
+            documentAttributes: [.documentType: NSAttributedString.DocumentType.rtfd]
+        )
+        pasteboard.setData(data, forType: .rtfd)
+
+        XCTAssertNil(cmuxPasteboardStringContentsForTesting(pasteboard))
+        XCTAssertNil(cmuxPasteboardImagePathForTesting(pasteboard))
+    }
+
+    func testRTFDClipboardWithVisibleTextPrefersText() throws {
+        let pasteboard = NSPasteboard(name: .init("cmux-test-rtfd-text-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+
+        let image = NSImage(size: NSSize(width: 1, height: 1))
+        image.lockFocus()
+        NSColor.purple.setFill()
+        NSRect(x: 0, y: 0, width: 1, height: 1).fill()
+        image.unlockFocus()
+
+        let attachment = NSTextAttachment()
+        attachment.image = image
+
+        let attributed = NSMutableAttributedString(string: "Hello ")
+        attributed.append(NSAttributedString(attachment: attachment))
+        let data = try attributed.data(
+            from: NSRange(location: 0, length: attributed.length),
+            documentAttributes: [.documentType: NSAttributedString.DocumentType.rtfd]
+        )
+        pasteboard.setData(data, forType: .rtfd)
+
+        XCTAssertEqual(cmuxPasteboardStringContentsForTesting(pasteboard), "Hello")
+        XCTAssertNil(cmuxPasteboardImagePathForTesting(pasteboard))
     }
 }
 
@@ -5064,6 +5230,54 @@ final class WorkspaceTeardownTests: XCTestCase {
 }
 
 @MainActor
+final class WorkspaceSplitWorkingDirectoryTests: XCTestCase {
+    func testNewTerminalSplitFallsBackToRequestedWorkingDirectoryWhenReportedDirectoryIsStale() {
+        let workspace = Workspace()
+        guard let sourcePaneId = workspace.bonsplitController.focusedPaneId else {
+            XCTFail("Expected focused pane in new workspace")
+            return
+        }
+
+        let staleCurrentDirectory = workspace.currentDirectory
+        let requestedDirectory = "/tmp/cmux-requested-split-cwd-\(UUID().uuidString)"
+        guard let sourcePanel = workspace.newTerminalSurface(
+            inPane: sourcePaneId,
+            focus: false,
+            workingDirectory: requestedDirectory
+        ) else {
+            XCTFail("Expected source terminal panel to be created")
+            return
+        }
+
+        XCTAssertEqual(sourcePanel.requestedWorkingDirectory, requestedDirectory)
+        XCTAssertNil(
+            workspace.panelDirectories[sourcePanel.id],
+            "Expected requested cwd to exist before shell integration reports a live cwd"
+        )
+        XCTAssertEqual(
+            workspace.currentDirectory,
+            staleCurrentDirectory,
+            "Expected focused workspace cwd to remain stale before panel directory updates"
+        )
+
+        guard let splitPanel = workspace.newTerminalSplit(
+            from: sourcePanel.id,
+            orientation: .horizontal,
+            focus: false
+        ) else {
+            XCTFail("Expected split terminal panel to be created")
+            return
+        }
+
+        XCTAssertEqual(
+            splitPanel.requestedWorkingDirectory,
+            requestedDirectory,
+            "Expected split to inherit the source terminal's requested cwd when no reported cwd exists yet"
+        )
+    }
+}
+
+@MainActor
 final class TabManagerWorkspaceOwnershipTests: XCTestCase {
     func testCloseWorkspaceIgnoresWorkspaceNotOwnedByManager() {
         let manager = TabManager()
@@ -5081,6 +5295,297 @@ final class TabManagerWorkspaceOwnershipTests: XCTestCase {
         XCTAssertEqual(manager.selectedTabId, initialSelectedTabId)
         XCTAssertEqual(externalWorkspace.panels.count, externalPanelCountBefore)
         XCTAssertEqual(externalWorkspace.panelTitles, externalPanelTitlesBefore)
+    }
+}
+
+@MainActor
+final class TabManagerCloseWorkspacesWithConfirmationTests: XCTestCase {
+    func testCloseWorkspacesWithConfirmationPromptsOnceAndClosesAcceptedWorkspaces() {
+        let manager = TabManager()
+        let second = manager.addWorkspace()
+        let third = manager.addWorkspace()
+        manager.setCustomTitle(tabId: manager.tabs[0].id, title: "Alpha")
+        manager.setCustomTitle(tabId: second.id, title: "Beta")
+        manager.setCustomTitle(tabId: third.id, title: "Gamma")
+
+        var prompts: [(title: String, message: String, acceptCmdD: Bool)] = []
+        manager.confirmCloseHandler = { title, message, acceptCmdD in
+            prompts.append((title, message, acceptCmdD))
+            return true
+        }
+
+        manager.closeWorkspacesWithConfirmation([manager.tabs[0].id, second.id], allowPinned: true)
+
+        let expectedMessage = String(
+            format: String(
+                localized: "dialog.closeWorkspaces.message",
+                defaultValue: "This will close %1$lld workspaces and all of their panels:\n%2$@"
+            ),
+            locale: .current,
+            Int64(2),
+            "• Alpha\n• Beta"
+        )
+        XCTAssertEqual(prompts.count, 1, "Expected a single confirmation prompt for multi-close")
+        XCTAssertEqual(
+            prompts.first?.title,
+            String(localized: "dialog.closeWorkspaces.title", defaultValue: "Close workspaces?")
+        )
+        XCTAssertEqual(prompts.first?.message, expectedMessage)
+        XCTAssertEqual(prompts.first?.acceptCmdD, false)
+        XCTAssertEqual(manager.tabs.map(\.title), ["Gamma"])
+    }
+
+    func testCloseWorkspacesWithConfirmationKeepsWorkspacesWhenCancelled() {
+        let manager = TabManager()
+        let second = manager.addWorkspace()
+        manager.setCustomTitle(tabId: manager.tabs[0].id, title: "Alpha")
+        manager.setCustomTitle(tabId: second.id, title: "Beta")
+
+        var prompts: [(title: String, message: String, acceptCmdD: Bool)] = []
+        manager.confirmCloseHandler = { title, message, acceptCmdD in
+            prompts.append((title, message, acceptCmdD))
+            return false
+        }
+
+        manager.closeWorkspacesWithConfirmation([manager.tabs[0].id, second.id], allowPinned: true)
+
+        let expectedMessage = String(
+            format: String(
+                localized: "dialog.closeWorkspacesWindow.message",
+                defaultValue: "This will close the current window, its %1$lld workspaces, and all of their panels:\n%2$@"
+            ),
+            locale: .current,
+            Int64(2),
+            "• Alpha\n• Beta"
+        )
+        XCTAssertEqual(prompts.count, 1)
+        XCTAssertEqual(
+            prompts.first?.title,
+            String(localized: "dialog.closeWindow.title", defaultValue: "Close window?")
+        )
+        XCTAssertEqual(prompts.first?.message, expectedMessage)
+        XCTAssertEqual(prompts.first?.acceptCmdD, true)
+        XCTAssertEqual(manager.tabs.map(\.title), ["Alpha", "Beta"])
+    }
+
+    func testCloseCurrentWorkspaceWithConfirmationUsesSidebarMultiSelection() {
+        let manager = TabManager()
+        let second = manager.addWorkspace()
+        let third = manager.addWorkspace()
+        manager.setCustomTitle(tabId: manager.tabs[0].id, title: "Alpha")
+        manager.setCustomTitle(tabId: second.id, title: "Beta")
+        manager.setCustomTitle(tabId: third.id, title: "Gamma")
+        manager.selectWorkspace(second)
+        manager.setSidebarSelectedWorkspaceIds([manager.tabs[0].id, second.id])
+
+        var prompts: [(title: String, message: String, acceptCmdD: Bool)] = []
+        manager.confirmCloseHandler = { title, message, acceptCmdD in
+            prompts.append((title, message, acceptCmdD))
+            return false
+        }
+
+        manager.closeCurrentWorkspaceWithConfirmation()
+
+        let expectedMessage = String(
+            format: String(
+                localized: "dialog.closeWorkspaces.message",
+                defaultValue: "This will close %1$lld workspaces and all of their panels:\n%2$@"
+            ),
+            locale: .current,
+            Int64(2),
+            "• Alpha\n• Beta"
+        )
+        XCTAssertEqual(prompts.count, 1, "Expected Cmd+Shift+W path to reuse the multi-close summary dialog")
+        XCTAssertEqual(
+            prompts.first?.title,
+            String(localized: "dialog.closeWorkspaces.title", defaultValue: "Close workspaces?")
+        )
+        XCTAssertEqual(prompts.first?.message, expectedMessage)
+        XCTAssertEqual(prompts.first?.acceptCmdD, false)
+        XCTAssertEqual(manager.tabs.map(\.title), ["Alpha", "Beta", "Gamma"])
+    }
+}
+
+@MainActor
+final class TabManagerCloseCurrentPanelTests: XCTestCase {
+    func testRuntimeCloseSkipsConfirmationWhenShellReportsPromptIdle() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId,
+              let terminalPanel = workspace.terminalPanel(for: panelId) else {
+            XCTFail("Expected selected workspace and focused terminal panel")
+            return
+        }
+
+        terminalPanel.surface.setNeedsConfirmCloseOverrideForTesting(true)
+        workspace.updatePanelShellActivityState(panelId: panelId, state: .promptIdle)
+
+        var promptCount = 0
+        manager.confirmCloseHandler = { _, _, _ in
+            promptCount += 1
+            return false
+        }
+
+        manager.closeRuntimeSurfaceWithConfirmation(tabId: workspace.id, surfaceId: panelId)
+        drainMainQueue()
+        drainMainQueue()
+
+        XCTAssertEqual(promptCount, 0, "Runtime closes should honor prompt-idle shell state")
+        XCTAssertNil(workspace.panels[panelId], "Expected the original panel to close")
+        XCTAssertEqual(workspace.panels.count, 1, "Expected a replacement surface after closing the last panel")
+    }
+
+    func testRuntimeClosePromptsWhenShellReportsRunningCommand() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId,
+              let terminalPanel = workspace.terminalPanel(for: panelId) else {
+            XCTFail("Expected selected workspace and focused terminal panel")
+            return
+        }
+
+        terminalPanel.surface.setNeedsConfirmCloseOverrideForTesting(false)
+        workspace.updatePanelShellActivityState(panelId: panelId, state: .commandRunning)
+
+        var promptCount = 0
+        manager.confirmCloseHandler = { _, _, _ in
+            promptCount += 1
+            return false
+        }
+
+        manager.closeRuntimeSurfaceWithConfirmation(tabId: workspace.id, surfaceId: panelId)
+
+        XCTAssertEqual(promptCount, 1, "Running commands should still require confirmation")
+        XCTAssertNotNil(workspace.panels[panelId], "Prompt rejection should keep the original panel open")
+    }
+
+    func testCloseCurrentPanelClosesWorkspaceWhenItOwnsTheLastSurface() {
+        let manager = TabManager()
+        let firstWorkspace = manager.tabs[0]
+        let secondWorkspace = manager.addWorkspace()
+        manager.selectWorkspace(secondWorkspace)
+
+        guard let secondPanelId = secondWorkspace.focusedPanelId else {
+            XCTFail("Expected focused panel in selected workspace")
+            return
+        }
+
+        XCTAssertEqual(manager.selectedTabId, secondWorkspace.id)
+        XCTAssertEqual(secondWorkspace.panels.count, 1)
+
+        manager.closeCurrentPanelWithConfirmation()
+        drainMainQueue()
+        drainMainQueue()
+
+        XCTAssertEqual(manager.tabs.map(\.id), [firstWorkspace.id])
+        XCTAssertEqual(manager.selectedTabId, firstWorkspace.id)
+        XCTAssertNil(secondWorkspace.panels[secondPanelId])
+        XCTAssertTrue(secondWorkspace.panels.isEmpty)
+    }
+
+    func testClosePanelButtonClosesWorkspaceWhenItOwnsTheLastSurface() {
+        let manager = TabManager()
+        let firstWorkspace = manager.tabs[0]
+        let secondWorkspace = manager.addWorkspace()
+        manager.selectWorkspace(secondWorkspace)
+
+        guard let secondPanelId = secondWorkspace.focusedPanelId else {
+            XCTFail("Expected focused panel in selected workspace")
+            return
+        }
+
+        XCTAssertEqual(manager.selectedTabId, secondWorkspace.id)
+        XCTAssertEqual(secondWorkspace.panels.count, 1)
+
+        guard let secondSurfaceId = secondWorkspace.surfaceIdFromPanelId(secondPanelId) else {
+            XCTFail("Expected bonsplit surface ID for focused panel")
+            return
+        }
+
+        secondWorkspace.markExplicitClose(surfaceId: secondSurfaceId)
+        XCTAssertFalse(secondWorkspace.closePanel(secondPanelId))
+        drainMainQueue()
+        drainMainQueue()
+
+        XCTAssertEqual(manager.tabs.map(\.id), [firstWorkspace.id])
+        XCTAssertEqual(manager.selectedTabId, firstWorkspace.id)
+        XCTAssertNil(secondWorkspace.panels[secondPanelId])
+        XCTAssertTrue(secondWorkspace.panels.isEmpty)
+    }
+
+    func testGenericClosePanelKeepsWorkspaceOpenWithoutExplicitCloseMarker() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let initialPanelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace and focused panel")
+            return
+        }
+
+        let initialWorkspaceId = workspace.id
+        XCTAssertEqual(manager.tabs.count, 1)
+        XCTAssertEqual(workspace.panels.count, 1)
+
+        XCTAssertTrue(workspace.closePanel(initialPanelId))
+        drainMainQueue()
+        drainMainQueue()
+
+        XCTAssertEqual(manager.tabs.count, 1)
+        XCTAssertEqual(manager.selectedTabId, initialWorkspaceId)
+        XCTAssertEqual(manager.tabs.first?.id, initialWorkspaceId)
+        XCTAssertNil(workspace.panels[initialPanelId])
+        XCTAssertEqual(workspace.panels.count, 1)
+        XCTAssertNotEqual(workspace.focusedPanelId, initialPanelId)
+    }
+
+    func testCloseCurrentPanelIgnoresStaleSurfaceId() {
+        let manager = TabManager()
+        let firstWorkspace = manager.tabs[0]
+        let secondWorkspace = manager.addWorkspace()
+
+        manager.closePanelWithConfirmation(tabId: secondWorkspace.id, surfaceId: UUID())
+
+        XCTAssertEqual(manager.tabs.map(\.id), [firstWorkspace.id, secondWorkspace.id])
+    }
+
+    func testCloseCurrentPanelClearsNotificationsForClosedSurface() {
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let manager = TabManager()
+        let store = TerminalNotificationStore.shared
+
+        let originalTabManager = appDelegate.tabManager
+        let originalNotificationStore = appDelegate.notificationStore
+        store.replaceNotificationsForTesting([])
+        store.configureNotificationDeliveryHandlerForTesting { _, _ in }
+        appDelegate.tabManager = manager
+        appDelegate.notificationStore = store
+
+        defer {
+            store.replaceNotificationsForTesting([])
+            store.resetNotificationDeliveryHandlerForTesting()
+            appDelegate.tabManager = originalTabManager
+            appDelegate.notificationStore = originalNotificationStore
+        }
+
+        guard let workspace = manager.selectedWorkspace,
+              let initialPanelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace and focused panel")
+            return
+        }
+
+        store.addNotification(
+            tabId: workspace.id,
+            surfaceId: initialPanelId,
+            title: "Unread",
+            subtitle: "",
+            body: ""
+        )
+        XCTAssertTrue(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: initialPanelId))
+
+        manager.closeCurrentPanelWithConfirmation()
+        drainMainQueue()
+        drainMainQueue()
+
+        XCTAssertFalse(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: initialPanelId))
     }
 }
 
@@ -7793,6 +8298,44 @@ final class NotificationDockBadgeTests: XCTestCase {
         XCTAssertTrue(NotificationBadgeSettings.isDockBadgeEnabled(defaults: defaults))
     }
 
+    func testNotificationPaneFlashPreferenceDefaultsToEnabled() {
+        let suiteName = "NotificationPaneFlashSettingsTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        XCTAssertTrue(NotificationPaneFlashSettings.isEnabled(defaults: defaults))
+
+        defaults.set(false, forKey: NotificationPaneFlashSettings.enabledKey)
+        XCTAssertFalse(NotificationPaneFlashSettings.isEnabled(defaults: defaults))
+
+        defaults.set(true, forKey: NotificationPaneFlashSettings.enabledKey)
+        XCTAssertTrue(NotificationPaneFlashSettings.isEnabled(defaults: defaults))
+    }
+
+    func testMenuBarExtraPreferenceDefaultsToVisible() {
+        let suiteName = "MenuBarExtraVisibilityTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        XCTAssertTrue(MenuBarExtraSettings.showsMenuBarExtra(defaults: defaults))
+
+        defaults.set(false, forKey: MenuBarExtraSettings.showInMenuBarKey)
+        XCTAssertFalse(MenuBarExtraSettings.showsMenuBarExtra(defaults: defaults))
+
+        defaults.set(true, forKey: MenuBarExtraSettings.showInMenuBarKey)
+        XCTAssertTrue(MenuBarExtraSettings.showsMenuBarExtra(defaults: defaults))
+    }
+
     func testNotificationSoundUsesSystemSoundForDefaultAndNamedSounds() {
         let suiteName = "NotificationDockBadgeTests.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {
@@ -10477,6 +11020,27 @@ final class InternalTabDragConfigurationTests: XCTestCase {
                 allowDelete: false,
                 allowAlias: false
             )
+        )
+    }
+}
+
+@MainActor
+final class InternalTabDragBundleDeclarationTests: XCTestCase {
+    private func exportedTypeIdentifiers(bundle: Bundle) -> Set<String> {
+        let declarations = (bundle.object(forInfoDictionaryKey: "UTExportedTypeDeclarations") as? [[String: Any]]) ?? []
+        return Set(declarations.compactMap { $0["UTTypeIdentifier"] as? String })
+    }
+
+    func testAppBundleExportsInternalDragTypes() {
+        let exported = exportedTypeIdentifiers(bundle: Bundle(for: AppDelegate.self))
+
+        XCTAssertTrue(
+            exported.contains("com.splittabbar.tabtransfer"),
+            "Expected app bundle to export bonsplit tab-transfer type, got \(exported)"
+        )
+        XCTAssertTrue(
+            exported.contains("com.cmux.sidebar-tab-reorder"),
+            "Expected app bundle to export sidebar tab-reorder type, got \(exported)"
         )
     }
 }

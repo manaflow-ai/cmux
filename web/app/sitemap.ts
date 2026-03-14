@@ -21,6 +21,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { path: "/docs/browser-automation", lastModified: new Date(), changeFrequency: "monthly" as const, priority: 0.8 },
     { path: "/community", lastModified: new Date(), changeFrequency: "monthly" as const, priority: 0.5 },
     { path: "/wall-of-love", lastModified: new Date(), changeFrequency: "monthly" as const, priority: 0.5 },
+    { path: "/nightly", lastModified: new Date(), changeFrequency: "weekly" as const, priority: 0.6 },
   ];
 
   const entries: MetadataRoute.Sitemap = [];

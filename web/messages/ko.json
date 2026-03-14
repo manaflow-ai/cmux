@@ -37,6 +37,7 @@
     "twitter": "X / Twitter",
     "discord": "Discord",
     "contact": "문의",
+    "nightly": "나이틀리",
     "copyright": "© {year} Manaflow",
     "language": "언어"
   },
@@ -580,6 +581,15 @@
     "bchris91": "딱 원하던 거예요. 정말 대단해요, 감사합니다!",
     "connorelsea": "일주일째 쓰고 있는데 환상적이에요. WIP 작업마다 세로 탭 하나씩. 안에는 한쪽에 Claude, 다른 쪽에 PR과 리소스 브라우저. 작업 전환하면서 정리가 돼요. 스킬로 Claude에게 CI를 재귀적으로 감시시키는 것도 가능. 솔직히 깨달음을 얻은 기분.",
     "tonkotsuboy": "연초에 Warp에서 Ghostty로 갈아탔는데, 이제는 cmux로 갈아탔어요. 세로 탭이 편하고, Claude Code 작업이 끝나면 알림이 와서 좋아요. Ghostty 기반이라 빠른 성능은 그대로. Ghostty에서 설정한 브랜치 표시랑 자동완성도 그대로 쓸 수 있어요."
+  },
+  "nightly": {
+    "title": "cmux NIGHTLY",
+    "subtitle": "main 브랜치의 최신 빌드",
+    "metaTitle": "cmux NIGHTLY — 나이틀리 빌드",
+    "metaDescription": "cmux NIGHTLY를 다운로드하세요. main의 최신 커밋에서 자동으로 빌드되는 독립 앱입니다. 안정 버전과 나란히 실행되며 독자적인 자동 업데이트를 제공합니다.",
+    "description": "cmux NIGHTLY는 main의 최신 커밋에서 자동으로 빌드됩니다. 자체 번들 ID를 가지고 있어 안정 버전과 충돌 없이 나란히 실행됩니다. 출시 전에 새로운 기능을 테스트할 수 있습니다.",
+    "download": "Mac용 NIGHTLY 다운로드",
+    "warning": "나이틀리 빌드에는 버그나 미완성 기능이 포함될 수 있습니다. 문제가 발생하면 <githubLink>GitHub</githubLink> 또는 <discordLink>Discord의 #nightly-bugs</discordLink>에서 보고하고 안정 버전으로 전환하세요."
   },
   "languageSwitcher": {
     "label": "언어"

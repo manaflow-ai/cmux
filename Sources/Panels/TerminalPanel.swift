@@ -63,6 +63,10 @@ final class TerminalPanel: Panel, ObservableObject {
         surface.hostedView
     }
 
+    var requestedWorkingDirectory: String? {
+        surface.requestedWorkingDirectory
+    }
+
     init(workspaceId: UUID, surface: TerminalSurface) {
         self.id = surface.id
         self.workspaceId = workspaceId
@@ -193,10 +197,12 @@ final class TerminalPanel: Panel, ObservableObject {
     }
 
     func triggerFlash() {
+        guard NotificationPaneFlashSettings.isEnabled() else { return }
         hostedView.triggerFlash()
     }
 
     func triggerNotificationDismissFlash() {
+        guard NotificationPaneFlashSettings.isEnabled() else { return }
         hostedView.triggerFlash(style: .notificationDismiss)
     }
 
