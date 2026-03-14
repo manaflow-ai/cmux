@@ -1034,7 +1034,7 @@ struct cmuxApp: App {
 
     private func closePanelOrWindow() {
         if let window = NSApp.keyWindow,
-           window.identifier?.rawValue == "cmux.settings" {
+           ["cmux.settings", "cmux.about", "cmux.licenses"].contains(window.identifier?.rawValue ?? "") {
             window.performClose(nil)
             return
         }
