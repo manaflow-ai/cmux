@@ -3071,35 +3071,18 @@ struct ContentView: View {
         let commandPaletteListHeight = min(commandPaletteListMaxHeight, commandPaletteListContentHeight)
         return VStack(spacing: 0) {
             HStack(spacing: 8) {
-                TextField(commandPaletteSearchPlaceholder, text: $commandPaletteQuery)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 13, weight: .regular))
-                    .tint(Color(nsColor: sidebarActiveForegroundNSColor(opacity: 1.0)))
-                    .focused($isCommandPaletteSearchFocused)
-                    .accessibilityIdentifier("CommandPaletteSearchField")
-                    .onSubmit {
-                        runSelectedCommandPaletteResult()
-                    }
-                    .backport.onKeyPress(.downArrow) { _ in
-                        moveCommandPaletteSelection(by: 1)
-                        return .handled
-                    }
-                    .backport.onKeyPress(.upArrow) { _ in
-                        moveCommandPaletteSelection(by: -1)
-                        return .handled
-                    }
-                    .backport.onKeyPress("n") { modifiers in
-                        handleCommandPaletteControlNavigationKey(modifiers: modifiers, delta: 1)
-                    }
-                    .backport.onKeyPress("p") { modifiers in
-                        handleCommandPaletteControlNavigationKey(modifiers: modifiers, delta: -1)
-                    }
-                    .backport.onKeyPress("j") { modifiers in
-                        handleCommandPaletteControlNavigationKey(modifiers: modifiers, delta: 1)
-                    }
-                    .backport.onKeyPress("k") { modifiers in
-                        handleCommandPaletteControlNavigationKey(modifiers: modifiers, delta: -1)
-                    }
+                CommandPaletteSearchFieldRepresentable(
+                    placeholder: commandPaletteSearchPlaceholder,
+                    text: $commandPaletteQuery,
+                    isFocused: Binding(
+                        get: { isCommandPaletteSearchFocused },
+                        set: { isCommandPaletteSearchFocused = $0 }
+                    ),
+                    onSubmit: runSelectedCommandPaletteResult,
+                    onEscape: { dismissCommandPalette() },
+                    onMoveSelection: moveCommandPaletteSelection(by:)
+                )
+                .frame(maxWidth: .infinity)
             }
             .padding(.horizontal, 9)
             .padding(.vertical, 7)
@@ -3342,6 +3325,141 @@ struct ContentView: View {
             .frame(width: 0, height: 0)
             .opacity(0)
             .accessibilityHidden(true)
+        }
+    }
+
+    private final class CommandPaletteNativeTextField: NSTextField {
+        override init(frame frameRect: NSRect) {
+            super.init(frame: frameRect)
+            isBordered = false
+            isBezeled = false
+            drawsBackground = false
+            focusRingType = .none
+            usesSingleLineMode = true
+        }
+
+        required init?(coder: NSCoder) {
+            fatalError("init(coder:) has not been implemented")
+        }
+    }
+
+    // Keep navigation on the AppKit field editor so deleting the ">" prefix
+    // cannot drop the palette's arrow-key handlers during the scope switch.
+    private struct CommandPaletteSearchFieldRepresentable: NSViewRepresentable {
+        let placeholder: String
+        @Binding var text: String
+        @Binding var isFocused: Bool
+        let onSubmit: () -> Void
+        let onEscape: () -> Void
+        let onMoveSelection: (Int) -> Void
+
+        final class Coordinator: NSObject, NSTextFieldDelegate {
+            var parent: CommandPaletteSearchFieldRepresentable
+            var isProgrammaticMutation = false
+            weak var parentField: CommandPaletteNativeTextField?
+            var pendingFocusRequest: Bool?
+
+            init(parent: CommandPaletteSearchFieldRepresentable) {
+                self.parent = parent
+            }
+
+            func controlTextDidChange(_ obj: Notification) {
+                guard !isProgrammaticMutation else { return }
+                guard let field = obj.object as? NSTextField else { return }
+                parent.text = field.stringValue
+            }
+
+            func controlTextDidBeginEditing(_ obj: Notification) {
+                if !parent.isFocused {
+                    DispatchQueue.main.async {
+                        self.parent.isFocused = true
+                    }
+                }
+            }
+
+            func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+                switch commandSelector {
+                case #selector(NSResponder.moveDown(_:)):
+                    parent.onMoveSelection(1)
+                    return true
+                case #selector(NSResponder.moveUp(_:)):
+                    parent.onMoveSelection(-1)
+                    return true
+                case #selector(NSResponder.insertNewline(_:)):
+                    guard !textView.hasMarkedText() else { return false }
+                    parent.onSubmit()
+                    return true
+                case #selector(NSResponder.cancelOperation(_:)):
+                    guard !textView.hasMarkedText() else { return false }
+                    parent.onEscape()
+                    return true
+                default:
+                    return false
+                }
+            }
+        }
+
+        func makeCoordinator() -> Coordinator {
+            Coordinator(parent: self)
+        }
+
+        func makeNSView(context: Context) -> CommandPaletteNativeTextField {
+            let field = CommandPaletteNativeTextField(frame: .zero)
+            field.font = .systemFont(ofSize: 13)
+            field.placeholderString = placeholder
+            field.setAccessibilityIdentifier("CommandPaletteSearchField")
+            field.delegate = context.coordinator
+            field.stringValue = text
+            field.isEditable = true
+            field.isSelectable = true
+            field.isEnabled = true
+            context.coordinator.parentField = field
+            return field
+        }
+
+        func updateNSView(_ nsView: CommandPaletteNativeTextField, context: Context) {
+            context.coordinator.parent = self
+            context.coordinator.parentField = nsView
+            nsView.placeholderString = placeholder
+
+            if let editor = nsView.currentEditor() as? NSTextView {
+                if editor.string != text, !editor.hasMarkedText() {
+                    context.coordinator.isProgrammaticMutation = true
+                    editor.string = text
+                    nsView.stringValue = text
+                    context.coordinator.isProgrammaticMutation = false
+                }
+            } else if nsView.stringValue != text {
+                nsView.stringValue = text
+            }
+
+            guard let window = nsView.window else { return }
+            let firstResponder = window.firstResponder
+            let isFirstResponder =
+                firstResponder === nsView ||
+                nsView.currentEditor() != nil ||
+                ((firstResponder as? NSTextView)?.delegate as? NSTextField) === nsView
+
+            if isFocused, !isFirstResponder, context.coordinator.pendingFocusRequest != true {
+                context.coordinator.pendingFocusRequest = true
+                DispatchQueue.main.async { [weak nsView, weak coordinator = context.coordinator] in
+                    coordinator?.pendingFocusRequest = nil
+                    guard let coordinator, coordinator.parent.isFocused else { return }
+                    guard let nsView, let window = nsView.window else { return }
+                    let firstResponder = window.firstResponder
+                    let alreadyFocused =
+                        firstResponder === nsView ||
+                        nsView.currentEditor() != nil ||
+                        ((firstResponder as? NSTextView)?.delegate as? NSTextField) === nsView
+                    guard !alreadyFocused else { return }
+                    window.makeFirstResponder(nsView)
+                }
+            }
+        }
+
+        static func dismantleNSView(_ nsView: CommandPaletteNativeTextField, coordinator: Coordinator) {
+            nsView.delegate = nil
+            coordinator.parentField = nil
         }
     }
 
@@ -5668,20 +5786,6 @@ struct ContentView: View {
             syncCommandPaletteSelectionAnchorFromVisibleResults()
         }
         syncCommandPaletteDebugStateForObservedWindow()
-    }
-
-    private func handleCommandPaletteControlNavigationKey(
-        modifiers: EventModifiers,
-        delta: Int
-    ) -> BackportKeyPressResult {
-        guard modifiers.contains(.control),
-              !modifiers.contains(.command),
-              !modifiers.contains(.shift),
-              !modifiers.contains(.option) else {
-            return .ignored
-        }
-        moveCommandPaletteSelection(by: delta)
-        return .handled
     }
 
     static func commandPaletteShouldPopRenameInputOnDelete(
