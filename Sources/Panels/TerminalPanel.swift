@@ -63,6 +63,10 @@ final class TerminalPanel: Panel, ObservableObject {
         surface.hostedView
     }
 
+    var requestedWorkingDirectory: String? {
+        surface.requestedWorkingDirectory
+    }
+
     init(workspaceId: UUID, surface: TerminalSurface) {
         self.id = surface.id
         self.workspaceId = workspaceId

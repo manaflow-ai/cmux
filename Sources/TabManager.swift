@@ -1596,6 +1596,7 @@ class TabManager: ObservableObject {
         if let confirmCloseHandler {
             return confirmCloseHandler(title, message, acceptCmdD)
         }
+        _ = acceptCmdD
 
         let alert = NSAlert()
         alert.messageText = title
@@ -1605,16 +1606,17 @@ class TabManager: ObservableObject {
         alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
 
         if let closeButton = alert.buttons.first {
-            // Keep Return/Enter bound to the primary destructive action for all close prompts.
+            closeButton.keyEquivalent = "\r"
+            closeButton.keyEquivalentModifierMask = []
             alert.window.defaultButtonCell = closeButton.cell as? NSButtonCell
+            alert.window.initialFirstResponder = closeButton
+        }
+        if let cancelButton = alert.buttons.dropFirst().first {
+            cancelButton.keyEquivalent = "\u{1b}"
         }
 
-        // macOS convention: Cmd+D = confirm destructive close (e.g. "Don't Save").
-        // We only opt into this for the "close last workspace => close window" path to avoid
-        // conflicting with app-level Cmd+D (split right) during normal usage.
-        if acceptCmdD, let closeButton = alert.buttons.first {
-            closeButton.keyEquivalent = "d"
-            closeButton.keyEquivalentModifierMask = [.command]
+        if NSApp.activationPolicy() == .regular {
+            NSApp.activate(ignoringOtherApps: true)
         }
 
         return alert.runModal() == .alertFirstButtonReturn
