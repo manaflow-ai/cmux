@@ -3506,15 +3506,21 @@ struct SettingsView: View {
                         SettingsCardDivider()
 
                         SettingsCardRow(
-                            String(localized: "settings.app.workspaceTopTabs", defaultValue: "Top Tabs Own Splits"),
+                            String(localized: "settings.app.workspaceTopTabs", defaultValue: "Top Tabs Contain Splits"),
                             subtitle: String(
                                 localized: "settings.app.workspaceTopTabs.subtitle",
-                                defaultValue: "When enabled, Cmd+T creates a full top tab, Cmd+D splits inside it, and Ctrl+Tab switches top tabs."
+                                defaultValue: "When enabled, the new-tab shortcut creates a full top tab, split shortcuts work inside it, and tab-switching shortcuts move between top tabs."
                             )
                         ) {
                             Toggle("", isOn: $workspaceTopTabsEnabled)
                                 .labelsHidden()
                                 .controlSize(.small)
+                                .accessibilityLabel(
+                                    String(
+                                        localized: "settings.app.workspaceTopTabs",
+                                        defaultValue: "Top Tabs Contain Splits"
+                                    )
+                                )
                         }
 
                         SettingsCardDivider()

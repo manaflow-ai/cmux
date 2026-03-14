@@ -2542,7 +2542,7 @@ class TabManager: ObservableObject {
     /// Create a new terminal tab in the selected workspace, using the active tab layer.
     func newSurface() {
         guard let selectedWorkspace else { return }
-        if selectedWorkspace.usesTopTabsAsPrimaryTabUI {
+        if usesWorkspaceTopTabsAsPrimaryTabUI {
             selectedWorkspace.addTopTab(select: true)
         } else {
             selectedWorkspace.newTerminalSurfaceInFocusedPane()

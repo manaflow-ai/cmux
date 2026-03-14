@@ -207,6 +207,10 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertEqual(restored.topTabs.count, 2, "Expected both top tabs to be restored")
         XCTAssertEqual(restored.selectedTopTabId, restored.topTabs.first?.id, "Selected top tab index should round-trip")
         XCTAssertEqual(restored.topTabs.last?.customTitle, Optional("Docs"), "Top-tab custom titles should round-trip")
+        guard restored.topTabs.count >= 2 else {
+            XCTFail("Expected both top tabs to exist before checking their restored panel counts")
+            return
+        }
         XCTAssertEqual(restored.panelIds(in: restored.topTabs[0]).count, 1)
         XCTAssertEqual(restored.panelIds(in: restored.topTabs[1]).count, 1)
     }

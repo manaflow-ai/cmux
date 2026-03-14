@@ -5657,13 +5657,21 @@ final class TabManagerPendingUnfocusPolicyTests: XCTestCase {
 
 @MainActor
 final class TabManagerSurfaceCreationTests: XCTestCase {
+    private var previousTopTabsSetting: Any?
+
     override func setUp() {
         super.setUp()
+        previousTopTabsSetting = UserDefaults.standard.object(forKey: WorkspaceTopTabsFeatureSettings.key)
         UserDefaults.standard.removeObject(forKey: WorkspaceTopTabsFeatureSettings.key)
     }
 
     override func tearDown() {
-        UserDefaults.standard.removeObject(forKey: WorkspaceTopTabsFeatureSettings.key)
+        if let previousTopTabsSetting {
+            UserDefaults.standard.set(previousTopTabsSetting, forKey: WorkspaceTopTabsFeatureSettings.key)
+        } else {
+            UserDefaults.standard.removeObject(forKey: WorkspaceTopTabsFeatureSettings.key)
+        }
+        previousTopTabsSetting = nil
         super.tearDown()
     }
 

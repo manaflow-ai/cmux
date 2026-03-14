@@ -41522,13 +41522,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Top Tabs Own Splits"
+            "value": "Top Tabs Contain Splits"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "上位タブが分割レイアウトを所有"
+            "value": "上位タブに分割を含める"
           }
         }
       }
@@ -41539,13 +41539,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "When enabled, Cmd+T creates a full top tab, Cmd+D splits inside it, and Ctrl+Tab switches top tabs."
+            "value": "When enabled, the new-tab shortcut creates a full top tab, split shortcuts work inside it, and tab-switching shortcuts move between top tabs."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "有効にすると、Cmd+T は上位タブ全体を作成し、Cmd+D はその中で分割し、Ctrl+Tab は上位タブを切り替えます。"
+            "value": "有効にすると、新しいタブのショートカットで上位タブ全体を作成し、分割ショートカットはその中で動作し、タブ切り替えショートカットは上位タブを移動します。"
           }
         }
       }

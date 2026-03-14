@@ -4632,14 +4632,25 @@ struct ContentView: View {
             let workspace = panelContext.workspace
             let panelId = panelContext.panelId
             let panelIsTerminal = panelContext.panel.panelType == .terminal
+            let effectivePanelName: String
+            let effectiveHasCustomName: Bool
+            if workspace.usesTopTabsAsPrimaryTabUI,
+               let topTab = workspace.selectedTopTab {
+                effectivePanelName = workspace.topTabTitle(topTab)
+                effectiveHasCustomName = workspace.topTabHasCustomTitle(topTab)
+            } else {
+                effectivePanelName = panelDisplayName(
+                    workspace: workspace,
+                    panelId: panelId,
+                    fallback: panelContext.panel.displayTitle
+                )
+                effectiveHasCustomName = workspace.panelCustomTitles[panelId] != nil
+            }
             snapshot.setBool(CommandPaletteContextKeys.hasFocusedPanel, true)
-            snapshot.setString(
-                CommandPaletteContextKeys.panelName,
-                panelDisplayName(workspace: workspace, panelId: panelId, fallback: panelContext.panel.displayTitle)
-            )
+            snapshot.setString(CommandPaletteContextKeys.panelName, effectivePanelName)
             snapshot.setBool(CommandPaletteContextKeys.panelIsBrowser, panelContext.panel.panelType == .browser)
             snapshot.setBool(CommandPaletteContextKeys.panelIsTerminal, panelIsTerminal)
-            snapshot.setBool(CommandPaletteContextKeys.panelHasCustomName, workspace.panelCustomTitles[panelId] != nil)
+            snapshot.setBool(CommandPaletteContextKeys.panelHasCustomName, effectiveHasCustomName)
             snapshot.setBool(CommandPaletteContextKeys.panelShouldPin, !workspace.isPanelPinned(panelId))
             let hasUnread = workspace.manualUnreadPanelIds.contains(panelId)
                 || notificationStore.hasUnreadNotification(forTabId: workspace.id, surfaceId: panelId)

@@ -1606,6 +1606,13 @@ final class Workspace: Identifiable, ObservableObject {
         return topTabs.first { $0.surfaceIdToPanelId[surfaceId] != nil }
     }
 
+    private func topTab(for controller: BonsplitController) -> WorkspaceTopTabState? {
+        if let current = selectedTopTab, current.bonsplitController === controller {
+            return current
+        }
+        return topTabs.first { $0.bonsplitController === controller }
+    }
+
     func selectTopTab(_ topTab: WorkspaceTopTabState) {
         guard topTabs.contains(where: { $0.id == topTab.id }) else { return }
         guard selectedTopTabId != topTab.id else { return }
@@ -1705,6 +1712,10 @@ final class Workspace: Identifiable, ObservableObject {
             ordered.append(panelId)
         }
         return ordered
+    }
+
+    private func panelCount(in topTab: WorkspaceTopTabState) -> Int {
+        panelIds(in: topTab).count
     }
 
     var selectedTopTabPanelIds: [UUID] {
@@ -1894,12 +1905,14 @@ final class Workspace: Identifiable, ObservableObject {
         topTab.bonsplitController.updateTab(tabId, showsNotificationBadge: shouldShowUnread)
     }
 
-    private func normalizePinnedTabs(in paneId: PaneID) {
-        guard !isNormalizingPinnedTabOrder else { return }
-        isNormalizingPinnedTabOrder = true
-        defer { isNormalizingPinnedTabOrder = false }
+    private func normalizePinnedTabs(in paneId: PaneID, topTab explicitTopTab: WorkspaceTopTabState? = nil) {
+        guard let topTab = explicitTopTab ?? selectedTopTab else { return }
+        guard !topTab.isNormalizingPinnedTabOrder else { return }
+        topTab.isNormalizingPinnedTabOrder = true
+        defer { topTab.isNormalizingPinnedTabOrder = false }
 
-        let tabs = bonsplitController.tabs(inPane: paneId)
+        let controller = topTab.bonsplitController
+        let tabs = controller.tabs(inPane: paneId)
         let pinnedTabs = tabs.filter { tab in
             guard let panelId = panelIdFromSurfaceId(tab.id) else { return false }
             return pinnedPanelIds.contains(panelId)
@@ -1911,10 +1924,10 @@ final class Workspace: Identifiable, ObservableObject {
         let desiredOrder = pinnedTabs + unpinnedTabs
 
         for (index, desiredTab) in desiredOrder.enumerated() {
-            let currentTabs = bonsplitController.tabs(inPane: paneId)
+            let currentTabs = controller.tabs(inPane: paneId)
             guard let currentIndex = currentTabs.firstIndex(where: { $0.id == desiredTab.id }) else { continue }
             if currentIndex != index {
-                _ = bonsplitController.reorderTab(desiredTab.id, toIndex: index)
+                _ = controller.reorderTab(desiredTab.id, toIndex: index)
             }
         }
     }
@@ -2028,14 +2041,7 @@ final class Workspace: Identifiable, ObservableObject {
               let tabId = topTab.surfaceIdToPanelId.first(where: { $0.value == panelId })?.key,
               let paneId = paneId(forPanelId: panelId) else { return }
         topTab.bonsplitController.updateTab(tabId, isPinned: pinned)
-        if topTab.id == selectedTopTabId {
-            normalizePinnedTabs(in: paneId)
-        } else {
-            let previous = selectedTopTabId
-            selectedTopTabId = topTab.id
-            normalizePinnedTabs(in: paneId)
-            selectedTopTabId = previous
-        }
+        normalizePinnedTabs(in: paneId, topTab: topTab)
     }
 
     func markPanelUnread(_ panelId: UUID) {
@@ -3378,23 +3384,28 @@ final class Workspace: Identifiable, ObservableObject {
         let anchorPaneId: UUID?
     }
 
-    private func stageClosedBrowserRestoreSnapshotIfNeeded(for tab: Bonsplit.Tab, inPane pane: PaneID) {
-        guard let panelId = panelIdFromSurfaceId(tab.id),
+    private func stageClosedBrowserRestoreSnapshotIfNeeded(
+        for tab: Bonsplit.Tab,
+        inPane pane: PaneID,
+        controller: BonsplitController,
+        topTab: WorkspaceTopTabState
+    ) {
+        guard let panelId = topTab.surfaceIdToPanelId[tab.id] ?? panelIdFromSurfaceId(tab.id),
               let browserPanel = browserPanel(for: panelId),
-              let tabIndex = bonsplitController.tabs(inPane: pane).firstIndex(where: { $0.id == tab.id }) else {
-            pendingClosedBrowserRestoreSnapshots.removeValue(forKey: tab.id)
+              let tabIndex = controller.tabs(inPane: pane).firstIndex(where: { $0.id == tab.id }) else {
+            topTab.pendingClosedBrowserRestoreSnapshots.removeValue(forKey: tab.id)
             return
         }
 
         let fallbackPlan = browserCloseFallbackPlan(
             forPaneId: pane.id.uuidString,
-            in: bonsplitController.treeSnapshot()
+            in: controller.treeSnapshot()
         )
         let resolvedURL = browserPanel.currentURL
             ?? browserPanel.webView.url
             ?? browserPanel.preferredURLStringForOmnibar().flatMap(URL.init(string:))
 
-        pendingClosedBrowserRestoreSnapshots[tab.id] = ClosedBrowserPanelRestoreSnapshot(
+        topTab.pendingClosedBrowserRestoreSnapshots[tab.id] = ClosedBrowserPanelRestoreSnapshot(
             workspaceId: id,
             url: resolvedURL,
             originalPaneId: pane.id,
@@ -3405,8 +3416,12 @@ final class Workspace: Identifiable, ObservableObject {
         )
     }
 
-    private func clearStagedClosedBrowserRestoreSnapshot(for tabId: TabID) {
-        pendingClosedBrowserRestoreSnapshots.removeValue(forKey: tabId)
+    private func clearStagedClosedBrowserRestoreSnapshot(
+        for tabId: TabID,
+        topTab explicitTopTab: WorkspaceTopTabState? = nil
+    ) {
+        let topTab = explicitTopTab ?? topTab(containingSurfaceId: tabId) ?? selectedTopTab
+        topTab?.pendingClosedBrowserRestoreSnapshots.removeValue(forKey: tabId)
     }
 
     private func browserCloseFallbackPlan(
@@ -4029,7 +4044,11 @@ final class Workspace: Identifiable, ObservableObject {
 
         let panelIds = panelIds(in: topTab)
         let needsConfirm = panelIds.contains { panelId in
-            terminalPanel(for: panelId)?.needsConfirmClose() == true
+            guard let terminalPanel = terminalPanel(for: panelId) else { return false }
+            return panelNeedsConfirmClose(
+                panelId: panelId,
+                fallbackNeedsConfirmClose: terminalPanel.needsConfirmClose()
+            )
         }
 
         if needsConfirm {
@@ -4284,17 +4303,19 @@ final class Workspace: Identifiable, ObservableObject {
 
     /// Reconcile focus/first-responder convergence.
     /// Coalesce to the next main-queue turn so bonsplit selection/pane mutations settle first.
-    private func scheduleFocusReconcile() {
+    private func scheduleFocusReconcile(for explicitTopTab: WorkspaceTopTabState? = nil) {
+        guard let targetTopTab = explicitTopTab ?? selectedTopTab else { return }
 #if DEBUG
-        if isDetachingCloseTransaction {
-            debugFocusReconcileScheduledDuringDetachCount += 1
+        if targetTopTab.isDetachingCloseTransaction {
+            targetTopTab.debugFocusReconcileScheduledDuringDetachCount += 1
         }
 #endif
-        guard !focusReconcileScheduled else { return }
-        focusReconcileScheduled = true
-        DispatchQueue.main.async { [weak self] in
+        guard !targetTopTab.focusReconcileScheduled else { return }
+        targetTopTab.focusReconcileScheduled = true
+        DispatchQueue.main.async { [weak self, targetTopTab] in
             guard let self else { return }
-            self.focusReconcileScheduled = false
+            targetTopTab.focusReconcileScheduled = false
+            guard self.selectedTopTabId == targetTopTab.id else { return }
             self.reconcileFocusState()
         }
     }
@@ -4338,38 +4359,45 @@ final class Workspace: Identifiable, ObservableObject {
         return needsFollowUpPass
     }
 
-    private func runScheduledTerminalGeometryReconcile(remainingPasses: Int) {
+    private func runScheduledTerminalGeometryReconcile(
+        for targetTopTab: WorkspaceTopTabState,
+        remainingPasses: Int
+    ) {
         guard remainingPasses > 0 else {
-            geometryReconcileScheduled = false
-            geometryReconcileNeedsRerun = false
+            targetTopTab.geometryReconcileScheduled = false
+            targetTopTab.geometryReconcileNeedsRerun = false
             return
         }
 
         let needsFollowUpPass = reconcileTerminalGeometryPass()
-        let shouldRunAgain = geometryReconcileNeedsRerun || needsFollowUpPass
+        let shouldRunAgain = targetTopTab.geometryReconcileNeedsRerun || needsFollowUpPass
 
         if shouldRunAgain, remainingPasses > 1 {
-            geometryReconcileNeedsRerun = false
-            DispatchQueue.main.async { [weak self] in
+            targetTopTab.geometryReconcileNeedsRerun = false
+            DispatchQueue.main.async { [weak self, targetTopTab] in
                 guard let self else { return }
-                self.runScheduledTerminalGeometryReconcile(remainingPasses: remainingPasses - 1)
+                self.runScheduledTerminalGeometryReconcile(
+                    for: targetTopTab,
+                    remainingPasses: remainingPasses - 1
+                )
             }
             return
         }
 
-        geometryReconcileScheduled = false
-        geometryReconcileNeedsRerun = false
+        targetTopTab.geometryReconcileScheduled = false
+        targetTopTab.geometryReconcileNeedsRerun = false
     }
 
-    private func scheduleTerminalGeometryReconcile() {
-        guard !geometryReconcileScheduled else {
-            geometryReconcileNeedsRerun = true
+    private func scheduleTerminalGeometryReconcile(for explicitTopTab: WorkspaceTopTabState? = nil) {
+        guard let targetTopTab = explicitTopTab ?? selectedTopTab else { return }
+        guard !targetTopTab.geometryReconcileScheduled else {
+            targetTopTab.geometryReconcileNeedsRerun = true
             return
         }
-        geometryReconcileScheduled = true
-        DispatchQueue.main.async { [weak self] in
+        targetTopTab.geometryReconcileScheduled = true
+        DispatchQueue.main.async { [weak self, targetTopTab] in
             guard let self else { return }
-            self.runScheduledTerminalGeometryReconcile(remainingPasses: 4)
+            self.runScheduledTerminalGeometryReconcile(for: targetTopTab, remainingPasses: 4)
         }
     }
 
@@ -5285,10 +5313,14 @@ extension Workspace: BonsplitDelegate {
     }
 
     func splitTabBar(_ controller: BonsplitController, shouldCloseTab tab: Bonsplit.Tab, inPane pane: PaneID) -> Bool {
+        guard let owningTopTab = topTab(containingSurfaceId: tab.id) ?? topTab(for: controller) else {
+            return true
+        }
+
         func recordPostCloseSelection() {
             let tabs = controller.tabs(inPane: pane)
             guard let idx = tabs.firstIndex(where: { $0.id == tab.id }) else {
-                postCloseSelectTabId.removeValue(forKey: tab.id)
+                owningTopTab.postCloseSelectTabId.removeValue(forKey: tab.id)
                 return
             }
 
@@ -5299,29 +5331,34 @@ extension Workspace: BonsplitDelegate {
             }()
 
             if let target {
-                postCloseSelectTabId[tab.id] = target
+                owningTopTab.postCloseSelectTabId[tab.id] = target
             } else {
-                postCloseSelectTabId.removeValue(forKey: tab.id)
+                owningTopTab.postCloseSelectTabId.removeValue(forKey: tab.id)
             }
         }
 
         let explicitUserClose = explicitUserCloseTabIds.remove(tab.id) != nil
 
-        if forceCloseTabIds.contains(tab.id) {
-            stageClosedBrowserRestoreSnapshotIfNeeded(for: tab, inPane: pane)
+        if owningTopTab.forceCloseTabIds.contains(tab.id) {
+            stageClosedBrowserRestoreSnapshotIfNeeded(
+                for: tab,
+                inPane: pane,
+                controller: controller,
+                topTab: owningTopTab
+            )
             recordPostCloseSelection()
             return true
         }
 
         if let panelId = panelIdFromSurfaceId(tab.id),
            pinnedPanelIds.contains(panelId) {
-            clearStagedClosedBrowserRestoreSnapshot(for: tab.id)
+            clearStagedClosedBrowserRestoreSnapshot(for: tab.id, topTab: owningTopTab)
             NSSound.beep()
             return false
         }
 
         if explicitUserClose && shouldCloseWorkspaceOnLastSurface(for: tab.id) {
-            clearStagedClosedBrowserRestoreSnapshot(for: tab.id)
+            clearStagedClosedBrowserRestoreSnapshot(for: tab.id, topTab: owningTopTab)
             owningTabManager?.closeWorkspaceWithConfirmation(self)
             return false
         }
@@ -5329,7 +5366,12 @@ extension Workspace: BonsplitDelegate {
         // Check if the panel needs close confirmation
         guard let panelId = panelIdFromSurfaceId(tab.id),
               let terminalPanel = terminalPanel(for: panelId) else {
-            stageClosedBrowserRestoreSnapshotIfNeeded(for: tab, inPane: pane)
+            stageClosedBrowserRestoreSnapshotIfNeeded(
+                for: tab,
+                inPane: pane,
+                controller: controller,
+                topTab: owningTopTab
+            )
             recordPostCloseSelection()
             return true
         }
@@ -5338,45 +5380,60 @@ extension Workspace: BonsplitDelegate {
         // Show an app-level confirmation, then re-attempt the close with forceCloseTabIds to bypass
         // this gating on the second pass.
         if panelNeedsConfirmClose(panelId: panelId, fallbackNeedsConfirmClose: terminalPanel.needsConfirmClose()) {
-            clearStagedClosedBrowserRestoreSnapshot(for: tab.id)
-            if pendingCloseConfirmTabIds.contains(tab.id) {
+            clearStagedClosedBrowserRestoreSnapshot(for: tab.id, topTab: owningTopTab)
+            if owningTopTab.pendingCloseConfirmTabIds.contains(tab.id) {
                 return false
             }
 
-            pendingCloseConfirmTabIds.insert(tab.id)
+            owningTopTab.pendingCloseConfirmTabIds.insert(tab.id)
             let tabId = tab.id
+            let topTabId = owningTopTab.id
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 Task { @MainActor in
-                    defer { self.pendingCloseConfirmTabIds.remove(tabId) }
+                    defer {
+                        self.topTabs
+                            .first(where: { $0.id == topTabId })?
+                            .pendingCloseConfirmTabIds
+                            .remove(tabId)
+                    }
 
                     // If the tab disappeared while we were scheduling, do nothing.
-                    guard self.panelIdFromSurfaceId(tabId) != nil else { return }
+                    guard let currentTopTab = self.topTabs.first(where: { $0.id == topTabId }),
+                          currentTopTab.surfaceIdToPanelId[tabId] != nil else {
+                        return
+                    }
 
                     let confirmed = await self.confirmClosePanel(for: tabId)
                     guard confirmed else { return }
 
-                    self.forceCloseTabIds.insert(tabId)
-                    self.bonsplitController.closeTab(tabId)
+                    currentTopTab.forceCloseTabIds.insert(tabId)
+                    _ = currentTopTab.bonsplitController.closeTab(tabId)
                 }
             }
 
             return false
         }
 
-        clearStagedClosedBrowserRestoreSnapshot(for: tab.id)
+        clearStagedClosedBrowserRestoreSnapshot(for: tab.id, topTab: owningTopTab)
         recordPostCloseSelection()
         return true
     }
 
     func splitTabBar(_ controller: BonsplitController, didCloseTab tabId: TabID, fromPane pane: PaneID) {
-        forceCloseTabIds.remove(tabId)
-        let selectTabId = postCloseSelectTabId.removeValue(forKey: tabId)
-        let closedBrowserRestoreSnapshot = pendingClosedBrowserRestoreSnapshots.removeValue(forKey: tabId)
-        let isDetaching = detachingTabIds.remove(tabId) != nil || isDetachingCloseTransaction
+        guard let owningTopTab = topTab(containingSurfaceId: tabId) ?? topTab(for: controller) else {
+            scheduleTerminalGeometryReconcile()
+            return
+        }
+
+        owningTopTab.forceCloseTabIds.remove(tabId)
+        let selectTabId = owningTopTab.postCloseSelectTabId.removeValue(forKey: tabId)
+        let closedBrowserRestoreSnapshot = owningTopTab.pendingClosedBrowserRestoreSnapshots.removeValue(forKey: tabId)
+        let isDetaching = owningTopTab.detachingTabIds.remove(tabId) != nil || owningTopTab.isDetachingCloseTransaction
+        let isSelectedTopTab = selectedTopTabId == owningTopTab.id
 
         // Clean up our panel
-        guard let panelId = panelIdFromSurfaceId(tabId) else {
+        guard let panelId = owningTopTab.surfaceIdToPanelId[tabId] ?? panelIdFromSurfaceId(tabId) else {
             #if DEBUG
             dlog(
                 "surface.didCloseTab.skip tab=\(String(describing: tabId).prefix(5)) " +
@@ -5405,7 +5462,7 @@ extension Workspace: BonsplitDelegate {
             let browserPanel = panel as? BrowserPanel
             let cachedTitle = panelTitles[panelId]
             let transferFallbackTitle = cachedTitle ?? panel.displayTitle
-            pendingDetachedSurfaces[tabId] = DetachedSurfaceTransfer(
+            owningTopTab.pendingDetachedSurfaces[tabId] = DetachedSurfaceTransfer(
                 panelId: panelId,
                 panel: panel,
                 title: resolvedPanelTitle(panelId: panelId, fallback: transferFallbackTitle),
@@ -5428,7 +5485,7 @@ extension Workspace: BonsplitDelegate {
 
         panels.removeValue(forKey: panelId)
         unregisterPanelOwnership(panelId)
-        surfaceIdToPanelId.removeValue(forKey: tabId)
+        owningTopTab.surfaceIdToPanelId.removeValue(forKey: tabId)
         panelDirectories.removeValue(forKey: panelId)
         panelGitBranches.removeValue(forKey: panelId)
         panelPullRequests.removeValue(forKey: panelId)
@@ -5442,16 +5499,16 @@ extension Workspace: BonsplitDelegate {
         surfaceTTYNames.removeValue(forKey: panelId)
         restoredTerminalScrollbackByPanelId.removeValue(forKey: panelId)
         PortScanner.shared.unregisterPanel(workspaceId: id, panelId: panelId)
-        terminalInheritanceFontPointsByPanelId.removeValue(forKey: panelId)
-        if lastTerminalConfigInheritancePanelId == panelId {
-            lastTerminalConfigInheritancePanelId = nil
+        owningTopTab.terminalInheritanceFontPointsByPanelId.removeValue(forKey: panelId)
+        if owningTopTab.lastTerminalConfigInheritancePanelId == panelId {
+            owningTopTab.lastTerminalConfigInheritancePanelId = nil
         }
         AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: id, surfaceId: panelId)
 
         // Keep the workspace invariant for normal close paths.
         // Detach/move flows intentionally allow a temporary empty workspace so AppDelegate can
         // prune the source workspace/window after the tab is attached elsewhere.
-        if selectedTopTabPanelCount == 0 {
+        if panelCount(in: owningTopTab) == 0 {
             if isDetaching {
 #if DEBUG
                 dlog(
@@ -5463,8 +5520,8 @@ extension Workspace: BonsplitDelegate {
                 return
             }
 
-            if topTabs.count > 1, let selectedTopTabId {
-                closeTopTab(selectedTopTabId)
+            if topTabs.count > 1 {
+                closeTopTab(owningTopTab.id)
                 scheduleTerminalGeometryReconcile()
                 return
             }
@@ -5488,26 +5545,28 @@ extension Workspace: BonsplitDelegate {
             return
         }
 
-        if let selectTabId,
-           bonsplitController.allPaneIds.contains(pane),
-           bonsplitController.tabs(inPane: pane).contains(where: { $0.id == selectTabId }),
-           bonsplitController.focusedPaneId == pane {
+        if isSelectedTopTab,
+           let selectTabId,
+           controller.allPaneIds.contains(pane),
+           controller.tabs(inPane: pane).contains(where: { $0.id == selectTabId }),
+           controller.focusedPaneId == pane {
             // Keep selection/focus convergence in the same close transaction to avoid a transient
             // frame where the pane has no selected content.
-            bonsplitController.selectTab(selectTabId)
+            controller.selectTab(selectTabId)
             applyTabSelection(tabId: selectTabId, inPane: pane)
-        } else if let focusedPane = bonsplitController.focusedPaneId,
-                  let focusedTabId = bonsplitController.selectedTab(inPane: focusedPane)?.id {
+        } else if isSelectedTopTab,
+                  let focusedPane = controller.focusedPaneId,
+                  let focusedTabId = controller.selectedTab(inPane: focusedPane)?.id {
             // When closing the last tab in a pane, Bonsplit may focus a different pane and skip
             // emitting didSelectTab. Re-apply the focused selection so sidebar state stays in sync.
             applyTabSelection(tabId: focusedTabId, inPane: focusedPane)
         }
 
-        if bonsplitController.allPaneIds.contains(pane) {
-            normalizePinnedTabs(in: pane)
+        if controller.allPaneIds.contains(pane) {
+            normalizePinnedTabs(in: pane, topTab: owningTopTab)
         }
 #if DEBUG
-        let focusedPaneAfter = bonsplitController.focusedPaneId?.id.uuidString.prefix(5) ?? "nil"
+        let focusedPaneAfter = controller.focusedPaneId?.id.uuidString.prefix(5) ?? "nil"
         let focusedPanelAfter = focusedPanelId?.uuidString.prefix(5) ?? "nil"
         dlog(
             "surface.didCloseTab.end tab=\(String(describing: tabId).prefix(5)) " +
@@ -5516,7 +5575,7 @@ extension Workspace: BonsplitDelegate {
         )
 #endif
         scheduleTerminalGeometryReconcile()
-        if !isDetaching {
+        if isSelectedTopTab && !isDetaching {
             scheduleFocusReconcile()
         }
     }
@@ -5597,12 +5656,17 @@ extension Workspace: BonsplitDelegate {
     }
 
     func splitTabBar(_ controller: BonsplitController, didClosePane paneId: PaneID) {
-        let closedPanelIds = pendingPaneClosePanelIds.removeValue(forKey: paneId.id) ?? []
-        let shouldScheduleFocusReconcile = !isDetachingCloseTransaction
+        guard let owningTopTab = topTab(for: controller) else {
+            scheduleTerminalGeometryReconcile()
+            return
+        }
+
+        let closedPanelIds = owningTopTab.pendingPaneClosePanelIds.removeValue(forKey: paneId.id) ?? []
+        let shouldScheduleFocusReconcile = (selectedTopTabId == owningTopTab.id) && !owningTopTab.isDetachingCloseTransaction
 #if DEBUG
         dlog(
             "surface.didClosePane.begin pane=\(paneId.id.uuidString.prefix(5)) " +
-            "closedPanels=\(closedPanelIds.count) detaching=\(isDetachingCloseTransaction ? 1 : 0)"
+            "closedPanels=\(closedPanelIds.count) detaching=\(owningTopTab.isDetachingCloseTransaction ? 1 : 0)"
         )
 #endif
 
@@ -5624,20 +5688,26 @@ extension Workspace: BonsplitDelegate {
                 panelCustomTitles.removeValue(forKey: panelId)
                 pinnedPanelIds.remove(panelId)
                 manualUnreadPanelIds.remove(panelId)
+                manualUnreadMarkedAt.removeValue(forKey: panelId)
                 panelSubscriptions.removeValue(forKey: panelId)
                 panelShellActivityStates.removeValue(forKey: panelId)
                 surfaceTTYNames.removeValue(forKey: panelId)
                 surfaceListeningPorts.removeValue(forKey: panelId)
                 restoredTerminalScrollbackByPanelId.removeValue(forKey: panelId)
                 PortScanner.shared.unregisterPanel(workspaceId: id, panelId: panelId)
+                owningTopTab.terminalInheritanceFontPointsByPanelId.removeValue(forKey: panelId)
+                if owningTopTab.lastTerminalConfigInheritancePanelId == panelId {
+                    owningTopTab.lastTerminalConfigInheritancePanelId = nil
+                }
+                AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: id, surfaceId: panelId)
             }
 
             let closedSet = Set(closedPanelIds)
-            surfaceIdToPanelId = surfaceIdToPanelId.filter { !closedSet.contains($0.value) }
+            owningTopTab.surfaceIdToPanelId = owningTopTab.surfaceIdToPanelId.filter { !closedSet.contains($0.value) }
             recomputeListeningPorts()
 
-            if selectedTopTabPanelCount == 0, topTabs.count > 1, let selectedTopTabId {
-                closeTopTab(selectedTopTabId)
+            if panelCount(in: owningTopTab) == 0, topTabs.count > 1 {
+                closeTopTab(owningTopTab.id)
                 scheduleTerminalGeometryReconcile()
                 if shouldScheduleFocusReconcile {
                     scheduleFocusReconcile()
@@ -5645,8 +5715,9 @@ extension Workspace: BonsplitDelegate {
                 return
             }
 
-            if let focusedPane = bonsplitController.focusedPaneId,
-               let focusedTabId = bonsplitController.selectedTab(inPane: focusedPane)?.id {
+            if selectedTopTabId == owningTopTab.id,
+               let focusedPane = controller.focusedPaneId,
+               let focusedTabId = controller.selectedTab(inPane: focusedPane)?.id {
                 applyTabSelection(tabId: focusedTabId, inPane: focusedPane)
             } else if shouldScheduleFocusReconcile {
                 scheduleFocusReconcile()
@@ -5666,18 +5737,20 @@ extension Workspace: BonsplitDelegate {
     }
 
     func splitTabBar(_ controller: BonsplitController, shouldClosePane pane: PaneID) -> Bool {
+        guard let owningTopTab = topTab(for: controller) else { return true }
+
         // Check if any panel in this pane needs close confirmation
         let tabs = controller.tabs(inPane: pane)
         for tab in tabs {
-            if forceCloseTabIds.contains(tab.id) { continue }
+            if owningTopTab.forceCloseTabIds.contains(tab.id) { continue }
             if let panelId = panelIdFromSurfaceId(tab.id),
                let terminalPanel = terminalPanel(for: panelId),
                panelNeedsConfirmClose(panelId: panelId, fallbackNeedsConfirmClose: terminalPanel.needsConfirmClose()) {
-                pendingPaneClosePanelIds.removeValue(forKey: pane.id)
+                owningTopTab.pendingPaneClosePanelIds.removeValue(forKey: pane.id)
                 return false
             }
         }
-        pendingPaneClosePanelIds[pane.id] = tabs.compactMap { panelIdFromSurfaceId($0.id) }
+        owningTopTab.pendingPaneClosePanelIds[pane.id] = tabs.compactMap { panelIdFromSurfaceId($0.id) }
         return true
     }
 

@@ -10,9 +10,11 @@ import XCTest
 final class AppDelegateShortcutRoutingTests: XCTestCase {
     private var savedShortcutsByAction: [KeyboardShortcutSettings.Action: StoredShortcut] = [:]
     private var actionsWithPersistedShortcut: Set<KeyboardShortcutSettings.Action> = []
+    private var previousTopTabsSetting: Any?
 
     override func setUp() {
         super.setUp()
+        previousTopTabsSetting = UserDefaults.standard.object(forKey: WorkspaceTopTabsFeatureSettings.key)
         UserDefaults.standard.removeObject(forKey: WorkspaceTopTabsFeatureSettings.key)
         actionsWithPersistedShortcut = Set(
             KeyboardShortcutSettings.Action.allCases.filter {
@@ -28,7 +30,12 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
     }
 
     override func tearDown() {
-        UserDefaults.standard.removeObject(forKey: WorkspaceTopTabsFeatureSettings.key)
+        if let previousTopTabsSetting {
+            UserDefaults.standard.set(previousTopTabsSetting, forKey: WorkspaceTopTabsFeatureSettings.key)
+        } else {
+            UserDefaults.standard.removeObject(forKey: WorkspaceTopTabsFeatureSettings.key)
+        }
+        previousTopTabsSetting = nil
         AppDelegate.shared?.shortcutLayoutCharacterProvider = KeyboardLayout.character(forKeyCode:modifierFlags:)
         AppDelegate.shared?.debugCloseMainWindowConfirmationHandler = nil
         AppDelegate.shared?.dismissNotificationsPopoverIfShown()
