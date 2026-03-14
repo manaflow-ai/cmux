@@ -2214,14 +2214,33 @@ class TabManager: ObservableObject {
         }
     }
 
-    func focusTabFromNotification(_ tabId: UUID, surfaceId: UUID? = nil) {
+    @discardableResult
+    func focusTabFromNotification(_ tabId: UUID, surfaceId: UUID? = nil) -> Bool {
         let wasSelected = selectedTabId == tabId
-        let desiredPanelId = surfaceId ?? tabs.first(where: { $0.id == tabId })?.focusedPanelId
+        guard let tab = tabs.first(where: { $0.id == tabId }) else {
+#if DEBUG
+            dlog("notification.focus.fail tab=\(tabId.uuidString.prefix(5)) reason=missingTab")
+#endif
+            return false
+        }
+        if let surfaceId, tab.panels[surfaceId] == nil {
+#if DEBUG
+            dlog(
+                "notification.focus.fail tab=\(tabId.uuidString.prefix(5)) " +
+                "panel=\(surfaceId.uuidString.prefix(5)) reason=missingPanel"
+            )
+#endif
+            return false
+        }
+        let desiredPanelId = surfaceId ?? tab.focusedPanelId
 #if DEBUG
         if let desiredPanelId {
             AppDelegate.shared?.armJumpUnreadFocusRecord(tabId: tabId, surfaceId: desiredPanelId)
         }
 #endif
+        // Jump-to-unread should reveal the destination pane instead of keeping an old split-zoom
+        // state active around it.
+        tab.clearSplitZoom()
         suppressFocusFlash = true
         focusTab(tabId, surfaceId: desiredPanelId, suppressFlash: true)
         if wasSelected {
@@ -2239,6 +2258,7 @@ class TabManager: ObservableObject {
             tab.triggerNotificationFocusFlash(panelId: targetPanelId, requiresSplit: false, shouldFocus: true)
             notificationStore.markRead(forTabId: tabId, surfaceId: targetPanelId)
         }
+        return true
     }
 
     func focusSurface(tabId: UUID, surfaceId: UUID) {
