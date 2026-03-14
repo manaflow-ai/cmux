@@ -3224,7 +3224,7 @@ struct ContentView: View {
                 commandPaletteVisibleResultsScope = nil
                 commandPaletteVisibleResultsFingerprint = nil
             }
-            scheduleCommandPaletteResultsRefresh()
+            scheduleCommandPaletteResultsRefresh(query: newValue)
             updateCommandPaletteScrollTarget(resultCount: commandPaletteVisibleResults.count, animated: false)
             syncCommandPaletteDebugStateForObservedWindow()
         }
@@ -3360,10 +3360,13 @@ struct ContentView: View {
     }
 
     private var commandPaletteCurrentSearchFingerprint: Int {
-        commandPaletteEntriesFingerprint(for: commandPaletteListScope)
+        commandPaletteEntriesFingerprint(
+            for: commandPaletteListScope,
+            includeSurfaces: commandPaletteSwitcherIncludesSurfaceEntries
+        )
     }
 
-    private static func commandPaletteListScope(for query: String) -> CommandPaletteListScope {
+    nonisolated private static func commandPaletteListScope(for query: String) -> CommandPaletteListScope {
         if query.hasPrefix(Self.commandPaletteCommandsPrefix) {
             return .commands
         }
@@ -3379,7 +3382,10 @@ struct ContentView: View {
     }
 
     private var commandPaletteSwitcherIncludesSurfaceEntries: Bool {
-        commandPaletteSearchAllSurfaces && !commandPaletteQueryForMatching.isEmpty
+        Self.commandPaletteSwitcherIncludesSurfaceEntries(
+            searchAllSurfaces: commandPaletteSearchAllSurfaces,
+            query: commandPaletteQuery
+        )
     }
 
     private var commandPaletteSearchPlaceholder: String {
@@ -3405,32 +3411,102 @@ struct ContentView: View {
     }
 
     private var commandPaletteQueryForMatching: String {
-        switch commandPaletteListScope {
+        Self.commandPaletteQueryForMatching(
+            query: commandPaletteQuery,
+            scope: commandPaletteListScope
+        )
+    }
+
+    nonisolated private static func commandPaletteRefreshQuery(
+        stateQuery: String,
+        observedQuery: String?
+    ) -> String {
+        observedQuery ?? stateQuery
+    }
+
+    nonisolated static func commandPaletteRefreshInputsForTests(
+        stateQuery: String,
+        observedQuery: String?,
+        searchAllSurfaces: Bool
+    ) -> (scope: String, matchingQuery: String, includesSurfaces: Bool) {
+        let effectiveQuery = commandPaletteRefreshQuery(
+            stateQuery: stateQuery,
+            observedQuery: observedQuery
+        )
+        let scope = commandPaletteListScope(for: effectiveQuery)
+        return (
+            scope: scope.rawValue,
+            matchingQuery: commandPaletteQueryForMatching(query: effectiveQuery, scope: scope),
+            includesSurfaces: commandPaletteSwitcherIncludesSurfaceEntries(
+                searchAllSurfaces: searchAllSurfaces,
+                query: effectiveQuery
+            )
+        )
+    }
+
+    nonisolated private static func commandPaletteQueryForMatching(
+        query: String,
+        scope: CommandPaletteListScope
+    ) -> String {
+        switch scope {
         case .commands:
-            let suffix = String(commandPaletteQuery.dropFirst(Self.commandPaletteCommandsPrefix.count))
+            let suffix = String(query.dropFirst(Self.commandPaletteCommandsPrefix.count))
             return suffix.trimmingCharacters(in: .whitespacesAndNewlines)
         case .switcher:
-            return commandPaletteQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+            return query.trimmingCharacters(in: .whitespacesAndNewlines)
         }
     }
 
     private func commandPaletteEntries(for scope: CommandPaletteListScope) -> [CommandPaletteCommand] {
+        commandPaletteEntries(
+            for: scope,
+            includeSurfaces: commandPaletteSwitcherIncludesSurfaceEntries
+        )
+    }
+
+    private func commandPaletteEntries(
+        for scope: CommandPaletteListScope,
+        includeSurfaces: Bool
+    ) -> [CommandPaletteCommand] {
         switch scope {
         case .commands:
             return commandPaletteCommands()
         case .switcher:
-            return commandPaletteSwitcherEntries(includeSurfaces: commandPaletteSwitcherIncludesSurfaceEntries)
+            return commandPaletteSwitcherEntries(includeSurfaces: includeSurfaces)
         }
     }
 
-    private func refreshCommandPaletteSearchCorpus(force: Bool = false) {
-        let scope = commandPaletteListScope
-        let fingerprint = commandPaletteEntriesFingerprint(for: scope)
+    nonisolated private static func commandPaletteSwitcherIncludesSurfaceEntries(
+        searchAllSurfaces: Bool,
+        query: String
+    ) -> Bool {
+        let scope = commandPaletteListScope(for: query)
+        guard scope == .switcher else { return false }
+        return searchAllSurfaces && !commandPaletteQueryForMatching(query: query, scope: scope).isEmpty
+    }
+
+    private func refreshCommandPaletteSearchCorpus(
+        force: Bool = false,
+        query: String? = nil
+    ) {
+        let effectiveQuery = Self.commandPaletteRefreshQuery(
+            stateQuery: commandPaletteQuery,
+            observedQuery: query
+        )
+        let scope = Self.commandPaletteListScope(for: effectiveQuery)
+        let includeSurfaces = Self.commandPaletteSwitcherIncludesSurfaceEntries(
+            searchAllSurfaces: commandPaletteSearchAllSurfaces,
+            query: effectiveQuery
+        )
+        let fingerprint = commandPaletteEntriesFingerprint(
+            for: scope,
+            includeSurfaces: includeSurfaces
+        )
         guard force || cachedCommandPaletteScope != scope || cachedCommandPaletteFingerprint != fingerprint else {
             return
         }
 
-        let entries = commandPaletteEntries(for: scope)
+        let entries = commandPaletteEntries(for: scope, includeSurfaces: includeSurfaces)
         commandPaletteSearchCommandsByID = Dictionary(uniqueKeysWithValues: entries.map { ($0.id, $0) })
         let searchCorpus = entries.map { entry in
             CommandPaletteSearchCorpusEntry(
@@ -3638,18 +3714,32 @@ struct ContentView: View {
         !hasVisibleResultsForScope
     }
 
-    private func scheduleCommandPaletteResultsRefresh(forceSearchCorpusRefresh: Bool = false) {
-        refreshCommandPaletteSearchCorpus(force: forceSearchCorpusRefresh)
+    private func scheduleCommandPaletteResultsRefresh(
+        query: String? = nil,
+        forceSearchCorpusRefresh: Bool = false
+    ) {
+        let effectiveQuery = Self.commandPaletteRefreshQuery(
+            stateQuery: commandPaletteQuery,
+            observedQuery: query
+        )
+        let scope = Self.commandPaletteListScope(for: effectiveQuery)
+        let matchingQuery = Self.commandPaletteQueryForMatching(
+            query: effectiveQuery,
+            scope: scope
+        )
+
+        refreshCommandPaletteSearchCorpus(
+            force: forceSearchCorpusRefresh,
+            query: effectiveQuery
+        )
 
         commandPaletteSearchRequestID &+= 1
         let requestID = commandPaletteSearchRequestID
-        let query = commandPaletteQueryForMatching
-        let scope = commandPaletteListScope
         let fingerprint = cachedCommandPaletteFingerprint
         let searchCorpus = commandPaletteSearchCorpus
         let commandsByID = commandPaletteSearchCommandsByID
         let usageHistory = commandPaletteUsageHistoryByCommandId
-        let queryIsEmpty = CommandPaletteFuzzyMatcher.preparedQuery(query).isEmpty
+        let queryIsEmpty = CommandPaletteFuzzyMatcher.preparedQuery(matchingQuery).isEmpty
         let historyTimestamp = Date().timeIntervalSince1970
         commandPalettePendingActivation = nil
         cancelCommandPaletteSearch()
@@ -3658,7 +3748,7 @@ struct ContentView: View {
         ) {
             let matches = Self.commandPaletteResolvedSearchMatches(
                 searchCorpus: searchCorpus,
-                query: query,
+                query: matchingQuery,
                 usageHistory: usageHistory,
                 queryIsEmpty: queryIsEmpty,
                 historyTimestamp: historyTimestamp
@@ -3682,7 +3772,7 @@ struct ContentView: View {
         refreshPendingCommandPaletteVisibleResults(
             scope: scope,
             fingerprint: fingerprint,
-            query: query,
+            query: matchingQuery,
             usageHistory: usageHistory,
             queryIsEmpty: queryIsEmpty,
             historyTimestamp: historyTimestamp
@@ -3692,7 +3782,7 @@ struct ContentView: View {
         commandPaletteSearchTask = Task.detached(priority: .userInitiated) {
             let matches = Self.commandPaletteResolvedSearchMatches(
                 searchCorpus: searchCorpus,
-                query: query,
+                query: matchingQuery,
                 usageHistory: usageHistory,
                 queryIsEmpty: queryIsEmpty,
                 historyTimestamp: historyTimestamp,
@@ -3702,10 +3792,14 @@ struct ContentView: View {
             guard !Task.isCancelled else { return }
 
             await MainActor.run {
+                let currentScope = Self.commandPaletteListScope(for: commandPaletteQuery)
                 guard commandPaletteSearchRequestID == requestID,
                       isCommandPalettePresented,
-                      commandPaletteListScope == scope,
-                      commandPaletteQueryForMatching == query,
+                      currentScope == scope,
+                      Self.commandPaletteQueryForMatching(
+                          query: commandPaletteQuery,
+                          scope: currentScope
+                      ) == matchingQuery,
                       cachedCommandPaletteFingerprint == fingerprint else {
                     return
                 }
@@ -3745,11 +3839,21 @@ struct ContentView: View {
     }
 
     private func commandPaletteEntriesFingerprint(for scope: CommandPaletteListScope) -> Int {
+        commandPaletteEntriesFingerprint(
+            for: scope,
+            includeSurfaces: commandPaletteSwitcherIncludesSurfaceEntries
+        )
+    }
+
+    private func commandPaletteEntriesFingerprint(
+        for scope: CommandPaletteListScope,
+        includeSurfaces: Bool
+    ) -> Int {
         switch scope {
         case .commands:
             return commandPaletteCommandsFingerprint()
         case .switcher:
-            return commandPaletteSwitcherEntriesFingerprint(includeSurfaces: commandPaletteSwitcherIncludesSurfaceEntries)
+            return commandPaletteSwitcherEntriesFingerprint(includeSurfaces: includeSurfaces)
         }
     }
 

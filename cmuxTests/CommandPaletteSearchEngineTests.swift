@@ -465,6 +465,47 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         )
     }
 
+    func testRefreshInputsPreferObservedQueryOverStaleState() {
+        let inputs = ContentView.commandPaletteRefreshInputsForTests(
+            stateQuery: ">",
+            observedQuery: "",
+            searchAllSurfaces: true
+        )
+
+        XCTAssertEqual(inputs.scope, "switcher")
+        XCTAssertEqual(inputs.matchingQuery, "")
+        XCTAssertFalse(inputs.includesSurfaces)
+    }
+
+    func testRefreshInputsIncludeSurfacesOnlyForNonEmptySwitcherQuery() {
+        let switcherInputs = ContentView.commandPaletteRefreshInputsForTests(
+            stateQuery: "",
+            observedQuery: "  feature/search  ",
+            searchAllSurfaces: true
+        )
+        XCTAssertEqual(switcherInputs.scope, "switcher")
+        XCTAssertEqual(switcherInputs.matchingQuery, "feature/search")
+        XCTAssertTrue(switcherInputs.includesSurfaces)
+
+        let commandInputs = ContentView.commandPaletteRefreshInputsForTests(
+            stateQuery: "",
+            observedQuery: ">feature/search",
+            searchAllSurfaces: true
+        )
+        XCTAssertEqual(commandInputs.scope, "commands")
+        XCTAssertEqual(commandInputs.matchingQuery, "feature/search")
+        XCTAssertFalse(commandInputs.includesSurfaces)
+
+        let workspaceOnlyInputs = ContentView.commandPaletteRefreshInputsForTests(
+            stateQuery: "",
+            observedQuery: "feature/search",
+            searchAllSurfaces: false
+        )
+        XCTAssertEqual(workspaceOnlyInputs.scope, "switcher")
+        XCTAssertEqual(workspaceOnlyInputs.matchingQuery, "feature/search")
+        XCTAssertFalse(workspaceOnlyInputs.includesSurfaces)
+    }
+
     func testCommandContextFingerprintTracksExactContextValues() {
         let base = ContentView.commandPaletteContextFingerprint(
             boolValues: [
