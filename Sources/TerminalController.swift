@@ -60,6 +60,9 @@ class TerminalController {
     private nonisolated static let socketProbePollTimeoutMs: Int32 = 100
     private nonisolated static let socketProbePollAttempts = 3
     private nonisolated static let socketProbePollRetryBackoffUs: useconds_t = 50_000
+    private nonisolated static let socketListenerFailureCaptureCooldown: TimeInterval = 60
+    private nonisolated static let socketListenerFailureCaptureLock = NSLock()
+    private nonisolated(unsafe) static var socketListenerFailureLastCapturedAt: [String: Date] = [:]
     private nonisolated static let unixSocketPathMaxLength: Int = {
         var addr = sockaddr_un()
         // Reserve one byte for the null terminator.
@@ -505,7 +508,33 @@ class TerminalController {
     ) {
         let data = socketListenerEventData(stage: stage, errnoCode: errnoCode, extra: extra)
         sentryBreadcrumb(message, category: "socket", data: data)
+        guard Self.shouldCaptureSocketListenerFailure(
+            message: message,
+            stage: stage,
+            path: data["path"] as? String ?? "",
+            errnoCode: errnoCode
+        ) else {
+            return
+        }
         sentryCaptureError(message, category: "socket", data: data, contextKey: "socket_listener")
+    }
+
+    private nonisolated static func shouldCaptureSocketListenerFailure(
+        message: String,
+        stage: String,
+        path: String,
+        errnoCode: Int32?
+    ) -> Bool {
+        let key = "\(message)|\(stage)|\(path)|\(errnoCode.map(String.init) ?? "none")"
+        let now = Date()
+        socketListenerFailureCaptureLock.lock()
+        defer { socketListenerFailureCaptureLock.unlock() }
+        if let lastCapturedAt = socketListenerFailureLastCapturedAt[key],
+           now.timeIntervalSince(lastCapturedAt) < socketListenerFailureCaptureCooldown {
+            return false
+        }
+        socketListenerFailureLastCapturedAt[key] = now
+        return true
     }
 
     nonisolated static func acceptErrorClassification(errnoCode: Int32) -> String {
