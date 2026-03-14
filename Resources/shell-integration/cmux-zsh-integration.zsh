@@ -288,11 +288,9 @@ _cmux_run_pr_probe_with_timeout() {
 
 _cmux_stop_pr_poll_loop() {
     if [[ -n "$_CMUX_PR_POLL_PID" ]]; then
-        _cmux_kill_process_tree "$_CMUX_PR_POLL_PID" TERM
-        sleep 0.1
-        if kill -0 "$_CMUX_PR_POLL_PID" >/dev/null 2>&1; then
-            _cmux_kill_process_tree "$_CMUX_PR_POLL_PID" KILL
-        fi
+        # Use SIGKILL directly to avoid blocking sleep in preexec.
+        # The poll loop is lightweight and safe to kill abruptly.
+        _cmux_kill_process_tree "$_CMUX_PR_POLL_PID" KILL
         _CMUX_PR_POLL_PID=""
     fi
 }
