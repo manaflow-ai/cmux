@@ -3804,6 +3804,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             source: "surface.viewDidMoveToWindow"
         )
         applyWindowBackgroundIfActive()
+        invalidateTextInputCoordinates()
     }
 
     override func viewDidChangeEffectiveAppearance() {
@@ -3835,11 +3836,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             CATransaction.commit()
         }
         updateSurfaceSize()
+        invalidateTextInputCoordinates()
     }
 
     override func layout() {
         super.layout()
         updateSurfaceSize()
+        invalidateTextInputCoordinates()
     }
 
     override var isOpaque: Bool { false }
@@ -4388,16 +4391,45 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func accessibilitySelectedText() -> String? {
-        guard let surface = surface else { return nil }
+        guard let snapshot = readSelectionSnapshot() else { return nil }
+        return snapshot.string.isEmpty ? nil : snapshot.string
+    }
+
+    private func readSelectionSnapshot() -> SelectionSnapshot? {
+        guard let surface else { return nil }
 
         var text = ghostty_text_s()
         guard ghostty_surface_read_selection(surface, &text) else { return nil }
         defer { ghostty_surface_free_text(surface, &text) }
 
-        guard let ptr = text.text, text.text_len > 0 else { return nil }
-        let selectedData = Data(bytes: ptr, count: Int(text.text_len))
-        let selected = String(decoding: selectedData, as: UTF8.self)
-        return selected.isEmpty ? nil : selected
+        let selected: String
+        if let ptr = text.text, text.text_len > 0 {
+            let selectedData = Data(bytes: ptr, count: Int(text.text_len))
+            selected = String(decoding: selectedData, as: UTF8.self)
+        } else {
+            selected = ""
+        }
+
+        return SelectionSnapshot(
+            range: NSRange(location: Int(text.offset_start), length: Int(text.offset_len)),
+            string: selected,
+            topLeft: CGPoint(x: text.tl_px_x, y: text.tl_px_y)
+        )
+    }
+
+    private func visibleDocumentRectInScreenCoordinates() -> NSRect {
+        let localRect = visibleRect
+        let windowRect = convert(localRect, to: nil)
+        guard let window else { return windowRect }
+        return window.convertToScreen(windowRect)
+    }
+
+    private func invalidateTextInputCoordinates(selectionChanged: Bool = false) {
+        guard let inputContext else { return }
+        inputContext.invalidateCharacterCoordinates()
+        if #available(macOS 15.4, *), selectionChanged {
+            inputContext.textInputClientDidUpdateSelection()
+        }
     }
 
     override var acceptsFirstResponder: Bool { true }
@@ -4492,6 +4524,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var keyTextAccumulator: [String]? = nil
     private var markedText = NSMutableAttributedString()
     private var lastPerformKeyEvent: TimeInterval?
+    private struct SelectionSnapshot {
+        let range: NSRange
+        let string: String
+        let topLeft: CGPoint
+    }
 
 #if DEBUG
     // Test-only accessors for keyTextAccumulator to verify CJK IME composition behavior.
@@ -8056,7 +8093,7 @@ extension GhosttyNSView: NSTextInputClient {
     }
 
     func selectedRange() -> NSRange {
-        return NSRange(location: NSNotFound, length: 0)
+        readSelectionSnapshot()?.range ?? NSRange(location: 0, length: 0)
     }
 
     func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
@@ -8084,6 +8121,7 @@ extension GhosttyNSView: NSTextInputClient {
         // while composing.
         if keyTextAccumulator == nil {
             syncPreedit()
+            invalidateTextInputCoordinates(selectionChanged: true)
         }
     }
 
@@ -8102,6 +8140,7 @@ extension GhosttyNSView: NSTextInputClient {
         if markedText.length > 0 {
             markedText.mutableString.setString("")
             syncPreedit()
+            invalidateTextInputCoordinates(selectionChanged: true)
         }
     }
 
@@ -8142,11 +8181,14 @@ extension GhosttyNSView: NSTextInputClient {
     }
 
     func attributedSubstring(forProposedRange range: NSRange, actualRange: NSRangePointer?) -> NSAttributedString? {
-        return nil
+        guard range.length > 0,
+              let snapshot = readSelectionSnapshot() else { return nil }
+        actualRange?.pointee = snapshot.range
+        return NSAttributedString(string: snapshot.string)
     }
 
     func characterIndex(for point: NSPoint) -> Int {
-        return 0
+        return selectedRange().location
     }
 
     func firstRect(forCharacterRange range: NSRange, actualRange: NSRangePointer?) -> NSRect {
@@ -8160,7 +8202,12 @@ extension GhosttyNSView: NSTextInputClient {
         var w: Double = cellSize.width
         var h: Double = cellSize.height
 #if DEBUG
-        if let override = imePointOverrideForTesting {
+        if range.length > 0,
+           range != selectedRange(),
+           let snapshot = readSelectionSnapshot() {
+            x = snapshot.topLeft.x - 2
+            y = snapshot.topLeft.y + 2
+        } else if let override = imePointOverrideForTesting {
             x = override.x
             y = override.y
             w = override.width
@@ -8169,10 +8216,20 @@ extension GhosttyNSView: NSTextInputClient {
             ghostty_surface_ime_point(surface, &x, &y, &w, &h)
         }
 #else
-        if let surface = surface {
+        if range.length > 0,
+           range != selectedRange(),
+           let snapshot = readSelectionSnapshot() {
+            x = snapshot.topLeft.x - 2
+            y = snapshot.topLeft.y + 2
+        } else if let surface = surface {
             ghostty_surface_ime_point(surface, &x, &y, &w, &h)
         }
 #endif
+
+        if range.length == 0, w > 0 {
+            // Dictation expects a caret rect for insertion points rather than a box.
+            w = 0
+        }
 
         // Ghostty coordinates are top-left origin; AppKit expects bottom-left.
         let viewRect = NSRect(
@@ -8183,6 +8240,30 @@ extension GhosttyNSView: NSTextInputClient {
         )
         let winRect = convert(viewRect, to: nil)
         return window.convertToScreen(winRect)
+    }
+
+    func attributedString() -> NSAttributedString {
+        if markedText.length > 0 {
+            return NSAttributedString(attributedString: markedText)
+        }
+        if let snapshot = readSelectionSnapshot(), !snapshot.string.isEmpty {
+            return NSAttributedString(string: snapshot.string)
+        }
+        return NSAttributedString(string: "")
+    }
+
+    func windowLevel() -> Int {
+        Int(window?.level.rawValue ?? NSWindow.Level.normal.rawValue)
+    }
+
+    @available(macOS 14.0, *)
+    var unionRectInVisibleSelectedRange: NSRect {
+        firstRect(forCharacterRange: selectedRange(), actualRange: nil)
+    }
+
+    @available(macOS 14.0, *)
+    var documentVisibleRect: NSRect {
+        visibleDocumentRectInScreenCoordinates()
     }
 
     func insertText(_ string: Any, replacementRange: NSRange) {
