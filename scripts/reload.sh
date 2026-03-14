@@ -10,6 +10,15 @@ BUNDLE_SET=0
 DERIVED_SET=0
 TAG=""
 CMUX_DEBUG_LOG=""
+LAST_SOCKET_PATH_DIR="$HOME/Library/Application Support/cmux"
+LAST_SOCKET_PATH_FILE="${LAST_SOCKET_PATH_DIR}/last-socket-path"
+
+write_last_socket_path() {
+  local socket_path="$1"
+  mkdir -p "$LAST_SOCKET_PATH_DIR"
+  echo "$socket_path" > "$LAST_SOCKET_PATH_FILE" || true
+  echo "$socket_path" > /tmp/cmux-last-socket-path || true
+}
 
 usage() {
   cat <<'EOF'
@@ -270,7 +279,7 @@ if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
       CMUXD_SOCKET="${APP_SUPPORT_DIR}/cmuxd-dev-${TAG_SLUG}.sock"
       CMUX_SOCKET="/tmp/cmux-debug-${TAG_SLUG}.sock"
       CMUX_DEBUG_LOG="/tmp/cmux-debug-${TAG_SLUG}.log"
-      echo "$CMUX_SOCKET" > /tmp/cmux-last-socket-path || true
+      write_last_socket_path "$CMUX_SOCKET"
       echo "$CMUX_DEBUG_LOG" > /tmp/cmux-last-debug-log-path || true
       /usr/libexec/PlistBuddy -c "Add :LSEnvironment dict" "$INFO_PLIST" 2>/dev/null || true
       /usr/libexec/PlistBuddy -c "Set :LSEnvironment:CMUXD_UNIX_PATH \"${CMUXD_SOCKET}\"" "$INFO_PLIST" 2>/dev/null \

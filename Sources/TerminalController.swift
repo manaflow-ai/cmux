@@ -36,7 +36,7 @@ class TerminalController {
 
     static let shared = TerminalController()
 
-    private nonisolated(unsafe) var socketPath = "/tmp/cmux.sock"
+    private nonisolated(unsafe) var socketPath = SocketControlSettings.stableDefaultSocketPath
     private nonisolated(unsafe) var serverSocket: Int32 = -1
     private nonisolated(unsafe) var isRunning = false
     private nonisolated(unsafe) var acceptLoopAlive = false
@@ -73,6 +73,13 @@ class TerminalController {
         let acceptLoopAlive: Bool
         let activeGeneration: UInt64
         let pendingRearmGeneration: UInt64?
+        let listenerStartInProgress: Bool
+    }
+
+    private enum SocketBindAttemptResult {
+        case success(path: String)
+        case pathTooLong(path: String)
+        case failure(path: String, stage: String, errnoCode: Int32)
     }
 
     private static let focusIntentV1Commands: Set<String> = [
@@ -174,9 +181,18 @@ class TerminalController {
                 isRunning: isRunning,
                 acceptLoopAlive: acceptLoopAlive,
                 activeGeneration: activeAcceptLoopGeneration,
-                pendingRearmGeneration: pendingAcceptLoopRearmGeneration
+                pendingRearmGeneration: pendingAcceptLoopRearmGeneration,
+                listenerStartInProgress: listenerStartInProgress
             )
         }
+    }
+
+    nonisolated func activeSocketPath(preferredPath: String) -> String {
+        let snapshot = listenerStateSnapshot()
+        if snapshot.isRunning || snapshot.acceptLoopAlive || snapshot.listenerStartInProgress || snapshot.serverSocket >= 0 {
+            return snapshot.socketPath
+        }
+        return preferredPath
     }
 
     private nonisolated func shouldContinueAcceptLoop(generation: UInt64) -> Bool {
@@ -650,6 +666,60 @@ class TerminalController {
         return (false, connectErrno)
     }
 
+    private nonisolated static func bindListenerSocket(_ socket: Int32, path: String) -> SocketBindAttemptResult {
+        if let errnoCode = ensureSocketParentDirectoryExists(path: path) {
+            return .failure(path: path, stage: "create_directory", errnoCode: errnoCode)
+        }
+        if unlink(path) != 0, errno != ENOENT {
+            return .failure(path: path, stage: "unlink", errnoCode: errno)
+        }
+
+        guard let bindResult = bindUnixSocket(socket, path: path) else {
+            return .pathTooLong(path: path)
+        }
+        guard bindResult >= 0 else {
+            return .failure(path: path, stage: "bind", errnoCode: errno)
+        }
+        return .success(path: path)
+    }
+
+    private nonisolated static func ensureSocketParentDirectoryExists(path: String) -> Int32? {
+        let parentURL = URL(fileURLWithPath: path).deletingLastPathComponent()
+        do {
+            try FileManager.default.createDirectory(
+                at: parentURL,
+                withIntermediateDirectories: true,
+                attributes: [.posixPermissions: 0o700]
+            )
+            return nil
+        } catch let error as NSError {
+            if error.domain == NSPOSIXErrorDomain {
+                return Int32(error.code)
+            }
+            return EIO
+        }
+    }
+
+    nonisolated static func fallbackSocketPathAfterBindFailure(
+        requestedPath: String,
+        stage: String,
+        errnoCode: Int32,
+        currentUserID: uid_t = getuid()
+    ) -> String? {
+        guard requestedPath == SocketControlSettings.stableDefaultSocketPath else {
+            return nil
+        }
+
+        switch stage {
+        case "unlink" where errnoCode == EACCES || errnoCode == EPERM:
+            return SocketControlSettings.userScopedStableSocketPath(currentUserID: currentUserID)
+        case "bind" where errnoCode == EACCES || errnoCode == EPERM || errnoCode == EADDRINUSE:
+            return SocketControlSettings.userScopedStableSocketPath(currentUserID: currentUserID)
+        default:
+            return nil
+        }
+    }
+
     func start(tabManager: TabManager, socketPath: String, accessMode: SocketControlMode) {
         self.tabManager = tabManager
         self.accessMode = accessMode
@@ -668,8 +738,9 @@ class TerminalController {
             stop()
         }
 
+        var activeSocketPath = socketPath
         withListenerState {
-            self.socketPath = socketPath
+            self.socketPath = activeSocketPath
             listenerStartInProgress = true
         }
         var listenerActivated = false
@@ -680,9 +751,6 @@ class TerminalController {
                 }
             }
         }
-
-        // Remove existing socket file
-        unlink(socketPath)
 
         // Create socket
         let newServerSocket = socket(AF_UNIX, SOCK_STREAM, 0)
@@ -697,29 +765,58 @@ class TerminalController {
             return
         }
 
-        // Bind to path
-        guard let bindResult = Self.bindUnixSocket(newServerSocket, path: socketPath) else {
+        var bindAttempt = Self.bindListenerSocket(newServerSocket, path: activeSocketPath)
+        if case .failure(let failedPath, let failedStage, let failedErrnoCode) = bindAttempt,
+           let fallbackPath = Self.fallbackSocketPathAfterBindFailure(
+               requestedPath: failedPath,
+               stage: failedStage,
+               errnoCode: failedErrnoCode
+           ),
+           fallbackPath != failedPath {
+            sentryBreadcrumb(
+                "socket.listener.path.fallback",
+                category: "socket",
+                data: [
+                    "requestedPath": failedPath,
+                    "fallbackPath": fallbackPath,
+                    "stage": failedStage,
+                    "errno": Int(failedErrnoCode)
+                ]
+            )
+            activeSocketPath = fallbackPath
+            withListenerState {
+                self.socketPath = activeSocketPath
+            }
+            bindAttempt = Self.bindListenerSocket(newServerSocket, path: activeSocketPath)
+        }
+
+        switch bindAttempt {
+        case .success(let boundPath):
+            activeSocketPath = boundPath
+            withListenerState {
+                self.socketPath = activeSocketPath
+            }
+        case .pathTooLong(let failedPath):
             close(newServerSocket)
             reportSocketListenerFailure(
                 message: "socket.listener.start.failed",
                 stage: "bind_path_too_long",
                 errnoCode: ENAMETOOLONG,
                 extra: [
-                    "pathLength": socketPath.utf8.count,
+                    "path": failedPath,
+                    "pathLength": failedPath.utf8.count,
                     "maxPathLength": Self.unixSocketPathMaxLength
                 ]
             )
             return
-        }
-
-        guard bindResult >= 0 else {
-            let errnoCode = errno
+        case .failure(let failedPath, let failedStage, let failedErrnoCode):
             print("TerminalController: Failed to bind socket")
             close(newServerSocket)
             reportSocketListenerFailure(
                 message: "socket.listener.start.failed",
-                stage: "bind",
-                errnoCode: errnoCode
+                stage: failedStage,
+                errnoCode: failedErrnoCode,
+                extra: ["path": failedPath]
             )
             return
         }
@@ -739,6 +836,8 @@ class TerminalController {
             return
         }
 
+        SocketControlSettings.recordLastSocketPath(activeSocketPath)
+
         let generation = withListenerState {
             isRunning = true
             pendingAcceptLoopRearmGeneration = nil
@@ -751,12 +850,12 @@ class TerminalController {
         }
         listenerActivated = true
         let listenerSocket = newServerSocket
-        print("TerminalController: Listening on \(socketPath)")
+        print("TerminalController: Listening on \(activeSocketPath)")
         sentryBreadcrumb(
             "socket.listener.listening",
             category: "socket",
             data: [
-                "path": socketPath,
+                "path": activeSocketPath,
                 "mode": accessMode.rawValue,
                 "generation": generation,
                 "backlog": Self.socketListenBacklog

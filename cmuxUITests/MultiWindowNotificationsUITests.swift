@@ -982,6 +982,7 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         if includeGlobalFallback {
             candidates.append(contentsOf: discoverTmpSocketCandidates(limit: 12))
             candidates.append("/tmp/cmux-debug.sock")
+            candidates.append(stableSocketPath())
             candidates.append("/tmp/cmux.sock")
         }
 
@@ -993,6 +994,13 @@ final class MultiWindowNotificationsUITests: XCTestCase {
             }
         }
         return unique
+    }
+
+    private func stableSocketPath() -> String {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
+            .appendingPathComponent("cmux", isDirectory: true)
+            .appendingPathComponent("cmux.sock", isDirectory: false)
+            .path ?? "/tmp/cmux.sock"
     }
 
     private func socketMatchesRequiredWorkspace(_ candidatePath: String, workspaceId: String?) -> Bool {

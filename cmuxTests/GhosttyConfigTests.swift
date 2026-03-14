@@ -1033,10 +1033,11 @@ final class SocketControlSettingsTests: XCTestCase {
                 "CMUX_SOCKET_PATH": "/tmp/cmux-debug-issue-153-tmux-compat.sock",
             ],
             bundleIdentifier: "com.cmuxterm.app",
-            isDebugBuild: false
+            isDebugBuild: false,
+            probeStableDefaultPathEntry: { _ in .missing }
         )
 
-        XCTAssertEqual(path, "/tmp/cmux.sock")
+        XCTAssertEqual(path, SocketControlSettings.stableDefaultSocketPath)
     }
 
     func testNightlyReleaseUsesDedicatedDefaultAndIgnoresAmbientSocketOverride() {
@@ -1045,7 +1046,8 @@ final class SocketControlSettingsTests: XCTestCase {
                 "CMUX_SOCKET_PATH": "/tmp/cmux-debug-issue-153-tmux-compat.sock",
             ],
             bundleIdentifier: "com.cmuxterm.app.nightly",
-            isDebugBuild: false
+            isDebugBuild: false,
+            probeStableDefaultPathEntry: { _ in .missing }
         )
 
         XCTAssertEqual(path, "/tmp/cmux-nightly.sock")
@@ -1082,7 +1084,8 @@ final class SocketControlSettingsTests: XCTestCase {
                 "CMUX_ALLOW_SOCKET_OVERRIDE": "1",
             ],
             bundleIdentifier: "com.cmuxterm.app",
-            isDebugBuild: false
+            isDebugBuild: false,
+            probeStableDefaultPathEntry: { _ in .missing }
         )
 
         XCTAssertEqual(path, "/tmp/cmux-debug-forced.sock")
@@ -1090,21 +1093,59 @@ final class SocketControlSettingsTests: XCTestCase {
 
     func testDefaultSocketPathByChannel() {
         XCTAssertEqual(
-            SocketControlSettings.defaultSocketPath(bundleIdentifier: "com.cmuxterm.app", isDebugBuild: false),
-            "/tmp/cmux.sock"
+            SocketControlSettings.defaultSocketPath(
+                bundleIdentifier: "com.cmuxterm.app",
+                isDebugBuild: false,
+                probeStableDefaultPathEntry: { _ in .missing }
+            ),
+            SocketControlSettings.stableDefaultSocketPath
         )
         XCTAssertEqual(
-            SocketControlSettings.defaultSocketPath(bundleIdentifier: "com.cmuxterm.app.nightly", isDebugBuild: false),
+            SocketControlSettings.defaultSocketPath(
+                bundleIdentifier: "com.cmuxterm.app.nightly",
+                isDebugBuild: false,
+                probeStableDefaultPathEntry: { _ in .missing }
+            ),
             "/tmp/cmux-nightly.sock"
         )
         XCTAssertEqual(
-            SocketControlSettings.defaultSocketPath(bundleIdentifier: "com.cmuxterm.app.debug.tag", isDebugBuild: false),
+            SocketControlSettings.defaultSocketPath(
+                bundleIdentifier: "com.cmuxterm.app.debug.tag",
+                isDebugBuild: false,
+                probeStableDefaultPathEntry: { _ in .missing }
+            ),
             "/tmp/cmux-debug.sock"
         )
         XCTAssertEqual(
-            SocketControlSettings.defaultSocketPath(bundleIdentifier: "com.cmuxterm.app.staging.tag", isDebugBuild: false),
+            SocketControlSettings.defaultSocketPath(
+                bundleIdentifier: "com.cmuxterm.app.staging.tag",
+                isDebugBuild: false,
+                probeStableDefaultPathEntry: { _ in .missing }
+            ),
             "/tmp/cmux-staging.sock"
         )
+    }
+
+    func testStableReleaseFallsBackToUserScopedSocketWhenStablePathOwnedByDifferentUser() {
+        let path = SocketControlSettings.defaultSocketPath(
+            bundleIdentifier: "com.cmuxterm.app",
+            isDebugBuild: false,
+            currentUserID: 501,
+            probeStableDefaultPathEntry: { _ in .socket(ownerUserID: 0) }
+        )
+
+        XCTAssertEqual(path, SocketControlSettings.userScopedStableSocketPath(currentUserID: 501))
+    }
+
+    func testStableReleaseFallsBackToUserScopedSocketWhenStablePathIsBlockedByNonSocketEntry() {
+        let path = SocketControlSettings.defaultSocketPath(
+            bundleIdentifier: "com.cmuxterm.app",
+            isDebugBuild: false,
+            currentUserID: 501,
+            probeStableDefaultPathEntry: { _ in .other(ownerUserID: 501) }
+        )
+
+        XCTAssertEqual(path, SocketControlSettings.userScopedStableSocketPath(currentUserID: 501))
     }
 
     func testUntaggedDebugBundleBlockedWithoutLaunchTag() {

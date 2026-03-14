@@ -116,12 +116,12 @@ private final class CLISocketSentryTelemetry {
             context["socket_errno_description"] = String(cString: strerror(code))
         }
 
-        let tmpSockets = Self.discoverTmpCmuxSockets(limit: 10)
+        let tmpSockets = Self.discoverSockets(in: "/tmp", limit: 10)
         if !tmpSockets.isEmpty {
             context["tmp_cmux_sockets"] = tmpSockets
         }
-        let taggedSockets = tmpSockets.filter { $0 != "/tmp/cmux.sock" }
-        if socketPath == "/tmp/cmux.sock",
+        let taggedSockets = tmpSockets.filter { $0 != CLISocketPathResolver.legacyDefaultSocketPath }
+        if CLISocketPathResolver.isImplicitDefaultPath(socketPath),
            (envSocketPath?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true),
            !taggedSockets.isEmpty {
             context["possible_root_cause"] = "CMUX_SOCKET_PATH/CMUX_SOCKET missing while tagged sockets exist"
@@ -145,14 +145,16 @@ private final class CLISocketSentryTelemetry {
         }
     }
 
-    private static func discoverTmpCmuxSockets(limit: Int) -> [String] {
-        guard let entries = try? FileManager.default.contentsOfDirectory(atPath: "/tmp") else {
+    private static func discoverSockets(in directory: String, limit: Int) -> [String] {
+        guard let entries = try? FileManager.default.contentsOfDirectory(atPath: directory) else {
             return []
         }
         var sockets: [String] = []
         for name in entries.sorted() {
             guard name.hasPrefix("cmux"), name.hasSuffix(".sock") else { continue }
-            let fullPath = "/tmp/\(name)"
+            let fullPath = URL(fileURLWithPath: directory)
+                .appendingPathComponent(name, isDirectory: false)
+                .path
             var st = stat()
             guard lstat(fullPath, &st) == 0 else { continue }
             guard (st.st_mode & mode_t(S_IFMT)) == mode_t(S_IFSOCK) else { continue }
@@ -458,10 +460,24 @@ private enum CLISocketPathSource {
 }
 
 private enum CLISocketPathResolver {
-    static let defaultSocketPath = "/tmp/cmux.sock"
+    private static let appSupportDirectoryName = "cmux"
+    private static let stableSocketFileName = "cmux.sock"
+    private static let lastSocketPathFileName = "last-socket-path"
+    static let legacyDefaultSocketPath = "/tmp/cmux.sock"
     private static let fallbackSocketPath = "/tmp/cmux-debug.sock"
     private static let stagingSocketPath = "/tmp/cmux-staging.sock"
-    private static let lastSocketPathFile = "/tmp/cmux-last-socket-path"
+    private static let legacyLastSocketPathFile = "/tmp/cmux-last-socket-path"
+
+    static var defaultSocketPath: String {
+        let stablePath: String? = stableSocketDirectoryURL()?
+            .appendingPathComponent(stableSocketFileName, isDirectory: false)
+            .path
+        return stablePath ?? legacyDefaultSocketPath
+    }
+
+    static func isImplicitDefaultPath(_ path: String) -> Bool {
+        path == defaultSocketPath || path == legacyDefaultSocketPath
+    }
 
     static func resolve(
         requestedPath: String,
@@ -497,6 +513,8 @@ private enum CLISocketPathResolver {
         }
 
         candidates.append(requestedPath)
+        candidates.append(defaultSocketPath)
+        candidates.append(legacyDefaultSocketPath)
         candidates.append(fallbackSocketPath)
         candidates.append(stagingSocketPath)
         candidates.append(contentsOf: discoverTaggedSockets(limit: 12))
@@ -507,33 +525,46 @@ private enum CLISocketPathResolver {
     }
 
     private static func readLastSocketPath() -> String? {
-        guard let data = try? String(contentsOfFile: lastSocketPathFile, encoding: .utf8) else {
-            return nil
+        let primaryCandidate: String? = stableSocketDirectoryURL()?
+            .appendingPathComponent(lastSocketPathFileName, isDirectory: false)
+            .path
+        let candidates = [primaryCandidate, legacyLastSocketPathFile].compactMap { $0 }
+
+        for candidate in candidates {
+            guard let data = try? String(contentsOfFile: candidate, encoding: .utf8) else {
+                continue
+            }
+            if let value = normalized(data) {
+                return value
+            }
         }
-        return normalized(data)
+        return nil
     }
 
     private static func discoverTaggedSockets(limit: Int) -> [String] {
-        guard let entries = try? FileManager.default.contentsOfDirectory(atPath: "/tmp") else {
-            return []
-        }
-
         var discovered: [(path: String, mtime: TimeInterval)] = []
-        discovered.reserveCapacity(min(limit, entries.count))
-        for name in entries where name.hasPrefix("cmux") && name.hasSuffix(".sock") {
-            let path = "/tmp/\(name)"
-            var st = stat()
-            guard lstat(path, &st) == 0 else { continue }
-            guard (st.st_mode & mode_t(S_IFMT)) == mode_t(S_IFSOCK) else { continue }
-            if path == defaultSocketPath || path == fallbackSocketPath || path == stagingSocketPath {
+        for directory in socketDiscoveryDirectories() {
+            guard let entries = try? FileManager.default.contentsOfDirectory(atPath: directory) else {
                 continue
             }
-            let modified = TimeInterval(st.st_mtimespec.tv_sec) + TimeInterval(st.st_mtimespec.tv_nsec) / 1_000_000_000
-            discovered.append((path: path, mtime: modified))
+            discovered.reserveCapacity(min(limit, discovered.count + entries.count))
+            for name in entries where name.hasPrefix("cmux") && name.hasSuffix(".sock") {
+                let path = URL(fileURLWithPath: directory)
+                    .appendingPathComponent(name, isDirectory: false)
+                    .path
+                var st = stat()
+                guard lstat(path, &st) == 0 else { continue }
+                guard (st.st_mode & mode_t(S_IFMT)) == mode_t(S_IFSOCK) else { continue }
+                if path == defaultSocketPath || path == legacyDefaultSocketPath || path == fallbackSocketPath || path == stagingSocketPath {
+                    continue
+                }
+                let modified = TimeInterval(st.st_mtimespec.tv_sec) + TimeInterval(st.st_mtimespec.tv_nsec) / 1_000_000_000
+                discovered.append((path: path, mtime: modified))
+            }
         }
 
         discovered.sort { $0.mtime > $1.mtime }
-        return discovered.prefix(limit).map(\.path)
+        return dedupe(discovered.prefix(limit).map(\.path))
     }
 
     private static func isSocketFile(_ path: String) -> Bool {
@@ -578,6 +609,21 @@ private enum CLISocketPathResolver {
         guard let value else { return nil }
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private static func stableSocketDirectoryURL() -> URL? {
+        guard let appSupportDirectory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+            return nil
+        }
+        return appSupportDirectory.appendingPathComponent(appSupportDirectoryName, isDirectory: true)
+    }
+
+    private static func socketDiscoveryDirectories() -> [String] {
+        let appSupportSocketDirectory: String = stableSocketDirectoryURL()?.path ?? ""
+        return dedupe([
+            "/tmp",
+            appSupportSocketDirectory,
+        ])
     }
 
     private static func dedupe(_ paths: [String]) -> [String] {
@@ -806,7 +852,7 @@ struct CMUXCLI {
         var socketPath = envSocketPath ?? CLISocketPathResolver.defaultSocketPath
         var socketPathSource: CLISocketPathSource
         if let envSocketPath {
-            socketPathSource = envSocketPath == CLISocketPathResolver.defaultSocketPath ? .implicitDefault : .environment
+            socketPathSource = CLISocketPathResolver.isImplicitDefaultPath(envSocketPath) ? .implicitDefault : .environment
         } else {
             socketPathSource = .implicitDefault
         }
@@ -7312,7 +7358,7 @@ struct CMUXCLI {
         let requestedSocketPath = envSocketPath ?? CLISocketPathResolver.defaultSocketPath
         let source: CLISocketPathSource
         if let envSocketPath {
-            source = envSocketPath == CLISocketPathResolver.defaultSocketPath ? .implicitDefault : .environment
+            source = CLISocketPathResolver.isImplicitDefaultPath(envSocketPath) ? .implicitDefault : .environment
         } else {
             source = .implicitDefault
         }
@@ -9277,7 +9323,7 @@ struct CMUXCLI {
           CMUX_TAB_ID         Optional alias used by `tab-action`/`rename-tab` as default --tab.
           CMUX_SURFACE_ID     Auto-set in cmux terminals. Used as default --surface.
           CMUX_SOCKET_PATH    Override the Unix socket path. Without this, the CLI defaults
-                              to /tmp/cmux.sock and auto-discovers tagged/debug sockets.
+                              to ~/Library/Application Support/cmux/cmux.sock and auto-discovers tagged/debug sockets.
         """
     }
 }

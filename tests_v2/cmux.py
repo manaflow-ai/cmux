@@ -19,6 +19,7 @@ Notes:
 
 import base64
 import errno
+import glob
 import json
 import os
 import select
@@ -32,16 +33,53 @@ class cmuxError(Exception):
     """Exception raised for cmux errors."""
 
 
+_APP_SUPPORT_DIR = os.path.expanduser("~/Library/Application Support/cmux")
+_STABLE_SOCKET_PATH = os.path.join(_APP_SUPPORT_DIR, "cmux.sock")
+_LEGACY_STABLE_SOCKET_PATH = "/tmp/cmux.sock"
+_LAST_SOCKET_PATH_FILES = [
+    os.path.join(_APP_SUPPORT_DIR, "last-socket-path"),
+    "/tmp/cmux-last-socket-path",
+]
+
+
+def _read_last_socket_path() -> Optional[str]:
+    for marker_path in _LAST_SOCKET_PATH_FILES:
+        try:
+            with open(marker_path, "r", encoding="utf-8") as f:
+                path = f.read().strip()
+            if path:
+                return path
+        except OSError:
+            continue
+    return None
+
+
 def _default_socket_path() -> str:
     # Backwards/forward compatibility: some scripts export CMUX_SOCKET,
     # while the client historically used CMUX_SOCKET_PATH.
     override = os.environ.get("CMUX_SOCKET_PATH") or os.environ.get("CMUX_SOCKET")
     if override:
-        return override
-    candidates = ["/tmp/cmux-debug.sock", "/tmp/cmux.sock"]
+        if os.path.exists(override):
+            return override
+        if override not in {_STABLE_SOCKET_PATH, _LEGACY_STABLE_SOCKET_PATH}:
+            return override
+
+    last_socket = _read_last_socket_path()
+    if last_socket and os.path.exists(last_socket):
+        return last_socket
+
+    candidates = ["/tmp/cmux-debug.sock", _STABLE_SOCKET_PATH, _LEGACY_STABLE_SOCKET_PATH]
     for path in candidates:
         if os.path.exists(path):
             return path
+
+    discovered = glob.glob("/tmp/cmux-debug-*.sock")
+    discovered.extend(glob.glob(os.path.join(_APP_SUPPORT_DIR, "cmux*.sock")))
+    discovered = [path for path in discovered if os.path.exists(path)]
+    if discovered:
+        discovered.sort(key=os.path.getmtime, reverse=True)
+        return discovered[0]
+
     return candidates[0]
 
 

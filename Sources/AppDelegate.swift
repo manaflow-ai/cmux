@@ -2946,13 +2946,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func restartSocketListenerIfEnabled(source: String) {
         guard let tabManager,
               let config = socketListenerConfigurationIfEnabled() else { return }
+        let restartPath = TerminalController.shared.activeSocketPath(preferredPath: config.path)
         sentryBreadcrumb("socket.listener.restart", category: "socket", data: [
             "mode": config.mode.rawValue,
-            "path": config.path,
+            "path": restartPath,
             "source": source
         ])
         TerminalController.shared.stop()
-        TerminalController.shared.start(tabManager: tabManager, socketPath: config.path, accessMode: config.mode)
+        TerminalController.shared.start(tabManager: tabManager, socketPath: restartPath, accessMode: config.mode)
     }
 
     private func startSocketListenerHealthMonitorIfNeeded() {
@@ -2980,8 +2981,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func restartSocketListenerIfNeededForHealthCheck(source: String) {
         guard !socketListenerHealthCheckInFlight,
               let config = socketListenerConfigurationIfEnabled() else { return }
-        let expectedSocketPath = config.path
         let terminalController = TerminalController.shared
+        let expectedSocketPath = terminalController.activeSocketPath(preferredPath: config.path)
         socketListenerHealthCheckInFlight = true
         Thread.detachNewThread { [weak self, expectedSocketPath, source, terminalController] in
             let health = terminalController.socketListenerHealth(expectedSocketPath: expectedSocketPath)
@@ -3002,8 +3003,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         source: String,
         expectedSocketPath: String
     ) {
-        guard let config = socketListenerConfigurationIfEnabled(),
-              config.path == expectedSocketPath else { return }
+        guard let config = socketListenerConfigurationIfEnabled() else { return }
+        let currentExpectedSocketPath = TerminalController.shared.activeSocketPath(preferredPath: config.path)
+        guard currentExpectedSocketPath == expectedSocketPath else { return }
         guard !health.isHealthy else {
             lastSocketListenerUnhealthyCaptureAt = .distantPast
             return
@@ -3011,7 +3013,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let failureSignals = health.failureSignals
         var data: [String: Any] = [
             "source": source,
-            "path": config.path,
+            "path": currentExpectedSocketPath,
             "isRunning": health.isRunning ? 1 : 0,
             "acceptLoopAlive": health.acceptLoopAlive ? 1 : 0,
             "socketPathMatches": health.socketPathMatches ? 1 : 0,

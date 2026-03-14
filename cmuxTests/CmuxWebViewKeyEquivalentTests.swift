@@ -14609,6 +14609,29 @@ final class GhosttyTerminalViewVisibilityPolicyTests: XCTestCase {
 }
 
 final class TerminalControllerSocketListenerHealthTests: XCTestCase {
+    func testStableSocketBindPermissionFailureFallsBackToUserScopedSocket() {
+        XCTAssertEqual(
+            TerminalController.fallbackSocketPathAfterBindFailure(
+                requestedPath: SocketControlSettings.stableDefaultSocketPath,
+                stage: "bind",
+                errnoCode: EACCES,
+                currentUserID: 501
+            ),
+            SocketControlSettings.userScopedStableSocketPath(currentUserID: 501)
+        )
+    }
+
+    func testNonStableSocketBindFailureDoesNotFallback() {
+        XCTAssertNil(
+            TerminalController.fallbackSocketPathAfterBindFailure(
+                requestedPath: "/tmp/cmux-debug.sock",
+                stage: "bind",
+                errnoCode: EACCES,
+                currentUserID: 501
+            )
+        )
+    }
+
     private func makeTempSocketPath() -> String {
         "/tmp/cmux-socket-health-\(UUID().uuidString).sock"
     }
