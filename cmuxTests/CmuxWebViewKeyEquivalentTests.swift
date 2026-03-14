@@ -6631,6 +6631,66 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         )
     }
 
+    func testNewTerminalSurfaceWithFocusFalsePreservesFocusedPanel() {
+        let workspace = Workspace()
+        guard let originalFocusedPanelId = workspace.focusedPanelId,
+              let originalPaneId = workspace.paneId(forPanelId: originalFocusedPanelId) else {
+            XCTFail("Expected initial focused panel and pane")
+            return
+        }
+
+        guard let newPanel = workspace.newTerminalSurface(inPane: originalPaneId, focus: false) else {
+            XCTFail("Expected terminal surface to be created")
+            return
+        }
+
+        drainMainQueue()
+        drainMainQueue()
+        drainMainQueue()
+
+        XCTAssertNotEqual(newPanel.id, originalFocusedPanelId)
+        XCTAssertEqual(
+            workspace.focusedPanelId,
+            originalFocusedPanelId,
+            "Expected non-focus terminal surface creation to preserve the existing focused panel"
+        )
+        XCTAssertEqual(
+            workspace.bonsplitController.selectedTab(inPane: originalPaneId)?.id,
+            workspace.surfaceIdFromPanelId(originalFocusedPanelId),
+            "Expected selected tab to stay on the original focused panel"
+        )
+    }
+
+    func testNewBrowserSurfaceWithFocusFalsePreservesFocusedPanel() {
+        let workspace = Workspace()
+        guard let originalFocusedPanelId = workspace.focusedPanelId,
+              let originalPaneId = workspace.paneId(forPanelId: originalFocusedPanelId) else {
+            XCTFail("Expected initial focused panel and pane")
+            return
+        }
+
+        guard let newPanel = workspace.newBrowserSurface(inPane: originalPaneId, focus: false) else {
+            XCTFail("Expected browser surface to be created")
+            return
+        }
+
+        drainMainQueue()
+        drainMainQueue()
+        drainMainQueue()
+
+        XCTAssertNotEqual(newPanel.id, originalFocusedPanelId)
+        XCTAssertEqual(
+            workspace.focusedPanelId,
+            originalFocusedPanelId,
+            "Expected non-focus browser surface creation to preserve the existing focused panel"
+        )
+        XCTAssertEqual(
+            workspace.bonsplitController.selectedTab(inPane: originalPaneId)?.id,
+            workspace.surfaceIdFromPanelId(originalFocusedPanelId),
+            "Expected selected tab to stay on the original focused panel"
+        )
+    }
+
     func testClosingFocusedSplitRestoresBranchForRemainingFocusedPanel() {
         let workspace = Workspace()
         guard let firstPanelId = workspace.focusedPanelId else {
