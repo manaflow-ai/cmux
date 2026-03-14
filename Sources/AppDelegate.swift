@@ -7902,11 +7902,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let commandPaletteResponderActiveInTargetWindow = commandPaletteTargetWindow.map {
             isCommandPaletteResponderActive(in: $0)
         } ?? false
-        let commandPaletteEffectiveInTargetWindow =
+        let commandPaletteInteractiveInTargetWindow =
             commandPaletteVisibleInTargetWindow
-            || commandPalettePendingOpenInTargetWindow
             || commandPaletteOverlayVisibleInTargetWindow
             || commandPaletteResponderActiveInTargetWindow
+        let commandPaletteEffectiveInTargetWindow =
+            commandPaletteInteractiveInTargetWindow
+            || commandPalettePendingOpenInTargetWindow
 
         if normalizedFlags.isEmpty, event.keyCode == 53 {
             let activePaletteWindow = activeCommandPaletteWindow()
@@ -7995,7 +7997,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             chars: chars,
             keyCode: event.keyCode
         ),
-           commandPaletteVisibleInTargetWindow,
+           commandPaletteInteractiveInTargetWindow,
            let paletteWindow = commandPaletteShortcutWindow {
             NotificationCenter.default.post(
                 name: .commandPaletteMoveSelection,
@@ -8005,7 +8007,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if commandPaletteVisibleInTargetWindow,
+        if commandPaletteInteractiveInTargetWindow,
            let paletteWindow = commandPaletteShortcutWindow {
             let paletteFieldEditorHasMarkedText = commandPaletteFieldEditorHasMarkedText(in: paletteWindow)
             if normalizedFlags.isEmpty, event.keyCode == 53 {
@@ -8050,6 +8052,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Scope the omnibar check to the shortcut's routed window context so a
         // focused omnibar in another window does not suppress Cmd+P here.
         let hasFocusedAddressBarInShortcutContext = focusedBrowserAddressBarPanelIdForShortcutEvent(event) != nil
+        let isCommandShiftP = matchShortcut(
+            event: event,
+            shortcut: StoredShortcut(key: "p", command: true, shift: true, option: false, control: false)
+        )
+        if isCommandShiftP {
+            let targetWindow = commandPaletteTargetWindow ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
+            requestCommandPaletteCommands(preferredWindow: targetWindow, source: "shortcut.cmdShiftP")
+            return true
+        }
+
         let isCommandP = !hasFocusedAddressBarInShortcutContext
             && matchShortcut(
                 event: event,
@@ -8058,16 +8070,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if isCommandP {
             let targetWindow = commandPaletteTargetWindow ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
             requestCommandPaletteSwitcher(preferredWindow: targetWindow, source: "shortcut.cmdP")
-            return true
-        }
-
-        let isCommandShiftP = matchShortcut(
-            event: event,
-            shortcut: StoredShortcut(key: "p", command: true, shift: true, option: false, control: false)
-        )
-        if isCommandShiftP {
-            let targetWindow = commandPaletteTargetWindow ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
-            requestCommandPaletteCommands(preferredWindow: targetWindow, source: "shortcut.cmdShiftP")
             return true
         }
 

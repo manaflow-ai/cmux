@@ -3062,6 +3062,7 @@ struct ContentView: View {
     private var commandPaletteCommandListView: some View {
         let visibleResults = commandPaletteVisibleResults
         let selectedIndex = commandPaletteSelectedIndex(resultCount: visibleResults.count)
+        let commandPaletteListIdentity = "\(commandPaletteListScope.rawValue):\(commandPaletteQuery)"
         let commandPaletteListMaxHeight: CGFloat = 450
         let commandPaletteRowHeight: CGFloat = 24
         let commandPaletteEmptyStateHeight: CGFloat = 44
@@ -3090,7 +3091,9 @@ struct ContentView: View {
             Divider()
 
             ScrollView {
-                LazyVStack(spacing: 0) {
+                // Rebuild the full results container on scope/query transitions so
+                // stale switcher rows cannot linger above command-mode results.
+                VStack(spacing: 0) {
                     if visibleResults.isEmpty {
                         if commandPaletteHasCurrentResolvedResults {
                             Text(commandPaletteEmptyStateText)
@@ -3160,9 +3163,8 @@ struct ContentView: View {
                     }
                 }
                 .scrollTargetLayout()
-                // Force a fresh row tree per query so rendered labels/actions stay in lockstep.
-                .id(commandPaletteQuery)
             }
+            .id(commandPaletteListIdentity)
             .frame(height: commandPaletteListHeight)
             .scrollPosition(
                 id: Binding(
@@ -3329,6 +3331,8 @@ struct ContentView: View {
     }
 
     private final class CommandPaletteNativeTextField: NSTextField {
+        var onHandleKeyEvent: ((NSEvent, NSTextView?) -> Bool)?
+
         override init(frame frameRect: NSRect) {
             super.init(frame: frameRect)
             isBordered = false
@@ -3340,6 +3344,27 @@ struct ContentView: View {
 
         required init?(coder: NSCoder) {
             fatalError("init(coder:) has not been implemented")
+        }
+
+        override func keyDown(with event: NSEvent) {
+            if (currentEditor() as? NSTextView)?.hasMarkedText() == true {
+                super.keyDown(with: event)
+                return
+            }
+            if onHandleKeyEvent?(event, currentEditor() as? NSTextView) == true {
+                return
+            }
+            super.keyDown(with: event)
+        }
+
+        override func performKeyEquivalent(with event: NSEvent) -> Bool {
+            if (currentEditor() as? NSTextView)?.hasMarkedText() == true {
+                return super.performKeyEquivalent(with: event)
+            }
+            if onHandleKeyEvent?(event, currentEditor() as? NSTextView) == true {
+                return true
+            }
+            return super.performKeyEquivalent(with: event)
         }
     }
 
@@ -3358,9 +3383,15 @@ struct ContentView: View {
             var isProgrammaticMutation = false
             weak var parentField: CommandPaletteNativeTextField?
             var pendingFocusRequest: Bool?
+            var editorTextDidChangeObserver: NSObjectProtocol?
+            weak var observedEditor: NSTextView?
 
             init(parent: CommandPaletteSearchFieldRepresentable) {
                 self.parent = parent
+            }
+
+            deinit {
+                detachEditorTextDidChangeObserver()
             }
 
             func controlTextDidChange(_ obj: Notification) {
@@ -3370,11 +3401,19 @@ struct ContentView: View {
             }
 
             func controlTextDidBeginEditing(_ obj: Notification) {
+                if let field = obj.object as? NSTextField,
+                   let editor = field.currentEditor() as? NSTextView {
+                    attachEditorTextDidChangeObserverIfNeeded(editor)
+                }
                 if !parent.isFocused {
                     DispatchQueue.main.async {
                         self.parent.isFocused = true
                     }
                 }
+            }
+
+            func controlTextDidEndEditing(_ obj: Notification) {
+                detachEditorTextDidChangeObserver()
             }
 
             func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
@@ -3397,6 +3436,62 @@ struct ContentView: View {
                     return false
                 }
             }
+
+            func handleKeyEvent(_ event: NSEvent, editor: NSTextView?) -> Bool {
+                guard !(editor?.hasMarkedText() ?? false) else { return false }
+
+                if let delta = commandPaletteSelectionDeltaForKeyboardNavigation(
+                    flags: event.modifierFlags,
+                    chars: event.characters ?? event.charactersIgnoringModifiers ?? "",
+                    keyCode: event.keyCode
+                ) {
+                    parent.onMoveSelection(delta)
+                    return true
+                }
+
+                if shouldSubmitCommandPaletteWithReturn(
+                    keyCode: event.keyCode,
+                    flags: event.modifierFlags
+                ) {
+                    parent.onSubmit()
+                    return true
+                }
+
+                if event.keyCode == 53,
+                   event.modifierFlags
+                    .intersection(.deviceIndependentFlagsMask)
+                    .subtracting([.numericPad, .function, .capsLock])
+                    .isEmpty {
+                    parent.onEscape()
+                    return true
+                }
+
+                return false
+            }
+
+            func attachEditorTextDidChangeObserverIfNeeded(_ editor: NSTextView) {
+                if observedEditor !== editor {
+                    detachEditorTextDidChangeObserver()
+                }
+                guard editorTextDidChangeObserver == nil else { return }
+                observedEditor = editor
+                editorTextDidChangeObserver = NotificationCenter.default.addObserver(
+                    forName: NSText.didChangeNotification,
+                    object: editor,
+                    queue: .main
+                ) { [weak self] _ in
+                    guard let self, !self.isProgrammaticMutation else { return }
+                    self.parent.text = editor.string
+                }
+            }
+
+            func detachEditorTextDidChangeObserver() {
+                if let editorTextDidChangeObserver {
+                    NotificationCenter.default.removeObserver(editorTextDidChangeObserver)
+                    self.editorTextDidChangeObserver = nil
+                }
+                observedEditor = nil
+            }
         }
 
         func makeCoordinator() -> Coordinator {
@@ -3413,6 +3508,9 @@ struct ContentView: View {
             field.isEditable = true
             field.isSelectable = true
             field.isEnabled = true
+            field.onHandleKeyEvent = { [weak coordinator = context.coordinator] event, editor in
+                coordinator?.handleKeyEvent(event, editor: editor) ?? false
+            }
             context.coordinator.parentField = field
             return field
         }
@@ -3423,6 +3521,7 @@ struct ContentView: View {
             nsView.placeholderString = placeholder
 
             if let editor = nsView.currentEditor() as? NSTextView {
+                context.coordinator.attachEditorTextDidChangeObserverIfNeeded(editor)
                 if editor.string != text, !editor.hasMarkedText() {
                     context.coordinator.isProgrammaticMutation = true
                     editor.string = text
@@ -3430,7 +3529,10 @@ struct ContentView: View {
                     context.coordinator.isProgrammaticMutation = false
                 }
             } else if nsView.stringValue != text {
+                context.coordinator.detachEditorTextDidChangeObserver()
                 nsView.stringValue = text
+            } else {
+                context.coordinator.detachEditorTextDidChangeObserver()
             }
 
             guard let window = nsView.window else { return }
@@ -3459,6 +3561,8 @@ struct ContentView: View {
 
         static func dismantleNSView(_ nsView: CommandPaletteNativeTextField, coordinator: Coordinator) {
             nsView.delegate = nil
+            nsView.onHandleKeyEvent = nil
+            coordinator.detachEditorTextDidChangeObserver()
             coordinator.parentField = nil
         }
     }
@@ -5913,19 +6017,27 @@ struct ContentView: View {
     }
 
     private func openCommandPaletteCommands() {
-        toggleCommandPalette(initialQuery: Self.commandPaletteCommandsPrefix)
+        handleCommandPaletteListRequest(scope: .commands)
     }
 
     private func openCommandPaletteSwitcher() {
-        toggleCommandPalette(initialQuery: "")
+        handleCommandPaletteListRequest(scope: .switcher)
     }
 
-    private func toggleCommandPalette(initialQuery: String) {
-        if isCommandPalettePresented {
-            dismissCommandPalette()
-        } else {
+    private func handleCommandPaletteListRequest(scope: CommandPaletteListScope) {
+        let initialQuery = (scope == .commands) ? Self.commandPaletteCommandsPrefix : ""
+        guard isCommandPalettePresented else {
             presentCommandPalette(initialQuery: initialQuery)
+            return
         }
+
+        if case .commands = commandPaletteMode,
+           commandPaletteListScope == scope {
+            dismissCommandPalette()
+            return
+        }
+
+        resetCommandPaletteListState(initialQuery: initialQuery)
     }
 
     private func openCommandPaletteRenameTabInput() {
