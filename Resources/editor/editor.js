@@ -24,11 +24,16 @@
 
     // ── Swift Bridge ───────────────────────────────────────────────────
     window.cmux = {
-        handleResponse(requestId, jsonString) {
+        handleResponse(requestId, data) {
             const p = pendingRequests.get(requestId);
             if (!p) return;
             pendingRequests.delete(requestId);
-            try { p.resolve(JSON.parse(jsonString)); } catch { p.resolve(jsonString); }
+            // data may be a pre-parsed object (from JSON.parse in evaluateJavaScript) or a string
+            if (typeof data === 'string') {
+                try { p.resolve(JSON.parse(data)); } catch { p.resolve(data); }
+            } else {
+                p.resolve(data);
+            }
         },
         handleError(requestId, message) {
             const p = pendingRequests.get(requestId);

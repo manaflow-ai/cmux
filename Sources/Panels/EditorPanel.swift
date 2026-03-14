@@ -237,17 +237,18 @@ final class EditorMessageHandler: NSObject, WKScriptMessageHandler {
             do {
                 try statusProcess.run()
                 try ignoredProcess.run()
-                statusProcess.waitUntilExit()
-                ignoredProcess.waitUntilExit()
             } catch {
                 self.sendError(requestId: requestId, message: "git not available", webView: webView)
                 return
             }
 
+            // Read pipe data before waitUntilExit to prevent deadlock on large output
             let statusData = statusPipe.fileHandleForReading.readDataToEndOfFile()
-            let statusOutput = String(data: statusData, encoding: .utf8) ?? ""
-
             let ignoredData = ignoredPipe.fileHandleForReading.readDataToEndOfFile()
+            statusProcess.waitUntilExit()
+            ignoredProcess.waitUntilExit()
+
+            let statusOutput = String(data: statusData, encoding: .utf8) ?? ""
             let ignoredOutput = String(data: ignoredData, encoding: .utf8) ?? ""
 
             // Parse git status --porcelain output
@@ -313,11 +314,11 @@ final class EditorMessageHandler: NSObject, WKScriptMessageHandler {
             candidate = (rootPath as NSString).appendingPathComponent(relativePath)
         }
 
-        // Canonicalize to resolve symlinks and ".." components
-        let canonical = (candidate as NSString).standardizingPath
-        let canonicalRoot = (rootPath as NSString).standardizingPath
+        // Canonicalize with symlink resolution to prevent traversal
+        let canonical = URL(fileURLWithPath: candidate).resolvingSymlinksInPath().path
+        let canonicalRoot = URL(fileURLWithPath: rootPath).resolvingSymlinksInPath().path
 
-        guard canonical.hasPrefix(canonicalRoot) else {
+        guard canonical == canonicalRoot || canonical.hasPrefix(canonicalRoot + "/") else {
             return nil
         }
         return canonical
@@ -330,11 +331,11 @@ final class EditorMessageHandler: NSObject, WKScriptMessageHandler {
         guard let jsonData = try? JSONSerialization.data(withJSONObject: data),
               let jsonString = String(data: jsonData, encoding: .utf8) else { return }
 
-        let escaped = jsonString
-            .replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "'", with: "\\'")
+        // Use JSON encoding for safe string transport
+        guard let encodedPayload = try? JSONSerialization.data(withJSONObject: jsonString),
+              let safePayload = String(data: encodedPayload, encoding: .utf8) else { return }
 
-        let js = "window.cmux.handleResponse('\(requestId)', '\(escaped)')"
+        let js = "window.cmux.handleResponse(\(Self.jsStringLiteral(requestId)), \(safePayload))"
         DispatchQueue.main.async {
             webView.evaluateJavaScript(js, completionHandler: nil)
         }
@@ -342,13 +343,19 @@ final class EditorMessageHandler: NSObject, WKScriptMessageHandler {
 
     private func sendError(requestId: String, message: String, webView: WKWebView?) {
         guard let webView else { return }
-        let escaped = message
-            .replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "'", with: "\\'")
-        let js = "window.cmux.handleError('\(requestId)', '\(escaped)')"
+        let js = "window.cmux.handleError(\(Self.jsStringLiteral(requestId)), \(Self.jsStringLiteral(message)))"
         DispatchQueue.main.async {
             webView.evaluateJavaScript(js, completionHandler: nil)
         }
+    }
+
+    /// Encode a Swift string as a safe JavaScript string literal using JSON serialization.
+    private static func jsStringLiteral(_ value: String) -> String {
+        guard let data = try? JSONSerialization.data(withJSONObject: value),
+              let encoded = String(data: data, encoding: .utf8) else {
+            return "\"\""
+        }
+        return encoded
     }
 }
 
