@@ -66,7 +66,7 @@ final class EditorMessageHandler: NSObject, WKScriptMessageHandler {
 
             var items: [[String: Any]] = []
             for entry in entries.sorted() {
-                if entry.hasPrefix(".") { continue }
+                if entry == ".git" { continue }
                 let entryPath = (fullPath as NSString).appendingPathComponent(entry)
                 var isDir: ObjCBool = false
                 fm.fileExists(atPath: entryPath, isDirectory: &isDir)
@@ -178,9 +178,14 @@ final class EditorMessageHandler: NSObject, WKScriptMessageHandler {
         let relativePath = body["path"] as? String ?? ""
         let requestId = body["requestId"] as? String ?? ""
 
+        guard !relativePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            self.sendError(requestId: requestId, message: "Cannot delete project root", webView: webView)
+            return
+        }
+
         DispatchQueue.global(qos: .userInitiated).async { [rootPath] in
             let fullPath = self.resolvedPath(relativePath, rootPath: rootPath)
-            guard let fullPath else {
+            guard let fullPath, fullPath != URL(fileURLWithPath: rootPath).resolvingSymlinksInPath().path else {
                 self.sendError(requestId: requestId, message: "Invalid path", webView: webView)
                 return
             }
@@ -198,10 +203,16 @@ final class EditorMessageHandler: NSObject, WKScriptMessageHandler {
         let newRelPath = body["newPath"] as? String ?? ""
         let requestId = body["requestId"] as? String ?? ""
 
+        guard !oldRelPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            self.sendError(requestId: requestId, message: "Cannot rename project root", webView: webView)
+            return
+        }
+
         DispatchQueue.global(qos: .userInitiated).async { [rootPath] in
+            let canonicalRoot = URL(fileURLWithPath: rootPath).resolvingSymlinksInPath().path
             let oldFull = self.resolvedPath(oldRelPath, rootPath: rootPath)
             let newFull = self.resolvedPath(newRelPath, rootPath: rootPath)
-            guard let oldFull, let newFull else {
+            guard let oldFull, oldFull != canonicalRoot, let newFull else {
                 self.sendError(requestId: requestId, message: "Invalid path", webView: webView)
                 return
             }

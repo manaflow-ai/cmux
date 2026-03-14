@@ -538,14 +538,19 @@
                 const parentDir = path.substring(0, path.lastIndexOf('/'));
                 const newPath = parentDir ? parentDir + '/' + newName : newName;
                 renameFile(path, newPath).then(async () => {
-                    // Update open file if renamed
-                    if (openFiles.has(path)) {
-                        const file = openFiles.get(path);
-                        openFiles.delete(path);
-                        openFiles.set(newPath, file);
-                        if (activeFilePath === path) activeFilePath = newPath;
-                        renderTabs();
+                    // Update open tabs — handle both file and folder renames
+                    const updates = [];
+                    for (const [openPath, file] of openFiles) {
+                        if (openPath === path || openPath.startsWith(path + '/')) {
+                            updates.push([openPath, newPath + openPath.substring(path.length), file]);
+                        }
                     }
+                    for (const [oldPath, rewrittenPath, file] of updates) {
+                        openFiles.delete(oldPath);
+                        openFiles.set(rewrittenPath, file);
+                        if (activeFilePath === oldPath) activeFilePath = rewrittenPath;
+                    }
+                    if (updates.length > 0) renderTabs();
                     await refreshTree();
                     lastTreeSnapshot = await buildSnapshot('');
                 }).catch(err => console.error('Rename failed:', err));
