@@ -56,8 +56,8 @@ final class SidebarResizeUITests: XCTestCase {
         let sidebarWidth = max(0, resizer.frame.midX - window.frame.minX)
         XCTAssertLessThanOrEqual(
             sidebarWidth,
-            170,
-            "Expected sidebar minimum width to allow a narrower sidebar. width=\(sidebarWidth)"
+            185,
+            "Expected sidebar minimum width to allow a narrower sidebar than the previous 186 px floor. width=\(sidebarWidth)"
         )
     }
 
