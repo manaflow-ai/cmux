@@ -1755,6 +1755,18 @@ private func cmuxOwningGhosttyView(for view: NSView) -> GhosttyNSView? {
     return nil
 }
 
+/// Returns true when the responder (or one of its view-hierarchy ancestors)
+/// is a WKWebView. Used to detect that the first responder is inside browser
+/// web content (e.g. a textarea) rather than the address bar.
+private func cmuxResponderIsInsideWebView(_ responder: NSResponder) -> Bool {
+    guard var current = responder as? NSView else { return false }
+    while true {
+        if current is WKWebView { return true }
+        guard let parent = current.superview else { return false }
+        current = parent
+    }
+}
+
 #if DEBUG
 func browserZoomShortcutTraceCandidate(
     flags: NSEvent.ModifierFlags,
@@ -8015,20 +8027,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         // Guard against stale browserAddressBarFocusedPanelId after focus transitions
-        // (e.g., split that doesn't properly blur the address bar). If the first responder
-        // is a terminal surface, the address bar can't be focused.
+        // (e.g., split that doesn't properly blur the address bar, or clicking into a
+        // textarea/input inside the WebView). If the first responder is a terminal surface
+        // or inside a WKWebView, the address bar can't be focused.
         if browserAddressBarFocusedPanelId != nil,
-           cmuxOwningGhosttyView(for: NSApp.keyWindow?.firstResponder) != nil {
+           let firstResponder = NSApp.keyWindow?.firstResponder {
+            let isTerminalResponder = cmuxOwningGhosttyView(for: firstResponder) != nil
+            if isTerminalResponder || cmuxResponderIsInsideWebView(firstResponder) {
 #if DEBUG
-            let stalePanelToken = browserAddressBarFocusedPanelId.map { String($0.uuidString.prefix(5)) } ?? "nil"
-            let firstResponderType = NSApp.keyWindow?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
-            dlog(
-                "browser.focus.addressBar.staleClear panel=\(stalePanelToken) " +
-                "reason=terminal_first_responder fr=\(firstResponderType)"
-            )
+                let stalePanelToken = browserAddressBarFocusedPanelId.map { String($0.uuidString.prefix(5)) } ?? "nil"
+                let firstResponderType = String(describing: type(of: firstResponder))
+                let reason = isTerminalResponder ? "terminal_first_responder" : "webview_first_responder"
+                dlog(
+                    "browser.focus.addressBar.staleClear panel=\(stalePanelToken) " +
+                    "reason=\(reason) fr=\(firstResponderType)"
+                )
 #endif
-            browserAddressBarFocusedPanelId = nil
-            stopBrowserOmnibarSelectionRepeat()
+                browserAddressBarFocusedPanelId = nil
+                stopBrowserOmnibarSelectionRepeat()
+            }
         }
 
         // Keep Cmd+P/Cmd+N inside the focused browser omnibar for Chrome-like
@@ -11130,16 +11147,13 @@ private extension NSWindow {
             Self.cmuxOwningWebView(for: $0, in: self, event: event)
         }
         if let ghosttyView = firstResponderGhosttyView {
-            // If the IME is composing and the key has no Cmd modifier, don't intercept —
-            // let it flow through normal AppKit event dispatch so the input method can
-            // process it. Cmd-based shortcuts should still work during composition since
-            // Cmd is never part of IME input sequences.
-            if ghosttyView.hasMarkedText(), !event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command) {
-                return cmux_performKeyEquivalent(with: event)
-            }
-
             let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
             if !flags.contains(.command) {
+                // Route non-Command keys directly to the terminal, bypassing the
+                // SwiftUI content view hierarchy. This covers both normal typing
+                // and IME composition (where GhosttyNSView.performKeyEquivalent
+                // returns false so the event flows through keyDown → interpretKeyEvents
+                // to the input method).
                 let result = ghosttyView.performKeyEquivalent(with: event)
 #if DEBUG
                 dlog("  → ghostty direct: \(result)")
@@ -11196,6 +11210,19 @@ private extension NSWindow {
             dlog("  → consumed by handleBrowserSurfaceKeyEquivalent")
 #endif
             return true
+        }
+
+        // SwiftUI hosting view interception fix for browser surfaces: after app-level
+        // shortcuts have been checked above, route remaining keys directly to the
+        // WebView. Without this, arrow keys (and Cmd+arrow for jump-to-start/end)
+        // in web textareas are swallowed by SwiftUI's broken focus state after a
+        // browser panel has been in the responder chain.
+        if let webView = firstResponderWebView {
+            let result = webView.performKeyEquivalent(with: event)
+#if DEBUG
+            dlog("  → webview direct: \(result)")
+#endif
+            return result
         }
 
         // When the terminal is focused, skip the full NSWindow.performKeyEquivalent
