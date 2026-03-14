@@ -1646,7 +1646,7 @@ struct ContentView: View {
     nonisolated private static let commandPaletteCommandsPrefix = ">"
     private static let commandPaletteVisiblePreviewResultLimit = 48
     private static let commandPaletteVisiblePreviewCandidateLimit = 192
-    private static let minimumSidebarWidth: CGFloat = 186
+    private static let minimumSidebarWidth: CGFloat = CGFloat(SessionPersistencePolicy.minimumSidebarWidth)
     private static let maximumSidebarWidthRatio: CGFloat = 1.0 / 3.0
 
     private enum SidebarResizerHandle: Hashable {
@@ -1673,10 +1673,19 @@ struct ContentView: View {
         return max(Self.minimumSidebarWidth, fallbackScreenWidth * Self.maximumSidebarWidthRatio)
     }
 
+    static func clampedSidebarWidth(_ candidate: CGFloat, maximumWidth: CGFloat) -> CGFloat {
+        let minimumWidth = Self.minimumSidebarWidth
+        let sanitizedMaximumWidth = max(minimumWidth, maximumWidth.isFinite ? maximumWidth : minimumWidth)
+        guard candidate.isFinite else {
+            return CGFloat(SessionPersistencePolicy.defaultSidebarWidth)
+        }
+        return max(minimumWidth, min(sanitizedMaximumWidth, candidate))
+    }
+
     private func clampSidebarWidthIfNeeded(availableWidth: CGFloat? = nil) {
-        let nextWidth = max(
-            Self.minimumSidebarWidth,
-            min(maxSidebarWidth(availableWidth: availableWidth), sidebarWidth)
+        let nextWidth = Self.clampedSidebarWidth(
+            sidebarWidth,
+            maximumWidth: maxSidebarWidth(availableWidth: availableWidth)
         )
         guard abs(nextWidth - sidebarWidth) > 0.5 else { return }
         withTransaction(Transaction(animation: nil)) {
@@ -1685,12 +1694,7 @@ struct ContentView: View {
     }
 
     private func normalizedSidebarWidth(_ candidate: CGFloat) -> CGFloat {
-        let minWidth = CGFloat(SessionPersistencePolicy.minimumSidebarWidth)
-        let maxWidth = max(minWidth, maxSidebarWidth())
-        if !candidate.isFinite {
-            return CGFloat(SessionPersistencePolicy.defaultSidebarWidth)
-        }
-        return max(minWidth, min(maxWidth, candidate))
+        Self.clampedSidebarWidth(candidate, maximumWidth: maxSidebarWidth())
     }
 
     private func activateSidebarResizerCursor() {
@@ -1881,9 +1885,9 @@ struct ContentView: View {
 
                         activateSidebarResizerCursor()
                         let startWidth = sidebarDragStartWidth ?? sidebarWidth
-                        let nextWidth = max(
-                            Self.minimumSidebarWidth,
-                            min(maxSidebarWidth(availableWidth: availableWidth), startWidth + value.translation.width)
+                        let nextWidth = Self.clampedSidebarWidth(
+                            startWidth + value.translation.width,
+                            maximumWidth: maxSidebarWidth(availableWidth: availableWidth)
                         )
                         withTransaction(Transaction(animation: nil)) {
                             sidebarWidth = nextWidth
