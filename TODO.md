@@ -38,7 +38,7 @@
 
 ## Additional Integrations
 - [ ] Codex integration
-- [ ] OpenCode integration
+- [x] OpenCode integration
 
 ## Browser
 - [ ] Per-WKWebView local proxy for full network request/response inspection (URL, method, headers, body, status, timing)

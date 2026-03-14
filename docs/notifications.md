@@ -106,28 +106,25 @@ Then use:
 notify = ["bash", "~/.local/bin/codex-notify.sh"]
 ```
 
-### OpenCode Plugin
+### OpenCode
 
-Create `.opencode/plugins/cmux-notify.js`:
+When you launch `opencode` inside a cmux terminal, cmux's bundled `opencode`
+wrapper automatically injects a local OpenCode plugin. The sidebar status pill
+switches between `Running`, `Retrying`, `Needs input`, `Idle`, and `Error`
+based on OpenCode session events, and permission/question/error events create
+cmux notifications without any manual setup.
+
+If you prefer a manual setup (or you're running an OpenCode binary outside the
+bundled cmux wrapper), create `.opencode/plugins/cmux-notify.js`:
 
 ```javascript
-export const CmuxNotificationPlugin = async ({ $, }) => {
-  const notify = async (title, body) => {
-    try {
-      await $`command -v cmux && cmux notify --title ${title} --body ${body}`;
-    } catch {
-      await $`osascript -e ${"display notification \"" + body + "\" with title \"" + title + "\""}`;
+export const CmuxNotificationPlugin = async ({ $ }) => ({
+  event: async ({ event }) => {
+    if (event.type === "session.idle") {
+      await $`command -v cmux && cmux notify --title OpenCode --body Session idle`
     }
-  };
-
-  return {
-    event: async ({ event }) => {
-      if (event.type === "session.idle") {
-        await notify("OpenCode", "Session idle");
-      }
-    },
-  };
-};
+  },
+})
 ```
 
 ## Environment Variables
@@ -137,8 +134,10 @@ cmux sets these in child shells:
 | Variable | Description |
 |----------|-------------|
 | `CMUX_SOCKET_PATH` | Path to control socket |
-| `CMUX_TAB_ID` | UUID of the current tab |
-| `CMUX_PANEL_ID` | UUID of the current panel |
+| `CMUX_WORKSPACE_ID` | UUID of the current workspace |
+| `CMUX_SURFACE_ID` | UUID of the current surface |
+| `CMUX_TAB_ID` | Backward-compatible workspace alias |
+| `CMUX_PANEL_ID` | Backward-compatible surface alias |
 
 ## CLI Commands
 

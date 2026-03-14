@@ -1733,12 +1733,13 @@ struct CMUXCLI {
         case "set-status":
             let (icon, r1) = parseOption(commandArgs, name: "--icon")
             let (color, r2) = parseOption(r1, name: "--color")
-            let (wsFlag, r3) = parseOption(r2, name: "--workspace")
-            guard r3.count >= 2 else {
+            let (pid, r3) = parseOption(r2, name: "--pid")
+            let (wsFlag, r4) = parseOption(r3, name: "--workspace")
+            guard r4.count >= 2 else {
                 throw CLIError(message: "set-status requires <key> and <value>")
             }
-            let key = r3[0]
-            let value = r3.dropFirst().joined(separator: " ")
+            let key = r4[0]
+            let value = r4.dropFirst().joined(separator: " ")
             guard !value.isEmpty else {
                 throw CLIError(message: "set-status requires a non-empty value")
             }
@@ -1747,6 +1748,7 @@ struct CMUXCLI {
             var socketCmd = "set_status \(key) \(socketQuote(value))"
             if let icon { socketCmd += " --icon=\(socketQuote(icon))" }
             if let color { socketCmd += " --color=\(socketQuote(color))" }
+            if let pid { socketCmd += " --pid=\(socketQuote(pid))" }
             socketCmd += " --tab=\(wsId)"
             let response = try sendV1Command(socketCmd, client: client)
             print(response)
@@ -5252,6 +5254,7 @@ struct CMUXCLI {
             Flags:
               --icon <name>          Icon name (e.g. "sparkle", "hammer")
               --color <#hex>         Pill color (e.g. "#ff9500")
+              --pid <pid>            Track a process for stale-pill cleanup
               --workspace <id|ref>   Target workspace (default: $CMUX_WORKSPACE_ID)
 
             Example:
