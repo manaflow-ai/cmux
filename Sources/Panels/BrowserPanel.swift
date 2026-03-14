@@ -1798,6 +1798,13 @@ final class BrowserPanel: Panel, ObservableObject {
     private let developerToolsRestoreRetryMaxAttempts: Int = 40
     private var remoteProxyEndpoint: BrowserProxyEndpoint?
     @Published private(set) var remoteWorkspaceStatus: BrowserRemoteWorkspaceStatus?
+    private let usesRemoteWorkspaceProxy: Bool
+    private struct PendingRemoteNavigation {
+        let request: URLRequest
+        let recordTypedNavigation: Bool
+        let preserveRestoredSessionHistory: Bool
+    }
+    private var pendingRemoteNavigation: PendingRemoteNavigation?
     private let developerToolsDetachedOpenGracePeriod: TimeInterval = 0.35
     private var developerToolsDetachedOpenGraceDeadline: Date?
     private var developerToolsTransitionTargetVisible: Bool?
@@ -2045,15 +2052,17 @@ final class BrowserPanel: Panel, ObservableObject {
         initialURL: URL? = nil,
         bypassInsecureHTTPHostOnce: String? = nil,
         proxyEndpoint: BrowserProxyEndpoint? = nil,
-        isRemoteWorkspace: Bool = false
+        isRemoteWorkspace: Bool = false,
+        remoteWebsiteDataStoreIdentifier: UUID? = nil
     ) {
         self.id = UUID()
         self.workspaceId = workspaceId
         self.insecureHTTPBypassHostOnce = BrowserInsecureHTTPSettings.normalizeHost(bypassInsecureHTTPHostOnce ?? "")
         self.remoteProxyEndpoint = proxyEndpoint
+        self.usesRemoteWorkspaceProxy = isRemoteWorkspace
         self.browserThemeMode = BrowserThemeSettings.mode()
         self.websiteDataStore = isRemoteWorkspace
-            ? WKWebsiteDataStore(forIdentifier: self.id)
+            ? WKWebsiteDataStore(forIdentifier: remoteWebsiteDataStoreIdentifier ?? workspaceId)
             : .default()
 
         let webView = Self.makeWebView(websiteDataStore: websiteDataStore)
@@ -2143,6 +2152,7 @@ final class BrowserPanel: Panel, ObservableObject {
         guard remoteProxyEndpoint != endpoint else { return }
         remoteProxyEndpoint = endpoint
         applyRemoteProxyConfigurationIfAvailable()
+        resumePendingRemoteNavigationIfNeeded()
     }
 
     func setRemoteWorkspaceStatus(_ status: BrowserRemoteWorkspaceStatus?) {
@@ -2785,6 +2795,46 @@ final class BrowserPanel: Panel, ObservableObject {
         preserveRestoredSessionHistory: Bool = false
     ) {
         guard let url = request.url else { return }
+        if usesRemoteWorkspaceProxy, remoteProxyEndpoint == nil {
+            pendingRemoteNavigation = PendingRemoteNavigation(
+                request: request,
+                recordTypedNavigation: recordTypedNavigation,
+                preserveRestoredSessionHistory: preserveRestoredSessionHistory
+            )
+            shouldRenderWebView = true
+            currentURL = Self.remoteProxyDisplayURL(for: url) ?? url
+            navigationDelegate?.lastAttemptedURL = url
+            return
+        }
+        performNavigation(
+            request: request,
+            originalURL: url,
+            recordTypedNavigation: recordTypedNavigation,
+            preserveRestoredSessionHistory: preserveRestoredSessionHistory
+        )
+    }
+
+    private func resumePendingRemoteNavigationIfNeeded() {
+        guard remoteProxyEndpoint != nil,
+              let pendingRemoteNavigation else {
+            return
+        }
+        self.pendingRemoteNavigation = nil
+        guard let originalURL = pendingRemoteNavigation.request.url else { return }
+        performNavigation(
+            request: pendingRemoteNavigation.request,
+            originalURL: originalURL,
+            recordTypedNavigation: pendingRemoteNavigation.recordTypedNavigation,
+            preserveRestoredSessionHistory: pendingRemoteNavigation.preserveRestoredSessionHistory
+        )
+    }
+
+    private func performNavigation(
+        request: URLRequest,
+        originalURL: URL,
+        recordTypedNavigation: Bool,
+        preserveRestoredSessionHistory: Bool
+    ) {
         if !preserveRestoredSessionHistory {
             abandonRestoredSessionHistoryIfNeeded()
         }
@@ -2793,9 +2843,9 @@ final class BrowserPanel: Panel, ObservableObject {
         webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
         shouldRenderWebView = true
         if recordTypedNavigation {
-            BrowserHistoryStore.shared.recordTypedNavigation(url: url)
+            BrowserHistoryStore.shared.recordTypedNavigation(url: originalURL)
         }
-        navigationDelegate?.lastAttemptedURL = url
+        navigationDelegate?.lastAttemptedURL = originalURL
         browserLoadRequest(effectiveRequest, in: webView)
     }
 

@@ -1987,16 +1987,26 @@ struct ContentView: View {
                     let isSelectedWorkspace = selectedWorkspaceId == tab.id
                     let isRetiringWorkspace = retiringWorkspaceId == tab.id
                     let shouldPrimeInBackground = tabManager.pendingBackgroundWorkspaceLoadIds.contains(tab.id)
+                    let isRenderedVisible = isSelectedWorkspace || isRetiringWorkspace
+                    let isWorkspaceVisibleToPanels = isRenderedVisible || shouldPrimeInBackground
+                    let workspaceRenderOpacity: Double = {
+                        if isRenderedVisible {
+                            return 1
+                        }
+                        if shouldPrimeInBackground {
+                            return 0.001
+                        }
+                        return 0
+                    }()
                     // Keep the retiring workspace visible during handoff, but never input-active.
                     // Allowing both selected+retiring workspaces to be input-active lets the
                     // old workspace steal first responder (notably with WKWebView), which can
                     // delay handoff completion and make browser returns feel laggy.
                     let isInputActive = isSelectedWorkspace
-                    let isVisible = isSelectedWorkspace || isRetiringWorkspace
                     let portalPriority = isSelectedWorkspace ? 2 : (isRetiringWorkspace ? 1 : 0)
                     WorkspaceContentView(
                         workspace: tab,
-                        isWorkspaceVisible: isVisible,
+                        isWorkspaceVisible: isWorkspaceVisibleToPanels,
                         isWorkspaceInputActive: isInputActive,
                         workspacePortalPriority: portalPriority,
                         onThemeRefreshRequest: { reason, eventId, source, payloadHex in
@@ -2009,9 +2019,9 @@ struct ContentView: View {
                             )
                         }
                     )
-                    .opacity(isVisible ? 1 : 0)
+                    .opacity(workspaceRenderOpacity)
                     .allowsHitTesting(isSelectedWorkspace)
-                    .accessibilityHidden(!isVisible)
+                    .accessibilityHidden(!isRenderedVisible)
                     .zIndex(isSelectedWorkspace ? 2 : (isRetiringWorkspace ? 1 : 0))
                     .task(id: shouldPrimeInBackground ? tab.id : nil) {
                         await primeBackgroundWorkspaceIfNeeded(workspaceId: tab.id)

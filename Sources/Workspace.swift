@@ -6256,9 +6256,12 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func remoteTerminalStartupCommand() -> String? {
-        guard hasActiveRemoteTerminalSessions else { return nil }
-        return remoteConfiguration?.terminalStartupCommand?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let command = remoteConfiguration?.terminalStartupCommand?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              !command.isEmpty else {
+            return nil
+        }
+        return command
     }
 
     /// Create a new browser panel split
@@ -6288,7 +6291,8 @@ final class Workspace: Identifiable, ObservableObject {
             workspaceId: id,
             initialURL: url,
             proxyEndpoint: remoteProxyEndpoint,
-            isRemoteWorkspace: isRemoteWorkspace
+            isRemoteWorkspace: isRemoteWorkspace,
+            remoteWebsiteDataStoreIdentifier: isRemoteWorkspace ? id : nil
         )
         panels[browserPanel.id] = browserPanel
         panelTitles[browserPanel.id] = browserPanel.displayTitle
@@ -6357,7 +6361,8 @@ final class Workspace: Identifiable, ObservableObject {
             initialURL: url,
             bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce,
             proxyEndpoint: remoteProxyEndpoint,
-            isRemoteWorkspace: isRemoteWorkspace
+            isRemoteWorkspace: isRemoteWorkspace,
+            remoteWebsiteDataStoreIdentifier: isRemoteWorkspace ? id : nil
         )
         panels[browserPanel.id] = browserPanel
         panelTitles[browserPanel.id] = browserPanel.displayTitle

@@ -47,6 +47,19 @@ final class GhosttyConfigTests: XCTestCase {
         let blue: Int
     }
 
+    private func writeAppSupportConfig(
+        root: URL,
+        bundleIdentifier: String,
+        name: String = "config",
+        contents: String = "font-size = 14\n"
+    ) throws -> URL {
+        let directory = root.appendingPathComponent(bundleIdentifier, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let url = directory.appendingPathComponent(name, isDirectory: false)
+        try contents.write(to: url, atomically: true, encoding: .utf8)
+        return url
+    }
+
     func testResolveThemeNamePrefersLightEntryForPairedTheme() {
         let resolved = GhosttyConfig.resolveThemeName(
             from: "light:Builtin Solarized Light,dark:Builtin Solarized Dark",
@@ -312,48 +325,69 @@ final class GhosttyConfigTests: XCTestCase {
     }
 
     func testReleaseAppSupportFallbackLoadsForDebugWhenOnlyReleaseConfigExists() {
-        XCTAssertTrue(
-            GhosttyApp.shouldLoadReleaseAppSupportGhosttyConfig(
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-release-config-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let releaseURL = try? writeAppSupportConfig(
+            root: root,
+            bundleIdentifier: "com.cmuxterm.app"
+        )
+
+        XCTAssertEqual(
+            GhosttyApp.cmuxAppSupportConfigURLs(
                 currentBundleIdentifier: "com.cmuxterm.app.debug",
-                currentConfigFileSize: nil,
-                currentLegacyConfigFileSize: nil,
-                releaseConfigFileSize: 128,
-                releaseLegacyConfigFileSize: nil
-            )
+                appSupportDirectory: root
+            ),
+            [releaseURL].compactMap { $0 }
         )
     }
 
     func testReleaseAppSupportFallbackSkipsWhenDebugConfigAlreadyExists() {
-        XCTAssertFalse(
-            GhosttyApp.shouldLoadReleaseAppSupportGhosttyConfig(
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-release-config-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        _ = try? writeAppSupportConfig(root: root, bundleIdentifier: "com.cmuxterm.app")
+        let debugURL = try? writeAppSupportConfig(
+            root: root,
+            bundleIdentifier: "com.cmuxterm.app.debug.issue-829",
+            name: "config.ghostty"
+        )
+
+        XCTAssertEqual(
+            GhosttyApp.cmuxAppSupportConfigURLs(
                 currentBundleIdentifier: "com.cmuxterm.app.debug.issue-829",
-                currentConfigFileSize: nil,
-                currentLegacyConfigFileSize: 64,
-                releaseConfigFileSize: 128,
-                releaseLegacyConfigFileSize: nil
-            )
+                appSupportDirectory: root
+            ),
+            [debugURL].compactMap { $0 }
         )
     }
 
     func testReleaseAppSupportFallbackSkipsForNonDebugBundleOrMissingReleaseConfig() {
-        XCTAssertFalse(
-            GhosttyApp.shouldLoadReleaseAppSupportGhosttyConfig(
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-release-config-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        _ = try? writeAppSupportConfig(root: root, bundleIdentifier: "com.cmuxterm.app")
+
+        XCTAssertEqual(
+            GhosttyApp.cmuxAppSupportConfigURLs(
                 currentBundleIdentifier: "com.cmuxterm.app",
-                currentConfigFileSize: nil,
-                currentLegacyConfigFileSize: nil,
-                releaseConfigFileSize: 128,
-                releaseLegacyConfigFileSize: nil
-            )
+                appSupportDirectory: root
+            ).count,
+            1
         )
 
-        XCTAssertFalse(
-            GhosttyApp.shouldLoadReleaseAppSupportGhosttyConfig(
+        XCTAssertEqual(
+            GhosttyApp.cmuxAppSupportConfigURLs(
                 currentBundleIdentifier: "com.cmuxterm.app.debug",
-                currentConfigFileSize: nil,
-                currentLegacyConfigFileSize: nil,
-                releaseConfigFileSize: nil,
-                releaseLegacyConfigFileSize: 0
-            )
+                appSupportDirectory: root.appendingPathComponent("missing", isDirectory: true)
+            ),
+            []
         )
     }
 
@@ -831,12 +865,79 @@ final class RemoteLoopbackHTTPRequestRewriterTests: XCTestCase {
 
 @MainActor
 final class BrowserPanelRemoteStoreTests: XCTestCase {
-    func testRemoteWorkspaceUsesDedicatedWebsiteDataStore() {
+    func testRemoteWorkspacePanelsShareWorkspaceScopedWebsiteDataStore() {
         let localPanel = BrowserPanel(workspaceId: UUID(), isRemoteWorkspace: false)
-        let remotePanel = BrowserPanel(workspaceId: UUID(), isRemoteWorkspace: true)
+        let remoteWorkspaceId = UUID()
+        let firstRemotePanel = BrowserPanel(
+            workspaceId: remoteWorkspaceId,
+            isRemoteWorkspace: true,
+            remoteWebsiteDataStoreIdentifier: remoteWorkspaceId
+        )
+        let secondRemotePanel = BrowserPanel(
+            workspaceId: remoteWorkspaceId,
+            isRemoteWorkspace: true,
+            remoteWebsiteDataStoreIdentifier: remoteWorkspaceId
+        )
 
         XCTAssertTrue(localPanel.webView.configuration.websiteDataStore === WKWebsiteDataStore.default())
-        XCTAssertFalse(remotePanel.webView.configuration.websiteDataStore === WKWebsiteDataStore.default())
+        XCTAssertFalse(firstRemotePanel.webView.configuration.websiteDataStore === WKWebsiteDataStore.default())
+        XCTAssertTrue(
+            firstRemotePanel.webView.configuration.websiteDataStore ===
+                secondRemotePanel.webView.configuration.websiteDataStore
+        )
+    }
+
+    func testRemoteWorkspaceDefersInitialNavigationUntilProxyEndpointIsReady() {
+        let remoteWorkspaceId = UUID()
+        let url = URL(string: "http://localhost:3000/demo")!
+        let panel = BrowserPanel(
+            workspaceId: remoteWorkspaceId,
+            initialURL: url,
+            isRemoteWorkspace: true,
+            remoteWebsiteDataStoreIdentifier: remoteWorkspaceId
+        )
+
+        XCTAssertEqual(panel.preferredURLStringForOmnibar(), url.absoluteString)
+        XCTAssertNil(panel.webView.url)
+
+        panel.setRemoteProxyEndpoint(BrowserProxyEndpoint(host: "127.0.0.1", port: 9876))
+
+        let deadline = Date().addingTimeInterval(1.0)
+        while panel.webView.url == nil, RunLoop.main.run(mode: .default, before: deadline), Date() < deadline {}
+
+        XCTAssertEqual(panel.preferredURLStringForOmnibar(), url.absoluteString)
+        XCTAssertEqual(panel.webView.url?.host, "cmux-loopback.localtest.me")
+    }
+
+    func testNewTerminalSurfaceStaysRemoteWhileBrowserPanelsKeepWorkspaceRemote() throws {
+        let workspace = Workspace()
+        let paneId = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let initialTerminalId = try XCTUnwrap(workspace.focusedPanelId)
+        let configuration = WorkspaceRemoteConfiguration(
+            destination: "cmux-macmini",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64000,
+            relayID: "relay-test",
+            relayToken: String(repeating: "a", count: 64),
+            localSocketPath: "/tmp/cmux-test.sock",
+            terminalStartupCommand: "ssh cmux-macmini"
+        )
+
+        workspace.configureRemoteConnection(configuration, autoConnect: false)
+        _ = workspace.newBrowserSurface(inPane: paneId, url: URL(string: "https://example.com"), focus: false)
+
+        workspace.markRemoteTerminalSessionEnded(surfaceId: initialTerminalId, relayPort: configuration.relayPort)
+
+        XCTAssertTrue(workspace.isRemoteWorkspace)
+        XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 0)
+
+        _ = try XCTUnwrap(workspace.newTerminalSurface(inPane: paneId, focus: false))
+
+        XCTAssertTrue(workspace.isRemoteWorkspace)
+        XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 1)
     }
 }
 

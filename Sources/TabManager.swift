@@ -943,6 +943,9 @@ class TabManager: ObservableObject {
         newWorkspace.owningTabManager = self
         wireClosedBrowserTracking(for: newWorkspace)
         let insertIndex = newTabInsertIndex(snapshot: snapshot, placementOverride: placementOverride)
+        if eagerLoadTerminal && !select {
+            requestBackgroundWorkspaceLoad(for: newWorkspace.id)
+        }
         var updatedTabs = snapshot.tabs
         if insertIndex >= 0 && insertIndex <= updatedTabs.count {
             updatedTabs.insert(newWorkspace, at: insertIndex)
@@ -959,7 +962,9 @@ class TabManager: ObservableObject {
             )
         }
         if eagerLoadTerminal {
-            newWorkspace.focusedTerminalPanel?.surface.requestBackgroundSurfaceStartIfNeeded()
+            if select {
+                newWorkspace.focusedTerminalPanel?.surface.requestBackgroundSurfaceStartIfNeeded()
+            }
         }
         if select {
 #if DEBUG
@@ -1169,21 +1174,33 @@ class TabManager: ObservableObject {
     }
 
     func requestBackgroundWorkspaceLoad(for workspaceId: UUID) {
-        guard pendingBackgroundWorkspaceLoadIds.insert(workspaceId).inserted else { return }
+        guard !pendingBackgroundWorkspaceLoadIds.contains(workspaceId) else { return }
+        var updated = pendingBackgroundWorkspaceLoadIds
+        updated.insert(workspaceId)
+        pendingBackgroundWorkspaceLoadIds = updated
     }
 
     func completeBackgroundWorkspaceLoad(for workspaceId: UUID) {
-        guard pendingBackgroundWorkspaceLoadIds.remove(workspaceId) != nil else { return }
+        guard pendingBackgroundWorkspaceLoadIds.contains(workspaceId) else { return }
+        var updated = pendingBackgroundWorkspaceLoadIds
+        updated.remove(workspaceId)
+        pendingBackgroundWorkspaceLoadIds = updated
     }
 
     func retainDebugWorkspaceLoads(for workspaceIds: Set<UUID>) {
         guard !workspaceIds.isEmpty else { return }
-        debugPinnedWorkspaceLoadIds.formUnion(workspaceIds)
+        var updated = debugPinnedWorkspaceLoadIds
+        updated.formUnion(workspaceIds)
+        guard updated != debugPinnedWorkspaceLoadIds else { return }
+        debugPinnedWorkspaceLoadIds = updated
     }
 
     func releaseDebugWorkspaceLoads(for workspaceIds: Set<UUID>) {
         guard !workspaceIds.isEmpty else { return }
-        debugPinnedWorkspaceLoadIds.subtract(workspaceIds)
+        var updated = debugPinnedWorkspaceLoadIds
+        updated.subtract(workspaceIds)
+        guard updated != debugPinnedWorkspaceLoadIds else { return }
+        debugPinnedWorkspaceLoadIds = updated
     }
 
     func pruneBackgroundWorkspaceLoads(existingIds: Set<UUID>) {
@@ -4046,11 +4063,13 @@ extension TabManager {
     }
 
     func sessionSnapshot(includeScrollback: Bool) -> SessionTabManagerSnapshot {
-        let workspaceSnapshots = tabs
+        let restorableTabs = tabs
+            .filter { !$0.isRemoteWorkspace }
             .prefix(SessionPersistencePolicy.maxWorkspacesPerWindow)
+        let workspaceSnapshots = restorableTabs
             .map { $0.sessionSnapshot(includeScrollback: includeScrollback) }
         let selectedWorkspaceIndex = selectedTabId.flatMap { selectedTabId in
-            tabs.firstIndex(where: { $0.id == selectedTabId })
+            restorableTabs.firstIndex(where: { $0.id == selectedTabId })
         }
         return SessionTabManagerSnapshot(
             selectedWorkspaceIndex: selectedWorkspaceIndex,
