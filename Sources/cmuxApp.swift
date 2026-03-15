@@ -2334,19 +2334,19 @@ private struct SidebarDebugView: View {
                         Picker(String(localized: "settings.debug.sidebarTitleFont", defaultValue: "Text Font"), selection: $sidebarTextFontFamily) {
                             Text(String(localized: "sidebar.font.default.text", defaultValue: "Default (San Francisco)")).tag(SidebarFontSettings.defaultFamily)
                             ForEach(SidebarFontSettings.availableFamilies, id: \.self) { family in
-                                Text(family).font(.custom(family, size: 13)).tag(family)
+                                Text(family).font(SidebarFontSettings.font(family: family, role: .text, size: 13)).tag(family)
                             }
                         }
                         Picker(String(localized: "settings.debug.sidebarShortcutHintFont", defaultValue: "Shortcut Hint Font"), selection: $sidebarShortcutHintFontFamily) {
                             Text(String(localized: "sidebar.font.default.shortcutHint", defaultValue: "Default (SF Rounded)")).tag(SidebarFontSettings.defaultFamily)
                             ForEach(SidebarFontSettings.availableFamilies, id: \.self) { family in
-                                Text(family).font(.custom(family, size: 13)).tag(family)
+                                Text(family).font(SidebarFontSettings.font(family: family, role: .shortcutHint, size: 13)).tag(family)
                             }
                         }
                         Picker(String(localized: "settings.debug.sidebarDetailFont", defaultValue: "Branch/Path Font"), selection: $sidebarCodeDetailFontFamily) {
                             Text(String(localized: "sidebar.font.default.codeDetail", defaultValue: "Default (SF Mono)")).tag(SidebarFontSettings.defaultFamily)
                             ForEach(SidebarFontSettings.availableFamilies, id: \.self) { family in
-                                Text(family).font(.custom(family, size: 13)).tag(family)
+                                Text(family).font(SidebarFontSettings.font(family: family, role: .codeDetail, size: 13)).tag(family)
                             }
                         }
                     }
@@ -3834,6 +3834,7 @@ struct SettingsView: View {
                             title: String(localized: "settings.app.sidebarTitleFont", defaultValue: "Sidebar Text Font"),
                             subtitle: String(localized: "settings.app.sidebarTitleFont.subtitle", defaultValue: "The font for workspace titles, notifications, logs, metadata, and other regular sidebar text."),
                             defaultLabel: String(localized: "sidebar.font.default.text", defaultValue: "Default (San Francisco)"),
+                            previewRole: .text,
                             selection: $sidebarTextFontFamily,
                             controlWidth: pickerColumnWidth
                         )
@@ -3844,6 +3845,7 @@ struct SettingsView: View {
                             title: String(localized: "settings.app.sidebarShortcutHintFont", defaultValue: "Sidebar Shortcut Hint Font"),
                             subtitle: String(localized: "settings.app.sidebarShortcutHintFont.subtitle", defaultValue: "The font for keyboard shortcut hints (⌘1, ⌘2, …)."),
                             defaultLabel: String(localized: "sidebar.font.default.shortcutHint", defaultValue: "Default (SF Rounded)"),
+                            previewRole: .shortcutHint,
                             selection: $sidebarShortcutHintFontFamily,
                             controlWidth: pickerColumnWidth
                         )
@@ -3854,6 +3856,7 @@ struct SettingsView: View {
                             title: String(localized: "settings.app.sidebarDetailFont", defaultValue: "Sidebar Branch/Path Font"),
                             subtitle: String(localized: "settings.app.sidebarDetailFont.subtitle", defaultValue: "The font for branches, directories, and ports."),
                             defaultLabel: String(localized: "sidebar.font.default.codeDetail", defaultValue: "Default (SF Mono)"),
+                            previewRole: .codeDetail,
                             selection: $sidebarCodeDetailFontFamily,
                             controlWidth: pickerColumnWidth
                         )
@@ -4956,6 +4959,7 @@ private struct SidebarFontFamilyPickerRow: View {
     let title: String
     let subtitle: String
     let defaultLabel: String
+    let previewRole: SidebarFontRole
     @Binding var selection: String
     let controlWidth: CGFloat
 
@@ -4966,7 +4970,7 @@ private struct SidebarFontFamilyPickerRow: View {
                     .tag(SidebarFontSettings.defaultFamily)
                 ForEach(SidebarFontSettings.availableFamilies, id: \.self) { family in
                     Text(family)
-                        .font(.custom(family, size: 13))
+                        .font(SidebarFontSettings.font(family: family, role: previewRole, size: 13))
                         .tag(family)
                 }
             }
