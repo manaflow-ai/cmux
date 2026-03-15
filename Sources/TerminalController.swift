@@ -60,6 +60,9 @@ class TerminalController {
     private nonisolated static let socketProbePollTimeoutMs: Int32 = 100
     private nonisolated static let socketProbePollAttempts = 3
     private nonisolated static let socketProbePollRetryBackoffUs: useconds_t = 50_000
+    private nonisolated static let socketListenerFailureCaptureCooldown: TimeInterval = 60
+    private nonisolated static let socketListenerFailureCaptureLock = NSLock()
+    private nonisolated(unsafe) static var socketListenerFailureLastCapturedAt: [String: Date] = [:]
     private nonisolated static let unixSocketPathMaxLength: Int = {
         var addr = sockaddr_un()
         // Reserve one byte for the null terminator.
@@ -505,7 +508,33 @@ class TerminalController {
     ) {
         let data = socketListenerEventData(stage: stage, errnoCode: errnoCode, extra: extra)
         sentryBreadcrumb(message, category: "socket", data: data)
+        guard Self.shouldCaptureSocketListenerFailure(
+            message: message,
+            stage: stage,
+            path: data["path"] as? String ?? "",
+            errnoCode: errnoCode
+        ) else {
+            return
+        }
         sentryCaptureError(message, category: "socket", data: data, contextKey: "socket_listener")
+    }
+
+    private nonisolated static func shouldCaptureSocketListenerFailure(
+        message: String,
+        stage: String,
+        path: String,
+        errnoCode: Int32?
+    ) -> Bool {
+        let key = "\(message)|\(stage)|\(path)|\(errnoCode.map(String.init) ?? "none")"
+        let now = Date()
+        socketListenerFailureCaptureLock.lock()
+        defer { socketListenerFailureCaptureLock.unlock() }
+        if let lastCapturedAt = socketListenerFailureLastCapturedAt[key],
+           now.timeIntervalSince(lastCapturedAt) < socketListenerFailureCaptureCooldown {
+            return false
+        }
+        socketListenerFailureLastCapturedAt[key] = now
+        return true
     }
 
     nonisolated static func acceptErrorClassification(errnoCode: Int32) -> String {
@@ -1532,6 +1561,12 @@ class TerminalController {
 
         case "clear_status":
             return clearStatus(args)
+
+        case "set_agent_pid":
+            return setAgentPID(args)
+
+        case "clear_agent_pid":
+            return clearAgentPID(args)
 
         case "clear_meta":
             return clearMeta(args)
@@ -13032,6 +13067,14 @@ class TerminalController {
             return tabResolution.error ?? "ERROR: No tab selected"
         }
 
+        let pidValue: pid_t? = {
+            if let rawPid = normalizedOptionValue(parsed.options["pid"]),
+               let p = Int32(rawPid), p > 0 {
+                return p
+            }
+            return nil
+        }()
+
         DispatchQueue.main.async { [weak self] in
             guard let self, let tab = self.tabForSidebarMutation(id: targetTabId) else { return }
             guard Self.shouldReplaceStatusEntry(
@@ -13044,6 +13087,10 @@ class TerminalController {
                 priority: priority,
                 format: format
             ) else {
+                // Still update PID tracking even if the status display hasn't changed.
+                if let pidValue {
+                    tab.agentPIDs[key] = pidValue
+                }
                 return
             }
             tab.statusEntries[key] = SidebarStatusEntry(
@@ -13056,6 +13103,9 @@ class TerminalController {
                 format: format,
                 timestamp: Date()
             )
+            if let pidValue {
+                tab.agentPIDs[key] = pidValue
+            }
         }
         return "OK"
     }
@@ -13075,8 +13125,48 @@ class TerminalController {
             if tab.statusEntries.removeValue(forKey: key) == nil {
                 result = "OK (key not found)"
             }
+            tab.agentPIDs.removeValue(forKey: key)
         }
         return result
+    }
+
+    /// Register an agent PID for stale-session detection without setting a visible status entry.
+    /// Usage: set_agent_pid <key> <pid> [--tab=<id>]
+    private func setAgentPID(_ args: String) -> String {
+        let parsed = parseOptions(args)
+        guard parsed.positional.count >= 2,
+              let pid = Int32(parsed.positional[1]), pid > 0 else {
+            return "ERROR: Usage: set_agent_pid <key> <pid> [--tab=<id>]"
+        }
+        let key = parsed.positional[0]
+        let tabResolution = resolveTabIdForSidebarMutation(reportArgs: args, options: parsed.options)
+        guard let targetTabId = tabResolution.tabId else {
+            return tabResolution.error ?? "ERROR: No tab selected"
+        }
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let tab = self.tabForSidebarMutation(id: targetTabId) else { return }
+            tab.agentPIDs[key] = pid
+        }
+        return "OK"
+    }
+
+    /// Unregister an agent PID. Usage: clear_agent_pid <key> [--tab=<id>]
+    private func clearAgentPID(_ args: String) -> String {
+        let parsed = parseOptions(args)
+        guard let key = parsed.positional.first else {
+            return "ERROR: Usage: clear_agent_pid <key> [--tab=<id>]"
+        }
+        // Resolve tab ID synchronously before dispatching to avoid
+        // racing against selection changes on the main queue.
+        let tabResolution = resolveTabIdForSidebarMutation(reportArgs: args, options: parsed.options)
+        guard let targetTabId = tabResolution.tabId else {
+            return tabResolution.error ?? "ERROR: No tab selected"
+        }
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let tab = self.tabForSidebarMutation(id: targetTabId) else { return }
+            tab.agentPIDs.removeValue(forKey: key)
+        }
+        return "OK"
     }
 
     private func sidebarMetadataLine(_ entry: SidebarStatusEntry) -> String {

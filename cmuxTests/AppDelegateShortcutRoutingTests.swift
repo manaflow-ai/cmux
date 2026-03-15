@@ -955,6 +955,63 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 #endif
     }
 
+    func testCmdShiftPRequestsCommandPaletteCommands() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId) else {
+            XCTFail("Expected test window")
+            return
+        }
+
+        let paletteExpectation = expectation(description: "Expected command palette commands request for Cmd+Shift+P")
+        var observedPaletteWindow: NSWindow?
+        let paletteToken = NotificationCenter.default.addObserver(
+            forName: .commandPaletteRequested,
+            object: nil,
+            queue: nil
+        ) { notification in
+            observedPaletteWindow = notification.object as? NSWindow
+            paletteExpectation.fulfill()
+        }
+        defer { NotificationCenter.default.removeObserver(paletteToken) }
+
+        let switcherExpectation = expectation(description: "Cmd+Shift+P should not request command palette switcher")
+        switcherExpectation.isInverted = true
+        let switcherToken = NotificationCenter.default.addObserver(
+            forName: .commandPaletteSwitcherRequested,
+            object: nil,
+            queue: nil
+        ) { _ in
+            switcherExpectation.fulfill()
+        }
+        defer { NotificationCenter.default.removeObserver(switcherToken) }
+
+        guard let event = makeKeyDownEvent(
+            key: "P",
+            modifiers: [.command, .shift],
+            keyCode: 35,
+            windowNumber: window.windowNumber
+        ) else {
+            XCTFail("Failed to construct Cmd+Shift+P event")
+            return
+        }
+
+#if DEBUG
+        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+
+        wait(for: [paletteExpectation, switcherExpectation], timeout: 1.0)
+        XCTAssertEqual(observedPaletteWindow?.windowNumber, window.windowNumber)
+    }
+
     func testCmdPhysicalWWithDvorakCharactersDoesNotTriggerClosePanelShortcut() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
@@ -1710,6 +1767,77 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         wait(for: [dismissExpectation], timeout: 1.0)
         XCTAssertEqual(observedDismissWindow?.windowNumber, window.windowNumber)
+    }
+
+    func testArrowNavigationRoutesWhileCommandPaletteOverlayIsInteractiveBeforeVisibilitySync() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer {
+            closeWindow(withId: windowId)
+        }
+
+        guard let window = window(withId: windowId),
+              let contentView = window.contentView else {
+            XCTFail("Expected test window")
+            return
+        }
+
+        let overlayContainer = NSView(frame: contentView.bounds)
+        overlayContainer.identifier = commandPaletteOverlayContainerIdentifier
+        overlayContainer.alphaValue = 1
+        overlayContainer.isHidden = false
+        contentView.addSubview(overlayContainer)
+
+        let fieldEditor = CommandPaletteMarkedTextFieldEditor(frame: NSRect(x: 0, y: 0, width: 200, height: 24))
+        fieldEditor.isFieldEditor = true
+        overlayContainer.addSubview(fieldEditor)
+        XCTAssertTrue(window.makeFirstResponder(fieldEditor))
+
+        appDelegate.setCommandPaletteVisible(false, for: window)
+        defer {
+            overlayContainer.removeFromSuperview()
+            fieldEditor.removeFromSuperview()
+        }
+
+        let moveExpectation = expectation(
+            description: "Expected command palette move-selection notification while overlay is interactive"
+        )
+        var observedDelta: Int?
+        var observedWindow: NSWindow?
+        let moveToken = NotificationCenter.default.addObserver(
+            forName: .commandPaletteMoveSelection,
+            object: nil,
+            queue: nil
+        ) { notification in
+            observedWindow = notification.object as? NSWindow
+            observedDelta = notification.userInfo?["delta"] as? Int
+            moveExpectation.fulfill()
+        }
+        defer { NotificationCenter.default.removeObserver(moveToken) }
+
+        guard let downArrowEvent = makeKeyDownEvent(
+            key: String(UnicodeScalar(NSDownArrowFunctionKey)!),
+            modifiers: [],
+            keyCode: 125,
+            windowNumber: window.windowNumber
+        ) else {
+            XCTFail("Failed to construct Down Arrow event")
+            return
+        }
+
+#if DEBUG
+        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: downArrowEvent))
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+
+        wait(for: [moveExpectation], timeout: 1.0)
+        XCTAssertEqual(observedWindow?.windowNumber, window.windowNumber)
+        XCTAssertEqual(observedDelta, 1)
     }
 
     func testEscapeDismissesCommandPaletteWhenVisibilityStateStaysStalePastInitialPendingWindow() {

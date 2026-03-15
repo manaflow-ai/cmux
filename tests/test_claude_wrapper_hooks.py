@@ -139,10 +139,22 @@ def test_live_socket_injects_supported_hooks(failures: list[str]) -> None:
 
     settings = parse_settings_arg(real_argv)
     hooks = settings.get("hooks", {})
-    expect(set(hooks.keys()) == {"SessionStart", "Stop", "Notification"}, f"unexpected hook keys: {hooks.keys()}", failures)
-    serialized = json.dumps(settings, sort_keys=True)
-    expect("UserPromptSubmit" not in serialized, "UserPromptSubmit hook should not be injected", failures)
-    expect("prompt-submit" not in serialized, "prompt-submit subcommand should not be injected", failures)
+    expected_hooks = {"SessionStart", "Stop", "SessionEnd", "Notification", "UserPromptSubmit", "PreToolUse"}
+    expect(set(hooks.keys()) == expected_hooks, f"unexpected hook keys: {hooks.keys()}, expected {expected_hooks}", failures)
+    # PreToolUse should be async to avoid blocking tool execution
+    pre_tool_use_hooks = hooks.get("PreToolUse", [{}])[0].get("hooks", [{}])
+    expect(
+        any(h.get("async") is True for h in pre_tool_use_hooks),
+        f"PreToolUse hook should have async:true, got {pre_tool_use_hooks}",
+        failures,
+    )
+    # SessionEnd should have a short timeout (session is exiting)
+    session_end_hooks = hooks.get("SessionEnd", [{}])[0].get("hooks", [{}])
+    expect(
+        any(h.get("timeout", 999) <= 2 for h in session_end_hooks),
+        f"SessionEnd hook should have short timeout, got {session_end_hooks}",
+        failures,
+    )
 
 
 def test_missing_socket_skips_hook_injection(failures: list[str]) -> None:
