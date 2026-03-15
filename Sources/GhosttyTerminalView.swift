@@ -5745,6 +5745,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     fileprivate func debugRegisteredDropTypes() -> [String] {
         (registeredDraggedTypes ?? []).map(\.rawValue)
     }
+
+    func debugPendingSurfaceSize() -> CGSize? {
+        pendingSurfaceSize
+    }
 #endif
 
     // MARK: NSDraggingDestination
@@ -7119,6 +7123,24 @@ final class GhosttySurfaceScrollView: NSView {
 
     func debugHasKeyboardCopyModeIndicator() -> Bool {
         keyboardCopyModeBadgeContainerView.superview === self && !keyboardCopyModeBadgeContainerView.isHidden
+    }
+
+    func debugSetOverlayScrollerVisibility(hidden: Bool, alpha: CGFloat) {
+        guard let verticalScroller = scrollView.verticalScroller else { return }
+        verticalScroller.isHidden = hidden
+        verticalScroller.alphaValue = alpha
+    }
+
+    func debugForceSurfaceLayoutPass() {
+        surfaceView.layout()
+    }
+
+    func debugSurfaceSizingState() -> (contentSize: CGSize, overlayInsetWidth: CGFloat, pendingSurfaceSize: CGSize?) {
+        (
+            scrollView.contentSize,
+            overlayScrollbarInsetWidth(),
+            surfaceView.debugPendingSurfaceSize()
+        )
     }
 
 #endif

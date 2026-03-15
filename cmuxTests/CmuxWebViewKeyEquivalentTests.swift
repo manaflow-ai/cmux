@@ -11936,6 +11936,32 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         return nil
     }
 
+    private func makeHostedTerminalWindow(
+        size: NSSize = NSSize(width: 360, height: 240)
+    ) -> (window: NSWindow, surface: TerminalSurface, hostedView: GhosttySurfaceScrollView) {
+        let window = NSWindow(
+            contentRect: NSRect(origin: .zero, size: size),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let surface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        let hostedView = surface.hostedView
+        hostedView.frame = NSRect(origin: .zero, size: size)
+        hostedView.autoresizingMask = [.width, .height]
+        window.contentView?.addSubview(hostedView)
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        window.contentView?.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        return (window, surface, hostedView)
+    }
+
     func testTrackpadScrollRoutesToTerminalSurfaceAndPreservesKeyboardFocusPath() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
@@ -12010,6 +12036,84 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         hostedView.setInactiveOverlay(color: .black, opacity: 0.35, visible: false)
         state = hostedView.debugInactiveOverlayState()
         XCTAssertTrue(state.isHidden)
+    }
+
+    func testVisibleOverlayScrollbarWidthSurvivesStandaloneSurfaceLayoutPass() throws {
+#if DEBUG
+        let (window, surface, hostedView) = makeHostedTerminalWindow()
+        defer {
+            window.orderOut(nil)
+            _ = surface
+        }
+
+        hostedView.debugSetOverlayScrollerVisibility(hidden: false, alpha: 1)
+        XCTAssertTrue(hostedView.reconcileGeometryNow(), "Expected hosted terminal geometry reconciliation")
+
+        var sizing = hostedView.debugSurfaceSizingState()
+        let initialPending = try XCTUnwrap(sizing.pendingSurfaceSize)
+        XCTAssertGreaterThan(
+            sizing.overlayInsetWidth,
+            0,
+            "Visible overlay scroller should reserve a wrap gutter"
+        )
+        XCTAssertEqual(
+            initialPending.width,
+            sizing.contentSize.width - sizing.overlayInsetWidth,
+            accuracy: 0.5,
+            "Hosted terminal width should exclude the visible overlay scroller gutter"
+        )
+
+        hostedView.debugForceSurfaceLayoutPass()
+
+        sizing = hostedView.debugSurfaceSizingState()
+        let pendingAfterSurfaceLayout = try XCTUnwrap(sizing.pendingSurfaceSize)
+        XCTAssertEqual(
+            pendingAfterSurfaceLayout.width,
+            sizing.contentSize.width - sizing.overlayInsetWidth,
+            accuracy: 0.5,
+            "Standalone Ghostty surface layout must not overwrite the wrapped width with full bounds"
+        )
+#else
+        throw XCTSkip("Debug-only regression test")
+#endif
+    }
+
+    func testHiddenOrTransparentOverlayScrollbarDoesNotReserveWrapGutter() throws {
+#if DEBUG
+        let (window, surface, hostedView) = makeHostedTerminalWindow()
+        defer {
+            window.orderOut(nil)
+            _ = surface
+        }
+
+        hostedView.debugSetOverlayScrollerVisibility(hidden: true, alpha: 1)
+        XCTAssertTrue(hostedView.reconcileGeometryNow(), "Expected hosted terminal geometry reconciliation")
+
+        var sizing = hostedView.debugSurfaceSizingState()
+        let hiddenPending = try XCTUnwrap(sizing.pendingSurfaceSize)
+        XCTAssertEqual(sizing.overlayInsetWidth, 0, accuracy: 0.01)
+        XCTAssertEqual(
+            hiddenPending.width,
+            sizing.contentSize.width,
+            accuracy: 0.5,
+            "Hidden overlay scrollers should not shrink the terminal wrap width"
+        )
+
+        hostedView.debugSetOverlayScrollerVisibility(hidden: false, alpha: 0)
+        XCTAssertTrue(hostedView.reconcileGeometryNow(), "Expected hosted terminal geometry reconciliation")
+
+        sizing = hostedView.debugSurfaceSizingState()
+        let transparentPending = try XCTUnwrap(sizing.pendingSurfaceSize)
+        XCTAssertEqual(sizing.overlayInsetWidth, 0, accuracy: 0.01)
+        XCTAssertEqual(
+            transparentPending.width,
+            sizing.contentSize.width,
+            accuracy: 0.5,
+            "Transparent overlay scrollers should not reserve a wrap gutter"
+        )
+#else
+        throw XCTSkip("Debug-only regression test")
+#endif
     }
 
     func testWindowResignKeyClearsFocusedTerminalFirstResponder() {
