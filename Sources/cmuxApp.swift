@@ -4,6 +4,22 @@ import Darwin
 import Bonsplit
 import UniformTypeIdentifiers
 
+private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
+    "cmux.settings",
+    "cmux.about",
+    "cmux.licenses",
+    "cmux.settingsAboutTitlebarDebug",
+    "cmux.debugWindowControls",
+    "cmux.sidebarDebug",
+    "cmux.menubarDebug",
+    "cmux.backgroundDebug",
+]
+
+func cmuxWindowShouldOwnCloseShortcut(_ window: NSWindow?) -> Bool {
+    guard let identifier = window?.identifier?.rawValue else { return false }
+    return cmuxAuxiliaryWindowIdentifiers.contains(identifier)
+}
+
 @main
 struct cmuxApp: App {
     @StateObject private var tabManager: TabManager
@@ -645,7 +661,6 @@ struct cmuxApp: App {
 
     private func showAboutPanel() {
         AboutWindowController.shared.show()
-        NSApp.activate(ignoringOtherApps: true)
     }
 
     private func applyAppearance() {
@@ -1034,7 +1049,7 @@ struct cmuxApp: App {
 
     private func closePanelOrWindow() {
         if let window = NSApp.keyWindow,
-           window.identifier?.rawValue == "cmux.settings" {
+           cmuxWindowShouldOwnCloseShortcut(window) {
             window.performClose(nil)
             return
         }
