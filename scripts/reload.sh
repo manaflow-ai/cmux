@@ -10,6 +10,15 @@ BUNDLE_SET=0
 DERIVED_SET=0
 TAG=""
 CMUX_DEBUG_LOG=""
+LAST_SOCKET_PATH_DIR="$HOME/Library/Application Support/cmux"
+LAST_SOCKET_PATH_FILE="${LAST_SOCKET_PATH_DIR}/last-socket-path"
+
+write_last_socket_path() {
+  local socket_path="$1"
+  mkdir -p "$LAST_SOCKET_PATH_DIR"
+  echo "$socket_path" > "$LAST_SOCKET_PATH_FILE" || true
+  echo "$socket_path" > /tmp/cmux-last-socket-path || true
+}
 
 usage() {
   cat <<'EOF'
@@ -45,6 +54,11 @@ sanitize_path() {
   echo "$cleaned"
 }
 
+tagged_derived_data_path() {
+  local slug="$1"
+  echo "$HOME/Library/Developer/Xcode/DerivedData/cmux-${slug}"
+}
+
 print_tag_cleanup_reminder() {
   local current_slug="$1"
   local path=""
@@ -53,7 +67,13 @@ print_tag_cleanup_reminder() {
   local -a stale_tags=()
 
   while IFS= read -r -d '' path; do
-    tag="${path#/tmp/cmux-}"
+    if [[ "$path" == /tmp/cmux-* ]]; then
+      tag="${path#/tmp/cmux-}"
+    elif [[ "$path" == "$HOME/Library/Developer/Xcode/DerivedData/cmux-"* ]]; then
+      tag="${path#$HOME/Library/Developer/Xcode/DerivedData/cmux-}"
+    else
+      continue
+    fi
     if [[ "$tag" == "$current_slug" ]]; then
       continue
     fi
@@ -66,7 +86,10 @@ print_tag_cleanup_reminder() {
     fi
     seen="${seen}${tag} "
     stale_tags+=("$tag")
-  done < <(find /tmp -maxdepth 1 -type d -name 'cmux-*' -print0 2>/dev/null)
+  done < <(
+    find /tmp -maxdepth 1 -name 'cmux-*' -print0 2>/dev/null
+    find "$HOME/Library/Developer/Xcode/DerivedData" -maxdepth 1 -type d -name 'cmux-*' -print0 2>/dev/null
+  )
 
   echo
   echo "Tag cleanup status:"
@@ -82,14 +105,14 @@ print_tag_cleanup_reminder() {
     echo "Cleanup stale tags only:"
     for tag in "${stale_tags[@]}"; do
       echo "  pkill -f \"cmux DEV ${tag}.app/Contents/MacOS/cmux DEV\""
-      echo "  rm -rf \"/tmp/cmux-${tag}\" \"/tmp/cmux-debug-${tag}.sock\""
+      echo "  rm -rf \"$(tagged_derived_data_path "$tag")\" \"/tmp/cmux-${tag}\" \"/tmp/cmux-debug-${tag}.sock\""
       echo "  rm -f \"/tmp/cmux-debug-${tag}.log\""
       echo "  rm -f \"$HOME/Library/Application Support/cmux/cmuxd-dev-${tag}.sock\""
     done
   fi
   echo "After you verify current tag, cleanup command:"
   echo "  pkill -f \"cmux DEV ${current_slug}.app/Contents/MacOS/cmux DEV\""
-  echo "  rm -rf \"/tmp/cmux-${current_slug}\" \"/tmp/cmux-debug-${current_slug}.sock\""
+  echo "  rm -rf \"$(tagged_derived_data_path "$current_slug")\" \"/tmp/cmux-${current_slug}\" \"/tmp/cmux-debug-${current_slug}.sock\""
   echo "  rm -f \"/tmp/cmux-debug-${current_slug}.log\""
   echo "  rm -f \"$HOME/Library/Application Support/cmux/cmuxd-dev-${current_slug}.sock\""
 }
@@ -159,7 +182,7 @@ if [[ -n "$TAG" ]]; then
     BUNDLE_ID="com.cmuxterm.app.debug.${TAG_ID}"
   fi
   if [[ "$DERIVED_SET" -eq 0 ]]; then
-    DERIVED_DATA="/tmp/cmux-${TAG_SLUG}"
+    DERIVED_DATA="$(tagged_derived_data_path "$TAG_SLUG")"
   fi
 fi
 
@@ -230,6 +253,15 @@ if [[ -z "${APP_PATH}" || ! -d "${APP_PATH}" ]]; then
   exit 1
 fi
 
+if [[ -n "${TAG_SLUG:-}" ]]; then
+  TMP_COMPAT_DERIVED_LINK="/tmp/cmux-${TAG_SLUG}"
+  if [[ "$DERIVED_DATA" != "$TMP_COMPAT_DERIVED_LINK" ]]; then
+    ABS_DERIVED_DATA="$(cd "$DERIVED_DATA" && pwd)"
+    rm -rf "$TMP_COMPAT_DERIVED_LINK"
+    ln -s "$ABS_DERIVED_DATA" "$TMP_COMPAT_DERIVED_LINK"
+  fi
+fi
+
 if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
   TAG_APP_PATH="$(dirname "$APP_PATH")/${APP_NAME}.app"
   rm -rf "$TAG_APP_PATH"
@@ -247,7 +279,7 @@ if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
       CMUXD_SOCKET="${APP_SUPPORT_DIR}/cmuxd-dev-${TAG_SLUG}.sock"
       CMUX_SOCKET="/tmp/cmux-debug-${TAG_SLUG}.sock"
       CMUX_DEBUG_LOG="/tmp/cmux-debug-${TAG_SLUG}.log"
-      echo "$CMUX_SOCKET" > /tmp/cmux-last-socket-path || true
+      write_last_socket_path "$CMUX_SOCKET"
       echo "$CMUX_DEBUG_LOG" > /tmp/cmux-last-debug-log-path || true
       /usr/libexec/PlistBuddy -c "Add :LSEnvironment dict" "$INFO_PLIST" 2>/dev/null || true
       /usr/libexec/PlistBuddy -c "Set :LSEnvironment:CMUXD_UNIX_PATH \"${CMUXD_SOCKET}\"" "$INFO_PLIST" 2>/dev/null \
@@ -283,14 +315,28 @@ else
 fi
 sleep 0.3
 CMUXD_SRC="$PWD/cmuxd/zig-out/bin/cmuxd"
+GHOSTTY_HELPER_SRC="$PWD/ghostty/zig-out/bin/ghostty"
 if [[ -d "$PWD/cmuxd" ]]; then
   (cd "$PWD/cmuxd" && zig build -Doptimize=ReleaseFast)
+fi
+if [[ -d "$PWD/ghostty" ]]; then
+  (cd "$PWD/ghostty" && zig build cli-helper -Dapp-runtime=none -Demit-macos-app=false -Demit-xcframework=false -Doptimize=ReleaseFast)
 fi
 if [[ -x "$CMUXD_SRC" ]]; then
   BIN_DIR="$APP_PATH/Contents/Resources/bin"
   mkdir -p "$BIN_DIR"
   cp "$CMUXD_SRC" "$BIN_DIR/cmuxd"
   chmod +x "$BIN_DIR/cmuxd"
+fi
+if [[ -x "$GHOSTTY_HELPER_SRC" ]]; then
+  BIN_DIR="$APP_PATH/Contents/Resources/bin"
+  mkdir -p "$BIN_DIR"
+  cp "$GHOSTTY_HELPER_SRC" "$BIN_DIR/ghostty"
+  chmod +x "$BIN_DIR/ghostty"
+fi
+CLI_PATH="$APP_PATH/Contents/Resources/bin/cmux"
+if [[ -x "$CLI_PATH" ]]; then
+  echo "$CLI_PATH" > /tmp/cmux-last-cli-path || true
 fi
 # Avoid inheriting cmux/ghostty environment variables from the terminal that
 # runs this script (often inside another cmux instance), which can cause

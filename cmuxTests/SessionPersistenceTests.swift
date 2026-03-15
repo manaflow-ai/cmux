@@ -694,6 +694,16 @@ final class SessionPersistenceTests: XCTestCase {
         )
     }
 
+    func testResolvedSnapshotTerminalScrollbackSkipsFallbackWhenRestoreIsUnsafe() {
+        let resolved = Workspace.resolvedSnapshotTerminalScrollback(
+            capturedScrollback: nil,
+            fallbackScrollback: "fallback-value",
+            allowFallbackScrollback: false
+        )
+
+        XCTAssertNil(resolved)
+    }
+
     private func makeSnapshot(version: Int) -> AppSessionSnapshot {
         let workspace = SessionWorkspaceSnapshot(
             processTitle: "Terminal",

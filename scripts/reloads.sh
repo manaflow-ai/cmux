@@ -9,6 +9,15 @@ NAME_SET=0
 BUNDLE_SET=0
 DERIVED_SET=0
 TAG=""
+LAST_SOCKET_PATH_DIR="$HOME/Library/Application Support/cmux"
+LAST_SOCKET_PATH_FILE="${LAST_SOCKET_PATH_DIR}/last-socket-path"
+
+write_last_socket_path() {
+  local socket_path="$1"
+  mkdir -p "$LAST_SOCKET_PATH_DIR"
+  echo "$socket_path" > "$LAST_SOCKET_PATH_FILE" || true
+  echo "$socket_path" > /tmp/cmux-last-socket-path || true
+}
 
 usage() {
   cat <<'EOF'
@@ -186,12 +195,12 @@ if [[ -f "$INFO_PLIST" ]]; then
     || /usr/libexec/PlistBuddy -c "Add :CFBundleIdentifier string $BUNDLE_ID" "$INFO_PLIST"
 
   # Inject staging socket paths via LSEnvironment so the Release binary
-  # (which defaults to /tmp/cmux.sock) uses isolated sockets instead.
+  # (which defaults to the per-user stable socket) uses isolated sockets instead.
   STAGING_SLUG="${TAG_SLUG:-staging}"
   APP_SUPPORT_DIR="$HOME/Library/Application Support/cmux"
   CMUXD_SOCKET="${APP_SUPPORT_DIR}/cmuxd-${STAGING_SLUG}.sock"
   CMUX_SOCKET="/tmp/cmux-${STAGING_SLUG}.sock"
-  echo "$CMUX_SOCKET" > /tmp/cmux-last-socket-path || true
+  write_last_socket_path "$CMUX_SOCKET"
   /usr/libexec/PlistBuddy -c "Add :LSEnvironment dict" "$INFO_PLIST" 2>/dev/null || true
   /usr/libexec/PlistBuddy -c "Set :LSEnvironment:CMUXD_UNIX_PATH \"${CMUXD_SOCKET}\"" "$INFO_PLIST" 2>/dev/null \
     || /usr/libexec/PlistBuddy -c "Add :LSEnvironment:CMUXD_UNIX_PATH string \"${CMUXD_SOCKET}\"" "$INFO_PLIST"

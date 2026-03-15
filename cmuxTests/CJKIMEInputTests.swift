@@ -232,10 +232,10 @@ final class CJKIMEMarkedTextTests: XCTestCase {
 
     // MARK: - selectedRange / validAttributesForMarkedText
 
-    func testSelectedRangeReturnsNotFound() {
+    func testSelectedRangeReturnsEmptyRangeWithoutSelection() {
         let view = GhosttyNSView(frame: .zero)
         let range = view.selectedRange()
-        XCTAssertEqual(range.location, NSNotFound)
+        XCTAssertEqual(range, NSRange(location: 0, length: 0))
     }
 
     func testValidAttributesForMarkedTextReturnsEmpty() {
@@ -693,6 +693,68 @@ final class CJKIMEFirstRectTests: XCTestCase {
         let rect = view.firstRect(forCharacterRange: NSRange(location: 0, length: 1), actualRange: nil)
         XCTAssertEqual(rect.width, 36, accuracy: 0.001)
         XCTAssertEqual(rect.height, 18, accuracy: 0.001)
+    }
+
+    func testFirstRectUsesZeroWidthForInsertionPointWithoutOffsettingCaretAnchor() {
+        let frame = NSRect(x: 0, y: 0, width: 640, height: 480)
+        let view = GhosttyNSView(frame: frame)
+        view.cellSize = CGSize(width: 9, height: 18)
+        view.setIMEPointForTesting(x: 80, y: 120, width: 36, height: 24)
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 40, y: 40, width: 640, height: 480),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        let content = NSView(frame: frame)
+        window.contentView = content
+        content.addSubview(view)
+        view.frame = frame
+
+        defer {
+            view.clearIMEPointForTesting()
+            window.orderOut(nil)
+        }
+
+        let rect = view.firstRect(forCharacterRange: NSRange(location: 5, length: 0), actualRange: nil)
+        let expectedViewRect = NSRect(x: 80, y: frame.height - 120, width: 0, height: 24)
+        let expectedScreenRect = window.convertToScreen(view.convert(expectedViewRect, to: nil))
+
+        XCTAssertEqual(rect.origin.x, expectedScreenRect.origin.x, accuracy: 0.001)
+        XCTAssertEqual(rect.origin.y, expectedScreenRect.origin.y, accuracy: 0.001)
+        XCTAssertEqual(rect.width, 0, accuracy: 0.001)
+        XCTAssertEqual(rect.height, 24, accuracy: 0.001)
+    }
+
+    func testDocumentVisibleRectUsesScreenCoordinates() {
+        guard #available(macOS 14.0, *) else { return }
+
+        let frame = NSRect(x: 0, y: 0, width: 640, height: 480)
+        let view = GhosttyNSView(frame: frame)
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 40, y: 40, width: 640, height: 480),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        let content = NSView(frame: frame)
+        window.contentView = content
+        content.addSubview(view)
+        view.frame = frame
+
+        defer {
+            window.orderOut(nil)
+        }
+
+        let expected = window.convertToScreen(view.convert(view.visibleRect, to: nil))
+        let rect = view.documentVisibleRect
+
+        XCTAssertEqual(rect.origin.x, expected.origin.x, accuracy: 0.001)
+        XCTAssertEqual(rect.origin.y, expected.origin.y, accuracy: 0.001)
+        XCTAssertEqual(rect.width, expected.width, accuracy: 0.001)
+        XCTAssertEqual(rect.height, expected.height, accuracy: 0.001)
     }
 }
 

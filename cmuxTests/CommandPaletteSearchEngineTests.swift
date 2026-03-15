@@ -434,6 +434,78 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         )
     }
 
+    func testVisibleResultsResetWhenQueryChangesCommandPaletteScope() {
+        XCTAssertTrue(
+            ContentView.commandPaletteShouldResetVisibleResultsForQueryTransition(
+                oldQuery: ">",
+                newQuery: "",
+                hasVisibleResults: true
+            )
+        )
+        XCTAssertTrue(
+            ContentView.commandPaletteShouldResetVisibleResultsForQueryTransition(
+                oldQuery: "",
+                newQuery: ">",
+                hasVisibleResults: true
+            )
+        )
+        XCTAssertFalse(
+            ContentView.commandPaletteShouldResetVisibleResultsForQueryTransition(
+                oldQuery: ">rename",
+                newQuery: ">renam",
+                hasVisibleResults: true
+            )
+        )
+        XCTAssertFalse(
+            ContentView.commandPaletteShouldResetVisibleResultsForQueryTransition(
+                oldQuery: ">",
+                newQuery: "",
+                hasVisibleResults: false
+            )
+        )
+    }
+
+    func testRefreshInputsPreferObservedQueryOverStaleState() {
+        let inputs = ContentView.commandPaletteRefreshInputsForTests(
+            stateQuery: ">",
+            observedQuery: "",
+            searchAllSurfaces: true
+        )
+
+        XCTAssertEqual(inputs.scope, "switcher")
+        XCTAssertEqual(inputs.matchingQuery, "")
+        XCTAssertFalse(inputs.includesSurfaces)
+    }
+
+    func testRefreshInputsIncludeSurfacesOnlyForNonEmptySwitcherQuery() {
+        let switcherInputs = ContentView.commandPaletteRefreshInputsForTests(
+            stateQuery: "",
+            observedQuery: "  feature/search  ",
+            searchAllSurfaces: true
+        )
+        XCTAssertEqual(switcherInputs.scope, "switcher")
+        XCTAssertEqual(switcherInputs.matchingQuery, "feature/search")
+        XCTAssertTrue(switcherInputs.includesSurfaces)
+
+        let commandInputs = ContentView.commandPaletteRefreshInputsForTests(
+            stateQuery: "",
+            observedQuery: ">feature/search",
+            searchAllSurfaces: true
+        )
+        XCTAssertEqual(commandInputs.scope, "commands")
+        XCTAssertEqual(commandInputs.matchingQuery, "feature/search")
+        XCTAssertFalse(commandInputs.includesSurfaces)
+
+        let workspaceOnlyInputs = ContentView.commandPaletteRefreshInputsForTests(
+            stateQuery: "",
+            observedQuery: "feature/search",
+            searchAllSurfaces: false
+        )
+        XCTAssertEqual(workspaceOnlyInputs.scope, "switcher")
+        XCTAssertEqual(workspaceOnlyInputs.matchingQuery, "feature/search")
+        XCTAssertFalse(workspaceOnlyInputs.includesSurfaces)
+    }
+
     func testCommandContextFingerprintTracksExactContextValues() {
         let base = ContentView.commandPaletteContextFingerprint(
             boolValues: [
@@ -490,7 +562,8 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                                 directories: ["/Users/example/dev/cmuxterm"],
                                 branches: ["feature/search-speed"],
                                 ports: [3000]
-                            )
+                            ),
+                            surfaces: []
                         )
                     ]
                 )
@@ -510,7 +583,8 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                                 directories: ["/Users/example/dev/other"],
                                 branches: ["feature/search-speed"],
                                 ports: [4000]
-                            )
+                            ),
+                            surfaces: []
                         )
                     ]
                 )
@@ -530,7 +604,8 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                                 directories: ["/Users/example/dev/cmuxterm"],
                                 branches: ["feature/search-speed"],
                                 ports: [3000]
-                            )
+                            ),
+                            surfaces: []
                         )
                     ]
                 )
@@ -539,6 +614,100 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
 
         XCTAssertNotEqual(base, changedMetadata)
         XCTAssertNotEqual(base, changedDisplayName)
+    }
+
+    func testSwitcherFingerprintTracksSurfaceValuesAtSameCardinality() {
+        let windowID = UUID()
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+
+        let base = ContentView.commandPaletteSwitcherFingerprint(
+            windowContexts: [
+                ContentView.CommandPaletteSwitcherFingerprintContext(
+                    windowId: windowID,
+                    windowLabel: nil,
+                    selectedWorkspaceId: workspaceID,
+                    workspaces: [
+                        ContentView.CommandPaletteSwitcherFingerprintWorkspace(
+                            id: workspaceID,
+                            displayName: "Workspace Alpha",
+                            metadata: CommandPaletteSwitcherSearchMetadata(),
+                            surfaces: [
+                                ContentView.CommandPaletteSwitcherFingerprintSurface(
+                                    id: surfaceID,
+                                    displayName: "Terminal",
+                                    kindLabel: "Terminal",
+                                    metadata: CommandPaletteSwitcherSearchMetadata(
+                                        directories: ["/tmp/search-alpha"],
+                                        branches: ["feature/a"],
+                                        ports: [3000]
+                                    )
+                                )
+                            ]
+                        )
+                    ]
+                )
+            ]
+        )
+        let changedSurfaceMetadata = ContentView.commandPaletteSwitcherFingerprint(
+            windowContexts: [
+                ContentView.CommandPaletteSwitcherFingerprintContext(
+                    windowId: windowID,
+                    windowLabel: nil,
+                    selectedWorkspaceId: workspaceID,
+                    workspaces: [
+                        ContentView.CommandPaletteSwitcherFingerprintWorkspace(
+                            id: workspaceID,
+                            displayName: "Workspace Alpha",
+                            metadata: CommandPaletteSwitcherSearchMetadata(),
+                            surfaces: [
+                                ContentView.CommandPaletteSwitcherFingerprintSurface(
+                                    id: surfaceID,
+                                    displayName: "Terminal",
+                                    kindLabel: "Terminal",
+                                    metadata: CommandPaletteSwitcherSearchMetadata(
+                                        directories: ["/tmp/search-beta"],
+                                        branches: ["feature/a"],
+                                        ports: [3000]
+                                    )
+                                )
+                            ]
+                        )
+                    ]
+                )
+            ]
+        )
+        let changedSurfaceKind = ContentView.commandPaletteSwitcherFingerprint(
+            windowContexts: [
+                ContentView.CommandPaletteSwitcherFingerprintContext(
+                    windowId: windowID,
+                    windowLabel: nil,
+                    selectedWorkspaceId: workspaceID,
+                    workspaces: [
+                        ContentView.CommandPaletteSwitcherFingerprintWorkspace(
+                            id: workspaceID,
+                            displayName: "Workspace Alpha",
+                            metadata: CommandPaletteSwitcherSearchMetadata(),
+                            surfaces: [
+                                ContentView.CommandPaletteSwitcherFingerprintSurface(
+                                    id: surfaceID,
+                                    displayName: "Terminal",
+                                    kindLabel: "Browser",
+                                    metadata: CommandPaletteSwitcherSearchMetadata(
+                                        directories: ["/tmp/search-alpha"],
+                                        branches: ["feature/a"],
+                                        ports: [3000]
+                                    )
+                                )
+                            ]
+                        )
+                    ]
+                )
+            ]
+        )
+
+        XCTAssertNotEqual(base, changedSurfaceMetadata)
+        XCTAssertNotEqual(base, changedSurfaceKind)
     }
 
     func testCommandSearchBenchmarkBeatsLegacyPipeline() {

@@ -227,7 +227,11 @@ def main():
     print(f"\nFound cmux process: PID {pid}")
 
     # Try to connect to the socket
-    socket_paths = ["/tmp/cmux.sock", "/tmp/cmux-debug.sock"]
+    socket_paths = [
+        os.path.expanduser("~/Library/Application Support/cmux/cmux.sock"),
+        "/tmp/cmux.sock",
+        "/tmp/cmux-debug.sock",
+    ]
     client = None
     for socket_path in socket_paths:
         if os.path.exists(socket_path):

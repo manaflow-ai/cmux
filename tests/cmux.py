@@ -45,7 +45,13 @@ class cmuxError(Exception):
     pass
 
 
-_LAST_SOCKET_PATH_FILE = "/tmp/cmux-last-socket-path"
+_APP_SUPPORT_DIR = os.path.expanduser("~/Library/Application Support/cmux")
+_STABLE_SOCKET_PATH = os.path.join(_APP_SUPPORT_DIR, "cmux.sock")
+_LEGACY_STABLE_SOCKET_PATH = "/tmp/cmux.sock"
+_LAST_SOCKET_PATH_FILES = [
+    os.path.join(_APP_SUPPORT_DIR, "last-socket-path"),
+    "/tmp/cmux-last-socket-path",
+]
 _DEFAULT_DEBUG_BUNDLE_ID = "com.cmuxterm.app.debug"
 
 
@@ -83,13 +89,14 @@ def _default_bundle_id() -> str:
 
 
 def _read_last_socket_path() -> Optional[str]:
-    try:
-        with open(_LAST_SOCKET_PATH_FILE, "r", encoding="utf-8") as f:
-            path = f.read().strip()
-        if path:
-            return path
-    except OSError:
-        pass
+    for marker_path in _LAST_SOCKET_PATH_FILES:
+        try:
+            with open(marker_path, "r", encoding="utf-8") as f:
+                path = f.read().strip()
+            if path:
+                return path
+        except OSError:
+            continue
     return None
 
 
@@ -134,8 +141,8 @@ def _default_socket_path() -> str:
     if override:
         if os.path.exists(override) and _can_connect(override):
             return override
-        # Fall back to other heuristics if the override points at a stale socket file.
-        if not os.path.exists(override):
+        # Treat stable defaults as implicit so old env values still migrate cleanly.
+        if not os.path.exists(override) and override not in {_STABLE_SOCKET_PATH, _LEGACY_STABLE_SOCKET_PATH}:
             return override
 
     last_socket = _read_last_socket_path()
@@ -144,13 +151,14 @@ def _default_socket_path() -> str:
             return last_socket
 
     # Prefer the non-tagged sockets when present.
-    candidates = ["/tmp/cmux-debug.sock", "/tmp/cmux.sock"]
+    candidates = ["/tmp/cmux-debug.sock", _STABLE_SOCKET_PATH, _LEGACY_STABLE_SOCKET_PATH]
     for path in candidates:
         if os.path.exists(path) and _can_connect(path):
             return path
 
-    # Otherwise, fall back to the newest tagged debug socket if there is one.
+    # Otherwise, fall back to the newest discovered socket if there is one.
     tagged = glob.glob("/tmp/cmux-debug-*.sock")
+    tagged.extend(glob.glob(os.path.join(_APP_SUPPORT_DIR, "cmux*.sock")))
     tagged = [p for p in tagged if os.path.exists(p)]
     if tagged:
         tagged.sort(key=lambda p: os.path.getmtime(p), reverse=True)

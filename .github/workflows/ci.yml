@@ -28,6 +28,9 @@ jobs:
       - name: Validate GhosttyKit checksum verification
         run: ./tests/test_ci_ghosttykit_checksum_verification.sh
 
+      - name: Validate current GhosttyKit checksum pin
+        run: ./tests/test_ci_ghosttykit_checksum_present.sh
+
   web-typecheck:
     runs-on: ubuntu-latest
     defaults:
@@ -150,6 +153,23 @@ jobs:
               exit 1
             fi
           fi
+
+      - name: Run CLI version memory guard regression
+        run: |
+          set -euo pipefail
+
+          CLI_BIN="$(
+            find "$HOME/Library/Developer/Xcode/DerivedData" -path "*/Build/Products/Debug/cmux" -exec stat -f '%m %N' {} \; \
+              | sort -nr \
+              | head -1 \
+              | cut -d' ' -f2-
+          )"
+          if [ -z "${CLI_BIN:-}" ] || [ ! -x "$CLI_BIN" ]; then
+            echo "cmux CLI binary not found in DerivedData" >&2
+            exit 1
+          fi
+
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_version_memory_guard.py
 
   tests-depot:
     # Never run Depot jobs for fork pull requests (avoid billing on external PRs).

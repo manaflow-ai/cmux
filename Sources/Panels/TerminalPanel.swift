@@ -63,6 +63,10 @@ final class TerminalPanel: Panel, ObservableObject {
         surface.hostedView
     }
 
+    var requestedWorkingDirectory: String? {
+        surface.requestedWorkingDirectory
+    }
+
     init(workspaceId: UUID, surface: TerminalSurface) {
         self.id = surface.id
         self.workspaceId = workspaceId
@@ -186,15 +190,61 @@ final class TerminalPanel: Panel, ObservableObject {
         surface.needsConfirmClose()
     }
 
+    func shouldPersistScrollbackForSessionSnapshot() -> Bool {
+        // Session restore only replays terminal output into a fresh shell. If Ghostty
+        // says we are not safely at a prompt, replaying that state later is misleading.
+        !surface.needsConfirmClose()
+    }
+
     func triggerFlash() {
+        guard NotificationPaneFlashSettings.isEnabled() else { return }
         hostedView.triggerFlash()
     }
 
     func triggerNotificationDismissFlash() {
+        guard NotificationPaneFlashSettings.isEnabled() else { return }
         hostedView.triggerFlash(style: .notificationDismiss)
     }
 
     func applyWindowBackgroundIfActive() {
         surface.applyWindowBackgroundIfActive()
+    }
+
+    func captureFocusIntent(in window: NSWindow?) -> PanelFocusIntent {
+        .terminal(hostedView.capturePanelFocusIntent(in: window))
+    }
+
+    func preferredFocusIntentForActivation() -> PanelFocusIntent {
+        .terminal(hostedView.preferredPanelFocusIntentForActivation())
+    }
+
+    func prepareFocusIntentForActivation(_ intent: PanelFocusIntent) {
+        guard case .terminal(let target) = intent else { return }
+        hostedView.preparePanelFocusIntentForActivation(target)
+    }
+
+    @discardableResult
+    func restoreFocusIntent(_ intent: PanelFocusIntent) -> Bool {
+        switch intent {
+        case .panel:
+            focus()
+            return true
+        case .terminal(let target):
+            return hostedView.restorePanelFocusIntent(target)
+        default:
+            return false
+        }
+    }
+
+    func ownedFocusIntent(for responder: NSResponder, in window: NSWindow) -> PanelFocusIntent? {
+        _ = window
+        guard let intent = hostedView.ownedPanelFocusIntent(for: responder) else { return nil }
+        return .terminal(intent)
+    }
+
+    @discardableResult
+    func yieldFocusIntent(_ intent: PanelFocusIntent, in window: NSWindow) -> Bool {
+        guard case .terminal(let target) = intent else { return false }
+        return hostedView.yieldPanelFocusIntent(target, in: window)
     }
 }

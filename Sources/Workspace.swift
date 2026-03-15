@@ -311,7 +311,8 @@ extension Workspace {
         switch panel.panelType {
         case .terminal:
             guard let terminalPanel = panel as? TerminalPanel else { return nil }
-            let capturedScrollback = includeScrollback
+            let shouldPersistScrollback = terminalPanel.shouldPersistScrollbackForSessionSnapshot()
+            let capturedScrollback = includeScrollback && shouldPersistScrollback
                 ? TerminalController.shared.readTerminalTextForSnapshot(
                     terminalPanel: terminalPanel,
                     includeScrollback: true,
@@ -321,7 +322,8 @@ extension Workspace {
             let resolvedScrollback = terminalSnapshotScrollback(
                 panelId: panelId,
                 capturedScrollback: capturedScrollback,
-                includeScrollback: includeScrollback
+                includeScrollback: includeScrollback,
+                allowFallbackScrollback: shouldPersistScrollback
             )
             terminalSnapshot = SessionTerminalPanelSnapshot(
                 workingDirectory: panelDirectories[panelId],
@@ -368,24 +370,28 @@ extension Workspace {
 
     nonisolated static func resolvedSnapshotTerminalScrollback(
         capturedScrollback: String?,
-        fallbackScrollback: String?
+        fallbackScrollback: String?,
+        allowFallbackScrollback: Bool = true
     ) -> String? {
         if let captured = SessionPersistencePolicy.truncatedScrollback(capturedScrollback) {
             return captured
         }
+        guard allowFallbackScrollback else { return nil }
         return SessionPersistencePolicy.truncatedScrollback(fallbackScrollback)
     }
 
     private func terminalSnapshotScrollback(
         panelId: UUID,
         capturedScrollback: String?,
-        includeScrollback: Bool
+        includeScrollback: Bool,
+        allowFallbackScrollback: Bool = true
     ) -> String? {
         guard includeScrollback else { return nil }
-        let fallback = restoredTerminalScrollbackByPanelId[panelId]
+        let fallback = allowFallbackScrollback ? restoredTerminalScrollbackByPanelId[panelId] : nil
         let resolved = Self.resolvedSnapshotTerminalScrollback(
             capturedScrollback: capturedScrollback,
-            fallbackScrollback: fallback
+            fallbackScrollback: fallback,
+            allowFallbackScrollback: allowFallbackScrollback
         )
         if let resolved {
             restoredTerminalScrollbackByPanelId[panelId] = resolved
@@ -933,6 +939,7 @@ final class Workspace: Identifiable, ObservableObject {
 
     /// When true, suppresses auto-creation in didSplitPane (programmatic splits handle their own panels)
     private var isProgrammaticSplit = false
+    private var debugStressPreloadSelectionDepth = 0
 
     /// Last terminal panel used as an inheritance source (typically last focused terminal).
     private var lastTerminalConfigInheritancePanelId: UUID?
@@ -945,6 +952,7 @@ final class Workspace: Identifiable, ObservableObject {
 
     /// Callback used by TabManager to capture recently closed browser panels for Cmd+Shift+T restore.
     var onClosedBrowserPanel: ((ClosedBrowserPanelRestoreSnapshot) -> Void)?
+    weak var owningTabManager: TabManager?
 
 
     // Closing tabs mutates split layout immediately; terminal views handle their own AppKit
@@ -966,6 +974,10 @@ final class Workspace: Identifiable, ObservableObject {
             return nil
         }
         return panel
+    }
+
+    func effectiveSelectedPanelId(inPane paneId: PaneID) -> UUID? {
+        bonsplitController.selectedTab(inPane: paneId).flatMap { panelIdFromSurfaceId($0.id) }
     }
 
     enum FocusPanelTrigger {
@@ -993,6 +1005,7 @@ final class Workspace: Identifiable, ObservableObject {
     @Published var surfaceListeningPorts: [UUID: [Int]] = [:]
     @Published var listeningPorts: [Int] = []
     var surfaceTTYNames: [UUID: String] = [:]
+    private var panelShellActivityStates: [UUID: PanelShellActivityState] = [:]
     private var restoredTerminalScrollbackByPanelId: [UUID: String] = [:]
 
     var focusedSurfaceId: UUID? { focusedPanelId }
@@ -1007,6 +1020,26 @@ final class Workspace: Identifiable, ObservableObject {
         static let terminal = "terminal"
         static let browser = "browser"
         static let markdown = "markdown"
+    }
+
+    enum PanelShellActivityState: String {
+        case unknown
+        case promptIdle
+        case commandRunning
+    }
+
+    nonisolated static func resolveCloseConfirmation(
+        shellActivityState: PanelShellActivityState?,
+        fallbackNeedsConfirmClose: Bool
+    ) -> Bool {
+        switch shellActivityState ?? .unknown {
+        case .promptIdle:
+            return false
+        case .commandRunning:
+            return true
+        case .unknown:
+            return fallbackNeedsConfirmClose
+        }
     }
 
     // MARK: - Initialization
@@ -1176,6 +1209,9 @@ final class Workspace: Identifiable, ObservableObject {
         bonsplitController.onExternalTabDrop = { [weak self] request in
             self?.handleExternalTabDrop(request) ?? false
         }
+        bonsplitController.onTabCloseRequest = { [weak self] tabId, _ in
+            self?.markExplicitClose(surfaceId: tabId)
+        }
 
         // Set ourselves as delegate
         bonsplitController.delegate = self
@@ -1222,6 +1258,10 @@ final class Workspace: Identifiable, ObservableObject {
     /// Prevents repeated close gestures (e.g., middle-click spam) from stacking dialogs.
     private var pendingCloseConfirmTabIds: Set<TabID> = []
 
+    /// Tab IDs whose next close attempt came from an explicit user close gesture
+    /// (Cmd+W or the tab-strip X button), rather than an internal close/move flow.
+    private var explicitUserCloseTabIds: Set<TabID> = []
+
     /// Deterministic tab selection to apply after a tab closes.
     /// Keyed by the closing tab ID, value is the tab ID we want to select next.
     private var postCloseSelectTabId: [TabID: TabID] = [:]
@@ -1230,7 +1270,14 @@ final class Workspace: Identifiable, ObservableObject {
     private var pendingPaneClosePanelIds: [UUID: [UUID]] = [:]
     private var pendingClosedBrowserRestoreSnapshots: [TabID: ClosedBrowserPanelRestoreSnapshot] = [:]
     private var isApplyingTabSelection = false
-    private var pendingTabSelection: (tabId: TabID, pane: PaneID)?
+    private struct PendingTabSelectionRequest {
+        let tabId: TabID
+        let pane: PaneID
+        let reassertAppKitFocus: Bool
+        let focusIntent: PanelFocusIntent?
+        let previousTerminalHostedView: GhosttySurfaceScrollView?
+    }
+    private var pendingTabSelection: PendingTabSelectionRequest?
     private var isReconcilingFocusState = false
     private var focusReconcileScheduled = false
 #if DEBUG
@@ -1279,6 +1326,10 @@ final class Workspace: Identifiable, ObservableObject {
 
     func panelIdFromSurfaceId(_ surfaceId: TabID) -> UUID? {
         surfaceIdToPanelId[surfaceId]
+    }
+
+    func markExplicitClose(surfaceId: TabID) {
+        explicitUserCloseTabIds.insert(surfaceId)
     }
 
     func surfaceIdFromPanelId(_ panelId: UUID) -> TabID? {
@@ -1486,6 +1537,36 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
+    @discardableResult
+    func preloadTerminalPanelForDebugStress(
+        tabId: TabID,
+        inPane paneId: PaneID
+    ) -> TerminalPanel? {
+        guard let panelId = panelIdFromSurfaceId(tabId),
+              let terminalPanel = panels[panelId] as? TerminalPanel else {
+            return nil
+        }
+
+        debugStressPreloadSelectionDepth += 1
+        defer { debugStressPreloadSelectionDepth -= 1 }
+        let isVisibleSelection =
+            bonsplitController.focusedPaneId == paneId &&
+            bonsplitController.selectedTab(inPane: paneId)?.id == tabId &&
+            terminalPanel.hostedView.window != nil &&
+            terminalPanel.hostedView.superview != nil
+
+        if isVisibleSelection {
+            terminalPanel.requestViewReattach()
+            scheduleTerminalGeometryReconcile()
+        }
+        terminalPanel.surface.requestBackgroundSurfaceStartIfNeeded()
+        return terminalPanel
+    }
+
+    func scheduleDebugStressTerminalGeometryReconcile() {
+        scheduleTerminalGeometryReconcile()
+    }
+
     func hasLoadedTerminalSurface() -> Bool {
         let terminalPanels = panels.values.compactMap { $0 as? TerminalPanel }
         guard !terminalPanels.isEmpty else { return true }
@@ -1602,6 +1683,26 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
+    func updatePanelShellActivityState(panelId: UUID, state: PanelShellActivityState) {
+        guard panels[panelId] != nil else { return }
+        let previousState = panelShellActivityStates[panelId] ?? .unknown
+        guard previousState != state else { return }
+        panelShellActivityStates[panelId] = state
+#if DEBUG
+        dlog(
+            "surface.shellState workspace=\(id.uuidString.prefix(5)) " +
+            "panel=\(panelId.uuidString.prefix(5)) from=\(previousState.rawValue) to=\(state.rawValue)"
+        )
+#endif
+    }
+
+    func panelNeedsConfirmClose(panelId: UUID, fallbackNeedsConfirmClose: Bool) -> Bool {
+        Self.resolveCloseConfirmation(
+            shellActivityState: panelShellActivityStates[panelId],
+            fallbackNeedsConfirmClose: fallbackNeedsConfirmClose
+        )
+    }
+
     func updatePanelGitBranch(panelId: UUID, branch: String, isDirty: Bool) {
         let state = SidebarGitBranchState(branch: branch, isDirty: isDirty)
         let existing = panelGitBranches[panelId]
@@ -1641,6 +1742,57 @@ final class Workspace: Identifiable, ObservableObject {
         panelPullRequests.removeValue(forKey: panelId)
         if panelId == focusedPanelId {
             pullRequest = nil
+        }
+    }
+
+    func resetSidebarContext(reason: String = "unspecified") {
+        statusEntries.removeAll()
+        logEntries.removeAll()
+        progress = nil
+        gitBranch = nil
+        panelGitBranches.removeAll()
+        pullRequest = nil
+        panelPullRequests.removeAll()
+        surfaceListeningPorts.removeAll()
+        listeningPorts.removeAll()
+        metadataBlocks.removeAll()
+        resetBrowserPanelsForContextChange(reason: reason)
+    }
+
+    func resetBrowserPanelsForContextChange(reason: String) {
+        let browserPanels = panels.values.compactMap { $0 as? BrowserPanel }
+        guard !browserPanels.isEmpty else { return }
+
+#if DEBUG
+        dlog(
+            "workspace.contextReset.browserPanels workspace=\(id.uuidString.prefix(5)) " +
+            "reason=\(reason) count=\(browserPanels.count)"
+        )
+#endif
+
+        for browserPanel in browserPanels {
+            browserPanel.resetForWorkspaceContextChange(reason: reason)
+            let nextTitle = browserPanel.displayTitle
+            _ = updatePanelTitle(panelId: browserPanel.id, title: nextTitle)
+
+            guard let tabId = surfaceIdFromPanelId(browserPanel.id),
+                  let existing = bonsplitController.tab(tabId) else {
+                continue
+            }
+
+            let faviconUpdate: Data?? = existing.iconImageData == nil ? nil : .some(nil)
+            let loadingUpdate: Bool? = existing.isLoading ? false : nil
+
+            guard faviconUpdate != nil || loadingUpdate != nil else {
+                continue
+            }
+
+            bonsplitController.updateTab(
+                tabId,
+                iconImageData: faviconUpdate,
+                hasCustomTitle: panelCustomTitles[browserPanel.id] != nil,
+                isLoading: loadingUpdate
+            )
         }
     }
 
@@ -1692,6 +1844,7 @@ final class Workspace: Identifiable, ObservableObject {
         manualUnreadMarkedAt = manualUnreadMarkedAt.filter { validSurfaceIds.contains($0.key) }
         surfaceListeningPorts = surfaceListeningPorts.filter { validSurfaceIds.contains($0.key) }
         surfaceTTYNames = surfaceTTYNames.filter { validSurfaceIds.contains($0.key) }
+        panelShellActivityStates = panelShellActivityStates.filter { validSurfaceIds.contains($0.key) }
         panelPullRequests = panelPullRequests.filter { validSurfaceIds.contains($0.key) }
         recomputeListeningPorts()
     }
@@ -1969,12 +2122,26 @@ final class Workspace: Identifiable, ObservableObject {
         let inheritedConfig = inheritedTerminalConfig(preferredPanelId: panelId, inPane: paneId)
 
         // Inherit working directory: prefer the source panel's reported cwd,
-        // fall back to the workspace's current directory.
-        let splitWorkingDirectory: String? = panelDirectories[panelId]
-            ?? (currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                ? nil : currentDirectory)
+        // then its requested startup cwd if shell integration has not reported
+        // back yet, and finally fall back to the workspace's current directory.
+        let splitWorkingDirectory: String? = {
+            if let panelDirectory = panelDirectories[panelId]?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !panelDirectory.isEmpty {
+                return panelDirectory
+            }
+            if let requestedWorkingDirectory = terminalPanel(for: panelId)?
+                .requestedWorkingDirectory?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+               !requestedWorkingDirectory.isEmpty {
+                return requestedWorkingDirectory
+            }
+            let workspaceDirectory = currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+            return workspaceDirectory.isEmpty ? nil : workspaceDirectory
+        }()
 #if DEBUG
-        dlog("split.cwd panelId=\(panelId.uuidString.prefix(5)) panelDir=\(panelDirectories[panelId] ?? "nil") currentDir=\(currentDirectory) resolved=\(splitWorkingDirectory ?? "nil")")
+        dlog(
+            "split.cwd panelId=\(panelId.uuidString.prefix(5)) panelDir=\(panelDirectories[panelId] ?? "nil") requestedDir=\(terminalPanel(for: panelId)?.requestedWorkingDirectory ?? "nil") currentDir=\(currentDirectory) resolved=\(splitWorkingDirectory ?? "nil")"
+        )
 #endif
 
         // Create the new terminal panel.
@@ -3061,6 +3228,19 @@ final class Workspace: Identifiable, ObservableObject {
         }()
         let shouldSuppressReentrantRefocus = trigger == .terminalFirstResponder && selectionAlreadyConverged
 #if DEBUG
+        let targetPaneShort = targetPaneId.map { String($0.id.uuidString.prefix(5)) } ?? "nil"
+        let focusedPaneShort = bonsplitController.focusedPaneId.map { String($0.id.uuidString.prefix(5)) } ?? "nil"
+        let selectedTabShort = bonsplitController.focusedPaneId
+            .flatMap { bonsplitController.selectedTab(inPane: $0)?.id }
+            .map { String($0.uuid.uuidString.prefix(5)) } ?? "nil"
+        let currentPanelShort = currentlyFocusedPanelId.map { String($0.uuidString.prefix(5)) } ?? "nil"
+        dlog(
+            "focus.panel.begin workspace=\(id.uuidString.prefix(5)) " +
+            "panel=\(panelId.uuidString.prefix(5)) trigger=\(String(describing: trigger)) " +
+            "targetPane=\(targetPaneShort) focusedPane=\(focusedPaneShort) selectedTab=\(selectedTabShort) " +
+            "converged=\(selectionAlreadyConverged ? 1 : 0) " +
+            "currentPanel=\(currentPanelShort)"
+        )
         if shouldSuppressReentrantRefocus {
             dlog(
                 "focus.panel.skipReentrant panel=\(panelId.uuidString.prefix(5)) " +
@@ -3070,40 +3250,60 @@ final class Workspace: Identifiable, ObservableObject {
 #endif
 
         if let targetPaneId, !selectionAlreadyConverged {
+#if DEBUG
+            dlog(
+                "focus.panel.focusPane workspace=\(id.uuidString.prefix(5)) " +
+                "panel=\(panelId.uuidString.prefix(5)) pane=\(targetPaneId.id.uuidString.prefix(5))"
+            )
+#endif
             bonsplitController.focusPane(targetPaneId)
         }
 
         if !selectionAlreadyConverged {
+#if DEBUG
+            dlog(
+                "focus.panel.selectTab workspace=\(id.uuidString.prefix(5)) " +
+                "panel=\(panelId.uuidString.prefix(5)) tab=\(tabId.uuid.uuidString.prefix(5))"
+            )
+#endif
             bonsplitController.selectTab(tabId)
         }
 
-        // Also focus the underlying panel
-        if let panel = panels[panelId] {
-            if (currentlyFocusedPanelId != panelId || !selectionAlreadyConverged) && !shouldSuppressReentrantRefocus {
-                panel.focus()
-            }
-
-            if !shouldSuppressReentrantRefocus, let terminalPanel = panel as? TerminalPanel {
-                // Avoid re-entrant focus loops when focus was initiated by AppKit first-responder
-                // (becomeFirstResponder -> onFocus -> focusPanel).
-                if !terminalPanel.hostedView.isSurfaceViewFirstResponder() {
-                    terminalPanel.hostedView.moveFocus(from: previousTerminalHostedView)
-                }
-            }
-        }
-        if let targetPaneId, !shouldSuppressReentrantRefocus {
-            applyTabSelection(tabId: tabId, inPane: targetPaneId)
+        if let targetPaneId {
+            let activationIntent = panels[panelId]?.preferredFocusIntentForActivation()
+            applyTabSelection(
+                tabId: tabId,
+                inPane: targetPaneId,
+                reassertAppKitFocus: !shouldSuppressReentrantRefocus,
+                focusIntent: activationIntent,
+                previousTerminalHostedView: previousTerminalHostedView
+            )
         }
 
-        if let browserPanel = panels[panelId] as? BrowserPanel {
-            // Keep browser find focus behavior aligned with terminal find behavior.
-            // When switching back to a pane with an already-open find bar, reassert
-            // focus to that field instead of leaving first responder stale.
-            if browserPanel.searchState != nil {
-                browserPanel.startFind()
-            } else {
-                maybeAutoFocusBrowserAddressBarOnPanelFocus(browserPanel, trigger: trigger)
+        if trigger == .terminalFirstResponder,
+           panels[panelId] is TerminalPanel {
+            scheduleTerminalFirstResponderReassert(panelId: panelId)
+        }
+    }
+
+    /// A terminal click can arrive while AppKit and bonsplit already look converged, which takes
+    /// the re-entrant focus path and skips the normal explicit `ensureFocus` call. Re-assert focus
+    /// on the next couple of turns so stale callbacks from split churn can't leave keyboard input
+    /// attached to the wrong surface (#1147).
+    private func scheduleTerminalFirstResponderReassert(panelId: UUID, remainingPasses: Int = 2) {
+        guard remainingPasses > 0 else { return }
+        DispatchQueue.main.async { [weak self] in
+            guard let self,
+                  self.focusedPanelId == panelId,
+                  let terminalPanel = self.terminalPanel(for: panelId) else {
+                return
             }
+
+            terminalPanel.hostedView.ensureFocus(for: self.id, surfaceId: panelId)
+            self.scheduleTerminalFirstResponderReassert(
+                panelId: panelId,
+                remainingPasses: remainingPasses - 1
+            )
         }
     }
 
@@ -3217,9 +3417,28 @@ final class Workspace: Identifiable, ObservableObject {
 
     @discardableResult
     func toggleSplitZoom(panelId: UUID) -> Bool {
+        let wasSplitZoomed = bonsplitController.isSplitZoomed
         guard let paneId = paneId(forPanelId: panelId) else { return false }
         guard bonsplitController.togglePaneZoom(inPane: paneId) else { return false }
         focusPanel(panelId)
+        reconcileTerminalPortalVisibilityForCurrentRenderedLayout()
+        reconcileBrowserPortalVisibilityForCurrentRenderedLayout(reason: "workspace.toggleSplitZoom")
+        scheduleTerminalPortalVisibilityReconcileAfterSplitZoom(remainingPasses: 4)
+        scheduleBrowserPortalVisibilityReconcileAfterSplitZoom(
+            remainingPasses: 4,
+            reason: "workspace.toggleSplitZoom"
+        )
+        scheduleTerminalGeometryReconcile()
+        if let browserPanel = browserPanel(for: panelId) {
+            browserPanel.preparePortalHostReplacementForNextDistinctClaim(
+                inPane: paneId,
+                reason: "workspace.toggleSplitZoom"
+            )
+            scheduleBrowserPortalReconcileAfterSplitZoom(panelId: panelId, remainingPasses: 4)
+            if wasSplitZoomed && !bonsplitController.isSplitZoomed {
+                scheduleBrowserSplitZoomExitFocusReassert(panelId: panelId, remainingPasses: 4)
+            }
+        }
         return true
     }
 
@@ -3328,9 +3547,9 @@ final class Workspace: Identifiable, ObservableObject {
 
     /// Check if any panel needs close confirmation
     func needsConfirmClose() -> Bool {
-        for panel in panels.values {
+        for (panelId, panel) in panels {
             if let terminalPanel = panel as? TerminalPanel,
-               terminalPanel.needsConfirmClose() {
+               panelNeedsConfirmClose(panelId: panelId, fallbackNeedsConfirmClose: terminalPanel.needsConfirmClose()) {
                 return true
             }
         }
@@ -3479,6 +3698,248 @@ final class Workspace: Identifiable, ObservableObject {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.runScheduledTerminalGeometryReconcile(remainingPasses: 4)
+        }
+    }
+
+    private func renderedVisiblePanelIdsForCurrentLayout() -> Set<UUID> {
+        let renderedPaneIds = bonsplitController.zoomedPaneId.map { [$0] } ?? bonsplitController.allPaneIds
+        var visiblePanelIds: Set<UUID> = []
+
+        for paneId in renderedPaneIds {
+            let selectedTab = bonsplitController.selectedTab(inPane: paneId) ?? bonsplitController.tabs(inPane: paneId).first
+            guard let selectedTab,
+                  let panelId = panelIdFromSurfaceId(selectedTab.id),
+                  panels[panelId] != nil else {
+                continue
+            }
+            visiblePanelIds.insert(panelId)
+        }
+
+        if let focusedPanelId,
+           panels[focusedPanelId] != nil,
+           let focusedPaneId = paneId(forPanelId: focusedPanelId),
+           renderedPaneIds.contains(where: { $0.id == focusedPaneId.id }) {
+            visiblePanelIds.insert(focusedPanelId)
+        }
+
+        return visiblePanelIds
+    }
+
+    private func reconcileTerminalPortalVisibilityForCurrentRenderedLayout() {
+        let visiblePanelIds = renderedVisiblePanelIdsForCurrentLayout()
+
+        for panel in panels.values {
+            guard let terminalPanel = panel as? TerminalPanel else { continue }
+            let shouldBeVisible = visiblePanelIds.contains(terminalPanel.id)
+            terminalPanel.hostedView.setVisibleInUI(shouldBeVisible)
+            terminalPanel.hostedView.setActive(shouldBeVisible && focusedPanelId == terminalPanel.id)
+            TerminalWindowPortalRegistry.updateEntryVisibility(
+                for: terminalPanel.hostedView,
+                visibleInUI: shouldBeVisible
+            )
+        }
+    }
+
+    private func terminalPortalVisibilityNeedsFollowUp() -> Bool {
+        let visiblePanelIds = renderedVisiblePanelIdsForCurrentLayout()
+
+        for panel in panels.values {
+            guard let terminalPanel = panel as? TerminalPanel else { continue }
+            let shouldBeVisible = visiblePanelIds.contains(terminalPanel.id)
+            let hostedView = terminalPanel.hostedView
+
+            if shouldBeVisible {
+                if hostedView.isHidden || hostedView.window == nil || hostedView.superview == nil {
+                    return true
+                }
+            } else if !hostedView.isHidden {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    private func scheduleTerminalPortalVisibilityReconcileAfterSplitZoom(remainingPasses: Int) {
+        guard remainingPasses > 0 else { return }
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+
+            for window in NSApp.windows {
+                window.contentView?.layoutSubtreeIfNeeded()
+                window.contentView?.displayIfNeeded()
+            }
+
+            self.reconcileTerminalPortalVisibilityForCurrentRenderedLayout()
+
+            if self.terminalPortalVisibilityNeedsFollowUp(), remainingPasses > 1 {
+                self.scheduleTerminalPortalVisibilityReconcileAfterSplitZoom(
+                    remainingPasses: remainingPasses - 1
+                )
+            }
+        }
+    }
+
+    private func reconcileBrowserPortalVisibilityForCurrentRenderedLayout(reason: String) {
+        let visiblePanelIds = renderedVisiblePanelIdsForCurrentLayout()
+
+        for panel in panels.values {
+            guard let browserPanel = panel as? BrowserPanel else { continue }
+            let shouldBeVisible = visiblePanelIds.contains(browserPanel.id)
+            if shouldBeVisible {
+                BrowserWindowPortalRegistry.updateEntryVisibility(
+                    for: browserPanel.webView,
+                    visibleInUI: true,
+                    zPriority: 2
+                )
+                let anchorView = browserPanel.portalAnchorView
+                let anchorReady =
+                    anchorView.window != nil &&
+                    anchorView.superview != nil &&
+                    anchorView.bounds.width > 1 &&
+                    anchorView.bounds.height > 1
+                if anchorReady {
+                    BrowserWindowPortalRegistry.synchronizeForAnchor(anchorView)
+                    BrowserWindowPortalRegistry.refresh(
+                        webView: browserPanel.webView,
+                        reason: reason
+                    )
+                }
+            } else {
+                BrowserWindowPortalRegistry.updateEntryVisibility(
+                    for: browserPanel.webView,
+                    visibleInUI: false,
+                    zPriority: 0
+                )
+                BrowserWindowPortalRegistry.hide(
+                    webView: browserPanel.webView,
+                    source: reason
+                )
+            }
+        }
+    }
+
+    private func browserPortalVisibilityNeedsFollowUp() -> Bool {
+        let visiblePanelIds = renderedVisiblePanelIdsForCurrentLayout()
+
+        for panel in panels.values {
+            guard let browserPanel = panel as? BrowserPanel else { continue }
+            guard visiblePanelIds.contains(browserPanel.id) else { continue }
+            let anchorView = browserPanel.portalAnchorView
+            let anchorReady =
+                anchorView.window != nil &&
+                anchorView.superview != nil &&
+                anchorView.bounds.width > 1 &&
+                anchorView.bounds.height > 1
+            if !anchorReady ||
+                browserPanel.webView.window == nil ||
+                browserPanel.webView.superview == nil ||
+                !BrowserWindowPortalRegistry.isWebView(browserPanel.webView, boundTo: anchorView) {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    private func scheduleBrowserPortalVisibilityReconcileAfterSplitZoom(
+        remainingPasses: Int,
+        reason: String
+    ) {
+        guard remainingPasses > 0 else { return }
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+
+            for window in NSApp.windows {
+                window.contentView?.layoutSubtreeIfNeeded()
+                window.contentView?.displayIfNeeded()
+            }
+
+            self.reconcileBrowserPortalVisibilityForCurrentRenderedLayout(reason: reason)
+
+            if self.browserPortalVisibilityNeedsFollowUp(), remainingPasses > 1 {
+                self.scheduleBrowserPortalVisibilityReconcileAfterSplitZoom(
+                    remainingPasses: remainingPasses - 1,
+                    reason: reason
+                )
+            }
+        }
+    }
+
+    // Browser panes host WKWebView in the window portal. After pane zoom toggles,
+    // force a few post-layout sync passes so the portal does not outlive the omnibar chrome.
+    private func scheduleBrowserPortalReconcileAfterSplitZoom(panelId: UUID, remainingPasses: Int) {
+        guard remainingPasses > 0 else { return }
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let browserPanel = self.browserPanel(for: panelId) else { return }
+
+            for window in NSApp.windows {
+                window.contentView?.layoutSubtreeIfNeeded()
+                window.contentView?.displayIfNeeded()
+            }
+
+            let anchorView = browserPanel.portalAnchorView
+            let anchorReady =
+                anchorView.window != nil &&
+                anchorView.superview != nil &&
+                anchorView.bounds.width > 1 &&
+                anchorView.bounds.height > 1
+
+            if anchorReady {
+                BrowserWindowPortalRegistry.synchronizeForAnchor(anchorView)
+                BrowserWindowPortalRegistry.refresh(
+                    webView: browserPanel.webView,
+                    reason: "workspace.toggleSplitZoom"
+                )
+            }
+
+            let portalNeedsFollowUpPass =
+                !anchorReady ||
+                browserPanel.webView.window == nil ||
+                browserPanel.webView.superview == nil
+            if portalNeedsFollowUpPass {
+                self.scheduleBrowserPortalReconcileAfterSplitZoom(
+                    panelId: panelId,
+                    remainingPasses: remainingPasses - 1
+                )
+            }
+        }
+    }
+
+    // Browser panes can briefly keep the portal-hosted WKWebView visible while Bonsplit is
+    // still rebuilding the unzoomed pane host. Reassert pane/tab selection after layout settles
+    // so the SwiftUI chrome does not remain hidden until another browser focus command runs.
+    private func scheduleBrowserSplitZoomExitFocusReassert(panelId: UUID, remainingPasses: Int) {
+        guard remainingPasses > 0 else { return }
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.browserPanel(for: panelId) != nil else { return }
+            guard let paneId = self.paneId(forPanelId: panelId),
+                  let tabId = self.surfaceIdFromPanelId(panelId) else { return }
+
+            let selectionConverged =
+                self.bonsplitController.focusedPaneId == paneId &&
+                self.bonsplitController.selectedTab(inPane: paneId)?.id == tabId
+            let anchorReady: Bool = {
+                guard let browserPanel = self.browserPanel(for: panelId) else { return false }
+                let anchorView = browserPanel.portalAnchorView
+                return
+                    anchorView.window != nil &&
+                    anchorView.superview != nil &&
+                    anchorView.bounds.width > 1 &&
+                    anchorView.bounds.height > 1
+            }()
+
+            if !selectionConverged {
+                self.focusPanel(panelId)
+                self.scheduleFocusReconcile()
+            }
+
+            if !selectionConverged || !anchorReady {
+                self.scheduleBrowserSplitZoomExitFocusReassert(
+                    panelId: panelId,
+                    remainingPasses: remainingPasses - 1
+                )
+            }
         }
     }
 
@@ -3728,6 +4189,18 @@ final class Workspace: Identifiable, ObservableObject {
 
 extension Workspace: BonsplitDelegate {
     @MainActor
+    private func shouldCloseWorkspaceOnLastSurface(for tabId: TabID) -> Bool {
+        let manager = owningTabManager ?? AppDelegate.shared?.tabManagerFor(tabId: id) ?? AppDelegate.shared?.tabManager
+        guard panels.count <= 1,
+              panelIdFromSurfaceId(tabId) != nil,
+              let manager,
+              manager.tabs.contains(where: { $0.id == id }) else {
+            return false
+        }
+        return true
+    }
+
+    @MainActor
     private func confirmClosePanel(for tabId: TabID) async -> Bool {
         let alert = NSAlert()
         alert.messageText = String(localized: "dialog.closeTab.title", defaultValue: "Close tab?")
@@ -3735,6 +4208,16 @@ extension Workspace: BonsplitDelegate {
         alert.alertStyle = .warning
         alert.addButton(withTitle: String(localized: "dialog.closeTab.close", defaultValue: "Close"))
         alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
+
+        if let closeButton = alert.buttons.first {
+            closeButton.keyEquivalent = "\r"
+            closeButton.keyEquivalentModifierMask = []
+            alert.window.defaultButtonCell = closeButton.cell as? NSButtonCell
+            alert.window.initialFirstResponder = closeButton
+        }
+        if let cancelButton = alert.buttons.dropFirst().first {
+            cancelButton.keyEquivalent = "\u{1b}"
+        }
 
         // Prefer a sheet if we can find a window, otherwise fall back to modal.
         if let window = NSApp.keyWindow ?? NSApp.mainWindow {
@@ -3750,8 +4233,20 @@ extension Workspace: BonsplitDelegate {
 
     /// Apply the side-effects of selecting a tab (unfocus others, focus this panel, update state).
     /// bonsplit doesn't always emit didSelectTab for programmatic selection paths (e.g. createTab).
-    private func applyTabSelection(tabId: TabID, inPane pane: PaneID) {
-        pendingTabSelection = (tabId: tabId, pane: pane)
+    private func applyTabSelection(
+        tabId: TabID,
+        inPane pane: PaneID,
+        reassertAppKitFocus: Bool = true,
+        focusIntent: PanelFocusIntent? = nil,
+        previousTerminalHostedView: GhosttySurfaceScrollView? = nil
+    ) {
+        pendingTabSelection = PendingTabSelectionRequest(
+            tabId: tabId,
+            pane: pane,
+            reassertAppKitFocus: reassertAppKitFocus,
+            focusIntent: focusIntent,
+            previousTerminalHostedView: previousTerminalHostedView
+        )
         guard !isApplyingTabSelection else { return }
         isApplyingTabSelection = true
         defer {
@@ -3764,12 +4259,36 @@ extension Workspace: BonsplitDelegate {
             pendingTabSelection = nil
             iterations += 1
             if iterations > 8 { break }
-            applyTabSelectionNow(tabId: request.tabId, inPane: request.pane)
+            applyTabSelectionNow(
+                tabId: request.tabId,
+                inPane: request.pane,
+                reassertAppKitFocus: request.reassertAppKitFocus,
+                focusIntent: request.focusIntent,
+                previousTerminalHostedView: request.previousTerminalHostedView
+            )
         }
     }
 
-    private func applyTabSelectionNow(tabId: TabID, inPane pane: PaneID) {
+    private func applyTabSelectionNow(
+        tabId: TabID,
+        inPane pane: PaneID,
+        reassertAppKitFocus: Bool,
+        focusIntent: PanelFocusIntent?,
+        previousTerminalHostedView: GhosttySurfaceScrollView?
+    ) {
         let previousFocusedPanelId = focusedPanelId
+#if DEBUG
+        let focusedPaneBefore = bonsplitController.focusedPaneId.map { String($0.id.uuidString.prefix(5)) } ?? "nil"
+        let selectedTabBefore = bonsplitController.focusedPaneId
+            .flatMap { bonsplitController.selectedTab(inPane: $0)?.id }
+            .map { String($0.uuid.uuidString.prefix(5)) } ?? "nil"
+        dlog(
+            "focus.split.apply.begin workspace=\(id.uuidString.prefix(5)) " +
+            "pane=\(pane.id.uuidString.prefix(5)) tab=\(tabId.uuid.uuidString.prefix(5)) " +
+            "focusedPane=\(focusedPaneBefore) selectedTab=\(selectedTabBefore) " +
+            "reassert=\(reassertAppKitFocus ? 1 : 0)"
+        )
+#endif
         if bonsplitController.allPaneIds.contains(pane) {
             if bonsplitController.focusedPaneId != pane {
                 bonsplitController.focusPane(pane)
@@ -3795,29 +4314,58 @@ extension Workspace: BonsplitDelegate {
             return
         }
 
-        // Focus the selected panel
-        guard let panelId = panelIdFromSurfaceId(selectedTabId),
-              let panel = panels[panelId] else {
+        // Focus the selected panel, but keep the previously focused terminal active while a
+        // newly created split terminal is still unattached.
+        guard let selectedPanelId = panelIdFromSurfaceId(selectedTabId) else {
+            return
+        }
+        let effectiveFocusedPanelId = effectiveSelectedPanelId(inPane: focusedPane) ?? selectedPanelId
+        guard let panel = panels[effectiveFocusedPanelId] else {
+            return
+        }
+
+        if debugStressPreloadSelectionDepth > 0 {
+            if let terminalPanel = panel as? TerminalPanel {
+                terminalPanel.requestViewReattach()
+                scheduleTerminalGeometryReconcile()
+                terminalPanel.surface.requestBackgroundSurfaceStartIfNeeded()
+            }
             return
         }
 
         if shouldTreatCurrentEventAsExplicitFocusIntent() {
-            markExplicitFocusIntent(on: panelId)
+            markExplicitFocusIntent(on: effectiveFocusedPanelId)
         }
+        let activationIntent = focusIntent ?? panel.preferredFocusIntentForActivation()
+        panel.prepareFocusIntentForActivation(activationIntent)
+        let panelId = effectiveFocusedPanelId
 
-        syncPinnedStateForTab(selectedTabId, panelId: panelId)
-        syncUnreadBadgeStateForPanel(panelId)
+        syncPinnedStateForTab(selectedTabId, panelId: selectedPanelId)
+        syncUnreadBadgeStateForPanel(selectedPanelId)
 
         // Unfocus all other panels
-        for (id, p) in panels where id != panelId {
+        for (id, p) in panels where id != effectiveFocusedPanelId {
             p.unfocus()
         }
 
-        panel.focus()
+        if let focusWindow = activationWindow(for: panel) {
+            yieldForeignOwnedFocusIfNeeded(
+                in: focusWindow,
+                targetPanelId: panelId,
+                targetIntent: activationIntent
+            )
+        }
+
+        activatePanel(
+            panel,
+            focusIntent: activationIntent,
+            reassertAppKitFocus: reassertAppKitFocus
+        )
         let focusIntentAllowsBrowserOmnibarAutofocus =
             shouldTreatCurrentEventAsExplicitFocusIntent() ||
             TerminalController.socketCommandAllowsInAppFocusMutations()
         if let browserPanel = panel as? BrowserPanel,
+           shouldAllowBrowserOmnibarAutofocus(for: activationIntent),
            previousFocusedPanelId != panelId || focusIntentAllowsBrowserOmnibarAutofocus {
             maybeAutoFocusBrowserAddressBarOnPanelFocus(browserPanel, trigger: .standard)
         }
@@ -3845,8 +4393,31 @@ extension Workspace: BonsplitDelegate {
 
         // Converge AppKit first responder with bonsplit's selected tab in the focused pane.
         // Without this, keyboard input can remain on a different terminal than the blue tab indicator.
-        if let terminalPanel = panel as? TerminalPanel {
+        if reassertAppKitFocus, let terminalPanel = panel as? TerminalPanel {
+            if shouldMoveTerminalSurfaceFocus(for: activationIntent),
+               !terminalPanel.hostedView.isSurfaceViewFirstResponder() {
+#if DEBUG
+                let previousExists = previousTerminalHostedView != nil ? 1 : 0
+                dlog(
+                    "focus.split.moveFocus workspace=\(id.uuidString.prefix(5)) " +
+                    "panel=\(panelId.uuidString.prefix(5)) previousExists=\(previousExists) " +
+                    "to=\(panelId.uuidString.prefix(5))"
+                )
+#endif
+                terminalPanel.hostedView.moveFocus(from: previousTerminalHostedView)
+            }
+#if DEBUG
+            dlog(
+                "focus.split.ensureFocus workspace=\(id.uuidString.prefix(5)) " +
+                "panel=\(panelId.uuidString.prefix(5)) pane=\(focusedPane.id.uuidString.prefix(5)) " +
+                "tab=\(selectedTabId.uuid.uuidString.prefix(5)) intent=\(String(describing: activationIntent))"
+            )
+#endif
             terminalPanel.hostedView.ensureFocus(for: id, surfaceId: panelId)
+        }
+
+        if shouldRestoreFocusIntentAfterActivation(activationIntent) {
+            _ = panel.restoreFocusIntent(activationIntent)
         }
 
         // Update current directory if this is a terminal
@@ -3865,6 +4436,108 @@ extension Workspace: BonsplitDelegate {
                 GhosttyNotificationKey.surfaceId: panelId
             ]
         )
+#if DEBUG
+        let prevPanelShort = previousFocusedPanelId.map { String($0.uuidString.prefix(5)) } ?? "nil"
+        dlog(
+            "focus.split.apply.end workspace=\(id.uuidString.prefix(5)) " +
+            "panel=\(panelId.uuidString.prefix(5)) type=\(String(describing: type(of: panel))) " +
+            "focusedPane=\(focusedPane.id.uuidString.prefix(5)) selectedTab=\(selectedTabId.uuid.uuidString.prefix(5)) " +
+            "prevPanel=\(prevPanelShort)"
+        )
+#endif
+    }
+
+    private func activatePanel(
+        _ panel: any Panel,
+        focusIntent: PanelFocusIntent,
+        reassertAppKitFocus: Bool
+    ) {
+        if let terminalPanel = panel as? TerminalPanel {
+            let shouldFocusTerminalSurface = shouldMoveTerminalSurfaceFocus(for: focusIntent)
+            terminalPanel.surface.setFocus(shouldFocusTerminalSurface)
+            terminalPanel.hostedView.setActive(true)
+            if reassertAppKitFocus && shouldFocusTerminalSurface {
+                terminalPanel.focus()
+            }
+            return
+        }
+
+        if let browserPanel = panel as? BrowserPanel {
+            guard shouldFocusBrowserWebView(for: focusIntent) else { return }
+            browserPanel.focus()
+            return
+        }
+
+        if reassertAppKitFocus {
+            panel.focus()
+        }
+    }
+
+    private func activationWindow(for panel: any Panel) -> NSWindow? {
+        if let terminalPanel = panel as? TerminalPanel {
+            return terminalPanel.hostedView.window ?? NSApp.keyWindow ?? NSApp.mainWindow
+        }
+        if let browserPanel = panel as? BrowserPanel {
+            return browserPanel.webView.window ?? browserPanel.portalAnchorView.window ?? NSApp.keyWindow ?? NSApp.mainWindow
+        }
+        return NSApp.keyWindow ?? NSApp.mainWindow
+    }
+
+    private func yieldForeignOwnedFocusIfNeeded(
+        in window: NSWindow,
+        targetPanelId: UUID,
+        targetIntent: PanelFocusIntent
+    ) {
+        guard let firstResponder = window.firstResponder else { return }
+
+        for (panelId, panel) in panels where panelId != targetPanelId {
+            guard let ownedIntent = panel.ownedFocusIntent(for: firstResponder, in: window) else { continue }
+#if DEBUG
+            dlog(
+                "focus.handoff.begin workspace=\(id.uuidString.prefix(5)) " +
+                "fromPanel=\(panelId.uuidString.prefix(5)) toPanel=\(targetPanelId.uuidString.prefix(5)) " +
+                "fromIntent=\(String(describing: ownedIntent)) toIntent=\(String(describing: targetIntent))"
+            )
+#endif
+            _ = panel.yieldFocusIntent(ownedIntent, in: window)
+            return
+        }
+    }
+
+    private func shouldMoveTerminalSurfaceFocus(for intent: PanelFocusIntent) -> Bool {
+        switch intent {
+        case .terminal(.findField):
+            return false
+        default:
+            return true
+        }
+    }
+
+    private func shouldFocusBrowserWebView(for intent: PanelFocusIntent) -> Bool {
+        switch intent {
+        case .browser(.addressBar), .browser(.findField):
+            return false
+        default:
+            return true
+        }
+    }
+
+    private func shouldAllowBrowserOmnibarAutofocus(for intent: PanelFocusIntent) -> Bool {
+        switch intent {
+        case .browser(.webView), .panel:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func shouldRestoreFocusIntentAfterActivation(_ intent: PanelFocusIntent) -> Bool {
+        switch intent {
+        case .browser(.addressBar), .browser(.findField), .terminal(.findField):
+            return true
+        case .panel, .browser(.webView), .terminal(.surface):
+            return false
+        }
     }
 
     private func beginNonFocusSplitFocusReassert(
@@ -3939,6 +4612,8 @@ extension Workspace: BonsplitDelegate {
             }
         }
 
+        let explicitUserClose = explicitUserCloseTabIds.remove(tab.id) != nil
+
         if forceCloseTabIds.contains(tab.id) {
             stageClosedBrowserRestoreSnapshotIfNeeded(for: tab, inPane: pane)
             recordPostCloseSelection()
@@ -3949,6 +4624,12 @@ extension Workspace: BonsplitDelegate {
            pinnedPanelIds.contains(panelId) {
             clearStagedClosedBrowserRestoreSnapshot(for: tab.id)
             NSSound.beep()
+            return false
+        }
+
+        if explicitUserClose && shouldCloseWorkspaceOnLastSurface(for: tab.id) {
+            clearStagedClosedBrowserRestoreSnapshot(for: tab.id)
+            owningTabManager?.closeWorkspaceWithConfirmation(self)
             return false
         }
 
@@ -3963,7 +4644,7 @@ extension Workspace: BonsplitDelegate {
         // If confirmation is required, Bonsplit will call into this delegate and we must return false.
         // Show an app-level confirmation, then re-attempt the close with forceCloseTabIds to bypass
         // this gating on the second pass.
-        if terminalPanel.needsConfirmClose() {
+        if panelNeedsConfirmClose(panelId: panelId, fallbackNeedsConfirmClose: terminalPanel.needsConfirmClose()) {
             clearStagedClosedBrowserRestoreSnapshot(for: tab.id)
             if pendingCloseConfirmTabIds.contains(tab.id) {
                 return false
@@ -4063,6 +4744,7 @@ extension Workspace: BonsplitDelegate {
         manualUnreadPanelIds.remove(panelId)
         manualUnreadMarkedAt.removeValue(forKey: panelId)
         panelSubscriptions.removeValue(forKey: panelId)
+        panelShellActivityStates.removeValue(forKey: panelId)
         surfaceTTYNames.removeValue(forKey: panelId)
         restoredTerminalScrollbackByPanelId.removeValue(forKey: panelId)
         PortScanner.shared.unregisterPanel(workspaceId: id, panelId: panelId)
@@ -4070,6 +4752,7 @@ extension Workspace: BonsplitDelegate {
         if lastTerminalConfigInheritancePanelId == panelId {
             lastTerminalConfigInheritancePanelId = nil
         }
+        AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: id, surfaceId: panelId)
 
         // Keep the workspace invariant for normal close paths.
         // Detach/move flows intentionally allow a temporary empty workspace so AppDelegate can
@@ -4241,6 +4924,7 @@ extension Workspace: BonsplitDelegate {
                 pinnedPanelIds.remove(panelId)
                 manualUnreadPanelIds.remove(panelId)
                 panelSubscriptions.removeValue(forKey: panelId)
+                panelShellActivityStates.removeValue(forKey: panelId)
                 surfaceTTYNames.removeValue(forKey: panelId)
                 surfaceListeningPorts.removeValue(forKey: panelId)
                 restoredTerminalScrollbackByPanelId.removeValue(forKey: panelId)
@@ -4278,7 +4962,7 @@ extension Workspace: BonsplitDelegate {
             if forceCloseTabIds.contains(tab.id) { continue }
             if let panelId = panelIdFromSurfaceId(tab.id),
                let terminalPanel = terminalPanel(for: panelId),
-               terminalPanel.needsConfirmClose() {
+               panelNeedsConfirmClose(panelId: panelId, fallbackNeedsConfirmClose: terminalPanel.needsConfirmClose()) {
                 pendingPaneClosePanelIds.removeValue(forKey: pane.id)
                 return false
             }
@@ -4313,6 +4997,21 @@ extension Workspace: BonsplitDelegate {
             "originalKinds=[\(paneKindSummary(originalPane))] newKinds=[\(paneKindSummary(newPane))]"
         )
 #endif
+        let rearmBrowserPortalHostReplacement: (PaneID, String) -> Void = { paneId, reason in
+            for tab in controller.tabs(inPane: paneId) {
+                guard let panelId = self.panelIdFromSurfaceId(tab.id),
+                      let browserPanel = self.browserPanel(for: panelId) else {
+                    continue
+                }
+                browserPanel.preparePortalHostReplacementForNextDistinctClaim(
+                    inPane: paneId,
+                    reason: reason
+                )
+            }
+        }
+        rearmBrowserPortalHostReplacement(originalPane, "workspace.didSplit.original")
+        rearmBrowserPortalHostReplacement(newPane, "workspace.didSplit.new")
+
         // Only auto-create a terminal if the split came from bonsplit UI.
         // Programmatic splits via newTerminalSplit() set isProgrammaticSplit and handle their own panels.
         guard !isProgrammaticSplit else {

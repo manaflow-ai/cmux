@@ -322,6 +322,15 @@ struct cmuxApp: App {
                     appDelegate.openDebugColorComparisonWorkspaces(nil)
                 }
 
+                Button(
+                    String(
+                        localized: "debug.menu.openStressWorkspacesWithLoadedSurfaces",
+                        defaultValue: "Open Stress Workspaces and Load All Terminals"
+                    )
+                ) {
+                    appDelegate.openDebugStressWorkspacesWithLoadedSurfaces(nil)
+                }
+
                 Divider()
                 Menu("Debug Windows") {
                     Button("Debug Window Controls…") {
@@ -443,8 +452,9 @@ struct cmuxApp: App {
                 Divider()
 
                 // Terminal semantics:
-                // Cmd+W closes the focused tab (with confirmation if needed). If this is the last
-                // tab in the last workspace, it closes the window.
+                // Cmd+W closes the focused tab/surface (with confirmation if needed). When that
+                // was the last surface in the workspace, cmux removes the workspace and closes
+                // the window if it was also the last workspace.
                 Button(String(localized: "menu.file.closeTab", defaultValue: "Close Tab")) {
                     closePanelOrWindow()
                 }
@@ -460,6 +470,10 @@ struct cmuxApp: App {
                 // is the last workspace, it closes the window.
                 splitCommandButton(title: String(localized: "menu.file.closeWorkspace", defaultValue: "Close Workspace"), shortcut: closeWorkspaceMenuShortcut) {
                     closeTabOrWindow()
+                }
+
+                Menu(String(localized: "commandPalette.switcher.workspaceLabel", defaultValue: "Workspace")) {
+                    workspaceCommandMenuContent(manager: activeTabManager)
                 }
 
                 Button(String(localized: "menu.file.reopenClosedBrowserPanel", defaultValue: "Reopen Closed Browser Panel")) {
@@ -817,6 +831,195 @@ struct cmuxApp: App {
             return
         }
         _ = tabManager.createBrowserSplit(direction: direction)
+    }
+
+    private func selectedWorkspaceIndex(in manager: TabManager, workspaceId: UUID) -> Int? {
+        manager.tabs.firstIndex { $0.id == workspaceId }
+    }
+
+    private func selectedWorkspaceWindowMoveTargets(in manager: TabManager) -> [AppDelegate.WindowMoveTarget] {
+        let referenceWindowId = AppDelegate.shared?.windowId(for: manager)
+        return AppDelegate.shared?.windowMoveTargets(referenceWindowId: referenceWindowId) ?? []
+    }
+
+    private func toggleSelectedWorkspacePinned(in manager: TabManager) {
+        guard let workspace = manager.selectedWorkspace else { return }
+        manager.setPinned(workspace, pinned: !workspace.isPinned)
+    }
+
+    private func clearSelectedWorkspaceCustomName(in manager: TabManager) {
+        guard let workspace = manager.selectedWorkspace else { return }
+        manager.clearCustomTitle(tabId: workspace.id)
+    }
+
+    private func moveSelectedWorkspace(in manager: TabManager, by delta: Int) {
+        guard let workspace = manager.selectedWorkspace,
+              let currentIndex = selectedWorkspaceIndex(in: manager, workspaceId: workspace.id) else { return }
+        let targetIndex = currentIndex + delta
+        guard targetIndex >= 0, targetIndex < manager.tabs.count else { return }
+        _ = manager.reorderWorkspace(tabId: workspace.id, toIndex: targetIndex)
+        manager.selectWorkspace(workspace)
+    }
+
+    private func moveSelectedWorkspaceToTop(in manager: TabManager) {
+        guard let workspace = manager.selectedWorkspace else { return }
+        manager.moveTabsToTop([workspace.id])
+        manager.selectWorkspace(workspace)
+    }
+
+    private func moveSelectedWorkspace(in manager: TabManager, toWindow windowId: UUID) {
+        guard let workspace = manager.selectedWorkspace else { return }
+        _ = AppDelegate.shared?.moveWorkspaceToWindow(workspaceId: workspace.id, windowId: windowId, focus: true)
+    }
+
+    private func moveSelectedWorkspaceToNewWindow(in manager: TabManager) {
+        guard let workspace = manager.selectedWorkspace else { return }
+        _ = AppDelegate.shared?.moveWorkspaceToNewWindow(workspaceId: workspace.id, focus: true)
+    }
+
+    private func closeWorkspaceIds(
+        _ workspaceIds: [UUID],
+        in manager: TabManager,
+        allowPinned: Bool
+    ) {
+        manager.closeWorkspacesWithConfirmation(workspaceIds, allowPinned: allowPinned)
+    }
+
+    private func closeOtherSelectedWorkspacePeers(in manager: TabManager) {
+        guard let workspace = manager.selectedWorkspace else { return }
+        let workspaceIds = manager.tabs.compactMap { $0.id == workspace.id ? nil : $0.id }
+        closeWorkspaceIds(workspaceIds, in: manager, allowPinned: false)
+    }
+
+    private func closeSelectedWorkspacesBelow(in manager: TabManager) {
+        guard let workspace = manager.selectedWorkspace,
+              let anchorIndex = selectedWorkspaceIndex(in: manager, workspaceId: workspace.id) else { return }
+        let workspaceIds = manager.tabs.suffix(from: anchorIndex + 1).map(\.id)
+        closeWorkspaceIds(workspaceIds, in: manager, allowPinned: false)
+    }
+
+    private func closeSelectedWorkspacesAbove(in manager: TabManager) {
+        guard let workspace = manager.selectedWorkspace,
+              let anchorIndex = selectedWorkspaceIndex(in: manager, workspaceId: workspace.id) else { return }
+        let workspaceIds = manager.tabs.prefix(upTo: anchorIndex).map(\.id)
+        closeWorkspaceIds(workspaceIds, in: manager, allowPinned: false)
+    }
+
+    private func selectedWorkspaceHasUnreadNotifications(in manager: TabManager) -> Bool {
+        guard let workspaceId = manager.selectedWorkspace?.id else { return false }
+        return notificationStore.notifications.contains { $0.tabId == workspaceId && !$0.isRead }
+    }
+
+    private func selectedWorkspaceHasReadNotifications(in manager: TabManager) -> Bool {
+        guard let workspaceId = manager.selectedWorkspace?.id else { return false }
+        return notificationStore.notifications.contains { $0.tabId == workspaceId && $0.isRead }
+    }
+
+    private func markSelectedWorkspaceRead(in manager: TabManager) {
+        guard let workspaceId = manager.selectedWorkspace?.id else { return }
+        notificationStore.markRead(forTabId: workspaceId)
+    }
+
+    private func markSelectedWorkspaceUnread(in manager: TabManager) {
+        guard let workspaceId = manager.selectedWorkspace?.id else { return }
+        notificationStore.markUnread(forTabId: workspaceId)
+    }
+
+    @ViewBuilder
+    private func workspaceCommandMenuContent(manager: TabManager) -> some View {
+        let workspace = manager.selectedWorkspace
+        let workspaceIndex = workspace.flatMap { selectedWorkspaceIndex(in: manager, workspaceId: $0.id) }
+        let windowMoveTargets = selectedWorkspaceWindowMoveTargets(in: manager)
+
+        Button(
+            workspace?.isPinned == true
+                ? String(localized: "contextMenu.unpinWorkspace", defaultValue: "Unpin Workspace")
+                : String(localized: "contextMenu.pinWorkspace", defaultValue: "Pin Workspace")
+        ) {
+            toggleSelectedWorkspacePinned(in: manager)
+        }
+        .disabled(workspace == nil)
+
+        Button(String(localized: "menu.view.renameWorkspace", defaultValue: "Rename Workspace…")) {
+            _ = AppDelegate.shared?.requestRenameWorkspaceViaCommandPalette()
+        }
+        .disabled(workspace == nil)
+
+        if workspace?.hasCustomTitle == true {
+            Button(String(localized: "contextMenu.removeCustomWorkspaceName", defaultValue: "Remove Custom Workspace Name")) {
+                clearSelectedWorkspaceCustomName(in: manager)
+            }
+        }
+
+        Divider()
+
+        Button(String(localized: "contextMenu.moveUp", defaultValue: "Move Up")) {
+            moveSelectedWorkspace(in: manager, by: -1)
+        }
+        .disabled(workspaceIndex == nil || workspaceIndex == 0)
+
+        Button(String(localized: "contextMenu.moveDown", defaultValue: "Move Down")) {
+            moveSelectedWorkspace(in: manager, by: 1)
+        }
+        .disabled(workspaceIndex == nil || workspaceIndex == manager.tabs.count - 1)
+
+        Button(String(localized: "contextMenu.moveToTop", defaultValue: "Move to Top")) {
+            moveSelectedWorkspaceToTop(in: manager)
+        }
+        .disabled(workspace == nil || workspaceIndex == 0)
+
+        Menu(String(localized: "contextMenu.moveWorkspaceToWindow", defaultValue: "Move Workspace to Window")) {
+            Button(String(localized: "contextMenu.newWindow", defaultValue: "New Window")) {
+                moveSelectedWorkspaceToNewWindow(in: manager)
+            }
+            .disabled(workspace == nil)
+
+            if !windowMoveTargets.isEmpty {
+                Divider()
+            }
+
+            ForEach(windowMoveTargets) { target in
+                Button(target.label) {
+                    moveSelectedWorkspace(in: manager, toWindow: target.windowId)
+                }
+                .disabled(target.isCurrentWindow || workspace == nil)
+            }
+        }
+        .disabled(workspace == nil)
+
+        Divider()
+
+        Button(String(localized: "menu.file.closeWorkspace", defaultValue: "Close Workspace")) {
+            manager.closeCurrentWorkspaceWithConfirmation()
+        }
+        .disabled(workspace == nil)
+
+        Button(String(localized: "contextMenu.closeOtherWorkspaces", defaultValue: "Close Other Workspaces")) {
+            closeOtherSelectedWorkspacePeers(in: manager)
+        }
+        .disabled(workspace == nil || manager.tabs.count <= 1)
+
+        Button(String(localized: "contextMenu.closeWorkspacesBelow", defaultValue: "Close Workspaces Below")) {
+            closeSelectedWorkspacesBelow(in: manager)
+        }
+        .disabled(workspaceIndex == nil || workspaceIndex == manager.tabs.count - 1)
+
+        Button(String(localized: "contextMenu.closeWorkspacesAbove", defaultValue: "Close Workspaces Above")) {
+            closeSelectedWorkspacesAbove(in: manager)
+        }
+        .disabled(workspaceIndex == nil || workspaceIndex == 0)
+
+        Divider()
+
+        Button(String(localized: "contextMenu.markWorkspaceRead", defaultValue: "Mark Workspace as Read")) {
+            markSelectedWorkspaceRead(in: manager)
+        }
+        .disabled(!selectedWorkspaceHasUnreadNotifications(in: manager))
+
+        Button(String(localized: "contextMenu.markWorkspaceUnread", defaultValue: "Mark Workspace as Unread")) {
+            markSelectedWorkspaceUnread(in: manager)
+        }
+        .disabled(!selectedWorkspaceHasReadNotifications(in: manager))
     }
 
     @ViewBuilder
@@ -2803,6 +3006,18 @@ enum CommandPaletteRenameSelectionSettings {
     }
 }
 
+enum CommandPaletteSwitcherSearchSettings {
+    static let searchAllSurfacesKey = "commandPalette.switcherSearchAllSurfaces"
+    static let defaultSearchAllSurfaces = false
+
+    static func searchAllSurfacesEnabled(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: searchAllSurfacesKey) == nil {
+            return defaultSearchAllSurfaces
+        }
+        return defaults.bool(forKey: searchAllSurfacesKey)
+    }
+}
+
 enum ClaudeCodeIntegrationSettings {
     static let hooksEnabledKey = "claudeCodeHooksEnabled"
     static let defaultHooksEnabled = true
@@ -2813,6 +3028,10 @@ enum ClaudeCodeIntegrationSettings {
         }
         return defaults.bool(forKey: hooksEnabledKey)
     }
+}
+
+enum WelcomeSettings {
+    static let shownKey = "cmuxWelcomeShown"
 }
 
 enum TelemetrySettings {
@@ -2833,6 +3052,7 @@ enum TelemetrySettings {
 struct SettingsView: View {
     private let contentTopInset: CGFloat = 8
     private let pickerColumnWidth: CGFloat = 196
+    private let notificationSoundControlWidth: CGFloat = 280
 
     @AppStorage(LanguageSettings.languageKey) private var appLanguage = LanguageSettings.defaultLanguage.rawValue
     @AppStorage(AppearanceSettings.appearanceModeKey) private var appearanceMode = AppearanceSettings.defaultMode.rawValue
@@ -2859,13 +3079,22 @@ struct SettingsView: View {
     private var notificationSoundCustomFilePath = NotificationSoundSettings.defaultCustomFilePath
     @AppStorage(NotificationSoundSettings.customCommandKey) private var notificationCustomCommand = NotificationSoundSettings.defaultCustomCommand
     @AppStorage(NotificationBadgeSettings.dockBadgeEnabledKey) private var notificationDockBadgeEnabled = NotificationBadgeSettings.defaultDockBadgeEnabled
+    @AppStorage(NotificationPaneRingSettings.enabledKey) private var notificationPaneRingEnabled = NotificationPaneRingSettings.defaultEnabled
+    @AppStorage(NotificationPaneFlashSettings.enabledKey) private var notificationPaneFlashEnabled = NotificationPaneFlashSettings.defaultEnabled
+    @AppStorage(MenuBarExtraSettings.showInMenuBarKey) private var showMenuBarExtra = MenuBarExtraSettings.defaultShowInMenuBar
     @AppStorage(QuitWarningSettings.warnBeforeQuitKey) private var warnBeforeQuitShortcut = QuitWarningSettings.defaultWarnBeforeQuit
     @AppStorage(CommandPaletteRenameSelectionSettings.selectAllOnFocusKey)
     private var commandPaletteRenameSelectAllOnFocus = CommandPaletteRenameSelectionSettings.defaultSelectAllOnFocus
+    @AppStorage(CommandPaletteSwitcherSearchSettings.searchAllSurfacesKey)
+    private var commandPaletteSearchAllSurfaces = CommandPaletteSwitcherSearchSettings.defaultSearchAllSurfaces
     @AppStorage(ShortcutHintDebugSettings.alwaysShowHintsKey)
     private var alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
     @AppStorage(WorkspacePlacementSettings.placementKey) private var newWorkspacePlacement = WorkspacePlacementSettings.defaultPlacement.rawValue
     @AppStorage(WorkspaceAutoReorderSettings.key) private var workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
+    @AppStorage(SidebarWorkspaceDetailSettings.hideAllDetailsKey)
+    private var sidebarHideAllDetails = SidebarWorkspaceDetailSettings.defaultHideAllDetails
+    @AppStorage(SidebarWorkspaceDetailSettings.showNotificationMessageKey)
+    private var sidebarShowNotificationMessage = SidebarWorkspaceDetailSettings.defaultShowNotificationMessage
     @AppStorage(SidebarBranchLayoutSettings.key) private var sidebarBranchVerticalLayout = SidebarBranchLayoutSettings.defaultVerticalLayout
     @AppStorage(SidebarActiveTabIndicatorSettings.styleKey)
     private var sidebarActiveTabIndicatorStyle = SidebarActiveTabIndicatorSettings.defaultStyle.rawValue
@@ -3211,14 +3440,6 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: 14) {
                     SettingsSectionHeader(title: String(localized: "settings.section.app", defaultValue: "App"))
                     SettingsCard {
-                        SettingsPickerRow(String(localized: "settings.app.theme", defaultValue: "Theme"), controlWidth: pickerColumnWidth, selection: $appearanceMode) {
-                            ForEach(AppearanceMode.visibleCases) { mode in
-                                Text(mode.displayName).tag(mode.rawValue)
-                            }
-                        }
-
-                        SettingsCardDivider()
-
                         SettingsCardRow(
                             String(localized: "settings.app.language", defaultValue: "Language"),
                             subtitle: appLanguage != LanguageSettings.languageAtLaunch.rawValue
@@ -3247,6 +3468,15 @@ struct SettingsView: View {
                                 }
                             }
                         }
+
+                        SettingsCardDivider()
+
+                        ThemePickerRow(
+                            selectedMode: appearanceMode,
+                            onSelect: { mode in
+                                appearanceMode = mode.rawValue
+                            }
+                        )
 
                         SettingsCardDivider()
 
@@ -3296,6 +3526,48 @@ struct SettingsView: View {
                         SettingsCardDivider()
 
                         SettingsCardRow(
+                            String(localized: "settings.app.showInMenuBar", defaultValue: "Show in Menu Bar"),
+                            subtitle: String(localized: "settings.app.showInMenuBar.subtitle", defaultValue: "Keep cmux in the menu bar for unread notifications and quick actions.")
+                        ) {
+                            Toggle("", isOn: $showMenuBarExtra)
+                                .labelsHidden()
+                                .controlSize(.small)
+                                .accessibilityLabel(
+                                    String(localized: "settings.app.showInMenuBar", defaultValue: "Show in Menu Bar")
+                                )
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            String(localized: "settings.notifications.paneRing.title", defaultValue: "Unread Pane Ring"),
+                            subtitle: String(localized: "settings.notifications.paneRing.subtitle", defaultValue: "Show a blue ring around panes with unread notifications.")
+                        ) {
+                            Toggle("", isOn: $notificationPaneRingEnabled)
+                                .labelsHidden()
+                                .controlSize(.small)
+                                .accessibilityLabel(
+                                    String(localized: "settings.notifications.paneRing.title", defaultValue: "Unread Pane Ring")
+                                )
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            String(localized: "settings.notifications.paneFlash.title", defaultValue: "Pane Flash"),
+                            subtitle: String(localized: "settings.notifications.paneFlash.subtitle", defaultValue: "Briefly flash a blue outline when cmux highlights a pane.")
+                        ) {
+                            Toggle("", isOn: $notificationPaneFlashEnabled)
+                                .labelsHidden()
+                                .controlSize(.small)
+                                .accessibilityLabel(
+                                    String(localized: "settings.notifications.paneFlash.title", defaultValue: "Pane Flash")
+                                )
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
                             "Desktop Notifications",
                             subtitle: notificationPermissionSubtitle
                         ) {
@@ -3321,7 +3593,8 @@ struct SettingsView: View {
 
                         SettingsCardRow(
                             String(localized: "settings.notifications.sound.title", defaultValue: "Notification Sound"),
-                            subtitle: String(localized: "settings.notifications.sound.subtitle", defaultValue: "Sound played when a notification arrives.")
+                            subtitle: String(localized: "settings.notifications.sound.subtitle", defaultValue: "Sound played when a notification arrives."),
+                            controlWidth: notificationSoundControlWidth
                         ) {
                             VStack(alignment: .trailing, spacing: 6) {
                                 HStack(spacing: 6) {
@@ -3381,6 +3654,7 @@ struct SettingsView: View {
                                     }
                                 }
                             }
+                            .frame(maxWidth: .infinity, alignment: .trailing)
                         }
 
                         SettingsCardDivider()
@@ -3435,6 +3709,36 @@ struct SettingsView: View {
 
                         SettingsCardDivider()
 
+                        SettingsCardRow(
+                            String(localized: "settings.app.commandPaletteSearchAllSurfaces", defaultValue: "Command Palette Searches All Surfaces"),
+                            subtitle: commandPaletteSearchAllSurfaces
+                                ? String(localized: "settings.app.commandPaletteSearchAllSurfaces.subtitleOn", defaultValue: "Cmd+P also matches terminal, browser, and markdown surfaces across workspaces.")
+                                : String(localized: "settings.app.commandPaletteSearchAllSurfaces.subtitleOff", defaultValue: "Cmd+P matches workspace rows only.")
+                        ) {
+                            Toggle("", isOn: $commandPaletteSearchAllSurfaces)
+                                .labelsHidden()
+                                .controlSize(.small)
+                                .accessibilityIdentifier("CommandPaletteSearchAllSurfacesToggle")
+                                .accessibilityLabel(
+                                    String(localized: "settings.app.commandPaletteSearchAllSurfaces", defaultValue: "Command Palette Searches All Surfaces")
+                                )
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            String(localized: "settings.app.hideAllSidebarDetails", defaultValue: "Hide All Sidebar Details"),
+                            subtitle: sidebarHideAllDetails
+                                ? String(localized: "settings.app.hideAllSidebarDetails.subtitleOn", defaultValue: "Show only the workspace title row. Overrides the detail toggles below.")
+                                : String(localized: "settings.app.hideAllSidebarDetails.subtitleOff", defaultValue: "Show secondary workspace details as controlled by the toggles below.")
+                        ) {
+                            Toggle("", isOn: $sidebarHideAllDetails)
+                                .labelsHidden()
+                                .controlSize(.small)
+                        }
+
+                        SettingsCardDivider()
+
                         SettingsPickerRow(
                             String(localized: "settings.app.sidebarBranchLayout", defaultValue: "Sidebar Branch Layout"),
                             subtitle: sidebarBranchVerticalLayout
@@ -3446,6 +3750,19 @@ struct SettingsView: View {
                             Text(String(localized: "settings.app.sidebarBranchLayout.vertical", defaultValue: "Vertical")).tag(true)
                             Text(String(localized: "settings.app.sidebarBranchLayout.inline", defaultValue: "Inline")).tag(false)
                         }
+                        .disabled(sidebarHideAllDetails)
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            String(localized: "settings.app.showNotificationMessage", defaultValue: "Show Notification Message in Sidebar"),
+                            subtitle: String(localized: "settings.app.showNotificationMessage.subtitle", defaultValue: "Display the latest notification message below the workspace title.")
+                        ) {
+                            Toggle("", isOn: $sidebarShowNotificationMessage)
+                                .labelsHidden()
+                                .controlSize(.small)
+                        }
+                        .disabled(sidebarHideAllDetails)
 
                         SettingsCardDivider()
 
@@ -3457,6 +3774,7 @@ struct SettingsView: View {
                                 .labelsHidden()
                                 .controlSize(.small)
                         }
+                        .disabled(sidebarHideAllDetails)
 
                         SettingsCardDivider()
 
@@ -3468,6 +3786,7 @@ struct SettingsView: View {
                                 .labelsHidden()
                                 .controlSize(.small)
                         }
+                        .disabled(sidebarHideAllDetails)
 
                         SettingsCardDivider()
 
@@ -3481,6 +3800,7 @@ struct SettingsView: View {
                                 .labelsHidden()
                                 .controlSize(.small)
                         }
+                        .disabled(sidebarHideAllDetails)
 
                         SettingsCardDivider()
 
@@ -3492,6 +3812,7 @@ struct SettingsView: View {
                                 .labelsHidden()
                                 .controlSize(.small)
                         }
+                        .disabled(sidebarHideAllDetails)
 
                         SettingsCardDivider()
 
@@ -3503,6 +3824,7 @@ struct SettingsView: View {
                                 .labelsHidden()
                                 .controlSize(.small)
                         }
+                        .disabled(sidebarHideAllDetails)
 
                         SettingsCardDivider()
 
@@ -3514,6 +3836,7 @@ struct SettingsView: View {
                                 .labelsHidden()
                                 .controlSize(.small)
                         }
+                        .disabled(sidebarHideAllDetails)
 
                         SettingsCardDivider()
 
@@ -3525,6 +3848,7 @@ struct SettingsView: View {
                                 .labelsHidden()
                                 .controlSize(.small)
                         }
+                        .disabled(sidebarHideAllDetails)
                     }
 
                     SettingsSectionHeader(title: String(localized: "settings.section.workspaceColors", defaultValue: "Workspace Colors"))
@@ -4157,12 +4481,18 @@ struct SettingsView: View {
         notificationCustomSoundErrorAlertMessage = ""
         notificationCustomCommand = NotificationSoundSettings.defaultCustomCommand
         notificationDockBadgeEnabled = NotificationBadgeSettings.defaultDockBadgeEnabled
+        notificationPaneRingEnabled = NotificationPaneRingSettings.defaultEnabled
+        notificationPaneFlashEnabled = NotificationPaneFlashSettings.defaultEnabled
+        showMenuBarExtra = MenuBarExtraSettings.defaultShowInMenuBar
         warnBeforeQuitShortcut = QuitWarningSettings.defaultWarnBeforeQuit
         commandPaletteRenameSelectAllOnFocus = CommandPaletteRenameSelectionSettings.defaultSelectAllOnFocus
+        commandPaletteSearchAllSurfaces = CommandPaletteSwitcherSearchSettings.defaultSearchAllSurfaces
         ShortcutHintDebugSettings.resetVisibilityDefaults()
         alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
         newWorkspacePlacement = WorkspacePlacementSettings.defaultPlacement.rawValue
         workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
+        sidebarHideAllDetails = SidebarWorkspaceDetailSettings.defaultHideAllDetails
+        sidebarShowNotificationMessage = SidebarWorkspaceDetailSettings.defaultShowNotificationMessage
         sidebarBranchVerticalLayout = SidebarBranchLayoutSettings.defaultVerticalLayout
         sidebarActiveTabIndicatorStyle = SidebarActiveTabIndicatorSettings.defaultStyle.rawValue
         sidebarShowBranchDirectory = true
@@ -4431,6 +4761,193 @@ private struct SettingsCardNote: View {
     }
 }
 
+private struct ThemeWindowThumbnail: View {
+    let isDark: Bool
+
+    var body: some View {
+        GeometryReader { geo in
+            let width = geo.size.width
+            let height = geo.size.height
+
+            ZStack {
+                // Wallpaper background
+                if isDark {
+                    LinearGradient(
+                        colors: [Color(red: 0.1, green: 0.1, blue: 0.3), Color(red: 0.05, green: 0.05, blue: 0.1)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                    Path { path in
+                        path.move(to: CGPoint(x: 0, y: height * 0.5))
+                        path.addQuadCurve(to: CGPoint(x: width, y: height), control: CGPoint(x: width * 0.5, y: height * 0.2))
+                        path.addLine(to: CGPoint(x: width, y: 0))
+                        path.addLine(to: CGPoint(x: 0, y: 0))
+                    }
+                    .fill(LinearGradient(colors: [Color(red: 0.2, green: 0.2, blue: 0.6).opacity(0.5), .clear], startPoint: .topLeading, endPoint: .bottomTrailing))
+                } else {
+                    LinearGradient(
+                        colors: [Color(red: 0.6, green: 0.8, blue: 0.95), Color(red: 0.2, green: 0.4, blue: 0.8)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                    Path { path in
+                        path.move(to: CGPoint(x: 0, y: height * 0.5))
+                        path.addQuadCurve(to: CGPoint(x: width, y: height), control: CGPoint(x: width * 0.5, y: height * 0.2))
+                        path.addLine(to: CGPoint(x: width, y: 0))
+                        path.addLine(to: CGPoint(x: 0, y: 0))
+                    }
+                    .fill(LinearGradient(colors: [Color(red: 0.8, green: 0.9, blue: 1.0).opacity(0.6), .clear], startPoint: .topLeading, endPoint: .bottomTrailing))
+                }
+
+                // Menu bar
+                VStack(spacing: 0) {
+                    HStack {
+                        Image(systemName: "applelogo")
+                            .font(.system(size: max(height * 0.08, 6)))
+                            .foregroundColor(isDark ? .white : .black)
+                            .opacity(0.8)
+                        Spacer()
+                    }
+                    .padding(.horizontal, max(width * 0.04, 4))
+                    .frame(height: max(height * 0.12, 8))
+                    .background(.ultraThinMaterial)
+                    Spacer()
+                }
+
+                // Back window
+                VStack(spacing: 0) {
+                    Rectangle()
+                        .fill(isDark ? Color(white: 0.2) : Color(white: 0.9))
+                        .frame(height: max(height * 0.15, 8))
+                    ZStack(alignment: .top) {
+                        Rectangle()
+                            .fill(isDark ? Color(white: 0.15) : Color(white: 0.98))
+                        RoundedRectangle(cornerRadius: max(width * 0.02, 2), style: .continuous)
+                            .fill(Color.accentColor)
+                            .frame(height: max(height * 0.12, 6))
+                            .padding(max(width * 0.04, 4))
+                    }
+                }
+                .clipShape(RoundedRectangle(cornerRadius: max(width * 0.04, 4), style: .continuous))
+                .frame(width: width * 0.65, height: height * 0.45)
+                .shadow(color: .black.opacity(isDark ? 0.4 : 0.15), radius: 4, x: 0, y: 2)
+                .offset(x: -width * 0.08, y: -height * 0.1)
+
+                // Front window with traffic lights
+                VStack(spacing: 0) {
+                    ZStack {
+                        Rectangle()
+                            .fill(isDark ? Color(white: 0.18) : Color(white: 0.92))
+                        HStack(spacing: max(width * 0.025, 2)) {
+                            Circle().fill(Color(red: 1.0, green: 0.37, blue: 0.34)).frame(width: max(width * 0.04, 3))
+                            Circle().fill(Color(red: 1.0, green: 0.74, blue: 0.18)).frame(width: max(width * 0.04, 3))
+                            Circle().fill(Color(red: 0.15, green: 0.79, blue: 0.25)).frame(width: max(width * 0.04, 3))
+                            Spacer()
+                        }
+                        .padding(.horizontal, max(width * 0.04, 4))
+                    }
+                    .frame(height: max(height * 0.18, 10))
+                    Rectangle()
+                        .fill(isDark ? Color(white: 0.1) : .white)
+                }
+                .clipShape(RoundedRectangle(cornerRadius: max(width * 0.05, 5), style: .continuous))
+                .shadow(color: .black.opacity(isDark ? 0.5 : 0.2), radius: 6, x: 0, y: 3)
+                .frame(width: width * 0.75, height: height * 0.55)
+                .offset(x: width * 0.12, y: height * 0.2)
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(Color.primary.opacity(0.1), lineWidth: 1)
+        )
+    }
+}
+
+private struct ThemePickerRow: View {
+    let selectedMode: String
+    let onSelect: (AppearanceMode) -> Void
+
+    private let thumbWidth: CGFloat = 76
+    private let thumbHeight: CGFloat = 50
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Text(String(localized: "settings.app.theme", defaultValue: "Theme"))
+                .font(.system(size: 13, weight: .medium))
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            HStack(spacing: 8) {
+                ForEach(AppearanceMode.visibleCases) { mode in
+                    let isSelected = selectedMode == mode.rawValue
+                    Button {
+                        onSelect(mode)
+                    } label: {
+                        VStack(spacing: 4) {
+                            Group {
+                                if mode == .system {
+                                    ZStack {
+                                        ThemeWindowThumbnail(isDark: false)
+                                            .mask(
+                                                GeometryReader { geo in
+                                                    Rectangle()
+                                                        .frame(width: geo.size.width / 2, height: geo.size.height)
+                                                        .position(x: geo.size.width / 4, y: geo.size.height / 2)
+                                                }
+                                            )
+                                        ThemeWindowThumbnail(isDark: true)
+                                            .mask(
+                                                GeometryReader { geo in
+                                                    Rectangle()
+                                                        .frame(width: geo.size.width / 2, height: geo.size.height)
+                                                        .position(x: geo.size.width * 0.75, y: geo.size.height / 2)
+                                                }
+                                            )
+                                        GeometryReader { geo in
+                                            Rectangle()
+                                                .fill(Color.primary.opacity(0.15))
+                                                .frame(width: 1, height: geo.size.height)
+                                                .position(x: geo.size.width / 2, y: geo.size.height / 2)
+                                        }
+                                    }
+                                } else {
+                                    ThemeWindowThumbnail(isDark: mode == .dark)
+                                }
+                            }
+                            .frame(width: thumbWidth, height: thumbHeight)
+
+                            Text(mode.displayName)
+                                .font(.system(size: 10))
+                                .fontWeight(isSelected ? .semibold : .regular)
+                                .foregroundColor(isSelected ? .primary : .secondary)
+                        }
+                        .padding(.vertical, 8)
+                        .padding(.horizontal, 10)
+                        .contentShape(Rectangle())
+                        .background(
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .fill(isSelected
+                                    ? Color.accentColor.opacity(0.12)
+                                    : Color.clear)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 2)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .focusable(false)
+                    .accessibilityAddTraits(isSelected ? .isSelected : [])
+                }
+            }
+            .layoutPriority(1)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 9)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
 private struct AppIconPickerRow: View {
     let selectedMode: String
     let onSelect: (AppIconMode) -> Void
@@ -4439,20 +4956,25 @@ private struct AppIconPickerRow: View {
     private let autoIconSize: CGFloat = 36
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(String(localized: "settings.app.appIcon", defaultValue: "App Icon"))
-                .font(.system(size: 13, weight: .medium))
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(String(localized: "settings.app.appIcon", defaultValue: "App Icon"))
+                    .font(.system(size: 13, weight: .medium))
+                Text(String(localized: "settings.app.appIcon.subtitle", defaultValue: "Dock and app switcher"))
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
 
-            HStack(spacing: 12) {
+            HStack(spacing: 8) {
                 ForEach(AppIconMode.allCases) { mode in
                     let isSelected = selectedMode == mode.rawValue
                     Button {
                         onSelect(mode)
                     } label: {
-                        VStack(spacing: 6) {
+                        VStack(spacing: 4) {
                             Group {
                                 if mode == .automatic {
-                                    // Show both icons overlapping
                                     ZStack {
                                         Image("AppIconLight")
                                             .resizable()
@@ -4478,25 +5000,29 @@ private struct AppIconPickerRow: View {
                             }
 
                             Text(mode.displayName)
-                                .font(.system(size: 11))
+                                .font(.system(size: 10))
                                 .foregroundColor(isSelected ? .primary : .secondary)
                         }
                         .padding(.vertical, 8)
-                        .padding(.horizontal, 12)
+                        .padding(.horizontal, 10)
+                        .contentShape(Rectangle())
                         .background(
-                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
                                 .fill(isSelected
                                     ? Color.accentColor.opacity(0.12)
                                     : Color.clear)
                         )
                         .overlay(
-                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
                                 .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 2)
                         )
                     }
                     .buttonStyle(.plain)
+                    .focusable(false)
+                    .accessibilityAddTraits(isSelected ? .isSelected : [])
                 }
             }
+            .layoutPriority(1)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 9)
