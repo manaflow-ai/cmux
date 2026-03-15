@@ -8351,7 +8351,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             shortcut: StoredShortcut(key: "w", command: true, shift: false, option: false, control: false)
         ) {
             if let targetWindow = event.window ?? NSApp.keyWindow ?? NSApp.mainWindow,
-               targetWindow.identifier?.rawValue == "cmux.settings" {
+               cmuxWindowShouldOwnCloseShortcut(targetWindow) {
                 targetWindow.performClose(nil)
             } else {
                 let responder = event.window?.firstResponder

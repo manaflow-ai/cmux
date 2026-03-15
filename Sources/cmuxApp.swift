@@ -645,7 +645,6 @@ struct cmuxApp: App {
 
     private func showAboutPanel() {
         AboutWindowController.shared.show()
-        NSApp.activate(ignoringOtherApps: true)
     }
 
     private func applyAppearance() {
@@ -1033,8 +1032,8 @@ struct cmuxApp: App {
     }
 
     private func closePanelOrWindow() {
-        if let window = NSApp.keyWindow,
-           window.identifier?.rawValue == "cmux.settings" {
+        if let window = NSApp.keyWindow ?? NSApp.mainWindow,
+           cmuxWindowShouldOwnCloseShortcut(window) {
             window.performClose(nil)
             return
         }
@@ -1059,6 +1058,25 @@ struct cmuxApp: App {
         BackgroundDebugWindowController.shared.show()
         MenuBarExtraDebugWindowController.shared.show()
     }
+}
+
+private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
+    "cmux.settings",
+    "cmux.about",
+    "cmux.licenses",
+    "cmux.settingsAboutTitlebarDebug",
+    "cmux.debugWindowControls",
+    "cmux.sidebarDebug",
+    "cmux.menubarDebug",
+    "cmux.backgroundDebug",
+]
+
+/// Returns whether the given window should handle the standard close shortcut
+/// as a standalone auxiliary window instead of routing it through workspace or
+/// panel-close behavior.
+func cmuxWindowShouldOwnCloseShortcut(_ window: NSWindow?) -> Bool {
+    guard let identifier = window?.identifier?.rawValue else { return false }
+    return cmuxAuxiliaryWindowIdentifiers.contains(identifier)
 }
 
 private enum SettingsAboutWindowKind: String, CaseIterable, Identifiable {
