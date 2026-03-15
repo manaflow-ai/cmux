@@ -4,22 +4,6 @@ import Darwin
 import Bonsplit
 import UniformTypeIdentifiers
 
-private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
-    "cmux.settings",
-    "cmux.about",
-    "cmux.licenses",
-    "cmux.settingsAboutTitlebarDebug",
-    "cmux.debugWindowControls",
-    "cmux.sidebarDebug",
-    "cmux.menubarDebug",
-    "cmux.backgroundDebug",
-]
-
-func cmuxWindowShouldOwnCloseShortcut(_ window: NSWindow?) -> Bool {
-    guard let identifier = window?.identifier?.rawValue else { return false }
-    return cmuxAuxiliaryWindowIdentifiers.contains(identifier)
-}
-
 @main
 struct cmuxApp: App {
     @StateObject private var tabManager: TabManager
@@ -1074,6 +1058,25 @@ struct cmuxApp: App {
         BackgroundDebugWindowController.shared.show()
         MenuBarExtraDebugWindowController.shared.show()
     }
+}
+
+private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
+    "cmux.settings",
+    "cmux.about",
+    "cmux.licenses",
+    "cmux.settingsAboutTitlebarDebug",
+    "cmux.debugWindowControls",
+    "cmux.sidebarDebug",
+    "cmux.menubarDebug",
+    "cmux.backgroundDebug",
+]
+
+/// Returns whether the given window should handle the standard close shortcut
+/// as a standalone auxiliary window instead of routing it through workspace or
+/// panel-close behavior.
+func cmuxWindowShouldOwnCloseShortcut(_ window: NSWindow?) -> Bool {
+    guard let identifier = window?.identifier?.rawValue else { return false }
+    return cmuxAuxiliaryWindowIdentifiers.contains(identifier)
 }
 
 private enum SettingsAboutWindowKind: String, CaseIterable, Identifiable {
