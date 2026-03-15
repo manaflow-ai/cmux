@@ -1926,6 +1926,19 @@ struct CMUXCLI {
         case "markdown":
             try runMarkdownCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
 
+        // Popup terminal commands
+        case "popup-terminal-toggle":
+            let payload = try client.sendV2(method: "popup-terminal.toggle", params: [:])
+            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat))
+
+        case "popup-terminal-show":
+            let payload = try client.sendV2(method: "popup-terminal.show", params: [:])
+            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat))
+
+        case "popup-terminal-hide":
+            let payload = try client.sendV2(method: "popup-terminal.hide", params: [:])
+            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat))
+
         default:
             print(usage())
             throw CLIError(message: "Unknown command: \(command)")
@@ -5502,6 +5515,24 @@ struct CMUXCLI {
               cmux markdown open plan.md
               cmux markdown ~/project/CHANGELOG.md
               cmux markdown open ./docs/design.md --workspace 0
+            """
+        case "popup-terminal-toggle":
+            return """
+            Usage: cmux popup-terminal-toggle
+
+            Toggle the global popup terminal.
+            """
+        case "popup-terminal-show":
+            return """
+            Usage: cmux popup-terminal-show
+
+            Show the global popup terminal.
+            """
+        case "popup-terminal-hide":
+            return """
+            Usage: cmux popup-terminal-hide
+
+            Hide the global popup terminal.
             """
         default:
             return nil
@@ -9566,6 +9597,10 @@ struct CMUXCLI {
 
           set-app-focus <active|inactive|clear>
           simulate-app-active
+
+          popup-terminal-toggle     Toggle the popup terminal
+          popup-terminal-show       Show the popup terminal
+          popup-terminal-hide       Hide the popup terminal
 
           # tmux compatibility commands
           capture-pane [--workspace <id|ref>] [--surface <id|ref>] [--scrollback] [--lines <n>]

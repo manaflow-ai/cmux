@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import Bonsplit
+import Carbon
 import CoreServices
 import UserNotifications
 import Sentry
@@ -1919,6 +1920,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var lifecycleSnapshotObservers: [NSObjectProtocol] = []
     private var windowKeyObserver: NSObjectProtocol?
     private var shortcutMonitor: Any?
+    private var globalHotkeyRef: EventHotKeyRef?
     private var shortcutDefaultsObserver: NSObjectProtocol?
     private var menuBarVisibilityObserver: NSObjectProtocol?
     private var splitButtonTooltipRefreshScheduled = false
@@ -2343,6 +2345,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         notificationStore?.clearAll()
         enableSuddenTerminationIfNeeded()
+        unregisterPopupTerminalHotKey()
     }
 
     func applicationWillResignActive(_ notification: Notification) {
@@ -7604,6 +7607,102 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
             return event
         }
+        registerPopupTerminalHotKey()
+    }
+
+    // MARK: - Global hotkey (Carbon RegisterEventHotKey)
+
+    private static let popupTerminalHotKeyID = EventHotKeyID(
+        signature: OSType(0x636D7578), // "cmux"
+        id: 1
+    )
+
+    func registerPopupTerminalHotKey() {
+        unregisterPopupTerminalHotKey()
+
+        guard PopupTerminalSettings.isEnabled else { return }
+        let shortcut = KeyboardShortcutSettings.shortcut(for: .togglePopupTerminal)
+        let key = shortcut.key.lowercased()
+
+        guard let vkCode = Self.hotKeyCodeMap[key] else {
+            #if DEBUG
+            dlog("popupTerminal.hotkey skipped reason=unknownKey key=\(shortcut.key)")
+            #endif
+            return
+        }
+        let keyCode = UInt32(vkCode)
+
+        var mods: UInt32 = 0
+        if shortcut.command { mods |= UInt32(cmdKey) }
+        if shortcut.shift { mods |= UInt32(shiftKey) }
+        if shortcut.option { mods |= UInt32(optionKey) }
+        if shortcut.control { mods |= UInt32(controlKey) }
+
+        installCarbonHotKeyHandler()
+
+        var hotKeyID = Self.popupTerminalHotKeyID
+        var ref: EventHotKeyRef?
+        let status = RegisterEventHotKey(keyCode, mods, hotKeyID, GetApplicationEventTarget(), 0, &ref)
+        if status == noErr, let ref {
+            globalHotkeyRef = ref
+        } else {
+            #if DEBUG
+            dlog("popupTerminal.hotkey registerFailed key=\(shortcut.key) status=\(status)")
+            #endif
+        }
+    }
+
+    func unregisterPopupTerminalHotKey() {
+        if let ref = globalHotkeyRef {
+            UnregisterEventHotKey(ref)
+            globalHotkeyRef = nil
+        }
+    }
+
+    /// One-time installation of the Carbon event handler that dispatches hotkey events.
+    private static var carbonHandlerInstalled = false
+    private func installCarbonHotKeyHandler() {
+        guard !Self.carbonHandlerInstalled else { return }
+        Self.carbonHandlerInstalled = true
+
+        var eventType = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
+        InstallEventHandler(
+            GetApplicationEventTarget(),
+            { _, event, _ -> OSStatus in
+                var hotKeyID = EventHotKeyID()
+                let status = GetEventParameter(
+                    event,
+                    EventParamName(kEventParamDirectObject),
+                    EventParamType(typeEventHotKeyID),
+                    nil,
+                    MemoryLayout<EventHotKeyID>.size,
+                    nil,
+                    &hotKeyID
+                )
+                guard status == noErr else { return status }
+
+                // Check if this is our popup terminal hotkey.
+                // Carbon RegisterEventHotKey consumes the key event at the system
+                // level, so no window (local or popup) ever sees the registered
+                // hotkey as a keyDown. This handler is the sole toggle path for
+                // the popup terminal.
+                if hotKeyID.signature == AppDelegate.popupTerminalHotKeyID.signature,
+                   hotKeyID.id == AppDelegate.popupTerminalHotKeyID.id {
+                    // Carbon event handlers on GetApplicationEventTarget() run
+                    // on the main thread, so we can call toggle directly.
+                    if PopupTerminalSettings.isEnabled {
+                        PopupTerminalController.shared.toggle()
+                    }
+                    return noErr
+                }
+
+                return OSStatus(eventNotHandledErr)
+            },
+            1,
+            &eventType,
+            nil,
+            nil
+        )
     }
 
     private func installShortcutDefaultsObserver() {
@@ -8188,7 +8287,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
 
-        // Primary UI shortcuts
         if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .toggleSidebar)) {
             _ = toggleSidebarInActiveMainWindow()
             return true
@@ -9357,7 +9455,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return false
     }
 
-    /// Match a shortcut against an event, handling normal keys.
+    private static let functionKeyCodeMap: [String: UInt16] = [
+        "f1": 122, "f2": 120, "f3": 99, "f4": 118, "f5": 96, "f6": 97,
+        "f7": 98, "f8": 100, "f9": 101, "f10": 109, "f11": 103, "f12": 111,
+    ]
+
+    /// Reverse of StoredShortcut.storedKey(from:) — maps stored key strings
+    /// to macOS virtual keycodes for Carbon RegisterEventHotKey.
+    private static let hotKeyCodeMap: [String: UInt16] = {
+        var map: [String: UInt16] = [
+            // Function keys
+            "f1": 122, "f2": 120, "f3": 99, "f4": 118, "f5": 96, "f6": 97,
+            "f7": 98, "f8": 100, "f9": 101, "f10": 109, "f11": 103, "f12": 111,
+            // Special keys
+            "←": 123, "→": 124, "↓": 125, "↑": 126,
+            "\t": 48, "\r": 36,
+            "[": 33, "]": 30, "-": 27, "=": 24,
+            ",": 43, ".": 47, "/": 44, ";": 41, "'": 39, "`": 50, "\\": 42,
+            // Alphanumeric (ANSI layout)
+            "a": 0, "s": 1, "d": 2, "f": 3, "h": 4, "g": 5, "z": 6, "x": 7,
+            "c": 8, "v": 9, "b": 11, "q": 12, "w": 13, "e": 14, "r": 15,
+            "y": 16, "t": 17, "1": 18, "2": 19, "3": 20, "4": 21, "6": 22,
+            "5": 23, "9": 25, "7": 26, "8": 28, "0": 29, "o": 31, "u": 32,
+            "i": 34, "p": 35, "l": 37, "j": 38, "k": 40, "n": 45, "m": 46,
+            " ": 49,
+        ]
+        return map
+    }()
+
     private func matchShortcut(event: NSEvent, shortcut: StoredShortcut) -> Bool {
         // Some keys can include extra flags (e.g. .function) depending on the responder chain.
         // Strip those for consistent matching across first responders (terminal, WebKit, etc).
@@ -9366,6 +9491,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard flags == shortcut.modifierFlags else { return false }
 
         let shortcutKey = shortcut.key.lowercased()
+
+        // Function keys: match by keyCode since charactersIgnoringModifiers
+        // returns special Unicode characters that don't match "F11" etc.
+        if let expectedKeyCode = Self.functionKeyCodeMap[shortcutKey] {
+            return event.keyCode == expectedKeyCode
+        }
+
         if shortcutKey == "\r" {
             return event.keyCode == 36 || event.keyCode == 76
         }
@@ -11177,6 +11309,7 @@ private extension NSWindow {
             Self.cmuxOwningWebView(for: $0, in: self, event: event)
         }
         if let ghosttyView = firstResponderGhosttyView {
+
             // If the IME is composing and the key has no Cmd modifier, don't intercept —
             // let it flow through normal AppKit event dispatch so the input method can
             // process it. Cmd-based shortcuts should still work during composition since
