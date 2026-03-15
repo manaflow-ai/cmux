@@ -70,6 +70,12 @@ jobs:
           rm GhosttyKit.xcframework.tar.gz
           test -d GhosttyKit.xcframework
 
+      - name: Install zig
+        run: |
+          if ! command -v zig >/dev/null 2>&1; then
+            brew install zig
+          fi
+
       - name: Clean DerivedData
         run: rm -rf ~/Library/Developer/Xcode/DerivedData/GhosttyTabs-*
 

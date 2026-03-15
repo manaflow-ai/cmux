@@ -79,6 +79,12 @@ jobs:
         run: |
           ./scripts/download-prebuilt-ghosttykit.sh
 
+      - name: Install zig
+        run: |
+          if ! command -v zig >/dev/null 2>&1; then
+            brew install zig
+          fi
+
       - name: Clean DerivedData
         run: |
           # Remove stale build cache to avoid incremental build errors
@@ -154,6 +160,12 @@ jobs:
             fi
           fi
 
+      - name: Run bundled Ghostty theme picker helper regression
+        run: |
+          set -euo pipefail
+          CMUX_SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages" \
+            ./tests/test_bundled_ghostty_theme_picker_helper.sh
+
       - name: Run CLI version memory guard regression
         run: |
           set -euo pipefail
@@ -202,6 +214,12 @@ jobs:
       - name: Download pre-built GhosttyKit.xcframework
         run: |
           ./scripts/download-prebuilt-ghosttykit.sh
+
+      - name: Install zig
+        run: |
+          if ! command -v zig >/dev/null 2>&1; then
+            brew install zig
+          fi
 
       - name: Clean DerivedData
         run: rm -rf ~/Library/Developer/Xcode/DerivedData/GhosttyTabs-*
