@@ -310,50 +310,84 @@ final class GhosttyConfigTests: XCTestCase {
         )
     }
 
-    func testReleaseAppSupportFallbackLoadsForDebugWhenOnlyReleaseConfigExists() {
-        XCTAssertTrue(
-            GhosttyApp.shouldLoadReleaseAppSupportGhosttyConfig(
-                currentBundleIdentifier: "com.cmuxterm.app.debug",
-                currentConfigFileSize: nil,
-                currentLegacyConfigFileSize: nil,
-                releaseConfigFileSize: 128,
-                releaseLegacyConfigFileSize: nil
+    func testCmuxAppSupportConfigURLsUseReleaseConfigForDebugBundleWithoutCurrentConfig() throws {
+        try withTemporaryAppSupportDirectory { appSupportDirectory in
+            let releaseConfigURL = try writeAppSupportConfig(
+                appSupportDirectory: appSupportDirectory,
+                bundleIdentifier: "com.cmuxterm.app",
+                filename: "config",
+                contents: "font-size = 13\n"
             )
-        )
+
+            XCTAssertEqual(
+                GhosttyApp.cmuxAppSupportConfigURLs(
+                    currentBundleIdentifier: "com.cmuxterm.app.debug",
+                    appSupportDirectory: appSupportDirectory
+                ),
+                [releaseConfigURL]
+            )
+        }
     }
 
-    func testReleaseAppSupportFallbackSkipsWhenDebugConfigAlreadyExists() {
-        XCTAssertFalse(
-            GhosttyApp.shouldLoadReleaseAppSupportGhosttyConfig(
-                currentBundleIdentifier: "com.cmuxterm.app.debug.issue-829",
-                currentConfigFileSize: nil,
-                currentLegacyConfigFileSize: 64,
-                releaseConfigFileSize: 128,
-                releaseLegacyConfigFileSize: nil
+    func testCmuxAppSupportConfigURLsPreferCurrentBundleConfigWhenPresent() throws {
+        try withTemporaryAppSupportDirectory { appSupportDirectory in
+            _ = try writeAppSupportConfig(
+                appSupportDirectory: appSupportDirectory,
+                bundleIdentifier: "com.cmuxterm.app",
+                filename: "config",
+                contents: "font-size = 13\n"
             )
-        )
+            let currentConfigURL = try writeAppSupportConfig(
+                appSupportDirectory: appSupportDirectory,
+                bundleIdentifier: "com.cmuxterm.app.debug.issue-829",
+                filename: "config.ghostty",
+                contents: "font-size = 14\n"
+            )
+
+            XCTAssertEqual(
+                GhosttyApp.cmuxAppSupportConfigURLs(
+                    currentBundleIdentifier: "com.cmuxterm.app.debug.issue-829",
+                    appSupportDirectory: appSupportDirectory
+                ),
+                [currentConfigURL]
+            )
+        }
     }
 
-    func testReleaseAppSupportFallbackSkipsForNonDebugBundleOrMissingReleaseConfig() {
-        XCTAssertFalse(
-            GhosttyApp.shouldLoadReleaseAppSupportGhosttyConfig(
-                currentBundleIdentifier: "com.cmuxterm.app",
-                currentConfigFileSize: nil,
-                currentLegacyConfigFileSize: nil,
-                releaseConfigFileSize: 128,
-                releaseLegacyConfigFileSize: nil
+    func testCmuxAppSupportConfigURLsSkipReleaseFallbackForNonDebugBundle() throws {
+        try withTemporaryAppSupportDirectory { appSupportDirectory in
+            _ = try writeAppSupportConfig(
+                appSupportDirectory: appSupportDirectory,
+                bundleIdentifier: "com.cmuxterm.app",
+                filename: "config",
+                contents: "font-size = 13\n"
             )
-        )
 
-        XCTAssertFalse(
-            GhosttyApp.shouldLoadReleaseAppSupportGhosttyConfig(
-                currentBundleIdentifier: "com.cmuxterm.app.debug",
-                currentConfigFileSize: nil,
-                currentLegacyConfigFileSize: nil,
-                releaseConfigFileSize: nil,
-                releaseLegacyConfigFileSize: 0
+            XCTAssertTrue(
+                GhosttyApp.cmuxAppSupportConfigURLs(
+                    currentBundleIdentifier: "com.example.other-app",
+                    appSupportDirectory: appSupportDirectory
+                ).isEmpty
             )
-        )
+        }
+    }
+
+    func testCmuxAppSupportConfigURLsIgnoreMissingOrEmptyFiles() throws {
+        try withTemporaryAppSupportDirectory { appSupportDirectory in
+            _ = try writeAppSupportConfig(
+                appSupportDirectory: appSupportDirectory,
+                bundleIdentifier: "com.cmuxterm.app",
+                filename: "config.ghostty",
+                contents: ""
+            )
+
+            XCTAssertTrue(
+                GhosttyApp.cmuxAppSupportConfigURLs(
+                    currentBundleIdentifier: "com.cmuxterm.app.debug",
+                    appSupportDirectory: appSupportDirectory
+                ).isEmpty
+            )
+        }
     }
 
     func testDefaultBackgroundUpdateScopePrioritizesSurfaceOverAppAndUnscoped() {
@@ -561,6 +595,33 @@ final class GhosttyConfigTests: XCTestCase {
             green: Int(round(green * 255)),
             blue: Int(round(blue * 255))
         )
+    }
+
+    private func withTemporaryAppSupportDirectory(
+        _ body: (URL) throws -> Void
+    ) throws {
+        let fileManager = FileManager.default
+        let directory = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-app-support-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: directory) }
+        try body(directory)
+    }
+
+    private func writeAppSupportConfig(
+        appSupportDirectory: URL,
+        bundleIdentifier: String,
+        filename: String,
+        contents: String
+    ) throws -> URL {
+        let fileManager = FileManager.default
+        let bundleDirectory = appSupportDirectory
+            .appendingPathComponent(bundleIdentifier, isDirectory: true)
+        try fileManager.createDirectory(at: bundleDirectory, withIntermediateDirectories: true)
+
+        let configURL = bundleDirectory.appendingPathComponent(filename, isDirectory: false)
+        try contents.write(to: configURL, atomically: true, encoding: .utf8)
+        return configURL
     }
 }
 
@@ -1550,6 +1611,157 @@ final class GhosttyMouseFocusTests: XCTestCase {
 
         // Should not hang; should return false since neither file has font-codepoint-map
         XCTAssertFalse(GhosttyApp.userConfigContainsCJKCodepointMap(configPaths: [fileA.path]))
+    }
+}
+
+final class SidebarBackgroundConfigTests: XCTestCase {
+
+    func testParseSidebarBackgroundSingleHex() {
+        var config = GhosttyConfig()
+        config.parse("sidebar-background = #336699")
+        XCTAssertEqual(config.rawSidebarBackground, "#336699")
+    }
+
+    func testParseSidebarBackgroundDualMode() {
+        var config = GhosttyConfig()
+        config.parse("sidebar-background = light:#fbf3db,dark:#103c48")
+        XCTAssertEqual(config.rawSidebarBackground, "light:#fbf3db,dark:#103c48")
+    }
+
+    func testParseSidebarTintOpacity() {
+        var config = GhosttyConfig()
+        config.parse("sidebar-tint-opacity = 0.4")
+        XCTAssertEqual(config.sidebarTintOpacity ?? -1, 0.4, accuracy: 0.0001)
+    }
+
+    func testParseSidebarTintOpacityClampedAboveOne() {
+        var config = GhosttyConfig()
+        config.parse("sidebar-tint-opacity = 1.5")
+        XCTAssertEqual(config.sidebarTintOpacity ?? -1, 1.0, accuracy: 0.0001)
+    }
+
+    func testParseSidebarTintOpacityClampedBelowZero() {
+        var config = GhosttyConfig()
+        config.parse("sidebar-tint-opacity = -0.3")
+        XCTAssertEqual(config.sidebarTintOpacity ?? -1, 0.0, accuracy: 0.0001)
+    }
+
+    func testResolveSidebarBackgroundSingleHex() {
+        var config = GhosttyConfig()
+        config.rawSidebarBackground = "#336699"
+        config.resolveSidebarBackground(preferredColorScheme: .light)
+
+        XCTAssertNotNil(config.sidebarBackground)
+        XCTAssertNil(config.sidebarBackgroundLight)
+        XCTAssertNil(config.sidebarBackgroundDark)
+    }
+
+    func testResolveSidebarBackgroundDualModeSetsLightAndDark() {
+        var config = GhosttyConfig()
+        config.rawSidebarBackground = "light:#fbf3db,dark:#103c48"
+        config.resolveSidebarBackground(preferredColorScheme: .light)
+
+        XCTAssertNotNil(config.sidebarBackgroundLight)
+        XCTAssertNotNil(config.sidebarBackgroundDark)
+        XCTAssertNotNil(config.sidebarBackground)
+    }
+
+    func testResolveSidebarBackgroundNilWhenNoRaw() {
+        var config = GhosttyConfig()
+        config.resolveSidebarBackground(preferredColorScheme: .dark)
+
+        XCTAssertNil(config.sidebarBackground)
+        XCTAssertNil(config.sidebarBackgroundLight)
+        XCTAssertNil(config.sidebarBackgroundDark)
+    }
+
+    func testApplyToUserDefaultsSkipsWritesWhenNoConfig() {
+        let defaults = UserDefaults.standard
+        let testKey = "sidebarTintHex"
+        let original = defaults.string(forKey: testKey)
+        defer { restoreDefaultsValue(original, key: testKey, defaults: defaults) }
+
+        defaults.set("#AAAAAA", forKey: testKey)
+
+        var config = GhosttyConfig()
+        config.applySidebarAppearanceToUserDefaults()
+
+        XCTAssertEqual(defaults.string(forKey: testKey), "#AAAAAA",
+                       "Should not overwrite UserDefaults when rawSidebarBackground is nil")
+    }
+
+    func testApplyToUserDefaultsWritesHexWhenConfigSet() {
+        let defaults = UserDefaults.standard
+        let keys = ["sidebarTintHex", "sidebarTintHexLight", "sidebarTintHexDark"]
+        let originals = keys.map { defaults.object(forKey: $0) }
+        defer {
+            for (key, original) in zip(keys, originals) {
+                restoreDefaultsValue(original, key: key, defaults: defaults)
+            }
+        }
+
+        var config = GhosttyConfig()
+        config.rawSidebarBackground = "#336699"
+        config.resolveSidebarBackground(preferredColorScheme: .light)
+        config.applySidebarAppearanceToUserDefaults()
+
+        XCTAssertEqual(defaults.string(forKey: "sidebarTintHex"), "#336699")
+        XCTAssertNil(defaults.string(forKey: "sidebarTintHexLight"))
+        XCTAssertNil(defaults.string(forKey: "sidebarTintHexDark"))
+    }
+
+    func testApplyToUserDefaultsClearsStaleKeysOnSwitchFromDualToSingle() {
+        let defaults = UserDefaults.standard
+        let keys = ["sidebarTintHex", "sidebarTintHexLight", "sidebarTintHexDark"]
+        let originals = keys.map { defaults.object(forKey: $0) }
+        defer {
+            for (key, original) in zip(keys, originals) {
+                restoreDefaultsValue(original, key: key, defaults: defaults)
+            }
+        }
+
+        defaults.set("#AAAAAA", forKey: "sidebarTintHexLight")
+        defaults.set("#BBBBBB", forKey: "sidebarTintHexDark")
+
+        var config = GhosttyConfig()
+        config.rawSidebarBackground = "#222222"
+        config.resolveSidebarBackground(preferredColorScheme: .light)
+        config.applySidebarAppearanceToUserDefaults()
+
+        XCTAssertEqual(defaults.string(forKey: "sidebarTintHex"), "#222222")
+        XCTAssertNil(defaults.string(forKey: "sidebarTintHexLight"),
+                     "Stale light key should be cleared")
+        XCTAssertNil(defaults.string(forKey: "sidebarTintHexDark"),
+                     "Stale dark key should be cleared")
+    }
+
+    func testApplyToUserDefaultsOnlyWritesOpacityWhenExplicit() {
+        let defaults = UserDefaults.standard
+        let keys = ["sidebarTintHex", "sidebarTintHexLight", "sidebarTintHexDark", "sidebarTintOpacity"]
+        let originals = keys.map { defaults.object(forKey: $0) }
+        defer {
+            for (key, original) in zip(keys, originals) {
+                restoreDefaultsValue(original, key: key, defaults: defaults)
+            }
+        }
+
+        defaults.set(0.18, forKey: "sidebarTintOpacity")
+
+        var config = GhosttyConfig()
+        config.rawSidebarBackground = "#336699"
+        config.resolveSidebarBackground(preferredColorScheme: .light)
+        config.applySidebarAppearanceToUserDefaults()
+
+        XCTAssertEqual(defaults.double(forKey: "sidebarTintOpacity"), 0.18, accuracy: 0.0001,
+                       "Should not overwrite opacity when config doesn't set sidebar-tint-opacity")
+    }
+
+    private func restoreDefaultsValue(_ value: Any?, key: String, defaults: UserDefaults) {
+        if let value = value {
+            defaults.set(value, forKey: key)
+        } else {
+            defaults.removeObject(forKey: key)
+        }
     }
 }
 

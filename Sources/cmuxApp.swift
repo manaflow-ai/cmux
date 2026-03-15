@@ -645,7 +645,6 @@ struct cmuxApp: App {
 
     private func showAboutPanel() {
         AboutWindowController.shared.show()
-        NSApp.activate(ignoringOtherApps: true)
     }
 
     private func applyAppearance() {
@@ -1033,8 +1032,8 @@ struct cmuxApp: App {
     }
 
     private func closePanelOrWindow() {
-        if let window = NSApp.keyWindow,
-           window.identifier?.rawValue == "cmux.settings" {
+        if let window = NSApp.keyWindow ?? NSApp.mainWindow,
+           cmuxWindowShouldOwnCloseShortcut(window) {
             window.performClose(nil)
             return
         }
@@ -1059,6 +1058,26 @@ struct cmuxApp: App {
         BackgroundDebugWindowController.shared.show()
         MenuBarExtraDebugWindowController.shared.show()
     }
+}
+
+private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
+    "cmux.settings",
+    "cmux.about",
+    "cmux.licenses",
+    "cmux.browser-popup",
+    "cmux.settingsAboutTitlebarDebug",
+    "cmux.debugWindowControls",
+    "cmux.sidebarDebug",
+    "cmux.menubarDebug",
+    "cmux.backgroundDebug",
+]
+
+/// Returns whether the given window should handle the standard close shortcut
+/// as a standalone auxiliary window instead of routing it through workspace or
+/// panel-close behavior.
+func cmuxWindowShouldOwnCloseShortcut(_ window: NSWindow?) -> Bool {
+    guard let identifier = window?.identifier?.rawValue else { return false }
+    return cmuxAuxiliaryWindowIdentifiers.contains(identifier)
 }
 
 private enum SettingsAboutWindowKind: String, CaseIterable, Identifiable {
@@ -1526,6 +1545,8 @@ private enum DebugWindowConfigSnapshot {
         sidebarState=\(stringValue(defaults, key: "sidebarState", fallback: SidebarStateOption.followWindow.rawValue))
         sidebarBlurOpacity=\(String(format: "%.2f", doubleValue(defaults, key: "sidebarBlurOpacity", fallback: 1.0)))
         sidebarTintHex=\(stringValue(defaults, key: "sidebarTintHex", fallback: "#000000"))
+        sidebarTintHexLight=\(stringValue(defaults, key: "sidebarTintHexLight", fallback: "(nil)"))
+        sidebarTintHexDark=\(stringValue(defaults, key: "sidebarTintHexDark", fallback: "(nil)"))
         sidebarTintOpacity=\(String(format: "%.2f", doubleValue(defaults, key: "sidebarTintOpacity", fallback: 0.18)))
         sidebarCornerRadius=\(String(format: "%.1f", doubleValue(defaults, key: "sidebarCornerRadius", fallback: 0.0)))
         sidebarBranchVerticalLayout=\(boolValue(defaults, key: SidebarBranchLayoutSettings.key, fallback: SidebarBranchLayoutSettings.defaultVerticalLayout))
@@ -2153,8 +2174,10 @@ private struct AboutPanelView: View {
 
 private struct SidebarDebugView: View {
     @AppStorage("sidebarPreset") private var sidebarPreset = SidebarPresetOption.nativeSidebar.rawValue
-    @AppStorage("sidebarTintOpacity") private var sidebarTintOpacity = 0.18
-    @AppStorage("sidebarTintHex") private var sidebarTintHex = "#000000"
+    @AppStorage("sidebarTintOpacity") private var sidebarTintOpacity = SidebarTintDefaults.opacity
+    @AppStorage("sidebarTintHex") private var sidebarTintHex = SidebarTintDefaults.hex
+    @AppStorage("sidebarTintHexLight") private var sidebarTintHexLight: String?
+    @AppStorage("sidebarTintHexDark") private var sidebarTintHexDark: String?
     @AppStorage("sidebarMaterial") private var sidebarMaterial = SidebarMaterialOption.sidebar.rawValue
     @AppStorage("sidebarBlendMode") private var sidebarBlendMode = SidebarBlendModeOption.withinWindow.rawValue
     @AppStorage("sidebarState") private var sidebarState = SidebarStateOption.followWindow.rawValue
@@ -2308,7 +2331,9 @@ private struct SidebarDebugView: View {
                 HStack(spacing: 12) {
                     Button("Reset Tint") {
                         sidebarTintOpacity = 0.62
-                        sidebarTintHex = "#000000"
+                        sidebarTintHex = SidebarTintDefaults.hex
+                        sidebarTintHexLight = nil
+                        sidebarTintHexDark = nil
                     }
                     Button("Reset Blur") {
                         sidebarMaterial = SidebarMaterialOption.hudWindow.rawValue
@@ -2389,6 +2414,8 @@ private struct SidebarDebugView: View {
         sidebarState=\(sidebarState)
         sidebarBlurOpacity=\(String(format: "%.2f", sidebarBlurOpacity))
         sidebarTintHex=\(sidebarTintHex)
+        sidebarTintHexLight=\(sidebarTintHexLight ?? "(nil)")
+        sidebarTintHexDark=\(sidebarTintHexDark ?? "(nil)")
         sidebarTintOpacity=\(String(format: "%.2f", sidebarTintOpacity))
         sidebarCornerRadius=\(String(format: "%.1f", sidebarCornerRadius))
         sidebarBranchVerticalLayout=\(sidebarBranchVerticalLayout)
@@ -2416,6 +2443,8 @@ private struct SidebarDebugView: View {
         sidebarTintOpacity = preset.tintOpacity
         sidebarCornerRadius = preset.cornerRadius
         sidebarBlurOpacity = preset.blurOpacity
+        sidebarTintHexLight = nil
+        sidebarTintHexDark = nil
     }
 }
 
@@ -3108,6 +3137,10 @@ struct SettingsView: View {
     @AppStorage("sidebarShowLog") private var sidebarShowLog = true
     @AppStorage("sidebarShowProgress") private var sidebarShowProgress = true
     @AppStorage("sidebarShowStatusPills") private var sidebarShowMetadata = true
+    @AppStorage("sidebarTintHex") private var sidebarTintHex = SidebarTintDefaults.hex
+    @AppStorage("sidebarTintHexLight") private var sidebarTintHexLight: String?
+    @AppStorage("sidebarTintHexDark") private var sidebarTintHexDark: String?
+    @AppStorage("sidebarTintOpacity") private var sidebarTintOpacity = SidebarTintDefaults.opacity
     @ObservedObject private var notificationStore = TerminalNotificationStore.shared
     @State private var shortcutResetToken = UUID()
     @State private var topBlurOpacity: Double = 0
@@ -3178,6 +3211,30 @@ struct SettingsView: View {
                     socketPasswordStatusMessage = nil
                     socketPasswordStatusIsError = false
                 }
+            }
+        )
+    }
+
+    private var settingsSidebarTintLightBinding: Binding<Color> {
+        Binding(
+            get: {
+                Color(nsColor: NSColor(hex: sidebarTintHexLight ?? sidebarTintHex) ?? .black)
+            },
+            set: { newColor in
+                let nsColor = NSColor(newColor)
+                sidebarTintHexLight = nsColor.hexString()
+            }
+        )
+    }
+
+    private var settingsSidebarTintDarkBinding: Binding<Color> {
+        Binding(
+            get: {
+                Color(nsColor: NSColor(hex: sidebarTintHexDark ?? sidebarTintHex) ?? .black)
+            },
+            set: { newColor in
+                let nsColor = NSColor(newColor)
+                sidebarTintHexDark = nsColor.hexString()
             }
         )
     }
@@ -3939,6 +3996,83 @@ struct SettingsView: View {
                         }
                     }
 
+                    SettingsSectionHeader(title: String(localized: "settings.section.sidebarAppearance", defaultValue: "Sidebar Appearance"))
+                    SettingsCard {
+                        SettingsCardRow(
+                            String(localized: "settings.sidebarAppearance.tintColorLight", defaultValue: "Light Mode Tint"),
+                            subtitle: String(localized: "settings.sidebarAppearance.tintColorLight.subtitle", defaultValue: "Sidebar tint color when using light appearance.")
+                        ) {
+                            HStack(spacing: 8) {
+                                ColorPicker(
+                                    String(localized: "settings.sidebarAppearance.tintColorLight.picker", defaultValue: "Light tint"),
+                                    selection: settingsSidebarTintLightBinding,
+                                    supportsOpacity: false
+                                )
+                                .labelsHidden()
+                                .frame(width: 38)
+
+                                Text(sidebarTintHexLight ?? String(localized: "settings.sidebarAppearance.defaultLabel", defaultValue: "Default"))
+                                    .font(.system(size: 12, weight: .medium, design: .monospaced))
+                                    .foregroundStyle(.secondary)
+                                    .frame(width: 76, alignment: .trailing)
+                            }
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            String(localized: "settings.sidebarAppearance.tintColorDark", defaultValue: "Dark Mode Tint"),
+                            subtitle: String(localized: "settings.sidebarAppearance.tintColorDark.subtitle", defaultValue: "Sidebar tint color when using dark appearance.")
+                        ) {
+                            HStack(spacing: 8) {
+                                ColorPicker(
+                                    String(localized: "settings.sidebarAppearance.tintColorDark.picker", defaultValue: "Dark tint"),
+                                    selection: settingsSidebarTintDarkBinding,
+                                    supportsOpacity: false
+                                )
+                                .labelsHidden()
+                                .frame(width: 38)
+
+                                Text(sidebarTintHexDark ?? String(localized: "settings.sidebarAppearance.defaultLabel", defaultValue: "Default"))
+                                    .font(.system(size: 12, weight: .medium, design: .monospaced))
+                                    .foregroundStyle(.secondary)
+                                    .frame(width: 76, alignment: .trailing)
+                            }
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            String(localized: "settings.sidebarAppearance.tintOpacity", defaultValue: "Tint Opacity"),
+                            subtitle: String(localized: "settings.sidebarAppearance.tintOpacity.subtitle", defaultValue: "How strongly the tint color shows over the sidebar material.")
+                        ) {
+                            HStack(spacing: 8) {
+                                Slider(value: $sidebarTintOpacity, in: 0...1)
+                                    .frame(width: 140)
+                                Text(String(format: "%.0f%%", sidebarTintOpacity * 100))
+                                    .font(.system(size: 12, weight: .medium, design: .monospaced))
+                                    .foregroundStyle(.secondary)
+                                    .frame(width: 36, alignment: .trailing)
+                            }
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            String(localized: "settings.sidebarAppearance.reset", defaultValue: "Reset Sidebar Tint"),
+                            subtitle: String(localized: "settings.sidebarAppearance.reset.subtitle", defaultValue: "Restore default sidebar appearance.")
+                        ) {
+                            Button(String(localized: "settings.sidebarAppearance.reset.button", defaultValue: "Reset")) {
+                                sidebarTintHexLight = nil
+                                sidebarTintHexDark = nil
+                                sidebarTintHex = SidebarTintDefaults.hex
+                                sidebarTintOpacity = SidebarTintDefaults.opacity
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                        }
+                    }
+
                     SettingsSectionHeader(title: String(localized: "settings.section.automation", defaultValue: "Automation"))
                     SettingsCard {
                         SettingsPickerRow(
@@ -4503,6 +4637,10 @@ struct SettingsView: View {
         sidebarShowLog = true
         sidebarShowProgress = true
         sidebarShowMetadata = true
+        sidebarTintHex = SidebarTintDefaults.hex
+        sidebarTintHexLight = nil
+        sidebarTintHexDark = nil
+        sidebarTintOpacity = SidebarTintDefaults.opacity
         showOpenAccessConfirmation = false
         pendingOpenAccessMode = nil
         socketPasswordDraft = ""

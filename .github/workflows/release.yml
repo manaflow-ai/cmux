@@ -99,6 +99,9 @@ jobs:
       - name: Install build deps
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         run: |
+          if ! command -v zig >/dev/null 2>&1; then
+            brew install zig
+          fi
           npm install --global "create-dmg@${CREATE_DMG_VERSION}"
 
       - name: Download pre-built GhosttyKit.xcframework
@@ -141,6 +144,13 @@ jobs:
           CLI_BINARY="build/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux"
           [ -x "$CLI_BINARY" ] || { echo "cmux CLI binary not found at $CLI_BINARY" >&2; exit 1; }
           CMUX_CLI_BIN="$CLI_BINARY" python3 tests/test_cli_version_memory_guard.py
+
+      - name: Verify bundled Ghostty theme picker helper
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        run: |
+          set -euo pipefail
+          HELPER_BINARY="build/Build/Products/Release/cmux.app/Contents/Resources/bin/ghostty"
+          [ -x "$HELPER_BINARY" ] || { echo "Ghostty theme picker helper not found at $HELPER_BINARY" >&2; exit 1; }
 
       - name: Inject Sparkle keys into Info.plist
         if: steps.guard_release_assets.outputs.skip_all != 'true'
@@ -192,8 +202,12 @@ jobs:
           APP_PATH="build/Build/Products/Release/cmux.app"
           ENTITLEMENTS="cmux.entitlements"
           CLI_PATH="$APP_PATH/Contents/Resources/bin/cmux"
+          HELPER_PATH="$APP_PATH/Contents/Resources/bin/ghostty"
           if [ -f "$CLI_PATH" ]; then
             /usr/bin/codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" --entitlements "$ENTITLEMENTS" "$CLI_PATH"
+          fi
+          if [ -f "$HELPER_PATH" ]; then
+            /usr/bin/codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" --entitlements "$ENTITLEMENTS" "$HELPER_PATH"
           fi
           /usr/bin/codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" --entitlements "$ENTITLEMENTS" --deep "$APP_PATH"
           /usr/bin/codesign --verify --deep --strict --verbose=2 "$APP_PATH"

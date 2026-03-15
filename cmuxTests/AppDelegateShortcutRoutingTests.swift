@@ -571,6 +571,65 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
     }
 
+    func testCmdWClosesAuxiliaryWindowInsteadOfMainTerminalPanel() throws {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        XCTAssertNotNil(window(withId: windowId), "Expected test window")
+
+        guard let manager = appDelegate.tabManagerFor(windowId: windowId) else {
+            XCTFail("Expected test manager")
+            return
+        }
+
+        let mainWorkspaceCount = manager.tabs.count
+        let auxiliaryWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable, .miniaturizable],
+            backing: .buffered,
+            defer: false
+        )
+        auxiliaryWindow.isReleasedWhenClosed = false
+        auxiliaryWindow.identifier = NSUserInterfaceItemIdentifier("cmux.about")
+        auxiliaryWindow.makeKeyAndOrderFront(nil)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        defer {
+            if auxiliaryWindow.isVisible {
+                auxiliaryWindow.performClose(nil)
+                RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+            }
+        }
+
+        guard let event = makeKeyDownEvent(
+            key: "w",
+            modifiers: [.command],
+            keyCode: 13,
+            windowNumber: auxiliaryWindow.windowNumber
+        ) else {
+            XCTFail("Failed to construct Cmd+W event")
+            return
+        }
+
+#if DEBUG
+        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+        throw XCTSkip("debugHandleCustomShortcut is only available in DEBUG builds")
+#endif
+
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        XCTAssertFalse(auxiliaryWindow.isVisible, "Cmd+W should close the auxiliary window")
+        XCTAssertNotNil(self.window(withId: windowId), "Cmd+W in auxiliary window should not close the main window")
+        XCTAssertEqual(manager.tabs.count, mainWorkspaceCount, "Cmd+W in auxiliary window should not close a terminal panel")
+        XCTAssertNotEqual(NSApp.keyWindow?.identifier?.rawValue, "cmux.about", "Closed auxiliary window should not remain key")
+    }
+
     func testCmdPhysicalIWithDvorakCharactersDoesNotTriggerShowNotifications() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")

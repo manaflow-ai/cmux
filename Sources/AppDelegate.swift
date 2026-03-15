@@ -8362,7 +8362,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 targetWindow.performClose(nil)
                 return true
             } else if let targetWindow = event.window ?? NSApp.keyWindow ?? NSApp.mainWindow,
-               targetWindow.identifier?.rawValue == "cmux.settings" {
+               cmuxWindowShouldOwnCloseShortcut(targetWindow) {
                 targetWindow.performClose(nil)
             } else {
                 let responder = event.window?.firstResponder
@@ -9541,6 +9541,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         case ".": return 47  // kVK_ANSI_Period
         case "`": return 50  // kVK_ANSI_Grave
         case "\r": return 36 // kVK_Return
+        case "←": return 123 // kVK_LeftArrow
+        case "→": return 124 // kVK_RightArrow
+        case "↓": return 125 // kVK_DownArrow
+        case "↑": return 126 // kVK_UpArrow
         default:
             return nil
         }
