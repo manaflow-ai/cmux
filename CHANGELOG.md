@@ -5,6 +5,7 @@ All notable changes to cmux are documented here.
 ## [0.62.2] - 2026-03-14
 
 ### Added
+- Configurable sidebar tint color with separate light/dark mode support via Settings and config file (`sidebar-background`, `sidebar-tint-opacity`) ([#1465](https://github.com/manaflow-ai/cmux/pull/1465))
 - Cmd+P all-surfaces search option ([#1382](https://github.com/manaflow-ai/cmux/pull/1382))
 - `cmux themes` command with bundled Ghostty themes ([#1334](https://github.com/manaflow-ai/cmux/pull/1334), [#1314](https://github.com/manaflow-ai/cmux/pull/1314))
 - Sidebar can now shrink to smaller widths ([#1420](https://github.com/manaflow-ai/cmux/pull/1420))
