@@ -1931,7 +1931,7 @@ class GhosttyApp {
                        workspace.agentPIDs["claude_code"] != nil {
                         return true
                     }
-                    let tabTitle = owningManager.titleForTab(tabId) ?? "Terminal"
+                    let tabTitle = owningManager.titleForTab(tabId) ?? String(localized: "notification.fallback.title", defaultValue: "Terminal")
                     let command = actionTitle.isEmpty ? tabTitle : actionTitle
                     let body = actionBody
                     let surfaceId = tabManager.focusedSurfaceId(for: tabId)
@@ -2209,7 +2209,7 @@ class GhosttyApp {
                    workspace.agentPIDs["claude_code"] != nil {
                     return
                 }
-                let tabTitle = owningManager?.titleForTab(tabId) ?? "Terminal"
+                let tabTitle = owningManager?.titleForTab(tabId) ?? String(localized: "notification.fallback.title", defaultValue: "Terminal")
                 let command = actionTitle.isEmpty ? tabTitle : actionTitle
                 let body = actionBody
                 TerminalNotificationStore.shared.addNotification(
