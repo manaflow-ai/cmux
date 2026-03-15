@@ -43896,97 +43896,97 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "侧边栏标题字体"
+            "value": "侧边栏文本字体"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "側邊欄標題字體"
+            "value": "側邊欄文字字體"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사이드바 제목 글꼴"
+            "value": "사이드바 텍스트 글꼴"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Seitenleisten-Titelschrift"
+            "value": "Seitenleisten-Textschrift"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fuente del título de la barra lateral"
+            "value": "Fuente de texto de la barra lateral"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Police du titre de la barre latérale"
+            "value": "Police du texte de la barre latérale"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Font del titolo nella barra laterale"
+            "value": "Font del testo nella barra laterale"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sidebjælkens titelskrifttype"
+            "value": "Sidebjælkens tekstskrifttype"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Czcionka tytułu paska bocznego"
+            "value": "Czcionka tekstu paska bocznego"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Шрифт заголовка боковой панели"
+            "value": "Шрифт текста боковой панели"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Font naslova bočne trake"
+            "value": "Font teksta bočne trake"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "خط عنوان الشريط الجانبي"
+            "value": "خط نص الشريط الجانبي"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tittelskrifttype i sidepanelet"
+            "value": "Tekstskrifttype i sidepanelet"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fonte do Título na Barra Lateral"
+            "value": "Fonte do Texto na Barra Lateral"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "แบบอักษรชื่อในแถบด้านข้าง"
+            "value": "แบบอักษรข้อความในแถบด้านข้าง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kenar Çubuğu Başlık Yazı Tipi"
+            "value": "Kenar Çubuğu Metin Yazı Tipi"
           }
         }
       }
@@ -44009,97 +44009,97 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "工作区标题的字体样式。"
+            "value": "用于工作区标题、通知、日志、元数据和其他常规侧边栏文本的字体。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "工作區標題的字體樣式。"
+            "value": "用於工作區標題、通知、日誌、中繼資料和其他一般側邊欄文字的字體。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "워크스페이스 제목의 글꼴 스타일입니다."
+            "value": "워크스페이스 제목, 알림, 로그, 메타데이터 및 기타 일반적인 사이드바 텍스트에 사용하는 글꼴입니다."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Der Schriftstil für Workspace-Titel."
+            "value": "Die Schrift für Workspace-Titel, Benachrichtigungen, Logs, Metadaten und anderen regulären Seitenleisten-Text."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "El estilo de fuente para los títulos de espacios de trabajo."
+            "value": "La fuente para los títulos de espacios de trabajo, notificaciones, registros, metadatos y otro texto normal de la barra lateral."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le style de police pour les titres d'espaces de travail."
+            "value": "La police pour les titres d'espaces de travail, les notifications, les journaux, les métadonnées et les autres textes ordinaires de la barre latérale."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Lo stile del font per i titoli dei workspace."
+            "value": "Il font per i titoli dei workspace, le notifiche, i log, i metadati e gli altri testi normali della barra laterale."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Skrifttypestilen for arbejdsområdetitler."
+            "value": "Skrifttypen til arbejdsområdetitler, notifikationer, logfiler, metadata og anden almindelig tekst i sidebjælken."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Styl czcionki dla tytułów przestrzeni roboczych."
+            "value": "Czcionka dla tytułów obszarów roboczych, powiadomień, logów, metadanych i innego zwykłego tekstu paska bocznego."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Стиль шрифта для заголовков рабочих пространств."
+            "value": "Шрифт для заголовков рабочих пространств, уведомлений, журналов, метаданных и другого обычного текста боковой панели."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Stil fonta za naslove radnih prostora."
+            "value": "Font za naslove radnih prostora, obavijesti, logove, metapodatke i ostali obični tekst bočne trake."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "نمط الخط لعناوين مساحات العمل."
+            "value": "الخط المستخدم لعناوين مساحات العمل والإشعارات والسجلات والبيانات الوصفية ونص الشريط الجانبي العادي الآخر."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Skrifttypestilen for arbeidsområdetitler."
+            "value": "Skrifttypen for arbeidsområdetitler, varsler, logger, metadata og annen vanlig tekst i sidepanelet."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "O estilo de fonte para títulos de espaço de trabalho."
+            "value": "A fonte para títulos de espaço de trabalho, notificações, logs, metadados e outros textos normais da barra lateral."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "รูปแบบแบบอักษรสำหรับชื่อพื้นที่ทำงาน"
+            "value": "แบบอักษรสำหรับชื่อพื้นที่ทำงาน การแจ้งเตือน บันทึก เมทาดาทา และข้อความทั่วไปอื่น ๆ ในแถบด้านข้าง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Çalışma alanı başlıkları için yazı tipi stili."
+            "value": "Çalışma alanı başlıkları, bildirimler, günlükler, meta veriler ve diğer normal kenar çubuğu metinleri için yazı tipi."
           }
         }
       }
@@ -44348,97 +44348,97 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "侧边栏详细信息字体"
+            "value": "侧边栏分支/路径字体"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "側邊欄詳細資訊字體"
+            "value": "側邊欄分支/路徑字體"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사이드바 세부 정보 글꼴"
+            "value": "사이드바 브랜치/경로 글꼴"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Seitenleisten-Detailschrift"
+            "value": "Seitenleisten-Schrift für Branches/Pfade"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fuente de detalles de la barra lateral"
+            "value": "Fuente de ramas/rutas de la barra lateral"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Police des détails de la barre latérale"
+            "value": "Police des branches/chemins de la barre latérale"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Font dettagli nella barra laterale"
+            "value": "Font dei branch/percorsi nella barra laterale"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sidebjælkens detalje-skrifttype"
+            "value": "Sidebjælkens gren-/stiskrifttype"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Czcionka szczegółów paska bocznego"
+            "value": "Czcionka gałęzi/ścieżek paska bocznego"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Шрифт деталей боковой панели"
+            "value": "Шрифт веток/путей боковой панели"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Font detalja bočne trake"
+            "value": "Font grana/putanja bočne trake"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "خط تفاصيل الشريط الجانبي"
+            "value": "خط الفروع/المسارات في الشريط الجانبي"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Detaljskrifttype i sidepanelet"
+            "value": "Gren-/stiskrifttype i sidepanelet"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fonte de Detalhes na Barra Lateral"
+            "value": "Fonte de Branches/Caminhos na Barra Lateral"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "แบบอักษรรายละเอียดในแถบด้านข้าง"
+            "value": "แบบอักษรสาขา/พาธในแถบด้านข้าง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kenar Çubuğu Detay Yazı Tipi"
+            "value": "Kenar Çubuğu Dal/Yol Yazı Tipi"
           }
         }
       }
@@ -44461,97 +44461,97 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "分支、端口、元数据等详细信息的字体样式。"
+            "value": "用于分支、目录和端口的字体。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "分支、連接埠、中繼資料等詳細資訊的字體樣式。"
+            "value": "用於分支、目錄和連接埠的字體。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "브랜치, 포트, 메타데이터 등 세부 정보의 글꼴 스타일입니다."
+            "value": "브랜치, 디렉터리, 포트에 사용하는 글꼴입니다."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Der Schriftstil für Branches, Ports, Metadaten und andere Details."
+            "value": "Die Schrift für Branches, Verzeichnisse und Ports."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "El estilo de fuente para ramas, puertos, metadatos y otros detalles."
+            "value": "La fuente para ramas, directorios y puertos."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le style de police pour les branches, ports, métadonnées et autres détails."
+            "value": "La police pour les branches, répertoires et ports."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Lo stile del font per branch, porte, metadati e altri dettagli."
+            "value": "Il font per branch, directory e porte."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Skrifttypestilen for grene, porte, metadata og andre detaljer."
+            "value": "Skrifttypen til grene, mapper og porte."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Styl czcionki dla gałęzi, portów, metadanych i innych szczegółów."
+            "value": "Czcionka dla gałęzi, katalogów i portów."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Стиль шрифта для веток, портов, метаданных и других деталей."
+            "value": "Шрифт для веток, каталогов и портов."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Stil fonta za grane, portove, metapodatke i ostale detalje."
+            "value": "Font za grane, direktorije i portove."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "نمط الخط للفروع والمنافذ والبيانات الوصفية والتفاصيل الأخرى."
+            "value": "الخط المستخدم للفروع والدلائل والمنافذ."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Skrifttypestilen for grener, porter, metadata og andre detaljer."
+            "value": "Skrifttypen for grener, kataloger og porter."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "O estilo de fonte para branches, portas, metadados e outros detalhes."
+            "value": "A fonte para branches, diretórios e portas."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "รูปแบบแบบอักษรสำหรับสาขา พอร์ต ข้อมูลเมตา และรายละเอียดอื่น ๆ"
+            "value": "แบบอักษรสำหรับสาขา ไดเรกทอรี และพอร์ต"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dallar, portlar, meta veriler ve diğer detaylar için yazı tipi stili."
+            "value": "Dallar, dizinler ve portlar için yazı tipi."
           }
         }
       }
@@ -44574,97 +44574,97 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "标题字体设计"
+            "value": "文本字体"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "標題字體設計"
+            "value": "文字字體"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "제목 글꼴 디자인"
+            "value": "텍스트 글꼴"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Titelschriftdesign"
+            "value": "Textschrift"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diseño de fuente del título"
+            "value": "Fuente de texto"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Design de police du titre"
+            "value": "Police du texte"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Design del font del titolo"
+            "value": "Font del testo"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Titel-skrifttypedesign"
+            "value": "Tekstskrifttype"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Styl czcionki tytułu"
+            "value": "Czcionka tekstu"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Дизайн шрифта заголовка"
+            "value": "Шрифт текста"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dizajn fonta naslova"
+            "value": "Font teksta"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تصميم خط العنوان"
+            "value": "خط النص"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tittelskrifttypedesign"
+            "value": "Tekstskrifttype"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Design da Fonte do Título"
+            "value": "Fonte do Texto"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "การออกแบบแบบอักษรชื่อ"
+            "value": "แบบอักษรข้อความ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Başlık Yazı Tipi Tasarımı"
+            "value": "Metin Yazı Tipi"
           }
         }
       }
@@ -44687,97 +44687,97 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "快捷键提示字体设计"
+            "value": "快捷键提示字体"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "快捷鍵提示字體設計"
+            "value": "快捷鍵提示字體"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "단축키 힌트 글꼴 디자인"
+            "value": "단축키 힌트 글꼴"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tastenkürzelhinweis-Schriftdesign"
+            "value": "Tastenkürzelhinweis-Schrift"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diseño de fuente de atajos"
+            "value": "Fuente de atajos"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Design de police des raccourcis"
+            "value": "Police des raccourcis"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Design del font scorciatoie"
+            "value": "Font scorciatoie"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Genvejstip-skrifttypedesign"
+            "value": "Genvejstip-skrifttype"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Styl czcionki skrótów"
+            "value": "Czcionka skrótów"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Дизайн шрифта подсказок клавиш"
+            "value": "Шрифт подсказок клавиш"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dizajn fonta prečica"
+            "value": "Font prečica"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تصميم خط تلميحات الاختصارات"
+            "value": "خط تلميحات الاختصارات"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hurtigtasttips-skrifttypedesign"
+            "value": "Hurtigtasttips-skrifttype"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Design da Fonte de Dicas de Atalho"
+            "value": "Fonte de Dicas de Atalho"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "การออกแบบแบบอักษรคำแนะนำทางลัด"
+            "value": "แบบอักษรคำแนะนำทางลัด"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kısayol İpucu Yazı Tipi Tasarımı"
+            "value": "Kısayol İpucu Yazı Tipi"
           }
         }
       }
@@ -44800,97 +44800,97 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "详细信息字体设计"
+            "value": "分支/路径字体"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "詳細資訊字體設計"
+            "value": "分支/路徑字體"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "세부 정보 글꼴 디자인"
+            "value": "브랜치/경로 글꼴"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Detail-Schriftdesign"
+            "value": "Branch-/Pfadschrift"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diseño de fuente de detalles"
+            "value": "Fuente de ramas/rutas"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Design de police des détails"
+            "value": "Police des branches/chemins"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Design del font dettagli"
+            "value": "Font branch/percorsi"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Detalje-skrifttypedesign"
+            "value": "Gren-/stiskrifttype"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Styl czcionki szczegółów"
+            "value": "Czcionka gałęzi/ścieżek"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Дизайн шрифта деталей"
+            "value": "Шрифт веток/путей"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dizajn fonta detalja"
+            "value": "Font grana/putanja"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تصميم خط التفاصيل"
+            "value": "خط الفروع/المسارات"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Detaljskrifttypedesign"
+            "value": "Gren-/stiskrifttype"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Design da Fonte de Detalhes"
+            "value": "Fonte de Branches/Caminhos"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "การออกแบบแบบอักษรรายละเอียด"
+            "value": "แบบอักษรสาขา/พาธ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Detay Yazı Tipi Tasarımı"
+            "value": "Dal/Yol Yazı Tipi"
           }
         }
       }
