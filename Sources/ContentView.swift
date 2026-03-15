@@ -10813,7 +10813,8 @@ private struct TabItemView: View, Equatable {
     }
 
     private var resolvedCustomTabColor: Color? {
-        guard let hex = tab.customColor else { return nil }
+        let hex = tab.customColor ?? WorkspaceColorRules.colorForDirectory(tab.currentDirectory)
+        guard let hex else { return nil }
         return WorkspaceTabColorSettings.displayColor(
             hex: hex,
             colorScheme: colorScheme,
