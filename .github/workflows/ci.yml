@@ -79,6 +79,12 @@ jobs:
         run: |
           ./scripts/download-prebuilt-ghosttykit.sh
 
+      - name: Install zig
+        run: |
+          if ! command -v zig >/dev/null 2>&1; then
+            brew install zig
+          fi
+
       - name: Clean DerivedData
         run: |
           # Remove stale build cache to avoid incremental build errors
@@ -208,6 +214,12 @@ jobs:
       - name: Download pre-built GhosttyKit.xcframework
         run: |
           ./scripts/download-prebuilt-ghosttykit.sh
+
+      - name: Install zig
+        run: |
+          if ! command -v zig >/dev/null 2>&1; then
+            brew install zig
+          fi
 
       - name: Clean DerivedData
         run: rm -rf ~/Library/Developer/Xcode/DerivedData/GhosttyTabs-*
