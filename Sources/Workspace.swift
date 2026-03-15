@@ -316,9 +316,20 @@ extension Workspace {
                 includeScrollback: includeScrollback,
                 allowFallbackScrollback: shouldPersistScrollback
             )
+            let snapshotCommand: String? = {
+                let title = panelTitles[panelId] ?? ""
+                let shellNames: Set<String> = [
+                    "bash", "zsh", "fish", "sh", "dash", "tcsh", "csh", "ksh",
+                    "nu", "nushell", "pwsh", "elvish", "login",
+                ]
+                let processName = title.components(separatedBy: " ").first ?? title
+                if shellNames.contains(processName.lowercased()) { return nil }
+                return title.isEmpty ? nil : title
+            }()
             terminalSnapshot = SessionTerminalPanelSnapshot(
                 workingDirectory: panelDirectories[panelId],
-                scrollback: resolvedScrollback
+                scrollback: resolvedScrollback,
+                command: snapshotCommand
             )
             browserSnapshot = nil
             markdownSnapshot = nil
@@ -489,6 +500,7 @@ extension Workspace {
         switch snapshot.type {
         case .terminal:
             let workingDirectory = snapshot.terminal?.workingDirectory ?? snapshot.directory ?? currentDirectory
+            let command = snapshot.terminal?.command
             let replayEnvironment = SessionScrollbackReplayStore.replayEnvironment(
                 for: snapshot.terminal?.scrollback
             )
@@ -496,6 +508,7 @@ extension Workspace {
                 inPane: paneId,
                 focus: false,
                 workingDirectory: workingDirectory,
+                command: command,
                 startupEnvironment: replayEnvironment
             ) else {
                 return nil
@@ -2211,6 +2224,7 @@ final class Workspace: Identifiable, ObservableObject {
         inPane paneId: PaneID,
         focus: Bool? = nil,
         workingDirectory: String? = nil,
+        command: String? = nil,
         startupEnvironment: [String: String] = [:]
     ) -> TerminalPanel? {
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
@@ -2223,6 +2237,7 @@ final class Workspace: Identifiable, ObservableObject {
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: inheritedConfig,
             workingDirectory: workingDirectory,
+            command: command,
             additionalEnvironment: startupEnvironment,
             portOrdinal: portOrdinal
         )

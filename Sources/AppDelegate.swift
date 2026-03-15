@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 import Bonsplit
 import CoreServices
+import UniformTypeIdentifiers
 import UserNotifications
 import Sentry
 import WebKit
@@ -5024,6 +5025,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @objc func openNewMainWindow(_ sender: Any?) {
         _ = createMainWindow()
+    }
+
+    // MARK: - Session file save / open
+
+    @objc func saveSessionToFile(_ sender: Any?) {
+        guard let snapshot = buildSessionSnapshot(includeScrollback: false) else { return }
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [
+            UTType(filenameExtension: SessionExportStore.fileExtension) ?? .json,
+        ]
+        panel.nameFieldStringValue = "session.\(SessionExportStore.fileExtension)"
+        panel.canCreateDirectories = true
+        panel.title = String(localized: "menu.file.saveSession.panelTitle", defaultValue: "Save Session")
+        panel.prompt = String(localized: "menu.file.saveSession.panelPrompt", defaultValue: "Save")
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        SessionExportStore.save(snapshot, to: url)
+    }
+
+    @objc func openSessionFromFile(_ sender: Any?) {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [
+            UTType(filenameExtension: SessionExportStore.fileExtension) ?? .json,
+        ]
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.title = String(localized: "menu.file.openSession.panelTitle", defaultValue: "Open Session")
+        panel.prompt = String(localized: "menu.file.openSession.panelPrompt", defaultValue: "Open")
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        guard let snapshot = SessionExportStore.load(from: url) else { return }
+        for windowSnapshot in snapshot.windows.prefix(SessionPersistencePolicy.maxWindowsPerSnapshot) {
+            createMainWindow(sessionWindowSnapshot: windowSnapshot)
+        }
+    }
+
+    /// Build session snapshot for export (without scrollback). Accessible from TerminalController for socket commands.
+    func buildSessionSnapshotForExport() -> AppSessionSnapshot? {
+        return buildSessionSnapshot(includeScrollback: false)
     }
 
     @objc func openWindow(
