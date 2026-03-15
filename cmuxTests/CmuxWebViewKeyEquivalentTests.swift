@@ -14608,6 +14608,2180 @@ final class GhosttyTerminalViewVisibilityPolicyTests: XCTestCase {
     }
 }
 
+@MainActor
+final class LocalWebKitBrowserSurfaceRuntimeTests: XCTestCase {
+    private final class RuntimeWKInspectorProbeView: NSView {}
+
+    private final class RuntimeFakeInspector: NSObject {
+        enum HideBehavior {
+            case hides
+            case noEffect
+        }
+
+        private let hideBehavior: HideBehavior
+        private var visible = false
+        private(set) var attachCount = 0
+        private(set) var showCount = 0
+        private(set) var hideCount = 0
+        private(set) var closeCount = 0
+        private(set) var showConsoleCount = 0
+
+        init(hideBehavior: HideBehavior = .hides) {
+            self.hideBehavior = hideBehavior
+            super.init()
+        }
+
+        @objc func isVisible() -> Bool {
+            visible
+        }
+
+        @objc func attach() {
+            attachCount += 1
+        }
+
+        @objc func show() {
+            showCount += 1
+            visible = true
+        }
+
+        @objc func hide() {
+            hideCount += 1
+            if hideBehavior == .hides {
+                visible = false
+            }
+        }
+
+        @objc func close() {
+            closeCount += 1
+            visible = false
+        }
+
+        @objc func showConsole() {
+            showConsoleCount += 1
+        }
+    }
+
+    override class func setUp() {
+        super.setUp()
+        installCmuxUnitTestInspectorOverride()
+    }
+
+    private func assertColorsEqual(
+        _ lhs: NSColor?,
+        _ rhs: NSColor,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let lhsComponents = lhs?.usingColorSpace(.deviceRGB)?.cgColor.components
+        let rhsComponents = rhs.usingColorSpace(.deviceRGB)?.cgColor.components
+        XCTAssertNotNil(lhsComponents, file: file, line: line)
+        XCTAssertNotNil(rhsComponents, file: file, line: line)
+        guard let lhsComponents, let rhsComponents else { return }
+        XCTAssertEqual(lhsComponents.count, rhsComponents.count, file: file, line: line)
+        for (left, right) in zip(lhsComponents, rhsComponents) {
+            XCTAssertEqual(left, right, accuracy: 0.01, file: file, line: line)
+        }
+    }
+
+    private func makeConfiguration(
+        backgroundColor: NSColor = NSColor.systemTeal.withAlphaComponent(0.4),
+        customUserAgent: String = "cmux-runtime-test",
+        scriptSources: [String] = [
+            "window.__cmuxRuntimeTestOne = true;",
+            "window.__cmuxRuntimeTestTwo = true;",
+        ]
+    ) -> BrowserRuntimeSurfaceConfiguration {
+        BrowserRuntimeSurfaceConfiguration(
+            bootstrapUserScriptSources: scriptSources,
+            underPageBackgroundColor: backgroundColor,
+            customUserAgent: customUserAgent
+        )
+    }
+
+    private func makePNGData(
+        color: NSColor = .systemBlue,
+        size: Int = 24
+    ) throws -> Data {
+        guard let rep = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: size,
+            pixelsHigh: size,
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: 0,
+            bitsPerPixel: 0
+        ) else {
+            XCTFail("Expected bitmap rep")
+            throw NSError(domain: "cmuxTests", code: 1)
+        }
+
+        NSGraphicsContext.saveGraphicsState()
+        defer { NSGraphicsContext.restoreGraphicsState() }
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+        color.setFill()
+        NSRect(x: 0, y: 0, width: size, height: size).fill()
+
+        guard let data = rep.representation(using: .png, properties: [:]) else {
+            XCTFail("Expected PNG data")
+            throw NSError(domain: "cmuxTests", code: 2)
+        }
+        return data
+    }
+
+    func testFactoryUsesSharedProcessPoolAcrossSurfaces() {
+        let factory = LocalWebKitBrowserSurfaceRuntimeFactory.shared
+
+        let first = factory.makeSurface(using: makeConfiguration())
+        let second = factory.makeSurface(using: makeConfiguration(customUserAgent: "cmux-runtime-test-2"))
+
+        XCTAssertTrue(first.webView.configuration.processPool === second.webView.configuration.processPool)
+    }
+
+    func testSurfaceAppliesConfigurationToCreatedWebView() async throws {
+        let configuration = makeConfiguration()
+        let surface = LocalWebKitBrowserSurfaceRuntime(
+            processPool: WKProcessPool(),
+            configuration: configuration
+        )
+        guard let webView = surface.webView as? CmuxWebView else {
+            return XCTFail("Expected CmuxWebView runtime surface")
+        }
+
+        XCTAssertEqual(webView.customUserAgent, configuration.customUserAgent)
+        assertColorsEqual(webView.underPageBackgroundColor, configuration.underPageBackgroundColor)
+        XCTAssertEqual(
+            webView.configuration.userContentController.userScripts.count,
+            configuration.bootstrapUserScriptSources.count
+        )
+        XCTAssertTrue(
+            webView.configuration.userContentController.userScripts.allSatisfy {
+                $0.injectionTime == .atDocumentStart && !$0.isForMainFrameOnly
+            }
+        )
+
+        let navigationFinished = expectation(description: "bootstrap scripts ran")
+        surface.eventHandlers = BrowserSurfaceRuntimeEventHandlers(
+            didFinishNavigation: {
+                navigationFinished.fulfill()
+            }
+        )
+        webView.loadHTMLString("<html><body>runtime</body></html>", baseURL: nil)
+        await fulfillment(of: [navigationFinished], timeout: 5)
+
+        let firstScriptAppliedResult = try await surface.evaluateJavaScript("window.__cmuxRuntimeTestOne === true") as? Bool
+        let secondScriptAppliedResult = try await surface.evaluateJavaScript("window.__cmuxRuntimeTestTwo === true") as? Bool
+        let firstScriptApplied = try XCTUnwrap(firstScriptAppliedResult)
+        let secondScriptApplied = try XCTUnwrap(secondScriptAppliedResult)
+        XCTAssertTrue(firstScriptApplied)
+        XCTAssertTrue(secondScriptApplied)
+    }
+
+    func testAttachmentStateReflectsWebViewHostingLifecycle() {
+        _ = NSApplication.shared
+
+        let surface = LocalWebKitBrowserSurfaceRuntime(
+            processPool: WKProcessPool(),
+            configuration: makeConfiguration()
+        )
+        XCTAssertEqual(
+            surface.attachmentState,
+            BrowserSurfaceRuntimeAttachmentState(isAttachedToSuperview: false, isInWindow: false)
+        )
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
+        window.contentView = container
+        container.addSubview(surface.webView)
+        window.makeKeyAndOrderFront(nil)
+        defer { window.orderOut(nil) }
+        drainMainQueue()
+
+        XCTAssertEqual(
+            surface.attachmentState,
+            BrowserSurfaceRuntimeAttachmentState(isAttachedToSuperview: true, isInWindow: true)
+        )
+    }
+
+    func testSurfaceFocusAndResponderOwnershipRoundTripThroughRuntime() {
+        _ = NSApplication.shared
+
+        let surface = LocalWebKitBrowserSurfaceRuntime(
+            processPool: WKProcessPool(),
+            configuration: makeConfiguration()
+        )
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
+        window.contentView = container
+        surface.webView.frame = container.bounds
+        surface.webView.autoresizingMask = [.width, .height]
+        container.addSubview(surface.webView)
+        window.makeKeyAndOrderFront(nil)
+        defer { window.orderOut(nil) }
+        drainMainQueue()
+
+        XCTAssertTrue(window.makeFirstResponder(nil))
+        XCTAssertFalse(surface.ownsResponder(window.firstResponder))
+
+        XCTAssertTrue(surface.focusSurface())
+        XCTAssertTrue(surface.ownsResponder(window.firstResponder))
+
+        XCTAssertTrue(surface.unfocusSurface())
+        XCTAssertFalse(surface.ownsResponder(window.firstResponder))
+    }
+
+    func testSurfaceHostWindowVisibilityAndResponderPolicyRoundTripThroughRuntime() {
+        _ = NSApplication.shared
+
+        let surface = LocalWebKitBrowserSurfaceRuntime(
+            processPool: WKProcessPool(),
+            configuration: makeConfiguration()
+        )
+        guard let webView = surface.webView as? CmuxWebView else {
+            return XCTFail("Expected CmuxWebView runtime surface")
+        }
+
+        XCTAssertNil(surface.hostWindow())
+        XCTAssertFalse(surface.isHiddenOrHasHiddenAncestor())
+        XCTAssertTrue(webView.allowsFirstResponderAcquisition)
+
+        surface.setAllowsFirstResponderAcquisition(false)
+        XCTAssertFalse(webView.allowsFirstResponderAcquisition)
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
+        container.isHidden = true
+        window.contentView = container
+        container.addSubview(surface.webView)
+        window.makeKeyAndOrderFront(nil)
+        defer { window.orderOut(nil) }
+        drainMainQueue()
+
+        XCTAssertTrue(surface.hostWindow() === window)
+        XCTAssertTrue(surface.isHiddenOrHasHiddenAncestor())
+        let frameInWindow = surface.frameInWindowCoordinates()
+        XCTAssertEqual(frameInWindow?.width ?? 0, surface.webView.bounds.width, accuracy: 0.5)
+        XCTAssertEqual(frameInWindow?.height ?? 0, surface.webView.bounds.height, accuracy: 0.5)
+
+        surface.setAllowsFirstResponderAcquisition(true)
+        XCTAssertTrue(webView.allowsFirstResponderAcquisition)
+    }
+
+    func testDeveloperToolsHostStateReflectsAttachedInspectorLayoutAndDetachedWindows() {
+        _ = NSApplication.shared
+
+        let surface = LocalWebKitBrowserSurfaceRuntime(
+            processPool: WKProcessPool(),
+            configuration: makeConfiguration()
+        )
+        let baselineDetachedWindowCount = surface.developerToolsHostState().detachedWindowCount
+
+        let host = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 240))
+        surface.webView.frame = NSRect(x: 0, y: 80, width: host.bounds.width, height: host.bounds.height - 80)
+        host.addSubview(surface.webView)
+
+        let inspectorContainer = NSView(frame: NSRect(x: 0, y: 0, width: host.bounds.width, height: 80))
+        let inspectorView = RuntimeWKInspectorProbeView(frame: inspectorContainer.bounds)
+        inspectorView.autoresizingMask = [.width, .height]
+        inspectorContainer.addSubview(inspectorView)
+        host.addSubview(inspectorContainer)
+
+        let attachedState = surface.developerToolsHostState()
+        XCTAssertTrue(attachedState.hasAttachedInspectorLayout)
+        XCTAssertFalse(attachedState.hasSideDockedInspectorLayout)
+        XCTAssertEqual(attachedState.detachedWindowCount, baselineDetachedWindowCount)
+
+        let detachedWindow = NSWindow(
+            contentRect: NSRect(x: 40, y: 40, width: 240, height: 180),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        detachedWindow.isReleasedWhenClosed = false
+        detachedWindow.title = "Web Inspector Runtime Host State"
+        let detachedRoot = NSView(frame: detachedWindow.contentRect(forFrameRect: detachedWindow.frame))
+        let detachedInspectorView = RuntimeWKInspectorProbeView(frame: detachedRoot.bounds)
+        detachedInspectorView.autoresizingMask = [.width, .height]
+        detachedRoot.addSubview(detachedInspectorView)
+        detachedWindow.contentView = detachedRoot
+        detachedWindow.makeKeyAndOrderFront(nil)
+        defer {
+            detachedWindow.orderOut(nil)
+            detachedWindow.close()
+        }
+        drainMainQueue()
+
+        let detachedState = surface.developerToolsHostState()
+        XCTAssertTrue(detachedState.hasAttachedInspectorLayout)
+        XCTAssertFalse(detachedState.hasSideDockedInspectorLayout)
+        XCTAssertEqual(detachedState.detachedWindowCount, baselineDetachedWindowCount + 1)
+        XCTAssertTrue(detachedState.hasDetachedInspectorWindows)
+    }
+
+    func testDeveloperToolsHostStateDetectsSideDockedInspectorLayout() {
+        let surface = LocalWebKitBrowserSurfaceRuntime(
+            processPool: WKProcessPool(),
+            configuration: makeConfiguration()
+        )
+
+        let host = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 240))
+        surface.webView.frame = NSRect(x: 0, y: 0, width: 120, height: host.bounds.height)
+        host.addSubview(surface.webView)
+
+        let inspectorContainer = NSView(
+            frame: NSRect(x: 120, y: 0, width: host.bounds.width - 120, height: host.bounds.height)
+        )
+        let inspectorView = RuntimeWKInspectorProbeView(frame: inspectorContainer.bounds)
+        inspectorView.autoresizingMask = [.width, .height]
+        inspectorContainer.addSubview(inspectorView)
+        host.addSubview(inspectorContainer)
+
+        let hostState = surface.developerToolsHostState()
+        XCTAssertTrue(hostState.hasAttachedInspectorLayout)
+        XCTAssertTrue(hostState.hasSideDockedInspectorLayout)
+    }
+
+    func testReplaceWebViewCreatesNewInstanceAndPreservesRequestedPageZoom() {
+        let processPool = WKProcessPool()
+        let initialConfiguration = makeConfiguration(customUserAgent: "cmux-runtime-test-initial")
+        let replacementConfiguration = makeConfiguration(
+            backgroundColor: NSColor.systemPink.withAlphaComponent(0.3),
+            customUserAgent: "cmux-runtime-test-replacement"
+        )
+        let surface = LocalWebKitBrowserSurfaceRuntime(
+            processPool: processPool,
+            configuration: initialConfiguration
+        )
+
+        let originalWebView = surface.webView
+        let originalInstanceID = surface.webViewInstanceID
+        let replacement = surface.replaceWebView(
+            using: replacementConfiguration,
+            pageZoom: 1.75
+        )
+
+        XCTAssertFalse(replacement === originalWebView)
+        XCTAssertNotEqual(surface.webViewInstanceID, originalInstanceID)
+        XCTAssertTrue(replacement.configuration.processPool === processPool)
+        XCTAssertEqual(replacement.pageZoom, 1.75, accuracy: 0.001)
+        XCTAssertEqual(replacement.customUserAgent, replacementConfiguration.customUserAgent)
+        assertColorsEqual(replacement.underPageBackgroundColor, replacementConfiguration.underPageBackgroundColor)
+    }
+
+    func testReplaceWebViewPreservesAppliedBrowserThemeMode() {
+        let surface = LocalWebKitBrowserSurfaceRuntime(
+            processPool: WKProcessPool(),
+            configuration: makeConfiguration()
+        )
+
+        surface.applyBrowserThemeMode(.dark)
+        let replacement = surface.replaceWebView(
+            using: makeConfiguration(customUserAgent: "cmux-runtime-test-theme"),
+            pageZoom: nil
+        )
+
+        XCTAssertEqual(replacement.appearance?.bestMatch(from: [.darkAqua, .aqua]), .darkAqua)
+    }
+
+    func testAddressBarPageFocusCaptureAndRestoreRoundTripsThroughRuntime() async throws {
+        let surface = LocalWebKitBrowserSurfaceRuntime(
+            processPool: WKProcessPool(),
+            configuration: makeConfiguration(scriptSources: [])
+        )
+        let navigationFinished = expectation(description: "address bar focus page loaded")
+        surface.eventHandlers = BrowserSurfaceRuntimeEventHandlers(
+            didFinishNavigation: {
+                navigationFinished.fulfill()
+            }
+        )
+
+        surface.loadHTMLString(
+            """
+            <html><body>
+            <input id="field" value="hello" />
+            <input id="other" value="world" />
+            </body></html>
+            """,
+            baseURL: nil
+        )
+        await fulfillment(of: [navigationFinished], timeout: 5)
+
+        _ = try await surface.evaluateJavaScript(
+            """
+            const field = document.getElementById('field');
+            field.focus();
+            field.setSelectionRange(1, 4);
+            true;
+            """
+        )
+
+        let captureFinished = expectation(description: "captured page focus")
+        var captureStatus: BrowserAddressBarPageFocusCaptureStatus?
+        surface.captureAddressBarPageFocus { status in
+            captureStatus = status
+            captureFinished.fulfill()
+        }
+        await fulfillment(of: [captureFinished], timeout: 5)
+
+        guard case .captured(let capturedIdentifier)? = captureStatus else {
+            return XCTFail("Expected runtime to capture an editable page focus target")
+        }
+        XCTAssertFalse(capturedIdentifier.isEmpty)
+
+        _ = try await surface.evaluateJavaScript(
+            """
+            const other = document.getElementById('other');
+            other.focus();
+            true;
+            """
+        )
+
+        let restoreFinished = expectation(description: "restored page focus")
+        var restoreStatus: BrowserAddressBarPageFocusRestoreStatus?
+        surface.restoreAddressBarPageFocus { status in
+            restoreStatus = status
+            restoreFinished.fulfill()
+        }
+        await fulfillment(of: [restoreFinished], timeout: 5)
+
+        XCTAssertEqual(restoreStatus, .restored)
+
+        let activeElementID = try await surface.evaluateJavaScript(
+            "document.activeElement && document.activeElement.id"
+        ) as? String
+        let selectionStartValue = try await surface.evaluateJavaScript(
+            "document.getElementById('field').selectionStart"
+        ) as? NSNumber
+        let selectionEndValue = try await surface.evaluateJavaScript(
+            "document.getElementById('field').selectionEnd"
+        ) as? NSNumber
+
+        XCTAssertEqual(activeElementID, "field")
+        XCTAssertEqual(selectionStartValue?.intValue, 1)
+        XCTAssertEqual(selectionEndValue?.intValue, 4)
+    }
+
+    func testFetchFaviconPNGDataUsesRuntimeIconDiscoveryAndCacheInvalidation() async throws {
+        let expectedIconURL = URL(string: "https://example.com/icons/runtime-64.png")!
+        let iconData = try makePNGData()
+        var requestedURLs: [URL] = []
+        let surface = LocalWebKitBrowserSurfaceRuntime(
+            processPool: WKProcessPool(),
+            configuration: makeConfiguration(scriptSources: []),
+            faviconDataLoader: { request in
+                requestedURLs.append(try XCTUnwrap(request.url))
+                let response = try XCTUnwrap(
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: 200,
+                        httpVersion: nil,
+                        headerFields: nil
+                    )
+                )
+                return (iconData, response)
+            }
+        )
+        let navigationFinished = expectation(description: "favicon page loaded")
+        surface.eventHandlers = BrowserSurfaceRuntimeEventHandlers(
+            didFinishNavigation: {
+                navigationFinished.fulfill()
+            }
+        )
+
+        surface.loadHTMLString(
+            """
+            <html>
+            <head>
+            <link rel="icon" href="\(expectedIconURL.absoluteString)" sizes="64x64" />
+            </head>
+            <body>favicon</body>
+            </html>
+            """,
+            baseURL: URL(string: "https://example.com/page")!
+        )
+        await fulfillment(of: [navigationFinished], timeout: 5)
+
+        let firstFetch = await surface.fetchFaviconPNGData()
+        let secondFetch = await surface.fetchFaviconPNGData()
+        surface.invalidateFaviconCache()
+        let thirdFetch = await surface.fetchFaviconPNGData()
+
+        XCTAssertNotNil(firstFetch)
+        XCTAssertNil(secondFetch)
+        XCTAssertNotNil(thirdFetch)
+        XCTAssertEqual(requestedURLs, [expectedIconURL, expectedIconURL])
+    }
+
+    func testFetchFaviconPNGDataDoesNotReuseStaleCacheKeyAfterWebViewReplacement() async throws {
+        let expectedIconURL = URL(string: "https://example.com/icons/runtime-64.png")!
+        let iconData = try makePNGData(color: .systemRed)
+        var requestedURLs: [URL] = []
+        let firstFetchStarted = expectation(description: "first favicon fetch started")
+        let firstNavigationFinished = expectation(description: "first favicon page loaded")
+        let secondNavigationFinished = expectation(description: "second favicon page loaded")
+        var firstFetchContinuation: CheckedContinuation<(Data, URLResponse), Never>?
+        var navigationCount = 0
+        let surface = LocalWebKitBrowserSurfaceRuntime(
+            processPool: WKProcessPool(),
+            configuration: makeConfiguration(scriptSources: []),
+            faviconDataLoader: { request in
+                let url = try XCTUnwrap(request.url)
+                requestedURLs.append(url)
+                let response = try XCTUnwrap(
+                    HTTPURLResponse(
+                        url: url,
+                        statusCode: 200,
+                        httpVersion: nil,
+                        headerFields: nil
+                    )
+                )
+                if requestedURLs.count == 1 {
+                    firstFetchStarted.fulfill()
+                    return await withCheckedContinuation { continuation in
+                        firstFetchContinuation = continuation
+                    }
+                }
+                return (iconData, response)
+            }
+        )
+        surface.eventHandlers = BrowserSurfaceRuntimeEventHandlers(
+            didFinishNavigation: {
+                navigationCount += 1
+                if navigationCount == 1 {
+                    firstNavigationFinished.fulfill()
+                } else {
+                    secondNavigationFinished.fulfill()
+                }
+            }
+        )
+
+        let html = """
+            <html>
+            <head>
+            <link rel="icon" href="\(expectedIconURL.absoluteString)" sizes="64x64" />
+            </head>
+            <body>favicon</body>
+            </html>
+            """
+        let baseURL = URL(string: "https://example.com/page")!
+        surface.loadHTMLString(html, baseURL: baseURL)
+        await fulfillment(of: [firstNavigationFinished], timeout: 5)
+
+        let staleFetch = Task { await surface.fetchFaviconPNGData() }
+        await fulfillment(of: [firstFetchStarted], timeout: 5)
+
+        _ = surface.replaceWebView(using: makeConfiguration(scriptSources: []), pageZoom: nil)
+        surface.loadHTMLString(html, baseURL: baseURL)
+        await fulfillment(of: [secondNavigationFinished], timeout: 5)
+
+        let firstResponse = try XCTUnwrap(
+            HTTPURLResponse(
+                url: expectedIconURL,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: nil
+            )
+        )
+        firstFetchContinuation?.resume(returning: (iconData, firstResponse))
+        let staleResult = await staleFetch.value
+        let freshResult = await surface.fetchFaviconPNGData()
+
+        XCTAssertNil(staleResult)
+        XCTAssertNotNil(freshResult)
+        XCTAssertEqual(requestedURLs, [expectedIconURL, expectedIconURL])
+    }
+
+    func testFindAdapterUsesRuntimeOwnedFindOperations() async throws {
+        let surface = LocalWebKitBrowserSurfaceRuntime(
+            processPool: WKProcessPool(),
+            configuration: makeConfiguration(scriptSources: [])
+        )
+        let navigationFinished = expectation(description: "find page loaded")
+        surface.eventHandlers = BrowserSurfaceRuntimeEventHandlers(
+            didFinishNavigation: {
+                navigationFinished.fulfill()
+            }
+        )
+
+        surface.loadHTMLString(
+            """
+            <html><body>
+            <p>alpha beta alpha</p>
+            <p>beta gamma</p>
+            </body></html>
+            """,
+            baseURL: nil
+        )
+        await fulfillment(of: [navigationFinished], timeout: 5)
+
+        let searchResult = try await surface.findInPage(query: "alpha")
+        let nextResult = try await surface.findNextInPage()
+        let previousResult = try await surface.findPreviousInPage()
+
+        XCTAssertEqual(searchResult, BrowserFindResult(total: 2, selected: 0))
+        XCTAssertEqual(nextResult, BrowserFindResult(total: 2, selected: 1))
+        XCTAssertEqual(previousResult, BrowserFindResult(total: 2, selected: 0))
+
+        try await surface.clearFindInPage()
+        let markCount = try await surface.evaluateJavaScript(
+            "document.querySelectorAll('mark.__cmux-find').length"
+        ) as? NSNumber
+        XCTAssertEqual(markCount?.intValue, 0)
+    }
+
+    func testDeveloperToolsAdapterUsesRuntimeOwnedInspectorOperations() {
+        let surface = LocalWebKitBrowserSurfaceRuntime(
+            processPool: WKProcessPool(),
+            configuration: makeConfiguration()
+        )
+        let inspector = RuntimeFakeInspector(hideBehavior: .noEffect)
+        surface.webView.cmuxSetUnitTestInspector(inspector)
+
+        XCTAssertEqual(surface.developerToolsVisibilityState(), .hidden)
+        XCTAssertTrue(surface.revealDeveloperTools(attachIfNeeded: true))
+        XCTAssertEqual(surface.developerToolsVisibilityState(), .visible)
+        XCTAssertEqual(inspector.attachCount, 1)
+        XCTAssertEqual(inspector.showCount, 1)
+
+        surface.showDeveloperToolsConsole()
+        XCTAssertEqual(inspector.showConsoleCount, 1)
+
+        XCTAssertTrue(surface.concealDeveloperTools())
+        XCTAssertEqual(surface.developerToolsVisibilityState(), .hidden)
+        XCTAssertEqual(inspector.hideCount, 1)
+        XCTAssertEqual(inspector.closeCount, 1)
+    }
+
+    func testStateObserverReceivesImmediateAndMutatedRuntimeState() {
+        let surface = LocalWebKitBrowserSurfaceRuntime(
+            processPool: WKProcessPool(),
+            configuration: makeConfiguration()
+        )
+        var observedStates: [BrowserSurfaceRuntimeState] = []
+
+        surface.onStateChange = { state in
+            observedStates.append(state)
+        }
+        surface.setPageZoom(1.4)
+
+        XCTAssertEqual(observedStates.count, 2)
+        XCTAssertEqual(observedStates.first?.currentURL, nil)
+        XCTAssertEqual(observedStates.first?.pageZoom ?? 0, 1.0, accuracy: 0.001)
+        XCTAssertEqual(observedStates.last?.pageZoom ?? 0, 1.4, accuracy: 0.001)
+    }
+
+    func testSurfaceInstallsInternalDelegatesAndForwardsRuntimeEvents() {
+        let surface = LocalWebKitBrowserSurfaceRuntime(
+            processPool: WKProcessPool(),
+            configuration: makeConfiguration()
+        )
+        var finishedNavigationCount = 0
+        var failedURLs: [String] = []
+        var terminatedProcessCount = 0
+
+        surface.eventHandlers = BrowserSurfaceRuntimeEventHandlers(
+            didFinishNavigation: {
+                finishedNavigationCount += 1
+            },
+            didFailNavigation: { failedURL in
+                failedURLs.append(failedURL)
+            },
+            didTerminateWebContentProcess: {
+                terminatedProcessCount += 1
+            }
+        )
+
+        guard let navigationDelegate = surface.webView.navigationDelegate else {
+            return XCTFail("Expected runtime to install an internal navigation delegate")
+        }
+        XCTAssertNotNil(surface.webView.uiDelegate, "Expected runtime to install an internal UI delegate")
+
+        let attemptedURL = URL(string: "https://cmux.invalid/runtime")!
+        surface.setLastAttemptedNavigationURL(attemptedURL)
+        navigationDelegate.webView?(surface.webView, didFinish: nil)
+        navigationDelegate.webView?(
+            surface.webView,
+            didFailProvisionalNavigation: nil,
+            withError: NSError(domain: NSURLErrorDomain, code: NSURLErrorCannotConnectToHost)
+        )
+        navigationDelegate.webViewWebContentProcessDidTerminate?(surface.webView)
+
+        XCTAssertEqual(finishedNavigationCount, 1)
+        XCTAssertEqual(failedURLs, [attemptedURL.absoluteString])
+        XCTAssertEqual(terminatedProcessCount, 1)
+    }
+
+    func testReplaceWebViewRebindsInternalDelegatesAndDownloadHandler() {
+        let surface = LocalWebKitBrowserSurfaceRuntime(
+            processPool: WKProcessPool(),
+            configuration: makeConfiguration()
+        )
+        var finishedNavigationCount = 0
+        var downloadStates: [Bool] = []
+
+        surface.eventHandlers = BrowserSurfaceRuntimeEventHandlers(
+            didFinishNavigation: {
+                finishedNavigationCount += 1
+            },
+            downloadStateChanged: { isDownloading in
+                downloadStates.append(isDownloading)
+            }
+        )
+
+        guard let initialWebView = surface.webView as? CmuxWebView else {
+            return XCTFail("Expected CmuxWebView runtime surface")
+        }
+        guard let initialNavigationDelegate = initialWebView.navigationDelegate else {
+            return XCTFail("Expected initial runtime navigation delegate")
+        }
+        XCTAssertNotNil(initialWebView.uiDelegate, "Expected initial runtime UI delegate")
+        initialNavigationDelegate.webView?(initialWebView, didFinish: nil)
+        initialWebView.onContextMenuDownloadStateChanged?(true)
+
+        let replacement = surface.replaceWebView(
+            using: makeConfiguration(customUserAgent: "cmux-runtime-test-rebound"),
+            pageZoom: nil
+        )
+        guard let replacementWebView = replacement as? CmuxWebView else {
+            return XCTFail("Expected replacement CmuxWebView runtime surface")
+        }
+
+        XCTAssertNil(initialWebView.navigationDelegate)
+        XCTAssertNil(initialWebView.uiDelegate)
+        XCTAssertNil(initialWebView.onContextMenuDownloadStateChanged)
+        guard let replacementNavigationDelegate = replacementWebView.navigationDelegate else {
+            return XCTFail("Expected replacement runtime navigation delegate")
+        }
+        XCTAssertNotNil(replacementWebView.uiDelegate, "Expected replacement runtime UI delegate")
+        replacementNavigationDelegate.webView?(replacementWebView, didFinish: nil)
+        replacementWebView.onContextMenuDownloadStateChanged?(false)
+        XCTAssertEqual(finishedNavigationCount, 2)
+        XCTAssertEqual(downloadStates, [true, false])
+    }
+}
+
+@MainActor
+final class BrowserPanelRuntimeBoundaryTests: XCTestCase {
+    private final class RecordingBrowserSurfaceRuntime: BrowserSurfaceRuntime {
+        let backendKind: BrowserRuntimeBackendKind = .localWebKit
+        var webView: WKWebView
+        var webViewInstanceID = UUID()
+        var state: BrowserSurfaceRuntimeState
+        var currentAttachmentState = BrowserSurfaceRuntimeAttachmentState(
+            isAttachedToSuperview: false,
+            isInWindow: false
+        )
+        var eventHandlers = BrowserSurfaceRuntimeEventHandlers()
+        var onStateChange: ((BrowserSurfaceRuntimeState) -> Void)?
+
+        private(set) var lastAttemptedNavigationURL: URL?
+        private(set) var appliedThemeModes: [BrowserThemeMode] = []
+        private(set) var lastCustomUserAgent: String?
+        private(set) var lastUnderPageBackgroundColor: NSColor?
+        private(set) var loadedRequests: [URLRequest] = []
+        private(set) var replaceWebViewCallCount = 0
+        private(set) var lastReplaceWebViewPageZoom: CGFloat?
+        private(set) var stopLoadingCallCount = 0
+        private(set) var captureAddressBarPageFocusCallCount = 0
+        private(set) var restoreAddressBarPageFocusCallCount = 0
+        private(set) var invalidateFaviconCacheCallCount = 0
+        private(set) var fetchFaviconPNGDataCallCount = 0
+        private(set) var findQueries: [String] = []
+        private(set) var findNextInPageCallCount = 0
+        private(set) var findPreviousInPageCallCount = 0
+        private(set) var clearFindInPageCallCount = 0
+        private(set) var revealDeveloperToolsCallCount = 0
+        private(set) var concealDeveloperToolsCallCount = 0
+        private(set) var showDeveloperToolsConsoleCallCount = 0
+        private(set) var dismissDetachedDeveloperToolsWindowsCallCount = 0
+        private(set) var ownsResponderCallCount = 0
+        private(set) var focusSurfaceCallCount = 0
+        private(set) var unfocusSurfaceCallCount = 0
+        private(set) var lastAllowsFirstResponderAcquisition: Bool?
+        private(set) var lastOwnedResponder: NSResponder?
+        private(set) var lastRevealDeveloperToolsAttachIfNeeded: Bool?
+        var captureAddressBarPageFocusStatus: BrowserAddressBarPageFocusCaptureStatus = .clearedNone
+        var restoreAddressBarPageFocusStatuses: [BrowserAddressBarPageFocusRestoreStatus] = [.noState]
+        var fetchedFaviconPNGData: Data?
+        var onFetchFaviconPNGData: (() -> Void)?
+        var findInPageResult: BrowserFindResult?
+        var findNextInPageResult: BrowserFindResult?
+        var findPreviousInPageResult: BrowserFindResult?
+        var onFindInPage: (() -> Void)?
+        var onFindNextInPage: (() -> Void)?
+        var onFindPreviousInPage: (() -> Void)?
+        var onClearFindInPage: (() -> Void)?
+        var currentDeveloperToolsVisibilityState: BrowserSurfaceDeveloperToolsVisibilityState = .unavailable
+        var currentDeveloperToolsHostState = BrowserSurfaceDeveloperToolsHostState(
+            hasAttachedInspectorLayout: false,
+            detachedWindowCount: 0
+        )
+        var revealDeveloperToolsMutatesVisibility = true
+        var concealDeveloperToolsMutatesVisibility = true
+        var ownsResponderResult = false
+        var focusSurfaceResult = true
+        var unfocusSurfaceResult = true
+        var currentHostWindow: NSWindow?
+        var currentFrameInWindowCoordinates: CGRect?
+        var currentIsHiddenOrHasHiddenAncestor = false
+
+        init() {
+            let configuration = WKWebViewConfiguration()
+            let webView = WKWebView(frame: .zero, configuration: configuration)
+            self.webView = webView
+            self.state = BrowserSurfaceRuntimeState(
+                currentURL: nil,
+                title: nil,
+                isLoading: false,
+                canGoBack: false,
+                canGoForward: false,
+                estimatedProgress: 0,
+                pageZoom: webView.pageZoom
+            )
+        }
+
+        var attachmentState: BrowserSurfaceRuntimeAttachmentState {
+            currentAttachmentState
+        }
+
+        @discardableResult
+        func replaceWebView(
+            using configuration: BrowserRuntimeSurfaceConfiguration,
+            pageZoom: CGFloat?
+        ) -> WKWebView {
+            replaceWebViewCallCount += 1
+            lastReplaceWebViewPageZoom = pageZoom
+            let replacement = WKWebView(frame: .zero, configuration: WKWebViewConfiguration())
+            if let pageZoom {
+                replacement.pageZoom = pageZoom
+            }
+            webView = replacement
+            webViewInstanceID = UUID()
+            state = BrowserSurfaceRuntimeState(
+                currentURL: state.currentURL,
+                title: state.title,
+                isLoading: state.isLoading,
+                canGoBack: state.canGoBack,
+                canGoForward: state.canGoForward,
+                estimatedProgress: state.estimatedProgress,
+                pageZoom: replacement.pageZoom
+            )
+            return replacement
+        }
+
+        func setLastAttemptedNavigationURL(_ url: URL?) {
+            lastAttemptedNavigationURL = url
+        }
+
+        func applyBrowserThemeMode(_ mode: BrowserThemeMode) {
+            appliedThemeModes.append(mode)
+            switch mode {
+            case .system:
+                webView.appearance = nil
+            case .light:
+                webView.appearance = NSAppearance(named: .aqua)
+            case .dark:
+                webView.appearance = NSAppearance(named: .darkAqua)
+            }
+        }
+
+        func setCustomUserAgent(_ customUserAgent: String) {
+            lastCustomUserAgent = customUserAgent
+            webView.customUserAgent = customUserAgent
+        }
+
+        func setUnderPageBackgroundColor(_ color: NSColor) {
+            lastUnderPageBackgroundColor = color
+            webView.underPageBackgroundColor = color
+        }
+
+        @discardableResult
+        func loadRequest(_ request: URLRequest) -> WKNavigation? {
+            loadedRequests.append(request)
+            return nil
+        }
+
+        func loadHTMLString(_ html: String, baseURL: URL?) {}
+        func goBack() {}
+        func goForward() {}
+        func reload() {}
+
+        func stopLoading() {
+            stopLoadingCallCount += 1
+        }
+
+        func setPageZoom(_ pageZoom: CGFloat) {
+            state = BrowserSurfaceRuntimeState(
+                currentURL: state.currentURL,
+                title: state.title,
+                isLoading: state.isLoading,
+                canGoBack: state.canGoBack,
+                canGoForward: state.canGoForward,
+                estimatedProgress: state.estimatedProgress,
+                pageZoom: pageZoom
+            )
+        }
+
+        func takeSnapshot(completion: @escaping (NSImage?) -> Void) {
+            completion(nil)
+        }
+
+        func evaluateJavaScript(_ script: String) async throws -> Any? {
+            nil
+        }
+
+        func findInPage(query: String) async throws -> BrowserFindResult? {
+            findQueries.append(query)
+            onFindInPage?()
+            return findInPageResult
+        }
+
+        func findNextInPage() async throws -> BrowserFindResult? {
+            findNextInPageCallCount += 1
+            onFindNextInPage?()
+            return findNextInPageResult
+        }
+
+        func findPreviousInPage() async throws -> BrowserFindResult? {
+            findPreviousInPageCallCount += 1
+            onFindPreviousInPage?()
+            return findPreviousInPageResult
+        }
+
+        func clearFindInPage() async throws {
+            clearFindInPageCallCount += 1
+            onClearFindInPage?()
+        }
+
+        func captureAddressBarPageFocus(completion: @escaping (BrowserAddressBarPageFocusCaptureStatus) -> Void) {
+            captureAddressBarPageFocusCallCount += 1
+            completion(captureAddressBarPageFocusStatus)
+        }
+
+        func restoreAddressBarPageFocus(completion: @escaping (BrowserAddressBarPageFocusRestoreStatus) -> Void) {
+            restoreAddressBarPageFocusCallCount += 1
+            let status = restoreAddressBarPageFocusStatuses.isEmpty
+                ? BrowserAddressBarPageFocusRestoreStatus.noState
+                : restoreAddressBarPageFocusStatuses.removeFirst()
+            completion(status)
+        }
+
+        func invalidateFaviconCache() {
+            invalidateFaviconCacheCallCount += 1
+        }
+
+        func fetchFaviconPNGData() async -> Data? {
+            fetchFaviconPNGDataCallCount += 1
+            onFetchFaviconPNGData?()
+            return fetchedFaviconPNGData
+        }
+
+        func developerToolsVisibilityState() -> BrowserSurfaceDeveloperToolsVisibilityState {
+            currentDeveloperToolsVisibilityState
+        }
+
+        func developerToolsHostState() -> BrowserSurfaceDeveloperToolsHostState {
+            currentDeveloperToolsHostState
+        }
+
+        @discardableResult
+        func revealDeveloperTools(attachIfNeeded: Bool) -> Bool {
+            revealDeveloperToolsCallCount += 1
+            lastRevealDeveloperToolsAttachIfNeeded = attachIfNeeded
+            guard currentDeveloperToolsVisibilityState != .unavailable else { return false }
+            if revealDeveloperToolsMutatesVisibility {
+                currentDeveloperToolsVisibilityState = .visible
+            }
+            return true
+        }
+
+        @discardableResult
+        func concealDeveloperTools() -> Bool {
+            concealDeveloperToolsCallCount += 1
+            guard currentDeveloperToolsVisibilityState != .unavailable else { return false }
+            if concealDeveloperToolsMutatesVisibility {
+                currentDeveloperToolsVisibilityState = .hidden
+            }
+            return true
+        }
+
+        func showDeveloperToolsConsole() {
+            showDeveloperToolsConsoleCallCount += 1
+        }
+
+        func dismissDetachedDeveloperToolsWindows() {
+            dismissDetachedDeveloperToolsWindowsCallCount += 1
+            currentDeveloperToolsHostState = BrowserSurfaceDeveloperToolsHostState(
+                hasAttachedInspectorLayout: currentDeveloperToolsHostState.hasAttachedInspectorLayout,
+                detachedWindowCount: 0
+            )
+        }
+
+        func hostWindow() -> NSWindow? {
+            currentHostWindow
+        }
+
+        func frameInWindowCoordinates() -> CGRect? {
+            currentFrameInWindowCoordinates
+        }
+
+        func isHiddenOrHasHiddenAncestor() -> Bool {
+            currentIsHiddenOrHasHiddenAncestor
+        }
+
+        func setAllowsFirstResponderAcquisition(_ allowed: Bool) {
+            lastAllowsFirstResponderAcquisition = allowed
+        }
+
+        func ownsResponder(_ responder: NSResponder?) -> Bool {
+            ownsResponderCallCount += 1
+            lastOwnedResponder = responder
+            return ownsResponderResult
+        }
+
+        @discardableResult
+        func focusSurface() -> Bool {
+            focusSurfaceCallCount += 1
+            return focusSurfaceResult
+        }
+
+        @discardableResult
+        func unfocusSurface() -> Bool {
+            unfocusSurfaceCallCount += 1
+            return unfocusSurfaceResult
+        }
+
+        func sessionHistorySnapshot() -> (backHistoryURLs: [URL], forwardHistoryURLs: [URL]) {
+            ([], [])
+        }
+
+        func emitState(_ state: BrowserSurfaceRuntimeState) {
+            self.state = state
+            onStateChange?(state)
+        }
+    }
+
+    private final class RecordingBrowserSurfaceRuntimeFactory: BrowserSurfaceRuntimeFactory {
+        let runtime: RecordingBrowserSurfaceRuntime
+        private(set) var configurations: [BrowserRuntimeSurfaceConfiguration] = []
+
+        init(runtime: RecordingBrowserSurfaceRuntime) {
+            self.runtime = runtime
+        }
+
+        func makeSurface(using configuration: BrowserRuntimeSurfaceConfiguration) -> any BrowserSurfaceRuntime {
+            configurations.append(configuration)
+            return runtime
+        }
+    }
+
+    private func assertColorsEqual(
+        _ lhs: NSColor?,
+        _ rhs: NSColor,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let lhsComponents = lhs?.usingColorSpace(.deviceRGB)?.cgColor.components
+        let rhsComponents = rhs.usingColorSpace(.deviceRGB)?.cgColor.components
+        XCTAssertNotNil(lhsComponents, file: file, line: line)
+        XCTAssertNotNil(rhsComponents, file: file, line: line)
+        guard let lhsComponents, let rhsComponents else { return }
+        XCTAssertEqual(lhsComponents.count, rhsComponents.count, file: file, line: line)
+        for (left, right) in zip(lhsComponents, rhsComponents) {
+            XCTAssertEqual(left, right, accuracy: 0.01, file: file, line: line)
+        }
+    }
+
+    private func makeRuntimeState(
+        currentURL: URL? = nil,
+        title: String? = nil,
+        isLoading: Bool = false,
+        canGoBack: Bool = false,
+        canGoForward: Bool = false,
+        estimatedProgress: Double = 0,
+        pageZoom: CGFloat = 1.0
+    ) -> BrowserSurfaceRuntimeState {
+        BrowserSurfaceRuntimeState(
+            currentURL: currentURL,
+            title: title,
+            isLoading: isLoading,
+            canGoBack: canGoBack,
+            canGoForward: canGoForward,
+            estimatedProgress: estimatedProgress,
+            pageZoom: pageZoom
+        )
+    }
+
+    func testBrowserPanelConfiguresRuntimeCallbacksOnInit() {
+        let runtime = RecordingBrowserSurfaceRuntime()
+        let factory = RecordingBrowserSurfaceRuntimeFactory(runtime: runtime)
+
+        _ = BrowserPanel(workspaceId: UUID(), runtimeFactory: factory)
+
+        XCTAssertEqual(factory.configurations.count, 1)
+        XCTAssertNotNil(runtime.eventHandlers.didFinishNavigation)
+        XCTAssertNotNil(runtime.eventHandlers.didFailNavigation)
+        XCTAssertNotNil(runtime.eventHandlers.didTerminateWebContentProcess)
+        XCTAssertNotNil(runtime.eventHandlers.requestNavigation)
+        XCTAssertNotNil(runtime.eventHandlers.downloadStateChanged)
+        XCTAssertNotNil(runtime.onStateChange)
+    }
+
+    func testBrowserPanelRoutesThemeModeThroughRuntime() {
+        let runtime = RecordingBrowserSurfaceRuntime()
+        let factory = RecordingBrowserSurfaceRuntimeFactory(runtime: runtime)
+        let panel = BrowserPanel(workspaceId: UUID(), runtimeFactory: factory)
+
+        panel.setBrowserThemeMode(.dark)
+        panel.setBrowserThemeMode(.light)
+
+        let appliedThemeModes = Array(runtime.appliedThemeModes.suffix(2))
+        let appearanceMatch = panel.webView.appearance?.bestMatch(from: [.aqua, .darkAqua])
+
+        XCTAssertEqual(appliedThemeModes, [.dark, .light])
+        XCTAssertEqual(appearanceMatch, .aqua)
+    }
+
+    func testBrowserPanelNavigationUsesRuntimeBoundary() {
+        let runtime = RecordingBrowserSurfaceRuntime()
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            runtimeFactory: RecordingBrowserSurfaceRuntimeFactory(runtime: runtime)
+        )
+        let url = URL(string: "https://example.com/runtime")!
+
+        panel.navigate(to: url, recordTypedNavigation: false)
+
+        let shouldRenderWebView = panel.shouldRenderWebView
+        let lastAttemptedNavigationURL = runtime.lastAttemptedNavigationURL
+        let loadedRequestURL = runtime.loadedRequests.last?.url
+        let lastCustomUserAgent = runtime.lastCustomUserAgent
+
+        XCTAssertTrue(shouldRenderWebView)
+        XCTAssertEqual(lastAttemptedNavigationURL, url)
+        XCTAssertEqual(loadedRequestURL, url)
+        XCTAssertEqual(lastCustomUserAgent, BrowserUserAgentSettings.safariUserAgent)
+    }
+
+    func testBrowserPanelProcessTerminationReplacementUsesRuntimeStateBoundary() {
+        let runtime = RecordingBrowserSurfaceRuntime()
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            runtimeFactory: RecordingBrowserSurfaceRuntimeFactory(runtime: runtime)
+        )
+        let initialURL = URL(string: "https://example.com/initial")!
+        let replacementURL = URL(string: "https://example.com/runtime-current")!
+
+        panel.navigate(to: initialURL, recordTypedNavigation: false)
+        runtime.state = makeRuntimeState(currentURL: replacementURL, pageZoom: 1.6)
+
+        runtime.eventHandlers.didTerminateWebContentProcess?()
+
+        XCTAssertEqual(runtime.stopLoadingCallCount, 1)
+        XCTAssertEqual(runtime.replaceWebViewCallCount, 1)
+        XCTAssertEqual(runtime.lastReplaceWebViewPageZoom ?? 0, 1.6, accuracy: 0.001)
+        XCTAssertEqual(runtime.loadedRequests.last?.url, replacementURL)
+    }
+
+    func testBrowserPanelFocusUsesRuntimeBoundary() {
+        let runtime = RecordingBrowserSurfaceRuntime()
+        runtime.state = makeRuntimeState(currentURL: URL(string: "https://example.com/runtime-focus"))
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            runtimeFactory: RecordingBrowserSurfaceRuntimeFactory(runtime: runtime)
+        )
+
+        panel.focus()
+
+        XCTAssertEqual(runtime.focusSurfaceCallCount, 1)
+    }
+
+    func testBrowserPanelFocusSurfaceForHandoffUsesRuntimeBoundary() {
+        let runtime = RecordingBrowserSurfaceRuntime()
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            runtimeFactory: RecordingBrowserSurfaceRuntimeFactory(runtime: runtime)
+        )
+
+        XCTAssertTrue(panel.focusSurfaceForHandoff())
+        XCTAssertEqual(runtime.focusSurfaceCallCount, 1)
+    }
+
+    func testBrowserPanelUnfocusUsesRuntimeBoundary() {
+        let runtime = RecordingBrowserSurfaceRuntime()
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            runtimeFactory: RecordingBrowserSurfaceRuntimeFactory(runtime: runtime)
+        )
+
+        panel.unfocus()
+
+        XCTAssertEqual(runtime.unfocusSurfaceCallCount, 1)
+    }
+
+    func testBrowserPanelCaptureFocusIntentUsesRuntimeOwnershipBoundary() {
+        let runtime = RecordingBrowserSurfaceRuntime()
+        runtime.ownsResponderResult = true
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            runtimeFactory: RecordingBrowserSurfaceRuntimeFactory(runtime: runtime)
+        )
+        let window = NSWindow()
+
+        XCTAssertEqual(panel.captureFocusIntent(in: window), .browser(.webView))
+        XCTAssertEqual(runtime.ownsResponderCallCount, 1)
+        XCTAssertNotNil(runtime.lastOwnedResponder)
+    }
+
+    func testBrowserPanelOwnedFocusIntentUsesRuntimeOwnershipBoundary() {
+        let runtime = RecordingBrowserSurfaceRuntime()
+        runtime.ownsResponderResult = true
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            runtimeFactory: RecordingBrowserSurfaceRuntimeFactory(runtime: runtime)
+        )
+        let window = NSWindow()
+        let responder = NSTextView()
+
+        XCTAssertEqual(panel.ownedFocusIntent(for: responder, in: window), .browser(.webView))
+        XCTAssertEqual(runtime.ownsResponderCallCount, 1)
+        XCTAssertTrue(runtime.lastOwnedResponder === responder)
+    }
+
+    func testBrowserPanelYieldWebViewFocusUsesRuntimeBoundary() {
+        let runtime = RecordingBrowserSurfaceRuntime()
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            runtimeFactory: RecordingBrowserSurfaceRuntimeFactory(runtime: runtime)
+        )
+        let window = NSWindow()
+
+        XCTAssertTrue(panel.yieldFocusIntent(.browser(.webView), in: window))
+        XCTAssertEqual(runtime.unfocusSurfaceCallCount, 1)
+    }
+
+    func testBrowserPanelSurfaceHelpersUseRuntimeBoundary() {
+        let runtime = RecordingBrowserSurfaceRuntime()
+        let panelWindow = NSWindow()
+        let panelFrame = CGRect(x: 12, y: 34, width: 210, height: 120)
+        runtime.currentHostWindow = panelWindow
+        runtime.currentFrameInWindowCoordinates = panelFrame
+        runtime.currentIsHiddenOrHasHiddenAncestor = true
+        runtime.state = makeRuntimeState(currentURL: nil, isLoading: true)
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            runtimeFactory: RecordingBrowserSurfaceRuntimeFactory(runtime: runtime)
+        )
+
+        XCTAssertTrue(panel.surfaceWindow() === panelWindow)
+        XCTAssertTrue(panel.surfaceHostingWindow() === panelWindow)
+        XCTAssertEqual(panel.effectiveSurfaceWindow(), panelWindow)
+        XCTAssertEqual(panel.surfaceFrameInWindowCoordinates(), panelFrame)
+        XCTAssertTrue(panel.isSurfaceHiddenOrHasHiddenAncestor())
+        XCTAssertTrue(panel.isSurfaceBlankForAutofocus())
+        XCTAssertTrue(panel.isSurfaceLoadingNow())
+    }
+
+    func testBrowserPanelSurfaceHostingWindowFallsBackToPortalAnchorWindow() {
+        let runtime = RecordingBrowserSurfaceRuntime()
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            runtimeFactory: RecordingBrowserSurfaceRuntimeFactory(runtime: runtime)
+        )
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 240, height: 180),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        let host = NSView(frame: window.contentView?.bounds ?? .zero)
+        host.autoresizingMask = [.width, .height]
+        host.addSubview(panel.portalAnchorView)
+        window.contentView = host
+
+        XCTAssertNil(panel.surfaceWindow())
+        XCTAssertTrue(panel.surfaceHostingWindow() === window)
+        XCTAssertTrue(panel.effectiveSurfaceWindow() === window)
+    }
+
+    func testBrowserPanelOwnsSurfaceWebViewTracksReplacementIdentity() {
+        let runtime = RecordingBrowserSurfaceRuntime()
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            runtimeFactory: RecordingBrowserSurfaceRuntimeFactory(runtime: runtime)
+        )
+        let originalWebView = panel.webView
+
+        XCTAssertTrue(panel.ownsSurfaceWebView(originalWebView))
+
+        panel.debugSimulateWebContentProcessTermination()
+
+        let replacementWebView = panel.webView
+        XCTAssertFalse(replacementWebView === originalWebView)
+        XCTAssertFalse(panel.ownsSurfaceWebView(originalWebView))
+        XCTAssertTrue(panel.ownsSurfaceWebView(replacementWebView))
+    }
+
+    func testBrowserPanelSurfaceFocusStateUsesRuntimeBoundary() {
+        let runtime = RecordingBrowserSurfaceRuntime()
+        let panelWindow = NSWindow()
+        let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
+        let responder = NSView()
+        responder.frame = contentView.bounds
+        panelWindow.contentView = contentView
+        contentView.addSubview(responder)
+        runtime.currentHostWindow = panelWindow
+        runtime.ownsResponderResult = true
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            runtimeFactory: RecordingBrowserSurfaceRuntimeFactory(runtime: runtime)
+        )
+
+        XCTAssertTrue(panelWindow.makeFirstResponder(responder))
+        XCTAssertTrue(panel.isSurfaceFocusedInHostWindow())
+        XCTAssertEqual(runtime.ownsResponderCallCount, 1)
+        XCTAssertTrue(runtime.lastOwnedResponder === responder)
+    }
+
+    func testBrowserPanelSurfaceFocusStateFallsBackToPortalAnchorWindow() {
+        let runtime = RecordingBrowserSurfaceRuntime()
+        runtime.ownsResponderResult = true
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            runtimeFactory: RecordingBrowserSurfaceRuntimeFactory(runtime: runtime)
+        )
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 220, height: 140),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        let contentView = NSView(frame: window.contentView?.bounds ?? .zero)
+        let responder = NSView(frame: contentView.bounds)
+        contentView.addSubview(panel.portalAnchorView)
+        contentView.addSubview(responder)
+        window.contentView = contentView
+
+        XCTAssertTrue(window.makeFirstResponder(responder))
+        XCTAssertTrue(panel.isSurfaceFocusedInHostWindow())
+        XCTAssertEqual(runtime.ownsResponderCallCount, 1)
+        XCTAssertTrue(runtime.lastOwnedResponder === responder)
+    }
+
+    func testBrowserPanelTransientDeveloperToolsHidePreflightUsesRuntimeBoundary() {
+        let runtime = RecordingBrowserSurfaceRuntime()
+        let panelWindow = NSWindow()
+        let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
+        let responder = NSView()
+        responder.frame = contentView.bounds
+        panelWindow.contentView = contentView
+        contentView.addSubview(responder)
+        XCTAssertTrue(panelWindow.makeFirstResponder(responder))
+
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            runtimeFactory: RecordingBrowserSurfaceRuntimeFactory(runtime: runtime)
+        )
+
+        let result = panel.prepareSurfaceFocusForTransientDeveloperToolsHide(in: panelWindow)
+
+        XCTAssertTrue(result.movedToSurface)
+        XCTAssertFalse(result.movedToNil)
+        XCTAssertEqual(runtime.focusSurfaceCallCount, 1)
+    }
+
+    func testBrowserPanelTransientDeveloperToolsHidePreflightFallsBackToNilResponder() {
+        let runtime = RecordingBrowserSurfaceRuntime()
+        runtime.focusSurfaceResult = false
+        let panelWindow = NSWindow()
+        let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
+        let responder = NSView()
+        responder.frame = contentView.bounds
+        panelWindow.contentView = contentView
+        contentView.addSubview(responder)
+        XCTAssertTrue(panelWindow.makeFirstResponder(responder))
+
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            runtimeFactory: RecordingBrowserSurfaceRuntimeFactory(runtime: runtime)
+        )
+
+        let result = panel.prepareSurfaceFocusForTransientDeveloperToolsHide(in: panelWindow)
+
+        XCTAssertFalse(result.movedToSurface)
+        XCTAssertTrue(result.movedToNil)
+        XCTAssertEqual(runtime.focusSurfaceCallCount, 1)
+        XCTAssertFalse(panelWindow.firstResponder === responder)
+    }
+
+    func testBrowserPanelSurfacePageZoomUsesRuntimeState() {
+        let runtime = RecordingBrowserSurfaceRuntime()
+        runtime.state = makeRuntimeState(pageZoom: 1.65)
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            runtimeFactory: RecordingBrowserSurfaceRuntimeFactory(runtime: runtime)
+        )
+
+        XCTAssertEqual(panel.surfacePageZoom(), 1.65, accuracy: 0.001)
+    }
+
+    func testBrowserPanelSetSurfacePageZoomUsesRuntimeBoundary() {
+        let runtime = RecordingBrowserSurfaceRuntime()
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            runtimeFactory: RecordingBrowserSurfaceRuntimeFactory(runtime: runtime)
+        )
+
+        panel.setSurfacePageZoom(1.9)
+
+        XCTAssertEqual(runtime.state.pageZoom, 1.9, accuracy: 0.001)
+        XCTAssertEqual(panel.surfacePageZoom(), 1.9, accuracy: 0.001)
+    }
+
+    func testBrowserPanelResolvedCurrentSurfaceURLPrefersRuntimeState() {
+        let runtimeURL = URL(string: "https://example.com/runtime-current")!
+        let runtime = RecordingBrowserSurfaceRuntime()
+        runtime.state = makeRuntimeState(currentURL: runtimeURL)
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            runtimeFactory: RecordingBrowserSurfaceRuntimeFactory(runtime: runtime)
+        )
+
+        panel.restoreSessionNavigationHistory(
+            backHistoryURLStrings: [],
+            forwardHistoryURLStrings: [],
+            currentURLString: "https://example.com/restored-current"
+        )
+
+        XCTAssertEqual(panel.resolvedCurrentSurfaceURL(), runtimeURL)
+    }
+
+    func testBrowserPanelResolvedCurrentSurfaceURLFallsBackToRestoredHistory() {
+        let runtime = RecordingBrowserSurfaceRuntime()
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            runtimeFactory: RecordingBrowserSurfaceRuntimeFactory(runtime: runtime)
+        )
+
+        panel.restoreSessionNavigationHistory(
+            backHistoryURLStrings: ["https://example.com/restored-previous"],
+            forwardHistoryURLStrings: [],
+            currentURLString: "https://example.com/restored-current"
+        )
+
+        XCTAssertEqual(
+            panel.resolvedCurrentSurfaceURL(),
+            URL(string: "https://example.com/restored-current")
+        )
+    }
+
+    func testBrowserPanelDebugPortalSnapshotUsesPanelSurface() {
+        let panel = BrowserPanel(workspaceId: UUID())
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 240, height: 180),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        let host = NSView(frame: window.contentView?.bounds ?? .zero)
+        host.autoresizingMask = [.width, .height]
+        let anchor = NSView(frame: NSRect(x: 20, y: 30, width: 140, height: 90))
+        host.addSubview(anchor)
+        window.contentView = host
+
+        BrowserWindowPortalRegistry.bind(webView: panel.webView, to: anchor, visibleInUI: true, zPriority: 1)
+        BrowserWindowPortalRegistry.synchronizeForAnchor(anchor)
+        defer { BrowserWindowPortalRegistry.detach(webView: panel.webView) }
+
+        let snapshot = panel.debugPortalSnapshot()
+
+        XCTAssertEqual(snapshot?.visibleInUI, true)
+        XCTAssertEqual(snapshot?.containerHidden, false)
+        XCTAssertEqual(snapshot?.frameInWindow.origin.x ?? 0, 20, accuracy: 0.5)
+        XCTAssertEqual(snapshot?.frameInWindow.origin.y ?? 0, 30, accuracy: 0.5)
+        XCTAssertEqual(snapshot?.frameInWindow.width ?? 0, 140, accuracy: 0.5)
+        XCTAssertEqual(snapshot?.frameInWindow.height ?? 0, 90, accuracy: 0.5)
+    }
+
+    func testBrowserPanelRefreshSurfacePortalIfAnchorReadyRequiresReadyAnchor() {
+        let panel = BrowserPanel(workspaceId: UUID())
+
+        XCTAssertFalse(panel.refreshSurfacePortalIfAnchorReady(reason: "unitTest"))
+    }
+
+    func testBrowserPanelRefreshSurfacePortalIfAnchorReadyUsesPanelAnchor() {
+        let panel = BrowserPanel(workspaceId: UUID())
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 260, height: 200),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        let host = NSView(frame: window.contentView?.bounds ?? .zero)
+        host.autoresizingMask = [.width, .height]
+        window.contentView = host
+
+        let anchor = panel.portalAnchorView
+        anchor.frame = NSRect(x: 20, y: 30, width: 140, height: 90)
+        host.addSubview(anchor)
+
+        BrowserWindowPortalRegistry.bind(webView: panel.webView, to: anchor, visibleInUI: true, zPriority: 1)
+        defer { BrowserWindowPortalRegistry.detach(webView: panel.webView) }
+
+        XCTAssertTrue(panel.refreshSurfacePortalIfAnchorReady(reason: "unitTest.initial"))
+        XCTAssertEqual(panel.debugPortalSnapshot()?.frameInWindow.origin.x ?? 0, 20, accuracy: 0.5)
+
+        anchor.frame = NSRect(x: 48, y: 44, width: 150, height: 96)
+
+        XCTAssertTrue(panel.refreshSurfacePortalIfAnchorReady(reason: "unitTest.moved"))
+        XCTAssertEqual(panel.debugPortalSnapshot()?.frameInWindow.origin.x ?? 0, 48, accuracy: 0.5)
+        XCTAssertEqual(panel.debugPortalSnapshot()?.frameInWindow.origin.y ?? 0, 44, accuracy: 0.5)
+        XCTAssertEqual(panel.debugPortalSnapshot()?.frameInWindow.width ?? 0, 150, accuracy: 0.5)
+        XCTAssertEqual(panel.debugPortalSnapshot()?.frameInWindow.height ?? 0, 96, accuracy: 0.5)
+    }
+
+    func testBrowserPanelUpdateAndHideSurfacePortalUsePanelSurface() {
+        let panel = BrowserPanel(workspaceId: UUID())
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 260, height: 200),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        let host = NSView(frame: window.contentView?.bounds ?? .zero)
+        host.autoresizingMask = [.width, .height]
+        window.contentView = host
+
+        let anchor = panel.portalAnchorView
+        anchor.frame = NSRect(x: 20, y: 30, width: 140, height: 90)
+        host.addSubview(anchor)
+
+        BrowserWindowPortalRegistry.bind(webView: panel.webView, to: anchor, visibleInUI: true, zPriority: 1)
+        defer { BrowserWindowPortalRegistry.detach(webView: panel.webView) }
+
+        XCTAssertTrue(panel.refreshSurfacePortalIfAnchorReady(reason: "unitTest.initial"))
+        XCTAssertEqual(panel.debugPortalSnapshot()?.visibleInUI, true)
+
+        panel.updateSurfacePortalVisibility(visibleInUI: false, zPriority: 0)
+        XCTAssertEqual(panel.debugPortalSnapshot()?.visibleInUI, false)
+
+        panel.hideSurfacePortal(source: "unitTest")
+        drainMainQueue()
+
+        XCTAssertEqual(panel.debugPortalSnapshot()?.visibleInUI, false)
+        XCTAssertEqual(panel.debugPortalSnapshot()?.containerHidden, true)
+    }
+
+    func testBrowserPanelSurfaceHostedInWindowPortalUsesRuntimeAttachmentState() {
+        let runtime = RecordingBrowserSurfaceRuntime()
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            runtimeFactory: RecordingBrowserSurfaceRuntimeFactory(runtime: runtime)
+        )
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 240, height: 180),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        let host = NSView(frame: window.contentView?.bounds ?? .zero)
+        host.autoresizingMask = [.width, .height]
+        let anchor = panel.portalAnchorView
+        anchor.frame = NSRect(x: 20, y: 30, width: 140, height: 90)
+        host.addSubview(anchor)
+        window.contentView = host
+
+        runtime.currentAttachmentState = BrowserSurfaceRuntimeAttachmentState(
+            isAttachedToSuperview: true,
+            isInWindow: true
+        )
+        BrowserWindowPortalRegistry.bind(webView: panel.webView, to: anchor, visibleInUI: true, zPriority: 1)
+        BrowserWindowPortalRegistry.synchronizeForAnchor(anchor)
+        defer { BrowserWindowPortalRegistry.detach(webView: panel.webView) }
+
+        XCTAssertTrue(panel.isSurfaceHostedInWindowPortal())
+
+        runtime.currentAttachmentState = BrowserSurfaceRuntimeAttachmentState(
+            isAttachedToSuperview: false,
+            isInWindow: true
+        )
+        XCTAssertFalse(panel.isSurfaceHostedInWindowPortal())
+    }
+
+    func testBrowserPanelResponderPolicyUsesRuntimeBoundary() {
+        let runtime = RecordingBrowserSurfaceRuntime()
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            runtimeFactory: RecordingBrowserSurfaceRuntimeFactory(runtime: runtime)
+        )
+
+        panel.syncSurfaceFirstResponderAcquisitionPolicy(isPanelFocused: true)
+        XCTAssertEqual(runtime.lastAllowsFirstResponderAcquisition, true)
+
+        panel.suppressWebViewFocus(for: 5)
+        panel.syncSurfaceFirstResponderAcquisitionPolicy(isPanelFocused: true)
+        XCTAssertEqual(runtime.lastAllowsFirstResponderAcquisition, false)
+    }
+
+    func testBrowserPanelFindUsesRuntimeBoundary() async {
+        let runtime = RecordingBrowserSurfaceRuntime()
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            runtimeFactory: RecordingBrowserSurfaceRuntimeFactory(runtime: runtime)
+        )
+
+        let initialClearInvoked = expectation(description: "initial find clear")
+        runtime.onClearFindInPage = {
+            initialClearInvoked.fulfill()
+        }
+        panel.startFind()
+        await fulfillment(of: [initialClearInvoked], timeout: 1)
+
+        runtime.onClearFindInPage = nil
+        runtime.findInPageResult = BrowserFindResult(total: 3, selected: 0)
+        let searchInvoked = expectation(description: "find search")
+        runtime.onFindInPage = {
+            searchInvoked.fulfill()
+        }
+        panel.searchState?.needle = "runtime"
+        await fulfillment(of: [searchInvoked], timeout: 1)
+
+        XCTAssertEqual(runtime.findQueries.last, "runtime")
+        XCTAssertEqual(panel.searchState?.total, 3)
+        XCTAssertEqual(panel.searchState?.selected, 0)
+
+        runtime.onFindInPage = nil
+        runtime.findNextInPageResult = BrowserFindResult(total: 3, selected: 1)
+        let nextInvoked = expectation(description: "find next")
+        runtime.onFindNextInPage = {
+            nextInvoked.fulfill()
+        }
+        panel.findNext()
+        await fulfillment(of: [nextInvoked], timeout: 1)
+
+        XCTAssertEqual(runtime.findNextInPageCallCount, 1)
+        XCTAssertEqual(panel.searchState?.selected, 1)
+
+        runtime.onFindNextInPage = nil
+        runtime.findPreviousInPageResult = BrowserFindResult(total: 3, selected: 0)
+        let previousInvoked = expectation(description: "find previous")
+        runtime.onFindPreviousInPage = {
+            previousInvoked.fulfill()
+        }
+        panel.findPrevious()
+        await fulfillment(of: [previousInvoked], timeout: 1)
+
+        XCTAssertEqual(runtime.findPreviousInPageCallCount, 1)
+        XCTAssertEqual(panel.searchState?.selected, 0)
+
+        runtime.onFindPreviousInPage = nil
+        let clearInvoked = expectation(description: "find hide clear")
+        let baselineClearCallCount = runtime.clearFindInPageCallCount
+        runtime.onClearFindInPage = {
+            clearInvoked.fulfill()
+        }
+        panel.hideFind()
+        await fulfillment(of: [clearInvoked], timeout: 1)
+
+        XCTAssertNil(panel.searchState)
+        XCTAssertEqual(runtime.clearFindInPageCallCount, baselineClearCallCount + 1)
+    }
+
+    func testBrowserPanelContextResetUsesRuntimeAttachmentStateBoundary() {
+        let runtime = RecordingBrowserSurfaceRuntime()
+        runtime.currentAttachmentState = BrowserSurfaceRuntimeAttachmentState(
+            isAttachedToSuperview: true,
+            isInWindow: false
+        )
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            runtimeFactory: RecordingBrowserSurfaceRuntimeFactory(runtime: runtime)
+        )
+        let priorWebView = panel.webView
+        let priorInstanceID = panel.webViewInstanceID
+
+        panel.resetForWorkspaceContextChange(reason: "runtime-attachment")
+
+        XCTAssertFalse(panel.webView === priorWebView)
+        XCTAssertNotEqual(panel.webViewInstanceID, priorInstanceID)
+        XCTAssertFalse(panel.shouldRenderWebView)
+    }
+
+    func testBrowserPanelLoadingIndicatorSettlingUsesRuntimeStateBoundary() {
+        let runtime = RecordingBrowserSurfaceRuntime()
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            runtimeFactory: RecordingBrowserSurfaceRuntimeFactory(runtime: runtime)
+        )
+
+        runtime.emitState(makeRuntimeState(isLoading: true))
+        XCTAssertTrue(panel.isLoading)
+
+        runtime.emitState(makeRuntimeState(isLoading: false))
+        runtime.state = makeRuntimeState(isLoading: true)
+
+        RunLoop.current.run(until: Date().addingTimeInterval(0.5))
+        XCTAssertTrue(panel.isLoading)
+    }
+
+    func testBrowserPanelDetachedDeveloperToolsIntentUsesRuntimeAttachmentStateBoundary() {
+        let runtime = RecordingBrowserSurfaceRuntime()
+        runtime.currentDeveloperToolsVisibilityState = .hidden
+        runtime.currentAttachmentState = BrowserSurfaceRuntimeAttachmentState(
+            isAttachedToSuperview: true,
+            isInWindow: true
+        )
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            runtimeFactory: RecordingBrowserSurfaceRuntimeFactory(runtime: runtime)
+        )
+
+        XCTAssertTrue(panel.showDeveloperTools())
+        XCTAssertFalse(panel.shouldPreserveDeveloperToolsIntentWhileDetached())
+    }
+
+    func testBrowserPanelDeveloperToolsVisibilityUsesRuntimeBoundary() {
+        let runtime = RecordingBrowserSurfaceRuntime()
+        runtime.currentDeveloperToolsVisibilityState = .hidden
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            runtimeFactory: RecordingBrowserSurfaceRuntimeFactory(runtime: runtime)
+        )
+
+        XCTAssertTrue(panel.showDeveloperTools())
+        XCTAssertEqual(runtime.revealDeveloperToolsCallCount, 1)
+        XCTAssertEqual(runtime.lastRevealDeveloperToolsAttachIfNeeded, true)
+        XCTAssertTrue(panel.isDeveloperToolsVisible())
+
+        RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+        XCTAssertTrue(panel.hideDeveloperTools())
+        XCTAssertEqual(runtime.concealDeveloperToolsCallCount, 1)
+        XCTAssertFalse(panel.isDeveloperToolsVisible())
+    }
+
+    func testBrowserPanelQueuesHideAcrossAsyncShowTransition() {
+        let runtime = RecordingBrowserSurfaceRuntime()
+        runtime.currentDeveloperToolsVisibilityState = .hidden
+        runtime.revealDeveloperToolsMutatesVisibility = false
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            runtimeFactory: RecordingBrowserSurfaceRuntimeFactory(runtime: runtime)
+        )
+
+        XCTAssertTrue(panel.showDeveloperTools())
+        XCTAssertTrue(panel.hideDeveloperTools())
+
+        runtime.currentDeveloperToolsVisibilityState = .visible
+        RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+
+        XCTAssertEqual(runtime.concealDeveloperToolsCallCount, 1)
+        XCTAssertFalse(panel.isDeveloperToolsVisible())
+    }
+
+    func testBrowserPanelDeveloperToolsConsoleUsesRuntimeBoundary() {
+        let runtime = RecordingBrowserSurfaceRuntime()
+        runtime.currentDeveloperToolsVisibilityState = .visible
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            runtimeFactory: RecordingBrowserSurfaceRuntimeFactory(runtime: runtime)
+        )
+
+        XCTAssertTrue(panel.showDeveloperToolsConsole())
+        XCTAssertEqual(runtime.revealDeveloperToolsCallCount, 0)
+        XCTAssertEqual(runtime.showDeveloperToolsConsoleCallCount, 1)
+        XCTAssertTrue(panel.isDeveloperToolsVisible())
+    }
+
+    func testBrowserPanelInlineDeveloperToolsHostingUsesRuntimeHostStateBoundary() {
+        let runtime = RecordingBrowserSurfaceRuntime()
+        runtime.currentDeveloperToolsVisibilityState = .visible
+        runtime.currentDeveloperToolsHostState = BrowserSurfaceDeveloperToolsHostState(
+            hasAttachedInspectorLayout: false,
+            detachedWindowCount: 1
+        )
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            runtimeFactory: RecordingBrowserSurfaceRuntimeFactory(runtime: runtime)
+        )
+
+        XCTAssertFalse(panel.shouldUseLocalInlineDeveloperToolsHosting())
+
+        runtime.currentDeveloperToolsHostState = BrowserSurfaceDeveloperToolsHostState(
+            hasAttachedInspectorLayout: true,
+            detachedWindowCount: 0
+        )
+        XCTAssertTrue(panel.shouldUseLocalInlineDeveloperToolsHosting())
+    }
+
+    func testBrowserPanelTransientHideAttachmentPreserveUsesRuntimeHostStateBoundary() {
+        let runtime = RecordingBrowserSurfaceRuntime()
+        runtime.currentDeveloperToolsVisibilityState = .hidden
+        runtime.currentDeveloperToolsHostState = BrowserSurfaceDeveloperToolsHostState(
+            hasAttachedInspectorLayout: true,
+            detachedWindowCount: 0,
+            hasSideDockedInspectorLayout: false
+        )
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            runtimeFactory: RecordingBrowserSurfaceRuntimeFactory(runtime: runtime)
+        )
+
+        XCTAssertTrue(panel.showDeveloperTools())
+        XCTAssertTrue(panel.shouldPreserveWebViewAttachmentDuringTransientHide())
+
+        runtime.currentDeveloperToolsHostState = BrowserSurfaceDeveloperToolsHostState(
+            hasAttachedInspectorLayout: true,
+            detachedWindowCount: 0,
+            hasSideDockedInspectorLayout: true
+        )
+
+        XCTAssertFalse(panel.shouldPreserveWebViewAttachmentDuringTransientHide())
+    }
+
+    func testBrowserPanelDismissesDetachedDeveloperToolsWindowsThroughRuntimeBoundary() {
+        let runtime = RecordingBrowserSurfaceRuntime()
+        runtime.currentDeveloperToolsVisibilityState = .visible
+        runtime.currentAttachmentState = BrowserSurfaceRuntimeAttachmentState(
+            isAttachedToSuperview: true,
+            isInWindow: true
+        )
+        runtime.currentDeveloperToolsHostState = BrowserSurfaceDeveloperToolsHostState(
+            hasAttachedInspectorLayout: true,
+            detachedWindowCount: 0
+        )
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            runtimeFactory: RecordingBrowserSurfaceRuntimeFactory(runtime: runtime)
+        )
+
+        panel.syncDeveloperToolsPreferenceFromInspector()
+        XCTAssertTrue(panel.showDeveloperTools())
+        runtime.currentDeveloperToolsHostState = BrowserSurfaceDeveloperToolsHostState(
+            hasAttachedInspectorLayout: true,
+            detachedWindowCount: 1
+        )
+        RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+
+        XCTAssertGreaterThan(runtime.dismissDetachedDeveloperToolsWindowsCallCount, 0)
+    }
+
+    func testBrowserPanelPreferredURLStringForOmnibarUsesRuntimeStateBeforePublishedCurrentURL() {
+        let runtime = RecordingBrowserSurfaceRuntime()
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            runtimeFactory: RecordingBrowserSurfaceRuntimeFactory(runtime: runtime)
+        )
+        let runtimeURL = URL(string: "https://example.com/runtime-current")!
+
+        runtime.state = BrowserSurfaceRuntimeState(
+            currentURL: runtimeURL,
+            title: nil,
+            isLoading: false,
+            canGoBack: false,
+            canGoForward: false,
+            estimatedProgress: 0,
+            pageZoom: runtime.state.pageZoom
+        )
+
+        XCTAssertNil(panel.currentURL)
+        XCTAssertEqual(panel.preferredURLStringForOmnibar(), runtimeURL.absoluteString)
+    }
+
+    func testBrowserPanelKeepsExistingTitleDuringLoadingWhenRuntimeTitleIsEmpty() {
+        let runtime = RecordingBrowserSurfaceRuntime()
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            runtimeFactory: RecordingBrowserSurfaceRuntimeFactory(runtime: runtime)
+        )
+
+        runtime.emitState(
+            BrowserSurfaceRuntimeState(
+                currentURL: URL(string: "https://example.com/original"),
+                title: "Original Title",
+                isLoading: false,
+                canGoBack: false,
+                canGoForward: false,
+                estimatedProgress: 0,
+                pageZoom: runtime.state.pageZoom
+            )
+        )
+        runtime.emitState(
+            BrowserSurfaceRuntimeState(
+                currentURL: URL(string: "https://example.com/reload"),
+                title: nil,
+                isLoading: true,
+                canGoBack: false,
+                canGoForward: false,
+                estimatedProgress: 0.3,
+                pageZoom: runtime.state.pageZoom
+            )
+        )
+
+        XCTAssertEqual(panel.pageTitle, "Original Title")
+    }
+
+    func testBrowserPanelClearsStaleTitleAfterFinishedUntitledNavigation() {
+        let runtime = RecordingBrowserSurfaceRuntime()
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            runtimeFactory: RecordingBrowserSurfaceRuntimeFactory(runtime: runtime)
+        )
+
+        runtime.emitState(
+            BrowserSurfaceRuntimeState(
+                currentURL: URL(string: "https://example.com/original"),
+                title: "Original Title",
+                isLoading: false,
+                canGoBack: false,
+                canGoForward: false,
+                estimatedProgress: 0,
+                pageZoom: runtime.state.pageZoom
+            )
+        )
+        runtime.state = BrowserSurfaceRuntimeState(
+            currentURL: URL(string: "https://example.com/untitled"),
+            title: nil,
+            isLoading: false,
+            canGoBack: false,
+            canGoForward: false,
+            estimatedProgress: 1.0,
+            pageZoom: runtime.state.pageZoom
+        )
+
+        runtime.eventHandlers.didFinishNavigation?()
+
+        XCTAssertEqual(panel.pageTitle, "")
+    }
+
+    func testBrowserPanelKeepsFailedURLTitleWhenRuntimeStateTitleIsEmpty() {
+        let runtime = RecordingBrowserSurfaceRuntime()
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            runtimeFactory: RecordingBrowserSurfaceRuntimeFactory(runtime: runtime)
+        )
+        let failedURL = "https://example.com/failed"
+
+        runtime.eventHandlers.didFailNavigation?(failedURL)
+        runtime.emitState(
+            BrowserSurfaceRuntimeState(
+                currentURL: nil,
+                title: nil,
+                isLoading: false,
+                canGoBack: false,
+                canGoForward: false,
+                estimatedProgress: 0,
+                pageZoom: runtime.state.pageZoom
+            )
+        )
+
+        XCTAssertEqual(panel.pageTitle, failedURL)
+    }
+
+    func testBrowserPanelKeepsFailedURLTitleWhenRuntimeStateReplaysPreviousTitle() {
+        let runtime = RecordingBrowserSurfaceRuntime()
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            runtimeFactory: RecordingBrowserSurfaceRuntimeFactory(runtime: runtime)
+        )
+        let failedURL = "https://example.com/failed"
+
+        runtime.emitState(
+            BrowserSurfaceRuntimeState(
+                currentURL: URL(string: "https://example.com/original"),
+                title: "Original Title",
+                isLoading: false,
+                canGoBack: false,
+                canGoForward: false,
+                estimatedProgress: 0,
+                pageZoom: runtime.state.pageZoom
+            )
+        )
+        runtime.eventHandlers.didFailNavigation?(failedURL)
+        runtime.emitState(
+            BrowserSurfaceRuntimeState(
+                currentURL: URL(string: failedURL),
+                title: "Original Title",
+                isLoading: true,
+                canGoBack: false,
+                canGoForward: false,
+                estimatedProgress: 0.4,
+                pageZoom: runtime.state.pageZoom
+            )
+        )
+
+        XCTAssertEqual(panel.pageTitle, failedURL)
+
+        runtime.emitState(
+            BrowserSurfaceRuntimeState(
+                currentURL: URL(string: failedURL),
+                title: "Recovered Title",
+                isLoading: false,
+                canGoBack: false,
+                canGoForward: false,
+                estimatedProgress: 1.0,
+                pageZoom: runtime.state.pageZoom
+            )
+        )
+
+        XCTAssertEqual(panel.pageTitle, "Recovered Title")
+    }
+
+    func testBrowserPanelRestoredSessionHistoryUsesRuntimeStateCurrentURL() {
+        let runtime = RecordingBrowserSurfaceRuntime()
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            runtimeFactory: RecordingBrowserSurfaceRuntimeFactory(runtime: runtime)
+        )
+        let runtimeURL = URL(string: "https://example.com/runtime-current")!
+        let previousURL = URL(string: "https://example.com/runtime-previous")!
+
+        runtime.state = BrowserSurfaceRuntimeState(
+            currentURL: runtimeURL,
+            title: nil,
+            isLoading: false,
+            canGoBack: false,
+            canGoForward: false,
+            estimatedProgress: 0,
+            pageZoom: runtime.state.pageZoom
+        )
+        panel.restoreSessionNavigationHistory(
+            backHistoryURLStrings: [previousURL.absoluteString],
+            forwardHistoryURLStrings: [],
+            currentURLString: nil
+        )
+
+        XCTAssertNil(panel.currentURL)
+        XCTAssertTrue(panel.canGoBack)
+
+        panel.goBack()
+
+        XCTAssertEqual(runtime.loadedRequests.last?.url, previousURL)
+        XCTAssertTrue(panel.canGoForward)
+    }
+
+    func testBrowserPanelBackgroundRefreshUsesRuntimeBoundary() {
+        let runtime = RecordingBrowserSurfaceRuntime()
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            runtimeFactory: RecordingBrowserSurfaceRuntimeFactory(runtime: runtime)
+        )
+        let updatedColor = NSColor(srgbRed: 0.18, green: 0.29, blue: 0.44, alpha: 1.0)
+        let updatedOpacity = 0.57
+
+        NotificationCenter.default.post(
+            name: .ghosttyDefaultBackgroundDidChange,
+            object: nil,
+            userInfo: [
+                GhosttyNotificationKey.backgroundColor: updatedColor,
+                GhosttyNotificationKey.backgroundOpacity: updatedOpacity
+            ]
+        )
+
+        assertColorsEqual(
+            runtime.lastUnderPageBackgroundColor,
+            updatedColor.withAlphaComponent(updatedOpacity)
+        )
+        _ = panel
+    }
+
+    func testBrowserPanelDidFinishNavigationFetchesFaviconThroughRuntime() async {
+        let runtime = RecordingBrowserSurfaceRuntime()
+        let expectedPNG = Data([0x89, 0x50, 0x4E, 0x47])
+        runtime.fetchedFaviconPNGData = expectedPNG
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            runtimeFactory: RecordingBrowserSurfaceRuntimeFactory(runtime: runtime)
+        )
+        let fetchedFavicon = expectation(description: "favicon fetched")
+        runtime.onFetchFaviconPNGData = {
+            fetchedFavicon.fulfill()
+        }
+
+        runtime.eventHandlers.didFinishNavigation?()
+        await fulfillment(of: [fetchedFavicon], timeout: 1)
+        await Task.yield()
+
+        XCTAssertEqual(runtime.fetchFaviconPNGDataCallCount, 1)
+        XCTAssertEqual(panel.faviconPNGData, expectedPNG)
+    }
+
+    func testBrowserPanelLoadingStartInvalidatesRuntimeFaviconCache() {
+        let runtime = RecordingBrowserSurfaceRuntime()
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            runtimeFactory: RecordingBrowserSurfaceRuntimeFactory(runtime: runtime)
+        )
+
+        runtime.emitState(
+            BrowserSurfaceRuntimeState(
+                currentURL: URL(string: "https://example.com/favicon")!,
+                title: "Example",
+                isLoading: true,
+                canGoBack: false,
+                canGoForward: false,
+                estimatedProgress: 0.2,
+                pageZoom: 1.0
+            )
+        )
+
+        XCTAssertEqual(runtime.invalidateFaviconCacheCallCount, 1)
+        XCTAssertNil(panel.faviconPNGData)
+    }
+
+    func testBrowserPanelAddressBarSuppressionCapturesPageFocusViaRuntimeOnce() {
+        let runtime = RecordingBrowserSurfaceRuntime()
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            runtimeFactory: RecordingBrowserSurfaceRuntimeFactory(runtime: runtime)
+        )
+
+        panel.beginSuppressWebViewFocusForAddressBar()
+        panel.beginSuppressWebViewFocusForAddressBar()
+
+        XCTAssertEqual(runtime.captureAddressBarPageFocusCallCount, 1)
+    }
+
+    func testBrowserPanelRestoreAddressBarFocusRetriesViaRuntime() async {
+        let runtime = RecordingBrowserSurfaceRuntime()
+        runtime.restoreAddressBarPageFocusStatuses = [.notFocused, .restored]
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            runtimeFactory: RecordingBrowserSurfaceRuntimeFactory(runtime: runtime)
+        )
+        let restoreFinished = expectation(description: "runtime restore completed")
+        var didRestoreFocus = false
+
+        panel.restoreAddressBarPageFocusIfNeeded { restored in
+            didRestoreFocus = restored
+            restoreFinished.fulfill()
+        }
+
+        await fulfillment(of: [restoreFinished], timeout: 1)
+
+        XCTAssertTrue(didRestoreFocus)
+        XCTAssertEqual(runtime.restoreAddressBarPageFocusCallCount, 2)
+    }
+}
+
 final class TerminalControllerSocketListenerHealthTests: XCTestCase {
     func testStableSocketBindPermissionFailureFallsBackToUserScopedSocket() {
         XCTAssertEqual(

@@ -1,5 +1,10 @@
 import Foundation
 
+struct BrowserFindResult: Equatable {
+    let total: UInt
+    let selected: UInt?
+}
+
 /// JavaScript snippets for find-in-page in WKWebView.
 ///
 /// Uses TreeWalker to scan text nodes and wraps matches with `<mark>` elements.
@@ -169,6 +174,24 @@ enum BrowserFindJavaScript {
           return 'ok';
         })()
         """
+    }
+
+    static func parseResult(_ result: Any?) -> BrowserFindResult? {
+        guard let jsonString = result as? String,
+              let data = jsonString.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let total = json["total"] as? Int,
+              let current = json["current"] as? Int,
+              total >= 0, current >= 0 else {
+            return nil
+        }
+        if total == 0 {
+            return BrowserFindResult(total: 0, selected: nil)
+        }
+        guard current < total else {
+            return nil
+        }
+        return BrowserFindResult(total: UInt(total), selected: UInt(current))
     }
 
     // MARK: - Internal

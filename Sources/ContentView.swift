@@ -2391,7 +2391,7 @@ struct ContentView: View {
                   let selectedWorkspace = tabManager.selectedWorkspace,
                   let focusedPanelId = selectedWorkspace.focusedPanelId,
                   let focusedBrowser = selectedWorkspace.browserPanel(for: focusedPanelId),
-                  focusedBrowser.webView === webView else { return }
+                  focusedBrowser.ownsSurfaceWebView(webView) else { return }
             completeWorkspaceHandoffIfNeeded(focusedTabId: selectedTabId, reason: "browser_first_responder")
         })
 
@@ -6305,7 +6305,7 @@ struct ContentView: View {
     ) -> CommandPaletteRestoreFocusTarget? {
         for (panelId, panel) in workspace.panels {
             guard let browserPanel = panel as? BrowserPanel,
-                  browserPanel.webView === webView else {
+                  browserPanel.ownsSurfaceWebView(webView) else {
                 continue
             }
 

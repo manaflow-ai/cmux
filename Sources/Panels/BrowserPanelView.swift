@@ -911,20 +911,16 @@ struct BrowserPanelView: View {
         reason: String,
         isPanelFocusedOverride: Bool? = nil
     ) {
-        guard let cmuxWebView = panel.webView as? CmuxWebView else { return }
         let isPanelFocused = isPanelFocusedOverride ?? isFocused
         let next = isPanelFocused && !panel.shouldSuppressWebViewFocus()
-        if cmuxWebView.allowsFirstResponderAcquisition != next {
 #if DEBUG
-            dlog(
-                "browser.focus.policy.resync panel=\(panel.id.uuidString.prefix(5)) " +
-                "web=\(ObjectIdentifier(cmuxWebView)) old=\(cmuxWebView.allowsFirstResponderAcquisition ? 1 : 0) " +
-                "new=\(next ? 1 : 0) reason=\(reason) " +
-                "panelFocusedUsed=\(isPanelFocused ? 1 : 0)"
-            )
+        dlog(
+            "browser.focus.policy.resync panel=\(panel.id.uuidString.prefix(5)) " +
+            "new=\(next ? 1 : 0) reason=\(reason) " +
+            "panelFocusedUsed=\(isPanelFocused ? 1 : 0)"
+        )
 #endif
-        }
-        cmuxWebView.allowsFirstResponderAcquisition = next
+        panel.syncSurfaceFirstResponderAcquisitionPolicy(isPanelFocused: isPanelFocused)
     }
 
     private func setAddressBarFocused(_ focused: Bool, reason: String) {
@@ -947,20 +943,6 @@ struct BrowserPanelView: View {
         }
     }
 
-    private func browserFocusResponderChainContains(
-        _ start: NSResponder?,
-        target: NSResponder
-    ) -> Bool {
-        var current = start
-        var hops = 0
-        while let responder = current, hops < 64 {
-            if responder === target { return true }
-            current = responder.nextResponder
-            hops += 1
-        }
-        return false
-    }
-
     private func isPanelFocusedInModel() -> Bool {
         guard let app = AppDelegate.shared,
               let manager = app.tabManagerFor(tabId: panel.workspaceId),
@@ -972,12 +954,12 @@ struct BrowserPanelView: View {
     }
 
     private func shouldApplyAddressBarExitFallback(in window: NSWindow) -> Bool {
-        panel.webView.window === window && isPanelFocusedInModel()
+        panel.surfaceHostingWindow() === window && isPanelFocusedInModel()
     }
 
 #if DEBUG
     private func browserFocusWindow() -> NSWindow? {
-        panel.webView.window ?? NSApp.keyWindow ?? NSApp.mainWindow
+        panel.effectiveSurfaceWindow()
     }
 
     private func browserFocusResponderDescription(_ responder: NSResponder?) -> String {
@@ -989,7 +971,7 @@ struct BrowserPanelView: View {
         let window = browserFocusWindow()
         let firstResponder = window?.firstResponder
         let firstResponderType = browserFocusResponderDescription(firstResponder)
-        let webResponder = browserFocusResponderChainContains(firstResponder, target: panel.webView) ? 1 : 0
+        let webResponder = panel.surfaceOwnsResponder(firstResponder) ? 1 : 0
         var line =
             "browser.focus.trace event=\(event) panel=\(panel.id.uuidString.prefix(5)) " +
             "panelFocused=\(isFocused ? 1 : 0) addrFocused=\(addressBarFocused ? 1 : 0) " +
@@ -1015,7 +997,7 @@ struct BrowserPanelView: View {
     private func isCommandPaletteVisibleForPanelWindow() -> Bool {
         guard let app = AppDelegate.shared else { return false }
 
-        if let window = panel.webView.window, app.isCommandPaletteVisible(for: window) {
+        if let window = panel.surfaceHostingWindow(), app.isCommandPaletteVisible(for: window) {
             return true
         }
 
@@ -1121,8 +1103,7 @@ struct BrowserPanelView: View {
 
     /// Treat a WebView with no URL (or about:blank) as "blank" for UX purposes.
     private func isWebViewBlank() -> Bool {
-        guard let url = panel.webView.url else { return true }
-        return url.absoluteString == "about:blank"
+        panel.isSurfaceBlankForAutofocus()
     }
 
     private func autoFocusOmnibarIfBlank() {
@@ -1152,7 +1133,7 @@ struct BrowserPanelView: View {
             return
         }
         // If a real navigation is underway (e.g. open_browser https://...), don't steal focus.
-        guard !panel.webView.isLoading else {
+        guard !panel.isSurfaceLoadingNow() else {
 #if DEBUG
             logBrowserFocusState(event: "addressBarFocus.autoFocus.skip", detail: "reason=webview_loading")
 #endif
@@ -1544,8 +1525,8 @@ struct BrowserPanelView: View {
             syncWebViewResponderPolicyWithViewState(reason: "effects.blurToWebView.preHandoff")
             setAddressBarFocused(false, reason: "effects.blurToWebView")
             DispatchQueue.main.async {
-                guard let window = panel.webView.window,
-                      !panel.webView.isHiddenOrHasHiddenAncestor else { return }
+                guard let window = panel.surfaceHostingWindow(),
+                      !panel.isSurfaceHiddenOrHasHiddenAncestor() else { return }
                 guard shouldApplyAddressBarExitFallback(in: window) else {
 #if DEBUG
                     dlog(
@@ -1558,10 +1539,7 @@ struct BrowserPanelView: View {
                 }
                 syncWebViewResponderPolicyWithViewState(reason: "effects.blurToWebView.handoff")
                 panel.clearWebViewFocusSuppression()
-                let focusedWebView = window.makeFirstResponder(panel.webView)
-                if focusedWebView {
-                    panel.noteWebViewFocused()
-                }
+                let focusedWebView = panel.focusSurfaceForHandoff()
 #if DEBUG
                 dlog(
                     "browser.focus.addressBar.exit.handoff panel=\(panel.id.uuidString.prefix(5)) " +
@@ -1579,10 +1557,9 @@ struct BrowserPanelView: View {
                         NotificationCenter.default.post(name: .browserDidExitAddressBar, object: panel.id)
                         return
                     }
-                    var hasWebViewResponder =
-                        browserFocusResponderChainContains(window.firstResponder, target: panel.webView)
+                    var hasWebViewResponder = panel.surfaceOwnsResponder(window.firstResponder)
                     if !hasWebViewResponder {
-                        let fallbackFocusedWebView = window.makeFirstResponder(panel.webView)
+                        let fallbackFocusedWebView = panel.focusSurfaceForHandoff()
                         hasWebViewResponder = fallbackFocusedWebView
 #if DEBUG
                         dlog(
@@ -1591,9 +1568,6 @@ struct BrowserPanelView: View {
                             "restored=\(restored ? 1 : 0)"
                         )
 #endif
-                    }
-                    if hasWebViewResponder {
-                        panel.noteWebViewFocused()
                     }
                     NotificationCenter.default.post(name: .browserDidExitAddressBar, object: panel.id)
                 }
@@ -5636,13 +5610,11 @@ struct WebViewRepresentable: NSViewRepresentable {
             : updateUsingWindowPortal(nsView, context: context, webView: webView)
         Self.applyWebViewFirstResponderPolicy(
             panel: panel,
-            webView: webView,
             isPanelFocused: isPanelFocused && isCurrentPaneOwner && hostOwnsPortal
         )
 
         Self.applyFocus(
             panel: panel,
-            webView: webView,
             nsView: nsView,
             shouldFocusWebView: shouldFocusWebView && isCurrentPaneOwner && hostOwnsPortal,
             isPanelFocused: isPanelFocused && isCurrentPaneOwner && hostOwnsPortal
@@ -5651,13 +5623,12 @@ struct WebViewRepresentable: NSViewRepresentable {
 
     private static func applyFocus(
         panel: BrowserPanel,
-        webView: WKWebView,
         nsView: NSView,
         shouldFocusWebView: Bool,
         isPanelFocused: Bool
     ) {
         // Focus handling. Avoid fighting the address bar when it is focused.
-        guard let window = nsView.window else {
+        guard let window = panel.surfaceHostingWindow() ?? nsView.window else {
 #if DEBUG
             dlog(
                 "browser.focus.content.apply panel=\(panel.id.uuidString.prefix(5)) " +
@@ -5667,7 +5638,7 @@ struct WebViewRepresentable: NSViewRepresentable {
 #endif
             return
         }
-        if isPanelFocused && responderChainContains(window.firstResponder, target: webView) {
+        if isPanelFocused && panel.surfaceOwnsResponder(window.firstResponder) {
             panel.noteWebViewFocused()
         }
         if shouldFocusWebView {
@@ -5680,7 +5651,7 @@ struct WebViewRepresentable: NSViewRepresentable {
 #endif
                 return
             }
-            if responderChainContains(window.firstResponder, target: webView) {
+            if panel.surfaceOwnsResponder(window.firstResponder) {
 #if DEBUG
                 dlog(
                     "browser.focus.content.apply panel=\(panel.id.uuidString.prefix(5)) " +
@@ -5689,21 +5660,18 @@ struct WebViewRepresentable: NSViewRepresentable {
 #endif
                 return
             }
-            let result = window.makeFirstResponder(webView)
-            if result {
-                panel.noteWebViewFocused()
-            }
+            let result = panel.focusSurfaceForHandoff()
 #if DEBUG
             dlog(
                 "browser.focus.content.apply panel=\(panel.id.uuidString.prefix(5)) " +
                 "action=focus result=\(result ? 1 : 0) fr=\(responderDescription(window.firstResponder))"
-            )
+                )
 #endif
-        } else if !isPanelFocused && responderChainContains(window.firstResponder, target: webView) {
+        } else if !isPanelFocused && panel.surfaceOwnsResponder(window.firstResponder) {
             // Only force-resign WebView focus when this panel itself is not focused.
             // If the panel is focused but the omnibar-focus state is briefly stale, aggressively
             // clearing first responder here can undo programmatic webview focus (socket tests).
-            let result = window.makeFirstResponder(nil)
+            let result = panel.yieldFocusIntent(.browser(.webView), in: window)
 #if DEBUG
             dlog(
                 "browser.focus.content.apply panel=\(panel.id.uuidString.prefix(5)) " +
@@ -5715,22 +5683,17 @@ struct WebViewRepresentable: NSViewRepresentable {
 
     private static func applyWebViewFirstResponderPolicy(
         panel: BrowserPanel,
-        webView: WKWebView,
         isPanelFocused: Bool
     ) {
-        guard let cmuxWebView = webView as? CmuxWebView else { return }
         let next = isPanelFocused && !panel.shouldSuppressWebViewFocus()
-        if cmuxWebView.allowsFirstResponderAcquisition != next {
 #if DEBUG
-            dlog(
-                "browser.focus.policy panel=\(panel.id.uuidString.prefix(5)) " +
-                "web=\(ObjectIdentifier(cmuxWebView)) old=\(cmuxWebView.allowsFirstResponderAcquisition ? 1 : 0) " +
-                "new=\(next ? 1 : 0) isPanelFocused=\(isPanelFocused ? 1 : 0) " +
-                "suppress=\(panel.shouldSuppressWebViewFocus() ? 1 : 0)"
-            )
+        dlog(
+            "browser.focus.policy panel=\(panel.id.uuidString.prefix(5)) " +
+            "new=\(next ? 1 : 0) isPanelFocused=\(isPanelFocused ? 1 : 0) " +
+            "suppress=\(panel.shouldSuppressWebViewFocus() ? 1 : 0)"
+        )
 #endif
-        }
-        cmuxWebView.allowsFirstResponderAcquisition = next
+        panel.syncSurfaceFirstResponderAcquisitionPolicy(isPanelFocused: isPanelFocused)
     }
 
     static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {

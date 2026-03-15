@@ -329,7 +329,7 @@ extension Workspace {
             browserSnapshot = SessionBrowserPanelSnapshot(
                 urlString: browserPanel.preferredURLStringForOmnibar(),
                 shouldRenderWebView: browserPanel.shouldRenderWebView,
-                pageZoom: Double(browserPanel.webView.pageZoom),
+                pageZoom: Double(browserPanel.surfacePageZoom()),
                 developerToolsVisible: browserPanel.isDeveloperToolsVisible(),
                 backHistoryURLStrings: historySnapshot.backHistoryURLStrings,
                 forwardHistoryURLStrings: historySnapshot.forwardHistoryURLStrings
@@ -577,7 +577,7 @@ extension Workspace {
 
             let pageZoom = CGFloat(max(0.25, min(5.0, browserSnapshot.pageZoom)))
             if pageZoom.isFinite {
-                browserPanel.webView.pageZoom = pageZoom
+                browserPanel.setSurfacePageZoom(pageZoom)
             }
 
             if browserSnapshot.developerToolsVisible {
@@ -2600,11 +2600,9 @@ final class Workspace: Identifiable, ObservableObject {
                 "hidden=\(hosted.isHidden ? 1 : 0) frame=\(frame) bounds=\(bounds)"
         }
         if let browser = panel as? BrowserPanel {
-            let webView = browser.webView
-            let frame = String(format: "%.1fx%.1f", webView.frame.width, webView.frame.height)
             return
                 "panelState=browser panel=\(panelId.uuidString.prefix(5)) " +
-                "webInWindow=\(webView.window != nil ? 1 : 0) webHasSuperview=\(webView.superview != nil ? 1 : 0) frame=\(frame)"
+                browser.debugSurfaceHostingSummary()
         }
         return "panelState=\(String(describing: type(of: panel))) panel=\(panelId.uuidString.prefix(5))"
     }
@@ -2816,9 +2814,7 @@ final class Workspace: Identifiable, ObservableObject {
             forPaneId: pane.id.uuidString,
             in: bonsplitController.treeSnapshot()
         )
-        let resolvedURL = browserPanel.currentURL
-            ?? browserPanel.webView.url
-            ?? browserPanel.preferredURLStringForOmnibar().flatMap(URL.init(string:))
+        let resolvedURL = browserPanel.resolvedCurrentSurfaceURL()
 
         pendingClosedBrowserRestoreSnapshots[tab.id] = ClosedBrowserPanelRestoreSnapshot(
             workspaceId: id,
@@ -3500,10 +3496,7 @@ final class Workspace: Identifiable, ObservableObject {
     func hideAllBrowserPortalViews() {
         for panel in panels.values {
             guard let browser = panel as? BrowserPanel else { continue }
-            BrowserWindowPortalRegistry.hide(
-                webView: browser.webView,
-                source: "workspaceRetire"
-            )
+            browser.hideSurfacePortal(source: "workspaceRetire")
         }
     }
 
@@ -3782,34 +3775,11 @@ final class Workspace: Identifiable, ObservableObject {
             guard let browserPanel = panel as? BrowserPanel else { continue }
             let shouldBeVisible = visiblePanelIds.contains(browserPanel.id)
             if shouldBeVisible {
-                BrowserWindowPortalRegistry.updateEntryVisibility(
-                    for: browserPanel.webView,
-                    visibleInUI: true,
-                    zPriority: 2
-                )
-                let anchorView = browserPanel.portalAnchorView
-                let anchorReady =
-                    anchorView.window != nil &&
-                    anchorView.superview != nil &&
-                    anchorView.bounds.width > 1 &&
-                    anchorView.bounds.height > 1
-                if anchorReady {
-                    BrowserWindowPortalRegistry.synchronizeForAnchor(anchorView)
-                    BrowserWindowPortalRegistry.refresh(
-                        webView: browserPanel.webView,
-                        reason: reason
-                    )
-                }
+                browserPanel.updateSurfacePortalVisibility(visibleInUI: true, zPriority: 2)
+                _ = browserPanel.refreshSurfacePortalIfAnchorReady(reason: reason)
             } else {
-                BrowserWindowPortalRegistry.updateEntryVisibility(
-                    for: browserPanel.webView,
-                    visibleInUI: false,
-                    zPriority: 0
-                )
-                BrowserWindowPortalRegistry.hide(
-                    webView: browserPanel.webView,
-                    source: reason
-                )
+                browserPanel.updateSurfacePortalVisibility(visibleInUI: false, zPriority: 0)
+                browserPanel.hideSurfacePortal(source: reason)
             }
         }
     }
@@ -3820,16 +3790,7 @@ final class Workspace: Identifiable, ObservableObject {
         for panel in panels.values {
             guard let browserPanel = panel as? BrowserPanel else { continue }
             guard visiblePanelIds.contains(browserPanel.id) else { continue }
-            let anchorView = browserPanel.portalAnchorView
-            let anchorReady =
-                anchorView.window != nil &&
-                anchorView.superview != nil &&
-                anchorView.bounds.width > 1 &&
-                anchorView.bounds.height > 1
-            if !anchorReady ||
-                browserPanel.webView.window == nil ||
-                browserPanel.webView.superview == nil ||
-                !BrowserWindowPortalRegistry.isWebView(browserPanel.webView, boundTo: anchorView) {
+            if !browserPanel.isSurfacePortalAnchorReady() || !browserPanel.isSurfaceHostedInWindowPortal() {
                 return true
             }
         }
@@ -3873,25 +3834,10 @@ final class Workspace: Identifiable, ObservableObject {
                 window.contentView?.displayIfNeeded()
             }
 
-            let anchorView = browserPanel.portalAnchorView
-            let anchorReady =
-                anchorView.window != nil &&
-                anchorView.superview != nil &&
-                anchorView.bounds.width > 1 &&
-                anchorView.bounds.height > 1
-
-            if anchorReady {
-                BrowserWindowPortalRegistry.synchronizeForAnchor(anchorView)
-                BrowserWindowPortalRegistry.refresh(
-                    webView: browserPanel.webView,
-                    reason: "workspace.toggleSplitZoom"
-                )
-            }
-
-            let portalNeedsFollowUpPass =
-                !anchorReady ||
-                browserPanel.webView.window == nil ||
-                browserPanel.webView.superview == nil
+            let portalRefreshed = browserPanel.refreshSurfacePortalIfAnchorReady(
+                reason: "workspace.toggleSplitZoom"
+            )
+            let portalNeedsFollowUpPass = !portalRefreshed || !browserPanel.isSurfaceHostedInWindowPortal()
             if portalNeedsFollowUpPass {
                 self.scheduleBrowserPortalReconcileAfterSplitZoom(
                     panelId: panelId,
@@ -3914,15 +3860,7 @@ final class Workspace: Identifiable, ObservableObject {
             let selectionConverged =
                 self.bonsplitController.focusedPaneId == paneId &&
                 self.bonsplitController.selectedTab(inPane: paneId)?.id == tabId
-            let anchorReady: Bool = {
-                guard let browserPanel = self.browserPanel(for: panelId) else { return false }
-                let anchorView = browserPanel.portalAnchorView
-                return
-                    anchorView.window != nil &&
-                    anchorView.superview != nil &&
-                    anchorView.bounds.width > 1 &&
-                    anchorView.bounds.height > 1
-            }()
+            let anchorReady = self.browserPanel(for: panelId)?.isSurfacePortalAnchorReady() ?? false
 
             if !selectionConverged {
                 self.focusPanel(panelId)
@@ -4473,7 +4411,7 @@ extension Workspace: BonsplitDelegate {
             return terminalPanel.hostedView.window ?? NSApp.keyWindow ?? NSApp.mainWindow
         }
         if let browserPanel = panel as? BrowserPanel {
-            return browserPanel.webView.window ?? browserPanel.portalAnchorView.window ?? NSApp.keyWindow ?? NSApp.mainWindow
+            return browserPanel.surfaceHostingWindow() ?? NSApp.keyWindow ?? NSApp.mainWindow
         }
         return NSApp.keyWindow ?? NSApp.mainWindow
     }

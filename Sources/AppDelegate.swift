@@ -6630,9 +6630,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func isWebViewFocused(_ panel: BrowserPanel) -> Bool {
-        guard let window = panel.webView.window else { return false }
-        guard let fr = window.firstResponder as? NSView else { return false }
-        return fr.isDescendant(of: panel.webView)
+        panel.isSurfaceFocusedInHostWindow()
     }
 
     private func paneIdsForGotoSplitUITest(tab: Workspace, browserPanelId: UUID) -> (browser: PaneID, terminal: PaneID)? {
@@ -6859,9 +6857,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         })();
         """
 
-        panel.webView.evaluateJavaScript(script) { [weak self] result, _ in
+        Task { @MainActor [weak self] in
             guard let self else { return }
-            let payload = result as? [String: Any]
+            let payload = (try? await panel.evaluateJavaScript(script)) as? [String: Any]
             let focused = (payload?["focused"] as? Bool) ?? false
             let inputId = (payload?["id"] as? String) ?? ""
             let secondaryInputId = (payload?["secondaryId"] as? String) ?? ""
@@ -6873,8 +6871,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let readyState = (payload?["readyState"] as? String) ?? ""
             var secondaryClickOffsetX = -1.0
             var secondaryClickOffsetY = -1.0
-            if let window = panel.webView.window {
-                let webFrame = panel.webView.convert(panel.webView.bounds, to: nil)
+            if let window = panel.surfaceHostingWindow(),
+               let webFrame = panel.surfaceFrameInWindowCoordinates() {
                 let contentHeight = Double(window.contentView?.bounds.height ?? 0)
                 if webFrame.width > 1,
                    webFrame.height > 1,
@@ -7009,8 +7007,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         })();
         """
 
-        panel.webView.evaluateJavaScript(script) { result, _ in
-            let payload = result as? [String: Any]
+        Task { @MainActor in
+            let payload = (try? await panel.evaluateJavaScript(script)) as? [String: Any]
             completion([
                 "id": (payload?["id"] as? String) ?? "",
                 "tag": (payload?["tag"] as? String) ?? "",
@@ -7086,9 +7084,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
             let browserPanel = workspace.panels.values.compactMap { $0 as? BrowserPanel }.first
             let otherTerminal = workspace.panels.values.compactMap { $0 as? TerminalPanel }.first
-            let browserSnapshot = browserPanel.flatMap {
-                BrowserWindowPortalRegistry.debugSnapshot(for: $0.webView)
-            }
+            let browserSnapshot = browserPanel?.debugPortalSnapshot()
 
             var updates = self.gotoSplitFindStateSnapshot(for: workspace)
             updates["splitZoomedAfterToggle"] = workspace.bonsplitController.isSplitZoomed ? "true" : "false"
@@ -8715,7 +8711,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let firstResponderType = keyWindow?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
         let panel = tabManager?.focusedBrowserPanel
         let panelToken = panel.map { String($0.id.uuidString.prefix(8)) } ?? "nil"
-        let panelZoom = panel?.webView.pageZoom ?? -1
+        let panelZoom = panel?.surfacePageZoom() ?? -1
         var line =
             "zoom.shortcut stage=\(stage) event=\(NSWindow.keyDescription(event)) " +
             "chars='\(chars)' flags=\(browserZoomShortcutTraceFlagsString(flags)) " +
@@ -9134,8 +9130,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard isLikelyWebInspectorResponder(keyWindow.firstResponder) else { return }
 
         let beforeResponder = keyWindow.firstResponder
-        let movedToWebView = keyWindow.makeFirstResponder(browser.webView)
-        let movedToNil = movedToWebView ? false : keyWindow.makeFirstResponder(nil)
+        let preflightResult = browser.prepareSurfaceFocusForTransientDeveloperToolsHide(in: keyWindow)
 
         #if DEBUG
         let beforeType = beforeResponder.map { String(describing: type(of: $0)) } ?? "nil"
@@ -9146,7 +9141,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         dlog(
             "split.shortcut inspector.preflight dir=\(directionLabel) panel=\(browser.id.uuidString.prefix(5)) " +
             "before=\(beforeType)@\(beforePtr) after=\(afterType)@\(afterPtr) " +
-            "moveWeb=\(movedToWebView ? 1 : 0) moveNil=\(movedToNil ? 1 : 0) \(browser.debugDeveloperToolsStateSummary())"
+            "moveWeb=\(preflightResult.movedToSurface ? 1 : 0) " +
+            "moveNil=\(preflightResult.movedToNil ? 1 : 0) \(browser.debugDeveloperToolsStateSummary())"
         )
         #endif
     }
@@ -9179,9 +9175,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }()
         let splitContext = "keyWin=\(keyWindow?.windowNumber ?? -1) mainWin=\(NSApp.mainWindow?.windowNumber ?? -1) fr=\(firstResponderType)@\(firstResponderPtr) frWin=\(firstResponderWindow)"
         if let browser = tabManager?.focusedBrowserPanel {
-            let webWindow = browser.webView.window?.windowNumber ?? -1
-            let webSuperview = browser.webView.superview.map { String(describing: Unmanaged.passUnretained($0).toOpaque()) } ?? "nil"
-            dlog("split.shortcut dir=\(directionLabel) pre panel=\(browser.id.uuidString.prefix(5)) \(browser.debugDeveloperToolsStateSummary()) webWin=\(webWindow) webSuper=\(webSuperview) \(splitContext)")
+            dlog(
+                "split.shortcut dir=\(directionLabel) pre panel=\(browser.id.uuidString.prefix(5)) " +
+                "\(browser.debugDeveloperToolsStateSummary()) \(browser.debugDeveloperToolsGeometrySummary()) " +
+                "\(splitContext)"
+            )
         } else {
             dlog("split.shortcut dir=\(directionLabel) pre panel=nil \(splitContext)")
         }
@@ -9206,9 +9204,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }()
             let splitContext = "keyWin=\(keyWindow?.windowNumber ?? -1) mainWin=\(NSApp.mainWindow?.windowNumber ?? -1) fr=\(firstResponderType)@\(firstResponderPtr) frWin=\(firstResponderWindow)"
             if let browser = self?.tabManager?.focusedBrowserPanel {
-                let webWindow = browser.webView.window?.windowNumber ?? -1
-                let webSuperview = browser.webView.superview.map { String(describing: Unmanaged.passUnretained($0).toOpaque()) } ?? "nil"
-                dlog("split.shortcut dir=\(directionLabel) post panel=\(browser.id.uuidString.prefix(5)) \(browser.debugDeveloperToolsStateSummary()) webWin=\(webWindow) webSuper=\(webSuperview) \(splitContext)")
+                dlog(
+                    "split.shortcut dir=\(directionLabel) post panel=\(browser.id.uuidString.prefix(5)) " +
+                    "\(browser.debugDeveloperToolsStateSummary()) \(browser.debugDeveloperToolsGeometrySummary()) " +
+                    "\(splitContext)"
+                )
             } else {
                 dlog("split.shortcut dir=\(directionLabel) post panel=nil \(splitContext)")
             }
