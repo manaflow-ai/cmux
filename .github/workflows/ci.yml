@@ -154,6 +154,12 @@ jobs:
             fi
           fi
 
+      - name: Run bundled Ghostty theme picker helper regression
+        run: |
+          set -euo pipefail
+          CMUX_SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages" \
+            ./tests/test_bundled_ghostty_theme_picker_helper.sh
+
       - name: Run CLI version memory guard regression
         run: |
           set -euo pipefail
