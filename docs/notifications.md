@@ -87,23 +87,17 @@ Add to `~/.claude/settings.json`:
 
 ### OpenAI Codex
 
-Add to `~/.codex/config.toml`:
+When you launch `codex` inside a cmux terminal, cmux's bundled `codex`
+wrapper automatically injects lifecycle hooks and a notify handler. The
+sidebar status pill shows `Running` when a session starts and `Idle` after
+each agent turn, and turn-completion events create cmux notifications
+without any manual setup.
+
+If you prefer a manual setup (or you're running a Codex binary outside the
+bundled cmux wrapper), add to `~/.codex/config.toml`:
 
 ```toml
 notify = ["bash", "-c", "command -v cmux &>/dev/null && cmux notify --title Codex --body \"$(echo $1 | jq -r '.\"last-assistant-message\" // \"Turn complete\"' 2>/dev/null | head -c 100)\" || osascript -e 'display notification \"Turn complete\" with title \"Codex\"'", "--"]
-```
-
-Or create a simple script `~/.local/bin/codex-notify.sh`:
-
-```bash
-#!/bin/bash
-MSG=$(echo "$1" | jq -r '."last-assistant-message" // "Turn complete"' 2>/dev/null | head -c 100)
-command -v cmux &>/dev/null && cmux notify --title "Codex" --body "$MSG" || osascript -e "display notification \"$MSG\" with title \"Codex\""
-```
-
-Then use:
-```toml
-notify = ["bash", "~/.local/bin/codex-notify.sh"]
 ```
 
 ### OpenCode Plugin

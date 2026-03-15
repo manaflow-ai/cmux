@@ -37,7 +37,7 @@
   - Implement as part of `cmux` CLI, menubar just triggers the CLI command
 
 ## Additional Integrations
-- [ ] Codex integration
+- [x] Codex integration
 - [ ] OpenCode integration
 
 ## Browser

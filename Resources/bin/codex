@@ -1,0 +1,136 @@
+#!/usr/bin/env bash
+# cmux codex wrapper - injects sidebar status + notifications
+#
+# When running inside a cmux terminal (CMUX_SURFACE_ID is set), this wrapper
+# intercepts `codex` invocations to inject hooks.json and a notify command
+# so that Codex lifecycle events fire back into cmux for status/notifications.
+# Outside cmux, it passes through to the real codex binary unchanged.
+
+find_real_codex() {
+    local self_dir
+    self_dir="$(cd "$(dirname "$0")" && pwd)"
+    local IFS=:
+    local dir
+    for dir in $PATH; do
+        [[ "$dir" == "$self_dir" ]] && continue
+        [[ -x "$dir/codex" ]] && printf '%s' "$dir/codex" && return 0
+    done
+    return 1
+}
+
+CMUX_BIN=""
+
+cmux_socket_available() {
+    local socket="${CMUX_SOCKET_PATH:-${CMUX_SOCKET:-}}"
+    [[ -n "$socket" && -S "$socket" ]] || return 1
+
+    local self_dir
+    self_dir="$(cd "$(dirname "$0")" && pwd)"
+    CMUX_BIN="$self_dir/cmux"
+    [[ -x "$CMUX_BIN" ]] || CMUX_BIN="$(command -v cmux || true)"
+    [[ -n "$CMUX_BIN" ]] || return 1
+
+    CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=0.75 \
+        "$CMUX_BIN" --socket "$socket" ping >/dev/null 2>&1
+}
+
+run_cmux() {
+    [[ -n "$CMUX_BIN" ]] || return 1
+    "$CMUX_BIN" "$@" >/dev/null 2>&1
+}
+
+IN_CMUX=0
+if [[ -n "${CMUX_SURFACE_ID:-}" ]]; then
+    IN_CMUX=1
+fi
+
+if [[ "$IN_CMUX" == "0" || "${CMUX_CODEX_INTEGRATION_DISABLED:-}" == "1" ]] || ! cmux_socket_available; then
+    REAL_CODEX="$(find_real_codex)" || { echo "Error: codex not found in PATH" >&2; exit 127; }
+    exec "$REAL_CODEX" "$@"
+fi
+
+REAL_CODEX="$(find_real_codex)" || { echo "Error: codex not found in PATH" >&2; exit 127; }
+
+SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
+NOTIFY_SCRIPT="$SELF_DIR/codex-cmux-notify.sh"
+
+# Create temp CODEX_HOME overlay
+CMUX_CODEX_HOME="$(mktemp -d "${TMPDIR:-/tmp}/cmux-codex-home.XXXXXX")" || {
+    exec "$REAL_CODEX" "$@"
+}
+cleanup() {
+    rm -rf "$CMUX_CODEX_HOME"
+}
+trap cleanup EXIT HUP INT TERM
+
+# Symlink existing config from user's CODEX_HOME, skipping files we override
+EXISTING_HOME="${CODEX_HOME:-$HOME/.codex}"
+if [[ -d "$EXISTING_HOME" ]]; then
+    shopt -s dotglob nullglob
+    for item in "$EXISTING_HOME"/*; do
+        name="$(basename "$item")"
+        [[ "$name" == "." || "$name" == ".." ]] && continue
+        [[ "$name" == "config.toml" ]] && continue
+        [[ "$name" == "hooks.json" ]] && continue
+        [[ -e "$CMUX_CODEX_HOME/$name" ]] && continue
+        ln -s "$item" "$CMUX_CODEX_HOME/$name"
+    done
+    shopt -u dotglob nullglob
+fi
+
+# Create merged config.toml: preserve user config + inject notify command
+{
+    if [[ -f "$EXISTING_HOME/config.toml" ]]; then
+        grep -v '^notify\s*=' "$EXISTING_HOME/config.toml" 2>/dev/null || true
+        printf '\n'
+    fi
+    if [[ -x "$NOTIFY_SCRIPT" ]]; then
+        printf 'notify = ["bash", "%s"]\n' "$NOTIFY_SCRIPT"
+    fi
+} > "$CMUX_CODEX_HOME/config.toml"
+
+# Create hooks.json for SessionStart/Stop lifecycle events.
+# $CMUX_CODEX_PID is expanded at runtime by the hook's shell — it is exported
+# below and inherited through codex into its child hook processes.
+cat > "$CMUX_CODEX_HOME/hooks.json" << 'HOOKSJSON'
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cmux set-status codex Running --icon bolt.fill --color '#4C8DFF' --pid ${CMUX_CODEX_PID:-0} 2>/dev/null; cat > /dev/null",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cmux set-status codex Idle --icon pause.circle.fill --color '#8E8E93' 2>/dev/null; cat > /dev/null",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
+HOOKSJSON
+
+export CODEX_HOME="$CMUX_CODEX_HOME"
+export CMUX_CODEX_PID=$$
+
+run_cmux clear-status codex || true
+
+"$REAL_CODEX" "$@"
+STATUS=$?
+
+run_cmux clear-status codex || true
+run_cmux clear-notifications || true
+
+exit "$STATUS"
