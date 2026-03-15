@@ -1550,6 +1550,9 @@ private enum DebugWindowConfigSnapshot {
         sidebarTintOpacity=\(String(format: "%.2f", doubleValue(defaults, key: "sidebarTintOpacity", fallback: 0.18)))
         sidebarCornerRadius=\(String(format: "%.1f", doubleValue(defaults, key: "sidebarCornerRadius", fallback: 0.0)))
         sidebarBranchVerticalLayout=\(boolValue(defaults, key: SidebarBranchLayoutSettings.key, fallback: SidebarBranchLayoutSettings.defaultVerticalLayout))
+        sidebarTextFontFamily=\(stringValue(defaults, key: SidebarFontSettings.textFamilyKey, fallback: SidebarFontSettings.defaultFamily))
+        sidebarShortcutHintFontFamily=\(stringValue(defaults, key: SidebarFontSettings.shortcutHintFamilyKey, fallback: SidebarFontSettings.defaultFamily))
+        sidebarCodeDetailFontFamily=\(stringValue(defaults, key: SidebarFontSettings.codeDetailFamilyKey, fallback: SidebarFontSettings.defaultFamily))
         sidebarActiveTabIndicatorStyle=\(stringValue(defaults, key: SidebarActiveTabIndicatorSettings.styleKey, fallback: SidebarActiveTabIndicatorSettings.defaultStyle.rawValue))
         sidebarDevBuildBannerVisible=\(boolValue(defaults, key: DevBuildBannerDebugSettings.sidebarBannerVisibleKey, fallback: DevBuildBannerDebugSettings.defaultShowSidebarBanner))
         shortcutHintSidebarXOffset=\(String(format: "%.1f", doubleValue(defaults, key: ShortcutHintDebugSettings.sidebarHintXKey, fallback: ShortcutHintDebugSettings.defaultSidebarHintX)))
@@ -2184,6 +2187,9 @@ private struct SidebarDebugView: View {
     @AppStorage("sidebarCornerRadius") private var sidebarCornerRadius = 0.0
     @AppStorage("sidebarBlurOpacity") private var sidebarBlurOpacity = 1.0
     @AppStorage(SidebarBranchLayoutSettings.key) private var sidebarBranchVerticalLayout = SidebarBranchLayoutSettings.defaultVerticalLayout
+    @AppStorage(SidebarFontSettings.textFamilyKey) private var sidebarTextFontFamily = SidebarFontSettings.defaultFamily
+    @AppStorage(SidebarFontSettings.shortcutHintFamilyKey) private var sidebarShortcutHintFontFamily = SidebarFontSettings.defaultFamily
+    @AppStorage(SidebarFontSettings.codeDetailFamilyKey) private var sidebarCodeDetailFontFamily = SidebarFontSettings.defaultFamily
     @AppStorage(ShortcutHintDebugSettings.sidebarHintXKey) private var sidebarShortcutHintXOffset = ShortcutHintDebugSettings.defaultSidebarHintX
     @AppStorage(ShortcutHintDebugSettings.sidebarHintYKey) private var sidebarShortcutHintYOffset = ShortcutHintDebugSettings.defaultSidebarHintY
     @AppStorage(ShortcutHintDebugSettings.titlebarHintXKey) private var titlebarShortcutHintXOffset = ShortcutHintDebugSettings.defaultTitlebarHintX
@@ -2324,6 +2330,25 @@ private struct SidebarDebugView: View {
                         Text("When enabled, each branch appears on its own line in the sidebar.")
                             .font(.caption)
                             .foregroundColor(.secondary)
+
+                        Picker(String(localized: "settings.debug.sidebarTitleFont", defaultValue: "Text Font"), selection: $sidebarTextFontFamily) {
+                            Text(String(localized: "sidebar.font.systemDefault", defaultValue: "Default")).tag("")
+                            ForEach(SidebarFontSettings.availableFamilies, id: \.self) { family in
+                                Text(family).tag(family)
+                            }
+                        }
+                        Picker(String(localized: "settings.debug.sidebarShortcutHintFont", defaultValue: "Shortcut Hint Font"), selection: $sidebarShortcutHintFontFamily) {
+                            Text(String(localized: "sidebar.font.systemDefault", defaultValue: "Default")).tag("")
+                            ForEach(SidebarFontSettings.availableFamilies, id: \.self) { family in
+                                Text(family).tag(family)
+                            }
+                        }
+                        Picker(String(localized: "settings.debug.sidebarDetailFont", defaultValue: "Branch/Path Font"), selection: $sidebarCodeDetailFontFamily) {
+                            Text(String(localized: "sidebar.font.systemDefault", defaultValue: "Default")).tag("")
+                            ForEach(SidebarFontSettings.availableFamilies, id: \.self) { family in
+                                Text(family).tag(family)
+                            }
+                        }
                     }
                     .padding(.top, 2)
                 }
@@ -2419,6 +2444,9 @@ private struct SidebarDebugView: View {
         sidebarTintOpacity=\(String(format: "%.2f", sidebarTintOpacity))
         sidebarCornerRadius=\(String(format: "%.1f", sidebarCornerRadius))
         sidebarBranchVerticalLayout=\(sidebarBranchVerticalLayout)
+        sidebarTextFontFamily=\(sidebarTextFontFamily)
+        sidebarShortcutHintFontFamily=\(sidebarShortcutHintFontFamily)
+        sidebarCodeDetailFontFamily=\(sidebarCodeDetailFontFamily)
         sidebarActiveTabIndicatorStyle=\(sidebarActiveTabIndicatorStyle)
         sidebarDevBuildBannerVisible=\(showSidebarDevBuildBanner)
         shortcutHintSidebarXOffset=\(String(format: "%.1f", ShortcutHintDebugSettings.clamped(sidebarShortcutHintXOffset)))
@@ -3127,6 +3155,12 @@ struct SettingsView: View {
     @AppStorage(SidebarBranchLayoutSettings.key) private var sidebarBranchVerticalLayout = SidebarBranchLayoutSettings.defaultVerticalLayout
     @AppStorage(SidebarActiveTabIndicatorSettings.styleKey)
     private var sidebarActiveTabIndicatorStyle = SidebarActiveTabIndicatorSettings.defaultStyle.rawValue
+    @AppStorage(SidebarFontSettings.textFamilyKey)
+    private var sidebarTextFontFamily = SidebarFontSettings.defaultFamily
+    @AppStorage(SidebarFontSettings.shortcutHintFamilyKey)
+    private var sidebarShortcutHintFontFamily = SidebarFontSettings.defaultFamily
+    @AppStorage(SidebarFontSettings.codeDetailFamilyKey)
+    private var sidebarCodeDetailFontFamily = SidebarFontSettings.defaultFamily
     @AppStorage("sidebarShowBranchDirectory") private var sidebarShowBranchDirectory = true
     @AppStorage("sidebarShowPullRequest") private var sidebarShowPullRequest = true
     @AppStorage(BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowserKey)
@@ -3793,6 +3827,33 @@ struct SettingsView: View {
                                 .labelsHidden()
                                 .controlSize(.small)
                         }
+
+                        SettingsCardDivider()
+
+                        SidebarFontFamilyPickerRow(
+                            title: String(localized: "settings.app.sidebarTitleFont", defaultValue: "Sidebar Text Font"),
+                            subtitle: String(localized: "settings.app.sidebarTitleFont.subtitle", defaultValue: "The font for workspace titles, notifications, logs, metadata, and other regular sidebar text."),
+                            selection: $sidebarTextFontFamily,
+                            controlWidth: pickerColumnWidth
+                        )
+
+                        SettingsCardDivider()
+
+                        SidebarFontFamilyPickerRow(
+                            title: String(localized: "settings.app.sidebarShortcutHintFont", defaultValue: "Sidebar Shortcut Hint Font"),
+                            subtitle: String(localized: "settings.app.sidebarShortcutHintFont.subtitle", defaultValue: "The font for keyboard shortcut hints (⌘1, ⌘2, …)."),
+                            selection: $sidebarShortcutHintFontFamily,
+                            controlWidth: pickerColumnWidth
+                        )
+
+                        SettingsCardDivider()
+
+                        SidebarFontFamilyPickerRow(
+                            title: String(localized: "settings.app.sidebarDetailFont", defaultValue: "Sidebar Branch/Path Font"),
+                            subtitle: String(localized: "settings.app.sidebarDetailFont.subtitle", defaultValue: "The font for branches, directories, and ports."),
+                            selection: $sidebarCodeDetailFontFamily,
+                            controlWidth: pickerColumnWidth
+                        )
 
                         SettingsCardDivider()
 
@@ -4629,6 +4690,9 @@ struct SettingsView: View {
         sidebarShowNotificationMessage = SidebarWorkspaceDetailSettings.defaultShowNotificationMessage
         sidebarBranchVerticalLayout = SidebarBranchLayoutSettings.defaultVerticalLayout
         sidebarActiveTabIndicatorStyle = SidebarActiveTabIndicatorSettings.defaultStyle.rawValue
+        sidebarTextFontFamily = SidebarFontSettings.defaultFamily
+        sidebarShortcutHintFontFamily = SidebarFontSettings.defaultFamily
+        sidebarCodeDetailFontFamily = SidebarFontSettings.defaultFamily
         sidebarShowBranchDirectory = true
         sidebarShowPullRequest = true
         openSidebarPullRequestLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenSidebarPullRequestLinksInCmuxBrowser
@@ -4879,6 +4943,32 @@ private struct SettingsCardDivider: View {
         Rectangle()
             .fill(Color(nsColor: NSColor.separatorColor).opacity(0.5))
             .frame(height: 1)
+    }
+}
+
+/// A font-family picker row that lists all installed system fonts plus a
+/// role-specific built-in default entry (stored as empty string). The picker uses the
+/// standard macOS `.menu` style so it scrolls through the full font list.
+private struct SidebarFontFamilyPickerRow: View {
+    let title: String
+    let subtitle: String
+    @Binding var selection: String
+    let controlWidth: CGFloat
+
+    var body: some View {
+        SettingsCardRow(title, subtitle: subtitle, controlWidth: controlWidth) {
+            Picker("", selection: $selection) {
+                Text(String(localized: "sidebar.font.systemDefault", defaultValue: "Default"))
+                    .tag("")
+                ForEach(SidebarFontSettings.availableFamilies, id: \.self) { family in
+                    Text(family)
+                        .font(.custom(family, size: 13))
+                        .tag(family)
+                }
+            }
+            .labelsHidden()
+            .pickerStyle(.menu)
+        }
     }
 }
 
