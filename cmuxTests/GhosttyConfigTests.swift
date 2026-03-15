@@ -310,50 +310,84 @@ final class GhosttyConfigTests: XCTestCase {
         )
     }
 
-    func testReleaseAppSupportFallbackLoadsForDebugWhenOnlyReleaseConfigExists() {
-        XCTAssertTrue(
-            GhosttyApp.shouldLoadReleaseAppSupportGhosttyConfig(
-                currentBundleIdentifier: "com.cmuxterm.app.debug",
-                currentConfigFileSize: nil,
-                currentLegacyConfigFileSize: nil,
-                releaseConfigFileSize: 128,
-                releaseLegacyConfigFileSize: nil
+    func testCmuxAppSupportConfigURLsUseReleaseConfigForDebugBundleWithoutCurrentConfig() throws {
+        try withTemporaryAppSupportDirectory { appSupportDirectory in
+            let releaseConfigURL = try writeAppSupportConfig(
+                appSupportDirectory: appSupportDirectory,
+                bundleIdentifier: "com.cmuxterm.app",
+                filename: "config",
+                contents: "font-size = 13\n"
             )
-        )
+
+            XCTAssertEqual(
+                GhosttyApp.cmuxAppSupportConfigURLs(
+                    currentBundleIdentifier: "com.cmuxterm.app.debug",
+                    appSupportDirectory: appSupportDirectory
+                ),
+                [releaseConfigURL]
+            )
+        }
     }
 
-    func testReleaseAppSupportFallbackSkipsWhenDebugConfigAlreadyExists() {
-        XCTAssertFalse(
-            GhosttyApp.shouldLoadReleaseAppSupportGhosttyConfig(
-                currentBundleIdentifier: "com.cmuxterm.app.debug.issue-829",
-                currentConfigFileSize: nil,
-                currentLegacyConfigFileSize: 64,
-                releaseConfigFileSize: 128,
-                releaseLegacyConfigFileSize: nil
+    func testCmuxAppSupportConfigURLsPreferCurrentBundleConfigWhenPresent() throws {
+        try withTemporaryAppSupportDirectory { appSupportDirectory in
+            _ = try writeAppSupportConfig(
+                appSupportDirectory: appSupportDirectory,
+                bundleIdentifier: "com.cmuxterm.app",
+                filename: "config",
+                contents: "font-size = 13\n"
             )
-        )
+            let currentConfigURL = try writeAppSupportConfig(
+                appSupportDirectory: appSupportDirectory,
+                bundleIdentifier: "com.cmuxterm.app.debug.issue-829",
+                filename: "config.ghostty",
+                contents: "font-size = 14\n"
+            )
+
+            XCTAssertEqual(
+                GhosttyApp.cmuxAppSupportConfigURLs(
+                    currentBundleIdentifier: "com.cmuxterm.app.debug.issue-829",
+                    appSupportDirectory: appSupportDirectory
+                ),
+                [currentConfigURL]
+            )
+        }
     }
 
-    func testReleaseAppSupportFallbackSkipsForNonDebugBundleOrMissingReleaseConfig() {
-        XCTAssertFalse(
-            GhosttyApp.shouldLoadReleaseAppSupportGhosttyConfig(
-                currentBundleIdentifier: "com.cmuxterm.app",
-                currentConfigFileSize: nil,
-                currentLegacyConfigFileSize: nil,
-                releaseConfigFileSize: 128,
-                releaseLegacyConfigFileSize: nil
+    func testCmuxAppSupportConfigURLsSkipReleaseFallbackForNonDebugBundle() throws {
+        try withTemporaryAppSupportDirectory { appSupportDirectory in
+            _ = try writeAppSupportConfig(
+                appSupportDirectory: appSupportDirectory,
+                bundleIdentifier: "com.cmuxterm.app",
+                filename: "config",
+                contents: "font-size = 13\n"
             )
-        )
 
-        XCTAssertFalse(
-            GhosttyApp.shouldLoadReleaseAppSupportGhosttyConfig(
-                currentBundleIdentifier: "com.cmuxterm.app.debug",
-                currentConfigFileSize: nil,
-                currentLegacyConfigFileSize: nil,
-                releaseConfigFileSize: nil,
-                releaseLegacyConfigFileSize: 0
+            XCTAssertTrue(
+                GhosttyApp.cmuxAppSupportConfigURLs(
+                    currentBundleIdentifier: "com.example.other-app",
+                    appSupportDirectory: appSupportDirectory
+                ).isEmpty
             )
-        )
+        }
+    }
+
+    func testCmuxAppSupportConfigURLsIgnoreMissingOrEmptyFiles() throws {
+        try withTemporaryAppSupportDirectory { appSupportDirectory in
+            _ = try writeAppSupportConfig(
+                appSupportDirectory: appSupportDirectory,
+                bundleIdentifier: "com.cmuxterm.app",
+                filename: "config.ghostty",
+                contents: ""
+            )
+
+            XCTAssertTrue(
+                GhosttyApp.cmuxAppSupportConfigURLs(
+                    currentBundleIdentifier: "com.cmuxterm.app.debug",
+                    appSupportDirectory: appSupportDirectory
+                ).isEmpty
+            )
+        }
     }
 
     func testDefaultBackgroundUpdateScopePrioritizesSurfaceOverAppAndUnscoped() {
@@ -561,6 +595,33 @@ final class GhosttyConfigTests: XCTestCase {
             green: Int(round(green * 255)),
             blue: Int(round(blue * 255))
         )
+    }
+
+    private func withTemporaryAppSupportDirectory(
+        _ body: (URL) throws -> Void
+    ) throws {
+        let fileManager = FileManager.default
+        let directory = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-app-support-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: directory) }
+        try body(directory)
+    }
+
+    private func writeAppSupportConfig(
+        appSupportDirectory: URL,
+        bundleIdentifier: String,
+        filename: String,
+        contents: String
+    ) throws -> URL {
+        let fileManager = FileManager.default
+        let bundleDirectory = appSupportDirectory
+            .appendingPathComponent(bundleIdentifier, isDirectory: true)
+        try fileManager.createDirectory(at: bundleDirectory, withIntermediateDirectories: true)
+
+        let configURL = bundleDirectory.appendingPathComponent(filename, isDirectory: false)
+        try contents.write(to: configURL, atomically: true, encoding: .utf8)
+        return configURL
     }
 }
 

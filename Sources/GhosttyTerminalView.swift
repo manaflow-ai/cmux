@@ -4441,9 +4441,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private func invalidateTextInputCoordinates(selectionChanged: Bool = false) {
         guard let inputContext else { return }
         inputContext.invalidateCharacterCoordinates()
-        if #available(macOS 15.4, *), selectionChanged {
-            inputContext.textInputClientDidUpdateSelection()
-        }
+        guard selectionChanged else { return }
+
+        // `textInputClientDidUpdateSelection` is absent from the Xcode 16.2 AppKit SDK
+        // used by the macOS 14 compatibility lane, so call it dynamically when present.
+        let updateSelectionSelector = NSSelectorFromString("textInputClientDidUpdateSelection")
+        guard inputContext.responds(to: updateSelectionSelector) else { return }
+        _ = inputContext.perform(updateSelectionSelector)
     }
 
     override var acceptsFirstResponder: Bool { true }
