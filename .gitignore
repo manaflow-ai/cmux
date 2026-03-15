@@ -47,3 +47,92 @@ tests/visual_report.html
 # Local scratch (screenshots, etc.)
 tmp/
 tmp-*/
+
+# System patterns (added by Gitignore Guardian)
+
+# Changelog Generated
+changelog-git.md
+
+# Coverage Gate
+.coverage-gate-baseline
+coverage.json
+
+# Editor Artifacts
+*.swp
+*.swo
+*~
+*.bak
+
+# Makefile Artifacts
+*.o
+*.a
+*.so
+*.dylib
+
+# Mutation Testing Js
+.stryker-tmp/
+reports/
+.stryker-incremental.json
+
+# Mutation Testing Python
+mutants/
+.mutmut-cache/
+html/
+
+# Node Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Os
+**/.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+.AppleDouble
+.LSOverride
+Thumbs.db
+Desktop.ini
+ehthumbs.db
+
+# Python Bytecode
+*.py[cod]
+*.pyd
+*$py.class
+
+# Python Caches
+.mypy_cache/
+.ruff_cache/
+.tox/
+.nox/
+.coverage
+htmlcov/
+.python-version
+.benchmarks/
+
+# Python Uv Cache
+.uv/
+
+# Python Venv
+.venv/
+venv/
+ENV/
+env/
+
+# Ruby Dependencies
+.bundle/
+vendor/bundle/
+
+# Security
+.env.*
+*.pem
+*.key
+*.crt
+*.p12
+.secrets/
+secrets/
+credentials.json
+service-account*.json

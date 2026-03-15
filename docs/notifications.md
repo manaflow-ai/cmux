@@ -115,13 +115,15 @@ based on OpenCode session events, and permission/question/error events create
 cmux notifications without any manual setup.
 
 If you prefer a manual setup (or you're running an OpenCode binary outside the
-bundled cmux wrapper), create `.opencode/plugins/cmux-notify.js`:
+bundled cmux wrapper), create `.opencode/plugins/cmux-notify.js`. For the full
+integration (status pills, all event types), see `Resources/bin/opencode-cmux-plugin.js`.
+A minimal notification-only example:
 
 ```javascript
 export const CmuxNotificationPlugin = async ({ $ }) => ({
   event: async ({ event }) => {
     if (event.type === "session.idle") {
-      await $`command -v cmux && cmux notify --title OpenCode --body Session idle`
+      await $`command -v cmux &>/dev/null && cmux notify --title OpenCode --body 'Session idle' || osascript -e 'display notification "Session idle" with title "OpenCode"'`
     }
   },
 })

@@ -70,7 +70,9 @@ if [[ ! -r "$PLUGIN_SOURCE" ]]; then
     exec "$REAL_OPENCODE" "$@"
 fi
 
-CMUX_OPENCODE_CONFIG_DIR="$(mktemp -d "${TMPDIR:-/tmp}/cmux-opencode-config.XXXXXX")"
+CMUX_OPENCODE_CONFIG_DIR="$(mktemp -d "${TMPDIR:-/tmp}/cmux-opencode-config.XXXXXX")" || {
+    exec "$REAL_OPENCODE" "$@"
+}
 cleanup() {
     rm -rf "$CMUX_OPENCODE_CONFIG_DIR"
 }
@@ -94,8 +96,11 @@ if [[ -n "$EXISTING_CONFIG_DIR" && -d "$EXISTING_CONFIG_DIR" ]]; then
     link_children "$EXISTING_CONFIG_DIR/plugins" "$CMUX_OPENCODE_CONFIG_DIR/plugins"
 fi
 
-mkdir -p "$CMUX_OPENCODE_CONFIG_DIR/plugins"
-cp "$PLUGIN_SOURCE" "$CMUX_OPENCODE_CONFIG_DIR/plugins/cmux-integration.js"
+if ! mkdir -p "$CMUX_OPENCODE_CONFIG_DIR/plugins" ||
+   ! cp "$PLUGIN_SOURCE" "$CMUX_OPENCODE_CONFIG_DIR/plugins/cmux-integration.js"; then
+    rm -rf "$CMUX_OPENCODE_CONFIG_DIR"
+    exec "$REAL_OPENCODE" "$@"
+fi
 
 export OPENCODE_CONFIG_DIR="$CMUX_OPENCODE_CONFIG_DIR"
 

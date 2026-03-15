@@ -1733,7 +1733,16 @@ struct CMUXCLI {
         case "set-status":
             let (icon, r1) = parseOption(commandArgs, name: "--icon")
             let (color, r2) = parseOption(r1, name: "--color")
-            let (pid, r3) = parseOption(r2, name: "--pid")
+            let (pidRaw, r3) = parseOption(r2, name: "--pid")
+            let pid: Int?
+            if let pidRaw {
+                guard let parsedPid = Int(pidRaw), parsedPid > 0 else {
+                    throw CLIError(message: "--pid must be a positive integer")
+                }
+                pid = parsedPid
+            } else {
+                pid = nil
+            }
             let (wsFlag, r4) = parseOption(r3, name: "--workspace")
             guard r4.count >= 2 else {
                 throw CLIError(message: "set-status requires <key> and <value>")
@@ -1748,7 +1757,7 @@ struct CMUXCLI {
             var socketCmd = "set_status \(key) \(socketQuote(value))"
             if let icon { socketCmd += " --icon=\(socketQuote(icon))" }
             if let color { socketCmd += " --color=\(socketQuote(color))" }
-            if let pid { socketCmd += " --pid=\(socketQuote(pid))" }
+            if let pid { socketCmd += " --pid=\(pid)" }
             socketCmd += " --tab=\(wsId)"
             let response = try sendV1Command(socketCmd, client: client)
             print(response)
@@ -9557,7 +9566,7 @@ struct CMUXCLI {
           claude-hook <session-start|stop|notification> [--workspace <id|ref>] [--surface <id|ref>]
 
           # sidebar metadata commands
-          set-status <key> <value> [--icon <name>] [--color <#hex>] [--workspace <id|ref>]
+          set-status <key> <value> [--icon <name>] [--color <#hex>] [--pid <pid>] [--workspace <id|ref>]
           clear-status <key> [--workspace <id|ref>]
           list-status [--workspace <id|ref>]
           set-progress <0.0-1.0> [--label <text>] [--workspace <id|ref>]

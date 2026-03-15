@@ -87,6 +87,8 @@ export const CmuxIntegrationPlugin = async ({ $ }) => {
     } catch {}
   }
 
+  // NOTE: clear-notifications is workspace-global; cmux does not yet support
+  // --pid scoping for clears. In practice each surface runs one OpenCode instance.
   async function clearNotifications() {
     if (!attention) return
     try {
@@ -109,6 +111,8 @@ export const CmuxIntegrationPlugin = async ({ $ }) => {
     } catch {}
   }
 
+  // NOTE: clear-status is keyed by "opencode" but not scoped by --pid.
+  // Same limitation as clearNotifications above.
   async function clearStatus() {
     if (!applied) return
     try {
