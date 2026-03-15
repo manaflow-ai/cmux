@@ -4080,7 +4080,7 @@ struct SettingsView: View {
 
                         SettingsCardRow(
                             String(localized: "settings.browser.openTerminalLinks", defaultValue: "Open Terminal Links in cmux Browser"),
-                            subtitle: String(localized: "settings.browser.openTerminalLinks.subtitle", defaultValue: "When off, links clicked in terminal output open in your default browser.")
+                            subtitle: String(localized: "settings.browser.openTerminalLinks.subtitle", defaultValue: "Sets the default for Cmd+Click. Cmd+Shift+Click opens in the other browser.")
                         ) {
                             Toggle("", isOn: $openTerminalLinksInCmuxBrowser)
                                 .labelsHidden()

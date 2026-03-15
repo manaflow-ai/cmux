@@ -2307,7 +2307,14 @@ class GhosttyApp {
                 #endif
                 return false
             }
-            if !BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowser() {
+            let shiftHeld = performOnMain {
+                NSApp.currentEvent?.modifierFlags.contains(.shift) == true
+            }
+            let useCmuxBrowser = shiftHeld != BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowser()
+            #if DEBUG
+            dlog("link.openURL shiftHeld=\(shiftHeld) useCmuxBrowser=\(useCmuxBrowser)")
+            #endif
+            if !useCmuxBrowser {
                 #if DEBUG
                 dlog("link.openURL cmuxBrowser=disabled, opening externally url=\(target.url)")
                 #endif
