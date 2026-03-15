@@ -551,7 +551,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "A Ghostty-based terminal with vertical tabs\\nand a notification panel for macOS."
+            "value": "A Ghostty-based terminal with vertical tabs\nand a notification panel for macOS."
           }
         },
         "ja": {
@@ -563,43 +563,43 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "基于 Ghostty 的 macOS 终端，\\n支持垂直标签页和通知面板。"
+            "value": "基于 Ghostty 的 macOS 终端，\n支持垂直标签页和通知面板。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "基於 Ghostty 的 macOS 終端機，\\n具備垂直標籤頁與通知面板。"
+            "value": "基於 Ghostty 的 macOS 終端機，\n具備垂直標籤頁與通知面板。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "세로 탭과 알림 패널을 갖춘\\nGhostty 기반 macOS 터미널."
+            "value": "세로 탭과 알림 패널을 갖춘\nGhostty 기반 macOS 터미널."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ein Ghostty-basiertes Terminal mit vertikalen Tabs\\nund einem Benachrichtigungsfeld für macOS."
+            "value": "Ein Ghostty-basiertes Terminal mit vertikalen Tabs\nund einem Benachrichtigungsfeld für macOS."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un terminal basado en Ghostty con pestañas verticales\\ny un panel de notificaciones para macOS."
+            "value": "Un terminal basado en Ghostty con pestañas verticales\ny un panel de notificaciones para macOS."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un terminal basé sur Ghostty avec des onglets verticaux\\net un panneau de notifications pour macOS."
+            "value": "Un terminal basé sur Ghostty avec des onglets verticaux\net un panneau de notifications pour macOS."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un terminale basato su Ghostty con schede verticali\\ne un pannello notifiche per macOS."
+            "value": "Un terminale basato su Ghostty con schede verticali\ne un pannello notifiche per macOS."
           }
         },
         "da": {
@@ -617,43 +617,43 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Терминал на базе Ghostty с вертикальными вкладками\\nи панелью уведомлений для macOS."
+            "value": "Терминал на базе Ghostty с вертикальными вкладками\nи панелью уведомлений для macOS."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Terminal zasnovan na Ghostty sa vertikalnim tabovima\\ni panelom za obavještenja za macOS."
+            "value": "Terminal zasnovan na Ghostty sa vertikalnim tabovima\ni panelom za obavještenja za macOS."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "طرفية مبنية على Ghostty مع ألسنة عمودية\\nولوحة إشعارات لنظام macOS."
+            "value": "طرفية مبنية على Ghostty مع ألسنة عمودية\nولوحة إشعارات لنظام macOS."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "En Ghostty-basert terminal med vertikale faner\\nog et varselpanel for macOS."
+            "value": "En Ghostty-basert terminal med vertikale faner\nog et varselpanel for macOS."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Um terminal baseado no Ghostty com abas verticais\\ne um painel de notificações para macOS."
+            "value": "Um terminal baseado no Ghostty com abas verticais\ne um painel de notificações para macOS."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เทอร์มินัลบน Ghostty พร้อมแท็บแนวตั้ง\\nและแผงการแจ้งเตือนสำหรับ macOS"
+            "value": "เทอร์มินัลบน Ghostty พร้อมแท็บแนวตั้ง\nและแผงการแจ้งเตือนสำหรับ macOS"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS için dikey sekmeli ve bildirim panelli\\nGhostty tabanlı terminal."
+            "value": "macOS için dikey sekmeli ve bildirim panelli\nGhostty tabanlı terminal."
           }
         }
       }
