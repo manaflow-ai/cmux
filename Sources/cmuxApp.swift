@@ -1048,7 +1048,7 @@ struct cmuxApp: App {
     }
 
     private func closePanelOrWindow() {
-        if let window = NSApp.keyWindow,
+        if let window = NSApp.keyWindow ?? NSApp.mainWindow,
            cmuxWindowShouldOwnCloseShortcut(window) {
             window.performClose(nil)
             return

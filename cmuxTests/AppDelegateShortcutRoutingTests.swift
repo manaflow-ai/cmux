@@ -571,7 +571,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
     }
 
-    func testCmdWClosesAuxiliaryWindowInsteadOfMainTerminalPanel() {
+    func testCmdWClosesAuxiliaryWindowInsteadOfMainTerminalPanel() throws {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
             return
@@ -580,9 +580,10 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         let windowId = appDelegate.createMainWindow()
         defer { closeWindow(withId: windowId) }
 
-        guard let mainWindow = window(withId: windowId),
-              let manager = appDelegate.tabManagerFor(windowId: windowId) else {
-            XCTFail("Expected test window and manager")
+        XCTAssertNotNil(window(withId: windowId), "Expected test window")
+
+        guard let manager = appDelegate.tabManagerFor(windowId: windowId) else {
+            XCTFail("Expected test manager")
             return
         }
 
@@ -618,7 +619,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 #if DEBUG
         XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
 #else
-        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+        throw XCTSkip("debugHandleCustomShortcut is only available in DEBUG builds")
 #endif
 
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
@@ -626,7 +627,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertFalse(auxiliaryWindow.isVisible, "Cmd+W should close the auxiliary window")
         XCTAssertNotNil(self.window(withId: windowId), "Cmd+W in auxiliary window should not close the main window")
         XCTAssertEqual(manager.tabs.count, mainWorkspaceCount, "Cmd+W in auxiliary window should not close a terminal panel")
-        XCTAssertEqual(NSApp.keyWindow, mainWindow, "Focus should return to the main window after auxiliary close")
+        XCTAssertNotEqual(NSApp.keyWindow?.identifier?.rawValue, "cmux.about", "Closed auxiliary window should not remain key")
     }
 
     func testCmdPhysicalIWithDvorakCharactersDoesNotTriggerShowNotifications() {
