@@ -153,7 +153,7 @@ final class QuickTerminalController: NSObject, NSWindowDelegate {
 
     nonisolated private static func ghosttyKeyNameToKeyCode(_ name: String) -> UInt16? {
         switch name {
-        case "grave_accent", "`": return 50
+        case "grave_accent", "backquote", "`": return 50
         case "a": return 0
         case "b": return 11
         case "c": return 8
@@ -200,7 +200,7 @@ final class QuickTerminalController: NSObject, NSWindowDelegate {
 
     nonisolated private static func ghosttyKeyNameToCharacters(_ name: String) -> String? {
         switch name {
-        case "grave_accent", "`": return "`"
+        case "grave_accent", "backquote", "`": return "`"
         case "space": return " "
         case "tab": return "\t"
         case "return", "enter": return "\r"
