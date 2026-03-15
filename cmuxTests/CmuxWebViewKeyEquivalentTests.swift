@@ -221,6 +221,66 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
         XCTAssertFalse(spy.invoked)
     }
 
+    @MainActor
+    func testCapturedBrowserDoesNotRouteShortcutProbesToMainMenu() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let originalTabManager = appDelegate.tabManager
+        let manager = TabManager()
+        appDelegate.tabManager = manager
+        defer {
+            appDelegate.tabManager = originalTabManager
+        }
+
+        guard manager.openBrowser(
+            url: URL(string: "https://example.com/keyboard-capture-menu"),
+            insertAtEnd: true
+        ) != nil, let browserPanel = manager.focusedBrowserPanel else {
+            XCTFail("Expected focused browser panel")
+            return
+        }
+
+        manager.confirmCloseHandler = { _, _, _ in false }
+        XCTAssertTrue(
+            browserPanel.setKeyboardCaptureActive(true, reason: "test.menuMatrix"),
+            "Expected keyboard capture to activate for browser panel"
+        )
+
+        for probe in capturedBrowserShortcutMenuProbes() {
+            let spy = ActionSpy()
+            installMenu(spy: spy, key: probe.key, modifiers: probe.modifiers)
+
+            guard let event = makeKeyDownEvent(
+                key: probe.key,
+                modifiers: probe.modifiers,
+                keyCode: probe.keyCode
+            ) else {
+                XCTFail("Failed to construct \(probe.name) event")
+                continue
+            }
+
+            XCTAssertFalse(
+                browserPanel.webView.performKeyEquivalent(with: event),
+                "\(probe.name) should not be consumed by the app menu while keyboard capture is active"
+            )
+            XCTAssertFalse(
+                spy.invoked,
+                "\(probe.name) should not route to NSApp.mainMenu while keyboard capture is active"
+            )
+            XCTAssertTrue(
+                browserPanel.isKeyboardCaptureActive,
+                "\(probe.name) should not release keyboard capture"
+            )
+            XCTAssertFalse(
+                browserPanel.isKeyboardCaptureExitArmed,
+                "\(probe.name) should not arm keyboard-capture exit"
+            )
+        }
+    }
+
     func testCmdReturnDoesNotRouteToMainMenuWhenWebViewIsFirstResponder() {
         let spy = ActionSpy()
         installMenu(spy: spy, key: "\r", modifiers: [.command])
@@ -585,6 +645,56 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
     }
 
     @MainActor
+    func testWindowFirstResponderGuardAllowsPortalHostedTextFieldSiblingWithoutPointerClickContext() {
+        _ = NSApplication.shared
+        AppDelegate.installWindowResponderSwizzlesForTesting()
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let contentView = NSView(frame: window.contentRect(forFrameRect: window.frame))
+        window.contentView = contentView
+
+        window.makeKeyAndOrderFront(nil)
+        defer {
+            AppDelegate.clearWindowFirstResponderGuardTesting()
+            window.orderOut(nil)
+        }
+
+        guard let container = contentView.superview else {
+            XCTFail("Expected content container")
+            return
+        }
+
+        let hostFrame = container.convert(contentView.bounds, from: contentView)
+        let host = WindowBrowserHostView(frame: hostFrame)
+        host.autoresizingMask = [.width, .height]
+        container.addSubview(host, positioned: .above, relativeTo: contentView)
+
+        let slot = WindowBrowserSlotView(frame: host.bounds)
+        slot.autoresizingMask = [.width, .height]
+        host.addSubview(slot)
+
+        let webView = CmuxWebView(frame: slot.bounds, configuration: WKWebViewConfiguration())
+        webView.autoresizingMask = [.width, .height]
+        slot.addSubview(webView)
+
+        let textField = NSTextField(frame: NSRect(x: 40, y: 40, width: 220, height: 24))
+        textField.isEditable = true
+        slot.addSubview(textField)
+
+        webView.allowsFirstResponderAcquisition = false
+        _ = window.makeFirstResponder(nil)
+        XCTAssertTrue(
+            window.makeFirstResponder(textField),
+            "Expected editable portal chrome to remain focusable when web capture policy is blocked"
+        )
+    }
+
+    @MainActor
     func testWindowFirstResponderGuardAvoidsTextViewDelegateLookupForWebViewResolution() {
         _ = NSApplication.shared
         AppDelegate.installWindowResponderSwizzlesForTesting()
@@ -850,6 +960,171 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
         // Ensure NSApp exists and has a menu for performKeyEquivalent to consult.
         _ = NSApplication.shared
         NSApp.mainMenu = mainMenu
+    }
+
+    private struct BrowserCaptureShortcutProbe {
+        let name: String
+        let key: String
+        let keyCode: UInt16
+        let modifiers: NSEvent.ModifierFlags
+
+        init(name: String, key: String, keyCode: UInt16, modifiers: NSEvent.ModifierFlags) {
+            self.name = name
+            self.key = key
+            self.keyCode = keyCode
+            self.modifiers = modifiers
+        }
+
+        init?(name: String, shortcut: StoredShortcut) {
+            guard let keyCode = Self.keyCode(for: shortcut.key) else { return nil }
+            self.init(
+                name: name,
+                key: shortcut.key,
+                keyCode: keyCode,
+                modifiers: shortcut.modifierFlags
+            )
+        }
+
+        private static func keyCode(for key: String) -> UInt16? {
+            switch key {
+            case "a": return 0
+            case "s": return 1
+            case "d": return 2
+            case "f": return 3
+            case "h": return 4
+            case "g": return 5
+            case "z": return 6
+            case "x": return 7
+            case "c": return 8
+            case "v": return 9
+            case "b": return 11
+            case "q": return 12
+            case "w": return 13
+            case "e": return 14
+            case "r": return 15
+            case "y": return 16
+            case "t": return 17
+            case "1": return 18
+            case "2": return 19
+            case "3": return 20
+            case "4": return 21
+            case "6": return 22
+            case "5": return 23
+            case "=": return 24
+            case "9": return 25
+            case "7": return 26
+            case "-": return 27
+            case "8": return 28
+            case "0": return 29
+            case "]": return 30
+            case "o": return 31
+            case "u": return 32
+            case "[": return 33
+            case "i": return 34
+            case "p": return 35
+            case "\r": return 36
+            case "l": return 37
+            case "j": return 38
+            case "'": return 39
+            case "k": return 40
+            case ";": return 41
+            case "\\": return 42
+            case ",": return 43
+            case "/": return 44
+            case "n": return 45
+            case "m": return 46
+            case ".": return 47
+            case "\t": return 48
+            case "`": return 50
+            case "←": return 123
+            case "→": return 124
+            case "↓": return 125
+            case "↑": return 126
+            default:
+                return nil
+            }
+        }
+    }
+
+    private func capturedBrowserShortcutMenuProbes() -> [BrowserCaptureShortcutProbe] {
+        let actionProbes = KeyboardShortcutSettings.Action.allCases.compactMap { action in
+            BrowserCaptureShortcutProbe(name: "action.\(action.rawValue)", shortcut: action.defaultShortcut)
+        }
+        let fixedProbes = [
+            BrowserCaptureShortcutProbe(
+                name: "fixed.browserBack",
+                key: "[",
+                keyCode: 33,
+                modifiers: [.command]
+            ),
+            BrowserCaptureShortcutProbe(
+                name: "fixed.browserForward",
+                key: "]",
+                keyCode: 30,
+                modifiers: [.command]
+            ),
+            BrowserCaptureShortcutProbe(
+                name: "fixed.browserFocusAddressBar",
+                key: "l",
+                keyCode: 37,
+                modifiers: [.command]
+            ),
+            BrowserCaptureShortcutProbe(
+                name: "fixed.commandPaletteSwitcher",
+                key: "p",
+                keyCode: 35,
+                modifiers: [.command]
+            ),
+            BrowserCaptureShortcutProbe(
+                name: "fixed.commandPaletteCommands",
+                key: "p",
+                keyCode: 35,
+                modifiers: [.command, .shift]
+            ),
+            BrowserCaptureShortcutProbe(
+                name: "fixed.closePanel",
+                key: "w",
+                keyCode: 13,
+                modifiers: [.command]
+            ),
+            BrowserCaptureShortcutProbe(
+                name: "fixed.selectWorkspace1",
+                key: "1",
+                keyCode: 18,
+                modifiers: [.command]
+            ),
+            BrowserCaptureShortcutProbe(
+                name: "fixed.selectSurface1",
+                key: "1",
+                keyCode: 18,
+                modifiers: [.control]
+            ),
+            BrowserCaptureShortcutProbe(
+                name: "fixed.nextSurfaceLegacy",
+                key: "\t",
+                keyCode: 48,
+                modifiers: [.control]
+            ),
+            BrowserCaptureShortcutProbe(
+                name: "fixed.previousSurfaceLegacy",
+                key: "\t",
+                keyCode: 48,
+                modifiers: [.control, .shift]
+            ),
+            BrowserCaptureShortcutProbe(
+                name: "fixed.closeOtherTabs",
+                key: "t",
+                keyCode: 17,
+                modifiers: [.command, .option]
+            ),
+            BrowserCaptureShortcutProbe(
+                name: "fixed.quit",
+                key: "q",
+                keyCode: 12,
+                modifiers: [.command]
+            )
+        ]
+        return actionProbes + fixedProbes
     }
 
     private func makeKeyDownEvent(

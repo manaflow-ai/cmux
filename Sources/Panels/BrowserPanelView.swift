@@ -357,6 +357,14 @@ struct BrowserPanelView: View {
             }
         }
         .overlay {
+            if panel.isKeyboardCaptureActive && isFocused {
+                RoundedRectangle(cornerRadius: FocusFlashPattern.ringCornerRadius)
+                    .stroke(Color(nsColor: .systemOrange).opacity(0.9), lineWidth: 2)
+                    .padding(FocusFlashPattern.ringInset + 2)
+                    .allowsHitTesting(false)
+            }
+        }
+        .overlay {
             RoundedRectangle(cornerRadius: FocusFlashPattern.ringCornerRadius)
                 .stroke(cmuxAccentColor().opacity(focusFlashOpacity), lineWidth: 3)
                 .shadow(color: cmuxAccentColor().opacity(focusFlashOpacity * 0.35), radius: 10)
@@ -564,6 +572,8 @@ struct BrowserPanelView: View {
                 .accessibilityIdentifier("BrowserOmnibarPill")
                 .accessibilityLabel("Browser omnibar")
 
+            keyboardCaptureControl
+
             if !panel.isShowingNewTabPage {
                 browserThemeModeButton
                 developerToolsButton
@@ -584,6 +594,77 @@ struct BrowserPanelView: View {
         // Keep the omnibar stack above WKWebView so the suggestions popup is visible.
         .zIndex(1)
         .environment(\.colorScheme, browserChromeColorScheme)
+    }
+
+    @ViewBuilder
+    private var keyboardCaptureControl: some View {
+        if panel.isKeyboardCaptureActive {
+            Button(action: {
+                panel.clearKeyboardCapture(reason: "chromePillClick")
+            }) {
+                HStack(spacing: 6) {
+                    Image(systemName: "keyboard")
+                        .font(.system(size: 10, weight: .semibold))
+                    Text(keyboardCaptureIndicatorText)
+                        .font(.system(size: 11, weight: .semibold))
+                        .lineLimit(1)
+                }
+                .padding(.horizontal, 10)
+                .frame(height: addressBarButtonSize)
+                .background(
+                    Capsule(style: .continuous)
+                        .fill(Color(nsColor: .systemOrange).opacity(0.18))
+                )
+                .overlay(
+                    Capsule(style: .continuous)
+                        .stroke(Color(nsColor: .systemOrange).opacity(0.55), lineWidth: 1)
+                )
+            }
+            .buttonStyle(.plain)
+            .safeHelp(String(localized: "browser.keyboardCapture.release", defaultValue: "Release webview keyboard capture"))
+            .accessibilityIdentifier("BrowserKeyboardCaptureButton")
+        } else if !panel.isShowingNewTabPage {
+            Button(action: {
+                activateKeyboardCaptureFromChrome()
+            }) {
+                Image(systemName: "keyboard")
+                    .font(.system(size: devToolsButtonIconSize, weight: .medium))
+                    .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
+            }
+            .buttonStyle(OmnibarAddressButtonStyle())
+            .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
+            .safeHelp(String(localized: "browser.keyboardCapture.capture", defaultValue: "Capture webview keyboard"))
+            .accessibilityIdentifier("BrowserKeyboardCaptureButton")
+        }
+    }
+
+    private var keyboardCaptureIndicatorText: String {
+        if panel.isKeyboardCaptureExitArmed {
+            return String(
+                localized: "browser.keyboardCapture.armed",
+                defaultValue: "Press Esc again to exit"
+            )
+        }
+        return String(
+            localized: "browser.keyboardCapture.active",
+            defaultValue: "Keyboard captured, Esc twice to exit"
+        )
+    }
+
+    private func activateKeyboardCaptureFromChrome() {
+        if addressBarFocused {
+            setAddressBarFocused(false, reason: "keyboardCapture.chromeButton")
+        }
+        if !isFocused {
+            onRequestPanelFocus()
+        }
+        DispatchQueue.main.async {
+            _ = panel.setKeyboardCaptureActive(
+                true,
+                reason: "chromeButton",
+                focusWebView: true
+            )
+        }
     }
 
     private var addressBarButtonBar: some View {

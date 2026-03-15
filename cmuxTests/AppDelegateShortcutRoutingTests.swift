@@ -525,8 +525,11 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 #endif
 
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
-
-        XCTAssertNil(self.window(withId: windowId), "Confirming Cmd+Ctrl+W should close the window")
+        XCTAssertNil(appDelegate.tabManagerFor(windowId: windowId), "Confirming Cmd+Ctrl+W should unregister the window context")
+        XCTAssertFalse(
+            self.window(withId: windowId)?.isVisible ?? false,
+            "Confirming Cmd+Ctrl+W should leave no visible main window behind"
+        )
     }
 
     func testCmdWClosesWindowWhenClosingLastSurfaceInLastWorkspace() {
@@ -2213,6 +2216,59 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 #endif
     }
 
+    func testCapturedBrowserBypassesAllShortcutProbes() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer {
+            closeWindow(withId: windowId)
+        }
+
+        guard let window = window(withId: windowId),
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              manager.openBrowser(url: URL(string: "https://example.com/keyboard-capture"), insertAtEnd: true) != nil,
+              let browserPanel = manager.focusedBrowserPanel else {
+            XCTFail("Expected focused browser panel in test window")
+            return
+        }
+
+        manager.confirmCloseHandler = { _, _, _ in false }
+        appDelegate.debugCloseMainWindowConfirmationHandler = { _ in false }
+
+        XCTAssertTrue(
+            manager.setFocusedBrowserKeyboardCaptureActive(true, reason: "test.matrix"),
+            "Expected keyboard capture to activate for focused browser"
+        )
+
+        for probe in capturedBrowserShortcutProbes() {
+            guard let event = probe.makeEvent(windowNumber: window.windowNumber) else {
+                XCTFail("Failed to construct \(probe.name) event")
+                continue
+            }
+
+#if DEBUG
+            XCTAssertFalse(
+                appDelegate.debugHandleCustomShortcut(event: event),
+                "\(probe.name) should bypass cmux shortcut handling while keyboard capture is active"
+            )
+#else
+            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+
+            XCTAssertTrue(
+                browserPanel.isKeyboardCaptureActive,
+                "\(probe.name) should not release keyboard capture"
+            )
+            XCTAssertFalse(
+                browserPanel.isKeyboardCaptureExitArmed,
+                "\(probe.name) should not arm keyboard-capture exit"
+            )
+        }
+    }
+
     func testEscapeKeyUpIsConsumedAfterCmdPSwitcherDismiss() {
         assertEscapeKeyUpIsConsumedAfterCommandPaletteOpenRequest { appDelegate, window in
             appDelegate.requestCommandPaletteSwitcher(
@@ -2546,6 +2602,186 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
         KeyboardShortcutSettings.setShortcut(shortcut ?? action.defaultShortcut, for: action)
         body()
+    }
+
+    private struct BrowserCaptureShortcutProbe {
+        let name: String
+        let key: String
+        let keyCode: UInt16
+        let modifiers: NSEvent.ModifierFlags
+
+        init(name: String, key: String, keyCode: UInt16, modifiers: NSEvent.ModifierFlags) {
+            self.name = name
+            self.key = key
+            self.keyCode = keyCode
+            self.modifiers = modifiers
+        }
+
+        init?(name: String, shortcut: StoredShortcut) {
+            guard let keyCode = Self.keyCode(for: shortcut.key) else { return nil }
+            self.init(
+                name: name,
+                key: shortcut.key,
+                keyCode: keyCode,
+                modifiers: shortcut.modifierFlags
+            )
+        }
+
+        func makeEvent(windowNumber: Int) -> NSEvent? {
+            NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: modifiers,
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: windowNumber,
+                context: nil,
+                characters: key,
+                charactersIgnoringModifiers: key,
+                isARepeat: false,
+                keyCode: keyCode
+            )
+        }
+
+        private static func keyCode(for key: String) -> UInt16? {
+            switch key {
+            case "a": return 0
+            case "s": return 1
+            case "d": return 2
+            case "f": return 3
+            case "h": return 4
+            case "g": return 5
+            case "z": return 6
+            case "x": return 7
+            case "c": return 8
+            case "v": return 9
+            case "b": return 11
+            case "q": return 12
+            case "w": return 13
+            case "e": return 14
+            case "r": return 15
+            case "y": return 16
+            case "t": return 17
+            case "1": return 18
+            case "2": return 19
+            case "3": return 20
+            case "4": return 21
+            case "6": return 22
+            case "5": return 23
+            case "=": return 24
+            case "9": return 25
+            case "7": return 26
+            case "-": return 27
+            case "8": return 28
+            case "0": return 29
+            case "]": return 30
+            case "o": return 31
+            case "u": return 32
+            case "[": return 33
+            case "i": return 34
+            case "p": return 35
+            case "\r": return 36
+            case "l": return 37
+            case "j": return 38
+            case "'": return 39
+            case "k": return 40
+            case ";": return 41
+            case "\\": return 42
+            case ",": return 43
+            case "/": return 44
+            case "n": return 45
+            case "m": return 46
+            case ".": return 47
+            case "\t": return 48
+            case "`": return 50
+            case "←": return 123
+            case "→": return 124
+            case "↓": return 125
+            case "↑": return 126
+            default:
+                return nil
+            }
+        }
+    }
+
+    private func capturedBrowserShortcutProbes() -> [BrowserCaptureShortcutProbe] {
+        let actionProbes = KeyboardShortcutSettings.Action.allCases.compactMap { action in
+            BrowserCaptureShortcutProbe(name: "action.\(action.rawValue)", shortcut: action.defaultShortcut)
+        }
+        let fixedProbes = [
+            BrowserCaptureShortcutProbe(
+                name: "fixed.browserBack",
+                key: "[",
+                keyCode: 33,
+                modifiers: [.command]
+            ),
+            BrowserCaptureShortcutProbe(
+                name: "fixed.browserForward",
+                key: "]",
+                keyCode: 30,
+                modifiers: [.command]
+            ),
+            BrowserCaptureShortcutProbe(
+                name: "fixed.browserFocusAddressBar",
+                key: "l",
+                keyCode: 37,
+                modifiers: [.command]
+            ),
+            BrowserCaptureShortcutProbe(
+                name: "fixed.commandPaletteSwitcher",
+                key: "p",
+                keyCode: 35,
+                modifiers: [.command]
+            ),
+            BrowserCaptureShortcutProbe(
+                name: "fixed.commandPaletteCommands",
+                key: "p",
+                keyCode: 35,
+                modifiers: [.command, .shift]
+            ),
+            BrowserCaptureShortcutProbe(
+                name: "fixed.closePanel",
+                key: "w",
+                keyCode: 13,
+                modifiers: [.command]
+            ),
+            BrowserCaptureShortcutProbe(
+                name: "fixed.selectWorkspace1",
+                key: "1",
+                keyCode: 18,
+                modifiers: [.command]
+            ),
+            BrowserCaptureShortcutProbe(
+                name: "fixed.selectSurface1",
+                key: "1",
+                keyCode: 18,
+                modifiers: [.control]
+            ),
+            BrowserCaptureShortcutProbe(
+                name: "fixed.nextSurfaceLegacy",
+                key: "\t",
+                keyCode: 48,
+                modifiers: [.control]
+            ),
+            BrowserCaptureShortcutProbe(
+                name: "fixed.previousSurfaceLegacy",
+                key: "\t",
+                keyCode: 48,
+                modifiers: [.control, .shift]
+            ),
+            BrowserCaptureShortcutProbe(
+                name: "fixed.closeOtherTabs",
+                key: "t",
+                keyCode: 17,
+                modifiers: [.command, .option]
+            ),
+            BrowserCaptureShortcutProbe(
+                name: "fixed.quit",
+                key: "q",
+                keyCode: 12,
+                modifiers: [.command]
+            )
+        ]
+        return actionProbes + fixedProbes
     }
 
     private func assertEscapeKeyUpIsConsumedAfterCommandPaletteOpenRequest(

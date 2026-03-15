@@ -1542,6 +1542,7 @@ struct ContentView: View {
         static let panelName = "panel.name"
         static let panelIsBrowser = "panel.isBrowser"
         static let panelIsTerminal = "panel.isTerminal"
+        static let panelBrowserKeyboardCaptured = "panel.browserKeyboardCaptured"
         static let panelHasCustomName = "panel.hasCustomName"
         static let panelShouldPin = "panel.shouldPin"
         static let panelHasUnread = "panel.hasUnread"
@@ -4637,6 +4638,10 @@ struct ContentView: View {
                 panelDisplayName(workspace: workspace, panelId: panelId, fallback: panelContext.panel.displayTitle)
             )
             snapshot.setBool(CommandPaletteContextKeys.panelIsBrowser, panelContext.panel.panelType == .browser)
+            snapshot.setBool(
+                CommandPaletteContextKeys.panelBrowserKeyboardCaptured,
+                (panelContext.panel as? BrowserPanel)?.isKeyboardCaptureActive ?? false
+            )
             snapshot.setBool(CommandPaletteContextKeys.panelIsTerminal, panelIsTerminal)
             snapshot.setBool(CommandPaletteContextKeys.panelHasCustomName, workspace.panelCustomTitles[panelId] != nil)
             snapshot.setBool(CommandPaletteContextKeys.panelShouldPin, !workspace.isPanelPinned(panelId))
@@ -5125,6 +5130,19 @@ struct ContentView: View {
         )
         contributions.append(
             CommandPaletteCommandContribution(
+                commandId: "palette.browserToggleKeyboardCapture",
+                title: { context in
+                    context.bool(CommandPaletteContextKeys.panelBrowserKeyboardCaptured)
+                        ? String(localized: "command.browserReleaseKeyboardCapture.title", defaultValue: "Release Webview Keyboard")
+                        : String(localized: "command.browserCaptureKeyboard.title", defaultValue: "Capture Webview Keyboard")
+                },
+                subtitle: browserPanelSubtitle,
+                keywords: ["browser", "webview", "keyboard", "capture", "release", "vscode"],
+                when: { $0.bool(CommandPaletteContextKeys.panelIsBrowser) }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
                 commandId: "palette.browserToggleDevTools",
                 title: constant(String(localized: "command.browserToggleDevTools.title", defaultValue: "Toggle Developer Tools")),
                 subtitle: browserPanelSubtitle,
@@ -5579,6 +5597,11 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.browserFocusAddressBar") {
             if !focusFocusedBrowserAddressBar() {
+                NSSound.beep()
+            }
+        }
+        registry.register(commandId: "palette.browserToggleKeyboardCapture") {
+            if !tabManager.toggleFocusedBrowserKeyboardCapture(reason: "commandPalette.toggle", focusWebView: true) {
                 NSSound.beep()
             }
         }

@@ -1985,6 +1985,16 @@ class TabManager: ObservableObject {
         focusedBrowserPanel?.showDeveloperToolsConsole() ?? false
     }
 
+    @discardableResult
+    func setFocusedBrowserKeyboardCaptureActive(_ active: Bool, reason: String, focusWebView: Bool = false) -> Bool {
+        focusedBrowserPanel?.setKeyboardCaptureActive(active, reason: reason, focusWebView: focusWebView) ?? false
+    }
+
+    @discardableResult
+    func toggleFocusedBrowserKeyboardCapture(reason: String, focusWebView: Bool = false) -> Bool {
+        focusedBrowserPanel?.toggleKeyboardCapture(reason: reason, focusWebView: focusWebView) ?? false
+    }
+
     /// Backwards compatibility: returns the focused surface ID
     func focusedSurfaceId(for tabId: UUID) -> UUID? {
         focusedPanelId(for: tabId)

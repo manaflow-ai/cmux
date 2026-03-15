@@ -7954,6 +7954,74 @@
         }
       }
     },
+    "browser.keyboardCapture.active": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keyboard captured, Esc twice to exit"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キーボードをキャプチャ中、Esc を2回押すと終了"
+          }
+        }
+      }
+    },
+    "browser.keyboardCapture.armed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Press Esc again to exit"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "終了するにはもう一度 Esc を押す"
+          }
+        }
+      }
+    },
+    "browser.keyboardCapture.capture": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Capture webview keyboard"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Webview のキーボードをキャプチャ"
+          }
+        }
+      }
+    },
+    "browser.keyboardCapture.release": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Release webview keyboard capture"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Webview のキーボードキャプチャを解除"
+          }
+        }
+      }
+    },
     "cli.install.adminRequired": {
       "extractionState": "manual",
       "localizations": {
@@ -9536,6 +9604,23 @@
         }
       }
     },
+    "command.browserCaptureKeyboard.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Capture Webview Keyboard"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Webview のキーボードをキャプチャ"
+          }
+        }
+      }
+    },
     "command.browserClearHistory.subtitle": {
       "extractionState": "manual",
       "localizations": {
@@ -11114,6 +11199,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Geliştirici Araçlarını Aç/Kapat"
+          }
+        }
+      }
+    },
+    "command.browserReleaseKeyboardCapture.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Release Webview Keyboard"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Webview のキーボードキャプチャを解除"
           }
         }
       }
@@ -36500,6 +36602,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Tarayıcı Geçmişini Temizle"
+          }
+        }
+      }
+    },
+    "menu.view.captureWebviewKeyboard": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Capture Webview Keyboard"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Webview のキーボードをキャプチャ"
           }
         }
       }

@@ -1680,6 +1680,12 @@ final class BrowserPanel: Panel, ObservableObject {
     /// Increment to request a UI-only flash highlight (e.g. from a keyboard shortcut).
     @Published private(set) var focusFlashToken: Int = 0
 
+    /// True when this browser pane should own keyboard shortcuts instead of cmux.
+    @Published private(set) var isKeyboardCaptureActive: Bool = false
+
+    /// True after the first Escape press while keyboard capture is active.
+    @Published private(set) var isKeyboardCaptureExitArmed: Bool = false
+
     /// Sticky omnibar-focus intent. This survives view mount timing races and is
     /// cleared only after BrowserPanelView acknowledges handling it.
     @Published private(set) var pendingAddressBarFocusRequestId: UUID?
@@ -1694,6 +1700,7 @@ final class BrowserPanel: Panel, ObservableObject {
     @Published var searchState: BrowserSearchState? = nil {
         didSet {
             if let searchState {
+                clearKeyboardCapture(reason: "searchStateCreated")
                 preferredFocusIntent = .findField
                 NSLog("Find: browser search state created panel=%@", id.uuidString)
                 searchNeedleCancellable = searchState.$needle
@@ -1755,6 +1762,7 @@ final class BrowserPanel: Panel, ObservableObject {
     private var loadingStartedAt: Date?
     private var loadingEndWorkItem: DispatchWorkItem?
     private var loadingGeneration: Int = 0
+    private var keyboardCaptureExitResetWorkItem: DispatchWorkItem?
 
     private var faviconTask: Task<Void, Never>?
     private var faviconRefreshGeneration: Int = 0
@@ -2352,6 +2360,7 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     func unfocus() {
+        clearKeyboardCapture(reason: "panelUnfocus")
         invalidateSearchFocusRequests(reason: "panelUnfocus")
         guard let window = webView.window else { return }
         if Self.responderChainContains(window.firstResponder, target: webView) {
@@ -2363,6 +2372,7 @@ final class BrowserPanel: Panel, ObservableObject {
         // Ensure we don't keep a hidden WKWebView (or its content view) as first responder while
         // bonsplit/SwiftUI reshuffles views during close.
         unfocus()
+        clearKeyboardCapture(reason: "panelClose")
         webView.stopLoading()
         webView.navigationDelegate = nil
         webView.uiDelegate = nil
@@ -2726,6 +2736,8 @@ final class BrowserPanel: Panel, ObservableObject {
         developerToolsRestoreRetryWorkItem = nil
         developerToolsTransitionSettleWorkItem?.cancel()
         developerToolsTransitionSettleWorkItem = nil
+        keyboardCaptureExitResetWorkItem?.cancel()
+        keyboardCaptureExitResetWorkItem = nil
         if let detachedDeveloperToolsWindowCloseObserver {
             NotificationCenter.default.removeObserver(detachedDeveloperToolsWindowCloseObserver)
         }
@@ -2744,6 +2756,8 @@ extension BrowserPanel {
         currentURL != nil ||
         !pageTitle.isEmpty ||
         faviconPNGData != nil ||
+        isKeyboardCaptureActive ||
+        isKeyboardCaptureExitArmed ||
         searchState != nil ||
         nativeCanGoBack ||
         nativeCanGoForward ||
@@ -2804,6 +2818,7 @@ extension BrowserPanel {
 
         pendingAddressBarFocusRequestId = nil
         preferredFocusIntent = .addressBar
+        clearKeyboardCapture(reason: "contextReset")
         suppressOmnibarAutofocusUntil = nil
         suppressWebViewFocusUntil = nil
         endSuppressWebViewFocusForAddressBar()
@@ -3741,14 +3756,101 @@ extension BrowserPanel {
     }
 
     func noteAddressBarFocused() {
+        clearKeyboardCapture(reason: "addressBarFocused")
         guard preferredFocusIntent != .addressBar else { return }
         preferredFocusIntent = .addressBar
         invalidateSearchFocusRequests(reason: "addressBarFocused")
     }
 
     func noteFindFieldFocused() {
+        clearKeyboardCapture(reason: "findFieldFocused")
         guard preferredFocusIntent != .findField else { return }
         preferredFocusIntent = .findField
+    }
+
+    @discardableResult
+    func setKeyboardCaptureActive(
+        _ active: Bool,
+        reason: String,
+        focusWebView: Bool = false
+    ) -> Bool {
+        if active {
+            guard shouldRenderWebView else { return false }
+            guard searchState == nil else { return false }
+            endSuppressWebViewFocusForAddressBar()
+            isKeyboardCaptureActive = true
+            clearKeyboardCaptureExitArm(reason: "\(reason).activate")
+            if focusWebView {
+                focus()
+            }
+        } else {
+            clearKeyboardCapture(reason: reason)
+        }
+#if DEBUG
+        dlog(
+            "browser.keyboardCapture panel=\(id.uuidString.prefix(5)) " +
+            "active=\(isKeyboardCaptureActive ? 1 : 0) armed=\(isKeyboardCaptureExitArmed ? 1 : 0) " +
+            "reason=\(reason)"
+        )
+#endif
+        recordKeyboardCaptureUITestState()
+        return true
+    }
+
+    @discardableResult
+    func toggleKeyboardCapture(reason: String, focusWebView: Bool = false) -> Bool {
+        setKeyboardCaptureActive(!isKeyboardCaptureActive, reason: reason, focusWebView: focusWebView)
+    }
+
+    func armKeyboardCaptureExit(timeout: TimeInterval, reason: String) {
+        guard isKeyboardCaptureActive else { return }
+        keyboardCaptureExitResetWorkItem?.cancel()
+        isKeyboardCaptureExitArmed = true
+        let workItem = DispatchWorkItem { [weak self] in
+            self?.clearKeyboardCaptureExitArm(reason: "timeout")
+        }
+        keyboardCaptureExitResetWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + timeout, execute: workItem)
+#if DEBUG
+        dlog(
+            "browser.keyboardCapture.exitArm panel=\(id.uuidString.prefix(5)) " +
+            "armed=1 timeoutMs=\(Int(timeout * 1000)) reason=\(reason)"
+        )
+#endif
+        recordKeyboardCaptureUITestState()
+    }
+
+    func clearKeyboardCapture(reason: String) {
+        guard isKeyboardCaptureActive || isKeyboardCaptureExitArmed else { return }
+        keyboardCaptureExitResetWorkItem?.cancel()
+        keyboardCaptureExitResetWorkItem = nil
+        isKeyboardCaptureExitArmed = false
+        isKeyboardCaptureActive = false
+#if DEBUG
+        dlog("browser.keyboardCapture.clear panel=\(id.uuidString.prefix(5)) reason=\(reason)")
+#endif
+        recordKeyboardCaptureUITestState()
+    }
+
+    func clearKeyboardCaptureExitArm(reason: String) {
+        keyboardCaptureExitResetWorkItem?.cancel()
+        keyboardCaptureExitResetWorkItem = nil
+        guard isKeyboardCaptureExitArmed else { return }
+        isKeyboardCaptureExitArmed = false
+#if DEBUG
+        dlog("browser.keyboardCapture.exitArm panel=\(id.uuidString.prefix(5)) armed=0 reason=\(reason)")
+#endif
+        recordKeyboardCaptureUITestState()
+    }
+
+    private func recordKeyboardCaptureUITestState() {
+#if DEBUG
+        UITestRecorder.record([
+            "browserKeyboardCaptureActive": isKeyboardCaptureActive ? "1" : "0",
+            "browserKeyboardCaptureExitArmed": isKeyboardCaptureExitArmed ? "1" : "0",
+            "browserKeyboardCapturePanelId": isKeyboardCaptureActive ? id.uuidString : ""
+        ])
+#endif
     }
 
     func canApplySearchFocusRequest(_ generation: UInt64) -> Bool {

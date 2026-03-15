@@ -143,6 +143,17 @@ final class CmuxWebView: WKWebView {
             return result
         }
 
+        if AppDelegate.shared?.shouldBypassCmuxShortcutRoutingForCapturedBrowser(
+            event: event,
+            webView: self
+        ) == true {
+            let result = super.performKeyEquivalent(with: event)
+#if DEBUG
+            handled = result
+#endif
+            return result
+        }
+
         if !shouldRouteCommandEquivalentDirectlyToMainMenu(event) {
             let result = super.performKeyEquivalent(with: event)
 #if DEBUG
@@ -191,6 +202,10 @@ final class CmuxWebView: WKWebView {
         // Some Cmd-based key paths in WebKit don't consistently invoke performKeyEquivalent.
         // Route them through the same app-level shortcut handler as a fallback.
         if event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command),
+           AppDelegate.shared?.shouldBypassCmuxShortcutRoutingForCapturedBrowser(
+            event: event,
+            webView: self
+           ) != true,
            AppDelegate.shared?.handleBrowserSurfaceKeyEquivalent(event) == true {
 #if DEBUG
             route = "appShortcut"
