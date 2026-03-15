@@ -70,6 +70,18 @@ enum SidebarFontSettings {
     static let availableFamilies = NSFontManager.shared.availableFontFamilies.sorted()
     private static let availableFamilySet = Set(availableFamilies)
 
+    /// Cache mapping family name → PostScript face name for the regular member.
+    private static let familyToFaceName: [String: String] = {
+        var map = [String: String]()
+        for family in availableFamilies {
+            guard let members = NSFontManager.shared.availableMembers(ofFontFamily: family),
+                  let first = members.first,
+                  let faceName = first[0] as? String else { continue }
+            map[family] = faceName
+        }
+        return map
+    }()
+
     static func legacyFont(
         role: SidebarFontRole,
         size: CGFloat,
@@ -98,10 +110,10 @@ enum SidebarFontSettings {
         guard !trimmed.isEmpty else {
             return legacyFont(role: role, size: size, weight: weight)
         }
-        guard availableFamilySet.contains(trimmed) else {
+        guard let faceName = familyToFaceName[trimmed] else {
             return legacyFont(role: role, size: size, weight: weight)
         }
-        return .custom(trimmed, size: size).weight(weight)
+        return .custom(faceName, size: size).weight(weight)
     }
 }
 
