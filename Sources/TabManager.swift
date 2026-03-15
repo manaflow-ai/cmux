@@ -51,6 +51,36 @@ enum WorkspaceAutoReorderSettings {
     }
 }
 
+enum SidebarFontSizeSettings {
+    static let scaleKey = "sidebarFontSizeScale"
+    static let defaultScale: Double = 1.0
+    static let minimumScale: Double = 0.75
+    static let maximumScale: Double = 1.5
+    static let scaleStep: Double = 0.05
+
+    static func currentScale(defaults: UserDefaults = .standard) -> Double {
+        let stored = defaults.double(forKey: scaleKey)
+        guard stored > 0 else { return defaultScale }
+        return min(max(stored, minimumScale), maximumScale)
+    }
+
+    static func increase(defaults: UserDefaults = .standard) {
+        let current = currentScale(defaults: defaults)
+        let newScale = min(current + scaleStep, maximumScale)
+        defaults.set(newScale, forKey: scaleKey)
+    }
+
+    static func decrease(defaults: UserDefaults = .standard) {
+        let current = currentScale(defaults: defaults)
+        let newScale = max(current - scaleStep, minimumScale)
+        defaults.set(newScale, forKey: scaleKey)
+    }
+
+    static func reset(defaults: UserDefaults = .standard) {
+        defaults.set(defaultScale, forKey: scaleKey)
+    }
+}
+
 enum SidebarBranchLayoutSettings {
     static let key = "sidebarBranchVerticalLayout"
     static let defaultVerticalLayout = true
