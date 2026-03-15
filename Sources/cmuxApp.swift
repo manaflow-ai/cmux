@@ -4,6 +4,18 @@ import Darwin
 import Bonsplit
 import UniformTypeIdentifiers
 
+enum WorkspaceTitlebarSettings {
+    static let showTitlebarKey = "workspaceTitlebarVisible"
+    static let defaultShowTitlebar = true
+
+    static func isVisible(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: showTitlebarKey) == nil {
+            return defaultShowTitlebar
+        }
+        return defaults.bool(forKey: showTitlebarKey)
+    }
+}
+
 @main
 struct cmuxApp: App {
     @StateObject private var tabManager: TabManager
@@ -3085,6 +3097,8 @@ struct SettingsView: View {
     @AppStorage(LanguageSettings.languageKey) private var appLanguage = LanguageSettings.defaultLanguage.rawValue
     @AppStorage(AppearanceSettings.appearanceModeKey) private var appearanceMode = AppearanceSettings.defaultMode.rawValue
     @AppStorage(AppIconSettings.modeKey) private var appIconMode = AppIconSettings.defaultMode.rawValue
+    @AppStorage(WorkspaceTitlebarSettings.showTitlebarKey)
+    private var showWorkspaceTitlebar = WorkspaceTitlebarSettings.defaultShowTitlebar
     @AppStorage(SocketControlSettings.appStorageKey) private var socketControlMode = SocketControlSettings.defaultMode.rawValue
     @AppStorage(ClaudeCodeIntegrationSettings.hooksEnabledKey)
     private var claudeCodeHooksEnabled = ClaudeCodeIntegrationSettings.defaultHooksEnabled
@@ -3165,6 +3179,19 @@ struct SettingsView: View {
 
     private var selectedWorkspacePlacement: NewWorkspacePlacement {
         NewWorkspacePlacement(rawValue: newWorkspacePlacement) ?? WorkspacePlacementSettings.defaultPlacement
+    }
+
+    private var workspaceTitlebarSubtitle: String {
+        if showWorkspaceTitlebar {
+            return String(
+                localized: "settings.app.showWorkspaceTitlebar.subtitleOn",
+                defaultValue: "Show the folder and active title above pane tabs."
+            )
+        }
+        return String(
+            localized: "settings.app.showWorkspaceTitlebar.subtitleOff",
+            defaultValue: "Hide the workspace title bar and show sidebar or pane actions only on hover."
+        )
     }
 
     private var selectedSidebarActiveTabIndicatorStyle: SidebarActiveTabIndicatorStyle {
@@ -3555,6 +3582,20 @@ struct SettingsView: View {
                             ForEach(NewWorkspacePlacement.allCases) { placement in
                                 Text(placement.displayName).tag(placement.rawValue)
                             }
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            String(localized: "settings.app.showWorkspaceTitlebar", defaultValue: "Show Workspace Title Bar"),
+                            subtitle: workspaceTitlebarSubtitle
+                        ) {
+                            Toggle("", isOn: $showWorkspaceTitlebar)
+                                .labelsHidden()
+                                .controlSize(.small)
+                                .accessibilityLabel(
+                                    String(localized: "settings.app.showWorkspaceTitlebar", defaultValue: "Show Workspace Title Bar")
+                                )
                         }
 
                         SettingsCardDivider()
@@ -4623,6 +4664,7 @@ struct SettingsView: View {
         ShortcutHintDebugSettings.resetVisibilityDefaults()
         alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
         newWorkspacePlacement = WorkspacePlacementSettings.defaultPlacement.rawValue
+        showWorkspaceTitlebar = WorkspaceTitlebarSettings.defaultShowTitlebar
         workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
         sidebarHideAllDetails = SidebarWorkspaceDetailSettings.defaultHideAllDetails
         sidebarShowNotificationMessage = SidebarWorkspaceDetailSettings.defaultShowNotificationMessage

@@ -1951,6 +1951,12 @@ struct ContentView: View {
     /// Space at top of content area for the titlebar. This must be at least the actual titlebar
     /// height; otherwise controls like Bonsplit tab dragging can be interpreted as window drags.
     @State private var titlebarPadding: CGFloat = 32
+    @AppStorage(WorkspaceTitlebarSettings.showTitlebarKey)
+    private var showWorkspaceTitlebar = WorkspaceTitlebarSettings.defaultShowTitlebar
+
+    private var effectiveTitlebarPadding: CGFloat {
+        showWorkspaceTitlebar ? titlebarPadding : 0
+    }
 
     private var terminalContent: some View {
         let mountedWorkspaceIdSet = Set(mountedWorkspaceIds)
@@ -2004,10 +2010,12 @@ struct ContentView: View {
                 .allowsHitTesting(sidebarSelectionState.selection == .notifications)
                 .accessibilityHidden(sidebarSelectionState.selection != .notifications)
         }
-        .padding(.top, titlebarPadding)
+        .padding(.top, effectiveTitlebarPadding)
         .overlay(alignment: .top) {
-            // Titlebar overlay is only over terminal content, not the sidebar.
-            customTitlebar
+            if showWorkspaceTitlebar {
+                // Titlebar overlay is only over terminal content, not the sidebar.
+                customTitlebar
+            }
         }
     }
 
@@ -2224,7 +2232,7 @@ struct ContentView: View {
             contentAndSidebarLayout
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .overlay(alignment: .topLeading) {
-                    if isFullScreen && sidebarState.isVisible {
+                    if isFullScreen && sidebarState.isVisible && showWorkspaceTitlebar {
                         fullscreenControls
                             .padding(.leading, 10)
                             .padding(.top, 4)
@@ -7765,10 +7773,13 @@ struct VerticalTabsSidebar: View {
     private var sidebarHideAllDetails = SidebarWorkspaceDetailSettings.defaultHideAllDetails
     @AppStorage(SidebarWorkspaceDetailSettings.showNotificationMessageKey)
     private var sidebarShowNotificationMessage = SidebarWorkspaceDetailSettings.defaultShowNotificationMessage
+    @AppStorage(WorkspaceTitlebarSettings.showTitlebarKey)
+    private var showWorkspaceTitlebar = WorkspaceTitlebarSettings.defaultShowTitlebar
 
     /// Space at top of sidebar for traffic light buttons
     private let trafficLightPadding: CGFloat = 28
     private let tabRowSpacing: CGFloat = 2
+    private let hiddenTitlebarControlsLeadingInset: CGFloat = 72
 
     private var showsSidebarNotificationMessage: Bool {
         SidebarWorkspaceDetailSettings.resolvedNotificationMessageVisibility(
@@ -7855,6 +7866,13 @@ struct VerticalTabsSidebar: View {
                     // drag-to-move and double-click action (zoom/minimize).
                     WindowDragHandleView()
                         .frame(height: trafficLightPadding)
+                }
+                .overlay(alignment: .topLeading) {
+                    if !showWorkspaceTitlebar {
+                        HiddenTitlebarSidebarControlsView(notificationStore: notificationStore)
+                            .padding(.leading, hiddenTitlebarControlsLeadingInset)
+                            .padding(.top, 2)
+                    }
                 }
                 .background(Color.clear)
                 .modifier(ClearScrollBackground())

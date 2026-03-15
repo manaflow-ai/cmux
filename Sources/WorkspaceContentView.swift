@@ -16,6 +16,8 @@ struct WorkspaceContentView: View {
         _ notificationPayloadHex: String?
     ) -> Void)?
     @State private var config = WorkspaceContentView.resolveGhosttyAppearanceConfig(reason: "stateInit")
+    @AppStorage(WorkspaceTitlebarSettings.showTitlebarKey)
+    private var showWorkspaceTitlebar = WorkspaceTitlebarSettings.defaultShowTitlebar
     @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject var notificationStore: TerminalNotificationStore
 
@@ -52,7 +54,7 @@ struct WorkspaceContentView: View {
             }
         }()
 
-        BonsplitView(controller: workspace.bonsplitController) { tab, paneId in
+        let bonsplitView = BonsplitView(controller: workspace.bonsplitController) { tab, paneId in
             // Content for each tab in bonsplit
             let _ = Self.debugPanelLookup(tab: tab, workspace: workspace)
             if let panel = workspace.panel(for: tab.id) {
@@ -146,6 +148,15 @@ struct WorkspaceContentView: View {
                 backgroundSource: source,
                 notificationPayloadHex: payloadHex
             )
+        }
+
+        Group {
+            if showWorkspaceTitlebar {
+                bonsplitView
+            } else {
+                bonsplitView
+                    .ignoresSafeArea(.container, edges: .top)
+            }
         }
     }
 

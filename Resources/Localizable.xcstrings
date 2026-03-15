@@ -43635,6 +43635,57 @@
         }
       }
     },
+    "settings.app.showWorkspaceTitlebar": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Workspace Title Bar"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースのタイトルバーを表示"
+          }
+        }
+      }
+    },
+    "settings.app.showWorkspaceTitlebar.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide the workspace title bar and show sidebar or pane actions only on hover."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースのタイトルバーを隠し、サイドバーやペインタブの操作はホバー時のみ表示します。"
+          }
+        }
+      }
+    },
+    "settings.app.showWorkspaceTitlebar.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show the folder and active title above pane tabs."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペインタブの上にフォルダ名と現在のタイトルを表示します。"
+          }
+        }
+      }
+    },
     "settings.app.showPullRequests": {
       "extractionState": "manual",
       "localizations": {

@@ -7663,6 +7663,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         titlebarAccessoryController.dismissNotificationsPopoverIfShown()
     }
 
+    func isNotificationsPopoverShown() -> Bool {
+        titlebarAccessoryController.isNotificationsPopoverShown()
+    }
+
     func jumpToLatestUnread() {
         guard let notificationStore else { return }
 #if DEBUG
