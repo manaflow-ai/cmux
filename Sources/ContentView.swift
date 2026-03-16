@@ -10148,6 +10148,8 @@ private struct TabItemView: View, Equatable {
         SidebarActiveTabIndicatorSettings.resolvedStyle(rawValue: activeTabIndicatorStyleRaw)
     }
 
+    private static let closeButtonSize: CGFloat = 16
+
     private var titleFontWeight: Font.Weight {
         .semibold
     }
@@ -10227,7 +10229,7 @@ private struct TabItemView: View, Equatable {
                 debugXOffset: sidebarShortcutHintXOffset
             )
         } else if showCloseButton {
-            return 16
+            return Self.closeButtonSize
         } else {
             return 0
         }
@@ -10329,7 +10331,7 @@ private struct TabItemView: View, Equatable {
                     }
                     .buttonStyle(.plain)
                     .safeHelp(KeyboardShortcutSettings.Action.closeWorkspace.tooltip(closeWorkspaceTooltip))
-                    .frame(width: 16, height: 16, alignment: .center)
+                    .frame(width: Self.closeButtonSize, height: Self.closeButtonSize, alignment: .center)
                     .opacity(showCloseButton && !showsWorkspaceShortcutHint ? 1 : 0)
                     .allowsHitTesting(showCloseButton && !showsWorkspaceShortcutHint)
 
