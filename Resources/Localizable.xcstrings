@@ -12152,6 +12152,57 @@
         }
       }
     },
+    "command.closeTabsToLeft.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close Tabs to Left"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "左側のタブを閉じる"
+          }
+        }
+      }
+    },
+    "command.closeTabsToRight.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close Tabs to Right"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右側のタブを閉じる"
+          }
+        }
+      }
+    },
+    "command.closeOtherTabs.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close Other Tabs"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "他のタブを閉じる"
+          }
+        }
+      }
+    },
     "command.closeWindow.subtitle": {
       "extractionState": "manual",
       "localizations": {
@@ -13740,13 +13791,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "New Tab (Terminal)"
+            "value": "New Tab"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "新規タブ（ターミナル）"
+            "value": "新規タブ"
           }
         },
         "zh-Hans": {
@@ -27944,6 +27995,57 @@
         }
       }
     },
+    "dialog.closeTopTab.close": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "閉じる"
+          }
+        }
+      }
+    },
+    "dialog.closeTopTab.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This will close all splits in this tab."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このタブ内のすべての分割を閉じます。"
+          }
+        }
+      }
+    },
+    "dialog.closeTopTab.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close tab?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブを閉じますか？"
+          }
+        }
+      }
+    },
     "dialog.closeWindow.message": {
       "extractionState": "manual",
       "localizations": {
@@ -36753,13 +36855,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Next Surface"
+            "value": "Next Tab"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "次のサーフェス"
+            "value": "次のタブ"
           }
         },
         "zh-Hans": {
@@ -36979,13 +37081,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Previous Surface"
+            "value": "Previous Tab"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "前のサーフェス"
+            "value": "前のタブ"
           }
         },
         "zh-Hans": {
@@ -41427,6 +41529,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Yeni Çalışma Alanı Konumu"
+          }
+        }
+      }
+    },
+    "settings.app.workspaceTopTabs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Top Tabs Contain Splits"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上位タブに分割を含める"
+          }
+        }
+      }
+    },
+    "settings.app.workspaceTopTabs.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When enabled, the new-tab shortcut creates a full top tab, split shortcuts work inside it, and tab-switching shortcuts move between top tabs."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有効にすると、新しいタブのショートカットで上位タブ全体を作成し、分割ショートカットはその中で動作し、タブ切り替えショートカットは上位タブを移動します。"
           }
         }
       }
@@ -57863,13 +57999,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "New Surface"
+            "value": "New Tab"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "新規サーフェス"
+            "value": "新規タブ"
           }
         },
         "zh-Hans": {
@@ -58202,13 +58338,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Next Surface"
+            "value": "Next Tab"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "次のサーフェス"
+            "value": "次のタブ"
           }
         },
         "zh-Hans": {
@@ -58767,13 +58903,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Previous Surface"
+            "value": "Previous Tab"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "前のサーフェス"
+            "value": "前のタブ"
           }
         },
         "zh-Hans": {
@@ -73108,6 +73244,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "Yeni çalışma alanlarını listenin en üstüne ekle."
+          }
+        }
+      }
+    },
+    "workspace.topTab.initialTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナル"
+          }
+        }
+      }
+    },
+    "workspace.topTab.new.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Tab"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新規タブ"
+          }
+        }
+      }
+    },
+    "workspace.topTab.titleFallback": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナル"
           }
         }
       }

@@ -10,9 +10,12 @@ import XCTest
 final class AppDelegateShortcutRoutingTests: XCTestCase {
     private var savedShortcutsByAction: [KeyboardShortcutSettings.Action: StoredShortcut] = [:]
     private var actionsWithPersistedShortcut: Set<KeyboardShortcutSettings.Action> = []
+    private var previousTopTabsSetting: Any?
 
     override func setUp() {
         super.setUp()
+        previousTopTabsSetting = UserDefaults.standard.object(forKey: WorkspaceTopTabsFeatureSettings.key)
+        UserDefaults.standard.removeObject(forKey: WorkspaceTopTabsFeatureSettings.key)
         actionsWithPersistedShortcut = Set(
             KeyboardShortcutSettings.Action.allCases.filter {
                 UserDefaults.standard.object(forKey: $0.defaultsKey) != nil
@@ -27,6 +30,12 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
     }
 
     override func tearDown() {
+        if let previousTopTabsSetting {
+            UserDefaults.standard.set(previousTopTabsSetting, forKey: WorkspaceTopTabsFeatureSettings.key)
+        } else {
+            UserDefaults.standard.removeObject(forKey: WorkspaceTopTabsFeatureSettings.key)
+        }
+        previousTopTabsSetting = nil
         AppDelegate.shared?.shortcutLayoutCharacterProvider = KeyboardLayout.character(forKeyCode:modifierFlags:)
         AppDelegate.shared?.debugCloseMainWindowConfirmationHandler = nil
         AppDelegate.shared?.dismissNotificationsPopoverIfShown()
@@ -402,6 +411,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
     }
 
     func testCmdTRoutesToEventWindowWhenActiveManagerIsStale() {
+        UserDefaults.standard.set(true, forKey: WorkspaceTopTabsFeatureSettings.key)
+
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
             return
@@ -424,8 +435,9 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        let firstSurfaceCount = firstWorkspace.panels.count
-        let secondSurfaceCount = secondWorkspace.panels.count
+        let firstTopTabCount = firstWorkspace.topTabs.count
+        let secondTopTabCount = secondWorkspace.topTabs.count
+        let secondWorkspaceCount = secondManager.tabs.count
 
         appDelegate.tabManager = firstManager
         XCTAssertTrue(appDelegate.tabManager === firstManager)
@@ -447,9 +459,122 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 #endif
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
 
-        XCTAssertEqual(firstWorkspace.panels.count, firstSurfaceCount, "Cmd+T must not create a surface in stale active window")
-        XCTAssertEqual(secondWorkspace.panels.count, secondSurfaceCount + 1, "Cmd+T should create a surface in the event window")
+        XCTAssertEqual(firstWorkspace.topTabs.count, firstTopTabCount, "Cmd+T must not create a top tab in stale active window")
+        XCTAssertEqual(secondManager.tabs.count, secondWorkspaceCount, "Cmd+T should not create a sidebar workspace")
+        XCTAssertEqual(secondWorkspace.topTabs.count, secondTopTabCount + 1, "Cmd+T should create a top tab in the event window")
+        XCTAssertEqual(secondWorkspace.selectedTopTab?.bonsplitController.allPaneIds.count, Optional(1), "New top tab should start unsplit")
+        XCTAssertEqual(
+            secondWorkspace.selectedTopTab.map { secondWorkspace.panelIds(in: $0).count },
+            1,
+            "New top tab should contain one panel"
+        )
         XCTAssertTrue(appDelegate.tabManager === secondManager, "Shortcut routing should retarget active manager to event window")
+    }
+
+    func testCtrlTabRoutesToEventWindowWhenActiveManagerIsStale() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let firstWindowId = appDelegate.createMainWindow()
+        let secondWindowId = appDelegate.createMainWindow()
+
+        defer {
+            closeWindow(withId: firstWindowId)
+            closeWindow(withId: secondWindowId)
+        }
+
+        guard let firstManager = appDelegate.tabManagerFor(windowId: firstWindowId),
+              let secondManager = appDelegate.tabManagerFor(windowId: secondWindowId),
+              let secondWindow = window(withId: secondWindowId),
+              let firstWorkspace = firstManager.selectedWorkspace,
+              let secondWorkspace = secondManager.selectedWorkspace else {
+            XCTFail("Expected both window contexts to exist")
+            return
+        }
+
+        _ = firstWorkspace.addTopTab(select: false)
+        let secondTopTab = secondWorkspace.addTopTab(select: false)
+        let firstSelectedBefore = firstWorkspace.selectedTopTabId
+        let secondSelectedBefore = secondWorkspace.selectedTopTabId
+
+        appDelegate.tabManager = firstManager
+        XCTAssertTrue(appDelegate.tabManager === firstManager)
+
+        guard let event = makeKeyDownEvent(
+            key: "\t",
+            modifiers: [.control],
+            keyCode: 48,
+            windowNumber: secondWindow.windowNumber
+        ) else {
+            XCTFail("Failed to construct Ctrl+Tab event")
+            return
+        }
+
+#if DEBUG
+        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        XCTAssertEqual(firstWorkspace.selectedTopTabId, firstSelectedBefore, "Ctrl+Tab must not retarget stale window tabs")
+        XCTAssertEqual(secondWorkspace.selectedTopTabId, secondTopTab.id, "Ctrl+Tab should advance top tabs in the event window")
+        XCTAssertNotEqual(secondWorkspace.selectedTopTabId, secondSelectedBefore)
+        XCTAssertTrue(appDelegate.tabManager === secondManager, "Ctrl+Tab should retarget active manager to event window")
+    }
+
+    func testCtrlDigitRoutesToEventWindowTopTabsWhenActiveManagerIsStale() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let firstWindowId = appDelegate.createMainWindow()
+        let secondWindowId = appDelegate.createMainWindow()
+
+        defer {
+            closeWindow(withId: firstWindowId)
+            closeWindow(withId: secondWindowId)
+        }
+
+        guard let firstManager = appDelegate.tabManagerFor(windowId: firstWindowId),
+              let secondManager = appDelegate.tabManagerFor(windowId: secondWindowId),
+              let secondWindow = window(withId: secondWindowId),
+              let firstWorkspace = firstManager.selectedWorkspace,
+              let secondWorkspace = secondManager.selectedWorkspace else {
+            XCTFail("Expected both window contexts to exist")
+            return
+        }
+
+        _ = firstWorkspace.addTopTab(select: false)
+        let targetTopTab = secondWorkspace.addTopTab(select: false)
+        let firstSelectedBefore = firstWorkspace.selectedTopTabId
+
+        appDelegate.tabManager = firstManager
+        XCTAssertTrue(appDelegate.tabManager === firstManager)
+
+        guard let event = makeKeyDownEvent(
+            key: "2",
+            modifiers: [.control],
+            keyCode: 19,
+            windowNumber: secondWindow.windowNumber
+        ) else {
+            XCTFail("Failed to construct Ctrl+2 event")
+            return
+        }
+
+#if DEBUG
+        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        XCTAssertEqual(firstWorkspace.selectedTopTabId, firstSelectedBefore, "Ctrl+digit must not retarget stale window tabs")
+        XCTAssertEqual(secondWorkspace.selectedTopTabId, targetTopTab.id, "Ctrl+2 should select the second top tab in the event window")
+        XCTAssertTrue(appDelegate.tabManager === secondManager, "Ctrl+digit should retarget active manager to event window")
     }
 
     func testCmdCtrlWPromptsBeforeClosingWindow() {

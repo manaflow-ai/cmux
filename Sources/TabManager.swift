@@ -1926,7 +1926,7 @@ class TabManager: ObservableObject {
 
         // Child-exit on the last panel should collapse the workspace, matching explicit close
         // semantics (and close the window when it was the last workspace).
-        if tab.panels.count <= 1 {
+        if tab.topTabs.count <= 1 && tab.selectedTopTabPanelCount <= 1 {
             if tabs.count <= 1 {
                 if let app = AppDelegate.shared {
                     app.notificationStore?.clearNotifications(forTabId: tabId)
@@ -2498,11 +2498,66 @@ class TabManager: ObservableObject {
         selectedWorkspace?.selectLastSurface()
     }
 
-    /// Create a new terminal surface in the focused pane of the selected workspace
+    func selectNextTopTab() {
+        selectedWorkspace?.selectNextTopTab()
+    }
+
+    func selectPreviousTopTab() {
+        selectedWorkspace?.selectPreviousTopTab()
+    }
+
+    func selectTopTab(at index: Int) {
+        selectedWorkspace?.selectTopTab(at: index)
+    }
+
+    func selectLastTopTab() {
+        selectedWorkspace?.selectLastTopTab()
+    }
+
+    var usesWorkspaceTopTabsAsPrimaryTabUI: Bool {
+        selectedWorkspace?.usesTopTabsAsPrimaryTabUI ?? WorkspaceTopTabsFeatureSettings.isEnabled()
+    }
+
+    func selectNextPrimaryTab() {
+        if usesWorkspaceTopTabsAsPrimaryTabUI {
+            selectNextTopTab()
+        } else {
+            selectNextSurface()
+        }
+    }
+
+    func selectPreviousPrimaryTab() {
+        if usesWorkspaceTopTabsAsPrimaryTabUI {
+            selectPreviousTopTab()
+        } else {
+            selectPreviousSurface()
+        }
+    }
+
+    func selectPrimaryTab(at index: Int) {
+        if usesWorkspaceTopTabsAsPrimaryTabUI {
+            selectTopTab(at: index)
+        } else {
+            selectSurface(at: index)
+        }
+    }
+
+    func selectLastPrimaryTab() {
+        if usesWorkspaceTopTabsAsPrimaryTabUI {
+            selectLastTopTab()
+        } else {
+            selectLastSurface()
+        }
+    }
+
+    /// Create a new terminal tab in the selected workspace, using the active tab layer.
     func newSurface() {
-        // Cmd+T should always focus the newly created surface.
-        selectedWorkspace?.clearSplitZoom()
-        selectedWorkspace?.newTerminalSurfaceInFocusedPane(focus: true)
+        guard let selectedWorkspace else { return }
+        if usesWorkspaceTopTabsAsPrimaryTabUI {
+            selectedWorkspace.addTopTab(select: true)
+        } else {
+            selectedWorkspace.newTerminalSurfaceInFocusedPane()
+        }
     }
 
     // MARK: - Split Creation

@@ -8296,13 +8296,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        // Surface navigation: Cmd+Shift+] / Cmd+Shift+[
+        // Primary tab navigation: top tabs when enabled, otherwise pane tabs.
         if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .nextSurface)) {
-            tabManager?.selectNextSurface()
+            tabManager?.selectNextPrimaryTab()
             return true
         }
         if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .prevSurface)) {
-            tabManager?.selectPreviousSurface()
+            tabManager?.selectPreviousPrimaryTab()
             return true
         }
 
@@ -8453,13 +8453,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        // Numeric shortcuts for surfaces within pane: Ctrl+1-9 (9 = last)
+        // Numeric shortcuts for the active tab layer: top tabs when enabled, otherwise pane tabs.
         if flags == [.control] {
             if let num = Int(chars), num >= 1 && num <= 9 {
                 if num == 9 {
-                    tabManager?.selectLastSurface()
+                    tabManager?.selectLastPrimaryTab()
                 } else {
-                    tabManager?.selectSurface(at: num - 1)
+                    tabManager?.selectPrimaryTab(at: num - 1)
                 }
                 return true
             }
@@ -8562,13 +8562,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        // Surface navigation (legacy Ctrl+Tab support)
+        // Primary tab navigation (legacy Ctrl+Tab support)
         if matchTabShortcut(event: event, shortcut: StoredShortcut(key: "\t", command: false, shift: false, option: false, control: true)) {
-            tabManager?.selectNextSurface()
+            tabManager?.selectNextPrimaryTab()
             return true
         }
         if matchTabShortcut(event: event, shortcut: StoredShortcut(key: "\t", command: false, shift: true, option: false, control: true)) {
-            tabManager?.selectPreviousSurface()
+            tabManager?.selectPreviousPrimaryTab()
             return true
         }
 

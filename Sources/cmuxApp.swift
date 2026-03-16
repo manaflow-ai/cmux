@@ -521,7 +521,7 @@ struct cmuxApp: App {
                 }
             }
 
-            // Tab navigation
+            // Primary tab navigation
             CommandGroup(after: .toolbar) {
                 splitCommandButton(title: String(localized: "menu.view.toggleSidebar", defaultValue: "Toggle Sidebar"), shortcut: toggleSidebarMenuShortcut) {
                     if AppDelegate.shared?.toggleSidebarInActiveMainWindow() != true {
@@ -531,12 +531,12 @@ struct cmuxApp: App {
 
                 Divider()
 
-                splitCommandButton(title: String(localized: "menu.view.nextSurface", defaultValue: "Next Surface"), shortcut: nextSurfaceMenuShortcut) {
-                    activeTabManager.selectNextSurface()
+                splitCommandButton(title: String(localized: "menu.view.nextSurface", defaultValue: "Next Tab"), shortcut: nextSurfaceMenuShortcut) {
+                    activeTabManager.selectNextPrimaryTab()
                 }
 
-                splitCommandButton(title: String(localized: "menu.view.previousSurface", defaultValue: "Previous Surface"), shortcut: prevSurfaceMenuShortcut) {
-                    activeTabManager.selectPreviousSurface()
+                splitCommandButton(title: String(localized: "menu.view.previousSurface", defaultValue: "Previous Tab"), shortcut: prevSurfaceMenuShortcut) {
+                    activeTabManager.selectPreviousPrimaryTab()
                 }
 
                 Button(String(localized: "menu.view.back", defaultValue: "Back")) {
@@ -3119,6 +3119,8 @@ struct SettingsView: View {
     @AppStorage(ShortcutHintDebugSettings.alwaysShowHintsKey)
     private var alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
     @AppStorage(WorkspacePlacementSettings.placementKey) private var newWorkspacePlacement = WorkspacePlacementSettings.defaultPlacement.rawValue
+    @AppStorage(WorkspaceTopTabsFeatureSettings.key)
+    private var workspaceTopTabsEnabled = WorkspaceTopTabsFeatureSettings.defaultValue
     @AppStorage(WorkspaceAutoReorderSettings.key) private var workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
     @AppStorage(SidebarWorkspaceDetailSettings.hideAllDetailsKey)
     private var sidebarHideAllDetails = SidebarWorkspaceDetailSettings.defaultHideAllDetails
@@ -3556,6 +3558,26 @@ struct SettingsView: View {
                             ForEach(NewWorkspacePlacement.allCases) { placement in
                                 Text(placement.displayName).tag(placement.rawValue)
                             }
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            String(localized: "settings.app.workspaceTopTabs", defaultValue: "Top Tabs Contain Splits"),
+                            subtitle: String(
+                                localized: "settings.app.workspaceTopTabs.subtitle",
+                                defaultValue: "When enabled, the new-tab shortcut creates a full top tab, split shortcuts work inside it, and tab-switching shortcuts move between top tabs."
+                            )
+                        ) {
+                            Toggle("", isOn: $workspaceTopTabsEnabled)
+                                .labelsHidden()
+                                .controlSize(.small)
+                                .accessibilityLabel(
+                                    String(
+                                        localized: "settings.app.workspaceTopTabs",
+                                        defaultValue: "Top Tabs Contain Splits"
+                                    )
+                                )
                         }
 
                         SettingsCardDivider()
@@ -4624,6 +4646,7 @@ struct SettingsView: View {
         ShortcutHintDebugSettings.resetVisibilityDefaults()
         alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
         newWorkspacePlacement = WorkspacePlacementSettings.defaultPlacement.rawValue
+        workspaceTopTabsEnabled = WorkspaceTopTabsFeatureSettings.defaultValue
         workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
         sidebarHideAllDetails = SidebarWorkspaceDetailSettings.defaultHideAllDetails
         sidebarShowNotificationMessage = SidebarWorkspaceDetailSettings.defaultShowNotificationMessage
