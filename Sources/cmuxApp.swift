@@ -3241,6 +3241,16 @@ struct SettingsView: View {
         )
     }
 
+    private var showWorkspaceTitlebarBinding: Binding<Bool> {
+        Binding(
+            get: { showWorkspaceTitlebar },
+            set: { newValue in
+                showWorkspaceTitlebar = newValue
+                reassertSettingsWindowFocusIfNeeded()
+            }
+        )
+    }
+
     private var settingsSidebarTintLightBinding: Binding<Color> {
         Binding(
             get: {
@@ -3590,9 +3600,10 @@ struct SettingsView: View {
                             String(localized: "settings.app.showWorkspaceTitlebar", defaultValue: "Show Workspace Title Bar"),
                             subtitle: workspaceTitlebarSubtitle
                         ) {
-                            Toggle("", isOn: $showWorkspaceTitlebar)
+                            Toggle("", isOn: showWorkspaceTitlebarBinding)
                                 .labelsHidden()
                                 .controlSize(.small)
+                                .accessibilityIdentifier("SettingsShowWorkspaceTitlebarToggle")
                                 .accessibilityLabel(
                                     String(localized: "settings.app.showWorkspaceTitlebar", defaultValue: "Show Workspace Title Bar")
                                 )
@@ -4623,6 +4634,19 @@ struct SettingsView: View {
             return
         }
         NSApplication.shared.terminate(nil)
+    }
+
+    private func reassertSettingsWindowFocusIfNeeded() {
+        DispatchQueue.main.async {
+            guard let window = SettingsWindowController.shared.window, window.isVisible else { return }
+            window.orderFrontRegardless()
+            window.makeKeyAndOrderFront(nil)
+            DispatchQueue.main.async {
+                guard window.isVisible else { return }
+                window.orderFrontRegardless()
+                window.makeKeyAndOrderFront(nil)
+            }
+        }
     }
 
     private func resetAllSettings() {

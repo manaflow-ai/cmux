@@ -1173,6 +1173,7 @@ private struct NotificationPopoverRow: View {
     }
 }
 
+@MainActor
 final class UpdateTitlebarAccessoryController {
     private weak var updateViewModel: UpdateViewModel?
     private var didStart = false
@@ -1213,7 +1214,9 @@ final class UpdateTitlebarAccessoryController {
             queue: .main
         ) { [weak self] notification in
             guard let window = notification.object as? NSWindow else { return }
-            self?.attachIfNeeded(to: window)
+            Task { @MainActor [weak self] in
+                self?.attachIfNeeded(to: window)
+            }
         })
 
         observers.append(center.addObserver(
@@ -1222,7 +1225,9 @@ final class UpdateTitlebarAccessoryController {
             queue: .main
         ) { [weak self] notification in
             guard let window = notification.object as? NSWindow else { return }
-            self?.attachIfNeeded(to: window)
+            Task { @MainActor [weak self] in
+                self?.attachIfNeeded(to: window)
+            }
         })
 
         // We intentionally do not rely on "window became visible" notifications here:
@@ -1242,7 +1247,9 @@ final class UpdateTitlebarAccessoryController {
         let delays: [TimeInterval] = [0.05, 0.15, 0.3, 0.6, 1.0, 2.0, 3.0]
         for delay in delays {
             let item = DispatchWorkItem { [weak self] in
-                self?.attachToExistingWindows()
+                Task { @MainActor [weak self] in
+                    self?.attachToExistingWindows()
+                }
 #if DEBUG
                 let env = ProcessInfo.processInfo.environment
                 if env["CMUX_UI_TEST_MODE"] == "1" {
@@ -1258,7 +1265,6 @@ final class UpdateTitlebarAccessoryController {
     }
 
     private func attachIfNeeded(to window: NSWindow) {
-        guard !attachedWindows.contains(window) else { return }
         guard !isSettingsWindow(window) else { return }
 
         // Window identifiers are assigned by SwiftUI via WindowAccessor, which can run
@@ -1270,8 +1276,10 @@ final class UpdateTitlebarAccessoryController {
             if attempts < 40 {
                 pendingAttachRetries[key] = attempts + 1
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self, weak window] in
-                    guard let self, let window else { return }
-                    self.attachIfNeeded(to: window)
+                    Task { @MainActor [weak self, weak window] in
+                        guard let self, let window else { return }
+                        self.attachIfNeeded(to: window)
+                    }
                 }
             } else {
                 pendingAttachRetries.removeValue(forKey: key)
@@ -1280,6 +1288,13 @@ final class UpdateTitlebarAccessoryController {
         }
 
         pendingAttachRetries.removeValue(forKey: ObjectIdentifier(window))
+
+        guard WorkspaceTitlebarSettings.isVisible() else {
+            removeAccessoryIfPresent(from: window)
+            return
+        }
+
+        guard !attachedWindows.contains(window) else { return }
 
         if !window.titlebarAccessoryViewControllers.contains(where: { $0.view.identifier == controlsIdentifier }) {
             let controls = TitlebarControlsAccessoryViewController(
@@ -1298,6 +1313,40 @@ final class UpdateTitlebarAccessoryController {
         if env["CMUX_UI_TEST_MODE"] == "1" {
             let ident = window.identifier?.rawValue ?? "<nil>"
             UpdateLogStore.shared.append("attached titlebar accessories to window id=\(ident)")
+        }
+#endif
+    }
+
+    private func removeAccessoryIfPresent(from window: NSWindow) {
+        let matchingIndices = window.titlebarAccessoryViewControllers.indices.reversed().filter { index in
+            window.titlebarAccessoryViewControllers[index].view.identifier == controlsIdentifier
+        }
+        guard !matchingIndices.isEmpty || attachedWindows.contains(window) else { return }
+
+        for index in matchingIndices {
+            let accessory = window.titlebarAccessoryViewControllers[index]
+            if let controls = accessory as? TitlebarControlsAccessoryViewController {
+                controls.dismissNotificationsPopover()
+            }
+            window.removeTitlebarAccessoryViewController(at: index)
+        }
+
+        attachedWindows.remove(window)
+        pendingAttachRetries.removeValue(forKey: ObjectIdentifier(window))
+        DispatchQueue.main.async { [weak window] in
+            guard let window else { return }
+            window.contentView?.needsLayout = true
+            window.contentView?.superview?.needsLayout = true
+            window.contentView?.layoutSubtreeIfNeeded()
+            window.contentView?.superview?.layoutSubtreeIfNeeded()
+            window.invalidateShadow()
+        }
+
+#if DEBUG
+        let env = ProcessInfo.processInfo.environment
+        if env["CMUX_UI_TEST_MODE"] == "1" {
+            let ident = window.identifier?.rawValue ?? "<nil>"
+            UpdateLogStore.shared.append("removed titlebar accessories from window id=\(ident)")
         }
 #endif
     }
