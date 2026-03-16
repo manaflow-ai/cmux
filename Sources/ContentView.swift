@@ -11578,7 +11578,7 @@ enum SidebarDropPlanner {
         draggedTabId: UUID?,
         targetTabId: UUID?,
         tabIds: [UUID],
-        pinnedTabIds: Set<UUID> = [],
+        pinnedTabIds: Set<UUID>,
         pointerY: CGFloat? = nil,
         targetHeight: CGFloat? = nil
     ) -> SidebarDropIndicator? {
@@ -11619,7 +11619,7 @@ enum SidebarDropPlanner {
         targetTabId: UUID?,
         indicator: SidebarDropIndicator?,
         tabIds: [UUID],
-        pinnedTabIds: Set<UUID> = []
+        pinnedTabIds: Set<UUID>
     ) -> Int? {
         guard let fromIndex = tabIds.firstIndex(of: draggedTabId) else { return nil }
 

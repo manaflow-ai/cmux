@@ -7166,14 +7166,16 @@ final class SidebarDropPlannerTests: XCTestCase {
             SidebarDropPlanner.indicator(
                 draggedTabId: first,
                 targetTabId: first,
-                tabIds: tabIds
+                tabIds: tabIds,
+                pinnedTabIds: []
             )
         )
         XCTAssertNil(
             SidebarDropPlanner.indicator(
                 draggedTabId: third,
                 targetTabId: nil,
-                tabIds: tabIds
+                tabIds: tabIds,
+                pinnedTabIds: []
             )
         )
     }
@@ -7184,14 +7186,16 @@ final class SidebarDropPlannerTests: XCTestCase {
             SidebarDropPlanner.indicator(
                 draggedTabId: only,
                 targetTabId: nil,
-                tabIds: [only]
+                tabIds: [only],
+                pinnedTabIds: []
             )
         )
         XCTAssertNil(
             SidebarDropPlanner.indicator(
                 draggedTabId: only,
                 targetTabId: only,
-                tabIds: [only]
+                tabIds: [only],
+                pinnedTabIds: []
             )
         )
     }
@@ -7205,7 +7209,8 @@ final class SidebarDropPlannerTests: XCTestCase {
         let indicator = SidebarDropPlanner.indicator(
             draggedTabId: second,
             targetTabId: nil,
-            tabIds: tabIds
+            tabIds: tabIds,
+            pinnedTabIds: []
         )
         XCTAssertEqual(indicator?.tabId, nil)
         XCTAssertEqual(indicator?.edge, .bottom)
@@ -7221,7 +7226,8 @@ final class SidebarDropPlannerTests: XCTestCase {
             draggedTabId: second,
             targetTabId: nil,
             indicator: SidebarDropIndicator(tabId: nil, edge: .bottom),
-            tabIds: tabIds
+            tabIds: tabIds,
+            pinnedTabIds: []
         )
         XCTAssertEqual(index, 2)
     }
@@ -7236,7 +7242,8 @@ final class SidebarDropPlannerTests: XCTestCase {
             SidebarDropPlanner.indicator(
                 draggedTabId: second,
                 targetTabId: second,
-                tabIds: tabIds
+                tabIds: tabIds,
+                pinnedTabIds: []
             )
         )
     }
@@ -7252,6 +7259,7 @@ final class SidebarDropPlannerTests: XCTestCase {
                 draggedTabId: first,
                 targetTabId: second,
                 tabIds: tabIds,
+                pinnedTabIds: [],
                 pointerY: 2,
                 targetHeight: 40
             )
@@ -7268,6 +7276,7 @@ final class SidebarDropPlannerTests: XCTestCase {
             draggedTabId: first,
             targetTabId: second,
             tabIds: tabIds,
+            pinnedTabIds: [],
             pointerY: 38,
             targetHeight: 40
         )
@@ -7278,7 +7287,8 @@ final class SidebarDropPlannerTests: XCTestCase {
                 draggedTabId: first,
                 targetTabId: second,
                 indicator: indicator,
-                tabIds: tabIds
+                tabIds: tabIds,
+                pinnedTabIds: []
             ),
             1
         )
@@ -7294,6 +7304,7 @@ final class SidebarDropPlannerTests: XCTestCase {
             draggedTabId: third,
             targetTabId: first,
             tabIds: tabIds,
+            pinnedTabIds: [],
             pointerY: 38,
             targetHeight: 40
         )
@@ -7301,6 +7312,7 @@ final class SidebarDropPlannerTests: XCTestCase {
             draggedTabId: third,
             targetTabId: second,
             tabIds: tabIds,
+            pinnedTabIds: [],
             pointerY: 2,
             targetHeight: 40
         )
@@ -7322,6 +7334,7 @@ final class SidebarDropPlannerTests: XCTestCase {
                 draggedTabId: third,
                 targetTabId: second,
                 tabIds: tabIds,
+                pinnedTabIds: [],
                 pointerY: 38,
                 targetHeight: 40
             )
