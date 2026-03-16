@@ -26,8 +26,17 @@
 
 3. Build and run the debug app:
    ```bash
-   ./scripts/reload.sh
+   ./scripts/reload.sh --tag your-short-tag
    ```
+
+   Use a short tag for local debug builds so your app name, bundle ID, socket, and
+   derived data stay isolated from other running cmux debug builds.
+
+## Formatting
+
+- This repository includes a shared `.swiftformat` config for SwiftFormat.
+- If you use the SwiftFormat Xcode Extension, point it at the repo config so local formatting matches the project defaults.
+- If you use the CLI, run SwiftFormat from the repository root so it picks up `.swiftformat`.
 
 ## Development Scripts
 
