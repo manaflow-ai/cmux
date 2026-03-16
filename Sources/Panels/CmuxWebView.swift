@@ -136,6 +136,21 @@ final class CmuxWebView: WKWebView {
         }
 
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+
+        // Cmd+Shift+C: copy current browser URL to clipboard and show toast.
+        let normalizedFlags = flags.subtracting([.numericPad, .function, .capsLock])
+        if normalizedFlags == [.command, .shift],
+           (event.charactersIgnoringModifiers ?? "").lowercased() == "c",
+           let urlString = self.url?.absoluteString {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(urlString, forType: .string)
+            NotificationCenter.default.post(name: .browserDidCopyURL, object: self)
+#if DEBUG
+            handled = true
+#endif
+            return true
+        }
+
         // Menu/app shortcut routing is only needed for Command equivalents
         // (New Tab, Close Tab, tab switching, split commands, etc).
         guard flags.contains(.command) else {

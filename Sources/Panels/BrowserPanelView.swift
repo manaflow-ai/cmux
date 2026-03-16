@@ -237,6 +237,8 @@ struct BrowserPanelView: View {
     @State private var pendingAddressBarFocusRetryGeneration: UInt64 = 0
     @State private var isBrowserThemeMenuPresented = false
     @State private var ghosttyBackgroundGeneration: Int = 0
+    @State private var showCopiedURLToast: Bool = false
+    @State private var copiedURLToastWorkItem: DispatchWorkItem?
     // Keep this below half of the compact omnibar height so it reads as a squircle,
     // not a capsule.
     private let omnibarPillCornerRadius: CGFloat = 10
@@ -553,6 +555,39 @@ struct BrowserPanelView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)) { _ in
             ghosttyBackgroundGeneration &+= 1
+        }
+        .overlay(alignment: .bottom) {
+            if showCopiedURLToast {
+                HStack(spacing: 6) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
+                    Text(String(localized: "browser.copiedURL.toast", defaultValue: "URL copied"))
+                        .font(.system(size: 13, weight: .medium))
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
+                .shadow(color: .black.opacity(0.15), radius: 4, y: 2)
+                .padding(.bottom, 16)
+                .transition(.opacity.combined(with: .scale(scale: 0.9)).combined(with: .move(edge: .bottom)))
+                .allowsHitTesting(false)
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .browserDidCopyURL).filter { [weak panel] note in
+            guard let webView = note.object as? CmuxWebView else { return false }
+            return webView === panel?.webView
+        }) { _ in
+            copiedURLToastWorkItem?.cancel()
+            withAnimation(.easeOut(duration: 0.2)) {
+                showCopiedURLToast = true
+            }
+            let workItem = DispatchWorkItem {
+                withAnimation(.easeIn(duration: 0.25)) {
+                    showCopiedURLToast = false
+                }
+            }
+            copiedURLToastWorkItem = workItem
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: workItem)
         }
     }
 
