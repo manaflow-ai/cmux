@@ -7282,13 +7282,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Loading…"
+            "value": "Loading\u2026"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "読み込み中…"
+            "value": "\u8aad\u307f\u8fbc\u307f\u4e2d\u2026"
           }
         }
       }
@@ -75070,64 +75070,10 @@
     "browser.copiedURL.toast": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "URL copied"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "URLをコピーしました"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "已复制URL"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "已複製URL"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "URL 복사됨"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "URL kopiert"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "URL copiada"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "URL copiée"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "URL copiato"
-          }
-        },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تم نسخ الرابط"
+            "value": "\u062a\u0645 \u0646\u0633\u062e \u0627\u0644\u0631\u0627\u0628\u0637"
           }
         },
         "bs": {
@@ -75140,6 +75086,48 @@
           "stringUnit": {
             "state": "translated",
             "value": "URL kopieret"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL kopiert"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL copied"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL copiada"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL copi\u00e9e"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL copiato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL\u3092\u30b3\u30d4\u30fc\u3057\u307e\u3057\u305f"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL \ubcf5\uc0ac\ub428"
           }
         },
         "nb": {
@@ -75163,19 +75151,31 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "URL скопирован"
+            "value": "URL \u0441\u043a\u043e\u043f\u0438\u0440\u043e\u0432\u0430\u043d"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "คัดลอก URL แล้ว"
+            "value": "\u0e04\u0e31\u0e14\u0e25\u0e2d\u0e01 URL \u0e41\u0e25\u0e49\u0e27"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "URL kopyalandı"
+            "value": "URL kopyaland\u0131"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\u5df2\u590d\u5236URL"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\u5df2\u8907\u88fdURL"
           }
         }
       }
