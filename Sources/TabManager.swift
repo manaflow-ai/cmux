@@ -2064,6 +2064,9 @@ class TabManager: ObservableObject {
         }
         pendingWorkspaceUnfocusTarget = nil
         unfocusWorkspacePanel(tabId: pending.tabId, panelId: pending.panelId)
+        // The retiring workspace can synchronously clear first responder to nil while it yields
+        // focus. Reassert the selected terminal afterward so keyboard input does not get stranded.
+        ensureFocusedTerminalFirstResponder()
 #if DEBUG
         if let snapshot = debugCurrentWorkspaceSwitchSnapshot() {
             let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000

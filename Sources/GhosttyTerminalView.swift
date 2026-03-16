@@ -5912,7 +5912,9 @@ final class GhosttySurfaceScrollView: NSView {
     private var activeDropZone: DropZone?
     private var pendingDropZone: DropZone?
     private var dropZoneOverlayAnimationGeneration: UInt64 = 0
-    // Intentionally no focus retry loops: rely on AppKit first-responder and bonsplit selection.
+    // Bounded focus reassert only while the selected workspace is reattaching/activating.
+    private var focusRequestGeneration: UInt64 = 0
+    private static let focusEnsureRetryDelay: TimeInterval = 0.03
 
     /// Tracks whether keyboard focus should go to the search field or the terminal
     /// when the window becomes key while the find bar is open.
@@ -7323,13 +7325,41 @@ final class GhosttySurfaceScrollView: NSView {
     }
     #endif
 
-    func ensureFocus(for tabId: UUID, surfaceId: UUID, attemptsRemaining: Int = 3) {
+    func ensureFocus(
+        for tabId: UUID,
+        surfaceId: UUID,
+        attemptsRemaining: Int = 6,
+        requestGeneration: UInt64? = nil
+    ) {
+        let generation: UInt64
+        if let requestGeneration {
+            generation = requestGeneration
+        } else {
+            focusRequestGeneration &+= 1
+            generation = focusRequestGeneration
+        }
+
         func retry() {
             guard attemptsRemaining > 0 else { return }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) { [weak self] in
-                self?.ensureFocus(for: tabId, surfaceId: surfaceId, attemptsRemaining: attemptsRemaining - 1)
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.focusEnsureRetryDelay) { [weak self] in
+                guard let self, self.focusRequestGeneration == generation else { return }
+                self.ensureFocus(
+                    for: tabId,
+                    surfaceId: surfaceId,
+                    attemptsRemaining: attemptsRemaining - 1,
+                    requestGeneration: generation
+                )
             }
         }
+
+        guard focusRequestGeneration == generation else { return }
+
+        guard let delegate = AppDelegate.shared,
+              let tabManager = delegate.tabManagerFor(tabId: tabId) ?? delegate.tabManager else {
+            retry()
+            return
+        }
+        guard tabManager.selectedTabId == tabId else { return }
 
         let hasUsablePortalGeometry: Bool = {
             let size = bounds.size
@@ -7337,8 +7367,14 @@ final class GhosttySurfaceScrollView: NSView {
         }()
         let isHiddenForFocus = isHiddenOrHasHiddenAncestor || surfaceView.isHiddenOrHasHiddenAncestor
 
-        guard isActive else { return }
-        guard let window else { return }
+        guard isActive else {
+            retry()
+            return
+        }
+        guard let window else {
+            retry()
+            return
+        }
         guard surfaceView.isVisibleInUI else {
 #if DEBUG
             dlog(
@@ -7357,13 +7393,6 @@ final class GhosttySurfaceScrollView: NSView {
                 "frame=\(String(format: "%.1fx%.1f", bounds.width, bounds.height)) attempts=\(attemptsRemaining)"
             )
 #endif
-            retry()
-            return
-        }
-
-        guard let delegate = AppDelegate.shared,
-              let tabManager = delegate.tabManagerFor(tabId: tabId) ?? delegate.tabManager,
-              tabManager.selectedTabId == tabId else {
             retry()
             return
         }
@@ -8045,7 +8074,7 @@ final class GhosttySurfaceScrollView: NSView {
 #endif
 
     func cancelFocusRequest() {
-        // Intentionally no-op (no retry loops).
+        focusRequestGeneration &+= 1
     }
 
     private func synchronizeSurfaceView() {
