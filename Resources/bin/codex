@@ -8,11 +8,12 @@
 
 find_real_codex() {
     local self_dir
-    self_dir="$(cd "$(dirname "$0")" && pwd)"
+    self_dir="$(cd "$(dirname "$0")" && pwd -P)"
     local IFS=:
-    local dir
+    local dir resolved_dir
     for dir in $PATH; do
-        [[ "$dir" == "$self_dir" ]] && continue
+        resolved_dir="$(cd "$dir" 2>/dev/null && pwd -P)" || continue
+        [[ "$resolved_dir" == "$self_dir" ]] && continue
         [[ -x "$dir/codex" ]] && printf '%s' "$dir/codex" && return 0
     done
     return 1
@@ -100,7 +101,10 @@ fi
         printf '\n'
     fi
     if [[ -x "$NOTIFY_SCRIPT" ]]; then
-        printf 'notify = ["bash", "%s"]\n' "$NOTIFY_SCRIPT"
+        escaped_notify="$NOTIFY_SCRIPT"
+        escaped_notify="${escaped_notify//\\/\\\\}"
+        escaped_notify="${escaped_notify//\"/\\\"}"
+        printf 'notify = ["bash", "%s"]\n' "$escaped_notify"
     fi
 } > "$CMUX_CODEX_HOME/config.toml"
 

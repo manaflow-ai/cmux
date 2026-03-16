@@ -221,12 +221,83 @@ def test_no_existing_config_creates_fresh_overlay(failures: list[str]) -> None:
     expect("cmux-notify-injected" in overlay, f"no config: cmux notify not injected: {overlay}", failures)
 
 
+def test_signal_exit_triggers_trap_cleanup(failures: list[str]) -> None:
+    """Send SIGTERM to wrapper during execution and verify cleanup trap fires."""
+    import signal
+    import time
+
+    with tempfile.TemporaryDirectory(prefix="cmux-codex-signal-test-") as td:
+        tmp = Path(td)
+        wrapper_dir = tmp / "wrapper-bin"
+        real_dir = tmp / "real-bin"
+        wrapper_dir.mkdir(parents=True, exist_ok=True)
+        real_dir.mkdir(parents=True, exist_ok=True)
+
+        wrapper = wrapper_dir / "codex"
+        notify = wrapper_dir / "codex-cmux-notify.sh"
+        shutil.copy2(SOURCE_WRAPPER, wrapper)
+        shutil.copy2(SOURCE_NOTIFY, notify)
+        wrapper.chmod(0o755)
+        notify.chmod(0o755)
+
+        cmux_log = tmp / "cmux.log"
+        socket_path = str(tmp / "cmux.sock")
+
+        # Real codex that sleeps so we can send a signal
+        make_executable(
+            real_dir / "codex",
+            "#!/usr/bin/env bash\nsleep 30\n",
+        )
+
+        make_executable(
+            wrapper_dir / "cmux",
+            '#!/usr/bin/env bash\nset -euo pipefail\n'
+            'printf \'%s\\n\' "$*" >> "$FAKE_CMUX_LOG"\n'
+            'if [[ "${1:-}" == "--socket" ]]; then shift 2; fi\n'
+            'if [[ "${1:-}" == "ping" ]]; then exit 0; fi\n'
+            'exit 0\n',
+        )
+
+        test_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        test_socket.bind(socket_path)
+
+        env = os.environ.copy()
+        env["PATH"] = f"{wrapper_dir}:{real_dir}:/usr/bin:/bin"
+        env["CMUX_SURFACE_ID"] = "surface:test"
+        env["CMUX_SOCKET_PATH"] = socket_path
+        env["FAKE_CMUX_LOG"] = str(cmux_log)
+        env["FAKE_CMUX_PING_OK"] = "1"
+
+        try:
+            proc = subprocess.Popen(
+                ["codex"],
+                cwd=tmp,
+                env=env,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                start_new_session=True,
+            )
+            time.sleep(0.5)
+            os.killpg(proc.pid, signal.SIGTERM)
+            proc.wait(timeout=5)
+
+            log_lines = read_lines(cmux_log)
+            expect(
+                any(line == "clear-status codex" for line in log_lines),
+                f"signal exit: expected clear-status cleanup in trap, got {log_lines}",
+                failures,
+            )
+        finally:
+            test_socket.close()
+
+
 def main() -> int:
     failures: list[str] = []
     test_live_socket_injects_hooks_and_preserves_config(failures)
     test_missing_socket_skips_injection(failures)
     test_stale_socket_skips_injection(failures)
     test_no_existing_config_creates_fresh_overlay(failures)
+    test_signal_exit_triggers_trap_cleanup(failures)
 
     if failures:
         print("FAIL: codex wrapper regression checks failed")
