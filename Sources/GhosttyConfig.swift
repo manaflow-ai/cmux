@@ -311,7 +311,9 @@ struct GhosttyConfig {
                         sidebarTintOpacity = min(max(opacity, 0), 1)
                     }
                 case "keybind":
-                    if value.contains("toggle_quick_terminal") {
+                    let action = value.split(separator: "=", maxSplits: 1).last?
+                        .trimmingCharacters(in: .whitespaces)
+                    if action == "toggle_quick_terminal" {
                         quickTerminalKeybindRaw = value
                     }
                 case "quick-terminal-position":

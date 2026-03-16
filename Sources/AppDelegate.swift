@@ -3176,7 +3176,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
 
-        let persistedGeometryData = snapshot.windows.first.flatMap { primaryWindow in
+        let persistedGeometryData = snapshot.windows.first(where: { $0.isQuickTerminal != true }).flatMap { primaryWindow in
             Self.encodedPersistedWindowGeometryData(
                 frame: primaryWindow.frame,
                 display: primaryWindow.display
