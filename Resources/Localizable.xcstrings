@@ -43658,13 +43658,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hide the workspace title bar and show sidebar or pane actions only on hover."
+            "value": "Hide the folder and active title above pane tabs."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ワークスペースのタイトルバーを隠し、サイドバーやペインタブの操作はホバー時のみ表示します。"
+            "value": "ペインタブの上にあるフォルダ名と現在のタイトルを隠します。"
           }
         }
       }
@@ -43682,6 +43682,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "ペインタブの上にフォルダ名と現在のタイトルを表示します。"
+          }
+        }
+      }
+    },
+    "settings.app.fadeButtons": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fade Buttons"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ボタンをフェード表示"
+          }
+        }
+      }
+    },
+    "settings.app.fadeButtons.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep action buttons always visible."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "操作ボタンを常に表示します。"
+          }
+        }
+      }
+    },
+    "settings.app.fadeButtons.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show action buttons only on hover."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "操作ボタンはホバー時のみ表示します。"
           }
         }
       }

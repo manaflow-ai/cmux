@@ -257,10 +257,14 @@ struct TitlebarControlsView: View {
     let onToggleNotifications: () -> Void
     let onNewTab: () -> Void
     @AppStorage("titlebarControlsStyle") private var styleRawValue = TitlebarControlsStyle.classic.rawValue
+    @AppStorage(WorkspaceButtonFadeSettings.modeKey)
+    private var workspaceButtonsFadeMode = WorkspaceButtonFadeSettings.defaultMode.rawValue
     @AppStorage(ShortcutHintDebugSettings.titlebarHintXKey) private var titlebarShortcutHintXOffset = ShortcutHintDebugSettings.defaultTitlebarHintX
     @AppStorage(ShortcutHintDebugSettings.titlebarHintYKey) private var titlebarShortcutHintYOffset = ShortcutHintDebugSettings.defaultTitlebarHintY
     @AppStorage(ShortcutHintDebugSettings.alwaysShowHintsKey) private var alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
     @State private var shortcutRefreshTick = 0
+    @State private var isHoveringControls = false
+    @State private var isNotificationsPopoverShown = false
     @StateObject private var modifierKeyMonitor = TitlebarShortcutHintModifierMonitor()
     private let titlebarHintRightSafetyShift: CGFloat = 10
     private let titlebarHintBaseXShift: CGFloat = -10
@@ -295,6 +299,17 @@ struct TitlebarControlsView: View {
         alwaysShowShortcutHints || modifierKeyMonitor.isModifierPressed
     }
 
+    private var fadeButtonsEnabled: Bool {
+        WorkspaceButtonFadeSettings.mode(for: workspaceButtonsFadeMode) == .enabled
+    }
+
+    private var shouldShowControls: Bool {
+        if !fadeButtonsEnabled {
+            return true
+        }
+        return isHoveringControls || isNotificationsPopoverShown || shouldShowTitlebarShortcutHints
+    }
+
     var body: some View {
         // Force the `.safeHelp(...)` tooltips to re-evaluate when shortcuts are changed in settings.
         // (The titlebar controls don't otherwise re-render on UserDefaults changes.)
@@ -304,14 +319,27 @@ struct TitlebarControlsView: View {
         controlsGroup(config: config)
             .padding(.leading, 4)
             .padding(.trailing, titlebarHintTrailingInset)
+            .contentShape(Rectangle())
+            .opacity(shouldShowControls ? 1 : 0)
+            .allowsHitTesting(shouldShowControls)
+            .animation(.easeInOut(duration: 0.14), value: shouldShowControls)
             .background(
                 WindowAccessor { window in
                     modifierKeyMonitor.setHostWindow(window)
                 }
                 .frame(width: 0, height: 0)
             )
+            .onHover { hovering in
+                isHoveringControls = hovering
+            }
             .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
                 shortcutRefreshTick &+= 1
+            }
+            .onAppear {
+                isNotificationsPopoverShown = AppDelegate.shared?.isNotificationsPopoverShown() ?? false
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .cmuxNotificationsPopoverVisibilityDidChange)) { notification in
+                isNotificationsPopoverShown = (notification.userInfo?[NotificationsPopoverVisibilityUserInfoKey.isShown] as? Bool) ?? false
             }
             .onAppear {
                 modifierKeyMonitor.start()
@@ -527,48 +555,24 @@ struct TitlebarControlsView: View {
 struct HiddenTitlebarSidebarControlsView: View {
     @ObservedObject var notificationStore: TerminalNotificationStore
     @StateObject private var viewModel = TitlebarControlsViewModel()
-    @State private var isHoveringControls = false
-    @State private var isNotificationsPopoverShown = false
 
     private let hostWidth: CGFloat = 124
     private let hostHeight: CGFloat = 28
 
-    private var shouldShowControls: Bool {
-        isHoveringControls || isNotificationsPopoverShown
-    }
-
     var body: some View {
-        ZStack(alignment: .leading) {
-            Color.clear
-                .frame(width: hostWidth, height: hostHeight)
-
-            TitlebarControlsView(
-                notificationStore: notificationStore,
-                viewModel: viewModel,
-                onToggleSidebar: { _ = AppDelegate.shared?.sidebarState?.toggle() },
-                onToggleNotifications: { [viewModel] in
-                    AppDelegate.shared?.toggleNotificationsPopover(
-                        animated: true,
-                        anchorView: viewModel.notificationsAnchorView
-                    )
-                },
-                onNewTab: { _ = AppDelegate.shared?.tabManager?.addTab() }
-            )
-            .opacity(shouldShowControls ? 1 : 0)
-            .allowsHitTesting(shouldShowControls)
-            .animation(.easeInOut(duration: 0.12), value: shouldShowControls)
-        }
+        TitlebarControlsView(
+            notificationStore: notificationStore,
+            viewModel: viewModel,
+            onToggleSidebar: { _ = AppDelegate.shared?.sidebarState?.toggle() },
+            onToggleNotifications: { [viewModel] in
+                AppDelegate.shared?.toggleNotificationsPopover(
+                    animated: true,
+                    anchorView: viewModel.notificationsAnchorView
+                )
+            },
+            onNewTab: { _ = AppDelegate.shared?.tabManager?.addTab() }
+        )
         .frame(width: hostWidth, height: hostHeight, alignment: .leading)
-        .contentShape(Rectangle())
-        .onHover { hovering in
-            isHoveringControls = hovering
-        }
-        .onAppear {
-            isNotificationsPopoverShown = AppDelegate.shared?.isNotificationsPopoverShown() ?? false
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .cmuxNotificationsPopoverVisibilityDidChange)) { notification in
-            isNotificationsPopoverShown = (notification.userInfo?[NotificationsPopoverVisibilityUserInfoKey.isShown] as? Bool) ?? false
-        }
     }
 }
 

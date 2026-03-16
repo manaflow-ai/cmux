@@ -16,6 +16,54 @@ enum WorkspaceTitlebarSettings {
     }
 }
 
+enum WorkspaceButtonFadeSettings {
+    static let modeKey = "workspaceButtonsFadeMode"
+    static let legacyTitlebarControlsVisibilityModeKey = "titlebarControlsVisibilityMode"
+    static let legacyPaneTabBarControlsVisibilityModeKey = "paneTabBarControlsVisibilityMode"
+
+    enum Mode: String {
+        case enabled
+        case disabled
+    }
+
+    static let defaultMode: Mode = .disabled
+
+    static func mode(for rawValue: String?) -> Mode {
+        Mode(rawValue: rawValue ?? "") ?? defaultMode
+    }
+
+    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
+        mode(for: defaults.string(forKey: modeKey)) == .enabled
+    }
+
+    static func initializeStoredModeIfNeeded(defaults: UserDefaults = .standard) {
+        guard defaults.string(forKey: modeKey) == nil else { return }
+
+        if let migratedMode = migratedLegacyMode(defaults: defaults) {
+            defaults.set(migratedMode.rawValue, forKey: modeKey)
+            return
+        }
+
+        let initialMode: Mode = WorkspaceTitlebarSettings.isVisible(defaults: defaults) ? .disabled : .enabled
+        defaults.set(initialMode.rawValue, forKey: modeKey)
+    }
+
+    private static func migratedLegacyMode(defaults: UserDefaults) -> Mode? {
+        let legacyValues = [
+            defaults.string(forKey: legacyTitlebarControlsVisibilityModeKey),
+            defaults.string(forKey: legacyPaneTabBarControlsVisibilityModeKey),
+        ]
+
+        if legacyValues.contains(where: { $0 == "onHover" || $0 == "hover" || $0 == "enabled" }) {
+            return .enabled
+        }
+        if legacyValues.contains(where: { $0 == "always" || $0 == "disabled" }) {
+            return .disabled
+        }
+        return nil
+    }
+}
+
 @main
 struct cmuxApp: App {
     @StateObject private var tabManager: TabManager
@@ -66,6 +114,7 @@ struct cmuxApp: App {
         _tabManager = StateObject(wrappedValue: TabManager())
         // Migrate legacy and old-format socket mode values to the new enum.
         let defaults = UserDefaults.standard
+        WorkspaceButtonFadeSettings.initializeStoredModeIfNeeded(defaults: defaults)
         if let stored = defaults.string(forKey: SocketControlSettings.appStorageKey) {
             let migrated = SocketControlSettings.migrateMode(stored)
             if migrated.rawValue != stored {
@@ -1994,6 +2043,7 @@ private struct AcknowledgmentsView: View {
 
 final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     static let shared = SettingsWindowController()
+    private var pendingFocusRestoreWorkItems: [DispatchWorkItem] = []
 
     private init() {
         let window = NSWindow(
@@ -2035,6 +2085,37 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
 #if DEBUG
         dlog("settings.window.show completed isVisible=\(window.isVisible ? 1 : 0) isKey=\(window.isKeyWindow ? 1 : 0)")
 #endif
+    }
+
+    func preserveFocusAfterPreferenceMutation() {
+        guard let window, window.isVisible, window.isKeyWindow else { return }
+        cancelPendingFocusRestore()
+
+        let delays: [TimeInterval] = [0, 0.05, 0.12, 0.24, 0.4]
+        for delay in delays {
+            let workItem = DispatchWorkItem { [weak window] in
+                guard let window, window.isVisible else { return }
+                guard !window.isKeyWindow else { return }
+                NSApp.activate(ignoringOtherApps: true)
+                window.orderFrontRegardless()
+                window.makeKeyAndOrderFront(nil)
+            }
+            pendingFocusRestoreWorkItems.append(workItem)
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
+        }
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        cancelPendingFocusRestore()
+    }
+
+    func windowDidBecomeKey(_ notification: Notification) {
+        cancelPendingFocusRestore()
+    }
+
+    private func cancelPendingFocusRestore() {
+        pendingFocusRestoreWorkItems.forEach { $0.cancel() }
+        pendingFocusRestoreWorkItems.removeAll()
     }
 }
 
@@ -3099,6 +3180,8 @@ struct SettingsView: View {
     @AppStorage(AppIconSettings.modeKey) private var appIconMode = AppIconSettings.defaultMode.rawValue
     @AppStorage(WorkspaceTitlebarSettings.showTitlebarKey)
     private var showWorkspaceTitlebar = WorkspaceTitlebarSettings.defaultShowTitlebar
+    @AppStorage(WorkspaceButtonFadeSettings.modeKey)
+    private var workspaceButtonsFadeMode = WorkspaceButtonFadeSettings.defaultMode.rawValue
     @AppStorage(SocketControlSettings.appStorageKey) private var socketControlMode = SocketControlSettings.defaultMode.rawValue
     @AppStorage(ClaudeCodeIntegrationSettings.hooksEnabledKey)
     private var claudeCodeHooksEnabled = ClaudeCodeIntegrationSettings.defaultHooksEnabled
@@ -3190,7 +3273,24 @@ struct SettingsView: View {
         }
         return String(
             localized: "settings.app.showWorkspaceTitlebar.subtitleOff",
-            defaultValue: "Hide the workspace title bar and show sidebar or pane actions only on hover."
+            defaultValue: "Hide the folder and active title above pane tabs."
+        )
+    }
+
+    private var fadeButtonsEnabled: Bool {
+        WorkspaceButtonFadeSettings.mode(for: workspaceButtonsFadeMode) == .enabled
+    }
+
+    private var workspaceButtonFadeSubtitle: String {
+        if fadeButtonsEnabled {
+            return String(
+                localized: "settings.app.fadeButtons.subtitleOn",
+                defaultValue: "Show action buttons only on hover."
+            )
+        }
+        return String(
+            localized: "settings.app.fadeButtons.subtitleOff",
+            defaultValue: "Keep action buttons always visible."
         )
     }
 
@@ -3246,7 +3346,19 @@ struct SettingsView: View {
             get: { showWorkspaceTitlebar },
             set: { newValue in
                 showWorkspaceTitlebar = newValue
-                reassertSettingsWindowFocusIfNeeded()
+                SettingsWindowController.shared.preserveFocusAfterPreferenceMutation()
+            }
+        )
+    }
+
+    private var fadeButtonsBinding: Binding<Bool> {
+        Binding(
+            get: { fadeButtonsEnabled },
+            set: { newValue in
+                workspaceButtonsFadeMode = newValue
+                    ? WorkspaceButtonFadeSettings.Mode.enabled.rawValue
+                    : WorkspaceButtonFadeSettings.Mode.disabled.rawValue
+                SettingsWindowController.shared.preserveFocusAfterPreferenceMutation()
             }
         )
     }
@@ -3606,6 +3718,21 @@ struct SettingsView: View {
                                 .accessibilityIdentifier("SettingsShowWorkspaceTitlebarToggle")
                                 .accessibilityLabel(
                                     String(localized: "settings.app.showWorkspaceTitlebar", defaultValue: "Show Workspace Title Bar")
+                                )
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            String(localized: "settings.app.fadeButtons", defaultValue: "Fade Buttons"),
+                            subtitle: workspaceButtonFadeSubtitle
+                        ) {
+                            Toggle("", isOn: fadeButtonsBinding)
+                                .labelsHidden()
+                                .controlSize(.small)
+                                .accessibilityIdentifier("SettingsFadeButtonsToggle")
+                                .accessibilityLabel(
+                                    String(localized: "settings.app.fadeButtons", defaultValue: "Fade Buttons")
                                 )
                         }
 
@@ -4636,19 +4763,6 @@ struct SettingsView: View {
         NSApplication.shared.terminate(nil)
     }
 
-    private func reassertSettingsWindowFocusIfNeeded() {
-        DispatchQueue.main.async {
-            guard let window = SettingsWindowController.shared.window, window.isVisible else { return }
-            window.orderFrontRegardless()
-            window.makeKeyAndOrderFront(nil)
-            DispatchQueue.main.async {
-                guard window.isVisible else { return }
-                window.orderFrontRegardless()
-                window.makeKeyAndOrderFront(nil)
-            }
-        }
-    }
-
     private func resetAllSettings() {
         isResettingSettings = true
         appLanguage = LanguageSettings.defaultLanguage.rawValue
@@ -4689,6 +4803,7 @@ struct SettingsView: View {
         alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
         newWorkspacePlacement = WorkspacePlacementSettings.defaultPlacement.rawValue
         showWorkspaceTitlebar = WorkspaceTitlebarSettings.defaultShowTitlebar
+        workspaceButtonsFadeMode = WorkspaceButtonFadeSettings.defaultMode.rawValue
         workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
         sidebarHideAllDetails = SidebarWorkspaceDetailSettings.defaultHideAllDetails
         sidebarShowNotificationMessage = SidebarWorkspaceDetailSettings.defaultShowNotificationMessage
