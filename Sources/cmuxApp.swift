@@ -2044,6 +2044,7 @@ private struct AcknowledgmentsView: View {
 final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     static let shared = SettingsWindowController()
     private var pendingFocusRestoreWorkItems: [DispatchWorkItem] = []
+    private var focusRestoreGeneration = 0
 
     private init() {
         let window = NSWindow(
@@ -2088,34 +2089,90 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     }
 
     func preserveFocusAfterPreferenceMutation() {
-        guard let window, window.isVisible, window.isKeyWindow else { return }
+        guard let window, window.isVisible else { return }
         cancelPendingFocusRestore()
+        focusRestoreGeneration += 1
+        let generation = focusRestoreGeneration
+        writeFocusDiagnosticsIfNeeded(stage: "requested")
+        scheduleFocusRestore(
+            for: window,
+            generation: generation,
+            delays: [0, 0.04, 0.12, 0.24, 0.4, 0.7]
+        )
+    }
 
-        let delays: [TimeInterval] = [0, 0.05, 0.12, 0.24, 0.4]
-        for delay in delays {
-            let workItem = DispatchWorkItem { [weak window] in
-                guard let window, window.isVisible else { return }
-                guard !window.isKeyWindow else { return }
-                NSApp.activate(ignoringOtherApps: true)
-                window.orderFrontRegardless()
-                window.makeKeyAndOrderFront(nil)
+    func windowWillClose(_ notification: Notification) {
+        cancelPendingFocusRestore()
+        writeFocusDiagnosticsIfNeeded(stage: "windowWillClose")
+    }
+
+    func windowDidBecomeKey(_ notification: Notification) {
+        writeFocusDiagnosticsIfNeeded(stage: "didBecomeKey")
+    }
+
+    func windowDidResignKey(_ notification: Notification) {
+        guard let window else { return }
+        writeFocusDiagnosticsIfNeeded(stage: "didResignKey")
+        guard focusRestoreGeneration > 0 else { return }
+        scheduleFocusRestore(
+            for: window,
+            generation: focusRestoreGeneration,
+            delays: [0, 0.03, 0.1]
+        )
+    }
+
+    private func scheduleFocusRestore(
+        for window: NSWindow,
+        generation: Int,
+        delays: [TimeInterval]
+    ) {
+        for (index, delay) in delays.enumerated() {
+            let isLastAttempt = index == delays.count - 1
+            let workItem = DispatchWorkItem { [weak self, weak window] in
+                guard let self, let window, window.isVisible else { return }
+                guard self.focusRestoreGeneration == generation else { return }
+                self.writeFocusDiagnosticsIfNeeded(stage: "restoreAttempt.\(index)")
+                if !window.isKeyWindow {
+                    NSApp.activate(ignoringOtherApps: true)
+                    window.orderFrontRegardless()
+                    window.makeKeyAndOrderFront(nil)
+                    self.writeFocusDiagnosticsIfNeeded(stage: "restoreApplied.\(index)")
+                }
+                if isLastAttempt, self.focusRestoreGeneration == generation {
+                    self.focusRestoreGeneration = 0
+                }
             }
             pendingFocusRestoreWorkItems.append(workItem)
             DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
         }
     }
 
-    func windowWillClose(_ notification: Notification) {
-        cancelPendingFocusRestore()
-    }
-
-    func windowDidBecomeKey(_ notification: Notification) {
-        cancelPendingFocusRestore()
-    }
-
     private func cancelPendingFocusRestore() {
         pendingFocusRestoreWorkItems.forEach { $0.cancel() }
         pendingFocusRestoreWorkItems.removeAll()
+        focusRestoreGeneration = 0
+    }
+
+    private func writeFocusDiagnosticsIfNeeded(stage: String) {
+        let env = ProcessInfo.processInfo.environment
+        guard let path = env["CMUX_UI_TEST_DIAGNOSTICS_PATH"], !path.isEmpty else { return }
+
+        var payload = loadFocusDiagnostics(at: path)
+        payload["focusStage"] = stage
+        payload["keyWindowIdentifier"] = NSApp.keyWindow?.identifier?.rawValue ?? ""
+        payload["mainWindowIdentifier"] = NSApp.mainWindow?.identifier?.rawValue ?? ""
+        payload["settingsWindowIsKey"] = (window?.isKeyWindow ?? false) ? "1" : "0"
+
+        guard let data = try? JSONSerialization.data(withJSONObject: payload) else { return }
+        try? data.write(to: URL(fileURLWithPath: path), options: .atomic)
+    }
+
+    private func loadFocusDiagnostics(at path: String) -> [String: String] {
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
+            return [:]
+        }
+        return object
     }
 }
 
