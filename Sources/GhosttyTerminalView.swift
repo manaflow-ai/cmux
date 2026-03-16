@@ -361,11 +361,14 @@ func cmuxPasteboardImagePathForTesting(_ pasteboard: NSPasteboard) -> String? {
 enum TerminalOpenURLTarget: Equatable {
     case embeddedBrowser(URL)
     case external(URL)
+    case internalFile(String)
 
     var url: URL {
         switch self {
         case let .embeddedBrowser(url), let .external(url):
             return url
+        case let .internalFile(path):
+            return URL(fileURLWithPath: path)
         }
     }
 }
@@ -457,13 +460,19 @@ func resolveTerminalOpenURLTarget(_ rawValue: String) -> TerminalOpenURLTarget? 
 
     if NSString(string: trimmed).isAbsolutePath {
         #if DEBUG
-        dlog("link.resolve result=external(absolutePath) url=\(trimmed)")
+        dlog("link.resolve result=internalFile(absolutePath) path=\(trimmed)")
         #endif
-        return .external(URL(fileURLWithPath: trimmed))
+        return .internalFile(trimmed)
     }
 
     if let parsed = URL(string: trimmed),
        let scheme = parsed.scheme?.lowercased() {
+        if scheme == "file" {
+            #if DEBUG
+            dlog("link.resolve result=internalFile(fileURL) path=\(parsed.path)")
+            #endif
+            return .internalFile(parsed.path)
+        }
         if scheme == "http" || scheme == "https" {
             guard BrowserInsecureHTTPSettings.normalizeHost(parsed.host ?? "") != nil else {
                 #if DEBUG
@@ -2316,6 +2325,33 @@ class GhosttyApp {
                 }
             }
             switch target {
+            case let .internalFile(path):
+                #if DEBUG
+                dlog("link.openURL target=internalFile, opening in markdown panel path=\(path)")
+                #endif
+                let sourceWorkspaceId = callbackTabId ?? surfaceView.tabId
+                let sourcePanelId = callbackSurfaceId ?? surfaceView.terminalSurface?.id
+                guard let sourceWorkspaceId, let sourcePanelId else {
+                    return performOnMain {
+                        NSWorkspace.shared.open(URL(fileURLWithPath: path))
+                    }
+                }
+                return performOnMain {
+                    guard let app = AppDelegate.shared,
+                          let resolved = app.workspaceContainingPanel(
+                            panelId: sourcePanelId,
+                            preferredWorkspaceId: sourceWorkspaceId
+                          ) else {
+                        NSWorkspace.shared.open(URL(fileURLWithPath: path))
+                        return true
+                    }
+                    _ = resolved.workspace.newMarkdownSplit(
+                        from: sourcePanelId,
+                        orientation: .horizontal,
+                        filePath: path
+                    )
+                    return true
+                }
             case let .external(url):
                 #if DEBUG
                 dlog("link.openURL target=external, opening externally url=\(url)")
