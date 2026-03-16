@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import ObjectiveC
+import SwiftUI
 import UniformTypeIdentifiers
 import WebKit
 
@@ -144,7 +145,7 @@ final class CmuxWebView: WKWebView {
            let urlString = self.url?.absoluteString {
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(urlString, forType: .string)
-            NotificationCenter.default.post(name: .browserDidCopyURL, object: self)
+            showCopiedURLToast()
 #if DEBUG
             handled = true
 #endif
@@ -217,6 +218,48 @@ final class CmuxWebView: WKWebView {
         }
 
         super.keyDown(with: event)
+    }
+
+    // MARK: - Copy URL toast
+
+    private static var activeCopiedToast: NSView?
+    private static var activeCopiedToastWorkItem: DispatchWorkItem?
+
+    private func showCopiedURLToast() {
+        let container = self.superview ?? self
+        Self.activeCopiedToastWorkItem?.cancel()
+        Self.activeCopiedToast?.removeFromSuperview()
+
+        let toastView = NSHostingView(rootView: CopiedURLToastView())
+        toastView.translatesAutoresizingMaskIntoConstraints = false
+        toastView.alphaValue = 0
+        container.addSubview(toastView)
+        NSLayoutConstraint.activate([
+            toastView.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+            toastView.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -16),
+        ])
+        Self.activeCopiedToast = toastView
+
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = 0.2
+            ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            toastView.animator().alphaValue = 1
+        }
+
+        let workItem = DispatchWorkItem {
+            NSAnimationContext.runAnimationGroup({ ctx in
+                ctx.duration = 0.25
+                ctx.timingFunction = CAMediaTimingFunction(name: .easeIn)
+                toastView.animator().alphaValue = 0
+            }, completionHandler: {
+                toastView.removeFromSuperview()
+                if Self.activeCopiedToast === toastView {
+                    Self.activeCopiedToast = nil
+                }
+            })
+        }
+        Self.activeCopiedToastWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: workItem)
     }
 
     // MARK: - Focus on click
@@ -1568,5 +1611,20 @@ final class CmuxWebView: WKWebView {
                 }
             }
         }
+    }
+}
+
+private struct CopiedURLToastView: View {
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "checkmark.circle.fill")
+                .foregroundStyle(.green)
+            Text(String(localized: "browser.copiedURL.toast", defaultValue: "URL copied"))
+                .font(.system(size: 13, weight: .medium))
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
+        .shadow(color: .black.opacity(0.15), radius: 4, y: 2)
     }
 }
