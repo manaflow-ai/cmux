@@ -682,8 +682,10 @@ final class WindowTerminalPortal: NSObject {
         hasExternalGeometrySyncScheduled = true
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-            self.hasExternalGeometrySyncScheduled = false
-            self.synchronizeAllEntriesFromExternalGeometryChange()
+            DispatchQueue.main.async {
+                self.hasExternalGeometrySyncScheduled = false
+                self.synchronizeAllEntriesFromExternalGeometryChange()
+            }
         }
     }
 
@@ -1785,9 +1787,11 @@ enum TerminalWindowPortalRegistry {
         guard !Self.hasPendingExternalGeometrySyncForAllWindows else { return }
         Self.hasPendingExternalGeometrySyncForAllWindows = true
         DispatchQueue.main.async {
-            Self.hasPendingExternalGeometrySyncForAllWindows = false
-            for portal in Self.portalsByWindowId.values {
-                portal.synchronizeAllEntriesFromExternalGeometryChange()
+            DispatchQueue.main.async {
+                Self.hasPendingExternalGeometrySyncForAllWindows = false
+                for portal in Self.portalsByWindowId.values {
+                    portal.synchronizeAllEntriesFromExternalGeometryChange()
+                }
             }
         }
     }

@@ -8573,6 +8573,19 @@ struct GhosttyTerminalView: NSViewRepresentable {
         return !hostedViewHasSuperview
     }
 
+    private static func scheduleDeferredPortalGeometrySynchronize(
+        for host: HostContainerView,
+        coordinator: Coordinator
+    ) {
+        let geometryRevision = host.geometryRevision
+        guard coordinator.lastSynchronizedHostGeometryRevision != geometryRevision else { return }
+        coordinator.lastSynchronizedHostGeometryRevision = geometryRevision
+        // Avoid synchronizing the terminal portal while AppKit is still inside
+        // the current layout turn. Re-entrant syncs here can wedge window resize
+        // handling and leave the app spinning on the wait cursor.
+        TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronizeForAllWindows()
+    }
+
     func makeNSView(context: Context) -> NSView {
         let container = HostContainerView()
         container.wantsLayer = false
@@ -8732,8 +8745,10 @@ struct GhosttyTerminalView: NSViewRepresentable {
                     hostedView.setActive(coordinator.desiredIsActive)
                     hostedView.setNotificationRing(visible: coordinator.desiredShowsUnreadNotificationRing)
                 }
-                TerminalWindowPortalRegistry.synchronizeForAnchor(host)
-                coordinator.lastSynchronizedHostGeometryRevision = host.geometryRevision
+                Self.scheduleDeferredPortalGeometrySynchronize(
+                    for: host,
+                    coordinator: coordinator
+                )
             }
 
             if host.window != nil, hostOwnsPortalNow {
@@ -8768,8 +8783,10 @@ struct GhosttyTerminalView: NSViewRepresentable {
                     coordinator.lastBoundHostId = hostId
                     coordinator.lastSynchronizedHostGeometryRevision = geometryRevision
                 } else if coordinator.lastSynchronizedHostGeometryRevision != geometryRevision {
-                    TerminalWindowPortalRegistry.synchronizeForAnchor(host)
-                    coordinator.lastSynchronizedHostGeometryRevision = geometryRevision
+                    Self.scheduleDeferredPortalGeometrySynchronize(
+                        for: host,
+                        coordinator: coordinator
+                    )
                 }
             } else if hostOwnsPortalNow {
                 // Bind is deferred until host moves into a window. Update the
