@@ -414,8 +414,8 @@
       "listNotificationsDesc": "모든 알림을 나열합니다.",
       "clearNotificationsDesc": "모든 알림을 지웁니다.",
       "sidebarMetadata": "사이드바 메타데이터 명령",
-      "sidebarMetadataDesc": "워크스페이스의 사이드바에 상태 뱃지, 프로그레스 바, 로그 항목을 설정합니다. 빌드 스크립트, CI 통합, 상태를 한눈에 표시하려는 AI 코딩 에이전트에 유용합니다.",
-      "setStatusDesc": "사이드바 상태 뱃지를 설정합니다. 다른 도구가 자체 항목을 관리할 수 있도록 고유 키를 사용하세요.",
+      "sidebarMetadataDesc": "모든 워크스페이스의 사이드바에 상태 배지, 일반 메타데이터 행, Markdown 블록, 진행률 표시줄, 로그 항목을 설정합니다. 왼쪽 패널에 더 풍부한 컨텍스트가 필요한 빌드 스크립트, CI 통합, 에이전트 워크플로에 유용합니다.",
+      "setStatusDesc": "사이드바 상태 배지를 설정합니다. CLI는 아이콘, 색상, URL, 우선순위, Markdown 포맷을 지원합니다.",
       "clearStatusDesc": "키로 사이드바 상태 항목을 제거합니다.",
       "listStatusDesc": "워크스페이스의 모든 사이드바 상태 항목을 나열합니다.",
       "setProgressDesc": "사이드바에 프로그레스 바를 설정합니다 (0.0에서 1.0).",
@@ -443,7 +443,13 @@
       "pythonClient": "Python 클라이언트",
       "shellScript": "셸 스크립트",
       "buildScriptNotification": "알림이 포함된 빌드 스크립트",
-      "metaTitle": "API 레퍼런스"
+      "metaTitle": "API 레퍼런스",
+      "setMetaDesc": "호스트, 업타임, 태그, 딥링크 같은 세부 정보를 위한 일반 사이드바 메타데이터 항목을 설정합니다.",
+      "clearMetaDesc": "키로 일반 사이드바 메타데이터 항목을 제거합니다.",
+      "listMetaDesc": "워크스페이스의 모든 일반 사이드바 메타데이터 항목을 나열합니다.",
+      "setMetaBlockDesc": "더 풍부한 요약을 위해 사이드바에 자유 형식 Markdown 블록을 설정합니다.",
+      "clearMetaBlockDesc": "키로 사이드바 Markdown 블록을 제거합니다.",
+      "listMetaBlocksDesc": "워크스페이스의 모든 사이드바 Markdown 블록을 나열합니다."
     },
     "notifications": {
       "title": "알림",

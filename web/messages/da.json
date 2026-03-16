@@ -443,7 +443,13 @@
       "pythonClient": "Python-klient",
       "shellScript": "Shell-script",
       "buildScriptNotification": "Build-script med notifikation",
-      "metaTitle": "API-reference"
+      "metaTitle": "API-reference",
+      "setMetaDesc": "Indstil en generisk metadata-post i sidebaren til detaljer som vært, oppetid, tags eller dybe links.",
+      "clearMetaDesc": "Fjern en generisk metadata-post i sidebaren efter nøgle.",
+      "listMetaDesc": "Vis alle generiske metadata-poster i sidebaren for et workspace.",
+      "setMetaBlockDesc": "Indstil en fri markdown-blok i sidebaren til mere fyldige opsummeringer.",
+      "clearMetaBlockDesc": "Fjern en markdown-blok i sidebaren efter nøgle.",
+      "listMetaBlocksDesc": "Vis alle markdown-blokke i sidebaren for et workspace."
     },
     "notifications": {
       "title": "Notifikationer",

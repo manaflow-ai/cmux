@@ -443,7 +443,13 @@
       "pythonClient": "Python 用戶端",
       "shellScript": "Shell 腳本",
       "buildScriptNotification": "帶有通知的建構腳本",
-      "metaTitle": "API 參考"
+      "metaTitle": "API 參考",
+      "setMetaDesc": "為主機、運行時間、標籤或深層連結等細節設定通用側邊欄中繼資料項目。",
+      "clearMetaDesc": "依鍵移除通用側邊欄中繼資料項目。",
+      "listMetaDesc": "列出工作區的所有通用側邊欄中繼資料項目。",
+      "setMetaBlockDesc": "在側邊欄中設定自由形式的 Markdown 區塊，以顯示更豐富的摘要。",
+      "clearMetaBlockDesc": "依鍵移除側邊欄 Markdown 區塊。",
+      "listMetaBlocksDesc": "列出工作區的所有側邊欄 Markdown 區塊。"
     },
     "notifications": {
       "title": "通知",

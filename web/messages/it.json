@@ -443,7 +443,13 @@
       "pythonClient": "Client Python",
       "shellScript": "Script shell",
       "buildScriptNotification": "Script di build con notifica",
-      "metaTitle": "Riferimento API"
+      "metaTitle": "Riferimento API",
+      "setMetaDesc": "Imposta una voce generica di metadati nella barra laterale per dettagli come host, uptime, tag o deep link.",
+      "clearMetaDesc": "Rimuovi una voce generica di metadati della barra laterale per chiave.",
+      "listMetaDesc": "Elenca tutte le voci generiche di metadati della barra laterale per un workspace.",
+      "setMetaBlockDesc": "Imposta un blocco Markdown libero nella barra laterale per riepiloghi più ricchi.",
+      "clearMetaBlockDesc": "Rimuovi un blocco Markdown della barra laterale per chiave.",
+      "listMetaBlocksDesc": "Elenca tutti i blocchi Markdown della barra laterale per un workspace."
     },
     "notifications": {
       "title": "Notifiche",

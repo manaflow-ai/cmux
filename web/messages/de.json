@@ -414,8 +414,8 @@
       "listNotificationsDesc": "Alle Benachrichtigungen auflisten.",
       "clearNotificationsDesc": "Alle Benachrichtigungen löschen.",
       "sidebarMetadata": "Seitenleisten-Metadaten-Befehle",
-      "sidebarMetadataDesc": "Setzen Sie Status-Pills, Fortschrittsbalken und Log-Einträge in der Seitenleiste für jeden Workspace. Nützlich für Build-Skripte, CI-Integrationen und KI-Coding-Agenten, die den Status auf einen Blick anzeigen möchten.",
-      "setStatusDesc": "Eine Seitenleisten-Status-Pill setzen. Verwenden Sie einen eindeutigen Schlüssel, damit verschiedene Werkzeuge ihre eigenen Einträge verwalten können.",
+      "sidebarMetadataDesc": "Setzen Sie Status-Pills, allgemeine Metadatenzeilen, Markdown-Blöcke, Fortschrittsbalken und Log-Einträge in der Seitenleiste für jeden Workspace. Nützlich für Build-Skripte, CI-Integrationen und Agent-Workflows, die mehr Kontext in der linken Seitenleiste benötigen.",
+      "setStatusDesc": "Setzen Sie eine Seitenleisten-Status-Pill. Die CLI unterstützt Symbol, Farbe, URL, Priorität und Markdown-Formatierung.",
       "clearStatusDesc": "Einen Seitenleisten-Status-Eintrag per Schlüssel entfernen.",
       "listStatusDesc": "Alle Seitenleisten-Status-Einträge für einen Workspace auflisten.",
       "setProgressDesc": "Einen Fortschrittsbalken in der Seitenleiste setzen (0.0 bis 1.0).",
@@ -443,7 +443,13 @@
       "pythonClient": "Python-Client",
       "shellScript": "Shell-Skript",
       "buildScriptNotification": "Build-Skript mit Benachrichtigung",
-      "metaTitle": "API-Referenz"
+      "metaTitle": "API-Referenz",
+      "setMetaDesc": "Setze einen allgemeinen Sidebar-Metadateneintrag für Details wie Host, Laufzeit, Tags oder Deeplinks.",
+      "clearMetaDesc": "Entferne einen allgemeinen Sidebar-Metadateneintrag per Schlüssel.",
+      "listMetaDesc": "Liste alle allgemeinen Sidebar-Metadateneinträge für einen Workspace auf.",
+      "setMetaBlockDesc": "Setze einen freien Markdown-Block in der Sidebar für ausführlichere Zusammenfassungen.",
+      "clearMetaBlockDesc": "Entferne einen Sidebar-Markdown-Block per Schlüssel.",
+      "listMetaBlocksDesc": "Liste alle Sidebar-Markdown-Blöcke für einen Workspace auf."
     },
     "notifications": {
       "title": "Benachrichtigungen",

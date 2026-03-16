@@ -282,9 +282,9 @@ cmux list-notifications --json`}
       <Cmd
         name="set-status"
         desc={t("setStatusDesc")}
-        cli={`cmux set-status build "compiling" --icon hammer --color "#ff9500"
-cmux set-status deploy "v1.2.3" --workspace workspace:2`}
-        socket={`set_status build compiling --icon=hammer --color=#ff9500 --tab=<workspace-uuid>`}
+        cli={`cmux set-status build --icon hammer --color "#ff9500" -- "compiling"
+cmux set-status deploy --url "https://example.com/deploy/42" --priority 80 --format markdown --workspace workspace:2 -- "**v1.2.3**"`}
+        socket={`set_status deploy --url=https://example.com/deploy/42 --priority=80 --format=markdown --tab=<workspace-uuid> -- **v1.2.3**`}
       />
       <Cmd
         name="clear-status"
@@ -297,6 +297,44 @@ cmux set-status deploy "v1.2.3" --workspace workspace:2`}
         desc={t("listStatusDesc")}
         cli={`cmux list-status`}
         socket={`list_status --tab=<workspace-uuid>`}
+      />
+      <Cmd
+        name="set-meta"
+        desc={t("setMetaDesc")}
+        cli={`cmux set-meta host --icon laptopcomputer --priority 50 -- "cmux-macmini"
+cmux set-meta review --format markdown --url "https://github.com/manaflow-ai/cmux/pull/1338" -- "**Needs attention**"`}
+        socket={`report_meta host --icon=laptopcomputer --priority=50 --tab=<workspace-uuid> -- cmux-macmini`}
+      />
+      <Cmd
+        name="clear-meta"
+        desc={t("clearMetaDesc")}
+        cli={`cmux clear-meta host`}
+        socket={`clear_meta host --tab=<workspace-uuid>`}
+      />
+      <Cmd
+        name="list-meta"
+        desc={t("listMetaDesc")}
+        cli={`cmux list-meta`}
+        socket={`list_meta --tab=<workspace-uuid>`}
+      />
+      <Cmd
+        name="set-meta-block"
+        desc={t("setMetaBlockDesc")}
+        cli={`cmux set-meta-block summary --priority 50 -- "### Agent\\n- status: busy"
+cmux set-meta-block notes --workspace workspace:2 -- "_Last updated just now_"`}
+        socket={`report_meta_block summary --priority=50 --tab=<workspace-uuid> -- ### Agent\\n- status: busy`}
+      />
+      <Cmd
+        name="clear-meta-block"
+        desc={t("clearMetaBlockDesc")}
+        cli={`cmux clear-meta-block summary`}
+        socket={`clear_meta_block summary --tab=<workspace-uuid>`}
+      />
+      <Cmd
+        name="list-meta-blocks"
+        desc={t("listMetaBlocksDesc")}
+        cli={`cmux list-meta-blocks`}
+        socket={`list_meta_blocks --tab=<workspace-uuid>`}
       />
       <Cmd
         name="set-progress"

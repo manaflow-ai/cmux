@@ -13025,13 +13025,34 @@ class TerminalController {
         return trimmed.isEmpty ? nil : trimmed
     }
 
-    private func upsertSidebarMetadata(_ args: String, missingError: String) -> String {
-        guard tabManager != nil else { return "ERROR: TabManager not available" }
-        let parsed = parseOptionsNoStop(args)
-        guard parsed.positional.count >= 2 else { return missingError }
+    private func sidebarMetadataKey(_ raw: String?) -> String? {
+        guard let raw = normalizedOptionValue(raw) else { return nil }
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "._-"))
+        guard raw.unicodeScalars.allSatisfy({ allowed.contains($0) }) else { return nil }
+        return raw
+    }
 
-        let key = parsed.positional[0]
-        let value = parsed.positional[1...].joined(separator: " ")
+    private func invalidSidebarMetadataKeyError(_ usage: String) -> String {
+        "ERROR: Invalid metadata key — use letters, numbers, '.', '_' or '-'; usage: \(usage)"
+    }
+
+    private func upsertSidebarMetadata(_ args: String, usage: String, missingError: String) -> String {
+        guard tabManager != nil else { return "ERROR: TabManager not available" }
+        let parts = splitSocketLiteralPayloadArgs(args)
+        let parsed = parseOptionsNoStop(parts.optionsPart)
+        guard let key = sidebarMetadataKey(parsed.positional.first) else {
+            return parsed.positional.first == nil ? missingError : invalidSidebarMetadataKeyError(usage)
+        }
+
+        let value: String
+        if let literalPayload = parts.payloadPart {
+            value = decodeSocketLiteralPayload(literalPayload)
+        } else if parsed.positional.count >= 2 {
+            value = parsed.positional[1...].joined(separator: " ")
+        } else {
+            return missingError
+        }
+        guard !value.isEmpty else { return missingError }
         let icon = normalizedOptionValue(parsed.options["icon"])
         let color = normalizedOptionValue(parsed.options["color"])
 
@@ -13062,7 +13083,7 @@ class TerminalController {
             parsedURL = nil
         }
 
-        let tabResolution = resolveTabIdForSidebarMutation(reportArgs: args, options: parsed.options)
+        let tabResolution = resolveTabIdForSidebarMutation(reportArgs: parts.optionsPart, options: parsed.options)
         guard let targetTabId = tabResolution.tabId else {
             return tabResolution.error ?? "ERROR: No tab selected"
         }
@@ -13112,8 +13133,11 @@ class TerminalController {
 
     private func clearSidebarMetadata(_ args: String, usage: String) -> String {
         let parsed = parseOptions(args)
-        guard let key = parsed.positional.first, parsed.positional.count == 1 else {
+        guard parsed.positional.count == 1 else {
             return "ERROR: Missing metadata key — usage: \(usage)"
+        }
+        guard let key = sidebarMetadataKey(parsed.positional.first) else {
+            return invalidSidebarMetadataKeyError(usage)
         }
 
         var result = "OK"
@@ -13199,6 +13223,7 @@ class TerminalController {
     private func setStatus(_ args: String) -> String {
         upsertSidebarMetadata(
             args,
+            usage: "set_status <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--tab=X]",
             missingError: "ERROR: Missing status key or value — usage: set_status <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--tab=X]"
         )
     }
@@ -13206,6 +13231,7 @@ class TerminalController {
     private func reportMeta(_ args: String) -> String {
         upsertSidebarMetadata(
             args,
+            usage: "report_meta <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--tab=X]",
             missingError: "ERROR: Missing metadata key or value — usage: report_meta <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--tab=X]"
         )
     }
@@ -13226,13 +13252,50 @@ class TerminalController {
         listSidebarMetadata(args, emptyMessage: "No metadata entries")
     }
 
-    private func splitMetadataBlockArgs(_ args: String) -> (optionsPart: String, markdownPart: String?) {
+    private func splitSocketLiteralPayloadArgs(_ args: String) -> (optionsPart: String, payloadPart: String?) {
         guard let separatorRange = args.range(of: " -- ") else {
             return (args, nil)
         }
         let optionsPart = String(args[..<separatorRange.lowerBound])
-        let markdownPart = String(args[separatorRange.upperBound...])
-        return (optionsPart, markdownPart)
+        let payloadPart = String(args[separatorRange.upperBound...])
+        return (optionsPart, payloadPart)
+    }
+
+    private func decodeSocketLiteralPayload(_ raw: String) -> String {
+        var result = ""
+        var index = raw.startIndex
+        while index < raw.endIndex {
+            let character = raw[index]
+            guard character == "\\" else {
+                result.append(character)
+                index = raw.index(after: index)
+                continue
+            }
+
+            let nextIndex = raw.index(after: index)
+            guard nextIndex < raw.endIndex else {
+                result.append(character)
+                break
+            }
+
+            switch raw[nextIndex] {
+            case "\\":
+                result.append("\\")
+            case "n":
+                result.append("\n")
+            case "r":
+                result.append("\r")
+            case "t":
+                result.append("\t")
+            case "s":
+                result.append(" ")
+            default:
+                result.append("\\")
+                result.append(raw[nextIndex])
+            }
+            index = raw.index(after: nextIndex)
+        }
+        return result
     }
 
     private func sidebarMetadataBlockLine(_ block: SidebarMetadataBlock) -> String {
@@ -13244,29 +13307,30 @@ class TerminalController {
     private func reportMetaBlock(_ args: String) -> String {
         guard tabManager != nil else { return "ERROR: TabManager not available" }
 
-        let parts = splitMetadataBlockArgs(args)
+        let parts = splitSocketLiteralPayloadArgs(args)
         let parsed = parseOptionsNoStop(parts.optionsPart)
-        guard let key = parsed.positional.first, !key.isEmpty else {
-            return "ERROR: Missing metadata block key — usage: report_meta_block <key> [--priority=N] [--tab=X] -- <markdown>"
+        let usage = "report_meta_block <key> [--priority=N] [--tab=X] -- <markdown>"
+        guard let key = sidebarMetadataKey(parsed.positional.first) else {
+            return parsed.positional.first == nil
+                ? "ERROR: Missing metadata block key — usage: \(usage)"
+                : invalidSidebarMetadataKeyError(usage)
         }
 
         let markdown: String
-        if let raw = parts.markdownPart {
+        if let raw = parts.payloadPart {
             markdown = raw
         } else if parsed.positional.count >= 2 {
             markdown = parsed.positional.dropFirst().joined(separator: " ")
         } else {
-            return "ERROR: Missing metadata markdown — usage: report_meta_block <key> [--priority=N] [--tab=X] -- <markdown>"
+            return "ERROR: Missing metadata markdown — usage: \(usage)"
         }
 
-        let normalizedMarkdown = markdown
-            .replacingOccurrences(of: "\\r\\n", with: "\n")
-            .replacingOccurrences(of: "\\n", with: "\n")
-            .replacingOccurrences(of: "\\t", with: "\t")
+        let normalizedMarkdown = decodeSocketLiteralPayload(markdown)
+            .replacingOccurrences(of: "\r\n", with: "\n")
 
         let trimmedMarkdown = normalizedMarkdown.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedMarkdown.isEmpty else {
-            return "ERROR: Missing metadata markdown — usage: report_meta_block <key> [--priority=N] [--tab=X] -- <markdown>"
+            return "ERROR: Missing metadata markdown — usage: \(usage)"
         }
 
         let priority: Int
@@ -13306,8 +13370,11 @@ class TerminalController {
 
     private func clearMetaBlock(_ args: String) -> String {
         let parsed = parseOptions(args)
-        guard let key = parsed.positional.first, parsed.positional.count == 1 else {
+        guard parsed.positional.count == 1 else {
             return "ERROR: Missing metadata block key — usage: clear_meta_block <key> [--tab=X]"
+        }
+        guard let key = sidebarMetadataKey(parsed.positional.first) else {
+            return invalidSidebarMetadataKeyError("clear_meta_block <key> [--tab=X]")
         }
 
         var result = "OK"

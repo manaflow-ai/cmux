@@ -81,11 +81,17 @@ def main() -> int:
                 priority=10,
                 tab=tab_id,
             )
-            _wait_for_state_field(client, "status_count", "2")
+            client.report_meta(
+                "flag",
+                "--stale",
+                priority=5,
+                tab=tab_id,
+            )
+            _wait_for_state_field(client, "status_count", "3")
 
             listed = client.list_meta(tab=tab_id).splitlines()
-            if len(listed) != 2:
-                raise AssertionError(f"Expected 2 metadata entries, got {len(listed)}: {listed}")
+            if len(listed) != 3:
+                raise AssertionError(f"Expected 3 metadata entries, got {len(listed)}: {listed}")
 
             if not listed[0].startswith("task="):
                 raise AssertionError(f"Expected first entry to be task metadata. Got: {listed[0]}")
@@ -95,16 +101,18 @@ def main() -> int:
                 raise AssertionError(f"Expected markdown format in task entry. Got: {listed[0]}")
             if f"url={pr_url}" not in listed[0]:
                 raise AssertionError(f"Expected URL in task entry. Got: {listed[0]}")
+            if not any(line.startswith("flag=--stale") for line in listed):
+                raise AssertionError(f"Expected --prefixed metadata value to survive parsing. Got: {listed}")
 
             client.set_status("agent", "in progress", icon="text:AI", priority=80, tab=tab_id)
-            _wait_for_state_field(client, "status_count", "3")
+            _wait_for_state_field(client, "status_count", "4")
 
             listed = client.list_meta(tab=tab_id).splitlines()
             if not listed[0].startswith("agent="):
                 raise AssertionError(f"Expected highest-priority agent entry first. Got: {listed[0]}")
 
             client.clear_meta("task", tab=tab_id)
-            _wait_for_state_field(client, "status_count", "2")
+            _wait_for_state_field(client, "status_count", "3")
 
             listed = client.list_meta(tab=tab_id).splitlines()
             if any(line.startswith("task=") for line in listed):

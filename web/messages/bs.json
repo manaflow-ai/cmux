@@ -443,7 +443,13 @@
       "pythonClient": "Python klijent",
       "shellScript": "Shell skripta",
       "buildScriptNotification": "Build skripta sa notifikacijom",
-      "metaTitle": "API referenca"
+      "metaTitle": "API referenca",
+      "setMetaDesc": "Postavite generički unos metapodataka u sidebar za detalje kao što su host, uptime, tagovi ili duboki linkovi.",
+      "clearMetaDesc": "Uklonite generički unos metapodataka u sidebaru po ključu.",
+      "listMetaDesc": "Izlistajte sve generičke unose metapodataka sidebara za workspace.",
+      "setMetaBlockDesc": "Postavite slobodni markdown blok u sidebaru za bogatije sažetke.",
+      "clearMetaBlockDesc": "Uklonite markdown blok iz sidebara po ključu.",
+      "listMetaBlocksDesc": "Izlistajte sve markdown blokove sidebara za workspace."
     },
     "notifications": {
       "title": "Notifikacije",

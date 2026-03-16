@@ -443,7 +443,13 @@
       "pythonClient": "Client Python",
       "shellScript": "Script shell",
       "buildScriptNotification": "Script de build avec notification",
-      "metaTitle": "Référence API"
+      "metaTitle": "Référence API",
+      "setMetaDesc": "Définir une entrée générique de métadonnées dans la barre latérale pour des détails comme l'hôte, la durée de fonctionnement, les tags ou les liens profonds.",
+      "clearMetaDesc": "Supprimer une entrée générique de métadonnées de la barre latérale par clé.",
+      "listMetaDesc": "Lister toutes les entrées génériques de métadonnées de la barre latérale pour un espace de travail.",
+      "setMetaBlockDesc": "Définir un bloc Markdown libre dans la barre latérale pour des résumés plus riches.",
+      "clearMetaBlockDesc": "Supprimer un bloc Markdown de la barre latérale par clé.",
+      "listMetaBlocksDesc": "Lister tous les blocs Markdown de la barre latérale pour un espace de travail."
     },
     "notifications": {
       "title": "Notifications",

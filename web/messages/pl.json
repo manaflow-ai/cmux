@@ -443,7 +443,13 @@
       "pythonClient": "Klient Python",
       "shellScript": "Skrypt powłoki",
       "buildScriptNotification": "Skrypt budowania z powiadomieniem",
-      "metaTitle": "Dokumentacja API"
+      "metaTitle": "Dokumentacja API",
+      "setMetaDesc": "Ustaw ogólny wpis metadanych w pasku bocznym dla szczegółów takich jak host, czas działania, tagi lub głębokie linki.",
+      "clearMetaDesc": "Usuń ogólny wpis metadanych paska bocznego według klucza.",
+      "listMetaDesc": "Wyświetl wszystkie ogólne wpisy metadanych paska bocznego dla obszaru roboczego.",
+      "setMetaBlockDesc": "Ustaw swobodny blok Markdown w pasku bocznym dla bogatszych podsumowań.",
+      "clearMetaBlockDesc": "Usuń blok Markdown z paska bocznego według klucza.",
+      "listMetaBlocksDesc": "Wyświetl wszystkie bloki Markdown paska bocznego dla obszaru roboczego."
     },
     "notifications": {
       "title": "Powiadomienia",

@@ -443,7 +443,13 @@
       "pythonClient": "Python client",
       "shellScript": "Shell script",
       "buildScriptNotification": "Build script พร้อมแจ้งเตือน",
-      "metaTitle": "เอกสาร API"
+      "metaTitle": "เอกสาร API",
+      "setMetaDesc": "ตั้งค่ารายการเมทาดาทาทั่วไปในแถบด้านข้างสำหรับรายละเอียด เช่น โฮสต์ เวลาทำงาน แท็ก หรือดีปลิงก์",
+      "clearMetaDesc": "ลบรายการเมทาดาทาทั่วไปในแถบด้านข้างตามคีย์",
+      "listMetaDesc": "แสดงรายการเมทาดาทาทั่วไปทั้งหมดในแถบด้านข้างสำหรับเวิร์กสเปซ",
+      "setMetaBlockDesc": "ตั้งค่าบล็อก Markdown แบบอิสระในแถบด้านข้างเพื่อให้สรุปได้ละเอียดขึ้น",
+      "clearMetaBlockDesc": "ลบบล็อก Markdown ในแถบด้านข้างตามคีย์",
+      "listMetaBlocksDesc": "แสดงบล็อก Markdown ทั้งหมดในแถบด้านข้างสำหรับเวิร์กสเปซ"
     },
     "notifications": {
       "title": "การแจ้งเตือน",

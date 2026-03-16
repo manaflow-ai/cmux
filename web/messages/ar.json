@@ -443,7 +443,13 @@
       "pythonClient": "عميل Python",
       "shellScript": "نص Shell",
       "buildScriptNotification": "نص بناء مع إشعار",
-      "metaTitle": "مرجع API"
+      "metaTitle": "مرجع API",
+      "setMetaDesc": "عيّن إدخالًا عامًا لبيانات الشريط الجانبي الوصفية لتفاصيل مثل المضيف ومدة التشغيل والعلامات أو الروابط العميقة.",
+      "clearMetaDesc": "أزل إدخالًا عامًا لبيانات الشريط الجانبي الوصفية حسب المفتاح.",
+      "listMetaDesc": "اعرض جميع إدخالات بيانات الشريط الجانبي الوصفية العامة لمساحة العمل.",
+      "setMetaBlockDesc": "عيّن كتلة Markdown حرة في الشريط الجانبي لعرض ملخصات أغنى.",
+      "clearMetaBlockDesc": "أزل كتلة Markdown من الشريط الجانبي حسب المفتاح.",
+      "listMetaBlocksDesc": "اعرض جميع كتل Markdown في الشريط الجانبي لمساحة العمل."
     },
     "notifications": {
       "title": "الإشعارات",

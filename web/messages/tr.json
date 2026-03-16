@@ -443,7 +443,13 @@
       "pythonClient": "Python istemcisi",
       "shellScript": "Shell betiği",
       "buildScriptNotification": "Bildirimli build betiği",
-      "metaTitle": "API referansı"
+      "metaTitle": "API referansı",
+      "setMetaDesc": "Ana bilgisayar, çalışma süresi, etiketler veya derin bağlantılar gibi ayrıntılar için genel bir kenar çubuğu meta veri girdisi ayarlayın.",
+      "clearMetaDesc": "Anahtara göre genel bir kenar çubuğu meta veri girdisini kaldırın.",
+      "listMetaDesc": "Bir çalışma alanı için tüm genel kenar çubuğu meta veri girdilerini listeleyin.",
+      "setMetaBlockDesc": "Daha zengin özetler için kenar çubuğunda serbest biçimli bir Markdown bloğu ayarlayın.",
+      "clearMetaBlockDesc": "Anahtara göre bir kenar çubuğu Markdown bloğunu kaldırın.",
+      "listMetaBlocksDesc": "Bir çalışma alanı için tüm kenar çubuğu Markdown bloklarını listeleyin."
     },
     "notifications": {
       "title": "Bildirimler",

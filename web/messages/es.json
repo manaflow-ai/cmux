@@ -443,7 +443,13 @@
       "pythonClient": "Cliente Python",
       "shellScript": "Script de shell",
       "buildScriptNotification": "Script de compilación con notificación",
-      "metaTitle": "Referencia API"
+      "metaTitle": "Referencia API",
+      "setMetaDesc": "Define una entrada genérica de metadatos en la barra lateral para detalles como host, uptime, etiquetas o enlaces profundos.",
+      "clearMetaDesc": "Elimina una entrada genérica de metadatos de la barra lateral por clave.",
+      "listMetaDesc": "Lista todas las entradas genéricas de metadatos de la barra lateral para un espacio de trabajo.",
+      "setMetaBlockDesc": "Define un bloque Markdown libre en la barra lateral para resúmenes más ricos.",
+      "clearMetaBlockDesc": "Elimina un bloque Markdown de la barra lateral por clave.",
+      "listMetaBlocksDesc": "Lista todos los bloques Markdown de la barra lateral para un espacio de trabajo."
     },
     "notifications": {
       "title": "Notificaciones",

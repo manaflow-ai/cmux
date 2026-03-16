@@ -443,7 +443,13 @@
       "pythonClient": "Python 客户端",
       "shellScript": "Shell 脚本",
       "buildScriptNotification": "带通知的构建脚本",
-      "metaTitle": "API 参考"
+      "metaTitle": "API 参考",
+      "setMetaDesc": "为主机、运行时长、标签或深链接等细节设置通用侧边栏元数据条目。",
+      "clearMetaDesc": "按键移除通用侧边栏元数据条目。",
+      "listMetaDesc": "列出工作区的所有通用侧边栏元数据条目。",
+      "setMetaBlockDesc": "在侧边栏中设置自由形式的 Markdown 块，以显示更丰富的摘要。",
+      "clearMetaBlockDesc": "按键移除侧边栏 Markdown 块。",
+      "listMetaBlocksDesc": "列出工作区的所有侧边栏 Markdown 块。"
     },
     "notifications": {
       "title": "通知",

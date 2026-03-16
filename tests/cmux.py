@@ -75,6 +75,18 @@ def _quote_option_value(value: str) -> str:
     return f"\"{escaped}\""
 
 
+def _socket_literal_payload(value: str) -> str:
+    trailing_spaces = len(value) - len(value.rstrip(" "))
+    core = value[:-trailing_spaces] if trailing_spaces else value
+    escaped = (
+        core.replace("\\", "\\\\")
+        .replace("\n", "\\n")
+        .replace("\r", "\\r")
+        .replace("\t", "\\t")
+    )
+    return escaped + ("\\s" * trailing_spaces)
+
+
 def _default_bundle_id() -> str:
     override = os.environ.get("CMUX_BUNDLE_ID")
     if override:
@@ -534,7 +546,7 @@ class cmux:
             cmd += f" --format={format}"
         if tab:
             cmd += f" --tab={tab}"
-        cmd += f" -- {_quote_option_value(value)}"
+        cmd += f" -- {_socket_literal_payload(value)}"
         response = self._send_command(cmd)
         if not response.startswith("OK"):
             raise cmuxError(response)
@@ -604,7 +616,7 @@ class cmux:
             cmd += f" --priority={priority}"
         if tab:
             cmd += f" --tab={tab}"
-        cmd += f" -- {_quote_option_value(markdown)}"
+        cmd += f" -- {_socket_literal_payload(markdown)}"
         response = self._send_command(cmd)
         if not response.startswith("OK"):
             raise cmuxError(response)

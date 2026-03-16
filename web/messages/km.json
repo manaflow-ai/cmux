@@ -443,7 +443,13 @@
       "pythonClient": "Python client",
       "shellScript": "Shell script",
       "buildScriptNotification": "Build script ជាមួយជូនដំណឹង",
-      "metaTitle": "ឯកសារ API"
+      "metaTitle": "ឯកសារ API",
+      "setMetaDesc": "កំណត់ធាតុមេតាទិន្នន័យទូទៅក្នុងរបារចំហៀង សម្រាប់ព័ត៌មានដូចជា host, uptime, ស្លាក ឬ deep link។",
+      "clearMetaDesc": "លុបធាតុមេតាទិន្នន័យទូទៅក្នុងរបារចំហៀងតាម key។",
+      "listMetaDesc": "បង្ហាញធាតុមេតាទិន្នន័យទូទៅទាំងអស់ក្នុងរបារចំហៀងសម្រាប់ workspace មួយ។",
+      "setMetaBlockDesc": "កំណត់ប្លុក Markdown សេរីក្នុងរបារចំហៀង សម្រាប់សេចក្តីសង្ខេបដែលសម្បូរជាងមុន។",
+      "clearMetaBlockDesc": "លុបប្លុក Markdown ក្នុងរបារចំហៀងតាម key។",
+      "listMetaBlocksDesc": "បង្ហាញប្លុក Markdown ទាំងអស់ក្នុងរបារចំហៀងសម្រាប់ workspace មួយ។"
     },
     "notifications": {
       "title": "ជូនដំណឹង",
