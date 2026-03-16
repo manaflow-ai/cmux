@@ -4654,6 +4654,14 @@ func browserNavigationShouldCreatePopup(
     return navigationType == .other && !isUserNewTab
 }
 
+func browserNavigationShouldFallbackNilTargetToNewTab(
+    navigationType: WKNavigationType
+) -> Bool {
+    // Scripted popups rely on WKUIDelegate.createWebViewWith returning a live
+    // web view so window.opener/postMessage remain intact across OAuth flows.
+    navigationType != .other
+}
+
 private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
     var didFinish: ((WKWebView) -> Void)?
     var didFailNavigation: ((WKWebView, String) -> Void)?
@@ -4891,11 +4899,13 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
             return
         }
 
-        // Catch-all for nil-target navigations where createWebViewWith
-        // returned nil: external URLs, user-initiated new-window actions
-        // (target=_blank, context menu) that fall through the classifier,
-        // or when popup creation is unavailable.
+        // target=_blank link navigations should open in a new tab.
+        // Scripted popups (navigationType == .other) are handled in
+        // WKUIDelegate.createWebViewWith so OAuth opener linkage survives.
         if navigationAction.targetFrame == nil,
+           browserNavigationShouldFallbackNilTargetToNewTab(
+               navigationType: navigationAction.navigationType
+           ),
            let url = navigationAction.request.url {
 #if DEBUG
             dlog("browser.nav.decidePolicy.action kind=openInNewTabFromNilTarget url=\(url.absoluteString)")

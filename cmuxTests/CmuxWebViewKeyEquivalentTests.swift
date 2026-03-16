@@ -2659,6 +2659,24 @@ final class BrowserPopupDecisionTests: XCTestCase {
     }
 }
 
+final class BrowserNilTargetFallbackDecisionTests: XCTestCase {
+    func testOtherNavigationDoesNotFallbackToNewTab() {
+        XCTAssertFalse(
+            browserNavigationShouldFallbackNilTargetToNewTab(
+                navigationType: .other
+            )
+        )
+    }
+
+    func testLinkActivatedNavigationFallsBackToNewTab() {
+        XCTAssertTrue(
+            browserNavigationShouldFallbackNilTargetToNewTab(
+                navigationType: .linkActivated
+            )
+        )
+    }
+}
+
 final class BrowserPopupContentRectTests: XCTestCase {
     func testExplicitTopOriginCoordinatesConvertToAppKitBottomOrigin() {
         let rect = browserPopupContentRect(
