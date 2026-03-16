@@ -2357,11 +2357,15 @@ class GhosttyApp {
                         NSWorkspace.shared.open(URL(fileURLWithPath: path))
                         return true
                     }
-                    _ = resolved.workspace.newMarkdownSplit(
+                    if resolved.workspace.newMarkdownSplit(
                         from: sourcePanelId,
                         orientation: .horizontal,
                         filePath: path
-                    )
+                    ) != nil {
+                        return true
+                    }
+                    // Split creation failed — fall back to system handler
+                    NSWorkspace.shared.open(URL(fileURLWithPath: path))
                     return true
                 }
             case let .external(url):
