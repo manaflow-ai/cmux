@@ -477,9 +477,12 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
 
     func testWorkspaceTitlebarToggleKeepsSettingsWindowFocused() throws {
         let app = XCUIApplication()
+        let diagnosticsPath = "/tmp/cmux-ui-test-settings-focus-\(UUID().uuidString).json"
+        try? FileManager.default.removeItem(atPath: diagnosticsPath)
         app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_SHOW_SETTINGS"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_DIAGNOSTICS_PATH"] = diagnosticsPath
         launchAndActivate(app)
 
         XCTAssertTrue(
@@ -500,6 +503,24 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
                 toggle.exists && toggleIsOn(toggle) != initialState
             },
             "Expected the workspace titlebar setting to toggle"
+        )
+
+        let diagnostics = waitForDiagnostics(
+            at: diagnosticsPath,
+            timeout: 3.0
+        ) { data in
+            data["keyWindowIdentifier"] == "cmux.settings" && data["settingsWindowIsKey"] == "1"
+        }
+
+        XCTAssertEqual(
+            diagnostics?["keyWindowIdentifier"],
+            "cmux.settings",
+            "Expected the Settings window to remain key after toggling the workspace titlebar setting. diagnostics=\(diagnostics ?? [:])"
+        )
+        XCTAssertEqual(
+            diagnostics?["settingsWindowIsKey"],
+            "1",
+            "Expected the Settings window to report itself as key after toggling the workspace titlebar setting. diagnostics=\(diagnostics ?? [:])"
         )
 
         app.typeKey("w", modifierFlags: [.command])
@@ -700,6 +721,35 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
             "params": params,
         ]
         return ControlSocketClient(path: socketPath, responseTimeout: 2.0).sendJSON(request)
+    }
+
+    private func waitForDiagnostics(
+        at path: String,
+        timeout: TimeInterval,
+        condition: ([String: String]) -> Bool
+    ) -> [String: String]? {
+        let deadline = Date().addingTimeInterval(timeout)
+        var last: [String: String]?
+
+        while Date() < deadline {
+            if let data = loadDiagnostics(at: path) {
+                last = data
+                if condition(data) {
+                    return data
+                }
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+
+        return last
+    }
+
+    private func loadDiagnostics(at path: String) -> [String: String]? {
+        guard let raw = try? Data(contentsOf: URL(fileURLWithPath: path)),
+              let object = try? JSONSerialization.jsonObject(with: raw) as? [String: String] else {
+            return nil
+        }
+        return object
     }
 
     private final class ControlSocketClient {
