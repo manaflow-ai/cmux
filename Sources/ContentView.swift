@@ -10020,7 +10020,7 @@ enum SidebarPathFormatter {
 
 enum SidebarWorkspaceShortcutHintMetrics {
     private static let measurementFont = NSFont.systemFont(ofSize: 10, weight: .semibold)
-    private static let minimumSlotWidth: CGFloat = 28
+    private static let minimumSlotWidth: CGFloat = 16
     private static let horizontalPadding: CGFloat = 12
     private static let lock = NSLock()
     private static var cachedHintWidths: [String: CGFloat] = [:]
@@ -10221,10 +10221,16 @@ private struct TabItemView: View, Equatable {
     }
 
     private var workspaceHintSlotWidth: CGFloat {
-        SidebarWorkspaceShortcutHintMetrics.slotWidth(
-            label: workspaceShortcutLabel,
-            debugXOffset: sidebarShortcutHintXOffset
-        )
+        if showsWorkspaceShortcutHint {
+            return SidebarWorkspaceShortcutHintMetrics.slotWidth(
+                label: workspaceShortcutLabel,
+                debugXOffset: sidebarShortcutHintXOffset
+            )
+        } else if showCloseButton {
+            return 16
+        } else {
+            return 0
+        }
     }
 
     private var visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility {
@@ -10285,7 +10291,7 @@ private struct TabItemView: View, Equatable {
         }()
 
         VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 8) {
+            HStack(spacing: 4) {
                 if unreadCount > 0 {
                     ZStack {
                         Circle()
@@ -10308,8 +10314,7 @@ private struct TabItemView: View, Equatable {
                     .foregroundColor(activePrimaryTextColor)
                     .lineLimit(1)
                     .truncationMode(.tail)
-
-                Spacer()
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
                 ZStack(alignment: .trailing) {
                     Button(action: {
@@ -10345,8 +10350,8 @@ private struct TabItemView: View, Equatable {
                             .transition(.opacity)
                     }
                 }
-                .animation(.easeInOut(duration: 0.14), value: showsModifierShortcutHints || alwaysShowShortcutHints)
                 .frame(width: workspaceHintSlotWidth, height: 16, alignment: .trailing)
+                .animation(.easeInOut(duration: 0.14), value: workspaceHintSlotWidth)
             }
 
             if let subtitle = latestNotificationSubtitle {
@@ -10513,7 +10518,7 @@ private struct TabItemView: View, Equatable {
         .animation(.easeInOut(duration: 0.2), value: tab.logEntries.count)
         .animation(.easeInOut(duration: 0.2), value: tab.progress != nil)
         .animation(.easeInOut(duration: 0.2), value: tab.metadataBlocks.count)
-        .padding(.horizontal, 10)
+        .padding(.horizontal, 8)
         .padding(.vertical, 8)
         .background(
             RoundedRectangle(cornerRadius: 6)
