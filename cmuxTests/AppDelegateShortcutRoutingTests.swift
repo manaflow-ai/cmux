@@ -671,6 +671,86 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
     }
 
+    func testHiddenWorkspaceTitlebarUsesZeroTopSafeAreaForMainWindowContentView() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let defaults = UserDefaults.standard
+        let previousValue = defaults.object(forKey: WorkspaceTitlebarSettings.showTitlebarKey)
+        defaults.set(false, forKey: WorkspaceTitlebarSettings.showTitlebarKey)
+        defer {
+            if let previousValue {
+                defaults.set(previousValue, forKey: WorkspaceTitlebarSettings.showTitlebarKey)
+            } else {
+                defaults.removeObject(forKey: WorkspaceTitlebarSettings.showTitlebarKey)
+            }
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let contentView = window.contentView else {
+            XCTFail("Expected main window content view")
+            return
+        }
+
+        contentView.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        XCTAssertEqual(
+            contentView.safeAreaInsets.top,
+            0,
+            accuracy: 0.5,
+            "Hidden workspace titlebar should not leave a top safe-area inset in the main window content view"
+        )
+    }
+
+    func testAttachUpdateAccessoryRemovesTitlebarAccessoryWhenWorkspaceTitlebarHidden() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let defaults = UserDefaults.standard
+        let previousValue = defaults.object(forKey: WorkspaceTitlebarSettings.showTitlebarKey)
+        defaults.set(true, forKey: WorkspaceTitlebarSettings.showTitlebarKey)
+        defer {
+            if let previousValue {
+                defaults.set(previousValue, forKey: WorkspaceTitlebarSettings.showTitlebarKey)
+            } else {
+                defaults.removeObject(forKey: WorkspaceTitlebarSettings.showTitlebarKey)
+            }
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId) else {
+            XCTFail("Expected main window")
+            return
+        }
+
+        let hasTitlebarAccessory: () -> Bool = {
+            window.titlebarAccessoryViewControllers.contains {
+                $0.view.identifier?.rawValue == "cmux.titlebarControls"
+            }
+        }
+
+        XCTAssertTrue(hasTitlebarAccessory(), "Expected visible-titlebar mode to attach the titlebar accessory")
+
+        defaults.set(false, forKey: WorkspaceTitlebarSettings.showTitlebarKey)
+        appDelegate.attachUpdateAccessory(to: window)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        XCTAssertFalse(
+            hasTitlebarAccessory(),
+            "Hidden workspace titlebar should remove the titlebar accessory instead of keeping a hidden controller attached"
+        )
+    }
+
     func testCmdPhysicalPWithDvorakCharactersDoesNotTriggerCommandPaletteSwitcher() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")

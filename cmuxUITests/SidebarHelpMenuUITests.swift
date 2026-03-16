@@ -475,6 +475,43 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
         )
     }
 
+    func testWorkspaceTitlebarToggleKeepsSettingsWindowFocused() throws {
+        let app = XCUIApplication()
+        app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_SHOW_SETTINGS"] = "1"
+        launchAndActivate(app)
+
+        XCTAssertTrue(
+            sidebarHelpPollUntil(timeout: 8.0) {
+                app.windows.count >= 2
+            },
+            "Expected the main window and Settings window to be visible"
+        )
+
+        focusSettingsWindow(app: app)
+        let toggle = try requireShowWorkspaceTitlebarToggle(app: app)
+        let initialState = toggleIsOn(toggle)
+
+        toggle.click()
+
+        XCTAssertTrue(
+            sidebarHelpPollUntil(timeout: 3.0) {
+                toggle.exists && toggleIsOn(toggle) != initialState
+            },
+            "Expected the workspace titlebar setting to toggle"
+        )
+
+        app.typeKey("w", modifierFlags: [.command])
+
+        XCTAssertTrue(
+            sidebarHelpPollUntil(timeout: 3.0) {
+                app.windows.count == 1 && !toggle.exists
+            },
+            "Expected Cmd+W after toggling the workspace titlebar setting to close the focused Settings window instead of defocusing back to the workspace window"
+        )
+    }
+
     private func launchAndActivate(_ app: XCUIApplication) {
         app.launch()
         XCTAssertTrue(
@@ -537,6 +574,31 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
         }
 
         throw XCTSkip("Could not find the command palette all-surfaces toggle")
+    }
+
+    private func requireShowWorkspaceTitlebarToggle(app: XCUIApplication) throws -> XCUIElement {
+        let scrollView = app.scrollViews.firstMatch
+        let candidates = [
+            app.switches["SettingsShowWorkspaceTitlebarToggle"],
+            app.checkBoxes["SettingsShowWorkspaceTitlebarToggle"],
+            app.buttons["SettingsShowWorkspaceTitlebarToggle"],
+            app.otherElements["SettingsShowWorkspaceTitlebarToggle"],
+            app.switches["Show Workspace Title Bar"],
+            app.checkBoxes["Show Workspace Title Bar"],
+            app.buttons["Show Workspace Title Bar"],
+            app.otherElements["Show Workspace Title Bar"],
+        ]
+
+        for _ in 0..<8 {
+            if let element = firstExistingElement(candidates: candidates, timeout: 0.4), element.isHittable {
+                return element
+            }
+            if scrollView.exists {
+                scrollView.swipeUp()
+            }
+        }
+
+        throw XCTSkip("Could not find the workspace titlebar toggle")
     }
 
     private func toggleIsOn(_ element: XCUIElement) -> Bool {
