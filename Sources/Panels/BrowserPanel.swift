@@ -3386,6 +3386,7 @@ extension BrowserPanel {
             return
         }
         preferredDeveloperToolsVisible = false
+        forceDeveloperToolsRefreshOnNextAttach = false
         cancelDeveloperToolsRestoreRetry()
     }
 
@@ -3451,6 +3452,30 @@ extension BrowserPanel {
             scheduleDetachedDeveloperToolsWindowDismissal()
         } else {
             scheduleDeveloperToolsRestoreRetry()
+        }
+    }
+
+    /// Stable portal updates should respect a manual close; only portal mutations that
+    /// were preceded by a visible inspector should try to restore it afterward.
+    func reconcileDeveloperToolsAfterPortalUpdate(
+        inspectorWasVisibleBeforeUpdate: Bool,
+        didReattach: Bool,
+        didChangeVisibility: Bool,
+        didChangeZPriority _: Bool
+    ) {
+        let didPortalMutation = didReattach || didChangeVisibility
+        let shouldRestore =
+            didPortalMutation &&
+            (
+                hasPendingDeveloperToolsRefreshAfterAttach() ||
+                (didChangeVisibility && preferredDeveloperToolsVisible) ||
+                (didReattach && inspectorWasVisibleBeforeUpdate)
+            )
+
+        if shouldRestore {
+            restoreDeveloperToolsAfterAttachIfNeeded()
+        } else {
+            syncDeveloperToolsPreferenceFromInspector()
         }
     }
 

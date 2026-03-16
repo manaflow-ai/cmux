@@ -3094,6 +3094,162 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         XCTAssertEqual(inspector.showCount, 2)
     }
 
+    func testPortalUpdateSyncsManualCloseWithoutUnexpectedReopen() {
+        let (panel, inspector) = makePanelWithInspector()
+
+        XCTAssertTrue(panel.showDeveloperTools())
+        XCTAssertTrue(panel.isDeveloperToolsVisible())
+        XCTAssertEqual(inspector.showCount, 1)
+
+        // Simulate the user closing inspector chrome while the portal host stays attached.
+        inspector.close()
+        XCTAssertFalse(panel.isDeveloperToolsVisible())
+
+        panel.reconcileDeveloperToolsAfterPortalUpdate(
+            inspectorWasVisibleBeforeUpdate: false,
+            didReattach: false,
+            didChangeVisibility: false,
+            didChangeZPriority: false
+        )
+
+        XCTAssertFalse(panel.isDeveloperToolsVisible())
+        XCTAssertEqual(inspector.showCount, 1)
+
+        // Later auto-restore passes should keep honoring the user's close intent.
+        panel.restoreDeveloperToolsAfterAttachIfNeeded()
+        XCTAssertFalse(panel.isDeveloperToolsVisible())
+        XCTAssertEqual(inspector.showCount, 1)
+    }
+
+    func testPortalUpdateReattachHonorsManualCloseThatPredatedTheUpdate() {
+        let (panel, inspector) = makePanelWithInspector()
+
+        XCTAssertTrue(panel.showDeveloperTools())
+        XCTAssertTrue(panel.isDeveloperToolsVisible())
+        XCTAssertEqual(inspector.showCount, 1)
+
+        // Simulate the user already having closed inspector chrome before a later reattach.
+        inspector.close()
+        XCTAssertFalse(panel.isDeveloperToolsVisible())
+
+        panel.reconcileDeveloperToolsAfterPortalUpdate(
+            inspectorWasVisibleBeforeUpdate: false,
+            didReattach: true,
+            didChangeVisibility: false,
+            didChangeZPriority: false
+        )
+
+        XCTAssertFalse(panel.isDeveloperToolsVisible())
+        XCTAssertEqual(inspector.showCount, 1)
+    }
+
+    func testPortalUpdateVisibilityChangeRestoresInspectorWhenIntentRemainsVisible() {
+        let (panel, inspector) = makePanelWithInspector()
+
+        XCTAssertTrue(panel.showDeveloperTools())
+        XCTAssertTrue(panel.isDeveloperToolsVisible())
+        XCTAssertEqual(inspector.showCount, 1)
+
+        // Simulate the portal hiding the inspector during a pane visibility transition.
+        inspector.close()
+        XCTAssertFalse(panel.isDeveloperToolsVisible())
+
+        panel.reconcileDeveloperToolsAfterPortalUpdate(
+            inspectorWasVisibleBeforeUpdate: false,
+            didReattach: false,
+            didChangeVisibility: true,
+            didChangeZPriority: false
+        )
+
+        XCTAssertTrue(panel.isDeveloperToolsVisible())
+        XCTAssertEqual(inspector.showCount, 2)
+    }
+
+    func testPortalUpdateRestoresInspectorAfterReattach() {
+        let (panel, inspector) = makePanelWithInspector()
+
+        XCTAssertTrue(panel.showDeveloperTools())
+        XCTAssertTrue(panel.isDeveloperToolsVisible())
+        XCTAssertEqual(inspector.showCount, 1)
+
+        // Simulate WebKit closing inspector during a host reattach.
+        inspector.close()
+        XCTAssertFalse(panel.isDeveloperToolsVisible())
+
+        panel.reconcileDeveloperToolsAfterPortalUpdate(
+            inspectorWasVisibleBeforeUpdate: true,
+            didReattach: true,
+            didChangeVisibility: false,
+            didChangeZPriority: false
+        )
+
+        XCTAssertTrue(panel.isDeveloperToolsVisible())
+        XCTAssertEqual(inspector.showCount, 2)
+    }
+
+    func testPortalUpdateWithoutMutationKeepsPendingRefreshQueued() {
+        let (panel, inspector) = makePanelWithInspector()
+
+        XCTAssertTrue(panel.showDeveloperTools())
+        panel.requestDeveloperToolsRefreshAfterNextAttach(reason: "unit-test")
+        XCTAssertTrue(panel.hasPendingDeveloperToolsRefreshAfterAttach())
+
+        panel.reconcileDeveloperToolsAfterPortalUpdate(
+            inspectorWasVisibleBeforeUpdate: true,
+            didReattach: false,
+            didChangeVisibility: false,
+            didChangeZPriority: false
+        )
+
+        XCTAssertTrue(panel.isDeveloperToolsVisible())
+        XCTAssertEqual(inspector.showCount, 1)
+        XCTAssertTrue(panel.hasPendingDeveloperToolsRefreshAfterAttach())
+    }
+
+    func testPortalUpdateWithoutMutationCancelsPendingRefreshAfterManualClose() {
+        let (panel, inspector) = makePanelWithInspector()
+
+        XCTAssertTrue(panel.showDeveloperTools())
+        panel.requestDeveloperToolsRefreshAfterNextAttach(reason: "unit-test")
+        XCTAssertTrue(panel.hasPendingDeveloperToolsRefreshAfterAttach())
+
+        inspector.close()
+        XCTAssertFalse(panel.isDeveloperToolsVisible())
+
+        panel.reconcileDeveloperToolsAfterPortalUpdate(
+            inspectorWasVisibleBeforeUpdate: false,
+            didReattach: false,
+            didChangeVisibility: false,
+            didChangeZPriority: false
+        )
+
+        XCTAssertFalse(panel.isDeveloperToolsVisible())
+        XCTAssertEqual(inspector.showCount, 1)
+        XCTAssertFalse(panel.hasPendingDeveloperToolsRefreshAfterAttach())
+    }
+
+    func testPortalUpdatePendingRefreshRestoresInspectorOnReattach() {
+        let (panel, inspector) = makePanelWithInspector()
+
+        XCTAssertTrue(panel.showDeveloperTools())
+        panel.requestDeveloperToolsRefreshAfterNextAttach(reason: "unit-test")
+        XCTAssertTrue(panel.hasPendingDeveloperToolsRefreshAfterAttach())
+
+        inspector.close()
+        XCTAssertFalse(panel.isDeveloperToolsVisible())
+
+        panel.reconcileDeveloperToolsAfterPortalUpdate(
+            inspectorWasVisibleBeforeUpdate: false,
+            didReattach: true,
+            didChangeVisibility: false,
+            didChangeZPriority: false
+        )
+
+        XCTAssertTrue(panel.isDeveloperToolsVisible())
+        XCTAssertEqual(inspector.showCount, 2)
+        XCTAssertFalse(panel.hasPendingDeveloperToolsRefreshAfterAttach())
+    }
+
     func testForcedRefreshAfterAttachKeepsVisibleInspectorState() {
         let (panel, inspector) = makePanelWithInspector()
 

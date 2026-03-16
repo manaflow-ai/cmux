@@ -5547,13 +5547,21 @@ struct WebViewRepresentable: NSViewRepresentable {
             )
         }
 
+        let inspectorWasVisibleBeforePortalUpdate =
+            host.window != nil &&
+            portalHostAccepted &&
+            panel.isDeveloperToolsVisible()
+
+        var didReattachPortalHost = false
         if host.window != nil, portalHostAccepted {
             let geometryRevision = host.geometryRevision
             let portalEntryMissing = !BrowserWindowPortalRegistry.isWebView(webView, boundTo: portalAnchorView)
-            let shouldBindNow =
+            didReattachPortalHost =
                 coordinator.lastPortalHostId != hostId ||
                 webView.superview == nil ||
-                portalEntryMissing ||
+                portalEntryMissing
+            let shouldBindNow =
+                didReattachPortalHost ||
                 previousVisible != shouldAttachWebView ||
                 previousZPriority != portalZPriority
             if shouldBindNow {
@@ -5604,7 +5612,14 @@ struct WebViewRepresentable: NSViewRepresentable {
             BrowserWindowPortalRegistry.updateSearchOverlay(for: webView, configuration: activeSearchOverlay)
         }
 
-        panel.restoreDeveloperToolsAfterAttachIfNeeded()
+        if host.window != nil, portalHostAccepted {
+            panel.reconcileDeveloperToolsAfterPortalUpdate(
+                inspectorWasVisibleBeforeUpdate: inspectorWasVisibleBeforePortalUpdate,
+                didReattach: didReattachPortalHost,
+                didChangeVisibility: previousVisible != coordinator.desiredPortalVisibleInUI,
+                didChangeZPriority: previousZPriority != coordinator.desiredPortalZPriority
+            )
+        }
 
         #if DEBUG
         Self.logDevToolsState(
