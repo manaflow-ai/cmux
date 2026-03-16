@@ -1,11 +1,13 @@
-import XCTest
 import AppKit
+import XCTest
 
 #if canImport(cmux_DEV)
-@testable import cmux_DEV
+    @testable import cmux_DEV
 #elseif canImport(cmux)
-@testable import cmux
+    @testable import cmux
 #endif
+
+// MARK: - SidebarPathFormatterTests
 
 final class SidebarPathFormatterTests: XCTestCase {
     func testShortenedPathReplacesExactHomeDirectory() {
@@ -39,12 +41,18 @@ final class SidebarPathFormatterTests: XCTestCase {
     }
 }
 
+// MARK: - GhosttyConfigTests
+
 final class GhosttyConfigTests: XCTestCase {
+    // MARK: Nested Types
+
     private struct RGB: Equatable {
         let red: Int
         let green: Int
         let blue: Int
     }
+
+    // MARK: Functions
 
     func testResolveThemeNamePrefersLightEntryForPairedTheme() {
         let resolved = GhosttyConfig.resolveThemeName(
@@ -91,7 +99,8 @@ final class GhosttyConfigTests: XCTestCase {
     }
 
     func testLoadThemeResolvesPairedThemeValueByColorScheme() throws {
-        let root = FileManager.default.temporaryDirectory
+        let root = FileManager.default
+            .temporaryDirectory
             .appendingPathComponent("cmux-ghostty-theme-pair-\(UUID().uuidString)")
         let themesDir = root.appendingPathComponent("themes")
         try FileManager.default.createDirectory(at: themesDir, withIntermediateDirectories: true)
@@ -141,7 +150,8 @@ final class GhosttyConfigTests: XCTestCase {
     }
 
     func testLoadThemeResolvesBuiltinAliasFromGhosttyResourcesDir() throws {
-        let root = FileManager.default.temporaryDirectory
+        let root = FileManager.default
+            .temporaryDirectory
             .appendingPathComponent("cmux-ghostty-themes-\(UUID().uuidString)")
         let themesDir = root.appendingPathComponent("themes")
         try FileManager.default.createDirectory(at: themesDir, withIntermediateDirectories: true)
@@ -165,7 +175,8 @@ final class GhosttyConfigTests: XCTestCase {
     }
 
     func testLoadThemeResolvesITerm2SolarizedLightAliasToLegacyThemeName() throws {
-        let root = FileManager.default.temporaryDirectory
+        let root = FileManager.default
+            .temporaryDirectory
             .appendingPathComponent("cmux-ghostty-solarized-light-\(UUID().uuidString)")
         let themesDir = root.appendingPathComponent("themes")
         try FileManager.default.createDirectory(at: themesDir, withIntermediateDirectories: true)
@@ -191,7 +202,8 @@ final class GhosttyConfigTests: XCTestCase {
     }
 
     func testLoadThemeResolvesITerm2SolarizedDarkAliasToLegacyThemeName() throws {
-        let root = FileManager.default.temporaryDirectory
+        let root = FileManager.default
+            .temporaryDirectory
             .appendingPathComponent("cmux-ghostty-solarized-dark-\(UUID().uuidString)")
         let themesDir = root.appendingPathComponent("themes")
         try FileManager.default.createDirectory(at: themesDir, withIntermediateDirectories: true)
@@ -367,7 +379,8 @@ final class GhosttyConfigTests: XCTestCase {
                 GhosttyApp.cmuxAppSupportConfigURLs(
                     currentBundleIdentifier: "com.example.other-app",
                     appSupportDirectory: appSupportDirectory
-                ).isEmpty
+                )
+                .isEmpty
             )
         }
     }
@@ -385,7 +398,8 @@ final class GhosttyConfigTests: XCTestCase {
                 GhosttyApp.cmuxAppSupportConfigURLs(
                     currentBundleIdentifier: "com.cmuxterm.app.debug",
                     appSupportDirectory: appSupportDirectory
-                ).isEmpty
+                )
+                .isEmpty
             )
         }
     }
@@ -521,12 +535,9 @@ final class GhosttyConfigTests: XCTestCase {
         )
     }
 
-    func testClaudeCodeIntegrationDefaultsToEnabledWhenUnset() {
+    func testClaudeCodeIntegrationDefaultsToEnabledWhenUnset() throws {
         let suiteName = "cmux.tests.claude-hooks.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Failed to create isolated user defaults suite")
-            return
-        }
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName), "Failed to create isolated user defaults suite")
         defer {
             defaults.removePersistentDomain(forName: suiteName)
         }
@@ -535,12 +546,9 @@ final class GhosttyConfigTests: XCTestCase {
         XCTAssertTrue(ClaudeCodeIntegrationSettings.hooksEnabled(defaults: defaults))
     }
 
-    func testClaudeCodeIntegrationRespectsStoredPreference() {
+    func testClaudeCodeIntegrationRespectsStoredPreference() throws {
         let suiteName = "cmux.tests.claude-hooks.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Failed to create isolated user defaults suite")
-            return
-        }
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName), "Failed to create isolated user defaults suite")
         defer {
             defaults.removePersistentDomain(forName: suiteName)
         }
@@ -552,12 +560,9 @@ final class GhosttyConfigTests: XCTestCase {
         XCTAssertFalse(ClaudeCodeIntegrationSettings.hooksEnabled(defaults: defaults))
     }
 
-    func testTelemetryDefaultsToEnabledWhenUnset() {
+    func testTelemetryDefaultsToEnabledWhenUnset() throws {
         let suiteName = "cmux.tests.telemetry.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Failed to create isolated user defaults suite")
-            return
-        }
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName), "Failed to create isolated user defaults suite")
         defer {
             defaults.removePersistentDomain(forName: suiteName)
         }
@@ -566,12 +571,9 @@ final class GhosttyConfigTests: XCTestCase {
         XCTAssertTrue(TelemetrySettings.isEnabled(defaults: defaults))
     }
 
-    func testTelemetryRespectsStoredPreference() {
+    func testTelemetryRespectsStoredPreference() throws {
         let suiteName = "cmux.tests.telemetry.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Failed to create isolated user defaults suite")
-            return
-        }
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName), "Failed to create isolated user defaults suite")
         defer {
             defaults.removePersistentDomain(forName: suiteName)
         }
@@ -625,23 +627,19 @@ final class GhosttyConfigTests: XCTestCase {
     }
 }
 
+// MARK: - WorkspaceChromeThemeTests
+
 final class WorkspaceChromeThemeTests: XCTestCase {
-    func testResolvedChromeColorsUsesLightGhosttyBackground() {
-        guard let backgroundColor = NSColor(hex: "#FDF6E3") else {
-            XCTFail("Expected valid test color")
-            return
-        }
+    func testResolvedChromeColorsUsesLightGhosttyBackground() throws {
+        let backgroundColor = try XCTUnwrap(NSColor(hex: "#FDF6E3"), "Expected valid test color")
 
         let colors = Workspace.resolvedChromeColors(from: backgroundColor)
         XCTAssertEqual(colors.backgroundHex, "#FDF6E3")
         XCTAssertNil(colors.borderHex)
     }
 
-    func testResolvedChromeColorsUsesDarkGhosttyBackground() {
-        guard let backgroundColor = NSColor(hex: "#272822") else {
-            XCTFail("Expected valid test color")
-            return
-        }
+    func testResolvedChromeColorsUsesDarkGhosttyBackground() throws {
+        let backgroundColor = try XCTUnwrap(NSColor(hex: "#272822"), "Expected valid test color")
 
         let colors = Workspace.resolvedChromeColors(from: backgroundColor)
         XCTAssertEqual(colors.backgroundHex, "#272822")
@@ -649,14 +647,13 @@ final class WorkspaceChromeThemeTests: XCTestCase {
     }
 }
 
+// MARK: - WorkspaceAppearanceConfigResolutionTests
+
 final class WorkspaceAppearanceConfigResolutionTests: XCTestCase {
-    func testResolvedAppearanceConfigPrefersGhosttyRuntimeBackgroundOverLoadedConfig() {
-        guard let loadedBackground = NSColor(hex: "#112233"),
-              let runtimeBackground = NSColor(hex: "#FDF6E3"),
-              let loadedForeground = NSColor(hex: "#ABCDEF") else {
-            XCTFail("Expected valid test colors")
-            return
-        }
+    func testResolvedAppearanceConfigPrefersGhosttyRuntimeBackgroundOverLoadedConfig() throws {
+        let loadedBackground = try XCTUnwrap(NSColor(hex: "#112233"), "Expected valid test colors")
+        let runtimeBackground = try XCTUnwrap(NSColor(hex: "#FDF6E3"), "Expected valid test colors")
+        let loadedForeground = try XCTUnwrap(NSColor(hex: "#ABCDEF"), "Expected valid test colors")
 
         var loaded = GhosttyConfig()
         loaded.backgroundColor = loadedBackground
@@ -673,13 +670,10 @@ final class WorkspaceAppearanceConfigResolutionTests: XCTestCase {
         XCTAssertEqual(resolved.unfocusedSplitOpacity, 0.42, accuracy: 0.0001)
     }
 
-    func testResolvedAppearanceConfigPrefersExplicitBackgroundOverride() {
-        guard let loadedBackground = NSColor(hex: "#112233"),
-              let runtimeBackground = NSColor(hex: "#FDF6E3"),
-              let explicitOverride = NSColor(hex: "#272822") else {
-            XCTFail("Expected valid test colors")
-            return
-        }
+    func testResolvedAppearanceConfigPrefersExplicitBackgroundOverride() throws {
+        let loadedBackground = try XCTUnwrap(NSColor(hex: "#112233"), "Expected valid test colors")
+        let runtimeBackground = try XCTUnwrap(NSColor(hex: "#FDF6E3"), "Expected valid test colors")
+        let explicitOverride = try XCTUnwrap(NSColor(hex: "#272822"), "Expected valid test colors")
 
         var loaded = GhosttyConfig()
         loaded.backgroundColor = loadedBackground
@@ -693,6 +687,8 @@ final class WorkspaceAppearanceConfigResolutionTests: XCTestCase {
         XCTAssertEqual(resolved.backgroundColor.hexString(), "#272822")
     }
 }
+
+// MARK: - WorkspaceChromeColorTests
 
 @MainActor
 final class WorkspaceChromeColorTests: XCTestCase {
@@ -721,9 +717,15 @@ final class WorkspaceChromeColorTests: XCTestCase {
     }
 }
 
+// MARK: - WindowTransparencyDecisionTests
+
 final class WindowTransparencyDecisionTests: XCTestCase {
+    // MARK: Properties
+
     private let sidebarBlendModeKey = "sidebarBlendMode"
     private let bgGlassEnabledKey = "bgGlassEnabled"
+
+    // MARK: Functions
 
     func testTranslucentOpacityForcesClearWindowBackgroundOutsideSidebarBlendModePath() {
         withTemporaryWindowBackgroundDefaults {
@@ -771,6 +773,8 @@ final class WindowTransparencyDecisionTests: XCTestCase {
         }
     }
 }
+
+// MARK: - WindowBackgroundSelectionGateTests
 
 final class WindowBackgroundSelectionGateTests: XCTestCase {
     func testShouldApplyWindowBackgroundUsesOwningWindowSelectionWhenAvailable() {
@@ -862,6 +866,8 @@ final class WindowBackgroundSelectionGateTests: XCTestCase {
     }
 }
 
+// MARK: - NotificationBurstCoalescerTests
+
 final class NotificationBurstCoalescerTests: XCTestCase {
     func testSignalsInSameBurstFlushOnce() {
         let coalescer = NotificationBurstCoalescer(delay: 0.01)
@@ -925,13 +931,12 @@ final class NotificationBurstCoalescerTests: XCTestCase {
     }
 }
 
+// MARK: - GhosttyDefaultBackgroundNotificationDispatcherTests
+
 final class GhosttyDefaultBackgroundNotificationDispatcherTests: XCTestCase {
-    func testSignalCoalescesBurstToLatestBackground() {
-        guard let dark = NSColor(hex: "#272822"),
-              let light = NSColor(hex: "#FDF6E3") else {
-            XCTFail("Expected valid test colors")
-            return
-        }
+    func testSignalCoalescesBurstToLatestBackground() throws {
+        let dark = try XCTUnwrap(NSColor(hex: "#272822"), "Expected valid test colors")
+        let light = try XCTUnwrap(NSColor(hex: "#FDF6E3"), "Expected valid test colors")
 
         let expectation = expectation(description: "coalesced notification")
         expectation.expectedFulfillmentCount = 1
@@ -971,12 +976,9 @@ final class GhosttyDefaultBackgroundNotificationDispatcherTests: XCTestCase {
         )
     }
 
-    func testSignalAcrossSeparateBurstsPostsMultipleNotifications() {
-        guard let dark = NSColor(hex: "#272822"),
-              let light = NSColor(hex: "#FDF6E3") else {
-            XCTFail("Expected valid test colors")
-            return
-        }
+    func testSignalAcrossSeparateBurstsPostsMultipleNotifications() throws {
+        let dark = try XCTUnwrap(NSColor(hex: "#272822"), "Expected valid test colors")
+        let light = try XCTUnwrap(NSColor(hex: "#FDF6E3"), "Expected valid test colors")
 
         let expectation = expectation(description: "two notifications")
         expectation.expectedFulfillmentCount = 2
@@ -1013,6 +1015,8 @@ final class GhosttyDefaultBackgroundNotificationDispatcherTests: XCTestCase {
         return -1
     }
 }
+
+// MARK: - RecentlyClosedBrowserStackTests
 
 final class RecentlyClosedBrowserStackTests: XCTestCase {
     func testPopReturnsEntriesInLIFOOrder() {
@@ -1051,6 +1055,8 @@ final class RecentlyClosedBrowserStackTests: XCTestCase {
         )
     }
 }
+
+// MARK: - SocketControlSettingsTests
 
 final class SocketControlSettingsTests: XCTestCase {
     func testMigrateModeSupportsExpandedSocketModes() {
@@ -1292,6 +1298,8 @@ final class SocketControlSettingsTests: XCTestCase {
     }
 }
 
+// MARK: - PostHogAnalyticsPropertiesTests
+
 final class PostHogAnalyticsPropertiesTests: XCTestCase {
     func testDailyActivePropertiesIncludeVersionAndBuild() {
         let properties = PostHogAnalytics.dailyActiveProperties(
@@ -1375,6 +1383,8 @@ final class PostHogAnalyticsPropertiesTests: XCTestCase {
     }
 }
 
+// MARK: - GhosttyMouseFocusTests
+
 final class GhosttyMouseFocusTests: XCTestCase {
     func testShouldRequestFirstResponderForMouseFocusWhenEnabledAndWindowIsActive() {
         XCTAssertTrue(
@@ -1448,26 +1458,10 @@ final class GhosttyMouseFocusTests: XCTestCase {
         )
     }
 
-    // MARK: - CJK Font Fallback
-
-    private func withTempConfig(
-        _ contents: String,
-        body: (String) -> Void
-    ) throws {
-        let dir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-test-cjk-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: dir) }
-
-        let file = dir.appendingPathComponent("config")
-        try contents.write(to: file, atomically: true, encoding: .utf8)
-        body(file.path)
-    }
-
     // MARK: cjkFontMappings
 
-    func testCJKFontMappingsReturnsHiraginoWithKanaForJapanese() {
-        let mappings = GhosttyApp.cjkFontMappings(preferredLanguages: ["ja-JP", "en-US"])!
+    func testCJKFontMappingsReturnsHiraginoWithKanaForJapanese() throws {
+        let mappings = try XCTUnwrap(GhosttyApp.cjkFontMappings(preferredLanguages: ["ja-JP", "en-US"]))
         let fonts = Set(mappings.map(\.1))
         let ranges = mappings.map(\.0)
 
@@ -1478,8 +1472,8 @@ final class GhosttyMouseFocusTests: XCTestCase {
         XCTAssertFalse(ranges.contains("U+AC00-U+D7AF"), "Should NOT include Hangul")
     }
 
-    func testCJKFontMappingsReturnsAppleSDGothicNeoWithHangulForKorean() {
-        let mappings = GhosttyApp.cjkFontMappings(preferredLanguages: ["ko-KR"])!
+    func testCJKFontMappingsReturnsAppleSDGothicNeoWithHangulForKorean() throws {
+        let mappings = try XCTUnwrap(GhosttyApp.cjkFontMappings(preferredLanguages: ["ko-KR"]))
         let fonts = Set(mappings.map(\.1))
         let ranges = mappings.map(\.0)
 
@@ -1490,14 +1484,14 @@ final class GhosttyMouseFocusTests: XCTestCase {
         XCTAssertFalse(ranges.contains("U+3040-U+309F"), "Should NOT include Hiragana")
     }
 
-    func testCJKFontMappingsReturnsPingFangForChinese() {
-        let mappingsTW = GhosttyApp.cjkFontMappings(preferredLanguages: ["zh-Hant-TW"])!
+    func testCJKFontMappingsReturnsPingFangForChinese() throws {
+        let mappingsTW = try XCTUnwrap(GhosttyApp.cjkFontMappings(preferredLanguages: ["zh-Hant-TW"]))
         XCTAssertTrue(mappingsTW.contains { $0.1 == "PingFang TC" })
 
-        let mappingsCN = GhosttyApp.cjkFontMappings(preferredLanguages: ["zh-Hans-CN"])!
+        let mappingsCN = try XCTUnwrap(GhosttyApp.cjkFontMappings(preferredLanguages: ["zh-Hans-CN"]))
         XCTAssertTrue(mappingsCN.contains { $0.1 == "PingFang SC" })
 
-        let mappingsHK = GhosttyApp.cjkFontMappings(preferredLanguages: ["zh-HK"])!
+        let mappingsHK = try XCTUnwrap(GhosttyApp.cjkFontMappings(preferredLanguages: ["zh-HK"]))
         XCTAssertTrue(mappingsHK.contains { $0.1 == "PingFang TC" })
     }
 
@@ -1506,8 +1500,8 @@ final class GhosttyMouseFocusTests: XCTestCase {
         XCTAssertNil(GhosttyApp.cjkFontMappings(preferredLanguages: []))
     }
 
-    func testCJKFontMappingsMultiLanguageMapsScriptSpecificRanges() {
-        let mappings = GhosttyApp.cjkFontMappings(preferredLanguages: ["ja-JP", "ko-KR"])!
+    func testCJKFontMappingsMultiLanguageMapsScriptSpecificRanges() throws {
+        let mappings = try XCTUnwrap(GhosttyApp.cjkFontMappings(preferredLanguages: ["ja-JP", "ko-KR"]))
 
         let hiraginoRanges = mappings.filter { $0.1 == "Hiragino Sans" }.map(\.0)
         let sdGothicRanges = mappings.filter { $0.1 == "Apple SD Gothic Neo" }.map(\.0)
@@ -1546,7 +1540,8 @@ final class GhosttyMouseFocusTests: XCTestCase {
     }
 
     func testUserConfigContainsCJKCodepointMapFollowsConfigFileIncludes() throws {
-        let dir = FileManager.default.temporaryDirectory
+        let dir = FileManager.default
+            .temporaryDirectory
             .appendingPathComponent("cmux-test-cjk-include-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -1563,7 +1558,8 @@ final class GhosttyMouseFocusTests: XCTestCase {
     }
 
     func testUserConfigContainsCJKCodepointMapFollowsRelativeIncludes() throws {
-        let dir = FileManager.default.temporaryDirectory
+        let dir = FileManager.default
+            .temporaryDirectory
             .appendingPathComponent("cmux-test-cjk-rel-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -1580,7 +1576,8 @@ final class GhosttyMouseFocusTests: XCTestCase {
     }
 
     func testUserConfigContainsCJKCodepointMapHandlesOptionalInclude() throws {
-        let dir = FileManager.default.temporaryDirectory
+        let dir = FileManager.default
+            .temporaryDirectory
             .appendingPathComponent("cmux-test-cjk-opt-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -1597,7 +1594,8 @@ final class GhosttyMouseFocusTests: XCTestCase {
     }
 
     func testUserConfigContainsCJKCodepointMapHandlesCyclicIncludes() throws {
-        let dir = FileManager.default.temporaryDirectory
+        let dir = FileManager.default
+            .temporaryDirectory
             .appendingPathComponent("cmux-test-cjk-cycle-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -1612,10 +1610,28 @@ final class GhosttyMouseFocusTests: XCTestCase {
         // Should not hang; should return false since neither file has font-codepoint-map
         XCTAssertFalse(GhosttyApp.userConfigContainsCJKCodepointMap(configPaths: [fileA.path]))
     }
+
+    // MARK: - CJK Font Fallback
+
+    private func withTempConfig(
+        _ contents: String,
+        body: (String) -> Void
+    ) throws {
+        let dir = FileManager.default
+            .temporaryDirectory
+            .appendingPathComponent("cmux-test-cjk-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let file = dir.appendingPathComponent("config")
+        try contents.write(to: file, atomically: true, encoding: .utf8)
+        body(file.path)
+    }
 }
 
-final class SidebarBackgroundConfigTests: XCTestCase {
+// MARK: - SidebarBackgroundConfigTests
 
+final class SidebarBackgroundConfigTests: XCTestCase {
     func testParseSidebarBackgroundSingleHex() {
         var config = GhosttyConfig()
         config.parse("sidebar-background = #336699")
@@ -1757,13 +1773,15 @@ final class SidebarBackgroundConfigTests: XCTestCase {
     }
 
     private func restoreDefaultsValue(_ value: Any?, key: String, defaults: UserDefaults) {
-        if let value = value {
+        if let value {
             defaults.set(value, forKey: key)
         } else {
             defaults.removeObject(forKey: key)
         }
     }
 }
+
+// MARK: - ZshShellIntegrationHandoffTests
 
 final class ZshShellIntegrationHandoffTests: XCTestCase {
     func testGhosttyPromptHooksLoadWhenCmuxRequestsZshIntegration() throws {
@@ -1804,8 +1822,8 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
             "-i",
             "-c",
             "(( $+functions[_ghostty_deferred_init] )) && _ghostty_deferred_init >/dev/null 2>&1; " +
-            "print -r -- \"PRECMD=${+functions[_ghostty_precmd]} " +
-            "PREEXEC=${+functions[_ghostty_preexec]} PRECMDS=${(j:,:)precmd_functions}\""
+                "print -r -- \"PRECMD=${+functions[_ghostty_precmd]} " +
+                "PREEXEC=${+functions[_ghostty_preexec]} PRECMDS=${(j:,:)precmd_functions}\"",
         ]
         process.environment = [
             "HOME": root.path,
@@ -1828,7 +1846,7 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
 
         try process.run()
         let deadline = Date().addingTimeInterval(5)
-        while process.isRunning && Date() < deadline {
+        while process.isRunning, Date() < deadline {
             _ = RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
         }
         if process.isRunning {

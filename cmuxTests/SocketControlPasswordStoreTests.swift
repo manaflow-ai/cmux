@@ -1,12 +1,16 @@
 import XCTest
 
 #if canImport(cmux_DEV)
-@testable import cmux_DEV
+    @testable import cmux_DEV
 #elseif canImport(cmux)
-@testable import cmux
+    @testable import cmux
 #endif
 
+// MARK: - SocketControlPasswordStoreTests
+
 final class SocketControlPasswordStoreTests: XCTestCase {
+    // MARK: Overridden Functions
+
     override func setUp() {
         super.setUp()
         SocketControlPasswordStore.resetLazyKeychainFallbackCacheForTests()
@@ -17,8 +21,11 @@ final class SocketControlPasswordStoreTests: XCTestCase {
         super.tearDown()
     }
 
+    // MARK: Functions
+
     func testSaveLoadAndClearRoundTripUsesFileStorage() throws {
-        let tempDir = FileManager.default.temporaryDirectory
+        let tempDir = FileManager.default
+            .temporaryDirectory
             .appendingPathComponent("cmux-socket-password-tests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tempDir) }
@@ -37,7 +44,8 @@ final class SocketControlPasswordStoreTests: XCTestCase {
     }
 
     func testConfiguredPasswordPrefersEnvironmentOverStoredFile() throws {
-        let tempDir = FileManager.default.temporaryDirectory
+        let tempDir = FileManager.default
+            .temporaryDirectory
             .appendingPathComponent("cmux-socket-password-tests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tempDir) }
@@ -122,7 +130,8 @@ final class SocketControlPasswordStoreTests: XCTestCase {
     }
 
     func testConfiguredPasswordPrefersStoredFileOverLazyKeychainFallback() throws {
-        let tempDir = FileManager.default.temporaryDirectory
+        let tempDir = FileManager.default
+            .temporaryDirectory
             .appendingPathComponent("cmux-socket-password-tests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tempDir) }
@@ -175,7 +184,8 @@ final class SocketControlPasswordStoreTests: XCTestCase {
     }
 
     func testDefaultPasswordFileURLUsesCmuxAppSupportPath() throws {
-        let tempDir = FileManager.default.temporaryDirectory
+        let tempDir = FileManager.default
+            .temporaryDirectory
             .appendingPathComponent("cmux-socket-password-tests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tempDir) }
@@ -184,22 +194,21 @@ final class SocketControlPasswordStoreTests: XCTestCase {
         XCTAssertEqual(
             resolved?.path,
             tempDir.appendingPathComponent("cmux", isDirectory: true)
-                .appendingPathComponent("socket-control-password", isDirectory: false).path
+                .appendingPathComponent("socket-control-password", isDirectory: false)
+                .path
         )
     }
 
     func testLegacyKeychainMigrationCopiesPasswordDeletesLegacyAndRunsOnlyOnce() throws {
-        let tempDir = FileManager.default.temporaryDirectory
+        let tempDir = FileManager.default
+            .temporaryDirectory
             .appendingPathComponent("cmux-socket-password-tests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
         let fileURL = tempDir.appendingPathComponent("socket-password.txt", isDirectory: false)
         let defaultsSuiteName = "cmux-socket-password-migration-tests-\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: defaultsSuiteName) else {
-            XCTFail("Expected isolated UserDefaults suite for migration test")
-            return
-        }
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsSuiteName), "Expected isolated UserDefaults suite for migration test")
         defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
 
         var lookupCount = 0
@@ -240,6 +249,8 @@ final class SocketControlPasswordStoreTests: XCTestCase {
         XCTAssertEqual(try SocketControlPasswordStore.loadPassword(fileURL: fileURL), "legacy-secret")
     }
 }
+
+// MARK: - CmuxCLIPathInstallerTests
 
 final class CmuxCLIPathInstallerTests: XCTestCase {
     func testInstallAndUninstallRoundTripWithoutAdministratorPrivileges() throws {

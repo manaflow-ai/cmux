@@ -1,13 +1,19 @@
-import XCTest
-import Foundation
 import CoreGraphics
-import ImageIO
 import Darwin
+import Foundation
+import ImageIO
+import XCTest
+
+// MARK: - MenuKeyEquivalentRoutingUITests
 
 final class MenuKeyEquivalentRoutingUITests: XCTestCase {
+    // MARK: Properties
+
     private var gotoSplitPath = ""
     private var keyequivPath = ""
     private var socketPath = ""
+
+    // MARK: Overridden Functions
 
     override func setUp() {
         super.setUp()
@@ -21,6 +27,8 @@ final class MenuKeyEquivalentRoutingUITests: XCTestCase {
         try? FileManager.default.removeItem(atPath: keyequivPath)
         try? FileManager.default.removeItem(atPath: socketPath)
     }
+
+    // MARK: Functions
 
     func testCmdNWorksWhenWebViewFocusedAfterTabSwitch() {
         let app = launchWithBrowserSetup()
@@ -175,19 +183,128 @@ final class MenuKeyEquivalentRoutingUITests: XCTestCase {
 
     private func loadKeyequiv() -> [String: String] {
         guard let data = try? Data(contentsOf: URL(fileURLWithPath: keyequivPath)),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: String]
+        else {
             return [:]
         }
         return object
     }
 }
 
+// MARK: - SplitCloseRightBlankRegressionUITests
+
 final class SplitCloseRightBlankRegressionUITests: XCTestCase {
+    // MARK: Nested Types
+
+    // MARK: - Screenshot-Based Blank Detection
+
+    private struct CropStats {
+        // MARK: Properties
+
+        let sampleCount: Int
+        let uniqueQuantized: Int
+        let lumaStdDev: Double
+        let modeFraction: Double
+        let fingerprint: UInt64
+
+        // MARK: Computed Properties
+
+        var isProbablyBlank: Bool {
+            // Tuned for "terminal went visually blank": near-uniform region, very low contrast.
+            // (The exact thresholds are conservative; we also require consecutive blank samples below.)
+            lumaStdDev < 2.5 && modeFraction > 0.992
+        }
+    }
+
+    private final class ControlSocketClient {
+        // MARK: Properties
+
+        private let path: String
+
+        // MARK: Lifecycle
+
+        init(path: String) {
+            self.path = path
+        }
+
+        // MARK: Functions
+
+        func sendLine(_ line: String) -> String? {
+            let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+            guard fd >= 0 else { return nil }
+            defer { close(fd) }
+
+            var addr = sockaddr_un()
+            // Zero-init is important because we compute a variable sockaddr length and
+            // the kernel may validate `sun_len` on some macOS versions.
+            memset(&addr, 0, MemoryLayout<sockaddr_un>.size)
+            addr.sun_family = sa_family_t(AF_UNIX)
+
+            let maxLen = MemoryLayout.size(ofValue: addr.sun_path)
+            let bytes = Array(path.utf8CString) // includes null terminator
+            guard bytes.count <= maxLen else { return nil }
+            withUnsafeMutablePointer(to: &addr.sun_path) { p in
+                let raw = UnsafeMutableRawPointer(p).assumingMemoryBound(to: CChar.self)
+                memset(raw, 0, maxLen)
+                for i in 0..<bytes.count {
+                    raw[i] = bytes[i]
+                }
+            }
+
+            // Darwin expects a sockaddr length that includes only the fields up to the pathname.
+            let pathOffset = MemoryLayout<sockaddr_un>.offset(of: \.sun_path) ?? 0
+            let addrLen = socklen_t(pathOffset + bytes.count)
+            #if os(macOS)
+                // `sun_len` exists on Darwin/BSD.
+                addr.sun_len = UInt8(min(Int(addrLen), 255))
+            #endif
+
+            let ok = withUnsafePointer(to: &addr) { ptr in
+                ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
+                    connect(fd, sa, addrLen)
+                }
+            }
+            guard ok == 0 else { return nil }
+
+            let payload = line + "\n"
+            let wrote: Bool = payload.withCString { cstr in
+                var remaining = strlen(cstr)
+                var p = UnsafeRawPointer(cstr)
+                while remaining > 0 {
+                    let n = write(fd, p, remaining)
+                    if n <= 0 { return false }
+                    remaining -= n
+                    p = p.advanced(by: n)
+                }
+                return true
+            }
+            guard wrote else { return nil }
+
+            var buf = [UInt8](repeating: 0, count: 4096)
+            var accum = ""
+            while true {
+                let n = read(fd, &buf, buf.count)
+                if n <= 0 { break }
+                if let chunk = String(bytes: buf[0..<n], encoding: .utf8) {
+                    accum.append(chunk)
+                    if let idx = accum.firstIndex(of: "\n") {
+                        return String(accum[..<idx])
+                    }
+                }
+            }
+            return accum.isEmpty ? nil : accum.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+    }
+
+    // MARK: Properties
+
     private var dataPath = ""
     private var socketPath = ""
     private var diagnosticsPath = ""
     private var screenshotDir = ""
     private var socketClient: ControlSocketClient?
+
+    // MARK: Overridden Functions
 
     override func setUp() {
         super.setUp()
@@ -214,7 +331,9 @@ final class SplitCloseRightBlankRegressionUITests: XCTestCase {
         try? FileManager.default.createDirectory(atPath: screenshotDir, withIntermediateDirectories: true)
     }
 
-    func testClosingBothRightSplitsDoesNotLeaveBlankPane() {
+    // MARK: Functions
+
+    func testClosingBothRightSplitsDoesNotLeaveBlankPane() throws {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_UI_TEST_SPLIT_CLOSE_RIGHT_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_SPLIT_CLOSE_RIGHT_PATH"] = dataPath
@@ -225,10 +344,7 @@ final class SplitCloseRightBlankRegressionUITests: XCTestCase {
 
         XCTAssertTrue(waitForAnyData(timeout: 12.0), "Expected split-close-right test data to be written at \(dataPath)")
 
-        guard let data = waitForSettledData(timeout: 10.0) else {
-            XCTFail("Missing split-close-right test data after waiting for settle")
-            return
-        }
+        let data = try XCTUnwrap(waitForSettledData(timeout: 10.0), "Missing split-close-right test data after waiting for settle")
 
         if let setupError = data["setupError"], !setupError.isEmpty {
             XCTFail("Test setup failed: \(setupError)")
@@ -557,22 +673,6 @@ final class SplitCloseRightBlankRegressionUITests: XCTestCase {
         )
     }
 
-    // MARK: - Screenshot-Based Blank Detection
-
-    private struct CropStats {
-        let sampleCount: Int
-        let uniqueQuantized: Int
-        let lumaStdDev: Double
-        let modeFraction: Double
-        let fingerprint: UInt64
-
-        var isProbablyBlank: Bool {
-            // Tuned for "terminal went visually blank": near-uniform region, very low contrast.
-            // (The exact thresholds are conservative; we also require consecutive blank samples below.)
-            return lumaStdDev < 2.5 && modeFraction > 0.992
-        }
-    }
-
     private func assertPaneRendersAndUpdates(
         app: XCUIApplication,
         window: XCUIElement,
@@ -591,7 +691,8 @@ final class SplitCloseRightBlankRegressionUITests: XCTestCase {
         func takeStats(_ name: String, crop: CGRect) -> (String, CropStats)? {
             guard let path = writeScreenshot(window: window, name: name),
                   let png = try? Data(contentsOf: URL(fileURLWithPath: path)),
-                  let stats = cropStats(pngData: png, normalizedCrop: crop) else {
+                  let stats = cropStats(pngData: png, normalizedCrop: crop)
+            else {
                 return nil
             }
             return (path, stats)
@@ -599,7 +700,8 @@ final class SplitCloseRightBlankRegressionUITests: XCTestCase {
 
         // Capture a baseline frame.
         guard let (preBlankPath, preBlankStats) = takeStats("\(label)-pre-blank", crop: blankCrop),
-              let (preUpdatePath, preUpdateStats) = takeStats("\(label)-pre-update", crop: updateCrop) else {
+              let (preUpdatePath, preUpdateStats) = takeStats("\(label)-pre-update", crop: updateCrop)
+        else {
             XCTFail("Failed to capture pre screenshot for \(label). shots=\(screenshotDir)")
             return
         }
@@ -612,7 +714,8 @@ final class SplitCloseRightBlankRegressionUITests: XCTestCase {
         RunLoop.current.run(until: Date().addingTimeInterval(0.7))
 
         guard let (postBlankPath, postBlankStats) = takeStats("\(label)-post-blank", crop: blankCrop),
-              let (postUpdatePath, postUpdateStats) = takeStats("\(label)-post-update", crop: updateCrop) else {
+              let (postUpdatePath, postUpdateStats) = takeStats("\(label)-post-update", crop: updateCrop)
+        else {
             XCTFail("Failed to capture post screenshot for \(label). shots=\(screenshotDir)")
             return
         }
@@ -630,7 +733,8 @@ final class SplitCloseRightBlankRegressionUITests: XCTestCase {
         if let prePng = try? Data(contentsOf: URL(fileURLWithPath: preUpdatePath)),
            let postPng = try? Data(contentsOf: URL(fileURLWithPath: postUpdatePath)),
            let diff = meanAbsLumaDiff(pngA: prePng, pngB: postPng, normalizedCrop: updateCrop),
-           diff < 1.0 {
+           diff < 1.0
+        {
             addKeptScreenshot(path: preUpdatePath, name: "\(label)-pre-update")
             addKeptScreenshot(path: postUpdatePath, name: "\(label)-post-update")
             XCTFail("Pane looks frozen (no visual change after printing). label=\(label) diff=\(diff) pre=\(preUpdateStats) post=\(postUpdateStats) shots=\(screenshotDir)")
@@ -682,7 +786,8 @@ final class SplitCloseRightBlankRegressionUITests: XCTestCase {
 
     private func meanAbsLumaDiff(pngA: Data, pngB: Data, normalizedCrop: CGRect) -> Double? {
         guard let imageA = cgImage(from: pngA),
-              let imageB = cgImage(from: pngB) else {
+              let imageB = cgImage(from: pngB)
+        else {
             return nil
         }
         guard imageA.width == imageB.width, imageA.height == imageB.height else { return nil }
@@ -806,7 +911,7 @@ final class SplitCloseRightBlankRegressionUITests: XCTestCase {
         hist.reserveCapacity(256)
 
         var count = 0
-        var fnv: UInt64 = 1469598103934665603 // FNV-1a offset basis
+        var fnv: UInt64 = 1_469_598_103_934_665_603 // FNV-1a offset basis
         for y in stride(from: y0, to: y1, by: step) {
             let rowBase = y * bytesPerRow
             for x in stride(from: x0, to: x1, by: step) {
@@ -827,7 +932,7 @@ final class SplitCloseRightBlankRegressionUITests: XCTestCase {
                 // Fingerprint based on quantized luma (coarse) plus position order.
                 let lq = UInt8(max(0, min(63, Int(luma / 4.0)))) // ~6 bits
                 fnv ^= UInt64(lq)
-                fnv &*= 1099511628211
+                fnv &*= 1_099_511_628_211
             }
         }
 
@@ -998,79 +1103,5 @@ final class SplitCloseRightBlankRegressionUITests: XCTestCase {
         }
         let trimmed = outStr.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
-    }
-
-    private final class ControlSocketClient {
-        private let path: String
-
-        init(path: String) {
-            self.path = path
-        }
-
-        func sendLine(_ line: String) -> String? {
-            let fd = socket(AF_UNIX, SOCK_STREAM, 0)
-            guard fd >= 0 else { return nil }
-            defer { close(fd) }
-
-            var addr = sockaddr_un()
-            // Zero-init is important because we compute a variable sockaddr length and
-            // the kernel may validate `sun_len` on some macOS versions.
-            memset(&addr, 0, MemoryLayout<sockaddr_un>.size)
-            addr.sun_family = sa_family_t(AF_UNIX)
-
-            let maxLen = MemoryLayout.size(ofValue: addr.sun_path)
-            let bytes = Array(path.utf8CString) // includes null terminator
-            guard bytes.count <= maxLen else { return nil }
-            withUnsafeMutablePointer(to: &addr.sun_path) { p in
-                let raw = UnsafeMutableRawPointer(p).assumingMemoryBound(to: CChar.self)
-                memset(raw, 0, maxLen)
-                for i in 0..<bytes.count {
-                    raw[i] = bytes[i]
-                }
-            }
-
-            // Darwin expects a sockaddr length that includes only the fields up to the pathname.
-            let pathOffset = MemoryLayout<sockaddr_un>.offset(of: \.sun_path) ?? 0
-            let addrLen = socklen_t(pathOffset + bytes.count)
-#if os(macOS)
-            // `sun_len` exists on Darwin/BSD.
-            addr.sun_len = UInt8(min(Int(addrLen), 255))
-#endif
-
-            let ok = withUnsafePointer(to: &addr) { ptr in
-                ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
-                    connect(fd, sa, addrLen)
-                }
-            }
-            guard ok == 0 else { return nil }
-
-            let payload = line + "\n"
-            let wrote: Bool = payload.withCString { cstr in
-                var remaining = strlen(cstr)
-                var p = UnsafeRawPointer(cstr)
-                while remaining > 0 {
-                    let n = write(fd, p, remaining)
-                    if n <= 0 { return false }
-                    remaining -= n
-                    p = p.advanced(by: n)
-                }
-                return true
-            }
-            guard wrote else { return nil }
-
-            var buf = [UInt8](repeating: 0, count: 4096)
-            var accum = ""
-            while true {
-                let n = read(fd, &buf, buf.count)
-                if n <= 0 { break }
-                if let chunk = String(bytes: buf[0..<n], encoding: .utf8) {
-                    accum.append(chunk)
-                    if let idx = accum.firstIndex(of: "\n") {
-                        return String(accum[..<idx])
-                    }
-                }
-            }
-            return accum.isEmpty ? nil : accum.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
     }
 }

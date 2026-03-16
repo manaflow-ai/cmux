@@ -1,12 +1,14 @@
-import XCTest
-import Foundation
 import AppKit
+import Foundation
+import XCTest
 
 #if canImport(cmux_DEV)
-@testable import cmux_DEV
+    @testable import cmux_DEV
 #elseif canImport(cmux)
-@testable import cmux
+    @testable import cmux
 #endif
+
+// MARK: - BrowserInsecureHTTPSettingsTests
 
 final class BrowserInsecureHTTPSettingsTests: XCTestCase {
     func testDefaultAllowlistPatternsArePresent() {
@@ -91,10 +93,7 @@ final class BrowserInsecureHTTPSettingsTests: XCTestCase {
 
     func testAddAllowedHostPersistsToDefaultsAndUnblocksHTTP() throws {
         let suiteName = "BrowserInsecureHTTPSettingsTests.Persist.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Failed to create isolated UserDefaults suite")
-            return
-        }
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite")
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         let url = try XCTUnwrap(URL(string: "http://persist-me.test"))
@@ -126,6 +125,8 @@ final class BrowserInsecureHTTPSettingsTests: XCTestCase {
         ))
     }
 }
+
+// MARK: - TitlebarControlsSizingPolicyTests
 
 final class TitlebarControlsSizingPolicyTests: XCTestCase {
     func testSchedulePolicyRequiresMeaningfulViewSizeChange() {
@@ -182,6 +183,8 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
         }
     }
 }
+
+// MARK: - TitlebarControlsHoverPolicyTests
 
 final class TitlebarControlsHoverPolicyTests: XCTestCase {
     func testHoverTrackingOnlyEnabledForHoverBackgroundStyles() {

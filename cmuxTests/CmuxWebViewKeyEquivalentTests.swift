@@ -1,17 +1,16 @@
-import XCTest
 import AppKit
+import Bonsplit
+import ObjectiveC.runtime
 import SwiftUI
 import UniformTypeIdentifiers
-import WebKit
-import SwiftUI
-import ObjectiveC.runtime
-import Bonsplit
 import UserNotifications
+import WebKit
+import XCTest
 
 #if canImport(cmux_DEV)
-@testable import cmux_DEV
+    @testable import cmux_DEV
 #elseif canImport(cmux)
-@testable import cmux
+    @testable import cmux
 #endif
 
 private var cmuxUnitTestInspectorAssociationKey: UInt8 = 0
@@ -65,6 +64,8 @@ private func drainMainQueue() {
     XCTWaiter().wait(for: [expectation], timeout: 1.0)
 }
 
+// MARK: - SplitShortcutTransientFocusGuardTests
+
 final class SplitShortcutTransientFocusGuardTests: XCTestCase {
     func testSuppressesWhenFirstResponderFallsBackAndHostedViewIsTiny() {
         XCTAssertTrue(
@@ -111,21 +112,33 @@ final class SplitShortcutTransientFocusGuardTests: XCTestCase {
     }
 }
 
+// MARK: - CmuxWebViewKeyEquivalentTests
+
 final class CmuxWebViewKeyEquivalentTests: XCTestCase {
+    // MARK: Nested Types
+
     private final class ActionSpy: NSObject {
+        // MARK: Properties
+
         private(set) var invoked: Bool = false
 
-        @objc func didInvoke(_ sender: Any?) {
+        // MARK: Functions
+
+        @objc func didInvoke(_: Any?) {
             invoked = true
         }
     }
 
     private final class WindowCyclingActionSpy: NSObject {
+        // MARK: Properties
+
         weak var firstWindow: NSWindow?
         weak var secondWindow: NSWindow?
         private(set) var invocationCount = 0
 
-        @objc func cycleWindow(_ sender: Any?) {
+        // MARK: Functions
+
+        @objc func cycleWindow(_: Any?) {
             invocationCount += 1
             guard let firstWindow, let secondWindow else { return }
 
@@ -138,11 +151,13 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
     }
 
     private final class FirstResponderView: NSView {
-        override var acceptsFirstResponder: Bool { true }
+        override var acceptsFirstResponder: Bool {
+            true
+        }
     }
 
     private final class DelegateProbeTextView: NSTextView {
-        private(set) var delegateReadCount = 0
+        // MARK: Overridden Properties
 
         override var delegate: NSTextViewDelegate? {
             get {
@@ -153,10 +168,14 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
                 super.delegate = newValue
             }
         }
+
+        // MARK: Properties
+
+        private(set) var delegateReadCount = 0
     }
 
     private final class FieldEditorProbeTextView: NSTextView {
-        private(set) var delegateReadCount = 0
+        // MARK: Overridden Properties
 
         override var delegate: NSTextViewDelegate? {
             get {
@@ -172,8 +191,15 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
             get { true }
             set {}
         }
+
+        // MARK: Properties
+
+        private(set) var delegateReadCount = 0
     }
-    func testCmdNRoutesToMainMenuWhenWebViewIsFirstResponder() {
+
+    // MARK: Functions
+
+    func testCmdNRoutesToMainMenuWhenWebViewIsFirstResponder() throws {
         let spy = ActionSpy()
         installMenu(spy: spy, key: "n", modifiers: [.command])
 
@@ -181,11 +207,11 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
         let event = makeKeyDownEvent(key: "n", modifiers: [.command], keyCode: 45) // kVK_ANSI_N
         XCTAssertNotNil(event)
 
-        XCTAssertTrue(webView.performKeyEquivalent(with: event!))
+        XCTAssertTrue(try webView.performKeyEquivalent(with: XCTUnwrap(event)))
         XCTAssertTrue(spy.invoked)
     }
 
-    func testCmdWRoutesToMainMenuWhenWebViewIsFirstResponder() {
+    func testCmdWRoutesToMainMenuWhenWebViewIsFirstResponder() throws {
         let spy = ActionSpy()
         installMenu(spy: spy, key: "w", modifiers: [.command])
 
@@ -193,11 +219,11 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
         let event = makeKeyDownEvent(key: "w", modifiers: [.command], keyCode: 13) // kVK_ANSI_W
         XCTAssertNotNil(event)
 
-        XCTAssertTrue(webView.performKeyEquivalent(with: event!))
+        XCTAssertTrue(try webView.performKeyEquivalent(with: XCTUnwrap(event)))
         XCTAssertTrue(spy.invoked)
     }
 
-    func testCmdRRoutesToMainMenuWhenWebViewIsFirstResponder() {
+    func testCmdRRoutesToMainMenuWhenWebViewIsFirstResponder() throws {
         let spy = ActionSpy()
         installMenu(spy: spy, key: "r", modifiers: [.command])
 
@@ -205,11 +231,11 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
         let event = makeKeyDownEvent(key: "r", modifiers: [.command], keyCode: 15) // kVK_ANSI_R
         XCTAssertNotNil(event)
 
-        XCTAssertTrue(webView.performKeyEquivalent(with: event!))
+        XCTAssertTrue(try webView.performKeyEquivalent(with: XCTUnwrap(event)))
         XCTAssertTrue(spy.invoked)
     }
 
-    func testReturnDoesNotRouteToMainMenuWhenWebViewIsFirstResponder() {
+    func testReturnDoesNotRouteToMainMenuWhenWebViewIsFirstResponder() throws {
         let spy = ActionSpy()
         installMenu(spy: spy, key: "\r", modifiers: [])
 
@@ -217,11 +243,11 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
         let event = makeKeyDownEvent(key: "\r", modifiers: [], keyCode: 36) // kVK_Return
         XCTAssertNotNil(event)
 
-        XCTAssertFalse(webView.performKeyEquivalent(with: event!))
+        XCTAssertFalse(try webView.performKeyEquivalent(with: XCTUnwrap(event)))
         XCTAssertFalse(spy.invoked)
     }
 
-    func testCmdReturnDoesNotRouteToMainMenuWhenWebViewIsFirstResponder() {
+    func testCmdReturnDoesNotRouteToMainMenuWhenWebViewIsFirstResponder() throws {
         let spy = ActionSpy()
         installMenu(spy: spy, key: "\r", modifiers: [.command])
 
@@ -229,11 +255,11 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
         let event = makeKeyDownEvent(key: "\r", modifiers: [.command], keyCode: 36) // kVK_Return
         XCTAssertNotNil(event)
 
-        XCTAssertFalse(webView.performKeyEquivalent(with: event!))
+        XCTAssertFalse(try webView.performKeyEquivalent(with: XCTUnwrap(event)))
         XCTAssertFalse(spy.invoked)
     }
 
-    func testKeypadEnterDoesNotRouteToMainMenuWhenWebViewIsFirstResponder() {
+    func testKeypadEnterDoesNotRouteToMainMenuWhenWebViewIsFirstResponder() throws {
         let spy = ActionSpy()
         installMenu(spy: spy, key: "\r", modifiers: [])
 
@@ -241,7 +267,7 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
         let event = makeKeyDownEvent(key: "\r", modifiers: [], keyCode: 76) // kVK_ANSI_KeypadEnter
         XCTAssertNotNil(event)
 
-        XCTAssertFalse(webView.performKeyEquivalent(with: event!))
+        XCTAssertFalse(try webView.performKeyEquivalent(with: XCTUnwrap(event)))
         XCTAssertFalse(spy.invoked)
     }
 
@@ -438,7 +464,7 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
     }
 
     @MainActor
-    func testWindowFirstResponderGuardAllowsPointerInitiatedClickFocusFromPortalHostedInspectorSibling() {
+    func testWindowFirstResponderGuardAllowsPointerInitiatedClickFocusFromPortalHostedInspectorSibling() throws {
         _ = NSApplication.shared
         AppDelegate.installWindowResponderSwizzlesForTesting()
 
@@ -457,10 +483,7 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
             window.orderOut(nil)
         }
 
-        guard let container = contentView.superview else {
-            XCTFail("Expected content container")
-            return
-        }
+        let container = try XCTUnwrap(contentView.superview, "Expected content container")
 
         let hostFrame = container.convert(contentView.bounds, from: contentView)
         let host = WindowBrowserHostView(frame: hostFrame)
@@ -510,7 +533,7 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
     }
 
     @MainActor
-    func testWindowFirstResponderGuardAllowsPointerInitiatedClickFocusFromBoundPortalInspectorSiblingWhenHitTestMisses() {
+    func testWindowFirstResponderGuardAllowsPointerInitiatedClickFocusFromBoundPortalInspectorSiblingWhenHitTestMisses() throws {
         _ = NSApplication.shared
         AppDelegate.installWindowResponderSwizzlesForTesting()
 
@@ -540,10 +563,7 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
             window.orderOut(nil)
         }
 
-        guard let slot = webView.superview as? WindowBrowserSlotView else {
-            XCTFail("Expected bound portal slot")
-            return
-        }
+        let slot = try XCTUnwrap(webView.superview as? WindowBrowserSlotView, "Expected bound portal slot")
 
         let inspector = FirstResponderView(frame: NSRect(x: 320, y: 0, width: 160, height: slot.bounds.height))
         inspector.autoresizingMask = [.minXMargin, .height]
@@ -705,7 +725,7 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
     }
 
     @MainActor
-    func testCmdBacktickMenuActionThatChangesKeyWindowOnlyRunsOnceWhenTerminalIsFirstResponder() {
+    func testCmdBacktickMenuActionThatChangesKeyWindowOnlyRunsOnceWhenTerminalIsFirstResponder() throws {
         _ = NSApplication.shared
         AppDelegate.installWindowResponderSwizzlesForTesting()
 
@@ -753,15 +773,12 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
         }
 
         XCTAssertTrue(firstWindow.makeFirstResponder(firstTerminal))
-        guard let event = makeKeyDownEvent(
+        let event = try XCTUnwrap(makeKeyDownEvent(
             key: "`",
             modifiers: [.command],
             keyCode: 50,
             windowNumber: firstWindow.windowNumber
-        ) else {
-            XCTFail("Failed to construct Cmd+` event")
-            return
-        }
+        ), "Failed to construct Cmd+` event")
 
         NSApp.sendEvent(event)
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
@@ -770,7 +787,7 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
     }
 
     @MainActor
-    func testCmdBacktickDoesNotRouteDirectlyToMainMenuWhenWebViewIsFirstResponder() {
+    func testCmdBacktickDoesNotRouteDirectlyToMainMenuWhenWebViewIsFirstResponder() throws {
         _ = NSApplication.shared
 
         let window = NSWindow(
@@ -801,15 +818,12 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
         }
 
         XCTAssertTrue(window.makeFirstResponder(webView))
-        guard let event = makeKeyDownEvent(
+        let event = try XCTUnwrap(makeKeyDownEvent(
             key: "`",
             modifiers: [.command],
             keyCode: 50,
             windowNumber: window.windowNumber
-        ) else {
-            XCTFail("Failed to construct Cmd+` event")
-            return
-        }
+        ), "Failed to construct Cmd+` event")
 
         XCTAssertFalse(shouldRouteCommandEquivalentDirectlyToMainMenu(event))
         _ = webView.performKeyEquivalent(with: event)
@@ -872,6 +886,8 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
         )
     }
 }
+
+// MARK: - GhosttyPasteboardHelperTests
 
 @MainActor
 final class GhosttyPasteboardHelperTests: XCTestCase {
@@ -1030,19 +1046,10 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
     }
 }
 
+// MARK: - AppDelegateWindowContextRoutingTests
+
 @MainActor
 final class AppDelegateWindowContextRoutingTests: XCTestCase {
-    private func makeMainWindow(id: UUID) -> NSWindow {
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-        window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(id.uuidString)")
-        return window
-    }
-
     func testSynchronizeActiveMainWindowContextPrefersProvidedWindowOverStaleActiveManager() {
         _ = NSApplication.shared
         let app = AppDelegate()
@@ -1197,7 +1204,20 @@ final class AppDelegateWindowContextRoutingTests: XCTestCase {
         XCTAssertEqual(managerB.tabs.count, originalTabCountB + 1)
         XCTAssertTrue(managerB.tabs.contains(where: { $0.id == createdWorkspaceId }))
     }
+
+    private func makeMainWindow(id: UUID) -> NSWindow {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(id.uuidString)")
+        return window
+    }
 }
+
+// MARK: - AppDelegateLaunchServicesRegistrationTests
 
 @MainActor
 final class AppDelegateLaunchServicesRegistrationTests: XCTestCase {
@@ -1227,6 +1247,8 @@ final class AppDelegateLaunchServicesRegistrationTests: XCTestCase {
         XCTAssertEqual(registerCallCount, 1)
     }
 }
+
+// MARK: - FocusFlashPatternTests
 
 final class FocusFlashPatternTests: XCTestCase {
     func testFocusFlashPatternMatchesTerminalDoublePulseShape() {
@@ -1264,26 +1286,11 @@ final class FocusFlashPatternTests: XCTestCase {
     }
 }
 
+// MARK: - CmuxWebViewContextMenuTests
+
 @MainActor
 final class CmuxWebViewContextMenuTests: XCTestCase {
-    private func makeRightMouseDownEvent() -> NSEvent {
-        guard let event = NSEvent.mouseEvent(
-            with: .rightMouseDown,
-            location: .zero,
-            modifierFlags: [],
-            timestamp: ProcessInfo.processInfo.systemUptime,
-            windowNumber: 0,
-            context: nil,
-            eventNumber: 0,
-            clickCount: 1,
-            pressure: 1.0
-        ) else {
-            fatalError("Failed to create rightMouseDown event")
-        }
-        return event
-    }
-
-    func testWillOpenMenuAddsOpenLinkInDefaultBrowserAndRoutesSelectionToDefaultBrowserOpener() {
+    func testWillOpenMenuAddsOpenLinkInDefaultBrowserAndRoutesSelectionToDefaultBrowserOpener() throws {
         _ = NSApplication.shared
         let webView = CmuxWebView(frame: NSRect(x: 0, y: 0, width: 800, height: 600), configuration: WKWebViewConfiguration())
         let menu = NSMenu()
@@ -1303,22 +1310,16 @@ final class CmuxWebViewContextMenuTests: XCTestCase {
 
         webView.willOpenMenu(menu, with: makeRightMouseDownEvent())
 
-        guard let defaultBrowserItemIndex = menu.items.firstIndex(where: { $0.title == "Open Link in Default Browser" }) else {
-            XCTFail("Expected Open Link in Default Browser item in context menu")
-            return
-        }
-        guard let openLinkIndex = menu.items.firstIndex(where: { $0.identifier?.rawValue == "WKMenuItemIdentifierOpenLink" }) else {
-            XCTFail("Expected Open Link item in context menu")
-            return
-        }
+        let defaultBrowserItemIndex = try XCTUnwrap(menu.items.firstIndex(where: { $0.title == "Open Link in Default Browser" }), "Expected Open Link in Default Browser item in context menu")
+        let openLinkIndex = try XCTUnwrap(menu.items.firstIndex(where: { $0.identifier?.rawValue == "WKMenuItemIdentifierOpenLink" }), "Expected Open Link item in context menu")
 
         XCTAssertEqual(defaultBrowserItemIndex, openLinkIndex + 1)
         let defaultBrowserItem = menu.items[defaultBrowserItemIndex]
         XCTAssertTrue(defaultBrowserItem.target === webView)
         XCTAssertNotNil(defaultBrowserItem.action)
 
-        let dispatched = NSApp.sendAction(
-            defaultBrowserItem.action!,
+        let dispatched = try NSApp.sendAction(
+            XCTUnwrap(defaultBrowserItem.action),
             to: defaultBrowserItem.target,
             from: defaultBrowserItem
         )
@@ -1370,21 +1371,28 @@ final class CmuxWebViewContextMenuTests: XCTestCase {
         XCTAssertNotNil(downloadItem.action)
         XCTAssertNotEqual(downloadItem.action, originalAction)
     }
+
+    private func makeRightMouseDownEvent() -> NSEvent {
+        guard let event = NSEvent.mouseEvent(
+            with: .rightMouseDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: 0,
+            context: nil,
+            eventNumber: 0,
+            clickCount: 1,
+            pressure: 1.0
+        ) else {
+            fatalError("Failed to create rightMouseDown event")
+        }
+        return event
+    }
 }
 
-final class BrowserDevToolsButtonDebugSettingsTests: XCTestCase {
-    private func makeIsolatedDefaults() -> UserDefaults {
-        let suiteName = "BrowserDevToolsButtonDebugSettingsTests.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            fatalError("Failed to create defaults suite")
-        }
-        defaults.removePersistentDomain(forName: suiteName)
-        addTeardownBlock {
-            defaults.removePersistentDomain(forName: suiteName)
-        }
-        return defaults
-    }
+// MARK: - BrowserDevToolsButtonDebugSettingsTests
 
+final class BrowserDevToolsButtonDebugSettingsTests: XCTestCase {
     func testIconCatalogIncludesExpandedChoices() {
         XCTAssertGreaterThanOrEqual(BrowserDevToolsIconOption.allCases.count, 10)
         XCTAssertTrue(BrowserDevToolsIconOption.allCases.contains(.terminal))
@@ -1421,11 +1429,9 @@ final class BrowserDevToolsButtonDebugSettingsTests: XCTestCase {
         XCTAssertTrue(payload.contains("browserDevToolsIconName=scope"))
         XCTAssertTrue(payload.contains("browserDevToolsIconColor=bonsplitActive"))
     }
-}
 
-final class BrowserThemeSettingsTests: XCTestCase {
     private func makeIsolatedDefaults() -> UserDefaults {
-        let suiteName = "BrowserThemeSettingsTests.\(UUID().uuidString)"
+        let suiteName = "BrowserDevToolsButtonDebugSettingsTests.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {
             fatalError("Failed to create defaults suite")
         }
@@ -1435,7 +1441,11 @@ final class BrowserThemeSettingsTests: XCTestCase {
         }
         return defaults
     }
+}
 
+// MARK: - BrowserThemeSettingsTests
+
+final class BrowserThemeSettingsTests: XCTestCase {
     func testDefaultsMatchConfiguredFallbacks() {
         let defaults = makeIsolatedDefaults()
         XCTAssertEqual(
@@ -1464,7 +1474,21 @@ final class BrowserThemeSettingsTests: XCTestCase {
         XCTAssertEqual(BrowserThemeSettings.mode(defaults: otherDefaults), .system)
         XCTAssertEqual(otherDefaults.string(forKey: BrowserThemeSettings.modeKey), BrowserThemeMode.system.rawValue)
     }
+
+    private func makeIsolatedDefaults() -> UserDefaults {
+        let suiteName = "BrowserThemeSettingsTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            fatalError("Failed to create defaults suite")
+        }
+        defaults.removePersistentDomain(forName: suiteName)
+        addTeardownBlock {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+        return defaults
+    }
 }
+
+// MARK: - BrowserPanelChromeBackgroundColorTests
 
 final class BrowserPanelChromeBackgroundColorTests: XCTestCase {
     func testLightModeUsesThemeBackgroundColor() {
@@ -1499,6 +1523,8 @@ final class BrowserPanelChromeBackgroundColorTests: XCTestCase {
         XCTAssertEqual(actual.alphaComponent, expected.alphaComponent, accuracy: 0.001, file: file, line: line)
     }
 }
+
+// MARK: - BrowserPanelOmnibarPillBackgroundColorTests
 
 final class BrowserPanelOmnibarPillBackgroundColorTests: XCTestCase {
     func testLightModeSlightlyDarkensThemeBackground() {
@@ -1538,16 +1564,15 @@ final class BrowserPanelOmnibarPillBackgroundColorTests: XCTestCase {
     }
 }
 
+// MARK: - SidebarActiveForegroundColorTests
+
 final class SidebarActiveForegroundColorTests: XCTestCase {
-    func testLightAppearanceUsesBlackWithRequestedOpacity() {
-        guard let lightAppearance = NSAppearance(named: .aqua),
-              let color = sidebarActiveForegroundNSColor(
-                  opacity: 0.8,
-                  appAppearance: lightAppearance
-              ).usingColorSpace(.sRGB) else {
-            XCTFail("Expected sRGB-convertible color")
-            return
-        }
+    func testLightAppearanceUsesBlackWithRequestedOpacity() throws {
+        let lightAppearance = try XCTUnwrap(NSAppearance(named: .aqua), "Expected sRGB-convertible color")
+        let color = try XCTUnwrap(sidebarActiveForegroundNSColor(
+            opacity: 0.8,
+            appAppearance: lightAppearance
+        ).usingColorSpace(.sRGB), "Expected sRGB-convertible color")
 
         XCTAssertEqual(color.redComponent, 0, accuracy: 0.001)
         XCTAssertEqual(color.greenComponent, 0, accuracy: 0.001)
@@ -1555,15 +1580,12 @@ final class SidebarActiveForegroundColorTests: XCTestCase {
         XCTAssertEqual(color.alphaComponent, 0.8, accuracy: 0.001)
     }
 
-    func testDarkAppearanceUsesWhiteWithRequestedOpacity() {
-        guard let darkAppearance = NSAppearance(named: .darkAqua),
-              let color = sidebarActiveForegroundNSColor(
-                  opacity: 0.65,
-                  appAppearance: darkAppearance
-              ).usingColorSpace(.sRGB) else {
-            XCTFail("Expected sRGB-convertible color")
-            return
-        }
+    func testDarkAppearanceUsesWhiteWithRequestedOpacity() throws {
+        let darkAppearance = try XCTUnwrap(NSAppearance(named: .darkAqua), "Expected sRGB-convertible color")
+        let color = try XCTUnwrap(sidebarActiveForegroundNSColor(
+            opacity: 0.65,
+            appAppearance: darkAppearance
+        ).usingColorSpace(.sRGB), "Expected sRGB-convertible color")
 
         XCTAssertEqual(color.redComponent, 1, accuracy: 0.001)
         XCTAssertEqual(color.greenComponent, 1, accuracy: 0.001)
@@ -1572,12 +1594,11 @@ final class SidebarActiveForegroundColorTests: XCTestCase {
     }
 }
 
+// MARK: - SidebarSelectedWorkspaceColorTests
+
 final class SidebarSelectedWorkspaceColorTests: XCTestCase {
-    func testLightModeUsesConfiguredSelectedWorkspaceBackgroundColor() {
-        guard let color = sidebarSelectedWorkspaceBackgroundNSColor(for: .light).usingColorSpace(.sRGB) else {
-            XCTFail("Expected sRGB-convertible color")
-            return
-        }
+    func testLightModeUsesConfiguredSelectedWorkspaceBackgroundColor() throws {
+        let color = try XCTUnwrap(sidebarSelectedWorkspaceBackgroundNSColor(for: .light).usingColorSpace(.sRGB), "Expected sRGB-convertible color")
 
         XCTAssertEqual(color.redComponent, 0, accuracy: 0.001)
         XCTAssertEqual(color.greenComponent, 136.0 / 255.0, accuracy: 0.001)
@@ -1585,11 +1606,8 @@ final class SidebarSelectedWorkspaceColorTests: XCTestCase {
         XCTAssertEqual(color.alphaComponent, 1.0, accuracy: 0.001)
     }
 
-    func testDarkModeUsesConfiguredSelectedWorkspaceBackgroundColor() {
-        guard let color = sidebarSelectedWorkspaceBackgroundNSColor(for: .dark).usingColorSpace(.sRGB) else {
-            XCTFail("Expected sRGB-convertible color")
-            return
-        }
+    func testDarkModeUsesConfiguredSelectedWorkspaceBackgroundColor() throws {
+        let color = try XCTUnwrap(sidebarSelectedWorkspaceBackgroundNSColor(for: .dark).usingColorSpace(.sRGB), "Expected sRGB-convertible color")
 
         XCTAssertEqual(color.redComponent, 0, accuracy: 0.001)
         XCTAssertEqual(color.greenComponent, 145.0 / 255.0, accuracy: 0.001)
@@ -1597,11 +1615,8 @@ final class SidebarSelectedWorkspaceColorTests: XCTestCase {
         XCTAssertEqual(color.alphaComponent, 1.0, accuracy: 0.001)
     }
 
-    func testSelectedWorkspaceForegroundAlwaysUsesWhiteWithRequestedOpacity() {
-        guard let color = sidebarSelectedWorkspaceForegroundNSColor(opacity: 0.65).usingColorSpace(.sRGB) else {
-            XCTFail("Expected sRGB-convertible color")
-            return
-        }
+    func testSelectedWorkspaceForegroundAlwaysUsesWhiteWithRequestedOpacity() throws {
+        let color = try XCTUnwrap(sidebarSelectedWorkspaceForegroundNSColor(opacity: 0.65).usingColorSpace(.sRGB), "Expected sRGB-convertible color")
 
         XCTAssertEqual(color.redComponent, 1.0, accuracy: 0.001)
         XCTAssertEqual(color.greenComponent, 1.0, accuracy: 0.001)
@@ -1609,6 +1624,9 @@ final class SidebarSelectedWorkspaceColorTests: XCTestCase {
         XCTAssertEqual(color.alphaComponent, 0.65, accuracy: 0.001)
     }
 }
+
+// MARK: - BrowserDeveloperToolsShortcutDefaultsTests
+
 final class BrowserDeveloperToolsShortcutDefaultsTests: XCTestCase {
     func testSafariDefaultShortcutForToggleDeveloperTools() {
         let shortcut = KeyboardShortcutSettings.Action.toggleBrowserDeveloperTools.defaultShortcut
@@ -1628,6 +1646,8 @@ final class BrowserDeveloperToolsShortcutDefaultsTests: XCTestCase {
         XCTAssertFalse(shortcut.control)
     }
 }
+
+// MARK: - WorkspaceRenameShortcutDefaultsTests
 
 final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
     func testRenameTabShortcutDefaultsAndMetadata() {
@@ -1762,6 +1782,8 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
         XCTAssertEqual(Set(keys).count, keys.count)
     }
 }
+
+// MARK: - TerminalKeyboardCopyModeActionTests
 
 final class TerminalKeyboardCopyModeActionTests: XCTestCase {
     func testCopyModeBypassAllowsOnlyCommandShortcuts() {
@@ -2081,23 +2103,9 @@ final class TerminalKeyboardCopyModeActionTests: XCTestCase {
     }
 }
 
-final class TerminalKeyboardCopyModeResolveTests: XCTestCase {
-    private func resolve(
-        _ keyCode: UInt16,
-        chars: String,
-        modifiers: NSEvent.ModifierFlags = [],
-        hasSelection: Bool,
-        state: inout TerminalKeyboardCopyModeInputState
-    ) -> TerminalKeyboardCopyModeResolution {
-        terminalKeyboardCopyModeResolve(
-            keyCode: keyCode,
-            charactersIgnoringModifiers: chars,
-            modifierFlags: modifiers,
-            hasSelection: hasSelection,
-            state: &state
-        )
-    }
+// MARK: - TerminalKeyboardCopyModeResolveTests
 
+final class TerminalKeyboardCopyModeResolveTests: XCTestCase {
     func testCountPrefixAppliesToMotion() {
         var state = TerminalKeyboardCopyModeInputState()
         XCTAssertEqual(resolve(20, chars: "3", hasSelection: false, state: &state), .consume)
@@ -2235,7 +2243,25 @@ final class TerminalKeyboardCopyModeResolveTests: XCTestCase {
             .perform(.scrollPage(1), count: 1)
         )
     }
+
+    private func resolve(
+        _ keyCode: UInt16,
+        chars: String,
+        modifiers: NSEvent.ModifierFlags = [],
+        hasSelection: Bool,
+        state: inout TerminalKeyboardCopyModeInputState
+    ) -> TerminalKeyboardCopyModeResolution {
+        terminalKeyboardCopyModeResolve(
+            keyCode: keyCode,
+            charactersIgnoringModifiers: chars,
+            modifierFlags: modifiers,
+            hasSelection: hasSelection,
+            state: &state
+        )
+    }
 }
+
+// MARK: - TerminalKeyboardCopyModeViewportRowTests
 
 final class TerminalKeyboardCopyModeViewportRowTests: XCTestCase {
     func testInitialViewportRowUsesImePointBaseline() {
@@ -2294,6 +2320,8 @@ final class TerminalKeyboardCopyModeViewportRowTests: XCTestCase {
     }
 }
 
+// MARK: - BrowserDeveloperToolsConfigurationTests
+
 @MainActor
 final class BrowserDeveloperToolsConfigurationTests: XCTestCase {
     func testBrowserPanelEnablesInspectableWebViewAndDeveloperExtras() {
@@ -2306,7 +2334,7 @@ final class BrowserDeveloperToolsConfigurationTests: XCTestCase {
         }
     }
 
-    func testBrowserPanelRefreshesUnderPageBackgroundColorWhenGhosttyBackgroundChanges() {
+    func testBrowserPanelRefreshesUnderPageBackgroundColorWhenGhosttyBackgroundChanges() throws {
         let panel = BrowserPanel(workspaceId: UUID())
         let updatedColor = NSColor(srgbRed: 0.18, green: 0.29, blue: 0.44, alpha: 1.0)
         let updatedOpacity = 0.57
@@ -2316,15 +2344,12 @@ final class BrowserDeveloperToolsConfigurationTests: XCTestCase {
             object: nil,
             userInfo: [
                 GhosttyNotificationKey.backgroundColor: updatedColor,
-                GhosttyNotificationKey.backgroundOpacity: updatedOpacity
+                GhosttyNotificationKey.backgroundOpacity: updatedOpacity,
             ]
         )
 
-        guard let actual = panel.webView.underPageBackgroundColor?.usingColorSpace(.sRGB),
-              let expected = updatedColor.withAlphaComponent(updatedOpacity).usingColorSpace(.sRGB) else {
-            XCTFail("Expected sRGB-convertible under-page background colors")
-            return
-        }
+        let actual = try XCTUnwrap(panel.webView.underPageBackgroundColor?.usingColorSpace(.sRGB), "Expected sRGB-convertible under-page background colors")
+        let expected = try XCTUnwrap(updatedColor.withAlphaComponent(updatedOpacity).usingColorSpace(.sRGB), "Expected sRGB-convertible under-page background colors")
 
         XCTAssertEqual(actual.redComponent, expected.redComponent, accuracy: 0.005)
         XCTAssertEqual(actual.greenComponent, expected.greenComponent, accuracy: 0.005)
@@ -2342,11 +2367,11 @@ final class BrowserDeveloperToolsConfigurationTests: XCTestCase {
         XCTAssertNil(panel.currentURL)
     }
 
-    func testBrowserPanelLeavesNewTabPageStateWhenNavigationStarts() {
+    func testBrowserPanelLeavesNewTabPageStateWhenNavigationStarts() throws {
         let panel = BrowserPanel(workspaceId: UUID())
 
         XCTAssertTrue(panel.isShowingNewTabPage)
-        panel.navigate(to: URL(string: "https://example.com")!)
+        try panel.navigate(to: XCTUnwrap(URL(string: "https://example.com")))
         XCTAssertFalse(panel.isShowingNewTabPage)
     }
 
@@ -2363,7 +2388,7 @@ final class BrowserDeveloperToolsConfigurationTests: XCTestCase {
         XCTAssertNil(panel.webView.appearance)
     }
 
-    func testBrowserPanelRefreshesUnderPageBackgroundColorWithGhosttyOpacity() {
+    func testBrowserPanelRefreshesUnderPageBackgroundColorWithGhosttyOpacity() throws {
         let panel = BrowserPanel(workspaceId: UUID())
         let updatedColor = NSColor(srgbRed: 0.18, green: 0.29, blue: 0.44, alpha: 1.0)
 
@@ -2376,11 +2401,8 @@ final class BrowserDeveloperToolsConfigurationTests: XCTestCase {
             ]
         )
 
-        guard let actual = panel.webView.underPageBackgroundColor?.usingColorSpace(.sRGB),
-              let expected = updatedColor.withAlphaComponent(0.57).usingColorSpace(.sRGB) else {
-            XCTFail("Expected sRGB-convertible under-page background colors")
-            return
-        }
+        let actual = try XCTUnwrap(panel.webView.underPageBackgroundColor?.usingColorSpace(.sRGB), "Expected sRGB-convertible under-page background colors")
+        let expected = try XCTUnwrap(updatedColor.withAlphaComponent(0.57).usingColorSpace(.sRGB), "Expected sRGB-convertible under-page background colors")
 
         XCTAssertEqual(actual.redComponent, expected.redComponent, accuracy: 0.005)
         XCTAssertEqual(actual.greenComponent, expected.greenComponent, accuracy: 0.005)
@@ -2388,6 +2410,8 @@ final class BrowserDeveloperToolsConfigurationTests: XCTestCase {
         XCTAssertEqual(actual.alphaComponent, expected.alphaComponent, accuracy: 0.005)
     }
 }
+
+// MARK: - GhosttyBackgroundThemeTests
 
 final class GhosttyBackgroundThemeTests: XCTestCase {
     func testColorClampsOpacity() {
@@ -2400,7 +2424,7 @@ final class GhosttyBackgroundThemeTests: XCTestCase {
         XCTAssertEqual(upperClamped.alphaComponent, 1.0, accuracy: 0.0001)
     }
 
-    func testColorFromNotificationUsesBackgroundAndOpacity() {
+    func testColorFromNotificationUsesBackgroundAndOpacity() throws {
         let fallbackColor = NSColor.black
         let fallbackOpacity = 1.0
         let notification = Notification(
@@ -2417,10 +2441,7 @@ final class GhosttyBackgroundThemeTests: XCTestCase {
             fallbackColor: fallbackColor,
             fallbackOpacity: fallbackOpacity
         )
-        guard let srgb = actual.usingColorSpace(.sRGB) else {
-            XCTFail("Expected sRGB-convertible color")
-            return
-        }
+        let srgb = try XCTUnwrap(actual.usingColorSpace(.sRGB), "Expected sRGB-convertible color")
 
         XCTAssertEqual(srgb.redComponent, 0.18, accuracy: 0.005)
         XCTAssertEqual(srgb.greenComponent, 0.29, accuracy: 0.005)
@@ -2428,7 +2449,7 @@ final class GhosttyBackgroundThemeTests: XCTestCase {
         XCTAssertEqual(srgb.alphaComponent, 0.57, accuracy: 0.005)
     }
 
-    func testColorFromNotificationFallsBackWhenPayloadMissing() {
+    func testColorFromNotificationFallsBackWhenPayloadMissing() throws {
         let fallbackColor = NSColor(srgbRed: 0.12, green: 0.34, blue: 0.56, alpha: 1.0)
         let fallbackOpacity = 0.42
         let notification = Notification(name: .ghosttyDefaultBackgroundDidChange)
@@ -2438,10 +2459,7 @@ final class GhosttyBackgroundThemeTests: XCTestCase {
             fallbackColor: fallbackColor,
             fallbackOpacity: fallbackOpacity
         )
-        guard let srgb = actual.usingColorSpace(.sRGB) else {
-            XCTFail("Expected sRGB-convertible color")
-            return
-        }
+        let srgb = try XCTUnwrap(actual.usingColorSpace(.sRGB), "Expected sRGB-convertible color")
 
         XCTAssertEqual(srgb.redComponent, 0.12, accuracy: 0.005)
         XCTAssertEqual(srgb.greenComponent, 0.34, accuracy: 0.005)
@@ -2450,15 +2468,23 @@ final class GhosttyBackgroundThemeTests: XCTestCase {
     }
 }
 
+// MARK: - BrowserInsecureHTTPAlertPresentationTests
+
 @MainActor
 final class BrowserInsecureHTTPAlertPresentationTests: XCTestCase {
+    // MARK: Nested Types
+
     private final class BrowserInsecureHTTPAlertSpy: NSAlert {
+        // MARK: Properties
+
         private(set) var beginSheetModalCallCount = 0
         private(set) var runModalCallCount = 0
         var nextResponse: NSApplication.ModalResponse = .alertThirdButtonReturn
 
+        // MARK: Overridden Functions
+
         override func beginSheetModal(
-            for sheetWindow: NSWindow,
+            for _: NSWindow,
             completionHandler handler: ((NSApplication.ModalResponse) -> Void)?
         ) {
             beginSheetModalCallCount += 1
@@ -2471,7 +2497,9 @@ final class BrowserInsecureHTTPAlertPresentationTests: XCTestCase {
         }
     }
 
-    func testInsecureHTTPPromptUsesSheetWhenWindowIsAvailable() {
+    // MARK: Functions
+
+    func testInsecureHTTPPromptUsesSheetWhenWindowIsAvailable() throws {
         let panel = BrowserPanel(workspaceId: UUID())
         defer { panel.resetInsecureHTTPAlertHooksForTesting() }
 
@@ -2487,13 +2515,13 @@ final class BrowserInsecureHTTPAlertPresentationTests: XCTestCase {
             alertFactory: { alertSpy },
             windowProvider: { window }
         )
-        panel.presentInsecureHTTPAlertForTesting(url: URL(string: "http://example.com")!)
+        try panel.presentInsecureHTTPAlertForTesting(url: XCTUnwrap(URL(string: "http://example.com")))
 
         XCTAssertEqual(alertSpy.beginSheetModalCallCount, 1)
         XCTAssertEqual(alertSpy.runModalCallCount, 0)
     }
 
-    func testInsecureHTTPPromptFallsBackToRunModalWithoutWindow() {
+    func testInsecureHTTPPromptFallsBackToRunModalWithoutWindow() throws {
         let panel = BrowserPanel(workspaceId: UUID())
         defer { panel.resetInsecureHTTPAlertHooksForTesting() }
 
@@ -2502,12 +2530,14 @@ final class BrowserInsecureHTTPAlertPresentationTests: XCTestCase {
             alertFactory: { alertSpy },
             windowProvider: { nil }
         )
-        panel.presentInsecureHTTPAlertForTesting(url: URL(string: "http://example.com")!)
+        try panel.presentInsecureHTTPAlertForTesting(url: XCTUnwrap(URL(string: "http://example.com")))
 
         XCTAssertEqual(alertSpy.beginSheetModalCallCount, 0)
         XCTAssertEqual(alertSpy.runModalCallCount, 1)
     }
 }
+
+// MARK: - BrowserNavigationNewTabDecisionTests
 
 final class BrowserNavigationNewTabDecisionTests: XCTestCase {
     func testLinkActivatedCmdClickOpensInNewTab() {
@@ -2617,6 +2647,8 @@ final class BrowserNavigationNewTabDecisionTests: XCTestCase {
     }
 }
 
+// MARK: - BrowserPopupDecisionTests
+
 final class BrowserPopupDecisionTests: XCTestCase {
     func testLinkActivatedPlainLeftClickDoesNotCreatePopup() {
         XCTAssertFalse(
@@ -2659,6 +2691,8 @@ final class BrowserPopupDecisionTests: XCTestCase {
     }
 }
 
+// MARK: - BrowserNilTargetFallbackDecisionTests
+
 final class BrowserNilTargetFallbackDecisionTests: XCTestCase {
     func testOtherNavigationDoesNotFallbackToNewTab() {
         XCTAssertFalse(
@@ -2676,6 +2710,8 @@ final class BrowserNilTargetFallbackDecisionTests: XCTestCase {
         )
     }
 }
+
+// MARK: - BrowserPopupContentRectTests
 
 final class BrowserPopupContentRectTests: XCTestCase {
     func testExplicitTopOriginCoordinatesConvertToAppKitBottomOrigin() {
@@ -2724,14 +2760,13 @@ final class BrowserPopupContentRectTests: XCTestCase {
     }
 }
 
+// MARK: - BrowserJavaScriptDialogDelegateTests
+
 @MainActor
 final class BrowserJavaScriptDialogDelegateTests: XCTestCase {
-    func testBrowserPanelUIDelegateImplementsJavaScriptDialogSelectors() {
+    func testBrowserPanelUIDelegateImplementsJavaScriptDialogSelectors() throws {
         let panel = BrowserPanel(workspaceId: UUID())
-        guard let uiDelegate = panel.webView.uiDelegate as? NSObject else {
-            XCTFail("Expected BrowserPanel webView.uiDelegate to be an NSObject")
-            return
-        }
+        let uiDelegate = try XCTUnwrap(panel.webView.uiDelegate as? NSObject, "Expected BrowserPanel webView.uiDelegate to be an NSObject")
 
         XCTAssertTrue(
             uiDelegate.responds(
@@ -2766,6 +2801,8 @@ final class BrowserJavaScriptDialogDelegateTests: XCTestCase {
     }
 }
 
+// MARK: - BrowserSessionHistoryRestoreTests
+
 @MainActor
 final class BrowserSessionHistoryRestoreTests: XCTestCase {
     func testSessionNavigationHistorySnapshotUsesRestoredStacks() {
@@ -2774,10 +2811,10 @@ final class BrowserSessionHistoryRestoreTests: XCTestCase {
         panel.restoreSessionNavigationHistory(
             backHistoryURLStrings: [
                 "https://example.com/a",
-                "https://example.com/b"
+                "https://example.com/b",
             ],
             forwardHistoryURLStrings: [
-                "https://example.com/d"
+                "https://example.com/d",
             ],
             currentURLString: "https://example.com/c"
         )
@@ -2802,10 +2839,10 @@ final class BrowserSessionHistoryRestoreTests: XCTestCase {
         panel.restoreSessionNavigationHistory(
             backHistoryURLStrings: [
                 "https://example.com/a",
-                "https://example.com/b"
+                "https://example.com/b",
             ],
             forwardHistoryURLStrings: [
-                "https://example.com/d"
+                "https://example.com/d",
             ],
             currentURLString: "https://example.com/c"
         )
@@ -2884,11 +2921,11 @@ final class BrowserSessionHistoryRestoreTests: XCTestCase {
         )
         workspace.progress = SidebarProgressState(value: 0.5, label: "Loading")
         workspace.updatePanelGitBranch(panelId: contextPanelId, branch: "issue-1208", isDirty: false)
-        workspace.updatePanelPullRequest(
+        try workspace.updatePanelPullRequest(
             panelId: contextPanelId,
             number: 1208,
             label: "PR",
-            url: try XCTUnwrap(URL(string: "https://example.com/pull/1208")),
+            url: XCTUnwrap(URL(string: "https://example.com/pull/1208")),
             status: .open
         )
         workspace.logEntries.append(
@@ -2937,34 +2974,48 @@ final class BrowserSessionHistoryRestoreTests: XCTestCase {
         XCTAssertFalse(browser.webView === priorWebView)
         XCTAssertNotEqual(browser.webViewInstanceID, priorInstanceID)
     }
-
 }
+
+// MARK: - BrowserDeveloperToolsVisibilityPersistenceTests
 
 @MainActor
 final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
+    // MARK: Nested Types
+
     private final class WKInspectorProbeView: NSView {
-        override var acceptsFirstResponder: Bool { true }
+        override var acceptsFirstResponder: Bool {
+            true
+        }
     }
 
     private final class FakeInspector: NSObject {
+        // MARK: Nested Types
+
         enum HideBehavior {
             case unsupported
             case noEffect
             case hides
         }
 
+        // MARK: Properties
+
         private(set) var attachCount = 0
         private(set) var showCount = 0
         private(set) var hideCount = 0
         private(set) var closeCount = 0
+
         private let hideBehavior: HideBehavior
         private var visible = false
         private var attached = false
+
+        // MARK: Lifecycle
 
         init(hideBehavior: HideBehavior = .unsupported) {
             self.hideBehavior = hideBehavior
             super.init()
         }
+
+        // MARK: Overridden Functions
 
         override func responds(to aSelector: Selector!) -> Bool {
             guard NSStringFromSelector(aSelector) == "hide" else {
@@ -2972,6 +3023,8 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             }
             return hideBehavior != .unsupported
         }
+
+        // MARK: Functions
 
         @objc func isVisible() -> Bool {
             visible
@@ -3005,47 +3058,14 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         }
     }
 
+    // MARK: Overridden Functions
+
     override class func setUp() {
         super.setUp()
         installCmuxUnitTestInspectorOverride()
     }
 
-    private func makePanelWithInspector(
-        hideBehavior: FakeInspector.HideBehavior = .unsupported
-    ) -> (BrowserPanel, FakeInspector) {
-        let panel = BrowserPanel(workspaceId: UUID())
-        let inspector = FakeInspector(hideBehavior: hideBehavior)
-        panel.webView.cmuxSetUnitTestInspector(inspector)
-        return (panel, inspector)
-    }
-
-    private func findHostContainerView(in root: NSView) -> WebViewRepresentable.HostContainerView? {
-        if let host = root as? WebViewRepresentable.HostContainerView {
-            return host
-        }
-        for subview in root.subviews {
-            if let host = findHostContainerView(in: subview) {
-                return host
-            }
-        }
-        return nil
-    }
-
-    private func waitForDeveloperToolsTransitions() {
-        RunLoop.current.run(until: Date().addingTimeInterval(0.5))
-    }
-
-    private func findWindowBrowserSlotView(in root: NSView) -> WindowBrowserSlotView? {
-        if let slot = root as? WindowBrowserSlotView {
-            return slot
-        }
-        for subview in root.subviews {
-            if let slot = findWindowBrowserSlotView(in: subview) {
-                return slot
-            }
-        }
-        return nil
-    }
+    // MARK: Functions
 
     func testRestoreReopensInspectorAfterAttachWhenPreferredVisible() {
         let (panel, inspector) = makePanelWithInspector()
@@ -3302,7 +3322,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         XCTAssertTrue(panel.shouldPreserveWebViewAttachmentDuringTransientHide())
     }
 
-    func testOffWindowReplacementLocalHostDoesNotStealVisibleDevToolsWebView() {
+    func testOffWindowReplacementLocalHostDoesNotStealVisibleDevToolsWebView() throws {
         let (panel, _) = makePanelWithInspector()
         XCTAssertTrue(panel.showDeveloperTools())
 
@@ -3327,10 +3347,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             defer: false
         )
         defer { window.orderOut(nil) }
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
-        }
+        let contentView = try XCTUnwrap(window.contentView, "Expected content view")
 
         let visibleHosting = NSHostingView(rootView: representable)
         visibleHosting.frame = contentView.bounds
@@ -3342,14 +3359,8 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         visibleHosting.layoutSubtreeIfNeeded()
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
 
-        guard let visibleHost = findHostContainerView(in: visibleHosting) else {
-            XCTFail("Expected visible local host")
-            return
-        }
-        guard let visibleSlot = panel.webView.superview as? WindowBrowserSlotView else {
-            XCTFail("Expected visible local inline slot")
-            return
-        }
+        let visibleHost = try XCTUnwrap(findHostContainerView(in: visibleHosting), "Expected visible local host")
+        let visibleSlot = try XCTUnwrap(panel.webView.superview as? WindowBrowserSlotView, "Expected visible local inline slot")
 
         let inspectorView = WKInspectorProbeView(
             frame: NSRect(x: 0, y: 0, width: visibleSlot.bounds.width, height: 72)
@@ -3385,7 +3396,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         )
     }
 
-    func testVisibleReplacementLocalHostNormalizesBottomDockedInspectorFrames() {
+    func testVisibleReplacementLocalHostNormalizesBottomDockedInspectorFrames() throws {
         let (panel, _) = makePanelWithInspector()
         XCTAssertTrue(panel.showDeveloperTools())
 
@@ -3410,10 +3421,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             defer: false
         )
         defer { window.orderOut(nil) }
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
-        }
+        let contentView = try XCTUnwrap(window.contentView, "Expected content view")
 
         let narrowHosting = NSHostingView(rootView: representable)
         narrowHosting.frame = NSRect(x: 180, y: 0, width: 180, height: 240)
@@ -3425,10 +3433,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         narrowHosting.layoutSubtreeIfNeeded()
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
 
-        guard let initialSlot = panel.webView.superview as? WindowBrowserSlotView else {
-            XCTFail("Expected initial local inline slot")
-            return
-        }
+        let initialSlot = try XCTUnwrap(panel.webView.superview as? WindowBrowserSlotView, "Expected initial local inline slot")
 
         let inspectorView = WKInspectorProbeView(
             frame: NSRect(x: 0, y: 0, width: initialSlot.bounds.width, height: 72)
@@ -3461,11 +3466,8 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         replacementHosting.layoutSubtreeIfNeeded()
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
 
-        guard let replacementHost = findHostContainerView(in: replacementHosting),
-              let replacementSlot = findWindowBrowserSlotView(in: replacementHost) else {
-            XCTFail("Expected replacement local inline host")
-            return
-        }
+        let replacementHost = try XCTUnwrap(findHostContainerView(in: replacementHosting), "Expected replacement local inline host")
+        let replacementSlot = try XCTUnwrap(findWindowBrowserSlotView(in: replacementHost), "Expected replacement local inline host")
 
         XCTAssertTrue(
             panel.webView.superview === replacementSlot,
@@ -3484,7 +3486,46 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         XCTAssertEqual(panel.webView.frame.width, replacementSlot.bounds.width, accuracy: 0.5)
         XCTAssertEqual(panel.webView.frame.height, replacementSlot.bounds.height - 72, accuracy: 0.5)
     }
+
+    private func makePanelWithInspector(
+        hideBehavior: FakeInspector.HideBehavior = .unsupported
+    ) -> (BrowserPanel, FakeInspector) {
+        let panel = BrowserPanel(workspaceId: UUID())
+        let inspector = FakeInspector(hideBehavior: hideBehavior)
+        panel.webView.cmuxSetUnitTestInspector(inspector)
+        return (panel, inspector)
+    }
+
+    private func findHostContainerView(in root: NSView) -> WebViewRepresentable.HostContainerView? {
+        if let host = root as? WebViewRepresentable.HostContainerView {
+            return host
+        }
+        for subview in root.subviews {
+            if let host = findHostContainerView(in: subview) {
+                return host
+            }
+        }
+        return nil
+    }
+
+    private func waitForDeveloperToolsTransitions() {
+        RunLoop.current.run(until: Date().addingTimeInterval(0.5))
+    }
+
+    private func findWindowBrowserSlotView(in root: NSView) -> WindowBrowserSlotView? {
+        if let slot = root as? WindowBrowserSlotView {
+            return slot
+        }
+        for subview in root.subviews {
+            if let slot = findWindowBrowserSlotView(in: subview) {
+                return slot
+            }
+        }
+        return nil
+    }
 }
+
+// MARK: - WorkspaceShortcutMapperTests
 
 final class WorkspaceShortcutMapperTests: XCTestCase {
     func testCommandNineMapsToLastWorkspaceIndex() {
@@ -3500,6 +3541,8 @@ final class WorkspaceShortcutMapperTests: XCTestCase {
         XCTAssertNil(WorkspaceShortcutMapper.commandDigitForWorkspace(at: 8, workspaceCount: 12))
     }
 }
+
+// MARK: - BrowserOmnibarCommandNavigationTests
 
 final class BrowserOmnibarCommandNavigationTests: XCTestCase {
     func testArrowNavigationDeltaRequiresFocusedAddressBarAndNoModifierFlags() {
@@ -3636,6 +3679,8 @@ final class BrowserOmnibarCommandNavigationTests: XCTestCase {
     }
 }
 
+// MARK: - BrowserReturnKeyDownRoutingTests
+
 final class BrowserReturnKeyDownRoutingTests: XCTestCase {
     func testRoutesForReturnWhenBrowserFirstResponder() {
         XCTAssertTrue(
@@ -3727,6 +3772,8 @@ final class BrowserReturnKeyDownRoutingTests: XCTestCase {
         )
     }
 }
+
+// MARK: - FullScreenShortcutTests
 
 final class FullScreenShortcutTests: XCTestCase {
     func testMatchesCommandControlF() {
@@ -3853,6 +3900,8 @@ final class FullScreenShortcutTests: XCTestCase {
     }
 }
 
+// MARK: - BrowserZoomShortcutActionTests
+
 final class BrowserZoomShortcutActionTests: XCTestCase {
     func testZoomInSupportsEqualsAndPlusVariants() {
         XCTAssertEqual(
@@ -3918,6 +3967,8 @@ final class BrowserZoomShortcutActionTests: XCTestCase {
     }
 }
 
+// MARK: - BrowserZoomShortcutRoutingPolicyTests
+
 final class BrowserZoomShortcutRoutingPolicyTests: XCTestCase {
     func testRoutesWhenGhosttyIsFirstResponderAndShortcutIsZoom() {
         XCTAssertTrue(
@@ -3981,10 +4032,18 @@ final class BrowserZoomShortcutRoutingPolicyTests: XCTestCase {
     }
 }
 
+// MARK: - GhosttyResponderResolutionTests
+
 final class GhosttyResponderResolutionTests: XCTestCase {
+    // MARK: Nested Types
+
     private final class FocusProbeView: NSView {
-        override var acceptsFirstResponder: Bool { true }
+        override var acceptsFirstResponder: Bool {
+            true
+        }
     }
+
+    // MARK: Functions
 
     func testResolvesGhosttyViewFromDescendantResponder() {
         let ghosttyView = GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
@@ -4004,6 +4063,8 @@ final class GhosttyResponderResolutionTests: XCTestCase {
         XCTAssertNil(cmuxOwningGhosttyView(for: view))
     }
 }
+
+// MARK: - CommandPaletteKeyboardNavigationTests
 
 final class CommandPaletteKeyboardNavigationTests: XCTestCase {
     func testArrowKeysMoveSelectionWithoutModifiers() {
@@ -4124,6 +4185,8 @@ final class CommandPaletteKeyboardNavigationTests: XCTestCase {
     }
 }
 
+// MARK: - CommandPaletteOpenShortcutConsumptionTests
+
 final class CommandPaletteOpenShortcutConsumptionTests: XCTestCase {
     func testDoesNotConsumeWhenPaletteIsNotVisible() {
         XCTAssertFalse(
@@ -4221,6 +4284,8 @@ final class CommandPaletteOpenShortcutConsumptionTests: XCTestCase {
     }
 }
 
+// MARK: - CommandPaletteRestoreFocusStateMachineTests
+
 final class CommandPaletteRestoreFocusStateMachineTests: XCTestCase {
     func testRestoresBrowserAddressBarWhenPaletteOpenedFromFocusedAddressBar() {
         let panelId = UUID()
@@ -4255,14 +4320,14 @@ final class CommandPaletteRestoreFocusStateMachineTests: XCTestCase {
     }
 }
 
+// MARK: - CommandPaletteRenameSelectionSettingsTests
+
 final class CommandPaletteRenameSelectionSettingsTests: XCTestCase {
+    // MARK: Properties
+
     private let suiteName = "cmux.tests.commandPaletteRenameSelection.\(UUID().uuidString)"
 
-    private func makeDefaults() -> UserDefaults {
-        let defaults = UserDefaults(suiteName: suiteName)!
-        defaults.removePersistentDomain(forName: suiteName)
-        return defaults
-    }
+    // MARK: Functions
 
     func testDefaultsToSelectAllWhenUnset() {
         let defaults = makeDefaults()
@@ -4280,7 +4345,15 @@ final class CommandPaletteRenameSelectionSettingsTests: XCTestCase {
         defaults.set(true, forKey: CommandPaletteRenameSelectionSettings.selectAllOnFocusKey)
         XCTAssertTrue(CommandPaletteRenameSelectionSettings.selectAllOnFocusEnabled(defaults: defaults))
     }
+
+    private func makeDefaults() -> UserDefaults {
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+        return defaults
+    }
 }
+
+// MARK: - CommandPaletteSelectionScrollBehaviorTests
 
 final class CommandPaletteSelectionScrollBehaviorTests: XCTestCase {
     func testFirstEntryPinsToTopAnchor() {
@@ -4315,6 +4388,8 @@ final class CommandPaletteSelectionScrollBehaviorTests: XCTestCase {
         XCTAssertNil(anchor)
     }
 }
+
+// MARK: - ShortcutHintModifierPolicyTests
 
 final class ShortcutHintModifierPolicyTests: XCTestCase {
     func testShortcutHintRequiresEnabledCommandOnlyModifier() {
@@ -4446,6 +4521,8 @@ final class ShortcutHintModifierPolicyTests: XCTestCase {
     }
 }
 
+// MARK: - ShortcutHintDebugSettingsTests
+
 final class ShortcutHintDebugSettingsTests: XCTestCase {
     func testClampKeepsValuesWithinSupportedRange() {
         XCTAssertEqual(ShortcutHintDebugSettings.clamped(0.0), 0.0)
@@ -4465,12 +4542,9 @@ final class ShortcutHintDebugSettingsTests: XCTestCase {
         XCTAssertTrue(ShortcutHintDebugSettings.defaultShowHintsOnCommandHold)
     }
 
-    func testShowHintsOnCommandHoldSettingRespectsStoredValue() {
+    func testShowHintsOnCommandHoldSettingRespectsStoredValue() throws {
         let suiteName = "ShortcutHintDebugSettingsTests-\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Failed to create defaults suite")
-            return
-        }
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName), "Failed to create defaults suite")
 
         defaults.removePersistentDomain(forName: suiteName)
         defer { defaults.removePersistentDomain(forName: suiteName) }
@@ -4485,12 +4559,9 @@ final class ShortcutHintDebugSettingsTests: XCTestCase {
         XCTAssertTrue(ShortcutHintDebugSettings.showHintsOnCommandHoldEnabled(defaults: defaults))
     }
 
-    func testResetVisibilityDefaultsRestoresAlwaysShowAndCommandHoldFlags() {
+    func testResetVisibilityDefaultsRestoresAlwaysShowAndCommandHoldFlags() throws {
         let suiteName = "ShortcutHintDebugSettingsTests-\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Failed to create defaults suite")
-            return
-        }
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName), "Failed to create defaults suite")
 
         defaults.removePersistentDomain(forName: suiteName)
         defer { defaults.removePersistentDomain(forName: suiteName) }
@@ -4511,25 +4582,21 @@ final class ShortcutHintDebugSettingsTests: XCTestCase {
     }
 }
 
+// MARK: - DevBuildBannerDebugSettingsTests
+
 final class DevBuildBannerDebugSettingsTests: XCTestCase {
-    func testShowSidebarBannerDefaultsToVisible() {
+    func testShowSidebarBannerDefaultsToVisible() throws {
         let suiteName = "DevBuildBannerDebugSettingsTests.Default.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Failed to create isolated UserDefaults suite")
-            return
-        }
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite")
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         defaults.removeObject(forKey: DevBuildBannerDebugSettings.sidebarBannerVisibleKey)
         XCTAssertTrue(DevBuildBannerDebugSettings.showSidebarBanner(defaults: defaults))
     }
 
-    func testShowSidebarBannerRespectsStoredValue() {
+    func testShowSidebarBannerRespectsStoredValue() throws {
         let suiteName = "DevBuildBannerDebugSettingsTests.Stored.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Failed to create isolated UserDefaults suite")
-            return
-        }
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite")
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         defaults.set(false, forKey: DevBuildBannerDebugSettings.sidebarBannerVisibleKey)
@@ -4539,6 +4606,8 @@ final class DevBuildBannerDebugSettingsTests: XCTestCase {
         XCTAssertTrue(DevBuildBannerDebugSettings.showSidebarBanner(defaults: defaults))
     }
 }
+
+// MARK: - ShortcutHintLanePlannerTests
 
 final class ShortcutHintLanePlannerTests: XCTestCase {
     func testAssignLanesKeepsSeparatedIntervalsOnSingleLane() {
@@ -4551,6 +4620,8 @@ final class ShortcutHintLanePlannerTests: XCTestCase {
         XCTAssertEqual(ShortcutHintLanePlanner.assignLanes(for: intervals, minSpacing: 4), [0, 1, 2, 0])
     }
 }
+
+// MARK: - ShortcutHintHorizontalPlannerTests
 
 final class ShortcutHintHorizontalPlannerTests: XCTestCase {
     func testAssignRightEdgesResolvesOverlapWithMinimumSpacing() {
@@ -4575,24 +4646,20 @@ final class ShortcutHintHorizontalPlannerTests: XCTestCase {
     }
 }
 
+// MARK: - WorkspacePlacementSettingsTests
+
 final class WorkspacePlacementSettingsTests: XCTestCase {
-    func testCurrentPlacementDefaultsToAfterCurrentWhenUnset() {
+    func testCurrentPlacementDefaultsToAfterCurrentWhenUnset() throws {
         let suiteName = "WorkspacePlacementSettingsTests.Default.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Failed to create isolated UserDefaults suite")
-            return
-        }
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite")
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         XCTAssertEqual(WorkspacePlacementSettings.current(defaults: defaults), .afterCurrent)
     }
 
-    func testCurrentPlacementReadsStoredValidValueAndFallsBackForInvalid() {
+    func testCurrentPlacementReadsStoredValidValueAndFallsBackForInvalid() throws {
         let suiteName = "WorkspacePlacementSettingsTests.Stored.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Failed to create isolated UserDefaults suite")
-            return
-        }
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite")
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         defaults.set(NewWorkspacePlacement.top.rawValue, forKey: WorkspacePlacementSettings.placementKey)
@@ -4654,44 +4721,34 @@ final class WorkspacePlacementSettingsTests: XCTestCase {
     }
 }
 
+// MARK: - WorkspaceCreationPlacementTests
+
 @MainActor
 final class WorkspaceCreationPlacementTests: XCTestCase {
-    func testAddWorkspaceDefaultPlacementMatchesCurrentSetting() {
+    func testAddWorkspaceDefaultPlacementMatchesCurrentSetting() throws {
         let currentPlacement = WorkspacePlacementSettings.current()
 
         let defaultManager = makeManagerWithThreeWorkspaces()
         let defaultBaselineOrder = defaultManager.tabs.map(\.id)
         let defaultInserted = defaultManager.addWorkspace()
-        guard let defaultInsertedIndex = defaultManager.tabs.firstIndex(where: { $0.id == defaultInserted.id }) else {
-            XCTFail("Expected inserted workspace in tab list")
-            return
-        }
+        let defaultInsertedIndex = try XCTUnwrap(defaultManager.tabs.firstIndex(where: { $0.id == defaultInserted.id }), "Expected inserted workspace in tab list")
         XCTAssertEqual(defaultManager.tabs.map(\.id).filter { $0 != defaultInserted.id }, defaultBaselineOrder)
 
         let explicitManager = makeManagerWithThreeWorkspaces()
         let explicitBaselineOrder = explicitManager.tabs.map(\.id)
         let explicitInserted = explicitManager.addWorkspace(placementOverride: currentPlacement)
-        guard let explicitInsertedIndex = explicitManager.tabs.firstIndex(where: { $0.id == explicitInserted.id }) else {
-            XCTFail("Expected inserted workspace in tab list")
-            return
-        }
+        let explicitInsertedIndex = try XCTUnwrap(explicitManager.tabs.firstIndex(where: { $0.id == explicitInserted.id }), "Expected inserted workspace in tab list")
         XCTAssertEqual(explicitManager.tabs.map(\.id).filter { $0 != explicitInserted.id }, explicitBaselineOrder)
         XCTAssertEqual(defaultInsertedIndex, explicitInsertedIndex)
     }
 
-    func testAddWorkspaceEndOverrideAlwaysAppends() {
+    func testAddWorkspaceEndOverrideAlwaysAppends() throws {
         let manager = makeManagerWithThreeWorkspaces()
         let baselineCount = manager.tabs.count
-        guard baselineCount >= 3 else {
-            XCTFail("Expected at least three workspaces for placement regression test")
-            return
-        }
+        XCTAssert(baselineCount >= 3, "Expected at least three workspaces for placement regression test")
 
         let inserted = manager.addWorkspace(placementOverride: .end)
-        guard let insertedIndex = manager.tabs.firstIndex(where: { $0.id == inserted.id }) else {
-            XCTFail("Expected inserted workspace in tab list")
-            return
-        }
+        let insertedIndex = try XCTUnwrap(manager.tabs.firstIndex(where: { $0.id == inserted.id }), "Expected inserted workspace in tab list")
 
         XCTAssertEqual(insertedIndex, baselineCount)
     }
@@ -4707,6 +4764,8 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
     }
 }
 
+// MARK: - WorkspaceTabColorSettingsTests
+
 final class WorkspaceTabColorSettingsTests: XCTestCase {
     func testNormalizedHexAcceptsAndNormalizesValidInput() {
         XCTAssertEqual(WorkspaceTabColorSettings.normalizedHex("#abc123"), "#ABC123")
@@ -4715,12 +4774,9 @@ final class WorkspaceTabColorSettingsTests: XCTestCase {
         XCTAssertNil(WorkspaceTabColorSettings.normalizedHex("#GG1234"))
     }
 
-    func testBuiltInPaletteMatchesOriginalPRPalette() {
+    func testBuiltInPaletteMatchesOriginalPRPalette() throws {
         let suiteName = "WorkspaceTabColorSettingsTests.BuiltInPalette.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Failed to create isolated UserDefaults suite")
-            return
-        }
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite")
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         let palette = WorkspaceTabColorSettings.defaultPaletteWithOverrides(defaults: defaults)
@@ -4731,12 +4787,9 @@ final class WorkspaceTabColorSettingsTests: XCTestCase {
         XCTAssertFalse(palette.contains(where: { $0.name == "Gold" }))
     }
 
-    func testDefaultOverrideRoundTripFallsBackWhenResetToBase() {
+    func testDefaultOverrideRoundTripFallsBackWhenResetToBase() throws {
         let suiteName = "WorkspaceTabColorSettingsTests.DefaultOverride.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Failed to create isolated UserDefaults suite")
-            return
-        }
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite")
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         let first = WorkspaceTabColorSettings.defaultPalette[0]
@@ -4758,12 +4811,9 @@ final class WorkspaceTabColorSettingsTests: XCTestCase {
         )
     }
 
-    func testAddCustomColorPersistsAndDeduplicatesByMostRecent() {
+    func testAddCustomColorPersistsAndDeduplicatesByMostRecent() throws {
         let suiteName = "WorkspaceTabColorSettingsTests.CustomColors.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Failed to create isolated UserDefaults suite")
-            return
-        }
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite")
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         XCTAssertEqual(
@@ -4786,12 +4836,9 @@ final class WorkspaceTabColorSettingsTests: XCTestCase {
         )
     }
 
-    func testPaletteIncludesCustomEntriesAndResetClearsAll() {
+    func testPaletteIncludesCustomEntriesAndResetClearsAll() throws {
         let suiteName = "WorkspaceTabColorSettingsTests.Reset.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Failed to create isolated UserDefaults suite")
-            return
-        }
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite")
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         let first = WorkspaceTabColorSettings.defaultPalette[0]
@@ -4823,85 +4870,69 @@ final class WorkspaceTabColorSettingsTests: XCTestCase {
         XCTAssertEqual(rendered?.hexString(), originalHex)
     }
 
-    func testDisplayColorDarkModeBrightensColor() {
+    func testDisplayColorDarkModeBrightensColor() throws {
         let originalHex = "#1A5276"
-        guard let base = NSColor(hex: originalHex),
-              let rendered = WorkspaceTabColorSettings.displayNSColor(
-                  hex: originalHex,
-                  colorScheme: .dark
-              ) else {
-            XCTFail("Expected valid color conversion")
-            return
-        }
+        let base = try XCTUnwrap(NSColor(hex: originalHex), "Expected valid color conversion")
+        let rendered = try XCTUnwrap(WorkspaceTabColorSettings.displayNSColor(
+            hex: originalHex,
+            colorScheme: .dark
+        ), "Expected valid color conversion")
 
         XCTAssertNotEqual(rendered.hexString(), originalHex)
         XCTAssertGreaterThan(rendered.luminance, base.luminance)
     }
 
-    func testDisplayColorDarkModeKeepsGrayscaleNeutral() {
+    func testDisplayColorDarkModeKeepsGrayscaleNeutral() throws {
         let originalHex = "#808080"
-        guard let base = NSColor(hex: originalHex),
-              let rendered = WorkspaceTabColorSettings.displayNSColor(
-                  hex: originalHex,
-                  colorScheme: .dark
-              ),
-              let renderedSRGB = rendered.usingColorSpace(.sRGB) else {
-            XCTFail("Expected valid color conversion")
-            return
-        }
+        let base = try XCTUnwrap(NSColor(hex: originalHex), "Expected valid color conversion")
+        let rendered = try XCTUnwrap(WorkspaceTabColorSettings.displayNSColor(
+            hex: originalHex,
+            colorScheme: .dark
+        ), "Expected valid color conversion")
+        let renderedSRGB = try XCTUnwrap(rendered.usingColorSpace(.sRGB), "Expected valid color conversion")
 
         XCTAssertGreaterThan(rendered.luminance, base.luminance)
         XCTAssertLessThan(abs(renderedSRGB.redComponent - renderedSRGB.greenComponent), 0.003)
         XCTAssertLessThan(abs(renderedSRGB.greenComponent - renderedSRGB.blueComponent), 0.003)
     }
 
-    func testDisplayColorForceBrightensInLightMode() {
+    func testDisplayColorForceBrightensInLightMode() throws {
         let originalHex = "#1A5276"
-        guard let base = NSColor(hex: originalHex),
-              let rendered = WorkspaceTabColorSettings.displayNSColor(
-                  hex: originalHex,
-                  colorScheme: .light,
-                  forceBright: true
-              ) else {
-            XCTFail("Expected valid color conversion")
-            return
-        }
+        let base = try XCTUnwrap(NSColor(hex: originalHex), "Expected valid color conversion")
+        let rendered = try XCTUnwrap(WorkspaceTabColorSettings.displayNSColor(
+            hex: originalHex,
+            colorScheme: .light,
+            forceBright: true
+        ), "Expected valid color conversion")
 
         XCTAssertNotEqual(rendered.hexString(), originalHex)
         XCTAssertGreaterThan(rendered.luminance, base.luminance)
     }
 }
 
+// MARK: - WorkspaceAutoReorderSettingsTests
+
 final class WorkspaceAutoReorderSettingsTests: XCTestCase {
-    func testDefaultIsEnabled() {
+    func testDefaultIsEnabled() throws {
         let suiteName = "WorkspaceAutoReorderSettingsTests.Default.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Failed to create isolated UserDefaults suite")
-            return
-        }
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite")
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         XCTAssertTrue(WorkspaceAutoReorderSettings.isEnabled(defaults: defaults))
     }
 
-    func testDisabledWhenSetToFalse() {
+    func testDisabledWhenSetToFalse() throws {
         let suiteName = "WorkspaceAutoReorderSettingsTests.Disabled.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Failed to create isolated UserDefaults suite")
-            return
-        }
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite")
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         defaults.set(false, forKey: WorkspaceAutoReorderSettings.key)
         XCTAssertFalse(WorkspaceAutoReorderSettings.isEnabled(defaults: defaults))
     }
 
-    func testEnabledWhenSetToTrue() {
+    func testEnabledWhenSetToTrue() throws {
         let suiteName = "WorkspaceAutoReorderSettingsTests.Enabled.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Failed to create isolated UserDefaults suite")
-            return
-        }
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite")
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         defaults.set(true, forKey: WorkspaceAutoReorderSettings.key)
@@ -4909,24 +4940,20 @@ final class WorkspaceAutoReorderSettingsTests: XCTestCase {
     }
 }
 
+// MARK: - SidebarBranchLayoutSettingsTests
+
 final class SidebarBranchLayoutSettingsTests: XCTestCase {
-    func testDefaultUsesVerticalLayout() {
+    func testDefaultUsesVerticalLayout() throws {
         let suiteName = "SidebarBranchLayoutSettingsTests.Default.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Failed to create isolated UserDefaults suite")
-            return
-        }
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite")
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         XCTAssertTrue(SidebarBranchLayoutSettings.usesVerticalLayout(defaults: defaults))
     }
 
-    func testStoredPreferenceOverridesDefault() {
+    func testStoredPreferenceOverridesDefault() throws {
         let suiteName = "SidebarBranchLayoutSettingsTests.Stored.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Failed to create isolated UserDefaults suite")
-            return
-        }
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite")
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         defaults.set(false, forKey: SidebarBranchLayoutSettings.key)
@@ -4937,13 +4964,12 @@ final class SidebarBranchLayoutSettingsTests: XCTestCase {
     }
 }
 
+// MARK: - SidebarWorkspaceDetailSettingsTests
+
 final class SidebarWorkspaceDetailSettingsTests: XCTestCase {
-    func testDefaultPreferencesWhenUnset() {
+    func testDefaultPreferencesWhenUnset() throws {
         let suiteName = "SidebarWorkspaceDetailSettingsTests.Default.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Failed to create isolated UserDefaults suite")
-            return
-        }
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite")
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         XCTAssertFalse(SidebarWorkspaceDetailSettings.hidesAllDetails(defaults: defaults))
@@ -4956,12 +4982,9 @@ final class SidebarWorkspaceDetailSettingsTests: XCTestCase {
         )
     }
 
-    func testStoredPreferencesOverrideDefaults() {
+    func testStoredPreferencesOverrideDefaults() throws {
         let suiteName = "SidebarWorkspaceDetailSettingsTests.Stored.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Failed to create isolated UserDefaults suite")
-            return
-        }
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite")
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         defaults.set(true, forKey: SidebarWorkspaceDetailSettings.hideAllDetailsKey)
@@ -4983,6 +5006,8 @@ final class SidebarWorkspaceDetailSettingsTests: XCTestCase {
         )
     }
 }
+
+// MARK: - SidebarWorkspaceAuxiliaryDetailVisibilityTests
 
 final class SidebarWorkspaceAuxiliaryDetailVisibilityTests: XCTestCase {
     func testResolvedVisibilityPreservesPerRowTogglesWhenDetailsAreShown() {
@@ -5023,13 +5048,12 @@ final class SidebarWorkspaceAuxiliaryDetailVisibilityTests: XCTestCase {
     }
 }
 
+// MARK: - SidebarActiveTabIndicatorSettingsTests
+
 final class SidebarActiveTabIndicatorSettingsTests: XCTestCase {
-    func testDefaultStyleWhenUnset() {
+    func testDefaultStyleWhenUnset() throws {
         let suiteName = "SidebarActiveTabIndicatorSettingsTests.Default.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Failed to create isolated UserDefaults suite")
-            return
-        }
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite")
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         defaults.removeObject(forKey: SidebarActiveTabIndicatorSettings.styleKey)
@@ -5039,12 +5063,9 @@ final class SidebarActiveTabIndicatorSettingsTests: XCTestCase {
         )
     }
 
-    func testStoredStyleParsesAndInvalidFallsBack() {
+    func testStoredStyleParsesAndInvalidFallsBack() throws {
         let suiteName = "SidebarActiveTabIndicatorSettingsTests.Stored.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Failed to create isolated UserDefaults suite")
-            return
-        }
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite")
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         defaults.set(SidebarActiveTabIndicatorStyle.leftRail.rawValue, forKey: SidebarActiveTabIndicatorSettings.styleKey)
@@ -5061,13 +5082,12 @@ final class SidebarActiveTabIndicatorSettingsTests: XCTestCase {
     }
 }
 
+// MARK: - AppearanceSettingsTests
+
 final class AppearanceSettingsTests: XCTestCase {
-    func testResolvedModeDefaultsToSystemWhenUnset() {
+    func testResolvedModeDefaultsToSystemWhenUnset() throws {
         let suiteName = "AppearanceSettingsTests.Default.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Failed to create isolated UserDefaults suite")
-            return
-        }
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite")
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         defaults.removeObject(forKey: AppearanceSettings.appearanceModeKey)
@@ -5078,13 +5098,12 @@ final class AppearanceSettingsTests: XCTestCase {
     }
 }
 
+// MARK: - QuitWarningSettingsTests
+
 final class QuitWarningSettingsTests: XCTestCase {
-    func testDefaultWarnBeforeQuitIsEnabledWhenUnset() {
+    func testDefaultWarnBeforeQuitIsEnabledWhenUnset() throws {
         let suiteName = "QuitWarningSettingsTests.Default.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Failed to create isolated UserDefaults suite")
-            return
-        }
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite")
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         defaults.removeObject(forKey: QuitWarningSettings.warnBeforeQuitKey)
@@ -5092,12 +5111,9 @@ final class QuitWarningSettingsTests: XCTestCase {
         XCTAssertTrue(QuitWarningSettings.isEnabled(defaults: defaults))
     }
 
-    func testStoredPreferenceOverridesDefault() {
+    func testStoredPreferenceOverridesDefault() throws {
         let suiteName = "QuitWarningSettingsTests.Stored.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Failed to create isolated UserDefaults suite")
-            return
-        }
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite")
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         defaults.set(false, forKey: QuitWarningSettings.warnBeforeQuitKey)
@@ -5107,6 +5123,8 @@ final class QuitWarningSettingsTests: XCTestCase {
         XCTAssertTrue(QuitWarningSettings.isEnabled(defaults: defaults))
     }
 }
+
+// MARK: - UpdateChannelSettingsTests
 
 final class UpdateChannelSettingsTests: XCTestCase {
     func testResolvedFeedFallsBackWhenInfoFeedMissing() {
@@ -5140,6 +5158,8 @@ final class UpdateChannelSettingsTests: XCTestCase {
         XCTAssertFalse(resolved.usedFallback)
     }
 }
+
+// MARK: - WorkspaceReorderTests
 
 final class WorkspaceReorderTests: XCTestCase {
     @MainActor
@@ -5201,6 +5221,8 @@ final class WorkspaceReorderTests: XCTestCase {
     }
 }
 
+// MARK: - WorkspaceNotificationReorderTests
+
 @MainActor
 final class WorkspaceNotificationReorderTests: XCTestCase {
     func testNotificationAutoReorderDoesNotMovePinnedWorkspace() {
@@ -5253,9 +5275,11 @@ final class WorkspaceNotificationReorderTests: XCTestCase {
     }
 }
 
+// MARK: - TabManagerChildExitCloseTests
+
 @MainActor
 final class TabManagerChildExitCloseTests: XCTestCase {
-    func testChildExitOnLastPanelClosesSelectedWorkspaceAndKeepsIndexStable() {
+    func testChildExitOnLastPanelClosesSelectedWorkspaceAndKeepsIndexStable() throws {
         let manager = TabManager()
         let first = manager.tabs[0]
         let second = manager.addWorkspace()
@@ -5264,10 +5288,7 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         manager.selectWorkspace(second)
         XCTAssertEqual(manager.selectedTabId, second.id)
 
-        guard let secondPanelId = second.focusedPanelId else {
-            XCTFail("Expected focused panel in selected workspace")
-            return
-        }
+        let secondPanelId = try XCTUnwrap(second.focusedPanelId, "Expected focused panel in selected workspace")
 
         manager.closePanelAfterChildExited(tabId: second.id, surfaceId: secondPanelId)
 
@@ -5279,7 +5300,7 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         )
     }
 
-    func testChildExitOnLastPanelInLastWorkspaceSelectsPreviousWorkspace() {
+    func testChildExitOnLastPanelInLastWorkspaceSelectsPreviousWorkspace() throws {
         let manager = TabManager()
         let first = manager.tabs[0]
         let second = manager.addWorkspace()
@@ -5287,10 +5308,7 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         manager.selectWorkspace(second)
         XCTAssertEqual(manager.selectedTabId, second.id)
 
-        guard let secondPanelId = second.focusedPanelId else {
-            XCTFail("Expected focused panel in selected workspace")
-            return
-        }
+        let secondPanelId = try XCTUnwrap(second.focusedPanelId, "Expected focused panel in selected workspace")
 
         manager.closePanelAfterChildExited(tabId: second.id, surfaceId: secondPanelId)
 
@@ -5302,18 +5320,12 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         )
     }
 
-    func testChildExitOnNonLastPanelClosesOnlyPanel() {
+    func testChildExitOnNonLastPanelClosesOnlyPanel() throws {
         let manager = TabManager()
-        guard let workspace = manager.selectedWorkspace,
-              let initialPanelId = workspace.focusedPanelId else {
-            XCTFail("Expected selected workspace with focused panel")
-            return
-        }
+        let workspace = try XCTUnwrap(manager.selectedWorkspace, "Expected selected workspace with focused panel")
+        let initialPanelId = try XCTUnwrap(workspace.focusedPanelId, "Expected selected workspace with focused panel")
 
-        guard let splitPanel = workspace.newTerminalSplit(from: initialPanelId, orientation: .horizontal) else {
-            XCTFail("Expected split terminal panel to be created")
-            return
-        }
+        let splitPanel = try XCTUnwrap(workspace.newTerminalSplit(from: initialPanelId, orientation: .horizontal), "Expected split terminal panel to be created")
 
         let panelCountBefore = workspace.panels.count
         manager.closePanelAfterChildExited(tabId: workspace.id, surfaceId: splitPanel.id)
@@ -5325,22 +5337,18 @@ final class TabManagerChildExitCloseTests: XCTestCase {
     }
 }
 
+// MARK: - WorkspaceTeardownTests
+
 @MainActor
 final class WorkspaceTeardownTests: XCTestCase {
-    func testTeardownAllPanelsClearsPanelMetadataCaches() {
+    func testTeardownAllPanelsClearsPanelMetadataCaches() throws {
         let workspace = Workspace()
-        guard let initialPanelId = workspace.focusedPanelId else {
-            XCTFail("Expected focused panel in new workspace")
-            return
-        }
+        let initialPanelId = try XCTUnwrap(workspace.focusedPanelId, "Expected focused panel in new workspace")
 
         workspace.setPanelCustomTitle(panelId: initialPanelId, title: "Initial custom title")
         workspace.setPanelPinned(panelId: initialPanelId, pinned: true)
 
-        guard let splitPanel = workspace.newTerminalSplit(from: initialPanelId, orientation: .horizontal) else {
-            XCTFail("Expected split panel to be created")
-            return
-        }
+        let splitPanel = try XCTUnwrap(workspace.newTerminalSplit(from: initialPanelId, orientation: .horizontal), "Expected split panel to be created")
 
         workspace.setPanelCustomTitle(panelId: splitPanel.id, title: "Split custom title")
         workspace.setPanelPinned(panelId: splitPanel.id, pinned: true)
@@ -5362,25 +5370,21 @@ final class WorkspaceTeardownTests: XCTestCase {
     }
 }
 
+// MARK: - WorkspaceSplitWorkingDirectoryTests
+
 @MainActor
 final class WorkspaceSplitWorkingDirectoryTests: XCTestCase {
-    func testNewTerminalSplitFallsBackToRequestedWorkingDirectoryWhenReportedDirectoryIsStale() {
+    func testNewTerminalSplitFallsBackToRequestedWorkingDirectoryWhenReportedDirectoryIsStale() throws {
         let workspace = Workspace()
-        guard let sourcePaneId = workspace.bonsplitController.focusedPaneId else {
-            XCTFail("Expected focused pane in new workspace")
-            return
-        }
+        let sourcePaneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId, "Expected focused pane in new workspace")
 
         let staleCurrentDirectory = workspace.currentDirectory
         let requestedDirectory = "/tmp/cmux-requested-split-cwd-\(UUID().uuidString)"
-        guard let sourcePanel = workspace.newTerminalSurface(
+        let sourcePanel = try XCTUnwrap(workspace.newTerminalSurface(
             inPane: sourcePaneId,
             focus: false,
             workingDirectory: requestedDirectory
-        ) else {
-            XCTFail("Expected source terminal panel to be created")
-            return
-        }
+        ), "Expected source terminal panel to be created")
 
         XCTAssertEqual(sourcePanel.requestedWorkingDirectory, requestedDirectory)
         XCTAssertNil(
@@ -5393,14 +5397,11 @@ final class WorkspaceSplitWorkingDirectoryTests: XCTestCase {
             "Expected focused workspace cwd to remain stale before panel directory updates"
         )
 
-        guard let splitPanel = workspace.newTerminalSplit(
+        let splitPanel = try XCTUnwrap(workspace.newTerminalSplit(
             from: sourcePanel.id,
             orientation: .horizontal,
             focus: false
-        ) else {
-            XCTFail("Expected split terminal panel to be created")
-            return
-        }
+        ), "Expected split terminal panel to be created")
 
         XCTAssertEqual(
             splitPanel.requestedWorkingDirectory,
@@ -5409,6 +5410,8 @@ final class WorkspaceSplitWorkingDirectoryTests: XCTestCase {
         )
     }
 }
+
+// MARK: - TabManagerWorkspaceOwnershipTests
 
 @MainActor
 final class TabManagerWorkspaceOwnershipTests: XCTestCase {
@@ -5430,6 +5433,8 @@ final class TabManagerWorkspaceOwnershipTests: XCTestCase {
         XCTAssertEqual(externalWorkspace.panelTitles, externalPanelTitlesBefore)
     }
 }
+
+// MARK: - TabManagerCloseWorkspacesWithConfirmationTests
 
 @MainActor
 final class TabManagerCloseWorkspacesWithConfirmationTests: XCTestCase {
@@ -5539,16 +5544,15 @@ final class TabManagerCloseWorkspacesWithConfirmationTests: XCTestCase {
     }
 }
 
+// MARK: - TabManagerCloseCurrentPanelTests
+
 @MainActor
 final class TabManagerCloseCurrentPanelTests: XCTestCase {
-    func testRuntimeCloseSkipsConfirmationWhenShellReportsPromptIdle() {
+    func testRuntimeCloseSkipsConfirmationWhenShellReportsPromptIdle() throws {
         let manager = TabManager()
-        guard let workspace = manager.selectedWorkspace,
-              let panelId = workspace.focusedPanelId,
-              let terminalPanel = workspace.terminalPanel(for: panelId) else {
-            XCTFail("Expected selected workspace and focused terminal panel")
-            return
-        }
+        let workspace = try XCTUnwrap(manager.selectedWorkspace, "Expected selected workspace and focused terminal panel")
+        let panelId = try XCTUnwrap(workspace.focusedPanelId, "Expected selected workspace and focused terminal panel")
+        let terminalPanel = try XCTUnwrap(workspace.terminalPanel(for: panelId), "Expected selected workspace and focused terminal panel")
 
         terminalPanel.surface.setNeedsConfirmCloseOverrideForTesting(true)
         workspace.updatePanelShellActivityState(panelId: panelId, state: .promptIdle)
@@ -5568,14 +5572,11 @@ final class TabManagerCloseCurrentPanelTests: XCTestCase {
         XCTAssertEqual(workspace.panels.count, 1, "Expected a replacement surface after closing the last panel")
     }
 
-    func testRuntimeClosePromptsWhenShellReportsRunningCommand() {
+    func testRuntimeClosePromptsWhenShellReportsRunningCommand() throws {
         let manager = TabManager()
-        guard let workspace = manager.selectedWorkspace,
-              let panelId = workspace.focusedPanelId,
-              let terminalPanel = workspace.terminalPanel(for: panelId) else {
-            XCTFail("Expected selected workspace and focused terminal panel")
-            return
-        }
+        let workspace = try XCTUnwrap(manager.selectedWorkspace, "Expected selected workspace and focused terminal panel")
+        let panelId = try XCTUnwrap(workspace.focusedPanelId, "Expected selected workspace and focused terminal panel")
+        let terminalPanel = try XCTUnwrap(workspace.terminalPanel(for: panelId), "Expected selected workspace and focused terminal panel")
 
         terminalPanel.surface.setNeedsConfirmCloseOverrideForTesting(false)
         workspace.updatePanelShellActivityState(panelId: panelId, state: .commandRunning)
@@ -5592,16 +5593,13 @@ final class TabManagerCloseCurrentPanelTests: XCTestCase {
         XCTAssertNotNil(workspace.panels[panelId], "Prompt rejection should keep the original panel open")
     }
 
-    func testCloseCurrentPanelClosesWorkspaceWhenItOwnsTheLastSurface() {
+    func testCloseCurrentPanelClosesWorkspaceWhenItOwnsTheLastSurface() throws {
         let manager = TabManager()
         let firstWorkspace = manager.tabs[0]
         let secondWorkspace = manager.addWorkspace()
         manager.selectWorkspace(secondWorkspace)
 
-        guard let secondPanelId = secondWorkspace.focusedPanelId else {
-            XCTFail("Expected focused panel in selected workspace")
-            return
-        }
+        let secondPanelId = try XCTUnwrap(secondWorkspace.focusedPanelId, "Expected focused panel in selected workspace")
 
         XCTAssertEqual(manager.selectedTabId, secondWorkspace.id)
         XCTAssertEqual(secondWorkspace.panels.count, 1)
@@ -5616,24 +5614,18 @@ final class TabManagerCloseCurrentPanelTests: XCTestCase {
         XCTAssertTrue(secondWorkspace.panels.isEmpty)
     }
 
-    func testClosePanelButtonClosesWorkspaceWhenItOwnsTheLastSurface() {
+    func testClosePanelButtonClosesWorkspaceWhenItOwnsTheLastSurface() throws {
         let manager = TabManager()
         let firstWorkspace = manager.tabs[0]
         let secondWorkspace = manager.addWorkspace()
         manager.selectWorkspace(secondWorkspace)
 
-        guard let secondPanelId = secondWorkspace.focusedPanelId else {
-            XCTFail("Expected focused panel in selected workspace")
-            return
-        }
+        let secondPanelId = try XCTUnwrap(secondWorkspace.focusedPanelId, "Expected focused panel in selected workspace")
 
         XCTAssertEqual(manager.selectedTabId, secondWorkspace.id)
         XCTAssertEqual(secondWorkspace.panels.count, 1)
 
-        guard let secondSurfaceId = secondWorkspace.surfaceIdFromPanelId(secondPanelId) else {
-            XCTFail("Expected bonsplit surface ID for focused panel")
-            return
-        }
+        let secondSurfaceId = try XCTUnwrap(secondWorkspace.surfaceIdFromPanelId(secondPanelId), "Expected bonsplit surface ID for focused panel")
 
         secondWorkspace.markExplicitClose(surfaceId: secondSurfaceId)
         XCTAssertFalse(secondWorkspace.closePanel(secondPanelId))
@@ -5646,13 +5638,10 @@ final class TabManagerCloseCurrentPanelTests: XCTestCase {
         XCTAssertTrue(secondWorkspace.panels.isEmpty)
     }
 
-    func testGenericClosePanelKeepsWorkspaceOpenWithoutExplicitCloseMarker() {
+    func testGenericClosePanelKeepsWorkspaceOpenWithoutExplicitCloseMarker() throws {
         let manager = TabManager()
-        guard let workspace = manager.selectedWorkspace,
-              let initialPanelId = workspace.focusedPanelId else {
-            XCTFail("Expected selected workspace and focused panel")
-            return
-        }
+        let workspace = try XCTUnwrap(manager.selectedWorkspace, "Expected selected workspace and focused panel")
+        let initialPanelId = try XCTUnwrap(workspace.focusedPanelId, "Expected selected workspace and focused panel")
 
         let initialWorkspaceId = workspace.id
         XCTAssertEqual(manager.tabs.count, 1)
@@ -5680,7 +5669,7 @@ final class TabManagerCloseCurrentPanelTests: XCTestCase {
         XCTAssertEqual(manager.tabs.map(\.id), [firstWorkspace.id, secondWorkspace.id])
     }
 
-    func testCloseCurrentPanelClearsNotificationsForClosedSurface() {
+    func testCloseCurrentPanelClearsNotificationsForClosedSurface() throws {
         let appDelegate = AppDelegate.shared ?? AppDelegate()
         let manager = TabManager()
         let store = TerminalNotificationStore.shared
@@ -5699,11 +5688,8 @@ final class TabManagerCloseCurrentPanelTests: XCTestCase {
             appDelegate.notificationStore = originalNotificationStore
         }
 
-        guard let workspace = manager.selectedWorkspace,
-              let initialPanelId = workspace.focusedPanelId else {
-            XCTFail("Expected selected workspace and focused panel")
-            return
-        }
+        let workspace = try XCTUnwrap(manager.selectedWorkspace, "Expected selected workspace and focused panel")
+        let initialPanelId = try XCTUnwrap(workspace.focusedPanelId, "Expected selected workspace and focused panel")
 
         store.addNotification(
             tabId: workspace.id,
@@ -5722,16 +5708,15 @@ final class TabManagerCloseCurrentPanelTests: XCTestCase {
     }
 }
 
+// MARK: - TabManagerNotificationFocusTests
+
 @MainActor
 final class TabManagerNotificationFocusTests: XCTestCase {
-    func testFocusTabFromNotificationClearsSplitZoomBeforeFocusingTargetPanel() {
+    func testFocusTabFromNotificationClearsSplitZoomBeforeFocusingTargetPanel() throws {
         let manager = TabManager()
-        guard let workspace = manager.selectedWorkspace,
-              let leftPanelId = workspace.focusedPanelId,
-              let rightPanel = workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal) else {
-            XCTFail("Expected split setup to succeed")
-            return
-        }
+        let workspace = try XCTUnwrap(manager.selectedWorkspace, "Expected split setup to succeed")
+        let leftPanelId = try XCTUnwrap(workspace.focusedPanelId, "Expected split setup to succeed")
+        let rightPanel = try XCTUnwrap(workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal), "Expected split setup to succeed")
 
         workspace.focusPanel(leftPanelId)
         XCTAssertTrue(workspace.toggleSplitZoom(panelId: leftPanelId), "Expected split zoom to enable")
@@ -5748,16 +5733,15 @@ final class TabManagerNotificationFocusTests: XCTestCase {
         XCTAssertEqual(workspace.focusedPanelId, rightPanel.id, "Expected notification target panel to be focused")
     }
 
-    func testFocusTabFromNotificationReturnsFalseForMissingPanel() {
+    func testFocusTabFromNotificationReturnsFalseForMissingPanel() throws {
         let manager = TabManager()
-        guard let workspace = manager.selectedWorkspace else {
-            XCTFail("Expected selected workspace")
-            return
-        }
+        let workspace = try XCTUnwrap(manager.selectedWorkspace, "Expected selected workspace")
 
         XCTAssertFalse(manager.focusTabFromNotification(workspace.id, surfaceId: UUID()))
     }
 }
+
+// MARK: - TabManagerPendingUnfocusPolicyTests
 
 @MainActor
 final class TabManagerPendingUnfocusPolicyTests: XCTestCase {
@@ -5788,14 +5772,13 @@ final class TabManagerPendingUnfocusPolicyTests: XCTestCase {
     }
 }
 
+// MARK: - TabManagerSurfaceCreationTests
+
 @MainActor
 final class TabManagerSurfaceCreationTests: XCTestCase {
-    func testNewSurfaceFocusesCreatedSurface() {
+    func testNewSurfaceFocusesCreatedSurface() throws {
         let manager = TabManager()
-        guard let workspace = manager.selectedWorkspace else {
-            XCTFail("Expected a selected workspace")
-            return
-        }
+        let workspace = try XCTUnwrap(manager.selectedWorkspace, "Expected a selected workspace")
 
         let beforePanels = Set(workspace.panels.keys)
         manager.newSurface()
@@ -5803,7 +5786,7 @@ final class TabManagerSurfaceCreationTests: XCTestCase {
 
         let createdPanels = afterPanels.subtracting(beforePanels)
         XCTAssertEqual(createdPanels.count, 1, "Expected one new surface for Cmd+T path")
-        guard let createdPanelId = createdPanels.first else { return }
+        let createdPanelId = try XCTUnwrap(createdPanels.first)
 
         XCTAssertEqual(
             workspace.focusedPanelId,
@@ -5812,27 +5795,18 @@ final class TabManagerSurfaceCreationTests: XCTestCase {
         )
     }
 
-    func testOpenBrowserInsertAtEndPlacesNewBrowserAtPaneEnd() {
+    func testOpenBrowserInsertAtEndPlacesNewBrowserAtPaneEnd() throws {
         let manager = TabManager()
-        guard let workspace = manager.selectedWorkspace,
-              let paneId = workspace.bonsplitController.focusedPaneId else {
-            XCTFail("Expected focused workspace and pane")
-            return
-        }
+        let workspace = try XCTUnwrap(manager.selectedWorkspace, "Expected focused workspace and pane")
+        let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId, "Expected focused workspace and pane")
 
         // Add one extra surface so we verify append-to-end rather than first insert behavior.
         _ = workspace.newTerminalSurface(inPane: paneId, focus: false)
 
-        guard let browserPanelId = manager.openBrowser(insertAtEnd: true) else {
-            XCTFail("Expected browser panel to be created")
-            return
-        }
+        let browserPanelId = try XCTUnwrap(manager.openBrowser(insertAtEnd: true), "Expected browser panel to be created")
 
         let tabs = workspace.bonsplitController.tabs(inPane: paneId)
-        guard let lastSurfaceId = tabs.last?.id else {
-            XCTFail("Expected at least one surface in pane")
-            return
-        }
+        let lastSurfaceId = try XCTUnwrap(tabs.last?.id, "Expected at least one surface in pane")
 
         XCTAssertEqual(
             workspace.panelIdFromSurfaceId(lastSurfaceId),
@@ -5842,31 +5816,22 @@ final class TabManagerSurfaceCreationTests: XCTestCase {
         XCTAssertEqual(workspace.focusedPanelId, browserPanelId, "Expected opened browser surface to be focused")
     }
 
-    func testOpenBrowserInWorkspaceSplitRightSelectsTargetWorkspaceAndCreatesSplit() {
+    func testOpenBrowserInWorkspaceSplitRightSelectsTargetWorkspaceAndCreatesSplit() throws {
         let manager = TabManager()
-        guard let initialWorkspace = manager.selectedWorkspace else {
-            XCTFail("Expected initial selected workspace")
-            return
-        }
-        guard let url = URL(string: "https://example.com/pull/123") else {
-            XCTFail("Expected test URL to be valid")
-            return
-        }
+        let initialWorkspace = try XCTUnwrap(manager.selectedWorkspace, "Expected initial selected workspace")
+        let url = try XCTUnwrap(URL(string: "https://example.com/pull/123"), "Expected test URL to be valid")
 
         let targetWorkspace = manager.addWorkspace(select: false)
         manager.selectWorkspace(initialWorkspace)
         let initialPaneCount = targetWorkspace.bonsplitController.allPaneIds.count
         let initialPanelCount = targetWorkspace.panels.count
 
-        guard let browserPanelId = manager.openBrowser(
+        let browserPanelId = try XCTUnwrap(manager.openBrowser(
             inWorkspace: targetWorkspace.id,
             url: url,
             preferSplitRight: true,
             insertAtEnd: true
-        ) else {
-            XCTFail("Expected browser panel to be created in target workspace")
-            return
-        }
+        ), "Expected browser panel to be created in target workspace")
 
         XCTAssertEqual(manager.selectedTabId, targetWorkspace.id, "Expected target workspace to become selected")
         XCTAssertEqual(
@@ -5890,29 +5855,23 @@ final class TabManagerSurfaceCreationTests: XCTestCase {
         )
     }
 
-    func testOpenBrowserInWorkspaceSplitRightReusesTopRightPaneWhenAlreadySplit() {
+    func testOpenBrowserInWorkspaceSplitRightReusesTopRightPaneWhenAlreadySplit() throws {
         let manager = TabManager()
-        guard let workspace = manager.selectedWorkspace,
-              let leftPanelId = workspace.focusedPanelId,
-              let topRightPanel = workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal),
-              workspace.newTerminalSplit(from: topRightPanel.id, orientation: .vertical) != nil,
-              let topRightPaneId = workspace.paneId(forPanelId: topRightPanel.id),
-              let url = URL(string: "https://example.com/pull/456") else {
-            XCTFail("Expected split setup to succeed")
-            return
-        }
+        let workspace = try XCTUnwrap(manager.selectedWorkspace, "Expected split setup to succeed")
+        let leftPanelId = try XCTUnwrap(workspace.focusedPanelId, "Expected split setup to succeed")
+        let topRightPanel = try XCTUnwrap(workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal), "Expected split setup to succeed")
+        XCTAssert(workspace.newTerminalSplit(from: topRightPanel.id, orientation: .vertical) != nil, "Expected split setup to succeed")
+        let topRightPaneId = try XCTUnwrap(workspace.paneId(forPanelId: topRightPanel.id), "Expected split setup to succeed")
+        let url = try XCTUnwrap(URL(string: "https://example.com/pull/456"), "Expected split setup to succeed")
 
         let initialPaneCount = workspace.bonsplitController.allPaneIds.count
 
-        guard let browserPanelId = manager.openBrowser(
+        let browserPanelId = try XCTUnwrap(manager.openBrowser(
             inWorkspace: workspace.id,
             url: url,
             preferSplitRight: true,
             insertAtEnd: true
-        ) else {
-            XCTFail("Expected browser panel to be created")
-            return
-        }
+        ), "Expected browser panel to be created")
 
         XCTAssertEqual(
             workspace.bonsplitController.allPaneIds.count,
@@ -5926,10 +5885,7 @@ final class TabManagerSurfaceCreationTests: XCTestCase {
         )
 
         let targetPaneTabs = workspace.bonsplitController.tabs(inPane: topRightPaneId)
-        guard let lastSurfaceId = targetPaneTabs.last?.id else {
-            XCTFail("Expected top-right pane to contain tabs")
-            return
-        }
+        let lastSurfaceId = try XCTUnwrap(targetPaneTabs.last?.id, "Expected top-right pane to contain tabs")
         XCTAssertEqual(
             workspace.panelIdFromSurfaceId(lastSurfaceId),
             browserPanelId,
@@ -5938,26 +5894,22 @@ final class TabManagerSurfaceCreationTests: XCTestCase {
     }
 }
 
+// MARK: - TabManagerEqualizeSplitsTests
+
 @MainActor
 final class TabManagerEqualizeSplitsTests: XCTestCase {
-    func testEqualizeSplitsSetsEverySplitDividerToHalf() {
+    func testEqualizeSplitsSetsEverySplitDividerToHalf() throws {
         let manager = TabManager()
-        guard let workspace = manager.selectedWorkspace,
-              let leftPanelId = workspace.focusedPanelId,
-              let rightPanel = workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal),
-              workspace.newTerminalSplit(from: rightPanel.id, orientation: .vertical) != nil else {
-            XCTFail("Expected nested split setup to succeed")
-            return
-        }
+        let workspace = try XCTUnwrap(manager.selectedWorkspace, "Expected nested split setup to succeed")
+        let leftPanelId = try XCTUnwrap(workspace.focusedPanelId, "Expected nested split setup to succeed")
+        let rightPanel = try XCTUnwrap(workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal), "Expected nested split setup to succeed")
+        XCTAssert(workspace.newTerminalSplit(from: rightPanel.id, orientation: .vertical) != nil, "Expected nested split setup to succeed")
 
         let initialSplits = splitNodes(in: workspace.bonsplitController.treeSnapshot())
         XCTAssertGreaterThanOrEqual(initialSplits.count, 2, "Expected at least two split nodes in nested layout")
 
         for (index, split) in initialSplits.enumerated() {
-            guard let splitId = UUID(uuidString: split.id) else {
-                XCTFail("Expected split ID to be a UUID")
-                return
-            }
+            let splitId = try XCTUnwrap(UUID(uuidString: split.id), "Expected split ID to be a UUID")
             let targetPosition: CGFloat = index.isMultiple(of: 2) ? 0.2 : 0.8
             XCTAssertTrue(
                 workspace.bonsplitController.setDividerPosition(targetPosition, forSplit: splitId),
@@ -5976,16 +5928,114 @@ final class TabManagerEqualizeSplitsTests: XCTestCase {
 
     private func splitNodes(in node: ExternalTreeNode) -> [ExternalSplitNode] {
         switch node {
-        case .pane:
-            return []
-        case .split(let split):
-            return [split] + splitNodes(in: split.first) + splitNodes(in: split.second)
+            case .pane:
+                []
+            case let .split(split):
+                [split] + splitNodes(in: split.first) + splitNodes(in: split.second)
         }
     }
 }
 
+// MARK: - WorkspaceTerminalFocusRecoveryTests
+
 @MainActor
 final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
+    func testTerminalFirstResponderConvergesSplitActiveStateWhenSelectionAlreadyMatches() throws {
+        let workspace = Workspace()
+        let leftPanelId = try XCTUnwrap(workspace.focusedPanelId, "Expected split terminal panels")
+        let leftPanel = try XCTUnwrap(workspace.terminalPanel(for: leftPanelId), "Expected split terminal panels")
+        let rightPanel = try XCTUnwrap(workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal), "Expected split terminal panels")
+
+        XCTAssertEqual(
+            workspace.focusedPanelId,
+            rightPanel.id,
+            "Expected the new split panel to be selected before simulating stale focus state"
+        )
+
+        // Simulate the split-pane failure mode: Bonsplit already points at the right panel,
+        // but the active terminal state is still stale on the left panel.
+        leftPanel.surface.setFocus(true)
+        leftPanel.hostedView.setActive(true)
+        rightPanel.surface.setFocus(false)
+        rightPanel.hostedView.setActive(false)
+
+        workspace.focusPanel(rightPanel.id, trigger: .terminalFirstResponder)
+
+        XCTAssertFalse(
+            leftPanel.hostedView.debugRenderStats().isActive,
+            "Expected stale left-pane active state to be cleared"
+        )
+        XCTAssertTrue(
+            rightPanel.hostedView.debugRenderStats().isActive,
+            "Expected terminal-first-responder recovery to reactivate the selected split pane"
+        )
+    }
+
+    func testTerminalClickRecoversSplitActiveStateWhenFocusCallbackIsSuppressed() throws {
+        let workspace = Workspace()
+        let leftPanelId = try XCTUnwrap(workspace.focusedPanelId, "Expected split terminal panels")
+        let leftPanel = try XCTUnwrap(workspace.terminalPanel(for: leftPanelId), "Expected split terminal panels")
+        let rightPanel = try XCTUnwrap(workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal), "Expected split terminal panels")
+
+        let window = makeWindow()
+        defer { window.orderOut(nil) }
+        let contentView = try XCTUnwrap(window.contentView, "Expected content view")
+
+        leftPanel.hostedView.frame = NSRect(x: 0, y: 0, width: 180, height: 220)
+        rightPanel.hostedView.frame = NSRect(x: 180, y: 0, width: 180, height: 220)
+        contentView.addSubview(leftPanel.hostedView)
+        contentView.addSubview(rightPanel.hostedView)
+
+        leftPanel.hostedView.setVisibleInUI(true)
+        rightPanel.hostedView.setVisibleInUI(true)
+        leftPanel.hostedView.setFocusHandler {
+            workspace.focusPanel(leftPanel.id, trigger: .terminalFirstResponder)
+        }
+        rightPanel.hostedView.setFocusHandler {
+            workspace.focusPanel(rightPanel.id, trigger: .terminalFirstResponder)
+        }
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        XCTAssertEqual(
+            workspace.focusedPanelId,
+            rightPanel.id,
+            "Expected the clicked split pane to already be selected before simulating stale focus state"
+        )
+
+        // Simulate the ghost-terminal race: the right pane is selected in Bonsplit, but stale
+        // active state remains on the left and the right pane's AppKit focus callback never fires
+        // after split reparent/layout churn.
+        leftPanel.surface.setFocus(true)
+        leftPanel.hostedView.setActive(true)
+        rightPanel.surface.setFocus(false)
+        rightPanel.hostedView.setActive(false)
+        rightPanel.hostedView.suppressReparentFocus()
+
+        let rightSurfaceView = try XCTUnwrap(surfaceView(in: rightPanel.hostedView), "Expected right terminal surface view")
+
+        let pointInWindow = rightSurfaceView.convert(NSPoint(x: 24, y: 24), to: nil)
+        let event = makeMouseEvent(type: .leftMouseDown, location: pointInWindow, window: window)
+        rightSurfaceView.mouseDown(with: event)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        XCTAssertFalse(
+            leftPanel.hostedView.debugRenderStats().isActive,
+            "Expected clicking the selected split pane to clear stale sibling active state even when AppKit focus callbacks are suppressed"
+        )
+        XCTAssertTrue(
+            rightPanel.hostedView.debugRenderStats().isActive,
+            "Expected clicking the selected split pane to reactivate terminal input when focus callbacks are suppressed"
+        )
+        XCTAssertTrue(
+            rightPanel.hostedView.isSurfaceViewFirstResponder(),
+            "Expected the clicked split pane to become first responder"
+        )
+    }
+
     private func makeWindow() -> NSWindow {
         NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 360, height: 220),
@@ -6026,127 +6076,18 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
         }
         return nil
     }
-
-    func testTerminalFirstResponderConvergesSplitActiveStateWhenSelectionAlreadyMatches() {
-        let workspace = Workspace()
-        guard let leftPanelId = workspace.focusedPanelId,
-              let leftPanel = workspace.terminalPanel(for: leftPanelId),
-              let rightPanel = workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal) else {
-            XCTFail("Expected split terminal panels")
-            return
-        }
-
-        XCTAssertEqual(
-            workspace.focusedPanelId,
-            rightPanel.id,
-            "Expected the new split panel to be selected before simulating stale focus state"
-        )
-
-        // Simulate the split-pane failure mode: Bonsplit already points at the right panel,
-        // but the active terminal state is still stale on the left panel.
-        leftPanel.surface.setFocus(true)
-        leftPanel.hostedView.setActive(true)
-        rightPanel.surface.setFocus(false)
-        rightPanel.hostedView.setActive(false)
-
-        workspace.focusPanel(rightPanel.id, trigger: .terminalFirstResponder)
-
-        XCTAssertFalse(
-            leftPanel.hostedView.debugRenderStats().isActive,
-            "Expected stale left-pane active state to be cleared"
-        )
-        XCTAssertTrue(
-            rightPanel.hostedView.debugRenderStats().isActive,
-            "Expected terminal-first-responder recovery to reactivate the selected split pane"
-        )
-    }
-
-    func testTerminalClickRecoversSplitActiveStateWhenFocusCallbackIsSuppressed() {
-        let workspace = Workspace()
-        guard let leftPanelId = workspace.focusedPanelId,
-              let leftPanel = workspace.terminalPanel(for: leftPanelId),
-              let rightPanel = workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal) else {
-            XCTFail("Expected split terminal panels")
-            return
-        }
-
-        let window = makeWindow()
-        defer { window.orderOut(nil) }
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
-        }
-
-        leftPanel.hostedView.frame = NSRect(x: 0, y: 0, width: 180, height: 220)
-        rightPanel.hostedView.frame = NSRect(x: 180, y: 0, width: 180, height: 220)
-        contentView.addSubview(leftPanel.hostedView)
-        contentView.addSubview(rightPanel.hostedView)
-
-        leftPanel.hostedView.setVisibleInUI(true)
-        rightPanel.hostedView.setVisibleInUI(true)
-        leftPanel.hostedView.setFocusHandler {
-            workspace.focusPanel(leftPanel.id, trigger: .terminalFirstResponder)
-        }
-        rightPanel.hostedView.setFocusHandler {
-            workspace.focusPanel(rightPanel.id, trigger: .terminalFirstResponder)
-        }
-
-        window.makeKeyAndOrderFront(nil)
-        window.displayIfNeeded()
-        contentView.layoutSubtreeIfNeeded()
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-
-        XCTAssertEqual(
-            workspace.focusedPanelId,
-            rightPanel.id,
-            "Expected the clicked split pane to already be selected before simulating stale focus state"
-        )
-
-        // Simulate the ghost-terminal race: the right pane is selected in Bonsplit, but stale
-        // active state remains on the left and the right pane's AppKit focus callback never fires
-        // after split reparent/layout churn.
-        leftPanel.surface.setFocus(true)
-        leftPanel.hostedView.setActive(true)
-        rightPanel.surface.setFocus(false)
-        rightPanel.hostedView.setActive(false)
-        rightPanel.hostedView.suppressReparentFocus()
-
-        guard let rightSurfaceView = surfaceView(in: rightPanel.hostedView) else {
-            XCTFail("Expected right terminal surface view")
-            return
-        }
-
-        let pointInWindow = rightSurfaceView.convert(NSPoint(x: 24, y: 24), to: nil)
-        let event = makeMouseEvent(type: .leftMouseDown, location: pointInWindow, window: window)
-        rightSurfaceView.mouseDown(with: event)
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-
-        XCTAssertFalse(
-            leftPanel.hostedView.debugRenderStats().isActive,
-            "Expected clicking the selected split pane to clear stale sibling active state even when AppKit focus callbacks are suppressed"
-        )
-        XCTAssertTrue(
-            rightPanel.hostedView.debugRenderStats().isActive,
-            "Expected clicking the selected split pane to reactivate terminal input when focus callbacks are suppressed"
-        )
-        XCTAssertTrue(
-            rightPanel.hostedView.isSurfaceViewFirstResponder(),
-            "Expected the clicked split pane to become first responder"
-        )
-    }
 }
+
+// MARK: - WorkspaceTerminalConfigInheritanceSelectionTests
 
 @MainActor
 final class WorkspaceTerminalConfigInheritanceSelectionTests: XCTestCase {
-    func testPrefersSelectedTerminalInTargetPaneOverFocusedTerminalElsewhere() {
+    func testPrefersSelectedTerminalInTargetPaneOverFocusedTerminalElsewhere() throws {
         let manager = TabManager()
-        guard let workspace = manager.selectedWorkspace,
-              let leftPanelId = workspace.focusedPanelId,
-              let rightPanel = workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal),
-              let leftPaneId = workspace.paneId(forPanelId: leftPanelId) else {
-            XCTFail("Expected workspace split setup to succeed")
-            return
-        }
+        let workspace = try XCTUnwrap(manager.selectedWorkspace, "Expected workspace split setup to succeed")
+        let leftPanelId = try XCTUnwrap(workspace.focusedPanelId, "Expected workspace split setup to succeed")
+        let rightPanel = try XCTUnwrap(workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal), "Expected workspace split setup to succeed")
+        let leftPaneId = try XCTUnwrap(workspace.paneId(forPanelId: leftPanelId), "Expected workspace split setup to succeed")
 
         // Programmatic split focuses the new right panel by default.
         XCTAssertEqual(workspace.focusedPanelId, rightPanel.id)
@@ -6159,15 +6100,12 @@ final class WorkspaceTerminalConfigInheritanceSelectionTests: XCTestCase {
         )
     }
 
-    func testFallsBackToAnotherTerminalInPaneWhenSelectedTabIsBrowser() {
+    func testFallsBackToAnotherTerminalInPaneWhenSelectedTabIsBrowser() throws {
         let manager = TabManager()
-        guard let workspace = manager.selectedWorkspace,
-              let terminalPanelId = workspace.focusedPanelId,
-              let paneId = workspace.paneId(forPanelId: terminalPanelId),
-              let browserPanel = workspace.newBrowserSurface(inPane: paneId, focus: true) else {
-            XCTFail("Expected workspace browser setup to succeed")
-            return
-        }
+        let workspace = try XCTUnwrap(manager.selectedWorkspace, "Expected workspace browser setup to succeed")
+        let terminalPanelId = try XCTUnwrap(workspace.focusedPanelId, "Expected workspace browser setup to succeed")
+        let paneId = try XCTUnwrap(workspace.paneId(forPanelId: terminalPanelId), "Expected workspace browser setup to succeed")
+        let browserPanel = try XCTUnwrap(workspace.newBrowserSurface(inPane: paneId, focus: true), "Expected workspace browser setup to succeed")
 
         XCTAssertEqual(workspace.focusedPanelId, browserPanel.id)
 
@@ -6179,27 +6117,21 @@ final class WorkspaceTerminalConfigInheritanceSelectionTests: XCTestCase {
         )
     }
 
-    func testPreferredTerminalPanelWinsWhenProvided() {
+    func testPreferredTerminalPanelWinsWhenProvided() throws {
         let manager = TabManager()
-        guard let workspace = manager.selectedWorkspace,
-              let terminalPanelId = workspace.focusedPanelId else {
-            XCTFail("Expected selected workspace with a terminal panel")
-            return
-        }
+        let workspace = try XCTUnwrap(manager.selectedWorkspace, "Expected selected workspace with a terminal panel")
+        let terminalPanelId = try XCTUnwrap(workspace.focusedPanelId, "Expected selected workspace with a terminal panel")
 
         let sourcePanel = workspace.terminalPanelForConfigInheritance(preferredPanelId: terminalPanelId)
         XCTAssertEqual(sourcePanel?.id, terminalPanelId)
     }
 
-    func testPrefersLastFocusedTerminalWhenBrowserFocusedInDifferentPane() {
+    func testPrefersLastFocusedTerminalWhenBrowserFocusedInDifferentPane() throws {
         let manager = TabManager()
-        guard let workspace = manager.selectedWorkspace,
-              let leftTerminalPanelId = workspace.focusedPanelId,
-              let rightTerminalPanel = workspace.newTerminalSplit(from: leftTerminalPanelId, orientation: .horizontal),
-              let rightPaneId = workspace.paneId(forPanelId: rightTerminalPanel.id) else {
-            XCTFail("Expected split setup to succeed")
-            return
-        }
+        let workspace = try XCTUnwrap(manager.selectedWorkspace, "Expected split setup to succeed")
+        let leftTerminalPanelId = try XCTUnwrap(workspace.focusedPanelId, "Expected split setup to succeed")
+        let rightTerminalPanel = try XCTUnwrap(workspace.newTerminalSplit(from: leftTerminalPanelId, orientation: .horizontal), "Expected split setup to succeed")
+        let rightPaneId = try XCTUnwrap(workspace.paneId(forPanelId: rightTerminalPanel.id), "Expected split setup to succeed")
 
         workspace.focusPanel(leftTerminalPanelId)
         _ = workspace.newBrowserSurface(inPane: rightPaneId, focus: true)
@@ -6214,29 +6146,25 @@ final class WorkspaceTerminalConfigInheritanceSelectionTests: XCTestCase {
     }
 }
 
+// MARK: - TabManagerWorkspaceConfigInheritanceSourceTests
+
 @MainActor
 final class TabManagerWorkspaceConfigInheritanceSourceTests: XCTestCase {
-    func testUsesFocusedTerminalWhenTerminalIsFocused() {
+    func testUsesFocusedTerminalWhenTerminalIsFocused() throws {
         let manager = TabManager()
-        guard let workspace = manager.selectedWorkspace,
-              let terminalPanelId = workspace.focusedPanelId else {
-            XCTFail("Expected selected workspace with focused terminal")
-            return
-        }
+        let workspace = try XCTUnwrap(manager.selectedWorkspace, "Expected selected workspace with focused terminal")
+        let terminalPanelId = try XCTUnwrap(workspace.focusedPanelId, "Expected selected workspace with focused terminal")
 
         let sourcePanel = manager.terminalPanelForWorkspaceConfigInheritanceSource()
         XCTAssertEqual(sourcePanel?.id, terminalPanelId)
     }
 
-    func testFallsBackToTerminalWhenBrowserIsFocused() {
+    func testFallsBackToTerminalWhenBrowserIsFocused() throws {
         let manager = TabManager()
-        guard let workspace = manager.selectedWorkspace,
-              let terminalPanelId = workspace.focusedPanelId,
-              let paneId = workspace.paneId(forPanelId: terminalPanelId),
-              let browserPanel = workspace.newBrowserSurface(inPane: paneId, focus: true) else {
-            XCTFail("Expected selected workspace setup to succeed")
-            return
-        }
+        let workspace = try XCTUnwrap(manager.selectedWorkspace, "Expected selected workspace setup to succeed")
+        let terminalPanelId = try XCTUnwrap(workspace.focusedPanelId, "Expected selected workspace setup to succeed")
+        let paneId = try XCTUnwrap(workspace.paneId(forPanelId: terminalPanelId), "Expected selected workspace setup to succeed")
+        let browserPanel = try XCTUnwrap(workspace.newBrowserSurface(inPane: paneId, focus: true), "Expected selected workspace setup to succeed")
 
         XCTAssertEqual(workspace.focusedPanelId, browserPanel.id)
 
@@ -6248,15 +6176,12 @@ final class TabManagerWorkspaceConfigInheritanceSourceTests: XCTestCase {
         )
     }
 
-    func testPrefersLastFocusedTerminalAcrossPanesWhenBrowserIsFocused() {
+    func testPrefersLastFocusedTerminalAcrossPanesWhenBrowserIsFocused() throws {
         let manager = TabManager()
-        guard let workspace = manager.selectedWorkspace,
-              let leftTerminalPanelId = workspace.focusedPanelId,
-              let rightTerminalPanel = workspace.newTerminalSplit(from: leftTerminalPanelId, orientation: .horizontal),
-              let rightPaneId = workspace.paneId(forPanelId: rightTerminalPanel.id) else {
-            XCTFail("Expected split setup to succeed")
-            return
-        }
+        let workspace = try XCTUnwrap(manager.selectedWorkspace, "Expected split setup to succeed")
+        let leftTerminalPanelId = try XCTUnwrap(workspace.focusedPanelId, "Expected split setup to succeed")
+        let rightTerminalPanel = try XCTUnwrap(workspace.newTerminalSplit(from: leftTerminalPanelId, orientation: .horizontal), "Expected split setup to succeed")
+        let rightPaneId = try XCTUnwrap(workspace.paneId(forPanelId: rightTerminalPanel.id), "Expected split setup to succeed")
 
         workspace.focusPanel(leftTerminalPanelId)
         _ = workspace.newBrowserSurface(inPane: rightPaneId, focus: true)
@@ -6271,15 +6196,14 @@ final class TabManagerWorkspaceConfigInheritanceSourceTests: XCTestCase {
     }
 }
 
+// MARK: - TabManagerReopenClosedBrowserFocusTests
+
 @MainActor
 final class TabManagerReopenClosedBrowserFocusTests: XCTestCase {
-    func testReopenFromDifferentWorkspaceFocusesReopenedBrowser() {
+    func testReopenFromDifferentWorkspaceFocusesReopenedBrowser() throws {
         let manager = TabManager()
-        guard let workspace1 = manager.selectedWorkspace,
-              let closedBrowserId = manager.openBrowser(url: URL(string: "https://example.com/ws-switch")) else {
-            XCTFail("Expected initial workspace and browser panel")
-            return
-        }
+        let workspace1 = try XCTUnwrap(manager.selectedWorkspace, "Expected initial workspace and browser panel")
+        let closedBrowserId = try XCTUnwrap(manager.openBrowser(url: URL(string: "https://example.com/ws-switch")), "Expected initial workspace and browser panel")
 
         drainMainQueue()
         XCTAssertTrue(workspace1.closePanel(closedBrowserId, force: true))
@@ -6295,13 +6219,10 @@ final class TabManagerReopenClosedBrowserFocusTests: XCTestCase {
         XCTAssertTrue(isFocusedPanelBrowser(in: workspace1))
     }
 
-    func testReopenFallsBackToCurrentWorkspaceAndFocusesBrowserWhenOriginalWorkspaceDeleted() {
+    func testReopenFallsBackToCurrentWorkspaceAndFocusesBrowserWhenOriginalWorkspaceDeleted() throws {
         let manager = TabManager()
-        guard let originalWorkspace = manager.selectedWorkspace,
-              let closedBrowserId = manager.openBrowser(url: URL(string: "https://example.com/deleted-ws")) else {
-            XCTFail("Expected initial workspace and browser panel")
-            return
-        }
+        let originalWorkspace = try XCTUnwrap(manager.selectedWorkspace, "Expected initial workspace and browser panel")
+        let closedBrowserId = try XCTUnwrap(manager.openBrowser(url: URL(string: "https://example.com/deleted-ws")), "Expected initial workspace and browser panel")
 
         drainMainQueue()
         XCTAssertTrue(originalWorkspace.closePanel(closedBrowserId, force: true))
@@ -6320,20 +6241,17 @@ final class TabManagerReopenClosedBrowserFocusTests: XCTestCase {
         XCTAssertTrue(isFocusedPanelBrowser(in: currentWorkspace))
     }
 
-    func testReopenCollapsedSplitFromDifferentWorkspaceFocusesBrowser() {
+    func testReopenCollapsedSplitFromDifferentWorkspaceFocusesBrowser() throws {
         let manager = TabManager()
-        guard let workspace1 = manager.selectedWorkspace,
-              let sourcePanelId = workspace1.focusedPanelId,
-              let splitBrowserId = manager.newBrowserSplit(
-                tabId: workspace1.id,
-                fromPanelId: sourcePanelId,
-                orientation: .horizontal,
-                insertFirst: false,
-                url: URL(string: "https://example.com/collapsed-split")
-              ) else {
-            XCTFail("Expected to create browser split")
-            return
-        }
+        let workspace1 = try XCTUnwrap(manager.selectedWorkspace, "Expected to create browser split")
+        let sourcePanelId = try XCTUnwrap(workspace1.focusedPanelId, "Expected to create browser split")
+        let splitBrowserId = try XCTUnwrap(manager.newBrowserSplit(
+            tabId: workspace1.id,
+            fromPanelId: sourcePanelId,
+            orientation: .horizontal,
+            insertFirst: false,
+            url: URL(string: "https://example.com/collapsed-split")
+        ), "Expected to create browser split")
 
         drainMainQueue()
         XCTAssertTrue(workspace1.closePanel(splitBrowserId, force: true))
@@ -6349,14 +6267,11 @@ final class TabManagerReopenClosedBrowserFocusTests: XCTestCase {
         XCTAssertTrue(isFocusedPanelBrowser(in: workspace1))
     }
 
-    func testReopenFromDifferentWorkspaceWinsAgainstSingleDeferredStaleFocus() {
+    func testReopenFromDifferentWorkspaceWinsAgainstSingleDeferredStaleFocus() throws {
         let manager = TabManager()
-        guard let workspace1 = manager.selectedWorkspace,
-              let preReopenPanelId = workspace1.focusedPanelId,
-              let closedBrowserId = manager.openBrowser(url: URL(string: "https://example.com/stale-focus-cross-ws")) else {
-            XCTFail("Expected initial workspace state and browser panel")
-            return
-        }
+        let workspace1 = try XCTUnwrap(manager.selectedWorkspace, "Expected initial workspace state and browser panel")
+        let preReopenPanelId = try XCTUnwrap(workspace1.focusedPanelId, "Expected initial workspace state and browser panel")
+        let closedBrowserId = try XCTUnwrap(manager.openBrowser(url: URL(string: "https://example.com/stale-focus-cross-ws")), "Expected initial workspace state and browser panel")
 
         drainMainQueue()
         XCTAssertTrue(workspace1.closePanel(closedBrowserId, force: true))
@@ -6367,10 +6282,7 @@ final class TabManagerReopenClosedBrowserFocusTests: XCTestCase {
         XCTAssertEqual(manager.selectedTabId, workspace2.id)
 
         XCTAssertTrue(manager.reopenMostRecentlyClosedBrowserPanel())
-        guard let reopenedPanelId = singleNewPanelId(in: workspace1, comparedTo: panelIdsBeforeReopen) else {
-            XCTFail("Expected reopened browser panel ID")
-            return
-        }
+        let reopenedPanelId = try XCTUnwrap(singleNewPanelId(in: workspace1, comparedTo: panelIdsBeforeReopen), "Expected reopened browser panel ID")
 
         // Simulate one delayed stale focus callback from the panel that was focused before reopen.
         DispatchQueue.main.async {
@@ -6386,14 +6298,11 @@ final class TabManagerReopenClosedBrowserFocusTests: XCTestCase {
         XCTAssertTrue(workspace1.panels[reopenedPanelId] is BrowserPanel)
     }
 
-    func testReopenInSameWorkspaceWinsAgainstSingleDeferredStaleFocus() {
+    func testReopenInSameWorkspaceWinsAgainstSingleDeferredStaleFocus() throws {
         let manager = TabManager()
-        guard let workspace = manager.selectedWorkspace,
-              let preReopenPanelId = workspace.focusedPanelId,
-              let closedBrowserId = manager.openBrowser(url: URL(string: "https://example.com/stale-focus-same-ws")) else {
-            XCTFail("Expected initial workspace state and browser panel")
-            return
-        }
+        let workspace = try XCTUnwrap(manager.selectedWorkspace, "Expected initial workspace state and browser panel")
+        let preReopenPanelId = try XCTUnwrap(workspace.focusedPanelId, "Expected initial workspace state and browser panel")
+        let closedBrowserId = try XCTUnwrap(manager.openBrowser(url: URL(string: "https://example.com/stale-focus-same-ws")), "Expected initial workspace state and browser panel")
 
         drainMainQueue()
         XCTAssertTrue(workspace.closePanel(closedBrowserId, force: true))
@@ -6401,10 +6310,7 @@ final class TabManagerReopenClosedBrowserFocusTests: XCTestCase {
 
         let panelIdsBeforeReopen = Set(workspace.panels.keys)
         XCTAssertTrue(manager.reopenMostRecentlyClosedBrowserPanel())
-        guard let reopenedPanelId = singleNewPanelId(in: workspace, comparedTo: panelIdsBeforeReopen) else {
-            XCTFail("Expected reopened browser panel ID")
-            return
-        }
+        let reopenedPanelId = try XCTUnwrap(singleNewPanelId(in: workspace, comparedTo: panelIdsBeforeReopen), "Expected reopened browser panel ID")
 
         // Simulate one delayed stale focus callback from the panel that was focused before reopen.
         DispatchQueue.main.async {
@@ -6440,31 +6346,19 @@ final class TabManagerReopenClosedBrowserFocusTests: XCTestCase {
     }
 }
 
+// MARK: - WorkspacePanelGitBranchTests
+
 @MainActor
 final class WorkspacePanelGitBranchTests: XCTestCase {
-    private func drainMainQueue() {
-        let expectation = expectation(description: "drain main queue")
-        DispatchQueue.main.async {
-            expectation.fulfill()
-        }
-        wait(for: [expectation], timeout: 1.0)
-    }
-
-    func testBrowserSplitWithFocusFalsePreservesOriginalFocusedPanel() {
+    func testBrowserSplitWithFocusFalsePreservesOriginalFocusedPanel() throws {
         let workspace = Workspace()
-        guard let originalFocusedPanelId = workspace.focusedPanelId else {
-            XCTFail("Expected initial focused panel")
-            return
-        }
+        let originalFocusedPanelId = try XCTUnwrap(workspace.focusedPanelId, "Expected initial focused panel")
 
-        guard let browserSplitPanel = workspace.newBrowserSplit(
+        let browserSplitPanel = try XCTUnwrap(workspace.newBrowserSplit(
             from: originalFocusedPanelId,
             orientation: .horizontal,
             focus: false
-        ) else {
-            XCTFail("Expected browser split panel to be created")
-            return
-        }
+        ), "Expected browser split panel to be created")
 
         drainMainQueue()
 
@@ -6476,21 +6370,15 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         )
     }
 
-    func testTerminalSplitWithFocusFalsePreservesOriginalFocusedPanel() {
+    func testTerminalSplitWithFocusFalsePreservesOriginalFocusedPanel() throws {
         let workspace = Workspace()
-        guard let originalFocusedPanelId = workspace.focusedPanelId else {
-            XCTFail("Expected initial focused panel")
-            return
-        }
+        let originalFocusedPanelId = try XCTUnwrap(workspace.focusedPanelId, "Expected initial focused panel")
 
-        guard let terminalSplitPanel = workspace.newTerminalSplit(
+        let terminalSplitPanel = try XCTUnwrap(workspace.newTerminalSplit(
             from: originalFocusedPanelId,
             orientation: .horizontal,
             focus: false
-        ) else {
-            XCTFail("Expected terminal split panel to be created")
-            return
-        }
+        ), "Expected terminal split panel to be created")
 
         drainMainQueue()
 
@@ -6502,23 +6390,17 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         )
     }
 
-    func testDetachLastSurfaceLeavesWorkspaceTemporarilyEmptyForMoveFlow() {
+    func testDetachLastSurfaceLeavesWorkspaceTemporarilyEmptyForMoveFlow() throws {
         let workspace = Workspace()
-        guard let panelId = workspace.focusedPanelId,
-              let paneId = workspace.paneId(forPanelId: panelId) else {
-            XCTFail("Expected initial panel and pane")
-            return
-        }
+        let panelId = try XCTUnwrap(workspace.focusedPanelId, "Expected initial panel and pane")
+        let paneId = try XCTUnwrap(workspace.paneId(forPanelId: panelId), "Expected initial panel and pane")
 
         XCTAssertEqual(workspace.panels.count, 1)
-#if DEBUG
-        let baselineFocusReconcileDuringDetach = workspace.debugFocusReconcileScheduledDuringDetachCount
-#endif
+        #if DEBUG
+            let baselineFocusReconcileDuringDetach = workspace.debugFocusReconcileScheduledDuringDetachCount
+        #endif
 
-        guard let detached = workspace.detachSurface(panelId: panelId) else {
-            XCTFail("Expected detach of last surface to succeed")
-            return
-        }
+        let detached = try XCTUnwrap(workspace.detachSurface(panelId: panelId), "Expected detach of last surface to succeed")
 
         XCTAssertEqual(detached.panelId, panelId)
         XCTAssertTrue(
@@ -6530,37 +6412,31 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
 
         drainMainQueue()
         drainMainQueue()
-#if DEBUG
-        XCTAssertEqual(
-            workspace.debugFocusReconcileScheduledDuringDetachCount,
-            baselineFocusReconcileDuringDetach,
-            "Detaching during cross-workspace moves should not schedule delayed source focus reconciliation"
-        )
-#endif
+        #if DEBUG
+            XCTAssertEqual(
+                workspace.debugFocusReconcileScheduledDuringDetachCount,
+                baselineFocusReconcileDuringDetach,
+                "Detaching during cross-workspace moves should not schedule delayed source focus reconciliation"
+            )
+        #endif
 
         let restoredPanelId = workspace.attachDetachedSurface(detached, inPane: paneId, focus: false)
         XCTAssertEqual(restoredPanelId, panelId)
         XCTAssertEqual(workspace.panels.count, 1)
     }
 
-    func testDetachSurfaceWithRemainingPanelsSkipsDelayedFocusReconcile() {
+    func testDetachSurfaceWithRemainingPanelsSkipsDelayedFocusReconcile() throws {
         let workspace = Workspace()
-        guard let originalPanelId = workspace.focusedPanelId,
-              let movedPanel = workspace.newTerminalSplit(from: originalPanelId, orientation: .horizontal) else {
-            XCTFail("Expected two panels before detach")
-            return
-        }
+        let originalPanelId = try XCTUnwrap(workspace.focusedPanelId, "Expected two panels before detach")
+        let movedPanel = try XCTUnwrap(workspace.newTerminalSplit(from: originalPanelId, orientation: .horizontal), "Expected two panels before detach")
 
         drainMainQueue()
         drainMainQueue()
-#if DEBUG
-        let baselineFocusReconcileDuringDetach = workspace.debugFocusReconcileScheduledDuringDetachCount
-#endif
+        #if DEBUG
+            let baselineFocusReconcileDuringDetach = workspace.debugFocusReconcileScheduledDuringDetachCount
+        #endif
 
-        guard let detached = workspace.detachSurface(panelId: movedPanel.id) else {
-            XCTFail("Expected detach to succeed")
-            return
-        }
+        let detached = try XCTUnwrap(workspace.detachSurface(panelId: movedPanel.id), "Expected detach to succeed")
 
         XCTAssertEqual(detached.panelId, movedPanel.id)
         XCTAssertEqual(workspace.panels.count, 1, "Expected source workspace to retain only the surviving panel")
@@ -6568,28 +6444,22 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
 
         drainMainQueue()
         drainMainQueue()
-#if DEBUG
-        XCTAssertEqual(
-            workspace.debugFocusReconcileScheduledDuringDetachCount,
-            baselineFocusReconcileDuringDetach,
-            "Detaching into another workspace should not enqueue delayed source focus reconciliation"
-        )
-#endif
+        #if DEBUG
+            XCTAssertEqual(
+                workspace.debugFocusReconcileScheduledDuringDetachCount,
+                baselineFocusReconcileDuringDetach,
+                "Detaching into another workspace should not enqueue delayed source focus reconciliation"
+            )
+        #endif
     }
 
-    func testDetachAttachAcrossWorkspacesPreservesNonCustomPanelTitle() {
+    func testDetachAttachAcrossWorkspacesPreservesNonCustomPanelTitle() throws {
         let source = Workspace()
-        guard let panelId = source.focusedPanelId else {
-            XCTFail("Expected source focused panel")
-            return
-        }
+        let panelId = try XCTUnwrap(source.focusedPanelId, "Expected source focused panel")
 
         XCTAssertTrue(source.updatePanelTitle(panelId: panelId, title: "detached-runtime-title"))
 
-        guard let detached = source.detachSurface(panelId: panelId) else {
-            XCTFail("Expected detach to succeed")
-            return
-        }
+        let detached = try XCTUnwrap(source.detachSurface(panelId: panelId), "Expected detach to succeed")
 
         XCTAssertEqual(detached.cachedTitle, "detached-runtime-title")
         XCTAssertNil(detached.customTitle)
@@ -6600,10 +6470,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         )
 
         let destination = Workspace()
-        guard let destinationPane = destination.bonsplitController.allPaneIds.first else {
-            XCTFail("Expected destination pane")
-            return
-        }
+        let destinationPane = try XCTUnwrap(destination.bonsplitController.allPaneIds.first, "Expected destination pane")
 
         let attachedPanelId = destination.attachDetachedSurface(
             detached,
@@ -6613,42 +6480,27 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertEqual(attachedPanelId, panelId)
         XCTAssertEqual(destination.panelTitle(panelId: panelId), "detached-runtime-title")
 
-        guard let attachedTabId = destination.surfaceIdFromPanelId(panelId),
-              let attachedTab = destination.bonsplitController.tab(attachedTabId) else {
-            XCTFail("Expected attached tab mapping")
-            return
-        }
+        let attachedTabId = try XCTUnwrap(destination.surfaceIdFromPanelId(panelId), "Expected attached tab mapping")
+        let attachedTab = try XCTUnwrap(destination.bonsplitController.tab(attachedTabId), "Expected attached tab mapping")
         XCTAssertEqual(attachedTab.title, "detached-runtime-title")
         XCTAssertFalse(attachedTab.hasCustomTitle)
     }
 
-    func testBrowserSplitWithFocusFalseRecoversFromDelayedStaleSelection() {
+    func testBrowserSplitWithFocusFalseRecoversFromDelayedStaleSelection() throws {
         let workspace = Workspace()
-        guard let originalFocusedPanelId = workspace.focusedPanelId else {
-            XCTFail("Expected initial focused panel")
-            return
-        }
-        guard let originalPaneId = workspace.paneId(forPanelId: originalFocusedPanelId) else {
-            XCTFail("Expected focused pane for initial panel")
-            return
-        }
+        let originalFocusedPanelId = try XCTUnwrap(workspace.focusedPanelId, "Expected initial focused panel")
+        let originalPaneId = try XCTUnwrap(workspace.paneId(forPanelId: originalFocusedPanelId), "Expected focused pane for initial panel")
 
-        guard let browserSplitPanel = workspace.newBrowserSplit(
+        let browserSplitPanel = try XCTUnwrap(workspace.newBrowserSplit(
             from: originalFocusedPanelId,
             orientation: .horizontal,
             focus: false
-        ) else {
-            XCTFail("Expected browser split panel to be created")
-            return
-        }
-        guard let splitPaneId = workspace.paneId(forPanelId: browserSplitPanel.id),
-              let splitTabId = workspace.surfaceIdFromPanelId(browserSplitPanel.id),
-              let splitTab = workspace.bonsplitController
-              .tabs(inPane: splitPaneId)
-              .first(where: { $0.id == splitTabId }) else {
-            XCTFail("Expected split pane/tab mapping")
-            return
-        }
+        ), "Expected browser split panel to be created")
+        let splitPaneId = try XCTUnwrap(workspace.paneId(forPanelId: browserSplitPanel.id), "Expected split pane/tab mapping")
+        let splitTabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(browserSplitPanel.id), "Expected split pane/tab mapping")
+        let splitTab = try XCTUnwrap(workspace.bonsplitController
+            .tabs(inPane: splitPaneId)
+            .first(where: { $0.id == splitTabId }), "Expected split pane/tab mapping")
 
         // Simulate one delayed stale split-selection callback from bonsplit.
         DispatchQueue.main.async {
@@ -6676,21 +6528,15 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         )
     }
 
-    func testBrowserSplitWithFocusFalseAllowsSubsequentExplicitFocusOnSplitPanel() {
+    func testBrowserSplitWithFocusFalseAllowsSubsequentExplicitFocusOnSplitPanel() throws {
         let workspace = Workspace()
-        guard let originalFocusedPanelId = workspace.focusedPanelId else {
-            XCTFail("Expected initial focused panel")
-            return
-        }
+        let originalFocusedPanelId = try XCTUnwrap(workspace.focusedPanelId, "Expected initial focused panel")
 
-        guard let browserSplitPanel = workspace.newBrowserSplit(
+        let browserSplitPanel = try XCTUnwrap(workspace.newBrowserSplit(
             from: originalFocusedPanelId,
             orientation: .horizontal,
             focus: false
-        ) else {
-            XCTFail("Expected browser split panel to be created")
-            return
-        }
+        ), "Expected browser split panel to be created")
 
         workspace.focusPanel(browserSplitPanel.id)
 
@@ -6705,18 +6551,12 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         )
     }
 
-    func testClosingFocusedSplitRestoresBranchForRemainingFocusedPanel() {
+    func testClosingFocusedSplitRestoresBranchForRemainingFocusedPanel() throws {
         let workspace = Workspace()
-        guard let firstPanelId = workspace.focusedPanelId else {
-            XCTFail("Expected initial focused panel")
-            return
-        }
+        let firstPanelId = try XCTUnwrap(workspace.focusedPanelId, "Expected initial focused panel")
 
         workspace.updatePanelGitBranch(panelId: firstPanelId, branch: "main", isDirty: false)
-        guard let secondPanel = workspace.newTerminalSplit(from: firstPanelId, orientation: .horizontal) else {
-            XCTFail("Expected split panel to be created")
-            return
-        }
+        let secondPanel = try XCTUnwrap(workspace.newTerminalSplit(from: firstPanelId, orientation: .horizontal), "Expected split panel to be created")
 
         workspace.updatePanelGitBranch(panelId: secondPanel.id, branch: "feature/bugfix", isDirty: true)
         XCTAssertEqual(workspace.focusedPanelId, secondPanel.id, "Expected split panel to be focused")
@@ -6729,18 +6569,12 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertEqual(workspace.gitBranch?.isDirty, false)
     }
 
-    func testSidebarGitBranchesFollowLeftToRightSplitOrder() {
+    func testSidebarGitBranchesFollowLeftToRightSplitOrder() throws {
         let workspace = Workspace()
-        guard let leftPanelId = workspace.focusedPanelId else {
-            XCTFail("Expected initial focused panel")
-            return
-        }
+        let leftPanelId = try XCTUnwrap(workspace.focusedPanelId, "Expected initial focused panel")
 
         workspace.updatePanelGitBranch(panelId: leftPanelId, branch: "main", isDirty: false)
-        guard let rightPanel = workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal) else {
-            XCTFail("Expected split panel to be created")
-            return
-        }
+        let rightPanel = try XCTUnwrap(workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal), "Expected split panel to be created")
         workspace.updatePanelGitBranch(panelId: rightPanel.id, branch: "feature/sidebar", isDirty: true)
 
         let ordered = workspace.sidebarGitBranchesInDisplayOrder()
@@ -6748,17 +6582,14 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertEqual(ordered.map(\.isDirty), [false, true])
     }
 
-    func testSidebarOrderingUsesPaneOrderThenTabOrderWithBranchDeduping() {
+    func testSidebarOrderingUsesPaneOrderThenTabOrderWithBranchDeduping() throws {
         let workspace = Workspace()
-        guard let leftFirstPanelId = workspace.focusedPanelId,
-              let leftPaneId = workspace.paneId(forPanelId: leftFirstPanelId),
-              let rightFirstPanel = workspace.newTerminalSplit(from: leftFirstPanelId, orientation: .horizontal),
-              let rightPaneId = workspace.paneId(forPanelId: rightFirstPanel.id),
-              let leftSecondPanel = workspace.newTerminalSurface(inPane: leftPaneId, focus: false),
-              let rightSecondPanel = workspace.newTerminalSurface(inPane: rightPaneId, focus: false) else {
-            XCTFail("Expected panes and panels for ordering test")
-            return
-        }
+        let leftFirstPanelId = try XCTUnwrap(workspace.focusedPanelId, "Expected panes and panels for ordering test")
+        let leftPaneId = try XCTUnwrap(workspace.paneId(forPanelId: leftFirstPanelId), "Expected panes and panels for ordering test")
+        let rightFirstPanel = try XCTUnwrap(workspace.newTerminalSplit(from: leftFirstPanelId, orientation: .horizontal), "Expected panes and panels for ordering test")
+        let rightPaneId = try XCTUnwrap(workspace.paneId(forPanelId: rightFirstPanel.id), "Expected panes and panels for ordering test")
+        let leftSecondPanel = try XCTUnwrap(workspace.newTerminalSurface(inPane: leftPaneId, focus: false), "Expected panes and panels for ordering test")
+        let rightSecondPanel = try XCTUnwrap(workspace.newTerminalSurface(inPane: rightPaneId, focus: false), "Expected panes and panels for ordering test")
 
         XCTAssertTrue(workspace.reorderSurface(panelId: leftFirstPanelId, toIndex: 0))
         XCTAssertTrue(workspace.reorderSurface(panelId: leftSecondPanel.id, toIndex: 1))
@@ -6780,17 +6611,14 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertEqual(branches.map(\.isDirty), [true, false, false])
     }
 
-    func testSidebarDerivedCollectionsMatchWhenUsingPrecomputedPanelOrder() {
+    func testSidebarDerivedCollectionsMatchWhenUsingPrecomputedPanelOrder() throws {
         let workspace = Workspace()
-        guard let leftFirstPanelId = workspace.focusedPanelId,
-              let leftPaneId = workspace.paneId(forPanelId: leftFirstPanelId),
-              let rightFirstPanel = workspace.newTerminalSplit(from: leftFirstPanelId, orientation: .horizontal),
-              let rightPaneId = workspace.paneId(forPanelId: rightFirstPanel.id),
-              let leftSecondPanel = workspace.newTerminalSurface(inPane: leftPaneId, focus: false),
-              let rightSecondPanel = workspace.newTerminalSurface(inPane: rightPaneId, focus: false) else {
-            XCTFail("Expected panes and panels for precomputed ordering test")
-            return
-        }
+        let leftFirstPanelId = try XCTUnwrap(workspace.focusedPanelId, "Expected panes and panels for precomputed ordering test")
+        let leftPaneId = try XCTUnwrap(workspace.paneId(forPanelId: leftFirstPanelId), "Expected panes and panels for precomputed ordering test")
+        let rightFirstPanel = try XCTUnwrap(workspace.newTerminalSplit(from: leftFirstPanelId, orientation: .horizontal), "Expected panes and panels for precomputed ordering test")
+        let rightPaneId = try XCTUnwrap(workspace.paneId(forPanelId: rightFirstPanel.id), "Expected panes and panels for precomputed ordering test")
+        let leftSecondPanel = try XCTUnwrap(workspace.newTerminalSurface(inPane: leftPaneId, focus: false), "Expected panes and panels for precomputed ordering test")
+        let rightSecondPanel = try XCTUnwrap(workspace.newTerminalSurface(inPane: rightPaneId, focus: false), "Expected panes and panels for precomputed ordering test")
 
         workspace.updatePanelGitBranch(panelId: leftFirstPanelId, branch: "main", isDirty: false)
         workspace.updatePanelGitBranch(panelId: leftSecondPanel.id, branch: "feature/left", isDirty: true)
@@ -6801,18 +6629,18 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         workspace.updatePanelDirectory(panelId: rightFirstPanel.id, directory: "/repo/right/root")
         workspace.updatePanelDirectory(panelId: rightSecondPanel.id, directory: "/repo/right/extra")
 
-        workspace.updatePanelPullRequest(
+        try workspace.updatePanelPullRequest(
             panelId: leftFirstPanelId,
             number: 101,
             label: "PR",
-            url: URL(string: "https://github.com/manaflow-ai/cmux/pull/101")!,
+            url: XCTUnwrap(URL(string: "https://github.com/manaflow-ai/cmux/pull/101")),
             status: .open
         )
-        workspace.updatePanelPullRequest(
+        try workspace.updatePanelPullRequest(
             panelId: rightFirstPanel.id,
             number: 18,
             label: "MR",
-            url: URL(string: "https://gitlab.com/manaflow/cmux/-/merge_requests/18")!,
+            url: XCTUnwrap(URL(string: "https://gitlab.com/manaflow/cmux/-/merge_requests/18")),
             status: .merged
         )
 
@@ -6832,14 +6660,11 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         )
     }
 
-    func testClosingPaneDropsBranchesFromClosedSide() {
+    func testClosingPaneDropsBranchesFromClosedSide() throws {
         let workspace = Workspace()
-        guard let leftPanelId = workspace.focusedPanelId,
-              let leftPaneId = workspace.paneId(forPanelId: leftPanelId),
-              let rightPanel = workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal) else {
-            XCTFail("Expected left/right split panes")
-            return
-        }
+        let leftPanelId = try XCTUnwrap(workspace.focusedPanelId, "Expected left/right split panes")
+        let leftPaneId = try XCTUnwrap(workspace.paneId(forPanelId: leftPanelId), "Expected left/right split panes")
+        let rightPanel = try XCTUnwrap(workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal), "Expected left/right split panes")
 
         workspace.updatePanelGitBranch(panelId: leftPanelId, branch: "branch1", isDirty: false)
         workspace.updatePanelGitBranch(panelId: rightPanel.id, branch: "branch2", isDirty: false)
@@ -6848,10 +6673,19 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertTrue(workspace.bonsplitController.closePane(leftPaneId))
         XCTAssertEqual(workspace.sidebarGitBranchesInDisplayOrder().map(\.branch), ["branch2"])
     }
+
+    private func drainMainQueue() {
+        let expectation = expectation(description: "drain main queue")
+        DispatchQueue.main.async {
+            expectation.fulfill()
+        }
+        wait(for: [expectation], timeout: 1.0)
+    }
 }
 
-final class SidebarBranchOrderingTests: XCTestCase {
+// MARK: - SidebarBranchOrderingTests
 
+final class SidebarBranchOrderingTests: XCTestCase {
     func testOrderedUniqueBranchesDedupesByNameAndMergesDirtyState() {
         let first = UUID()
         let second = UUID()
@@ -6862,7 +6696,7 @@ final class SidebarBranchOrderingTests: XCTestCase {
             panelBranches: [
                 first: SidebarGitBranchState(branch: "main", isDirty: false),
                 second: SidebarGitBranchState(branch: "feature", isDirty: false),
-                third: SidebarGitBranchState(branch: "main", isDirty: true)
+                third: SidebarGitBranchState(branch: "main", isDirty: true),
             ],
             fallbackBranch: SidebarGitBranchState(branch: "fallback", isDirty: false)
         )
@@ -6871,7 +6705,7 @@ final class SidebarBranchOrderingTests: XCTestCase {
             branches,
             [
                 SidebarBranchOrdering.BranchEntry(name: "main", isDirty: true),
-                SidebarBranchOrdering.BranchEntry(name: "feature", isDirty: false)
+                SidebarBranchOrdering.BranchEntry(name: "feature", isDirty: false),
             ]
         )
     }
@@ -6902,14 +6736,14 @@ final class SidebarBranchOrderingTests: XCTestCase {
                 first: SidebarGitBranchState(branch: "main", isDirty: false),
                 second: SidebarGitBranchState(branch: "feature", isDirty: false),
                 third: SidebarGitBranchState(branch: "main", isDirty: true),
-                fourth: SidebarGitBranchState(branch: "main", isDirty: false)
+                fourth: SidebarGitBranchState(branch: "main", isDirty: false),
             ],
             panelDirectories: [
                 first: "/repo/a",
                 second: "/repo/b",
                 third: "/repo/a",
                 fourth: "/repo/d",
-                fifth: "/repo/e"
+                fifth: "/repo/e",
             ],
             defaultDirectory: "/repo/default",
             fallbackBranch: SidebarGitBranchState(branch: "fallback", isDirty: false)
@@ -6921,7 +6755,7 @@ final class SidebarBranchOrderingTests: XCTestCase {
                 SidebarBranchOrdering.BranchDirectoryEntry(branch: "main", isDirty: true, directory: "/repo/a"),
                 SidebarBranchOrdering.BranchDirectoryEntry(branch: "feature", isDirty: false, directory: "/repo/b"),
                 SidebarBranchOrdering.BranchDirectoryEntry(branch: "main", isDirty: false, directory: "/repo/d"),
-                SidebarBranchOrdering.BranchDirectoryEntry(branch: nil, isDirty: false, directory: "/repo/e")
+                SidebarBranchOrdering.BranchDirectoryEntry(branch: nil, isDirty: false, directory: "/repo/e"),
             ]
         )
     }
@@ -6935,7 +6769,7 @@ final class SidebarBranchOrderingTests: XCTestCase {
             panelBranches: [:],
             panelDirectories: [
                 first: "/repo/one",
-                second: "/repo/two"
+                second: "/repo/two",
             ],
             defaultDirectory: "/repo/default",
             fallbackBranch: SidebarGitBranchState(branch: "main", isDirty: true)
@@ -6945,7 +6779,7 @@ final class SidebarBranchOrderingTests: XCTestCase {
             rows,
             [
                 SidebarBranchOrdering.BranchDirectoryEntry(branch: "main", isDirty: true, directory: "/repo/one"),
-                SidebarBranchOrdering.BranchDirectoryEntry(branch: "main", isDirty: true, directory: "/repo/two")
+                SidebarBranchOrdering.BranchDirectoryEntry(branch: "main", isDirty: true, directory: "/repo/two"),
             ]
         )
     }
@@ -6997,7 +6831,7 @@ final class SidebarBranchOrderingTests: XCTestCase {
                     label: "PR",
                     url: "https://bitbucket.org/manaflow/cmux/pull-requests/92",
                     status: .closed
-                )
+                ),
             ],
             fallbackPullRequest: pullRequestState(
                 number: 1,
@@ -7035,7 +6869,7 @@ final class SidebarBranchOrderingTests: XCTestCase {
                     label: "MR",
                     url: "https://gitlab.com/manaflow/cmux/-/merge_requests/42",
                     status: .open
-                )
+                ),
             ],
             fallbackPullRequest: nil
         )
@@ -7064,7 +6898,7 @@ final class SidebarBranchOrderingTests: XCTestCase {
                     label: "PR",
                     url: "https://github.com/manaflow-ai/other-repo/pull/42",
                     status: .open
-                )
+                ),
             ],
             fallbackPullRequest: nil
         )
@@ -7073,7 +6907,7 @@ final class SidebarBranchOrderingTests: XCTestCase {
             pullRequests.map(\.url.absoluteString),
             [
                 "https://github.com/manaflow-ai/cmux/pull/42",
-                "https://github.com/manaflow-ai/other-repo/pull/42"
+                "https://github.com/manaflow-ai/other-repo/pull/42",
             ]
         )
     }
@@ -7108,6 +6942,8 @@ final class SidebarBranchOrderingTests: XCTestCase {
         )
     }
 }
+
+// MARK: - BrowserPanelAddressBarFocusRequestTests
 
 @MainActor
 final class BrowserPanelAddressBarFocusRequestTests: XCTestCase {
@@ -7154,6 +6990,8 @@ final class BrowserPanelAddressBarFocusRequestTests: XCTestCase {
         XCTAssertNil(panel.pendingAddressBarFocusRequestId)
     }
 }
+
+// MARK: - SidebarDropPlannerTests
 
 final class SidebarDropPlannerTests: XCTestCase {
     func testNoIndicatorForNoOpEdges() {
@@ -7380,8 +7218,9 @@ final class SidebarDropPlannerTests: XCTestCase {
 
         XCTAssertEqual(targetIndex, 2)
     }
-
 }
+
+// MARK: - SidebarDragAutoScrollPlannerTests
 
 final class SidebarDragAutoScrollPlannerTests: XCTestCase {
     func testAutoScrollPlanTriggersNearTopAndBottomOnly() {
@@ -7417,6 +7256,8 @@ final class SidebarDragAutoScrollPlannerTests: XCTestCase {
         XCTAssertEqual(belowBottom?.pointsPerTick, 12)
     }
 }
+
+// MARK: - FinderServicePathResolverTests
 
 final class FinderServicePathResolverTests: XCTestCase {
     func testOrderedUniqueDirectoriesUsesParentForFilesAndDedupes() {
@@ -7456,18 +7297,9 @@ final class FinderServicePathResolverTests: XCTestCase {
     }
 }
 
-final class TerminalDirectoryOpenTargetAvailabilityTests: XCTestCase {
-    private func environment(
-        existingPaths: Set<String>,
-        homeDirectoryPath: String = "/Users/tester"
-    ) -> TerminalDirectoryOpenTarget.DetectionEnvironment {
-        TerminalDirectoryOpenTarget.DetectionEnvironment(
-            homeDirectoryPath: homeDirectoryPath,
-            fileExistsAtPath: { existingPaths.contains($0) },
-            isExecutableFileAtPath: { existingPaths.contains($0) }
-        )
-    }
+// MARK: - TerminalDirectoryOpenTargetAvailabilityTests
 
+final class TerminalDirectoryOpenTargetAvailabilityTests: XCTestCase {
     func testAvailableTargetsDetectSystemApplications() {
         let env = environment(
             existingPaths: [
@@ -7523,7 +7355,20 @@ final class TerminalDirectoryOpenTargetAvailabilityTests: XCTestCase {
         XCTAssertFalse(targets.contains(where: { $0.commandPaletteTitle == "Open Current Directory in IDE" }))
         XCTAssertFalse(targets.contains(where: { $0.commandPaletteCommandId == "palette.terminalOpenDirectory" }))
     }
+
+    private func environment(
+        existingPaths: Set<String>,
+        homeDirectoryPath: String = "/Users/tester"
+    ) -> TerminalDirectoryOpenTarget.DetectionEnvironment {
+        TerminalDirectoryOpenTarget.DetectionEnvironment(
+            homeDirectoryPath: homeDirectoryPath,
+            fileExistsAtPath: { existingPaths.contains($0) },
+            isExecutableFileAtPath: { existingPaths.contains($0) }
+        )
+    }
 }
+
+// MARK: - VSCodeServeWebURLBuilderTests
 
 final class VSCodeServeWebURLBuilderTests: XCTestCase {
     func testExtractWebUIURLParsesServeWebOutput() {
@@ -7538,28 +7383,28 @@ final class VSCodeServeWebURLBuilderTests: XCTestCase {
         XCTAssertEqual(url?.absoluteString, "http://127.0.0.1:5555?tkn=test-token")
     }
 
-    func testOpenFolderURLAppendsFolderQueryWhilePreservingToken() {
-        let baseURL = URL(string: "http://127.0.0.1:5555?tkn=test-token")!
+    func testOpenFolderURLAppendsFolderQueryWhilePreservingToken() throws {
+        let baseURL = try XCTUnwrap(URL(string: "http://127.0.0.1:5555?tkn=test-token"))
 
         let url = VSCodeServeWebURLBuilder.openFolderURL(
             baseWebUIURL: baseURL,
             directoryPath: "/Users/tester/Projects/cmux"
         )
 
-        let components = URLComponents(url: url!, resolvingAgainstBaseURL: false)
+        let components = try URLComponents(url: XCTUnwrap(url), resolvingAgainstBaseURL: false)
         XCTAssertEqual(components?.queryItems?.first(where: { $0.name == "tkn" })?.value, "test-token")
         XCTAssertEqual(components?.queryItems?.first(where: { $0.name == "folder" })?.value, "/Users/tester/Projects/cmux")
     }
 
-    func testOpenFolderURLReplacesExistingFolderQuery() {
-        let baseURL = URL(string: "http://127.0.0.1:5555?tkn=test-token&folder=/tmp/old")!
+    func testOpenFolderURLReplacesExistingFolderQuery() throws {
+        let baseURL = try XCTUnwrap(URL(string: "http://127.0.0.1:5555?tkn=test-token&folder=/tmp/old"))
 
         let url = VSCodeServeWebURLBuilder.openFolderURL(
             baseWebUIURL: baseURL,
             directoryPath: "/Users/tester/New Folder"
         )
 
-        let components = URLComponents(url: url!, resolvingAgainstBaseURL: false)
+        let components = try URLComponents(url: XCTUnwrap(url), resolvingAgainstBaseURL: false)
         XCTAssertEqual(
             components?.queryItems?.filter { $0.name == "folder" }.count,
             1
@@ -7570,6 +7415,8 @@ final class VSCodeServeWebURLBuilderTests: XCTestCase {
         )
     }
 }
+
+// MARK: - VSCodeCLILaunchConfigurationBuilderTests
 
 final class VSCodeCLILaunchConfigurationBuilderTests: XCTestCase {
     func testLaunchConfigurationUsesCodeTunnelBinary() {
@@ -7593,7 +7440,7 @@ final class VSCodeCLILaunchConfigurationBuilderTests: XCTestCase {
             baseEnvironment: [
                 "PATH": "/usr/bin:/bin",
                 "NODE_OPTIONS": "--max-old-space-size=4096",
-                "NODE_REPL_EXTERNAL_MODULE": "module-name"
+                "NODE_REPL_EXTERNAL_MODULE": "module-name",
             ],
             isExecutableAtPath: { _ in true }
         )
@@ -7611,7 +7458,7 @@ final class VSCodeCLILaunchConfigurationBuilderTests: XCTestCase {
             baseEnvironment: [
                 "PATH": "/usr/bin:/bin",
                 "VSCODE_NODE_OPTIONS": "--stale",
-                "VSCODE_NODE_REPL_EXTERNAL_MODULE": "stale-module"
+                "VSCODE_NODE_REPL_EXTERNAL_MODULE": "stale-module",
             ],
             isExecutableAtPath: { _ in true }
         )
@@ -7621,6 +7468,8 @@ final class VSCodeCLILaunchConfigurationBuilderTests: XCTestCase {
         XCTAssertNil(configuration?.environment["VSCODE_NODE_REPL_EXTERNAL_MODULE"])
     }
 }
+
+// MARK: - ServeWebOutputCollectorTests
 
 final class ServeWebOutputCollectorTests: XCTestCase {
     func testWaitForURLReturnsFalseAfterProcessExitSignal() {
@@ -7661,6 +7510,8 @@ final class ServeWebOutputCollectorTests: XCTestCase {
         XCTAssertEqual(collector.webUIURL?.absoluteString, "http://127.0.0.1:9001?tkn=final-token")
     }
 }
+
+// MARK: - VSCodeServeWebControllerTests
 
 final class VSCodeServeWebControllerTests: XCTestCase {
     func testStopDuringInFlightLaunchDoesNotDropNextGenerationCompletion() {
@@ -7748,6 +7599,8 @@ final class VSCodeServeWebControllerTests: XCTestCase {
     }
 }
 
+// MARK: - BrowserSearchEngineTests
+
 final class BrowserSearchEngineTests: XCTestCase {
     func testGoogleSearchURL() throws {
         let url = try XCTUnwrap(BrowserSearchEngine.google.searchURL(query: "hello world"))
@@ -7771,13 +7624,12 @@ final class BrowserSearchEngineTests: XCTestCase {
     }
 }
 
+// MARK: - BrowserSearchSettingsTests
+
 final class BrowserSearchSettingsTests: XCTestCase {
-    func testCurrentSearchSuggestionsEnabledDefaultsToTrueWhenUnset() {
+    func testCurrentSearchSuggestionsEnabledDefaultsToTrueWhenUnset() throws {
         let suiteName = "BrowserSearchSettingsTests.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Failed to create isolated UserDefaults suite")
-            return
-        }
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite")
         defer {
             defaults.removePersistentDomain(forName: suiteName)
         }
@@ -7786,12 +7638,9 @@ final class BrowserSearchSettingsTests: XCTestCase {
         XCTAssertTrue(BrowserSearchSettings.currentSearchSuggestionsEnabled(defaults: defaults))
     }
 
-    func testCurrentSearchSuggestionsEnabledHonorsExplicitValue() {
+    func testCurrentSearchSuggestionsEnabledHonorsExplicitValue() throws {
         let suiteName = "BrowserSearchSettingsTests.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Failed to create isolated UserDefaults suite")
-            return
-        }
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite")
         defer {
             defaults.removePersistentDomain(forName: suiteName)
         }
@@ -7804,9 +7653,12 @@ final class BrowserSearchSettingsTests: XCTestCase {
     }
 }
 
+// MARK: - BrowserHistoryStoreTests
+
 final class BrowserHistoryStoreTests: XCTestCase {
     func testRecordVisitDedupesAndSuggests() async throws {
-        let tempDir = FileManager.default.temporaryDirectory
+        let tempDir = FileManager.default
+            .temporaryDirectory
             .appendingPathComponent("BrowserHistoryStoreTests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
         defer {
@@ -7832,7 +7684,8 @@ final class BrowserHistoryStoreTests: XCTestCase {
     }
 
     func testSuggestionsLoadsPersistedHistoryImmediatelyOnFirstQuery() async throws {
-        let tempDir = FileManager.default.temporaryDirectory
+        let tempDir = FileManager.default
+            .temporaryDirectory
             .appendingPathComponent("BrowserHistoryStoreTests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
         defer {
@@ -7872,8 +7725,10 @@ final class BrowserHistoryStoreTests: XCTestCase {
     }
 }
 
+// MARK: - OmnibarStateMachineTests
+
 final class OmnibarStateMachineTests: XCTestCase {
-    func testEscapeRevertsWhenEditingThenBlursOnSecondEscape() throws {
+    func testEscapeRevertsWhenEditingThenBlursOnSecondEscape() {
         var state = OmnibarState()
 
         var effects = omnibarReduce(state: &state, event: .focusGained(currentURLString: "https://example.com/"))
@@ -7908,7 +7763,7 @@ final class OmnibarStateMachineTests: XCTestCase {
         XCTAssertTrue(effects.shouldBlurToWebView)
     }
 
-    func testPanelURLChangeDoesNotClobberUserBufferWhileEditing() throws {
+    func testPanelURLChangeDoesNotClobberUserBufferWhileEditing() {
         var state = OmnibarState()
         _ = omnibarReduce(state: &state, event: .focusGained(currentURLString: "https://a.test/"))
         _ = omnibarReduce(state: &state, event: .bufferChanged("hello"))
@@ -7924,7 +7779,7 @@ final class OmnibarStateMachineTests: XCTestCase {
         XCTAssertTrue(effects.shouldSelectAll)
     }
 
-    func testFocusLostRevertsUnlessSuppressed() throws {
+    func testFocusLostRevertsUnlessSuppressed() {
         var state = OmnibarState()
         _ = omnibarReduce(state: &state, event: .focusGained(currentURLString: "https://example.com/"))
         _ = omnibarReduce(state: &state, event: .bufferChanged("typed"))
@@ -7939,7 +7794,7 @@ final class OmnibarStateMachineTests: XCTestCase {
         XCTAssertEqual(state.buffer, "https://example.com/")
     }
 
-    func testSuggestionsUpdateKeepsSelectionAcrossNonEmptyListRefresh() throws {
+    func testSuggestionsUpdateKeepsSelectionAcrossNonEmptyListRefresh() {
         var state = OmnibarState()
         _ = omnibarReduce(state: &state, event: .focusGained(currentURLString: "https://example.com/"))
         _ = omnibarReduce(state: &state, event: .bufferChanged("go"))
@@ -7966,7 +7821,7 @@ final class OmnibarStateMachineTests: XCTestCase {
         XCTAssertEqual(state.selectedSuggestionIndex, 2, "Expected selection to remain stable while list stays open")
     }
 
-    func testSuggestionsReopenResetsSelectionToFirstRow() throws {
+    func testSuggestionsReopenResetsSelectionToFirstRow() {
         var state = OmnibarState()
         _ = omnibarReduce(state: &state, event: .focusGained(currentURLString: "https://example.com/"))
         _ = omnibarReduce(state: &state, event: .bufferChanged("go"))
@@ -7986,7 +7841,7 @@ final class OmnibarStateMachineTests: XCTestCase {
         XCTAssertEqual(state.selectedSuggestionIndex, 0, "Expected reopened popup to focus first row")
     }
 
-    func testSuggestionsUpdatePrefersAutocompleteMatchWhenSelectionNotTracked() throws {
+    func testSuggestionsUpdatePrefersAutocompleteMatchWhenSelectionNotTracked() {
         var state = OmnibarState()
         _ = omnibarReduce(state: &state, event: .focusGained(currentURLString: "https://example.com/"))
         _ = omnibarReduce(state: &state, event: .bufferChanged("gm"))
@@ -8003,6 +7858,8 @@ final class OmnibarStateMachineTests: XCTestCase {
         XCTAssertEqual(state.suggestions[state.selectedSuggestionIndex].completion, "https://gmail.com/")
     }
 }
+
+// MARK: - OmnibarRemoteSuggestionMergeTests
 
 final class OmnibarRemoteSuggestionMergeTests: XCTestCase {
     func testMergeRemoteSuggestionsInsertsBelowSearchAndDedupes() {
@@ -8071,10 +7928,16 @@ final class OmnibarRemoteSuggestionMergeTests: XCTestCase {
     }
 }
 
+// MARK: - OmnibarSuggestionRankingTests
+
 final class OmnibarSuggestionRankingTests: XCTestCase {
+    // MARK: Computed Properties
+
     private var fixedNow: Date {
         Date(timeIntervalSinceReferenceDate: 10_000_000)
     }
+
+    // MARK: Functions
 
     func testSingleCharacterQueryPromotesAutocompletionMatchToFirstRow() {
         let entries: [BrowserHistoryStore.Entry] = [
@@ -8239,9 +8102,9 @@ final class OmnibarSuggestionRankingTests: XCTestCase {
         )
 
         var state = OmnibarState()
-        let _ = omnibarReduce(state: &state, event: .focusGained(currentURLString: ""))
-        let _ = omnibarReduce(state: &state, event: .bufferChanged("gm"))
-        let _ = omnibarReduce(state: &state, event: .suggestionsUpdated(results))
+        _ = omnibarReduce(state: &state, event: .focusGained(currentURLString: ""))
+        _ = omnibarReduce(state: &state, event: .bufferChanged("gm"))
+        _ = omnibarReduce(state: &state, event: .suggestionsUpdated(results))
 
         XCTAssertEqual(state.selectedSuggestionIndex, 0)
         XCTAssertEqual(state.selectedSuggestionID, results[0].id)
@@ -8289,7 +8152,8 @@ final class OmnibarSuggestionRankingTests: XCTestCase {
         let remoteCompletions = results.filter {
             if case .remote = $0.kind { return true }
             return false
-        }.map(\.completion)
+        }
+        .map(\.completion)
         XCTAssertFalse(remoteCompletions.isEmpty, "Expected remote suggestions to be present for two-char query")
     }
 
@@ -8342,7 +8206,8 @@ final class OmnibarSuggestionRankingTests: XCTestCase {
         let remoteCompletions = results.filter {
             if case .remote = $0.kind { return true }
             return false
-        }.map(\.completion)
+        }
+        .map(\.completion)
         XCTAssertFalse(remoteCompletions.isEmpty, "Expected remote suggestions in results")
         let hasSearch = results.contains {
             if case .search = $0.kind { return true }
@@ -8447,15 +8312,23 @@ final class OmnibarSuggestionRankingTests: XCTestCase {
     }
 }
 
+// MARK: - NotificationDockBadgeTests
+
 @MainActor
 final class NotificationDockBadgeTests: XCTestCase {
+    // MARK: Nested Types
+
     private final class NotificationSettingsAlertSpy: NSAlert {
+        // MARK: Properties
+
         private(set) var beginSheetModalCallCount = 0
         private(set) var runModalCallCount = 0
         var nextResponse: NSApplication.ModalResponse = .alertFirstButtonReturn
 
+        // MARK: Overridden Functions
+
         override func beginSheetModal(
-            for sheetWindow: NSWindow,
+            for _: NSWindow,
             completionHandler handler: ((NSApplication.ModalResponse) -> Void)?
         ) {
             beginSheetModalCallCount += 1
@@ -8468,11 +8341,15 @@ final class NotificationDockBadgeTests: XCTestCase {
         }
     }
 
+    // MARK: Overridden Functions
+
     override func tearDown() {
         TerminalNotificationStore.shared.resetNotificationSettingsPromptHooksForTesting()
         TerminalNotificationStore.shared.replaceNotificationsForTesting([])
         super.tearDown()
     }
+
+    // MARK: Functions
 
     func testDockBadgeLabelEnabledAndCounted() {
         XCTAssertEqual(TerminalNotificationStore.dockBadgeLabel(unreadCount: 1, isEnabled: true), "1")
@@ -8503,12 +8380,9 @@ final class NotificationDockBadgeTests: XCTestCase {
         )
     }
 
-    func testNotificationBadgePreferenceDefaultsToEnabled() {
+    func testNotificationBadgePreferenceDefaultsToEnabled() throws {
         let suiteName = "NotificationDockBadgeTests.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Failed to create isolated UserDefaults suite")
-            return
-        }
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite")
         defer {
             defaults.removePersistentDomain(forName: suiteName)
         }
@@ -8522,12 +8396,9 @@ final class NotificationDockBadgeTests: XCTestCase {
         XCTAssertTrue(NotificationBadgeSettings.isDockBadgeEnabled(defaults: defaults))
     }
 
-    func testNotificationPaneFlashPreferenceDefaultsToEnabled() {
+    func testNotificationPaneFlashPreferenceDefaultsToEnabled() throws {
         let suiteName = "NotificationPaneFlashSettingsTests.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Failed to create isolated UserDefaults suite")
-            return
-        }
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite")
         defer {
             defaults.removePersistentDomain(forName: suiteName)
         }
@@ -8541,12 +8412,9 @@ final class NotificationDockBadgeTests: XCTestCase {
         XCTAssertTrue(NotificationPaneFlashSettings.isEnabled(defaults: defaults))
     }
 
-    func testMenuBarExtraPreferenceDefaultsToVisible() {
+    func testMenuBarExtraPreferenceDefaultsToVisible() throws {
         let suiteName = "MenuBarExtraVisibilityTests.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Failed to create isolated UserDefaults suite")
-            return
-        }
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite")
         defer {
             defaults.removePersistentDomain(forName: suiteName)
         }
@@ -8560,12 +8428,9 @@ final class NotificationDockBadgeTests: XCTestCase {
         XCTAssertTrue(MenuBarExtraSettings.showsMenuBarExtra(defaults: defaults))
     }
 
-    func testNotificationSoundUsesSystemSoundForDefaultAndNamedSounds() {
+    func testNotificationSoundUsesSystemSoundForDefaultAndNamedSounds() throws {
         let suiteName = "NotificationDockBadgeTests.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Failed to create isolated UserDefaults suite")
-            return
-        }
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite")
         defer {
             defaults.removePersistentDomain(forName: suiteName)
         }
@@ -8577,12 +8442,9 @@ final class NotificationDockBadgeTests: XCTestCase {
         XCTAssertNotNil(NotificationSoundSettings.sound(defaults: defaults))
     }
 
-    func testNotificationSoundDisablesSystemSoundForNoneAndCustomFile() {
+    func testNotificationSoundDisablesSystemSoundForNoneAndCustomFile() throws {
         let suiteName = "NotificationDockBadgeTests.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Failed to create isolated UserDefaults suite")
-            return
-        }
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite")
         defer {
             defaults.removePersistentDomain(forName: suiteName)
         }
@@ -8596,12 +8458,9 @@ final class NotificationDockBadgeTests: XCTestCase {
         XCTAssertNil(NotificationSoundSettings.sound(defaults: defaults))
     }
 
-    func testNotificationCustomFileURLExpandsTildePath() {
+    func testNotificationCustomFileURLExpandsTildePath() throws {
         let suiteName = "NotificationDockBadgeTests.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Failed to create isolated UserDefaults suite")
-            return
-        }
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite")
         defer {
             defaults.removePersistentDomain(forName: suiteName)
         }
@@ -8612,12 +8471,9 @@ final class NotificationDockBadgeTests: XCTestCase {
         XCTAssertEqual(NotificationSoundSettings.customFileURL(defaults: defaults)?.path, expectedPath)
     }
 
-    func testNotificationCustomFileSelectionMustBeExplicit() {
+    func testNotificationCustomFileSelectionMustBeExplicit() throws {
         let suiteName = "NotificationDockBadgeTests.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Failed to create isolated UserDefaults suite")
-            return
-        }
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite")
         defer {
             defaults.removePersistentDomain(forName: suiteName)
         }
@@ -8634,12 +8490,9 @@ final class NotificationDockBadgeTests: XCTestCase {
         XCTAssertTrue(NotificationSoundSettings.isCustomFileSelected(defaults: defaults))
     }
 
-    func testNotificationCustomStagingPreservesSourceFileWithCmuxPrefix() {
+    func testNotificationCustomStagingPreservesSourceFileWithCmuxPrefix() throws {
         let suiteName = "NotificationDockBadgeTests.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Failed to create isolated UserDefaults suite")
-            return
-        }
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite")
         defer {
             defaults.removePersistentDomain(forName: suiteName)
         }
@@ -8675,10 +8528,7 @@ final class NotificationDockBadgeTests: XCTestCase {
 
         _ = NotificationSoundSettings.sound(defaults: defaults)
 
-        guard let stagedName = NotificationSoundSettings.stagedCustomSoundName(defaults: defaults) else {
-            XCTFail("Expected staged custom sound name")
-            return
-        }
+        let stagedName = try XCTUnwrap(NotificationSoundSettings.stagedCustomSoundName(defaults: defaults), "Expected staged custom sound name")
         let stagedURL = soundsDirectory.appendingPathComponent(stagedName, isDirectory: false)
         defer {
             try? fileManager.removeItem(at: stagedURL)
@@ -8723,12 +8573,9 @@ final class NotificationDockBadgeTests: XCTestCase {
         XCTAssertTrue(stagedA.hasSuffix(".caf"))
     }
 
-    func testNotificationCustomPreparationKeepsActiveSourceMetadataSidecar() {
+    func testNotificationCustomPreparationKeepsActiveSourceMetadataSidecar() throws {
         let suiteName = "NotificationDockBadgeTests.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Failed to create isolated UserDefaults suite")
-            return
-        }
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite")
         defer {
             defaults.removePersistentDomain(forName: suiteName)
         }
@@ -8764,11 +8611,11 @@ final class NotificationDockBadgeTests: XCTestCase {
         let prepareResult = NotificationSoundSettings.prepareCustomFileForNotifications(path: sourceURL.path)
         let stagedName: String
         switch prepareResult {
-        case .success(let name):
-            stagedName = name
-        case .failure(let issue):
-            XCTFail("Expected custom sound preparation success, got \(issue)")
-            return
+            case let .success(name):
+                stagedName = name
+            case let .failure(issue):
+                XCTFail("Expected custom sound preparation success, got \(issue)")
+                return
         }
 
         let stagedURL = soundsDirectory.appendingPathComponent(stagedName, isDirectory: false)
@@ -8782,17 +8629,15 @@ final class NotificationDockBadgeTests: XCTestCase {
         XCTAssertTrue(fileManager.fileExists(atPath: metadataURL.path))
     }
 
-    func testNotificationCustomSoundReturnsNilWhenPreparationFails() {
+    func testNotificationCustomSoundReturnsNilWhenPreparationFails() throws {
         let suiteName = "NotificationDockBadgeTests.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Failed to create isolated UserDefaults suite")
-            return
-        }
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite")
         defer {
             defaults.removePersistentDomain(forName: suiteName)
         }
 
-        let invalidSourceURL = FileManager.default.temporaryDirectory
+        let invalidSourceURL = FileManager.default
+            .temporaryDirectory
             .appendingPathComponent("cmux-invalid-sound-\(UUID().uuidString).mp3", isDirectory: false)
         defer {
             try? FileManager.default.removeItem(at: invalidSourceURL)
@@ -8817,19 +8662,20 @@ final class NotificationDockBadgeTests: XCTestCase {
     }
 
     func testNotificationCustomPreparationReportsMissingFile() {
-        let missingPath = FileManager.default.temporaryDirectory
+        let missingPath = FileManager.default
+            .temporaryDirectory
             .appendingPathComponent("cmux-missing-\(UUID().uuidString).wav", isDirectory: false)
             .path
 
         let result = NotificationSoundSettings.prepareCustomFileForNotifications(path: missingPath)
         switch result {
-        case .success:
-            XCTFail("Expected missing file failure")
-        case .failure(let issue):
-            guard case .missingFile = issue else {
-                XCTFail("Expected missingFile issue, got \(issue)")
-                return
-            }
+            case .success:
+                XCTFail("Expected missing file failure")
+            case let .failure(issue):
+                guard case .missingFile = issue else {
+                    XCTFail("Expected missingFile issue, got \(issue)")
+                    return
+                }
         }
     }
 
@@ -8997,7 +8843,7 @@ final class NotificationDockBadgeTests: XCTestCase {
         store.replaceNotificationsForTesting([
             notificationAUnread,
             notificationARead,
-            notificationBUnread
+            notificationBUnread,
         ])
 
         XCTAssertEqual(store.unreadCount, 2)
@@ -9051,8 +8897,134 @@ final class NotificationDockBadgeTests: XCTestCase {
     }
 }
 
+// MARK: - TerminalNotificationDirectInteractionTests
+
 @MainActor
 final class TerminalNotificationDirectInteractionTests: XCTestCase {
+    func testTerminalMouseDownDismissesUnreadWhenSurfaceIsAlreadyFirstResponder() throws {
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let manager = TabManager()
+        let store = TerminalNotificationStore.shared
+        let window = makeWindow()
+
+        let originalTabManager = appDelegate.tabManager
+        let originalNotificationStore = appDelegate.notificationStore
+        let originalAppFocusOverride = AppFocusState.overrideIsFocused
+
+        store.replaceNotificationsForTesting([])
+        store.configureNotificationDeliveryHandlerForTesting { _, _ in }
+        appDelegate.tabManager = manager
+        appDelegate.notificationStore = store
+
+        defer {
+            store.replaceNotificationsForTesting([])
+            store.resetNotificationDeliveryHandlerForTesting()
+            appDelegate.tabManager = originalTabManager
+            appDelegate.notificationStore = originalNotificationStore
+            AppFocusState.overrideIsFocused = originalAppFocusOverride
+            window.orderOut(nil)
+        }
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace, "Expected an initial focused terminal panel")
+        let terminalPanel = try XCTUnwrap(workspace.focusedTerminalPanel, "Expected an initial focused terminal panel")
+
+        let contentView = try XCTUnwrap(window.contentView, "Expected content view")
+
+        let hostedView = terminalPanel.hostedView
+        hostedView.frame = contentView.bounds
+        hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostedView)
+        contentView.layoutSubtreeIfNeeded()
+        hostedView.layoutSubtreeIfNeeded()
+
+        let surfaceView = try XCTUnwrap(surfaceView(in: hostedView), "Expected terminal surface view")
+
+        GhosttySurfaceScrollView.resetFlashCounts()
+        AppFocusState.overrideIsFocused = true
+        XCTAssertTrue(window.makeFirstResponder(surfaceView))
+
+        store.addNotification(
+            tabId: workspace.id,
+            surfaceId: terminalPanel.id,
+            title: "Unread",
+            subtitle: "",
+            body: ""
+        )
+        XCTAssertTrue(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: terminalPanel.id))
+
+        AppFocusState.overrideIsFocused = true
+        let pointInWindow = surfaceView.convert(NSPoint(x: 20, y: 20), to: nil)
+        let event = makeMouseEvent(type: .leftMouseDown, location: pointInWindow, window: window)
+        surfaceView.mouseDown(with: event)
+        let drained = expectation(description: "flash drained")
+        DispatchQueue.main.async { drained.fulfill() }
+        wait(for: [drained], timeout: 1.0)
+
+        XCTAssertFalse(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: terminalPanel.id))
+        XCTAssertEqual(GhosttySurfaceScrollView.flashCount(for: terminalPanel.id), 1)
+    }
+
+    func testTerminalKeyDownDismissesUnreadWhenSurfaceIsAlreadyFirstResponder() throws {
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let manager = TabManager()
+        let store = TerminalNotificationStore.shared
+        let window = makeWindow()
+
+        let originalTabManager = appDelegate.tabManager
+        let originalNotificationStore = appDelegate.notificationStore
+        let originalAppFocusOverride = AppFocusState.overrideIsFocused
+
+        store.replaceNotificationsForTesting([])
+        store.configureNotificationDeliveryHandlerForTesting { _, _ in }
+        appDelegate.tabManager = manager
+        appDelegate.notificationStore = store
+
+        defer {
+            store.replaceNotificationsForTesting([])
+            store.resetNotificationDeliveryHandlerForTesting()
+            appDelegate.tabManager = originalTabManager
+            appDelegate.notificationStore = originalNotificationStore
+            AppFocusState.overrideIsFocused = originalAppFocusOverride
+            window.orderOut(nil)
+        }
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace, "Expected an initial focused terminal panel")
+        let terminalPanel = try XCTUnwrap(workspace.focusedTerminalPanel, "Expected an initial focused terminal panel")
+
+        let contentView = try XCTUnwrap(window.contentView, "Expected content view")
+
+        let hostedView = terminalPanel.hostedView
+        hostedView.frame = contentView.bounds
+        hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostedView)
+        contentView.layoutSubtreeIfNeeded()
+        hostedView.layoutSubtreeIfNeeded()
+
+        let surfaceView = try XCTUnwrap(surfaceView(in: hostedView) as? GhosttyNSView, "Expected terminal surface view")
+
+        GhosttySurfaceScrollView.resetFlashCounts()
+        AppFocusState.overrideIsFocused = true
+        XCTAssertTrue(window.makeFirstResponder(surfaceView))
+
+        store.addNotification(
+            tabId: workspace.id,
+            surfaceId: terminalPanel.id,
+            title: "Unread",
+            subtitle: "",
+            body: ""
+        )
+        XCTAssertTrue(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: terminalPanel.id))
+
+        let event = makeKeyEvent(characters: "", keyCode: 122, window: window)
+        surfaceView.keyDown(with: event)
+        let drained = expectation(description: "flash drained")
+        DispatchQueue.main.async { drained.fulfill() }
+        wait(for: [drained], timeout: 1.0)
+
+        XCTAssertFalse(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: terminalPanel.id))
+        XCTAssertEqual(GhosttySurfaceScrollView.flashCount(for: terminalPanel.id), 1)
+    }
+
     private func makeWindow() -> NSWindow {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 480, height: 320),
@@ -9107,150 +9079,9 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
             .subviews
             .first
     }
-
-    func testTerminalMouseDownDismissesUnreadWhenSurfaceIsAlreadyFirstResponder() {
-        let appDelegate = AppDelegate.shared ?? AppDelegate()
-        let manager = TabManager()
-        let store = TerminalNotificationStore.shared
-        let window = makeWindow()
-
-        let originalTabManager = appDelegate.tabManager
-        let originalNotificationStore = appDelegate.notificationStore
-        let originalAppFocusOverride = AppFocusState.overrideIsFocused
-
-        store.replaceNotificationsForTesting([])
-        store.configureNotificationDeliveryHandlerForTesting { _, _ in }
-        appDelegate.tabManager = manager
-        appDelegate.notificationStore = store
-
-        defer {
-            store.replaceNotificationsForTesting([])
-            store.resetNotificationDeliveryHandlerForTesting()
-            appDelegate.tabManager = originalTabManager
-            appDelegate.notificationStore = originalNotificationStore
-            AppFocusState.overrideIsFocused = originalAppFocusOverride
-            window.orderOut(nil)
-        }
-
-        guard let workspace = manager.selectedWorkspace,
-              let terminalPanel = workspace.focusedTerminalPanel else {
-            XCTFail("Expected an initial focused terminal panel")
-            return
-        }
-
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
-        }
-
-        let hostedView = terminalPanel.hostedView
-        hostedView.frame = contentView.bounds
-        hostedView.autoresizingMask = [.width, .height]
-        contentView.addSubview(hostedView)
-        contentView.layoutSubtreeIfNeeded()
-        hostedView.layoutSubtreeIfNeeded()
-
-        guard let surfaceView = surfaceView(in: hostedView) else {
-            XCTFail("Expected terminal surface view")
-            return
-        }
-
-        GhosttySurfaceScrollView.resetFlashCounts()
-        AppFocusState.overrideIsFocused = true
-        XCTAssertTrue(window.makeFirstResponder(surfaceView))
-
-        store.addNotification(
-            tabId: workspace.id,
-            surfaceId: terminalPanel.id,
-            title: "Unread",
-            subtitle: "",
-            body: ""
-        )
-        XCTAssertTrue(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: terminalPanel.id))
-
-        AppFocusState.overrideIsFocused = true
-        let pointInWindow = surfaceView.convert(NSPoint(x: 20, y: 20), to: nil)
-        let event = makeMouseEvent(type: .leftMouseDown, location: pointInWindow, window: window)
-        surfaceView.mouseDown(with: event)
-        let drained = expectation(description: "flash drained")
-        DispatchQueue.main.async { drained.fulfill() }
-        wait(for: [drained], timeout: 1.0)
-
-        XCTAssertFalse(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: terminalPanel.id))
-        XCTAssertEqual(GhosttySurfaceScrollView.flashCount(for: terminalPanel.id), 1)
-    }
-
-    func testTerminalKeyDownDismissesUnreadWhenSurfaceIsAlreadyFirstResponder() {
-        let appDelegate = AppDelegate.shared ?? AppDelegate()
-        let manager = TabManager()
-        let store = TerminalNotificationStore.shared
-        let window = makeWindow()
-
-        let originalTabManager = appDelegate.tabManager
-        let originalNotificationStore = appDelegate.notificationStore
-        let originalAppFocusOverride = AppFocusState.overrideIsFocused
-
-        store.replaceNotificationsForTesting([])
-        store.configureNotificationDeliveryHandlerForTesting { _, _ in }
-        appDelegate.tabManager = manager
-        appDelegate.notificationStore = store
-
-        defer {
-            store.replaceNotificationsForTesting([])
-            store.resetNotificationDeliveryHandlerForTesting()
-            appDelegate.tabManager = originalTabManager
-            appDelegate.notificationStore = originalNotificationStore
-            AppFocusState.overrideIsFocused = originalAppFocusOverride
-            window.orderOut(nil)
-        }
-
-        guard let workspace = manager.selectedWorkspace,
-              let terminalPanel = workspace.focusedTerminalPanel else {
-            XCTFail("Expected an initial focused terminal panel")
-            return
-        }
-
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
-        }
-
-        let hostedView = terminalPanel.hostedView
-        hostedView.frame = contentView.bounds
-        hostedView.autoresizingMask = [.width, .height]
-        contentView.addSubview(hostedView)
-        contentView.layoutSubtreeIfNeeded()
-        hostedView.layoutSubtreeIfNeeded()
-
-        guard let surfaceView = surfaceView(in: hostedView) as? GhosttyNSView else {
-            XCTFail("Expected terminal surface view")
-            return
-        }
-
-        GhosttySurfaceScrollView.resetFlashCounts()
-        AppFocusState.overrideIsFocused = true
-        XCTAssertTrue(window.makeFirstResponder(surfaceView))
-
-        store.addNotification(
-            tabId: workspace.id,
-            surfaceId: terminalPanel.id,
-            title: "Unread",
-            subtitle: "",
-            body: ""
-        )
-        XCTAssertTrue(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: terminalPanel.id))
-
-        let event = makeKeyEvent(characters: "", keyCode: 122, window: window)
-        surfaceView.keyDown(with: event)
-        let drained = expectation(description: "flash drained")
-        DispatchQueue.main.async { drained.fulfill() }
-        wait(for: [drained], timeout: 1.0)
-
-        XCTAssertFalse(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: terminalPanel.id))
-        XCTAssertEqual(GhosttySurfaceScrollView.flashCount(for: terminalPanel.id), 1)
-    }
 }
 
+// MARK: - MenuBarBadgeLabelFormatterTests
 
 final class MenuBarBadgeLabelFormatterTests: XCTestCase {
     func testBadgeLabelFormatting() {
@@ -9261,6 +9092,8 @@ final class MenuBarBadgeLabelFormatterTests: XCTestCase {
         XCTAssertEqual(MenuBarBadgeLabelFormatter.badgeText(for: 47), "9+")
     }
 }
+
+// MARK: - NotificationMenuSnapshotBuilderTests
 
 final class NotificationMenuSnapshotBuilderTests: XCTestCase {
     func testSnapshotCountsUnreadAndLimitsRecentItems() {
@@ -9296,6 +9129,8 @@ final class NotificationMenuSnapshotBuilderTests: XCTestCase {
     }
 }
 
+// MARK: - MenuBarBuildHintFormatterTests
+
 final class MenuBarBuildHintFormatterTests: XCTestCase {
     func testReleaseBuildShowsNoHint() {
         XCTAssertNil(MenuBarBuildHintFormatter.menuTitle(appName: "cmux DEV menubar-extra", isDebugBuild: false))
@@ -9315,6 +9150,8 @@ final class MenuBarBuildHintFormatterTests: XCTestCase {
         )
     }
 }
+
+// MARK: - MenuBarNotificationLineFormatterTests
 
 final class MenuBarNotificationLineFormatterTests: XCTestCase {
     func testPlainTitleContainsUnreadDotBodyAndTab() {
@@ -9398,14 +9235,12 @@ final class MenuBarNotificationLineFormatterTests: XCTestCase {
     }
 }
 
+// MARK: - MenuBarIconDebugSettingsTests
 
 final class MenuBarIconDebugSettingsTests: XCTestCase {
-    func testDisplayedUnreadCountUsesPreviewOverrideWhenEnabled() {
+    func testDisplayedUnreadCountUsesPreviewOverrideWhenEnabled() throws {
         let suiteName = "MenuBarIconDebugSettingsTests.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Failed to create isolated UserDefaults suite")
-            return
-        }
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite")
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         defaults.set(true, forKey: MenuBarIconDebugSettings.previewEnabledKey)
@@ -9414,12 +9249,9 @@ final class MenuBarIconDebugSettingsTests: XCTestCase {
         XCTAssertEqual(MenuBarIconDebugSettings.displayedUnreadCount(actualUnreadCount: 2, defaults: defaults), 7)
     }
 
-    func testBadgeRenderConfigClampsInvalidValues() {
+    func testBadgeRenderConfigClampsInvalidValues() throws {
         let suiteName = "MenuBarIconDebugSettingsTests.Clamp.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Failed to create isolated UserDefaults suite")
-            return
-        }
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite")
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         defaults.set(-100, forKey: MenuBarIconDebugSettings.badgeRectXKey)
@@ -9434,12 +9266,9 @@ final class MenuBarIconDebugSettingsTests: XCTestCase {
         XCTAssertEqual(config.multiDigitXAdjust, 4, accuracy: 0.001)
     }
 
-    func testBadgeRenderConfigUsesLegacySingleDigitXAdjustWhenNewKeyMissing() {
+    func testBadgeRenderConfigUsesLegacySingleDigitXAdjustWhenNewKeyMissing() throws {
         let suiteName = "MenuBarIconDebugSettingsTests.LegacyX.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Failed to create isolated UserDefaults suite")
-            return
-        }
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName), "Failed to create isolated UserDefaults suite")
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         defaults.set(2.5, forKey: MenuBarIconDebugSettings.legacySingleDigitXAdjustKey)
@@ -9448,6 +9277,8 @@ final class MenuBarIconDebugSettingsTests: XCTestCase {
         XCTAssertEqual(config.singleDigitXAdjust, 2.5, accuracy: 0.001)
     }
 }
+
+// MARK: - MenuBarIconRendererTests
 
 @MainActor
 
@@ -9460,6 +9291,8 @@ final class MenuBarIconRendererTests: XCTestCase {
         XCTAssertEqual(withBadge.size.width, 18, accuracy: 0.001)
     }
 }
+
+// MARK: - WorkspaceMountPolicyTests
 
 final class WorkspaceMountPolicyTests: XCTestCase {
     func testDefaultPolicyMountsOnlySelectedWorkspace() {
@@ -9620,8 +9453,12 @@ final class WorkspaceMountPolicyTests: XCTestCase {
     }
 }
 
+// MARK: - WindowTerminalHostViewTests
+
 @MainActor
 final class WindowTerminalHostViewTests: XCTestCase {
+    // MARK: Nested Types
+
     private final class CapturingView: NSView {
         override func hitTest(_ point: NSPoint) -> NSView? {
             bounds.contains(point) ? self : nil
@@ -9629,6 +9466,8 @@ final class WindowTerminalHostViewTests: XCTestCase {
     }
 
     private final class BonsplitMockSplitDelegate: NSObject, NSSplitViewDelegate {}
+
+    // MARK: Functions
 
     func testHostViewPassesThroughWhenNoTerminalSubviewIsHit() {
         let host = WindowTerminalHostView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
@@ -9645,7 +9484,7 @@ final class WindowTerminalHostViewTests: XCTestCase {
         XCTAssertNil(host.hitTest(NSPoint(x: 150, y: 100)))
     }
 
-    func testHostViewPassesThroughDividerWhenAdjacentPaneIsCollapsed() {
+    func testHostViewPassesThroughDividerWhenAdjacentPaneIsCollapsed() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 300, height: 180),
             styleMask: [.titled, .closable],
@@ -9653,10 +9492,7 @@ final class WindowTerminalHostViewTests: XCTestCase {
             defer: false
         )
         defer { window.orderOut(nil) }
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
-        }
+        let contentView = try XCTUnwrap(window.contentView, "Expected content view")
 
         let splitView = NSSplitView(frame: contentView.bounds)
         splitView.autoresizingMask = [.width, .height]
@@ -9699,8 +9535,12 @@ final class WindowTerminalHostViewTests: XCTestCase {
     }
 }
 
+// MARK: - WindowBrowserHostViewTests
+
 @MainActor
 final class WindowBrowserHostViewTests: XCTestCase {
+    // MARK: Nested Types
+
     private final class CapturingView: NSView {
         override func hitTest(_ point: NSPoint) -> NSView? {
             bounds.contains(point) ? self : nil
@@ -9737,35 +9577,9 @@ final class WindowBrowserHostViewTests: XCTestCase {
 
     private final class BonsplitMockSplitDelegate: NSObject, NSSplitViewDelegate {}
 
-    private func makeMouseEvent(type: NSEvent.EventType, location: NSPoint, window: NSWindow) -> NSEvent {
-        guard let event = NSEvent.mouseEvent(
-            with: type,
-            location: location,
-            modifierFlags: [],
-            timestamp: ProcessInfo.processInfo.systemUptime,
-            windowNumber: window.windowNumber,
-            context: nil,
-            eventNumber: 0,
-            clickCount: 1,
-            pressure: 1.0
-        ) else {
-            fatalError("Failed to create \(type) mouse event")
-        }
-        return event
-    }
+    // MARK: Functions
 
-    private func isInspectorOwnedHit(_ hit: NSView?, inspectorView: NSView, pageView: NSView) -> Bool {
-        guard let hit else { return false }
-        if hit === pageView || hit.isDescendant(of: pageView) {
-            return false
-        }
-        if hit === inspectorView || hit.isDescendant(of: inspectorView) {
-            return true
-        }
-        return inspectorView.isDescendant(of: hit) && !(pageView === hit || pageView.isDescendant(of: hit))
-    }
-
-    func testHostViewPassesThroughDividerWhenAdjacentPaneIsCollapsed() {
+    func testHostViewPassesThroughDividerWhenAdjacentPaneIsCollapsed() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 300, height: 180),
             styleMask: [.titled, .closable],
@@ -9773,10 +9587,7 @@ final class WindowBrowserHostViewTests: XCTestCase {
             defer: false
         )
         defer { window.orderOut(nil) }
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
-        }
+        let contentView = try XCTUnwrap(window.contentView, "Expected content view")
 
         let splitView = NSSplitView(frame: contentView.bounds)
         splitView.autoresizingMask = [.width, .height]
@@ -9793,10 +9604,7 @@ final class WindowBrowserHostViewTests: XCTestCase {
         splitView.adjustSubviews()
         contentView.layoutSubtreeIfNeeded()
 
-        guard let container = contentView.superview else {
-            XCTFail("Expected content container")
-            return
-        }
+        let container = try XCTUnwrap(contentView.superview, "Expected content container")
 
         let hostFrame = container.convert(contentView.bounds, from: contentView)
         let host = WindowBrowserHostView(frame: hostFrame)
@@ -9824,7 +9632,7 @@ final class WindowBrowserHostViewTests: XCTestCase {
         XCTAssertTrue(host.hitTest(contentPointInHost) === child)
     }
 
-    func testWindowBrowserPortalIgnoresHostedInspectorSplitResizeNotifications() {
+    func testWindowBrowserPortalIgnoresHostedInspectorSplitResizeNotifications() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
             styleMask: [.titled, .closable],
@@ -9832,14 +9640,8 @@ final class WindowBrowserHostViewTests: XCTestCase {
             defer: false
         )
         defer { window.orderOut(nil) }
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
-        }
-        guard let container = contentView.superview else {
-            XCTFail("Expected content container")
-            return
-        }
+        let contentView = try XCTUnwrap(window.contentView, "Expected content view")
+        let container = try XCTUnwrap(contentView.superview, "Expected content container")
 
         let hostFrame = container.convert(contentView.bounds, from: contentView)
         let host = WindowBrowserHostView(frame: hostFrame)
@@ -9911,7 +9713,7 @@ final class WindowBrowserHostViewTests: XCTestCase {
         )
     }
 
-    func testHostViewKeepsHostedInspectorDividerInteractive() {
+    func testHostViewKeepsHostedInspectorDividerInteractive() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
             styleMask: [.titled, .closable],
@@ -9919,14 +9721,8 @@ final class WindowBrowserHostViewTests: XCTestCase {
             defer: false
         )
         defer { window.orderOut(nil) }
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
-        }
-        guard let container = contentView.superview else {
-            XCTFail("Expected content container")
-            return
-        }
+        let contentView = try XCTUnwrap(window.contentView, "Expected content view")
+        let container = try XCTUnwrap(contentView.superview, "Expected content container")
 
         // Underlying app layout split that should still be pass-through.
         let appSplit = NSSplitView(frame: contentView.bounds)
@@ -9996,7 +9792,7 @@ final class WindowBrowserHostViewTests: XCTestCase {
         }
     }
 
-    func testHostViewKeepsHostedVerticalInspectorDividerInteractiveAtSlotLeadingEdge() {
+    func testHostViewKeepsHostedVerticalInspectorDividerInteractiveAtSlotLeadingEdge() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
             styleMask: [.titled, .closable],
@@ -10004,14 +9800,8 @@ final class WindowBrowserHostViewTests: XCTestCase {
             defer: false
         )
         defer { window.orderOut(nil) }
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
-        }
-        guard let container = contentView.superview else {
-            XCTFail("Expected content container")
-            return
-        }
+        let contentView = try XCTUnwrap(window.contentView, "Expected content view")
+        let container = try XCTUnwrap(contentView.superview, "Expected content container")
 
         let hostFrame = container.convert(contentView.bounds, from: contentView)
         let host = WindowBrowserHostView(frame: hostFrame)
@@ -10066,7 +9856,7 @@ final class WindowBrowserHostViewTests: XCTestCase {
         }
     }
 
-    func testHostViewPrefersNativeHostedInspectorSiblingDividerHit() {
+    func testHostViewPrefersNativeHostedInspectorSiblingDividerHit() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
             styleMask: [.titled, .closable],
@@ -10074,14 +9864,8 @@ final class WindowBrowserHostViewTests: XCTestCase {
             defer: false
         )
         defer { window.orderOut(nil) }
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
-        }
-        guard let container = contentView.superview else {
-            XCTFail("Expected content container")
-            return
-        }
+        let contentView = try XCTUnwrap(window.contentView, "Expected content view")
+        let container = try XCTUnwrap(contentView.superview, "Expected content container")
 
         let hostFrame = container.convert(contentView.bounds, from: contentView)
         let host = WindowBrowserHostView(frame: hostFrame)
@@ -10119,7 +9903,7 @@ final class WindowBrowserHostViewTests: XCTestCase {
         )
     }
 
-    func testHostViewPrefersNativeNestedHostedInspectorSiblingDividerHit() {
+    func testHostViewPrefersNativeNestedHostedInspectorSiblingDividerHit() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
             styleMask: [.titled, .closable],
@@ -10127,14 +9911,8 @@ final class WindowBrowserHostViewTests: XCTestCase {
             defer: false
         )
         defer { window.orderOut(nil) }
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
-        }
-        guard let container = contentView.superview else {
-            XCTFail("Expected content container")
-            return
-        }
+        let contentView = try XCTUnwrap(window.contentView, "Expected content view")
+        let container = try XCTUnwrap(contentView.superview, "Expected content container")
 
         let hostFrame = container.convert(contentView.bounds, from: contentView)
         let host = WindowBrowserHostView(frame: hostFrame)
@@ -10179,7 +9957,7 @@ final class WindowBrowserHostViewTests: XCTestCase {
         )
     }
 
-    func testHostViewReappliesStoredHostedInspectorWidthAfterSlotLayoutReset() {
+    func testHostViewReappliesStoredHostedInspectorWidthAfterSlotLayoutReset() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
             styleMask: [.titled, .closable],
@@ -10187,14 +9965,8 @@ final class WindowBrowserHostViewTests: XCTestCase {
             defer: false
         )
         defer { window.orderOut(nil) }
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
-        }
-        guard let container = contentView.superview else {
-            XCTFail("Expected content container")
-            return
-        }
+        let contentView = try XCTUnwrap(window.contentView, "Expected content view")
+        let container = try XCTUnwrap(contentView.superview, "Expected content container")
 
         let hostFrame = container.convert(contentView.bounds, from: contentView)
         let host = WindowBrowserHostView(frame: hostFrame)
@@ -10253,7 +10025,7 @@ final class WindowBrowserHostViewTests: XCTestCase {
         XCTAssertEqual(inspectorContainer.frame.minX, draggedInspectorMinX, accuracy: 0.5)
     }
 
-    func testHostViewFallsBackToManualHostedInspectorDragWhenNativeDividerHitIsUnavailable() {
+    func testHostViewFallsBackToManualHostedInspectorDragWhenNativeDividerHitIsUnavailable() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
             styleMask: [.titled, .closable],
@@ -10261,14 +10033,8 @@ final class WindowBrowserHostViewTests: XCTestCase {
             defer: false
         )
         defer { window.orderOut(nil) }
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
-        }
-        guard let container = contentView.superview else {
-            XCTFail("Expected content container")
-            return
-        }
+        let contentView = try XCTUnwrap(window.contentView, "Expected content view")
+        let container = try XCTUnwrap(contentView.superview, "Expected content container")
 
         let hostFrame = container.convert(contentView.bounds, from: contentView)
         let host = WindowBrowserHostView(frame: hostFrame)
@@ -10311,7 +10077,7 @@ final class WindowBrowserHostViewTests: XCTestCase {
         XCTAssertGreaterThan(inspectorView.frame.minX, 92)
     }
 
-    func testHostViewFallsBackToManualHostedInspectorDragForLeftDockedInspector() {
+    func testHostViewFallsBackToManualHostedInspectorDragForLeftDockedInspector() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
             styleMask: [.titled, .closable],
@@ -10319,14 +10085,8 @@ final class WindowBrowserHostViewTests: XCTestCase {
             defer: false
         )
         defer { window.orderOut(nil) }
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
-        }
-        guard let container = contentView.superview else {
-            XCTFail("Expected content container")
-            return
-        }
+        let contentView = try XCTUnwrap(window.contentView, "Expected content view")
+        let container = try XCTUnwrap(contentView.superview, "Expected content container")
 
         let hostFrame = container.convert(contentView.bounds, from: contentView)
         let host = WindowBrowserHostView(frame: hostFrame)
@@ -10370,7 +10130,7 @@ final class WindowBrowserHostViewTests: XCTestCase {
         XCTAssertGreaterThan(pageView.frame.minX, 92)
     }
 
-    func testHostViewClaimsCollapsedHostedInspectorSiblingDividerAtSlotLeadingEdge() {
+    func testHostViewClaimsCollapsedHostedInspectorSiblingDividerAtSlotLeadingEdge() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
             styleMask: [.titled, .closable],
@@ -10378,14 +10138,8 @@ final class WindowBrowserHostViewTests: XCTestCase {
             defer: false
         )
         defer { window.orderOut(nil) }
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
-        }
-        guard let container = contentView.superview else {
-            XCTFail("Expected content container")
-            return
-        }
+        let contentView = try XCTUnwrap(window.contentView, "Expected content view")
+        let container = try XCTUnwrap(contentView.superview, "Expected content container")
 
         let hostFrame = container.convert(contentView.bounds, from: contentView)
         let host = WindowBrowserHostView(frame: hostFrame)
@@ -10413,10 +10167,42 @@ final class WindowBrowserHostViewTests: XCTestCase {
             "Collapsed right-docked hosted inspector divider should stay on the native WebKit hit path while still beating the sidebar-resizer overlap zone. actual=\(String(describing: dividerHit))"
         )
     }
+
+    private func makeMouseEvent(type: NSEvent.EventType, location: NSPoint, window: NSWindow) -> NSEvent {
+        guard let event = NSEvent.mouseEvent(
+            with: type,
+            location: location,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: 0,
+            clickCount: 1,
+            pressure: 1.0
+        ) else {
+            fatalError("Failed to create \(type) mouse event")
+        }
+        return event
+    }
+
+    private func isInspectorOwnedHit(_ hit: NSView?, inspectorView: NSView, pageView: NSView) -> Bool {
+        guard let hit else { return false }
+        if hit === pageView || hit.isDescendant(of: pageView) {
+            return false
+        }
+        if hit === inspectorView || hit.isDescendant(of: inspectorView) {
+            return true
+        }
+        return inspectorView.isDescendant(of: hit) && !(pageView === hit || pageView.isDescendant(of: hit))
+    }
 }
+
+// MARK: - BrowserPanelHostContainerViewTests
 
 @MainActor
 final class BrowserPanelHostContainerViewTests: XCTestCase {
+    // MARK: Nested Types
+
     private final class PrimaryPageProbeView: NSView {
         override func hitTest(_ point: NSPoint) -> NSView? {
             bounds.contains(point) ? self : nil
@@ -10424,7 +10210,11 @@ final class BrowserPanelHostContainerViewTests: XCTestCase {
     }
 
     private final class TrackingInspectorFrontendWebView: WKWebView {
+        // MARK: Properties
+
         private(set) var evaluatedJavaScript: [String] = []
+
+        // MARK: Overridden Functions
 
         @MainActor override func evaluateJavaScript(
             _ javaScriptString: String,
@@ -10457,24 +10247,9 @@ final class BrowserPanelHostContainerViewTests: XCTestCase {
         }
     }
 
-    private func makeMouseEvent(type: NSEvent.EventType, location: NSPoint, window: NSWindow) -> NSEvent {
-        guard let event = NSEvent.mouseEvent(
-            with: type,
-            location: location,
-            modifierFlags: [],
-            timestamp: ProcessInfo.processInfo.systemUptime,
-            windowNumber: window.windowNumber,
-            context: nil,
-            eventNumber: 0,
-            clickCount: 1,
-            pressure: 1.0
-        ) else {
-            fatalError("Failed to create \(type) mouse event")
-        }
-        return event
-    }
+    // MARK: Functions
 
-    func testBrowserPanelHostPrefersNativeHostedInspectorSiblingDividerHit() {
+    func testBrowserPanelHostPrefersNativeHostedInspectorSiblingDividerHit() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
             styleMask: [.titled, .closable],
@@ -10482,10 +10257,7 @@ final class BrowserPanelHostContainerViewTests: XCTestCase {
             defer: false
         )
         defer { window.orderOut(nil) }
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
-        }
+        let contentView = try XCTUnwrap(window.contentView, "Expected content view")
 
         let host = WebViewRepresentable.HostContainerView(frame: NSRect(x: 180, y: 0, width: 240, height: contentView.bounds.height))
         host.autoresizingMask = [.minXMargin, .height]
@@ -10520,7 +10292,7 @@ final class BrowserPanelHostContainerViewTests: XCTestCase {
         )
     }
 
-    func testBrowserPanelHostClaimsCollapsedHostedInspectorSiblingDividerAtLeadingEdge() {
+    func testBrowserPanelHostClaimsCollapsedHostedInspectorSiblingDividerAtLeadingEdge() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
             styleMask: [.titled, .closable],
@@ -10528,10 +10300,7 @@ final class BrowserPanelHostContainerViewTests: XCTestCase {
             defer: false
         )
         defer { window.orderOut(nil) }
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
-        }
+        let contentView = try XCTUnwrap(window.contentView, "Expected content view")
 
         let host = WebViewRepresentable.HostContainerView(frame: NSRect(x: 180, y: 0, width: 240, height: contentView.bounds.height))
         host.autoresizingMask = [.minXMargin, .height]
@@ -10572,7 +10341,7 @@ final class BrowserPanelHostContainerViewTests: XCTestCase {
         XCTAssertGreaterThan(inspectorContainer.frame.minX, 0)
     }
 
-    func testBrowserPanelHostClaimsHostedInspectorDividerAcrossFullHeight() {
+    func testBrowserPanelHostClaimsHostedInspectorDividerAcrossFullHeight() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
             styleMask: [.titled, .closable],
@@ -10580,10 +10349,7 @@ final class BrowserPanelHostContainerViewTests: XCTestCase {
             defer: false
         )
         defer { window.orderOut(nil) }
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
-        }
+        let contentView = try XCTUnwrap(window.contentView, "Expected content view")
 
         let host = WebViewRepresentable.HostContainerView(frame: NSRect(x: 180, y: 0, width: 240, height: contentView.bounds.height))
         host.autoresizingMask = [.minXMargin, .height]
@@ -10611,7 +10377,7 @@ final class BrowserPanelHostContainerViewTests: XCTestCase {
         )
     }
 
-    func testBrowserPanelHostFallsBackToManualHostedInspectorDragWhenNativeDividerHitIsUnavailable() {
+    func testBrowserPanelHostFallsBackToManualHostedInspectorDragWhenNativeDividerHitIsUnavailable() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
             styleMask: [.titled, .closable],
@@ -10619,10 +10385,7 @@ final class BrowserPanelHostContainerViewTests: XCTestCase {
             defer: false
         )
         defer { window.orderOut(nil) }
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
-        }
+        let contentView = try XCTUnwrap(window.contentView, "Expected content view")
 
         let host = WebViewRepresentable.HostContainerView(frame: NSRect(x: 180, y: 0, width: 240, height: contentView.bounds.height))
         host.autoresizingMask = [.minXMargin, .height]
@@ -10662,7 +10425,7 @@ final class BrowserPanelHostContainerViewTests: XCTestCase {
         XCTAssertGreaterThan(inspectorContainer.frame.minX, 92)
     }
 
-    func testBrowserPanelHostKeepsInspectorResizableAfterShrinkingToMinimumWidth() {
+    func testBrowserPanelHostKeepsInspectorResizableAfterShrinkingToMinimumWidth() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
             styleMask: [.titled, .closable],
@@ -10670,10 +10433,7 @@ final class BrowserPanelHostContainerViewTests: XCTestCase {
             defer: false
         )
         defer { window.orderOut(nil) }
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
-        }
+        let contentView = try XCTUnwrap(window.contentView, "Expected content view")
 
         let host = WebViewRepresentable.HostContainerView(frame: NSRect(x: 180, y: 0, width: 240, height: contentView.bounds.height))
         host.autoresizingMask = [.minXMargin, .height]
@@ -10718,7 +10478,7 @@ final class BrowserPanelHostContainerViewTests: XCTestCase {
         )
     }
 
-    func testBrowserPanelHostPromotesVisibleRightDockedInspectorIntoManagedSideDock() {
+    func testBrowserPanelHostPromotesVisibleRightDockedInspectorIntoManagedSideDock() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
             styleMask: [.titled, .closable],
@@ -10726,10 +10486,7 @@ final class BrowserPanelHostContainerViewTests: XCTestCase {
             defer: false
         )
         defer { window.orderOut(nil) }
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
-        }
+        let contentView = try XCTUnwrap(window.contentView, "Expected content view")
 
         let host = WebViewRepresentable.HostContainerView(frame: NSRect(x: 180, y: 0, width: 240, height: contentView.bounds.height))
         host.autoresizingMask = [.minXMargin, .height]
@@ -10769,7 +10526,7 @@ final class BrowserPanelHostContainerViewTests: XCTestCase {
         )
     }
 
-    func testBrowserPanelHostAllowsRightDockedInspectorToExpandLeftAfterPromotion() {
+    func testBrowserPanelHostAllowsRightDockedInspectorToExpandLeftAfterPromotion() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
             styleMask: [.titled, .closable],
@@ -10777,10 +10534,7 @@ final class BrowserPanelHostContainerViewTests: XCTestCase {
             defer: false
         )
         defer { window.orderOut(nil) }
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
-        }
+        let contentView = try XCTUnwrap(window.contentView, "Expected content view")
 
         let host = WebViewRepresentable.HostContainerView(frame: NSRect(x: 180, y: 0, width: 240, height: contentView.bounds.height))
         host.autoresizingMask = [.minXMargin, .height]
@@ -10829,7 +10583,7 @@ final class BrowserPanelHostContainerViewTests: XCTestCase {
         )
     }
 
-    func testBrowserPanelHostKeepsAutomaticRightDockedWidthAboveMinimumWhileShrinking() {
+    func testBrowserPanelHostKeepsAutomaticRightDockedWidthAboveMinimumWhileShrinking() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
             styleMask: [.titled, .closable],
@@ -10837,10 +10591,7 @@ final class BrowserPanelHostContainerViewTests: XCTestCase {
             defer: false
         )
         defer { window.orderOut(nil) }
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
-        }
+        let contentView = try XCTUnwrap(window.contentView, "Expected content view")
 
         let host = WebViewRepresentable.HostContainerView(frame: NSRect(x: 140, y: 0, width: 280, height: contentView.bounds.height))
         host.autoresizingMask = [.minXMargin, .height]
@@ -10878,7 +10629,7 @@ final class BrowserPanelHostContainerViewTests: XCTestCase {
         )
     }
 
-    func testBrowserPanelHostRequestsBottomDockWhenSideDockLeavesTooLittlePageWidth() {
+    func testBrowserPanelHostRequestsBottomDockWhenSideDockLeavesTooLittlePageWidth() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
             styleMask: [.titled, .closable],
@@ -10886,10 +10637,7 @@ final class BrowserPanelHostContainerViewTests: XCTestCase {
             defer: false
         )
         defer { window.orderOut(nil) }
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
-        }
+        let contentView = try XCTUnwrap(window.contentView, "Expected content view")
 
         let host = WebViewRepresentable.HostContainerView(frame: NSRect(x: 180, y: 0, width: 280, height: contentView.bounds.height))
         host.autoresizingMask = [.minXMargin, .height]
@@ -10923,7 +10671,7 @@ final class BrowserPanelHostContainerViewTests: XCTestCase {
         )
     }
 
-    func testBrowserPanelManagedSideDockDoesNotAutoresizeDraggedFrames() {
+    func testBrowserPanelManagedSideDockDoesNotAutoresizeDraggedFrames() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
             styleMask: [.titled, .closable],
@@ -10931,10 +10679,7 @@ final class BrowserPanelHostContainerViewTests: XCTestCase {
             defer: false
         )
         defer { window.orderOut(nil) }
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
-        }
+        let contentView = try XCTUnwrap(window.contentView, "Expected content view")
 
         let host = WebViewRepresentable.HostContainerView(frame: NSRect(x: 180, y: 0, width: 240, height: contentView.bounds.height))
         host.autoresizingMask = [.minXMargin, .height]
@@ -10965,10 +10710,7 @@ final class BrowserPanelHostContainerViewTests: XCTestCase {
         host.mouseDragged(with: drag)
         host.mouseUp(with: makeMouseEvent(type: .leftMouseUp, location: drag.locationInWindow, window: window))
 
-        guard let managedContainer = pageView.superview else {
-            XCTFail("Expected managed side-dock container")
-            return
-        }
+        let managedContainer = try XCTUnwrap(pageView.superview, "Expected managed side-dock container")
         let draggedPageFrame = pageView.frame
         let draggedInspectorFrame = inspectorView.frame
 
@@ -11002,7 +10744,7 @@ final class BrowserPanelHostContainerViewTests: XCTestCase {
         )
     }
 
-    func testBrowserPanelHostFallsBackToManualHostedInspectorDragForLeftDockedInspector() {
+    func testBrowserPanelHostFallsBackToManualHostedInspectorDragForLeftDockedInspector() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
             styleMask: [.titled, .closable],
@@ -11010,10 +10752,7 @@ final class BrowserPanelHostContainerViewTests: XCTestCase {
             defer: false
         )
         defer { window.orderOut(nil) }
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
-        }
+        let contentView = try XCTUnwrap(window.contentView, "Expected content view")
 
         let host = WebViewRepresentable.HostContainerView(frame: NSRect(x: 180, y: 0, width: 240, height: contentView.bounds.height))
         host.autoresizingMask = [.minXMargin, .height]
@@ -11055,7 +10794,7 @@ final class BrowserPanelHostContainerViewTests: XCTestCase {
         XCTAssertGreaterThan(pageView.frame.minX, 92)
     }
 
-    func testBrowserPanelHostReappliesStoredHostedInspectorWidthAfterLayoutReset() {
+    func testBrowserPanelHostReappliesStoredHostedInspectorWidthAfterLayoutReset() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
             styleMask: [.titled, .closable],
@@ -11063,10 +10802,7 @@ final class BrowserPanelHostContainerViewTests: XCTestCase {
             defer: false
         )
         defer { window.orderOut(nil) }
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
-        }
+        let contentView = try XCTUnwrap(window.contentView, "Expected content view")
 
         let host = WebViewRepresentable.HostContainerView(
             frame: NSRect(x: 180, y: 0, width: 240, height: contentView.bounds.height)
@@ -11161,7 +10897,26 @@ final class BrowserPanelHostContainerViewTests: XCTestCase {
             "Reattaching a plain web view should restore full-bounds hosting instead of preserving a stale inset frame from a hidden host"
         )
     }
+
+    private func makeMouseEvent(type: NSEvent.EventType, location: NSPoint, window: NSWindow) -> NSEvent {
+        guard let event = NSEvent.mouseEvent(
+            with: type,
+            location: location,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: 0,
+            clickCount: 1,
+            pressure: 1.0
+        ) else {
+            fatalError("Failed to create \(type) mouse event")
+        }
+        return event
+    }
 }
+
+// MARK: - CmuxWebViewDragRoutingTests
 
 @MainActor
 final class CmuxWebViewDragRoutingTests: XCTestCase {
@@ -11180,95 +10935,97 @@ final class CmuxWebViewDragRoutingTests: XCTestCase {
 }
 
 #if compiler(>=6.2)
-@available(macOS 26.0, *)
-private struct DragConfigurationOperationsSnapshot: Equatable {
-    let allowCopy: Bool
-    let allowMove: Bool
-    let allowDelete: Bool
-    let allowAlias: Bool
-}
-
-@available(macOS 26.0, *)
-private enum DragConfigurationSnapshotError: Error {
-    case missingBoolField(primary: String, fallback: String?)
-}
-
-@available(macOS 26.0, *)
-private func dragConfigurationOperationsSnapshot<T>(from operations: T) throws -> DragConfigurationOperationsSnapshot {
-    let mirror = Mirror(reflecting: operations)
-
-    func readBool(_ primary: String, fallback: String? = nil) throws -> Bool {
-        if let value = mirror.descendant(primary) as? Bool {
-            return value
-        }
-        if let fallback, let value = mirror.descendant(fallback) as? Bool {
-            return value
-        }
-        throw DragConfigurationSnapshotError.missingBoolField(primary: primary, fallback: fallback)
+    @available(macOS 26.0, *)
+    private struct DragConfigurationOperationsSnapshot: Equatable {
+        let allowCopy: Bool
+        let allowMove: Bool
+        let allowDelete: Bool
+        let allowAlias: Bool
     }
 
-    return try DragConfigurationOperationsSnapshot(
-        allowCopy: readBool("allowCopy", fallback: "_allowCopy"),
-        allowMove: readBool("allowMove", fallback: "_allowMove"),
-        allowDelete: readBool("allowDelete", fallback: "_allowDelete"),
-        allowAlias: readBool("allowAlias", fallback: "_allowAlias")
-    )
-}
+    @available(macOS 26.0, *)
+    private enum DragConfigurationSnapshotError: Error {
+        case missingBoolField(primary: String, fallback: String?)
+    }
 
-@MainActor
-final class InternalTabDragConfigurationTests: XCTestCase {
-    func testDisablesExternalOperationsForInternalTabDrags() throws {
-        guard #available(macOS 26.0, *) else {
-            throw XCTSkip("Requires macOS 26 drag configuration APIs")
+    @available(macOS 26.0, *)
+    private func dragConfigurationOperationsSnapshot(from operations: some Any) throws -> DragConfigurationOperationsSnapshot {
+        let mirror = Mirror(reflecting: operations)
+
+        func readBool(_ primary: String, fallback: String? = nil) throws -> Bool {
+            if let value = mirror.descendant(primary) as? Bool {
+                return value
+            }
+            if let fallback, let value = mirror.descendant(fallback) as? Bool {
+                return value
+            }
+            throw DragConfigurationSnapshotError.missingBoolField(primary: primary, fallback: fallback)
         }
 
-        let configuration = InternalTabDragConfigurationProvider.value
-        let withinApp = try dragConfigurationOperationsSnapshot(from: configuration.operationsWithinApp)
-        let outsideApp = try dragConfigurationOperationsSnapshot(from: configuration.operationsOutsideApp)
+        return try DragConfigurationOperationsSnapshot(
+            allowCopy: readBool("allowCopy", fallback: "_allowCopy"),
+            allowMove: readBool("allowMove", fallback: "_allowMove"),
+            allowDelete: readBool("allowDelete", fallback: "_allowDelete"),
+            allowAlias: readBool("allowAlias", fallback: "_allowAlias")
+        )
+    }
 
-        XCTAssertEqual(
-            withinApp,
-            DragConfigurationOperationsSnapshot(
-                allowCopy: false,
-                allowMove: true,
-                allowDelete: false,
-                allowAlias: false
+    @MainActor
+    final class InternalTabDragConfigurationTests: XCTestCase {
+        func testDisablesExternalOperationsForInternalTabDrags() throws {
+            guard #available(macOS 26.0, *) else {
+                throw XCTSkip("Requires macOS 26 drag configuration APIs")
+            }
+
+            let configuration = InternalTabDragConfigurationProvider.value
+            let withinApp = try dragConfigurationOperationsSnapshot(from: configuration.operationsWithinApp)
+            let outsideApp = try dragConfigurationOperationsSnapshot(from: configuration.operationsOutsideApp)
+
+            XCTAssertEqual(
+                withinApp,
+                DragConfigurationOperationsSnapshot(
+                    allowCopy: false,
+                    allowMove: true,
+                    allowDelete: false,
+                    allowAlias: false
+                )
             )
-        )
 
-        XCTAssertEqual(
-            outsideApp,
-            DragConfigurationOperationsSnapshot(
-                allowCopy: false,
-                allowMove: false,
-                allowDelete: false,
-                allowAlias: false
+            XCTAssertEqual(
+                outsideApp,
+                DragConfigurationOperationsSnapshot(
+                    allowCopy: false,
+                    allowMove: false,
+                    allowDelete: false,
+                    allowAlias: false
+                )
             )
-        )
-    }
-}
-
-@MainActor
-final class InternalTabDragBundleDeclarationTests: XCTestCase {
-    private func exportedTypeIdentifiers(bundle: Bundle) -> Set<String> {
-        let declarations = (bundle.object(forInfoDictionaryKey: "UTExportedTypeDeclarations") as? [[String: Any]]) ?? []
-        return Set(declarations.compactMap { $0["UTTypeIdentifier"] as? String })
+        }
     }
 
-    func testAppBundleExportsInternalDragTypes() {
-        let exported = exportedTypeIdentifiers(bundle: Bundle(for: AppDelegate.self))
+    @MainActor
+    final class InternalTabDragBundleDeclarationTests: XCTestCase {
+        func testAppBundleExportsInternalDragTypes() {
+            let exported = exportedTypeIdentifiers(bundle: Bundle(for: AppDelegate.self))
 
-        XCTAssertTrue(
-            exported.contains("com.splittabbar.tabtransfer"),
-            "Expected app bundle to export bonsplit tab-transfer type, got \(exported)"
-        )
-        XCTAssertTrue(
-            exported.contains("com.cmux.sidebar-tab-reorder"),
-            "Expected app bundle to export sidebar tab-reorder type, got \(exported)"
-        )
+            XCTAssertTrue(
+                exported.contains("com.splittabbar.tabtransfer"),
+                "Expected app bundle to export bonsplit tab-transfer type, got \(exported)"
+            )
+            XCTAssertTrue(
+                exported.contains("com.cmux.sidebar-tab-reorder"),
+                "Expected app bundle to export sidebar tab-reorder type, got \(exported)"
+            )
+        }
+
+        private func exportedTypeIdentifiers(bundle: Bundle) -> Set<String> {
+            let declarations = (bundle.object(forInfoDictionaryKey: "UTExportedTypeDeclarations") as? [[String: Any]]) ?? []
+            return Set(declarations.compactMap { $0["UTTypeIdentifier"] as? String })
+        }
     }
-}
 #endif
+
+// MARK: - BrowserPaneDropRoutingTests
 
 @MainActor
 final class BrowserPaneDropRoutingTests: XCTestCase {
@@ -11371,10 +11128,10 @@ final class BrowserPaneDropRoutingTests: XCTestCase {
         )
     }
 
-    func testDecodeTransferPayloadReadsTabAndSourcePane() {
+    func testDecodeTransferPayloadReadsTabAndSourcePane() throws {
         let tabId = UUID()
         let sourcePaneId = UUID()
-        let payload = try! JSONSerialization.data(
+        let payload = try JSONSerialization.data(
             withJSONObject: [
                 "tab": ["id": tabId.uuidString],
                 "sourcePaneId": sourcePaneId.uuidString,
@@ -11390,19 +11147,21 @@ final class BrowserPaneDropRoutingTests: XCTestCase {
     }
 }
 
+// MARK: - WindowBrowserSlotViewTests
+
 @MainActor
 final class WindowBrowserSlotViewTests: XCTestCase {
+    // MARK: Nested Types
+
     private final class CapturingView: NSView {
         override func hitTest(_ point: NSPoint) -> NSView? {
             bounds.contains(point) ? self : nil
         }
     }
 
-    private func advanceAnimations() {
-        RunLoop.current.run(until: Date().addingTimeInterval(0.25))
-    }
+    // MARK: Functions
 
-    func testDropZoneOverlayStaysAboveContentWithoutBlockingHits() {
+    func testDropZoneOverlayStaysAboveContentWithoutBlockingHits() throws {
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
         let slot = WindowBrowserSlotView(frame: container.bounds)
         container.addSubview(slot)
@@ -11413,12 +11172,9 @@ final class WindowBrowserSlotViewTests: XCTestCase {
         slot.setDropZoneOverlay(zone: .right)
         container.layoutSubtreeIfNeeded()
 
-        guard let overlay = container.subviews.first(where: {
+        let overlay = try XCTUnwrap(container.subviews.first(where: {
             $0 !== slot && String(describing: type(of: $0)).contains("BrowserDropZoneOverlayView")
-        }) else {
-            XCTFail("Expected browser slot drop-zone overlay")
-            return
-        }
+        }), "Expected browser slot drop-zone overlay")
 
         XCTAssertTrue(container.subviews.last === overlay, "Overlay should stay above the hosted web view")
         XCTAssertFalse(overlay.isHidden)
@@ -11434,7 +11190,7 @@ final class WindowBrowserSlotViewTests: XCTestCase {
         XCTAssertTrue(overlay.isHidden, "Clearing the drop zone should hide the overlay")
     }
 
-    func testTopDropZoneOverlayUsesFullBrowserContentHeight() {
+    func testTopDropZoneOverlayUsesFullBrowserContentHeight() throws {
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
         let slot = WindowBrowserSlotView(frame: container.bounds)
         container.addSubview(slot)
@@ -11443,12 +11199,9 @@ final class WindowBrowserSlotViewTests: XCTestCase {
         slot.setDropZoneOverlay(zone: .top)
         container.layoutSubtreeIfNeeded()
 
-        guard let overlay = container.subviews.first(where: {
+        let overlay = try XCTUnwrap(container.subviews.first(where: {
             String(describing: type(of: $0)).contains("BrowserDropZoneOverlayView")
-        }) else {
-            XCTFail("Expected browser slot drop-zone overlay")
-            return
-        }
+        }), "Expected browser slot drop-zone overlay")
 
         XCTAssertFalse(overlay.isHidden)
         XCTAssertEqual(overlay.frame.origin.x, 4, accuracy: 0.5)
@@ -11462,10 +11215,18 @@ final class WindowBrowserSlotViewTests: XCTestCase {
         advanceAnimations()
         XCTAssertEqual(slot.layer?.masksToBounds, true)
     }
+
+    private func advanceAnimations() {
+        RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+    }
 }
+
+// MARK: - WindowDragHandleHitTests
 
 @MainActor
 final class WindowDragHandleHitTests: XCTestCase {
+    // MARK: Nested Types
+
     private final class CapturingView: NSView {
         override func hitTest(_ point: NSPoint) -> NSView? {
             bounds.contains(point) ? self : nil
@@ -11478,8 +11239,13 @@ final class WindowDragHandleHitTests: XCTestCase {
             bounds.contains(point) ? self : nil
         }
     }
+
     private final class PassThroughProbeView: NSView {
+        // MARK: Properties
+
         var onHitTest: (() -> Void)?
+
+        // MARK: Overridden Functions
 
         override func hitTest(_ point: NSPoint) -> NSView? {
             guard bounds.contains(point) else { return nil }
@@ -11487,6 +11253,7 @@ final class WindowDragHandleHitTests: XCTestCase {
             return nil
         }
     }
+
     private final class PassiveHostContainerView: NSView {
         override func hitTest(_ point: NSPoint) -> NSView? {
             guard bounds.contains(point) else { return nil }
@@ -11495,8 +11262,13 @@ final class WindowDragHandleHitTests: XCTestCase {
     }
 
     private final class MutatingSiblingView: NSView {
+        // MARK: Properties
+
         weak var container: NSView?
+
         private var didMutate = false
+
+        // MARK: Overridden Functions
 
         override func hitTest(_ point: NSPoint) -> NSView? {
             guard bounds.contains(point) else { return nil }
@@ -11511,7 +11283,7 @@ final class WindowDragHandleHitTests: XCTestCase {
 
     private final class ReentrantDragHandleView: NSView {
         override func hitTest(_ point: NSPoint) -> NSView? {
-            let shouldCapture = windowDragHandleShouldCaptureHit(point, in: self, eventType: .leftMouseDown, eventWindow: self.window)
+            let shouldCapture = windowDragHandleShouldCaptureHit(point, in: self, eventType: .leftMouseDown, eventWindow: window)
             return shouldCapture ? self : nil
         }
     }
@@ -11520,8 +11292,12 @@ final class WindowDragHandleHitTests: XCTestCase {
     /// simulating the crash path where sibling.hitTest triggers a SwiftUI layout
     /// pass that calls back into the drag handle's hit resolution.
     private final class ReentrantSiblingView: NSView {
+        // MARK: Properties
+
         weak var dragHandle: NSView?
         var reenteredResult: Bool?
+
+        // MARK: Overridden Functions
 
         override func hitTest(_ point: NSPoint) -> NSView? {
             guard bounds.contains(point), let dragHandle else { return nil }
@@ -11533,6 +11309,8 @@ final class WindowDragHandleHitTests: XCTestCase {
             return nil
         }
     }
+
+    // MARK: Functions
 
     func testDragHandleCapturesHitWhenNoSiblingClaimsPoint() {
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 220, height: 36))
@@ -11592,7 +11370,7 @@ final class WindowDragHandleHitTests: XCTestCase {
         XCTAssertTrue(windowDragHandleShouldCaptureHit(point, in: dragHandle, eventType: .leftMouseDown))
     }
 
-    func testDragHandleSkipsForeignLeftMouseDownDuringLaunch() {
+    func testDragHandleSkipsForeignLeftMouseDownDuringLaunch() throws {
         let point = NSPoint(x: 180, y: 18)
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 220, height: 36),
@@ -11601,10 +11379,7 @@ final class WindowDragHandleHitTests: XCTestCase {
             defer: false
         )
         defer { window.orderOut(nil) }
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
-        }
+        let contentView = try XCTUnwrap(window.contentView, "Expected content view")
 
         let container = NSView(frame: contentView.bounds)
         container.autoresizingMask = [.width, .height]
@@ -11688,7 +11463,7 @@ final class WindowDragHandleHitTests: XCTestCase {
         )
     }
 
-    func testTopHitResolutionStateIsScopedPerWindow() {
+    func testTopHitResolutionStateIsScopedPerWindow() throws {
         let point = NSPoint(x: 100, y: 18)
 
         let outerWindow = NSWindow(
@@ -11698,10 +11473,7 @@ final class WindowDragHandleHitTests: XCTestCase {
             defer: false
         )
         defer { outerWindow.orderOut(nil) }
-        guard let outerContentView = outerWindow.contentView else {
-            XCTFail("Expected outer content view")
-            return
-        }
+        let outerContentView = try XCTUnwrap(outerWindow.contentView, "Expected outer content view")
         let outerContainer = NSView(frame: outerContentView.bounds)
         outerContainer.autoresizingMask = [.width, .height]
         outerContentView.addSubview(outerContainer)
@@ -11716,10 +11488,7 @@ final class WindowDragHandleHitTests: XCTestCase {
             defer: false
         )
         defer { nestedWindow.orderOut(nil) }
-        guard let nestedContentView = nestedWindow.contentView else {
-            XCTFail("Expected nested content view")
-            return
-        }
+        let nestedContentView = try XCTUnwrap(nestedWindow.contentView, "Expected nested content view")
         let nestedContainer = BlockingTopHitContainerView(frame: nestedContentView.bounds)
         nestedContainer.autoresizingMask = [.width, .height]
         nestedContentView.addSubview(nestedContainer)
@@ -11787,7 +11556,7 @@ final class WindowDragHandleHitTests: XCTestCase {
         )
     }
 
-    func testDragHandleTopHitResolutionSurvivesSameWindowReentrancy() {
+    func testDragHandleTopHitResolutionSurvivesSameWindowReentrancy() throws {
         let point = NSPoint(x: 180, y: 18)
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 220, height: 36),
@@ -11796,10 +11565,7 @@ final class WindowDragHandleHitTests: XCTestCase {
             defer: false
         )
         defer { window.orderOut(nil) }
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
-        }
+        let contentView = try XCTUnwrap(window.contentView, "Expected content view")
 
         let container = NSView(frame: contentView.bounds)
         container.autoresizingMask = [.width, .height]
@@ -11817,54 +11583,57 @@ final class WindowDragHandleHitTests: XCTestCase {
 }
 
 #if DEBUG
-@MainActor
-final class SidebarWorkspaceShortcutHintMetricsTests: XCTestCase {
-    override func setUp() {
-        super.setUp()
-        SidebarWorkspaceShortcutHintMetrics.resetCacheForTesting()
+    @MainActor
+    final class SidebarWorkspaceShortcutHintMetricsTests: XCTestCase {
+        // MARK: Overridden Functions
+
+        override func setUp() {
+            super.setUp()
+            SidebarWorkspaceShortcutHintMetrics.resetCacheForTesting()
+        }
+
+        override func tearDown() {
+            SidebarWorkspaceShortcutHintMetrics.resetCacheForTesting()
+            super.tearDown()
+        }
+
+        // MARK: Functions
+
+        func testHintWidthCachesRepeatedMeasurements() {
+            XCTAssertEqual(SidebarWorkspaceShortcutHintMetrics.measurementCountForTesting(), 0)
+
+            let first = SidebarWorkspaceShortcutHintMetrics.hintWidth(for: "⌘1")
+            XCTAssertGreaterThan(first, 0)
+            XCTAssertEqual(SidebarWorkspaceShortcutHintMetrics.measurementCountForTesting(), 1)
+
+            let second = SidebarWorkspaceShortcutHintMetrics.hintWidth(for: "⌘1")
+            XCTAssertEqual(second, first)
+            XCTAssertEqual(SidebarWorkspaceShortcutHintMetrics.measurementCountForTesting(), 1)
+
+            _ = SidebarWorkspaceShortcutHintMetrics.hintWidth(for: "⌘2")
+            XCTAssertEqual(SidebarWorkspaceShortcutHintMetrics.measurementCountForTesting(), 2)
+        }
+
+        func testSlotWidthAppliesMinimumAndDebugInset() {
+            let nilLabelWidth = SidebarWorkspaceShortcutHintMetrics.slotWidth(label: nil, debugXOffset: 999)
+            XCTAssertEqual(nilLabelWidth, 28)
+
+            let base = SidebarWorkspaceShortcutHintMetrics.slotWidth(label: "⌘1", debugXOffset: 0)
+            let widened = SidebarWorkspaceShortcutHintMetrics.slotWidth(label: "⌘1", debugXOffset: 10)
+            XCTAssertGreaterThan(widened, base)
+        }
     }
-
-    override func tearDown() {
-        SidebarWorkspaceShortcutHintMetrics.resetCacheForTesting()
-        super.tearDown()
-    }
-
-    func testHintWidthCachesRepeatedMeasurements() {
-        XCTAssertEqual(SidebarWorkspaceShortcutHintMetrics.measurementCountForTesting(), 0)
-
-        let first = SidebarWorkspaceShortcutHintMetrics.hintWidth(for: "⌘1")
-        XCTAssertGreaterThan(first, 0)
-        XCTAssertEqual(SidebarWorkspaceShortcutHintMetrics.measurementCountForTesting(), 1)
-
-        let second = SidebarWorkspaceShortcutHintMetrics.hintWidth(for: "⌘1")
-        XCTAssertEqual(second, first)
-        XCTAssertEqual(SidebarWorkspaceShortcutHintMetrics.measurementCountForTesting(), 1)
-
-        _ = SidebarWorkspaceShortcutHintMetrics.hintWidth(for: "⌘2")
-        XCTAssertEqual(SidebarWorkspaceShortcutHintMetrics.measurementCountForTesting(), 2)
-    }
-
-    func testSlotWidthAppliesMinimumAndDebugInset() {
-        let nilLabelWidth = SidebarWorkspaceShortcutHintMetrics.slotWidth(label: nil, debugXOffset: 999)
-        XCTAssertEqual(nilLabelWidth, 28)
-
-        let base = SidebarWorkspaceShortcutHintMetrics.slotWidth(label: "⌘1", debugXOffset: 0)
-        let widened = SidebarWorkspaceShortcutHintMetrics.slotWidth(label: "⌘1", debugXOffset: 10)
-        XCTAssertGreaterThan(widened, base)
-    }
-}
 #endif
+
+// MARK: - DraggableFolderHitTests
 
 @MainActor
 final class DraggableFolderHitTests: XCTestCase {
-    func testFolderHitTestReturnsContainerWhenInsideBounds() {
+    func testFolderHitTestReturnsContainerWhenInsideBounds() throws {
         let folderView = DraggableFolderNSView(directory: "/tmp")
         folderView.frame = NSRect(x: 0, y: 0, width: 16, height: 16)
 
-        guard let hit = folderView.hitTest(NSPoint(x: 8, y: 8)) else {
-            XCTFail("Expected folder icon to capture inside hit")
-            return
-        }
+        let hit = try XCTUnwrap(folderView.hitTest(NSPoint(x: 8, y: 8)), "Expected folder icon to capture inside hit")
         XCTAssertTrue(hit === folderView)
     }
 
@@ -11881,6 +11650,8 @@ final class DraggableFolderHitTests: XCTestCase {
     }
 }
 
+// MARK: - TitlebarLeadingInsetPassthroughViewTests
+
 @MainActor
 final class TitlebarLeadingInsetPassthroughViewTests: XCTestCase {
     func testLeadingInsetViewDoesNotParticipateInHitTesting() {
@@ -11894,17 +11665,10 @@ final class TitlebarLeadingInsetPassthroughViewTests: XCTestCase {
     }
 }
 
+// MARK: - FolderWindowMoveSuppressionTests
+
 @MainActor
 final class FolderWindowMoveSuppressionTests: XCTestCase {
-    private func makeWindow() -> NSWindow {
-        NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 320, height: 180),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable],
-            backing: .buffered,
-            defer: false
-        )
-    }
-
     func testSuppressionDisablesMovableWindow() {
         let window = makeWindow()
         window.isMovable = true
@@ -11989,39 +11753,21 @@ final class FolderWindowMoveSuppressionTests: XCTestCase {
         XCTAssertEqual(previous, true)
         XCTAssertTrue(window.isMovable)
     }
-}
 
-@MainActor
-final class WindowMoveSuppressionHitPathTests: XCTestCase {
-    private func makeWindowWithContentView() -> (NSWindow, NSView) {
-        let window = NSWindow(
+    private func makeWindow() -> NSWindow {
+        NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 320, height: 180),
-            styleMask: [.titled, .closable],
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
         )
-        let contentView = NSView(frame: window.contentRect(forFrameRect: window.frame))
-        window.contentView = contentView
-        return (window, contentView)
     }
+}
 
-    private func makeMouseEvent(type: NSEvent.EventType, location: NSPoint, window: NSWindow) -> NSEvent {
-        guard let event = NSEvent.mouseEvent(
-            with: type,
-            location: location,
-            modifierFlags: [],
-            timestamp: ProcessInfo.processInfo.systemUptime,
-            windowNumber: window.windowNumber,
-            context: nil,
-            eventNumber: 0,
-            clickCount: 1,
-            pressure: 1.0
-        ) else {
-            fatalError("Failed to create \(type) mouse event")
-        }
-        return event
-    }
+// MARK: - WindowMoveSuppressionHitPathTests
 
+@MainActor
+final class WindowMoveSuppressionHitPathTests: XCTestCase {
     func testSuppressionHitPathRecognizesFolderView() {
         let folderView = DraggableFolderNSView(directory: "/tmp")
         XCTAssertTrue(shouldSuppressWindowMoveForFolderDrag(hitView: folderView))
@@ -12063,7 +11809,38 @@ final class WindowMoveSuppressionHitPathTests: XCTestCase {
         let dragged = makeMouseEvent(type: .leftMouseDragged, location: NSPoint(x: 20, y: 20), window: window)
         XCTAssertFalse(shouldSuppressWindowMoveForFolderDrag(window: window, event: dragged))
     }
+
+    private func makeWindowWithContentView() -> (NSWindow, NSView) {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 180),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let contentView = NSView(frame: window.contentRect(forFrameRect: window.frame))
+        window.contentView = contentView
+        return (window, contentView)
+    }
+
+    private func makeMouseEvent(type: NSEvent.EventType, location: NSPoint, window: NSWindow) -> NSEvent {
+        guard let event = NSEvent.mouseEvent(
+            with: type,
+            location: location,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: 0,
+            clickCount: 1,
+            pressure: 1.0
+        ) else {
+            fatalError("Failed to create \(type) mouse event")
+        }
+        return event
+    }
 }
+
+// MARK: - CommandPaletteOverlayPromotionPolicyTests
 
 @MainActor
 final class CommandPaletteOverlayPromotionPolicyTests: XCTestCase {
@@ -12101,41 +11878,27 @@ final class CommandPaletteOverlayPromotionPolicyTests: XCTestCase {
     }
 }
 
+// MARK: - GhosttySurfaceOverlayTests
+
 @MainActor
 final class GhosttySurfaceOverlayTests: XCTestCase {
+    // MARK: Nested Types
+
     private final class ScrollProbeSurfaceView: GhosttyNSView {
+        // MARK: Properties
+
         private(set) var scrollWheelCallCount = 0
 
-        override func scrollWheel(with event: NSEvent) {
+        // MARK: Overridden Functions
+
+        override func scrollWheel(with _: NSEvent) {
             scrollWheelCallCount += 1
         }
     }
 
-    private func findEditableTextField(in view: NSView) -> NSTextField? {
-        if let field = view as? NSTextField, field.isEditable {
-            return field
-        }
-        for subview in view.subviews {
-            if let field = findEditableTextField(in: subview) {
-                return field
-            }
-        }
-        return nil
-    }
+    // MARK: Functions
 
-    private func firstResponderOwnsTextField(_ firstResponder: NSResponder?, textField: NSTextField) -> Bool {
-        if firstResponder === textField {
-            return true
-        }
-        if let editor = firstResponder as? NSTextView,
-           editor.isFieldEditor,
-           editor.delegate as? NSTextField === textField {
-            return true
-        }
-        return false
-    }
-
-    func testTrackpadScrollRoutesToTerminalSurfaceAndPreservesKeyboardFocusPath() {
+    func testTrackpadScrollRoutesToTerminalSurfaceAndPreservesKeyboardFocusPath() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
             styleMask: [.titled, .closable],
@@ -12144,10 +11907,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         )
         defer { window.orderOut(nil) }
 
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
-        }
+        let contentView = try XCTUnwrap(window.contentView, "Expected content view")
 
         let surfaceView = ScrollProbeSurfaceView(frame: NSRect(x: 0, y: 0, width: 160, height: 120))
         let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
@@ -12160,10 +11920,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         contentView.layoutSubtreeIfNeeded()
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
 
-        guard let scrollView = hostedView.subviews.first(where: { $0 is NSScrollView }) as? NSScrollView else {
-            XCTFail("Expected hosted terminal scroll view")
-            return
-        }
+        let scrollView = try XCTUnwrap(hostedView.subviews.first(where: { $0 is NSScrollView }) as? NSScrollView, "Expected hosted terminal scroll view")
         XCTAssertFalse(
             scrollView.acceptsFirstResponder,
             "Host scroll view should not become first responder and steal terminal shortcuts"
@@ -12171,17 +11928,15 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
 
         _ = window.makeFirstResponder(nil)
 
-        guard let cgEvent = CGEvent(
+        let cgEvent = try XCTUnwrap(CGEvent(
             scrollWheelEvent2Source: nil,
             units: .pixel,
             wheelCount: 2,
             wheel1: 0,
             wheel2: -12,
             wheel3: 0
-        ), let scrollEvent = NSEvent(cgEvent: cgEvent) else {
-            XCTFail("Expected scroll wheel event")
-            return
-        }
+        ), "Expected scroll wheel event")
+        let scrollEvent = try XCTUnwrap(NSEvent(cgEvent: cgEvent), "Expected scroll wheel event")
 
         scrollView.scrollWheel(with: scrollEvent)
 
@@ -12211,7 +11966,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         XCTAssertTrue(state.isHidden)
     }
 
-    func testWindowResignKeyClearsFocusedTerminalFirstResponder() {
+    func testWindowResignKeyClearsFocusedTerminalFirstResponder() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
             styleMask: [.titled, .closable],
@@ -12220,10 +11975,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         )
         defer { window.orderOut(nil) }
 
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
-        }
+        let contentView = try XCTUnwrap(window.contentView, "Expected content view")
 
         let hostedView = GhosttySurfaceScrollView(
             surfaceView: GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 160, height: 120))
@@ -12294,7 +12046,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         )
     }
 
-    func testSearchOverlayFocusesSearchFieldAfterDeferredAttach() {
+    func testSearchOverlayFocusesSearchFieldAfterDeferredAttach() throws {
         let surface = TerminalSurface(
             tabId: UUID(),
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
@@ -12311,10 +12063,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         )
         defer { window.orderOut(nil) }
 
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
-        }
+        let contentView = try XCTUnwrap(window.contentView, "Expected content view")
         hostedView.frame = contentView.bounds
         hostedView.autoresizingMask = [.width, .height]
         contentView.addSubview(hostedView)
@@ -12330,10 +12079,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         hostedView.setSearchOverlay(searchState: searchState)
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
 
-        guard let searchField = findEditableTextField(in: hostedView) else {
-            XCTFail("Expected mounted find text field")
-            return
-        }
+        let searchField = try XCTUnwrap(findEditableTextField(in: hostedView), "Expected mounted find text field")
 
         XCTAssertTrue(
             firstResponderOwnsTextField(window.firstResponder, textField: searchField),
@@ -12366,7 +12112,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         )
     }
 
-    func testEscapeDismissingFindOverlayDoesNotLeakEscapeKeyUpToTerminal() {
+    func testEscapeDismissingFindOverlayDoesNotLeakEscapeKeyUpToTerminal() throws {
         _ = NSApplication.shared
 
         let surface = TerminalSurface(
@@ -12388,10 +12134,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
             window.orderOut(nil)
         }
 
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
-        }
+        let contentView = try XCTUnwrap(window.contentView, "Expected content view")
         hostedView.frame = contentView.bounds
         hostedView.autoresizingMask = [.width, .height]
         contentView.addSubview(hostedView)
@@ -12408,10 +12151,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         hostedView.setSearchOverlay(searchState: searchState)
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
 
-        guard let searchField = findEditableTextField(in: hostedView) else {
-            XCTFail("Expected mounted find text field")
-            return
-        }
+        let searchField = try XCTUnwrap(findEditableTextField(in: hostedView), "Expected mounted find text field")
         window.makeFirstResponder(searchField)
 
         var escapeKeyUpCount = 0
@@ -12421,7 +12161,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         }
 
         let timestamp = ProcessInfo.processInfo.systemUptime
-        guard let escapeKeyDown = NSEvent.keyEvent(
+        let escapeKeyDown = try XCTUnwrap(NSEvent.keyEvent(
             with: .keyDown,
             location: .zero,
             modifierFlags: [],
@@ -12432,7 +12172,8 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
             charactersIgnoringModifiers: "\u{1b}",
             isARepeat: false,
             keyCode: 53
-        ), let escapeKeyUp = NSEvent.keyEvent(
+        ), "Failed to construct Escape key events")
+        let escapeKeyUp = try XCTUnwrap(NSEvent.keyEvent(
             with: .keyUp,
             location: .zero,
             modifierFlags: [],
@@ -12443,10 +12184,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
             charactersIgnoringModifiers: "\u{1b}",
             isARepeat: false,
             keyCode: 53
-        ) else {
-            XCTFail("Failed to construct Escape key events")
-            return
-        }
+        ), "Failed to construct Escape key events")
 
         NSApp.sendEvent(escapeKeyDown)
         NSApp.sendEvent(escapeKeyUp)
@@ -12510,46 +12248,43 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
     }
 
     func testForceRefreshNoopsAfterSurfaceReleaseDuringGeometryReconcile() throws {
-#if DEBUG
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 420, height: 280),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-        defer { window.orderOut(nil) }
+        #if DEBUG
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 420, height: 280),
+                styleMask: [.titled, .closable],
+                backing: .buffered,
+                defer: false
+            )
+            defer { window.orderOut(nil) }
 
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
-        }
+            let contentView = try XCTUnwrap(window.contentView, "Expected content view")
 
-        let surface = TerminalSurface(
-            tabId: UUID(),
-            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: nil,
-            workingDirectory: nil
-        )
-        let hostedView = surface.hostedView
-        hostedView.frame = contentView.bounds
-        hostedView.autoresizingMask = [.width, .height]
-        contentView.addSubview(hostedView)
+            let surface = TerminalSurface(
+                tabId: UUID(),
+                context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+                configTemplate: nil,
+                workingDirectory: nil
+            )
+            let hostedView = surface.hostedView
+            hostedView.frame = contentView.bounds
+            hostedView.autoresizingMask = [.width, .height]
+            contentView.addSubview(hostedView)
 
-        window.makeKeyAndOrderFront(nil)
-        window.displayIfNeeded()
-        contentView.layoutSubtreeIfNeeded()
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+            window.makeKeyAndOrderFront(nil)
+            window.displayIfNeeded()
+            contentView.layoutSubtreeIfNeeded()
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
 
-        hostedView.reconcileGeometryNow()
-        surface.releaseSurfaceForTesting()
-        XCTAssertNil(surface.surface, "Surface should be nil after test release helper")
+            hostedView.reconcileGeometryNow()
+            surface.releaseSurfaceForTesting()
+            XCTAssertNil(surface.surface, "Surface should be nil after test release helper")
 
-        hostedView.reconcileGeometryNow()
-        surface.forceRefresh()
-        XCTAssertNil(surface.surface, "Force refresh should no-op when runtime surface is nil")
-#else
-        throw XCTSkip("Debug-only regression test")
-#endif
+            hostedView.reconcileGeometryNow()
+            surface.forceRefresh()
+            XCTAssertNil(surface.surface, "Force refresh should no-op when runtime surface is nil")
+        #else
+            throw XCTSkip("Debug-only regression test")
+        #endif
     }
 
     func testSearchOverlayMountDoesNotRetainTerminalSurface() {
@@ -12573,7 +12308,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         XCTAssertNil(weakSurface, "Mounted search overlay must not retain TerminalSurface")
     }
 
-    func testSearchOverlaySurvivesPortalRebindDuringSplitLikeChurn() {
+    func testSearchOverlaySurvivesPortalRebindDuringSplitLikeChurn() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 480, height: 320),
             styleMask: [.titled, .closable],
@@ -12583,10 +12318,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         defer { window.orderOut(nil) }
         let portal = WindowTerminalPortal(window: window)
 
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
-        }
+        let contentView = try XCTUnwrap(window.contentView, "Expected content view")
 
         let anchorA = NSView(frame: NSRect(x: 20, y: 20, width: 180, height: 140))
         let anchorB = NSView(frame: NSRect(x: 220, y: 20, width: 180, height: 140))
@@ -12614,7 +12346,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         )
     }
 
-    func testSearchOverlaySurvivesPortalVisibilityToggleDuringWorkspaceSwitchLikeChurn() {
+    func testSearchOverlaySurvivesPortalVisibilityToggleDuringWorkspaceSwitchLikeChurn() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 480, height: 320),
             styleMask: [.titled, .closable],
@@ -12624,10 +12356,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         defer { window.orderOut(nil) }
         let portal = WindowTerminalPortal(window: window)
 
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
-        }
+        let contentView = try XCTUnwrap(window.contentView, "Expected content view")
 
         let anchor = NSView(frame: NSRect(x: 40, y: 40, width: 220, height: 160))
         contentView.addSubview(anchor)
@@ -12655,12 +12384,41 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
             "Workspace-switch-like visibility toggles should not unmount terminal search overlay"
         )
     }
+
+    private func findEditableTextField(in view: NSView) -> NSTextField? {
+        if let field = view as? NSTextField, field.isEditable {
+            return field
+        }
+        for subview in view.subviews {
+            if let field = findEditableTextField(in: subview) {
+                return field
+            }
+        }
+        return nil
+    }
+
+    private func firstResponderOwnsTextField(_ firstResponder: NSResponder?, textField: NSTextField) -> Bool {
+        if firstResponder === textField {
+            return true
+        }
+        if let editor = firstResponder as? NSTextView,
+           editor.isFieldEditor,
+           editor.delegate as? NSTextField === textField
+        {
+            return true
+        }
+        return false
+    }
 }
+
+// MARK: - TerminalWindowPortalLifecycleTests
 
 @MainActor
 final class TerminalWindowPortalLifecycleTests: XCTestCase {
+    // MARK: Nested Types
+
     private final class ContentViewCountingWindow: NSWindow {
-        var contentViewReadCount = 0
+        // MARK: Overridden Properties
 
         override var contentView: NSView? {
             get {
@@ -12671,17 +12429,15 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
                 super.contentView = newValue
             }
         }
+
+        // MARK: Properties
+
+        var contentViewReadCount = 0
     }
 
-    private func realizeWindowLayout(_ window: NSWindow) {
-        window.makeKeyAndOrderFront(nil)
-        window.displayIfNeeded()
-        window.contentView?.layoutSubtreeIfNeeded()
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-        window.contentView?.layoutSubtreeIfNeeded()
-    }
+    // MARK: Functions
 
-    func testPortalHostInstallsAboveContentViewForVisibility() {
+    func testPortalHostInstallsAboveContentViewForVisibility() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
             styleMask: [.titled, .closable],
@@ -12691,17 +12447,11 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         let portal = WindowTerminalPortal(window: window)
         _ = portal.viewAtWindowPoint(NSPoint(x: 1, y: 1))
 
-        guard let contentView = window.contentView,
-              let container = contentView.superview else {
-            XCTFail("Expected content container")
-            return
-        }
+        let contentView = try XCTUnwrap(window.contentView, "Expected content container")
+        let container = try XCTUnwrap(contentView.superview, "Expected content container")
 
-        guard let hostIndex = container.subviews.firstIndex(where: { $0 is WindowTerminalHostView }),
-              let contentIndex = container.subviews.firstIndex(where: { $0 === contentView }) else {
-            XCTFail("Expected host/content views in same container")
-            return
-        }
+        let hostIndex = try XCTUnwrap(container.subviews.firstIndex(where: { $0 is WindowTerminalHostView }), "Expected host/content views in same container")
+        let contentIndex = try XCTUnwrap(container.subviews.firstIndex(where: { $0 === contentView }), "Expected host/content views in same container")
 
         XCTAssertGreaterThan(
             hostIndex,
@@ -12710,7 +12460,7 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         )
     }
 
-    func testTerminalPortalHostStaysBelowBrowserPortalHostWhenBothAreInstalled() {
+    func testTerminalPortalHostStaysBelowBrowserPortalHostWhenBothAreInstalled() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
             styleMask: [.titled, .closable],
@@ -12725,15 +12475,13 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         _ = browserPortal.webViewAtWindowPoint(NSPoint(x: 1, y: 1))
         _ = terminalPortal.viewAtWindowPoint(NSPoint(x: 1, y: 1))
 
-        guard let contentView = window.contentView,
-              let container = contentView.superview else {
-            XCTFail("Expected content container")
-            return
-        }
+        let contentView = try XCTUnwrap(window.contentView, "Expected content container")
+        let container = try XCTUnwrap(contentView.superview, "Expected content container")
 
         func assertHostOrder(_ message: String) {
             guard let terminalHostIndex = container.subviews.firstIndex(where: { $0 is WindowTerminalHostView }),
-                  let browserHostIndex = container.subviews.firstIndex(where: { $0 is WindowBrowserHostView }) else {
+                  let browserHostIndex = container.subviews.firstIndex(where: { $0 is WindowBrowserHostView })
+            else {
                 XCTFail("Expected both portal hosts in same container")
                 return
             }
@@ -12774,7 +12522,7 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         XCTAssertEqual(TerminalWindowPortalRegistry.debugPortalCount(), baseline)
     }
 
-    func testPruneDeadEntriesDetachesAnchorlessHostedView() {
+    func testPruneDeadEntriesDetachesAnchorlessHostedView() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 500, height: 300),
             styleMask: [.titled, .closable],
@@ -12782,18 +12530,15 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
             defer: false
         )
         let portal = WindowTerminalPortal(window: window)
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
-        }
+        let contentView = try XCTUnwrap(window.contentView, "Expected content view")
 
         let hosted1 = GhosttySurfaceScrollView(
             surfaceView: GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 40, height: 30))
         )
 
         var anchor1: NSView? = NSView(frame: NSRect(x: 20, y: 20, width: 120, height: 80))
-        contentView.addSubview(anchor1!)
-        portal.bind(hostedView: hosted1, to: anchor1!, visibleInUI: true)
+        try contentView.addSubview(XCTUnwrap(anchor1))
+        try portal.bind(hostedView: hosted1, to: XCTUnwrap(anchor1), visibleInUI: true)
 
         anchor1?.removeFromSuperview()
         anchor1 = nil
@@ -12809,7 +12554,7 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         XCTAssertEqual(portal.debugHostedSubviewCount(), 1, "Stale anchorless hosted views should be detached from hostView")
     }
 
-    func testSynchronizeReusesInstalledTargetWithoutRepeatedContentViewLookup() {
+    func testSynchronizeReusesInstalledTargetWithoutRepeatedContentViewLookup() throws {
         let window = ContentViewCountingWindow(
             contentRect: NSRect(x: 0, y: 0, width: 500, height: 300),
             styleMask: [.titled, .closable],
@@ -12817,10 +12562,7 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
             defer: false
         )
         let portal = WindowTerminalPortal(window: window)
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
-        }
+        let contentView = try XCTUnwrap(window.contentView, "Expected content view")
 
         let anchor = NSView(frame: NSRect(x: 40, y: 50, width: 200, height: 120))
         contentView.addSubview(anchor)
@@ -12841,7 +12583,7 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         )
     }
 
-    func testTerminalViewAtWindowPointResolvesPortalHostedSurface() {
+    func testTerminalViewAtWindowPointResolvesPortalHostedSurface() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 500, height: 300),
             styleMask: [.titled, .closable],
@@ -12849,10 +12591,7 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
             defer: false
         )
         let portal = WindowTerminalPortal(window: window)
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
-        }
+        let contentView = try XCTUnwrap(window.contentView, "Expected content view")
 
         let anchor = NSView(frame: NSRect(x: 40, y: 50, width: 200, height: 120))
         contentView.addSubview(anchor)
@@ -12870,7 +12609,7 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         )
     }
 
-    func testVisibilityTransitionBringsHostedViewToFront() {
+    func testVisibilityTransitionBringsHostedViewToFront() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 500, height: 300),
             styleMask: [.titled, .closable],
@@ -12878,10 +12617,7 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
             defer: false
         )
         let portal = WindowTerminalPortal(window: window)
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
-        }
+        let contentView = try XCTUnwrap(window.contentView, "Expected content view")
 
         let anchor1 = NSView(frame: NSRect(x: 20, y: 20, width: 220, height: 180))
         let anchor2 = NSView(frame: NSRect(x: 80, y: 60, width: 220, height: 180))
@@ -12911,7 +12647,7 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         )
     }
 
-    func testPriorityIncreaseBringsHostedViewToFrontWithoutVisibilityToggle() {
+    func testPriorityIncreaseBringsHostedViewToFrontWithoutVisibilityToggle() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 500, height: 300),
             styleMask: [.titled, .closable],
@@ -12919,10 +12655,7 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
             defer: false
         )
         let portal = WindowTerminalPortal(window: window)
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
-        }
+        let contentView = try XCTUnwrap(window.contentView, "Expected content view")
 
         let anchor1 = NSView(frame: NSRect(x: 20, y: 20, width: 220, height: 180))
         let anchor2 = NSView(frame: NSRect(x: 80, y: 60, width: 220, height: 180))
@@ -12951,7 +12684,7 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         )
     }
 
-    func testHiddenPortalDefersRevealUntilFrameHasUsableSize() {
+    func testHiddenPortalDefersRevealUntilFrameHasUsableSize() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 700, height: 420),
             styleMask: [.titled, .closable],
@@ -12962,10 +12695,7 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
 
         let portal = WindowTerminalPortal(window: window)
         realizeWindowLayout(window)
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
-        }
+        let contentView = try XCTUnwrap(window.contentView, "Expected content view")
 
         let anchor = NSView(frame: NSRect(x: 40, y: 40, width: 280, height: 220))
         contentView.addSubview(anchor)
@@ -12995,7 +12725,7 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         XCTAssertFalse(hosted.isHidden, "Portal should unhide after geometry is usable")
     }
 
-    func testScheduledExternalGeometrySyncRefreshesAncestorLayoutShift() {
+    func testScheduledExternalGeometrySyncRefreshesAncestorLayoutShift() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 700, height: 420),
             styleMask: [.titled, .closable],
@@ -13008,10 +12738,7 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         }
 
         realizeWindowLayout(window)
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
-        }
+        let contentView = try XCTUnwrap(window.contentView, "Expected content view")
 
         let shiftedContainer = NSView(frame: NSRect(x: 120, y: 60, width: 220, height: 160))
         contentView.addSubview(shiftedContainer)
@@ -13068,18 +12795,36 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
             "The scheduled external geometry sync should move the portal-hosted terminal to the anchor's new window position"
         )
     }
+
+    private func realizeWindowLayout(_ window: NSWindow) {
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        window.contentView?.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        window.contentView?.layoutSubtreeIfNeeded()
+    }
 }
+
+// MARK: - BrowserWindowPortalLifecycleTests
 
 @MainActor
 final class BrowserWindowPortalLifecycleTests: XCTestCase {
+    // MARK: Nested Types
+
     private final class TrackingPortalWebView: WKWebView {
+        // MARK: Properties
+
         private(set) var displayIfNeededCount = 0
         private(set) var reattachRenderingStateCount = 0
+
+        // MARK: Overridden Functions
 
         override func displayIfNeeded() {
             displayIfNeededCount += 1
             super.displayIfNeeded()
         }
+
+        // MARK: Functions
 
         @objc(_enterInWindow)
         func cmuxUnitTestEnterInWindow() {
@@ -13094,28 +12839,9 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
 
     private final class WKInspectorProbeView: NSView {}
 
-    private func realizeWindowLayout(_ window: NSWindow) {
-        window.makeKeyAndOrderFront(nil)
-        window.displayIfNeeded()
-        window.contentView?.layoutSubtreeIfNeeded()
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-        window.contentView?.layoutSubtreeIfNeeded()
-    }
+    // MARK: Functions
 
-    private func advanceAnimations() {
-        RunLoop.current.run(until: Date().addingTimeInterval(0.25))
-    }
-
-    private func dropZoneOverlay(in slot: WindowBrowserSlotView, excluding webView: WKWebView) -> NSView? {
-        let candidates = slot.subviews + (slot.superview?.subviews ?? [])
-        return candidates.first(where: {
-            $0 !== slot &&
-            $0 !== webView &&
-            String(describing: type(of: $0)).contains("BrowserDropZoneOverlayView")
-        })
-    }
-
-    func testPortalHostInstallsAboveContentViewForVisibility() {
+    func testPortalHostInstallsAboveContentViewForVisibility() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
             styleMask: [.titled, .closable],
@@ -13126,17 +12852,11 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         let portal = WindowBrowserPortal(window: window)
         _ = portal.webViewAtWindowPoint(NSPoint(x: 1, y: 1))
 
-        guard let contentView = window.contentView,
-              let container = contentView.superview else {
-            XCTFail("Expected content container")
-            return
-        }
+        let contentView = try XCTUnwrap(window.contentView, "Expected content container")
+        let container = try XCTUnwrap(contentView.superview, "Expected content container")
 
-        guard let hostIndex = container.subviews.firstIndex(where: { $0 is WindowBrowserHostView }),
-              let contentIndex = container.subviews.firstIndex(where: { $0 === contentView }) else {
-            XCTFail("Expected host/content views in same container")
-            return
-        }
+        let hostIndex = try XCTUnwrap(container.subviews.firstIndex(where: { $0 is WindowBrowserHostView }), "Expected host/content views in same container")
+        let contentIndex = try XCTUnwrap(container.subviews.firstIndex(where: { $0 === contentView }), "Expected host/content views in same container")
 
         XCTAssertGreaterThan(
             hostIndex,
@@ -13145,7 +12865,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         )
     }
 
-    func testBrowserPortalHostStaysAboveTerminalPortalHostDuringPortalChurn() {
+    func testBrowserPortalHostStaysAboveTerminalPortalHostDuringPortalChurn() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
             styleMask: [.titled, .closable],
@@ -13160,15 +12880,13 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         _ = browserPortal.webViewAtWindowPoint(NSPoint(x: 1, y: 1))
         _ = terminalPortal.viewAtWindowPoint(NSPoint(x: 1, y: 1))
 
-        guard let contentView = window.contentView,
-              let container = contentView.superview else {
-            XCTFail("Expected content container")
-            return
-        }
+        let contentView = try XCTUnwrap(window.contentView, "Expected content container")
+        let container = try XCTUnwrap(contentView.superview, "Expected content container")
 
         func assertHostOrder(_ message: String) {
             guard let browserHostIndex = container.subviews.firstIndex(where: { $0 is WindowBrowserHostView }),
-                  let terminalHostIndex = container.subviews.firstIndex(where: { $0 is WindowTerminalHostView }) else {
+                  let terminalHostIndex = container.subviews.firstIndex(where: { $0 is WindowTerminalHostView })
+            else {
                 XCTFail("Expected both portal hosts in same container")
                 return
             }
@@ -13199,7 +12917,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         assertHostOrder("Browser portal sync should keep browser panes above portal-hosted terminals")
     }
 
-    func testAnchorRebindKeepsWebViewInStablePortalSuperview() {
+    func testAnchorRebindKeepsWebViewInStablePortalSuperview() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 500, height: 300),
             styleMask: [.titled, .closable],
@@ -13209,10 +12927,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         defer { window.orderOut(nil) }
         realizeWindowLayout(window)
         let portal = WindowBrowserPortal(window: window)
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
-        }
+        let contentView = try XCTUnwrap(window.contentView, "Expected content view")
 
         let anchor1 = NSView(frame: NSRect(x: 20, y: 20, width: 180, height: 120))
         let anchor2 = NSView(frame: NSRect(x: 240, y: 40, width: 180, height: 120))
@@ -13231,11 +12946,8 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
 
         contentView.layoutSubtreeIfNeeded()
         portal.synchronizeWebViewForAnchor(anchor2)
-        guard let slot = webView.superview as? WindowBrowserSlotView,
-              let host = slot.superview as? WindowBrowserHostView else {
-            XCTFail("Expected browser slot + host views")
-            return
-        }
+        let slot = try XCTUnwrap(webView.superview as? WindowBrowserSlotView, "Expected browser slot + host views")
+        let host = try XCTUnwrap(slot.superview as? WindowBrowserHostView, "Expected browser slot + host views")
         let expectedFrame = host.convert(anchor2.bounds, from: anchor2)
         XCTAssertEqual(slot.frame.origin.x, expectedFrame.origin.x, accuracy: 0.5)
         XCTAssertEqual(slot.frame.origin.y, expectedFrame.origin.y, accuracy: 0.5)
@@ -13243,7 +12955,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         XCTAssertEqual(slot.frame.size.height, expectedFrame.size.height, accuracy: 0.5)
     }
 
-    func testPortalClampsWebViewFrameToHostBoundsWhenAnchorOverflowsSidebar() {
+    func testPortalClampsWebViewFrameToHostBoundsWhenAnchorOverflowsSidebar() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
             styleMask: [.titled, .closable],
@@ -13253,10 +12965,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         defer { window.orderOut(nil) }
         realizeWindowLayout(window)
         let portal = WindowBrowserPortal(window: window)
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
-        }
+        let contentView = try XCTUnwrap(window.contentView, "Expected content view")
 
         // Simulate a transient oversized anchor rect during split churn.
         let anchor = NSView(frame: NSRect(x: 120, y: 20, width: 260, height: 150))
@@ -13267,10 +12976,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         contentView.layoutSubtreeIfNeeded()
         portal.synchronizeWebViewForAnchor(anchor)
 
-        guard let slot = webView.superview as? WindowBrowserSlotView else {
-            XCTFail("Expected web view slot")
-            return
-        }
+        let slot = try XCTUnwrap(webView.superview as? WindowBrowserSlotView, "Expected web view slot")
 
         XCTAssertFalse(slot.isHidden, "Partially visible browser anchor should stay visible")
         XCTAssertEqual(slot.frame.origin.x, 120, accuracy: 0.5)
@@ -13279,7 +12985,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         XCTAssertEqual(slot.frame.size.height, 150, accuracy: 0.5)
     }
 
-    func testPortalClipsAnchorFrameThroughAncestorBounds() {
+    func testPortalClipsAnchorFrameThroughAncestorBounds() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 480, height: 320),
             styleMask: [.titled, .closable],
@@ -13289,10 +12995,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         defer { window.orderOut(nil) }
         realizeWindowLayout(window)
         let portal = WindowBrowserPortal(window: window)
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
-        }
+        let contentView = try XCTUnwrap(window.contentView, "Expected content view")
 
         let clipView = NSView(frame: NSRect(x: 60, y: 40, width: 150, height: 120))
         contentView.addSubview(clipView)
@@ -13307,10 +13010,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         clipView.layoutSubtreeIfNeeded()
         portal.synchronizeWebViewForAnchor(anchor)
 
-        guard let slot = webView.superview as? WindowBrowserSlotView else {
-            XCTFail("Expected browser slot")
-            return
-        }
+        let slot = try XCTUnwrap(webView.superview as? WindowBrowserSlotView, "Expected browser slot")
 
         XCTAssertFalse(slot.isHidden, "Ancestor clipping should keep the browser visible in the real pane")
         XCTAssertEqual(slot.frame.origin.x, 60, accuracy: 0.5)
@@ -13319,7 +13019,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         XCTAssertEqual(slot.frame.size.height, 120, accuracy: 0.5)
     }
 
-    func testPortalSyncNormalizesOutOfBoundsWebFrame() {
+    func testPortalSyncNormalizesOutOfBoundsWebFrame() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 500, height: 300),
             styleMask: [.titled, .closable],
@@ -13329,10 +13029,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         defer { window.orderOut(nil) }
         realizeWindowLayout(window)
         let portal = WindowBrowserPortal(window: window)
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
-        }
+        let contentView = try XCTUnwrap(window.contentView, "Expected content view")
 
         let anchor = NSView(frame: NSRect(x: 40, y: 20, width: 220, height: 160))
         contentView.addSubview(anchor)
@@ -13342,10 +13039,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         contentView.layoutSubtreeIfNeeded()
         portal.synchronizeWebViewForAnchor(anchor)
 
-        guard let slot = webView.superview as? WindowBrowserSlotView else {
-            XCTFail("Expected browser slot")
-            return
-        }
+        let slot = try XCTUnwrap(webView.superview as? WindowBrowserSlotView, "Expected browser slot")
 
         // Reproduce observed drift from logs where WebKit shifts/expands frame beyond slot bounds.
         webView.frame = NSRect(x: 0, y: 250, width: slot.bounds.width, height: slot.bounds.height)
@@ -13385,7 +13079,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         )
     }
 
-    func testPortalResizePreservesSideDockedInspectorManagedWebViewFrame() {
+    func testPortalResizePreservesSideDockedInspectorManagedWebViewFrame() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 520, height: 320),
             styleMask: [.titled, .closable],
@@ -13395,10 +13089,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         defer { window.orderOut(nil) }
         realizeWindowLayout(window)
         let portal = WindowBrowserPortal(window: window)
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
-        }
+        let contentView = try XCTUnwrap(window.contentView, "Expected content view")
 
         let anchor = NSView(frame: NSRect(x: 40, y: 24, width: 260, height: 180))
         contentView.addSubview(anchor)
@@ -13408,10 +13099,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         contentView.layoutSubtreeIfNeeded()
         portal.synchronizeWebViewForAnchor(anchor)
 
-        guard let slot = webView.superview as? WindowBrowserSlotView else {
-            XCTFail("Expected browser slot")
-            return
-        }
+        let slot = try XCTUnwrap(webView.superview as? WindowBrowserSlotView, "Expected browser slot")
 
         let initialInspectorWidth: CGFloat = 110
         let inspectorContainer = NSView(
@@ -13455,7 +13143,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         )
     }
 
-    func testPortalAnchorResizeDoesNotForceHostedWebViewPresentationRefresh() {
+    func testPortalAnchorResizeDoesNotForceHostedWebViewPresentationRefresh() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 520, height: 320),
             styleMask: [.titled, .closable],
@@ -13465,10 +13153,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         defer { window.orderOut(nil) }
         realizeWindowLayout(window)
         let portal = WindowBrowserPortal(window: window)
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
-        }
+        let contentView = try XCTUnwrap(window.contentView, "Expected content view")
 
         let anchor = NSView(frame: NSRect(x: 40, y: 24, width: 220, height: 160))
         contentView.addSubview(anchor)
@@ -13479,10 +13164,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         portal.synchronizeWebViewForAnchor(anchor)
         advanceAnimations()
 
-        guard let slot = webView.superview as? WindowBrowserSlotView else {
-            XCTFail("Expected browser slot")
-            return
-        }
+        let slot = try XCTUnwrap(webView.superview as? WindowBrowserSlotView, "Expected browser slot")
 
         let initialDisplayCount = webView.displayIfNeededCount
         let initialReattachCount = webView.reattachRenderingStateCount
@@ -13508,7 +13190,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         )
     }
 
-    func testExternalSplitResizeDoesNotForceHostedWebViewPresentationRefresh() {
+    func testExternalSplitResizeDoesNotForceHostedWebViewPresentationRefresh() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 640, height: 360),
             styleMask: [.titled, .closable],
@@ -13518,10 +13200,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         defer { window.orderOut(nil) }
         realizeWindowLayout(window)
         let portal = WindowBrowserPortal(window: window)
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
-        }
+        let contentView = try XCTUnwrap(window.contentView, "Expected content view")
 
         let splitView = NSSplitView(frame: contentView.bounds)
         splitView.autoresizingMask = [.width, .height]
@@ -13555,10 +13234,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         portal.synchronizeWebViewForAnchor(anchor)
         advanceAnimations()
 
-        guard let slot = webView.superview as? WindowBrowserSlotView else {
-            XCTFail("Expected browser slot")
-            return
-        }
+        let slot = try XCTUnwrap(webView.superview as? WindowBrowserSlotView, "Expected browser slot")
 
         let initialDisplayCount = webView.displayIfNeededCount
         let initialReattachCount = webView.reattachRenderingStateCount
@@ -13587,7 +13263,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         )
     }
 
-    func testPortalSyncRepairsBottomDockedInspectorOverflowedPageFrame() {
+    func testPortalSyncRepairsBottomDockedInspectorOverflowedPageFrame() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 520, height: 320),
             styleMask: [.titled, .closable],
@@ -13597,10 +13273,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         defer { window.orderOut(nil) }
         realizeWindowLayout(window)
         let portal = WindowBrowserPortal(window: window)
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
-        }
+        let contentView = try XCTUnwrap(window.contentView, "Expected content view")
 
         let anchor = NSView(frame: NSRect(x: 40, y: 24, width: 260, height: 180))
         contentView.addSubview(anchor)
@@ -13610,10 +13283,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         contentView.layoutSubtreeIfNeeded()
         portal.synchronizeWebViewForAnchor(anchor)
 
-        guard let slot = webView.superview as? WindowBrowserSlotView else {
-            XCTFail("Expected browser slot")
-            return
-        }
+        let slot = try XCTUnwrap(webView.superview as? WindowBrowserSlotView, "Expected browser slot")
 
         let inspectorHeight: CGFloat = 84
         let inspectorContainer = NSView(
@@ -13657,7 +13327,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         )
     }
 
-    func testHidingBrowserSlotYieldsOwnedInspectorFirstResponder() {
+    func testHidingBrowserSlotYieldsOwnedInspectorFirstResponder() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 520, height: 320),
             styleMask: [.titled, .closable],
@@ -13666,10 +13336,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         )
         defer { window.orderOut(nil) }
         realizeWindowLayout(window)
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
-        }
+        let contentView = try XCTUnwrap(window.contentView, "Expected content view")
 
         let slot = WindowBrowserSlotView(frame: NSRect(x: 40, y: 24, width: 260, height: 180))
         contentView.addSubview(slot)
@@ -13702,7 +13369,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         }
     }
 
-    func testHiddenPortalSyncDoesNotStealLocallyHostedDevToolsWebViewDuringResize() {
+    func testHiddenPortalSyncDoesNotStealLocallyHostedDevToolsWebViewDuringResize() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 520, height: 320),
             styleMask: [.titled, .closable],
@@ -13712,10 +13379,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         defer { window.orderOut(nil) }
         realizeWindowLayout(window)
         let portal = WindowBrowserPortal(window: window)
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
-        }
+        let contentView = try XCTUnwrap(window.contentView, "Expected content view")
 
         let anchor = NSView(frame: NSRect(x: 40, y: 24, width: 260, height: 180))
         contentView.addSubview(anchor)
@@ -13726,10 +13390,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         portal.synchronizeWebViewForAnchor(anchor)
         advanceAnimations()
 
-        guard let hiddenPortalSlot = webView.superview as? WindowBrowserSlotView else {
-            XCTFail("Expected browser slot")
-            return
-        }
+        let hiddenPortalSlot = try XCTUnwrap(webView.superview as? WindowBrowserSlotView, "Expected browser slot")
 
         portal.updateEntryVisibility(forWebViewId: ObjectIdentifier(webView), visibleInUI: false, zPriority: 0)
         portal.synchronizeWebViewForAnchor(anchor)
@@ -13771,7 +13432,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         XCTAssertTrue(hiddenPortalSlot.isHidden, "The retiring hidden portal slot should stay hidden during local inline hosting")
     }
 
-    func testPortalHostBoundsBecomeReadyAfterBindingInFrameDrivenHierarchy() {
+    func testPortalHostBoundsBecomeReadyAfterBindingInFrameDrivenHierarchy() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
             styleMask: [.titled, .closable],
@@ -13782,10 +13443,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         realizeWindowLayout(window)
         let portal = WindowBrowserPortal(window: window)
 
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
-        }
+        let contentView = try XCTUnwrap(window.contentView, "Expected content view")
         let anchor = NSView(frame: NSRect(x: 40, y: 24, width: 220, height: 160))
         contentView.addSubview(anchor)
 
@@ -13793,16 +13451,13 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         portal.bind(webView: webView, to: anchor, visibleInUI: true)
         portal.synchronizeWebViewForAnchor(anchor)
 
-        guard let slot = webView.superview as? WindowBrowserSlotView,
-              let host = slot.superview as? WindowBrowserHostView else {
-            XCTFail("Expected portal slot + host views")
-            return
-        }
+        let slot = try XCTUnwrap(webView.superview as? WindowBrowserSlotView, "Expected portal slot + host views")
+        let host = try XCTUnwrap(slot.superview as? WindowBrowserHostView, "Expected portal slot + host views")
         XCTAssertGreaterThan(host.bounds.width, 1, "Portal host width should be ready for clipping/sync")
         XCTAssertGreaterThan(host.bounds.height, 1, "Portal host height should be ready for clipping/sync")
     }
 
-    func testPortalDropZoneOverlayPersistsAcrossVisibilityChanges() {
+    func testPortalDropZoneOverlayPersistsAcrossVisibilityChanges() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
             styleMask: [.titled, .closable],
@@ -13813,10 +13468,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         realizeWindowLayout(window)
         let portal = WindowBrowserPortal(window: window)
 
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
-        }
+        let contentView = try XCTUnwrap(window.contentView, "Expected content view")
         let anchor = NSView(frame: NSRect(x: 40, y: 24, width: 220, height: 160))
         contentView.addSubview(anchor)
 
@@ -13824,11 +13476,8 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         portal.bind(webView: webView, to: anchor, visibleInUI: true)
         portal.synchronizeWebViewForAnchor(anchor)
 
-        guard let slot = webView.superview as? WindowBrowserSlotView,
-              let overlay = dropZoneOverlay(in: slot, excluding: webView) else {
-            XCTFail("Expected browser slot overlay")
-            return
-        }
+        let slot = try XCTUnwrap(webView.superview as? WindowBrowserSlotView, "Expected browser slot overlay")
+        let overlay = try XCTUnwrap(dropZoneOverlay(in: slot, excluding: webView), "Expected browser slot overlay")
 
         XCTAssertTrue(overlay.isHidden, "Overlay should start hidden without an active drop zone")
 
@@ -13851,7 +13500,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         XCTAssertFalse(overlay.isHidden, "Restoring visibility should restore the active drop-zone overlay")
     }
 
-    func testPortalRevealRefreshesHostedWebViewWithoutFrameDelta() {
+    func testPortalRevealRefreshesHostedWebViewWithoutFrameDelta() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
             styleMask: [.titled, .closable],
@@ -13862,10 +13511,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         realizeWindowLayout(window)
         let portal = WindowBrowserPortal(window: window)
 
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
-        }
+        let contentView = try XCTUnwrap(window.contentView, "Expected content view")
         let anchor = NSView(frame: NSRect(x: 40, y: 24, width: 220, height: 160))
         contentView.addSubview(anchor)
 
@@ -13904,7 +13550,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         )
     }
 
-    func testVisiblePortalEntryHidesWithoutDetachingDuringTransientAnchorRemovalUntilRebind() {
+    func testVisiblePortalEntryHidesWithoutDetachingDuringTransientAnchorRemovalUntilRebind() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
             styleMask: [.titled, .closable],
@@ -13915,10 +13561,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         realizeWindowLayout(window)
         let portal = WindowBrowserPortal(window: window)
 
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
-        }
+        let contentView = try XCTUnwrap(window.contentView, "Expected content view")
 
         let anchorFrame = NSRect(x: 40, y: 24, width: 220, height: 160)
         let anchor1 = NSView(frame: anchorFrame)
@@ -13929,10 +13572,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         portal.synchronizeWebViewForAnchor(anchor1)
         advanceAnimations()
 
-        guard let slot = webView.superview as? WindowBrowserSlotView else {
-            XCTFail("Expected browser slot")
-            return
-        }
+        let slot = try XCTUnwrap(webView.superview as? WindowBrowserSlotView, "Expected browser slot")
 
         anchor1.removeFromSuperview()
         portal.synchronizeWebViewForAnchor(anchor1)
@@ -13962,7 +13602,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         )
     }
 
-    func testVisiblePortalEntryStaysVisibleDuringOffWindowAnchorReparentUntilRebind() {
+    func testVisiblePortalEntryStaysVisibleDuringOffWindowAnchorReparentUntilRebind() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
             styleMask: [.titled, .closable],
@@ -13973,10 +13613,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         realizeWindowLayout(window)
         let portal = WindowBrowserPortal(window: window)
 
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
-        }
+        let contentView = try XCTUnwrap(window.contentView, "Expected content view")
 
         let anchorFrame = NSRect(x: 40, y: 24, width: 220, height: 160)
         let anchor = NSView(frame: anchorFrame)
@@ -13987,10 +13624,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         portal.synchronizeWebViewForAnchor(anchor)
         advanceAnimations()
 
-        guard let slot = webView.superview as? WindowBrowserSlotView else {
-            XCTFail("Expected browser slot")
-            return
-        }
+        let slot = try XCTUnwrap(webView.superview as? WindowBrowserSlotView, "Expected browser slot")
 
         let offWindowContainer = NSView(frame: anchorFrame)
         anchor.removeFromSuperview()
@@ -14017,7 +13651,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         XCTAssertEqual(portal.debugEntryCount(), 1)
     }
 
-    func testRegistryDetachRemovesPortalHostedWebView() {
+    func testRegistryDetachRemovesPortalHostedWebView() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
             styleMask: [.titled, .closable],
@@ -14026,10 +13660,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         )
         defer { window.orderOut(nil) }
         realizeWindowLayout(window)
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
-        }
+        let contentView = try XCTUnwrap(window.contentView, "Expected content view")
 
         let anchor = NSView(frame: NSRect(x: 20, y: 20, width: 180, height: 120))
         contentView.addSubview(anchor)
@@ -14042,7 +13673,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         XCTAssertNil(webView.superview)
     }
 
-    func testRegistryHideKeepsPortalHostedWebViewAttachedButHidden() {
+    func testRegistryHideKeepsPortalHostedWebViewAttachedButHidden() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
             styleMask: [.titled, .closable],
@@ -14051,10 +13682,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         )
         defer { window.orderOut(nil) }
         realizeWindowLayout(window)
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
-        }
+        let contentView = try XCTUnwrap(window.contentView, "Expected content view")
 
         let anchor = NSView(frame: NSRect(x: 20, y: 20, width: 180, height: 120))
         contentView.addSubview(anchor)
@@ -14064,10 +13692,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         BrowserWindowPortalRegistry.synchronizeForAnchor(anchor)
         advanceAnimations()
 
-        guard let slot = webView.superview as? WindowBrowserSlotView else {
-            XCTFail("Expected browser slot")
-            return
-        }
+        let slot = try XCTUnwrap(webView.superview as? WindowBrowserSlotView, "Expected browser slot")
         XCTAssertFalse(slot.isHidden)
 
         BrowserWindowPortalRegistry.hide(webView: webView, source: "unitTest")
@@ -14077,7 +13702,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         XCTAssertTrue(slot.isHidden, "Hiding should immediately hide the existing portal slot")
     }
 
-    func testHiddenPortalEntrySurvivesAnchorRemovalUntilWorkspaceRebind() {
+    func testHiddenPortalEntrySurvivesAnchorRemovalUntilWorkspaceRebind() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
             styleMask: [.titled, .closable],
@@ -14088,10 +13713,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         realizeWindowLayout(window)
         let portal = WindowBrowserPortal(window: window)
 
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
-        }
+        let contentView = try XCTUnwrap(window.contentView, "Expected content view")
 
         let anchorFrame = NSRect(x: 40, y: 24, width: 220, height: 160)
         let oldAnchor = NSView(frame: anchorFrame)
@@ -14102,10 +13724,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         portal.synchronizeWebViewForAnchor(oldAnchor)
         advanceAnimations()
 
-        guard let slot = webView.superview as? WindowBrowserSlotView else {
-            XCTFail("Expected browser slot")
-            return
-        }
+        let slot = try XCTUnwrap(webView.superview as? WindowBrowserSlotView, "Expected browser slot")
 
         portal.updateEntryVisibility(forWebViewId: ObjectIdentifier(webView), visibleInUI: false, zPriority: 0)
         portal.synchronizeWebViewForAnchor(oldAnchor)
@@ -14142,10 +13761,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             "Workspace rebind should refresh the preserved browser without recreating its portal slot"
         )
     }
-}
 
-@MainActor
-final class FileDropOverlayViewTests: XCTestCase {
     private func realizeWindowLayout(_ window: NSWindow) {
         window.makeKeyAndOrderFront(nil)
         window.displayIfNeeded()
@@ -14154,7 +13770,25 @@ final class FileDropOverlayViewTests: XCTestCase {
         window.contentView?.layoutSubtreeIfNeeded()
     }
 
-    func testOverlayResolvesPortalHostedBrowserWebViewForFileDrops() {
+    private func advanceAnimations() {
+        RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+    }
+
+    private func dropZoneOverlay(in slot: WindowBrowserSlotView, excluding webView: WKWebView) -> NSView? {
+        let candidates = slot.subviews + (slot.superview?.subviews ?? [])
+        return candidates.first(where: {
+            $0 !== slot &&
+                $0 !== webView &&
+                String(describing: type(of: $0)).contains("BrowserDropZoneOverlayView")
+        })
+    }
+}
+
+// MARK: - FileDropOverlayViewTests
+
+@MainActor
+final class FileDropOverlayViewTests: XCTestCase {
+    func testOverlayResolvesPortalHostedBrowserWebViewForFileDrops() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 420, height: 280),
             styleMask: [.titled, .closable],
@@ -14167,11 +13801,8 @@ final class FileDropOverlayViewTests: XCTestCase {
         }
         realizeWindowLayout(window)
 
-        guard let contentView = window.contentView,
-              let container = contentView.superview else {
-            XCTFail("Expected content container")
-            return
-        }
+        let contentView = try XCTUnwrap(window.contentView, "Expected content container")
+        let container = try XCTUnwrap(contentView.superview, "Expected content container")
 
         let anchor = NSView(frame: NSRect(x: 40, y: 36, width: 220, height: 150))
         contentView.addSubview(anchor)
@@ -14193,10 +13824,80 @@ final class FileDropOverlayViewTests: XCTestCase {
             "File-drop overlay should resolve portal-hosted browser panes so Finder uploads still reach WKWebView"
         )
     }
+
+    private func realizeWindowLayout(_ window: NSWindow) {
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        window.contentView?.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        window.contentView?.layoutSubtreeIfNeeded()
+    }
 }
+
+// MARK: - MarkdownPanelPointerObserverViewTests
 
 @MainActor
 final class MarkdownPanelPointerObserverViewTests: XCTestCase {
+    func testObserverTriggersFocusForVisibleLeftClickInsideBounds() throws {
+        let window = makeWindow()
+        defer { window.orderOut(nil) }
+        let contentView = try XCTUnwrap(window.contentView, "Expected content view")
+
+        let overlay = MarkdownPanelPointerObserverView(frame: contentView.bounds)
+        overlay.autoresizingMask = [.width, .height]
+        let focusExpectation = expectation(description: "observer forwards focus callback")
+        var pointerDownCount = 0
+        overlay.onPointerDown = {
+            pointerDownCount += 1
+            focusExpectation.fulfill()
+        }
+        contentView.addSubview(overlay)
+
+        _ = overlay.handleEventIfNeeded(
+            makeMouseEvent(type: .leftMouseDown, location: NSPoint(x: 60, y: 60), window: window)
+        )
+        wait(for: [focusExpectation], timeout: 1.0)
+
+        XCTAssertEqual(pointerDownCount, 1)
+    }
+
+    func testObserverIgnoresOutsideOrForeignWindowClicks() throws {
+        let window = makeWindow()
+        defer { window.orderOut(nil) }
+        let otherWindow = makeWindow()
+        defer { otherWindow.orderOut(nil) }
+        let contentView = try XCTUnwrap(window.contentView, "Expected content view")
+
+        let overlay = MarkdownPanelPointerObserverView(frame: contentView.bounds)
+        overlay.autoresizingMask = [.width, .height]
+        let noFocusExpectation = expectation(description: "observer ignores invalid clicks")
+        noFocusExpectation.isInverted = true
+        var pointerDownCount = 0
+        overlay.onPointerDown = {
+            pointerDownCount += 1
+            noFocusExpectation.fulfill()
+        }
+        contentView.addSubview(overlay)
+
+        _ = overlay.handleEventIfNeeded(
+            makeMouseEvent(type: .leftMouseDown, location: NSPoint(x: 400, y: 400), window: window)
+        )
+        _ = overlay.handleEventIfNeeded(
+            makeMouseEvent(type: .leftMouseDown, location: NSPoint(x: 60, y: 60), window: otherWindow, eventNumber: 2)
+        )
+        _ = overlay.handleEventIfNeeded(
+            makeMouseEvent(type: .leftMouseDragged, location: NSPoint(x: 60, y: 60), window: window, eventNumber: 3)
+        )
+        wait(for: [noFocusExpectation], timeout: 0.1)
+
+        XCTAssertEqual(pointerDownCount, 0)
+    }
+
+    func testObserverDoesNotParticipateInHitTesting() {
+        let overlay = MarkdownPanelPointerObserverView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
+        XCTAssertNil(overlay.hitTest(NSPoint(x: 40, y: 30)))
+    }
+
     private func makeWindow() -> NSWindow {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 320, height: 180),
@@ -14231,77 +13932,17 @@ final class MarkdownPanelPointerObserverViewTests: XCTestCase {
         }
         return event
     }
-
-    func testObserverTriggersFocusForVisibleLeftClickInsideBounds() {
-        let window = makeWindow()
-        defer { window.orderOut(nil) }
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
-        }
-
-        let overlay = MarkdownPanelPointerObserverView(frame: contentView.bounds)
-        overlay.autoresizingMask = [.width, .height]
-        let focusExpectation = expectation(description: "observer forwards focus callback")
-        var pointerDownCount = 0
-        overlay.onPointerDown = {
-            pointerDownCount += 1
-            focusExpectation.fulfill()
-        }
-        contentView.addSubview(overlay)
-
-        _ = overlay.handleEventIfNeeded(
-            makeMouseEvent(type: .leftMouseDown, location: NSPoint(x: 60, y: 60), window: window)
-        )
-        wait(for: [focusExpectation], timeout: 1.0)
-
-        XCTAssertEqual(pointerDownCount, 1)
-    }
-
-    func testObserverIgnoresOutsideOrForeignWindowClicks() {
-        let window = makeWindow()
-        defer { window.orderOut(nil) }
-        let otherWindow = makeWindow()
-        defer { otherWindow.orderOut(nil) }
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
-        }
-
-        let overlay = MarkdownPanelPointerObserverView(frame: contentView.bounds)
-        overlay.autoresizingMask = [.width, .height]
-        let noFocusExpectation = expectation(description: "observer ignores invalid clicks")
-        noFocusExpectation.isInverted = true
-        var pointerDownCount = 0
-        overlay.onPointerDown = {
-            pointerDownCount += 1
-            noFocusExpectation.fulfill()
-        }
-        contentView.addSubview(overlay)
-
-        _ = overlay.handleEventIfNeeded(
-            makeMouseEvent(type: .leftMouseDown, location: NSPoint(x: 400, y: 400), window: window)
-        )
-        _ = overlay.handleEventIfNeeded(
-            makeMouseEvent(type: .leftMouseDown, location: NSPoint(x: 60, y: 60), window: otherWindow, eventNumber: 2)
-        )
-        _ = overlay.handleEventIfNeeded(
-            makeMouseEvent(type: .leftMouseDragged, location: NSPoint(x: 60, y: 60), window: window, eventNumber: 3)
-        )
-        wait(for: [noFocusExpectation], timeout: 0.1)
-
-        XCTAssertEqual(pointerDownCount, 0)
-    }
-
-    func testObserverDoesNotParticipateInHitTesting() {
-        let overlay = MarkdownPanelPointerObserverView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
-        XCTAssertNil(overlay.hitTest(NSPoint(x: 40, y: 30)))
-    }
 }
 
+// MARK: - BrowserLinkOpenSettingsTests
+
 final class BrowserLinkOpenSettingsTests: XCTestCase {
+    // MARK: Properties
+
     private var suiteName: String!
     private var defaults: UserDefaults!
+
+    // MARK: Overridden Functions
 
     override func setUp() {
         super.setUp()
@@ -14316,6 +13957,8 @@ final class BrowserLinkOpenSettingsTests: XCTestCase {
         suiteName = nil
         super.tearDown()
     }
+
+    // MARK: Functions
 
     func testTerminalLinksDefaultToCmuxBrowser() {
         XCTAssertTrue(BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowser(defaults: defaults))
@@ -14420,75 +14063,84 @@ final class BrowserLinkOpenSettingsTests: XCTestCase {
     }
 }
 
+// MARK: - TerminalOpenURLTargetResolutionTests
+
 final class TerminalOpenURLTargetResolutionTests: XCTestCase {
     func testResolvesHTTPSAsEmbeddedBrowser() throws {
         let target = try XCTUnwrap(resolveTerminalOpenURLTarget("https://example.com/path?q=1"))
         switch target {
-        case let .embeddedBrowser(url):
-            XCTAssertEqual(url.scheme, "https")
-            XCTAssertEqual(url.host, "example.com")
-            XCTAssertEqual(url.path, "/path")
-        default:
-            XCTFail("Expected web URL to route to embedded browser")
+            case let .embeddedBrowser(url):
+                XCTAssertEqual(url.scheme, "https")
+                XCTAssertEqual(url.host, "example.com")
+                XCTAssertEqual(url.path, "/path")
+
+            default:
+                XCTFail("Expected web URL to route to embedded browser")
         }
     }
 
     func testResolvesBareDomainAsEmbeddedBrowser() throws {
         let target = try XCTUnwrap(resolveTerminalOpenURLTarget("example.com/docs"))
         switch target {
-        case let .embeddedBrowser(url):
-            XCTAssertEqual(url.scheme, "https")
-            XCTAssertEqual(url.host, "example.com")
-            XCTAssertEqual(url.path, "/docs")
-        default:
-            XCTFail("Expected bare domain to be normalized as an HTTPS browser URL")
+            case let .embeddedBrowser(url):
+                XCTAssertEqual(url.scheme, "https")
+                XCTAssertEqual(url.host, "example.com")
+                XCTAssertEqual(url.path, "/docs")
+
+            default:
+                XCTFail("Expected bare domain to be normalized as an HTTPS browser URL")
         }
     }
 
     func testResolvesFileSchemeAsExternal() throws {
         let target = try XCTUnwrap(resolveTerminalOpenURLTarget("file:///tmp/cmux.txt"))
         switch target {
-        case let .external(url):
-            XCTAssertTrue(url.isFileURL)
-            XCTAssertEqual(url.path, "/tmp/cmux.txt")
-        default:
-            XCTFail("Expected file URL to open externally")
+            case let .external(url):
+                XCTAssertTrue(url.isFileURL)
+                XCTAssertEqual(url.path, "/tmp/cmux.txt")
+
+            default:
+                XCTFail("Expected file URL to open externally")
         }
     }
 
     func testResolvesAbsolutePathAsExternalFileURL() throws {
         let target = try XCTUnwrap(resolveTerminalOpenURLTarget("/tmp/cmux-path.txt"))
         switch target {
-        case let .external(url):
-            XCTAssertTrue(url.isFileURL)
-            XCTAssertEqual(url.path, "/tmp/cmux-path.txt")
-        default:
-            XCTFail("Expected absolute file path to open externally")
+            case let .external(url):
+                XCTAssertTrue(url.isFileURL)
+                XCTAssertEqual(url.path, "/tmp/cmux-path.txt")
+
+            default:
+                XCTFail("Expected absolute file path to open externally")
         }
     }
 
     func testResolvesNonWebSchemeAsExternal() throws {
         let target = try XCTUnwrap(resolveTerminalOpenURLTarget("mailto:test@example.com"))
         switch target {
-        case let .external(url):
-            XCTAssertEqual(url.scheme, "mailto")
-        default:
-            XCTFail("Expected non-web scheme to open externally")
+            case let .external(url):
+                XCTAssertEqual(url.scheme, "mailto")
+            default:
+                XCTFail("Expected non-web scheme to open externally")
         }
     }
 
     func testResolvesHostlessHTTPSAsExternal() throws {
         let target = try XCTUnwrap(resolveTerminalOpenURLTarget("https:///tmp/cmux.txt"))
         switch target {
-        case let .external(url):
-            XCTAssertEqual(url.scheme, "https")
-            XCTAssertNil(url.host)
-            XCTAssertEqual(url.path, "/tmp/cmux.txt")
-        default:
-            XCTFail("Expected hostless HTTPS URL to open externally")
+            case let .external(url):
+                XCTAssertEqual(url.scheme, "https")
+                XCTAssertNil(url.host)
+                XCTAssertEqual(url.path, "/tmp/cmux.txt")
+
+            default:
+                XCTFail("Expected hostless HTTPS URL to open externally")
         }
     }
 }
+
+// MARK: - BrowserNavigableURLResolutionTests
 
 final class BrowserNavigableURLResolutionTests: XCTestCase {
     func testResolvesFileSchemeAsNavigableURL() throws {
@@ -14506,6 +14158,8 @@ final class BrowserNavigableURLResolutionTests: XCTestCase {
         XCTAssertNil(resolveBrowserNavigableURL("file://example.html"))
     }
 }
+
+// MARK: - BrowserReadAccessURLTests
 
 final class BrowserReadAccessURLTests: XCTestCase {
     func testUsesParentDirectoryForFileURL() throws {
@@ -14542,6 +14196,8 @@ final class BrowserReadAccessURLTests: XCTestCase {
     }
 }
 
+// MARK: - BrowserExternalNavigationSchemeTests
+
 final class BrowserExternalNavigationSchemeTests: XCTestCase {
     func testCustomAppSchemesOpenExternally() throws {
         let discord = try XCTUnwrap(URL(string: "discord://login/one-time?token=abc"))
@@ -14576,9 +14232,15 @@ final class BrowserExternalNavigationSchemeTests: XCTestCase {
     }
 }
 
+// MARK: - BrowserHostWhitelistTests
+
 final class BrowserHostWhitelistTests: XCTestCase {
+    // MARK: Properties
+
     private var suiteName: String!
     private var defaults: UserDefaults!
+
+    // MARK: Overridden Functions
 
     override func setUp() {
         super.setUp()
@@ -14593,6 +14255,8 @@ final class BrowserHostWhitelistTests: XCTestCase {
         suiteName = nil
         super.tearDown()
     }
+
+    // MARK: Functions
 
     func testEmptyWhitelistAllowsAll() {
         XCTAssertTrue(BrowserLinkOpenSettings.hostMatchesWhitelist("example.com", defaults: defaults))
@@ -14667,6 +14331,8 @@ final class BrowserHostWhitelistTests: XCTestCase {
         XCTAssertTrue(BrowserLinkOpenSettings.hostMatchesWhitelist("xn--bcher-kva.example", defaults: defaults))
     }
 }
+
+// MARK: - TerminalControllerSidebarDedupeTests
 
 final class TerminalControllerSidebarDedupeTests: XCTestCase {
     func testShouldReplaceStatusEntryReturnsFalseForUnchangedPayload() {
@@ -14754,7 +14420,7 @@ final class TerminalControllerSidebarDedupeTests: XCTestCase {
         let scope = TerminalController.explicitSocketScope(
             options: [
                 "tab": workspaceId.uuidString,
-                "panel": panelId.uuidString
+                "panel": panelId.uuidString,
             ]
         )
         XCTAssertEqual(scope?.workspaceId, workspaceId)
@@ -14767,7 +14433,7 @@ final class TerminalControllerSidebarDedupeTests: XCTestCase {
         let scope = TerminalController.explicitSocketScope(
             options: [
                 "tab": workspaceId.uuidString,
-                "surface": panelId.uuidString
+                "surface": panelId.uuidString,
             ]
         )
         XCTAssertEqual(scope?.workspaceId, workspaceId)
@@ -14802,6 +14468,8 @@ final class TerminalControllerSidebarDedupeTests: XCTestCase {
     }
 }
 
+// MARK: - TerminalControllerSocketTextChunkTests
+
 final class TerminalControllerSocketTextChunkTests: XCTestCase {
     func testSocketTextChunksReturnsSingleChunkForPlainText() {
         XCTAssertEqual(
@@ -14810,30 +14478,32 @@ final class TerminalControllerSocketTextChunkTests: XCTestCase {
         )
     }
 
-    func testSocketTextChunksSplitsControlScalars() {
+    func testSocketTextChunksSplitsControlScalars() throws {
         XCTAssertEqual(
             TerminalController.socketTextChunks("abc\rdef\tghi"),
-            [
+            try [
                 .text("abc"),
-                .control("\r".unicodeScalars.first!),
+                .control(XCTUnwrap("\r".unicodeScalars.first)),
                 .text("def"),
-                .control("\t".unicodeScalars.first!),
-                .text("ghi")
+                .control(XCTUnwrap("\t".unicodeScalars.first)),
+                .text("ghi"),
             ]
         )
     }
 
-    func testSocketTextChunksDoesNotEmitEmptyTextChunksAroundConsecutiveControls() {
+    func testSocketTextChunksDoesNotEmitEmptyTextChunksAroundConsecutiveControls() throws {
         XCTAssertEqual(
             TerminalController.socketTextChunks("\r\n\t"),
-            [
-                .control("\r".unicodeScalars.first!),
-                .control("\n".unicodeScalars.first!),
-                .control("\t".unicodeScalars.first!)
+            try [
+                .control(XCTUnwrap("\r".unicodeScalars.first)),
+                .control(XCTUnwrap("\n".unicodeScalars.first)),
+                .control(XCTUnwrap("\t".unicodeScalars.first)),
             ]
         )
     }
 }
+
+// MARK: - BrowserOmnibarFocusPolicyTests
 
 final class BrowserOmnibarFocusPolicyTests: XCTestCase {
     func testReacquiresFocusWhenOmnibarStillWantsFocusAndNextResponderIsNotAnotherTextField() {
@@ -14863,6 +14533,8 @@ final class BrowserOmnibarFocusPolicyTests: XCTestCase {
         )
     }
 }
+
+// MARK: - GhosttyTerminalViewVisibilityPolicyTests
 
 final class GhosttyTerminalViewVisibilityPolicyTests: XCTestCase {
     func testImmediateStateUpdateAllowedWhenHostNotInWindow() {
@@ -14902,6 +14574,8 @@ final class GhosttyTerminalViewVisibilityPolicyTests: XCTestCase {
     }
 }
 
+// MARK: - TerminalControllerSocketListenerHealthTests
+
 final class TerminalControllerSocketListenerHealthTests: XCTestCase {
     func testStableSocketBindPermissionFailureFallsBackToUserScopedSocket() {
         XCTAssertEqual(
@@ -14924,59 +14598,6 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
                 currentUserID: 501
             )
         )
-    }
-
-    private func makeTempSocketPath() -> String {
-        "/tmp/cmux-socket-health-\(UUID().uuidString).sock"
-    }
-
-    private func bindUnixSocket(at path: String) throws -> Int32 {
-        unlink(path)
-
-        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
-        guard fd >= 0 else {
-            throw NSError(
-                domain: NSPOSIXErrorDomain,
-                code: Int(errno),
-                userInfo: [NSLocalizedDescriptionKey: "Failed to create Unix socket"]
-            )
-        }
-
-        var addr = sockaddr_un()
-        addr.sun_family = sa_family_t(AF_UNIX)
-        path.withCString { ptr in
-            withUnsafeMutablePointer(to: &addr.sun_path) { pathPtr in
-                let pathBuf = UnsafeMutableRawPointer(pathPtr).assumingMemoryBound(to: CChar.self)
-                strcpy(pathBuf, ptr)
-            }
-        }
-
-        let bindResult = withUnsafePointer(to: &addr) { ptr in
-            ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
-                Darwin.bind(fd, sockaddrPtr, socklen_t(MemoryLayout<sockaddr_un>.size))
-            }
-        }
-        guard bindResult == 0 else {
-            let code = Int(errno)
-            Darwin.close(fd)
-            throw NSError(
-                domain: NSPOSIXErrorDomain,
-                code: code,
-                userInfo: [NSLocalizedDescriptionKey: "Failed to bind Unix socket"]
-            )
-        }
-
-        guard Darwin.listen(fd, 1) == 0 else {
-            let code = Int(errno)
-            Darwin.close(fd)
-            throw NSError(
-                domain: NSPOSIXErrorDomain,
-                code: code,
-                userInfo: [NSLocalizedDescriptionKey: "Failed to listen on Unix socket"]
-            )
-        }
-
-        return fd
     }
 
     @MainActor
@@ -15040,5 +14661,58 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
             health.failureSignals,
             ["not_running", "accept_loop_dead", "socket_path_mismatch", "socket_missing"]
         )
+    }
+
+    private func makeTempSocketPath() -> String {
+        "/tmp/cmux-socket-health-\(UUID().uuidString).sock"
+    }
+
+    private func bindUnixSocket(at path: String) throws -> Int32 {
+        unlink(path)
+
+        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+        guard fd >= 0 else {
+            throw NSError(
+                domain: NSPOSIXErrorDomain,
+                code: Int(errno),
+                userInfo: [NSLocalizedDescriptionKey: "Failed to create Unix socket"]
+            )
+        }
+
+        var addr = sockaddr_un()
+        addr.sun_family = sa_family_t(AF_UNIX)
+        path.withCString { ptr in
+            withUnsafeMutablePointer(to: &addr.sun_path) { pathPtr in
+                let pathBuf = UnsafeMutableRawPointer(pathPtr).assumingMemoryBound(to: CChar.self)
+                strcpy(pathBuf, ptr)
+            }
+        }
+
+        let bindResult = withUnsafePointer(to: &addr) { ptr in
+            ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                Darwin.bind(fd, sockaddrPtr, socklen_t(MemoryLayout<sockaddr_un>.size))
+            }
+        }
+        guard bindResult == 0 else {
+            let code = Int(errno)
+            Darwin.close(fd)
+            throw NSError(
+                domain: NSPOSIXErrorDomain,
+                code: code,
+                userInfo: [NSLocalizedDescriptionKey: "Failed to bind Unix socket"]
+            )
+        }
+
+        guard Darwin.listen(fd, 1) == 0 else {
+            let code = Int(errno)
+            Darwin.close(fd)
+            throw NSError(
+                domain: NSPOSIXErrorDomain,
+                code: code,
+                userInfo: [NSLocalizedDescriptionKey: "Failed to listen on Unix socket"]
+            )
+        }
+
+        return fd
     }
 }

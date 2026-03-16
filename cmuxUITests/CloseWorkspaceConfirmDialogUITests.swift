@@ -1,10 +1,14 @@
 import XCTest
 
 final class CloseWorkspaceConfirmDialogUITests: XCTestCase {
+    // MARK: Overridden Functions
+
     override func setUp() {
         super.setUp()
         continueAfterFailure = false
     }
+
+    // MARK: Functions
 
     func testCmdShiftWShowsCloseWorkspaceConfirmationText() {
         let app = XCUIApplication()

@@ -1,11 +1,15 @@
-import XCTest
 import Foundation
+import XCTest
 
 final class CloseWorkspaceCmdDUITests: XCTestCase {
+    // MARK: Overridden Functions
+
     override func setUp() {
         super.setUp()
         continueAfterFailure = false
     }
+
+    // MARK: Functions
 
     func testCmdDConfirmsCloseWhenClosingLastWorkspaceClosesWindow() {
         let app = XCUIApplication()
@@ -82,7 +86,7 @@ final class CloseWorkspaceCmdDUITests: XCTestCase {
         )
     }
 
-    func testChildExitInHorizontalSplitClosesOnlyExitedPane() {
+    func testChildExitInHorizontalSplitClosesOnlyExitedPane() throws {
         let attempts = 8
         for attempt in 1...attempts {
             let app = XCUIApplication()
@@ -100,10 +104,7 @@ final class CloseWorkspaceCmdDUITests: XCTestCase {
             defer { app.terminate() }
 
             XCTAssertTrue(waitForAnyJSON(atPath: dataPath, timeout: 12.0), "Attempt \(attempt): expected child-exit test data at \(dataPath)")
-            guard let data = waitForJSONKey("done", equals: "1", atPath: dataPath, timeout: 12.0) else {
-                XCTFail("Attempt \(attempt): timed out waiting for done=1. data=\(loadJSON(atPath: dataPath) ?? [:])")
-                return
-            }
+            let data = try XCTUnwrap(waitForJSONKey("done", equals: "1", atPath: dataPath, timeout: 12.0), "Attempt \(attempt): timed out waiting for done=1. data=\(loadJSON(atPath: dataPath) ?? [:])")
 
             if let setupError = data["setupError"], !setupError.isEmpty {
                 XCTFail("Attempt \(attempt): setup failed: \(setupError)")
@@ -122,7 +123,7 @@ final class CloseWorkspaceCmdDUITests: XCTestCase {
         }
     }
 
-    func testCtrlDFromKeyboardInHorizontalSplitClosesOnlyFocusedPane() {
+    func testCtrlDFromKeyboardInHorizontalSplitClosesOnlyFocusedPane() throws {
         let app = XCUIApplication()
         let dataPath = "/tmp/cmux-ui-test-child-exit-keyboard-\(UUID().uuidString).json"
         try? FileManager.default.removeItem(atPath: dataPath)
@@ -132,10 +133,7 @@ final class CloseWorkspaceCmdDUITests: XCTestCase {
         app.activate()
 
         XCTAssertTrue(waitForAnyJSON(atPath: dataPath, timeout: 12.0), "Expected keyboard child-exit setup data at \(dataPath)")
-        guard let ready = waitForJSONKey("ready", equals: "1", atPath: dataPath, timeout: 12.0) else {
-            XCTFail("Timed out waiting for ready=1. data=\(loadJSON(atPath: dataPath) ?? [:])")
-            return
-        }
+        let ready = try XCTUnwrap(waitForJSONKey("ready", equals: "1", atPath: dataPath, timeout: 12.0), "Timed out waiting for ready=1. data=\(loadJSON(atPath: dataPath) ?? [:])")
 
         if let setupError = ready["setupError"], !setupError.isEmpty {
             XCTFail("Setup failed: \(setupError)")
@@ -143,20 +141,14 @@ final class CloseWorkspaceCmdDUITests: XCTestCase {
         }
 
         let rightPanelId = ready["rightPanelId"] ?? ""
-        guard !rightPanelId.isEmpty else {
-            XCTFail("Missing rightPanelId in setup data. data=\(ready)")
-            return
-        }
+        XCTAssert(!rightPanelId.isEmpty, "Missing rightPanelId in setup data. data=\(ready)")
         assertCtrlDPreconditionsBeforeTrigger(ready, expectedExitPanelId: rightPanelId, context: "Horizontal split")
 
         // Exercise the real keyboard path (same path as user typing Ctrl+D), not an in-process helper.
         app.activate()
         app.typeKey("d", modifierFlags: [.control])
 
-        guard let done = waitForJSONKey("done", equals: "1", atPath: dataPath, timeout: 10.0) else {
-            XCTFail("Timed out waiting for done=1 after Ctrl+D. data=\(loadJSON(atPath: dataPath) ?? [:])")
-            return
-        }
+        let done = try XCTUnwrap(waitForJSONKey("done", equals: "1", atPath: dataPath, timeout: 10.0), "Timed out waiting for done=1 after Ctrl+D. data=\(loadJSON(atPath: dataPath) ?? [:])")
 
         let workspaceCountAfter = Int(done["workspaceCountAfter"] ?? "") ?? -1
         let panelCountAfter = Int(done["panelCountAfter"] ?? "") ?? -1
@@ -178,7 +170,7 @@ final class CloseWorkspaceCmdDUITests: XCTestCase {
         }
     }
 
-    func testCtrlDFromKeyboardInThreePaneLayoutClosesOnlyFocusedPane() {
+    func testCtrlDFromKeyboardInThreePaneLayoutClosesOnlyFocusedPane() throws {
         let app = XCUIApplication()
         let dataPath = "/tmp/cmux-ui-test-child-exit-keyboard-tree-\(UUID().uuidString).json"
         try? FileManager.default.removeItem(atPath: dataPath)
@@ -192,10 +184,7 @@ final class CloseWorkspaceCmdDUITests: XCTestCase {
         app.activate()
 
         XCTAssertTrue(waitForAnyJSON(atPath: dataPath, timeout: 12.0), "Expected keyboard child-exit setup data at \(dataPath)")
-        guard let ready = waitForJSONKey("ready", equals: "1", atPath: dataPath, timeout: 12.0) else {
-            XCTFail("Timed out waiting for ready=1. data=\(loadJSON(atPath: dataPath) ?? [:])")
-            return
-        }
+        let ready = try XCTUnwrap(waitForJSONKey("ready", equals: "1", atPath: dataPath, timeout: 12.0), "Timed out waiting for ready=1. data=\(loadJSON(atPath: dataPath) ?? [:])")
 
         if let setupError = ready["setupError"], !setupError.isEmpty {
             XCTFail("Setup failed: \(setupError)")
@@ -203,15 +192,9 @@ final class CloseWorkspaceCmdDUITests: XCTestCase {
         }
 
         let rightPanelId = ready["rightPanelId"] ?? ""
-        guard !rightPanelId.isEmpty else {
-            XCTFail("Missing rightPanelId in setup data. data=\(ready)")
-            return
-        }
+        XCTAssert(!rightPanelId.isEmpty, "Missing rightPanelId in setup data. data=\(ready)")
         assertCtrlDPreconditionsBeforeTrigger(ready, expectedExitPanelId: rightPanelId, context: "Three-pane layout")
-        guard let done = waitForJSONKey("done", equals: "1", atPath: dataPath, timeout: 10.0) else {
-            XCTFail("Timed out waiting for done=1 after Ctrl+D. data=\(loadJSON(atPath: dataPath) ?? [:])")
-            return
-        }
+        let done = try XCTUnwrap(waitForJSONKey("done", equals: "1", atPath: dataPath, timeout: 10.0), "Timed out waiting for done=1 after Ctrl+D. data=\(loadJSON(atPath: dataPath) ?? [:])")
 
         let workspaceCountAfter = Int(done["workspaceCountAfter"] ?? "") ?? -1
         let panelCountAfter = Int(done["panelCountAfter"] ?? "") ?? -1
@@ -233,7 +216,7 @@ final class CloseWorkspaceCmdDUITests: XCTestCase {
         }
     }
 
-    func testCtrlDAfterClosingRightColumnIn2x2KeepsWorkspaceOpen() {
+    func testCtrlDAfterClosingRightColumnIn2x2KeepsWorkspaceOpen() throws {
         // This regression can be timing-sensitive; run several fresh launches to catch
         // any single bad close routing/focus cycle.
         let attempts = 8
@@ -255,10 +238,7 @@ final class CloseWorkspaceCmdDUITests: XCTestCase {
                 waitForAnyJSON(atPath: dataPath, timeout: 12.0),
                 "Attempt \(attempt): expected keyboard child-exit setup data at \(dataPath)"
             )
-            guard let ready = waitForJSONKey("ready", equals: "1", atPath: dataPath, timeout: 12.0) else {
-                XCTFail("Attempt \(attempt): timed out waiting for ready=1. data=\(loadJSON(atPath: dataPath) ?? [:])")
-                return
-            }
+            let ready = try XCTUnwrap(waitForJSONKey("ready", equals: "1", atPath: dataPath, timeout: 12.0), "Attempt \(attempt): timed out waiting for ready=1. data=\(loadJSON(atPath: dataPath) ?? [:])")
 
             if let setupError = ready["setupError"], !setupError.isEmpty {
                 XCTFail("Attempt \(attempt): setup failed: \(setupError)")
@@ -272,18 +252,12 @@ final class CloseWorkspaceCmdDUITests: XCTestCase {
                 2,
                 "Attempt \(attempt): expected two panels before Ctrl+D in 2x2-right-close repro. data=\(ready)"
             )
-            guard !exitPanelId.isEmpty else {
-                XCTFail("Attempt \(attempt): missing exitPanelId in setup data. data=\(ready)")
-                return
-            }
+            XCTAssert(!exitPanelId.isEmpty, "Attempt \(attempt): missing exitPanelId in setup data. data=\(ready)")
             assertCtrlDPreconditionsBeforeTrigger(ready, expectedExitPanelId: exitPanelId, context: "Attempt \(attempt): 2x2-right-close")
 
             app.typeKey("d", modifierFlags: [.control])
 
-            guard let done = waitForJSONKey("done", equals: "1", atPath: dataPath, timeout: 10.0) else {
-                XCTFail("Attempt \(attempt): timed out waiting for done=1 after Ctrl+D. data=\(loadJSON(atPath: dataPath) ?? [:])")
-                return
-            }
+            let done = try XCTUnwrap(waitForJSONKey("done", equals: "1", atPath: dataPath, timeout: 10.0), "Attempt \(attempt): timed out waiting for done=1 after Ctrl+D. data=\(loadJSON(atPath: dataPath) ?? [:])")
 
             let workspaceCountAfter = Int(done["workspaceCountAfter"] ?? "") ?? -1
             let panelCountAfter = Int(done["panelCountAfter"] ?? "") ?? -1
@@ -308,7 +282,7 @@ final class CloseWorkspaceCmdDUITests: XCTestCase {
         }
     }
 
-    func testCtrlDAfterClosingBottomRowIn2x2KeepsWorkspaceOpen() {
+    func testCtrlDAfterClosingBottomRowIn2x2KeepsWorkspaceOpen() throws {
         let attempts = 8
         for attempt in 1...attempts {
             let app = XCUIApplication()
@@ -328,10 +302,7 @@ final class CloseWorkspaceCmdDUITests: XCTestCase {
                 waitForAnyJSON(atPath: dataPath, timeout: 12.0),
                 "Attempt \(attempt): expected keyboard child-exit setup data at \(dataPath)"
             )
-            guard let ready = waitForJSONKey("ready", equals: "1", atPath: dataPath, timeout: 12.0) else {
-                XCTFail("Attempt \(attempt): timed out waiting for ready=1. data=\(loadJSON(atPath: dataPath) ?? [:])")
-                return
-            }
+            let ready = try XCTUnwrap(waitForJSONKey("ready", equals: "1", atPath: dataPath, timeout: 12.0), "Attempt \(attempt): timed out waiting for ready=1. data=\(loadJSON(atPath: dataPath) ?? [:])")
 
             if let setupError = ready["setupError"], !setupError.isEmpty {
                 XCTFail("Attempt \(attempt): setup failed: \(setupError)")
@@ -345,18 +316,12 @@ final class CloseWorkspaceCmdDUITests: XCTestCase {
                 2,
                 "Attempt \(attempt): expected two panels before Ctrl+D in 2x2-bottom-close repro. data=\(ready)"
             )
-            guard !exitPanelId.isEmpty else {
-                XCTFail("Attempt \(attempt): missing exitPanelId in setup data. data=\(ready)")
-                return
-            }
+            XCTAssert(!exitPanelId.isEmpty, "Attempt \(attempt): missing exitPanelId in setup data. data=\(ready)")
             assertCtrlDPreconditionsBeforeTrigger(ready, expectedExitPanelId: exitPanelId, context: "Attempt \(attempt): 2x2-bottom-close")
 
             app.typeKey("d", modifierFlags: [.control])
 
-            guard let done = waitForJSONKey("done", equals: "1", atPath: dataPath, timeout: 10.0) else {
-                XCTFail("Attempt \(attempt): timed out waiting for done=1 after Ctrl+D. data=\(loadJSON(atPath: dataPath) ?? [:])")
-                return
-            }
+            let done = try XCTUnwrap(waitForJSONKey("done", equals: "1", atPath: dataPath, timeout: 10.0), "Attempt \(attempt): timed out waiting for done=1 after Ctrl+D. data=\(loadJSON(atPath: dataPath) ?? [:])")
 
             let workspaceCountAfter = Int(done["workspaceCountAfter"] ?? "") ?? -1
             let panelCountAfter = Int(done["panelCountAfter"] ?? "") ?? -1
@@ -381,7 +346,7 @@ final class CloseWorkspaceCmdDUITests: XCTestCase {
         }
     }
 
-    func testCtrlDFromRealKeyboardAfterClosingRightColumnIn2x2KeepsWorkspaceOpen() {
+    func testCtrlDFromRealKeyboardAfterClosingRightColumnIn2x2KeepsWorkspaceOpen() throws {
         let attempts = 8
         for attempt in 1...attempts {
             let app = XCUIApplication()
@@ -400,10 +365,7 @@ final class CloseWorkspaceCmdDUITests: XCTestCase {
                 waitForAnyJSON(atPath: dataPath, timeout: 12.0),
                 "Attempt \(attempt): expected keyboard child-exit setup data at \(dataPath)"
             )
-            guard let ready = waitForJSONKey("ready", equals: "1", atPath: dataPath, timeout: 12.0) else {
-                XCTFail("Attempt \(attempt): timed out waiting for ready=1. data=\(loadJSON(atPath: dataPath) ?? [:])")
-                return
-            }
+            let ready = try XCTUnwrap(waitForJSONKey("ready", equals: "1", atPath: dataPath, timeout: 12.0), "Attempt \(attempt): timed out waiting for ready=1. data=\(loadJSON(atPath: dataPath) ?? [:])")
 
             if let setupError = ready["setupError"], !setupError.isEmpty {
                 XCTFail("Attempt \(attempt): setup failed: \(setupError)")
@@ -417,18 +379,12 @@ final class CloseWorkspaceCmdDUITests: XCTestCase {
                 2,
                 "Attempt \(attempt): expected two panels before Ctrl+D in 2x2-right-close repro. data=\(ready)"
             )
-            guard !exitPanelId.isEmpty else {
-                XCTFail("Attempt \(attempt): missing exitPanelId in setup data. data=\(ready)")
-                return
-            }
+            XCTAssert(!exitPanelId.isEmpty, "Attempt \(attempt): missing exitPanelId in setup data. data=\(ready)")
             assertCtrlDPreconditionsBeforeTrigger(ready, expectedExitPanelId: exitPanelId, context: "Attempt \(attempt): 2x2-right-close real key")
 
             app.typeKey("d", modifierFlags: [.control])
 
-            guard let done = waitForJSONKey("done", equals: "1", atPath: dataPath, timeout: 10.0) else {
-                XCTFail("Attempt \(attempt): timed out waiting for done=1 after real keyboard Ctrl+D. data=\(loadJSON(atPath: dataPath) ?? [:])")
-                return
-            }
+            let done = try XCTUnwrap(waitForJSONKey("done", equals: "1", atPath: dataPath, timeout: 10.0), "Attempt \(attempt): timed out waiting for done=1 after real keyboard Ctrl+D. data=\(loadJSON(atPath: dataPath) ?? [:])")
 
             let workspaceCountAfter = Int(done["workspaceCountAfter"] ?? "") ?? -1
             let panelCountAfter = Int(done["panelCountAfter"] ?? "") ?? -1
@@ -461,7 +417,7 @@ final class CloseWorkspaceCmdDUITests: XCTestCase {
         }
     }
 
-    func testCtrlDFromRealKeyboardInHorizontalSplitKeepsWindowOpen() {
+    func testCtrlDFromRealKeyboardInHorizontalSplitKeepsWindowOpen() throws {
         let attempts = 12
         for attempt in 1...attempts {
             let app = XCUIApplication()
@@ -480,10 +436,7 @@ final class CloseWorkspaceCmdDUITests: XCTestCase {
                 waitForAnyJSON(atPath: dataPath, timeout: 12.0),
                 "Attempt \(attempt): expected keyboard child-exit setup data at \(dataPath)"
             )
-            guard let ready = waitForJSONKey("ready", equals: "1", atPath: dataPath, timeout: 12.0) else {
-                XCTFail("Attempt \(attempt): timed out waiting for ready=1. data=\(loadJSON(atPath: dataPath) ?? [:])")
-                return
-            }
+            let ready = try XCTUnwrap(waitForJSONKey("ready", equals: "1", atPath: dataPath, timeout: 12.0), "Attempt \(attempt): timed out waiting for ready=1. data=\(loadJSON(atPath: dataPath) ?? [:])")
 
             if let setupError = ready["setupError"], !setupError.isEmpty {
                 XCTFail("Attempt \(attempt): setup failed: \(setupError)")
@@ -497,18 +450,12 @@ final class CloseWorkspaceCmdDUITests: XCTestCase {
                 2,
                 "Attempt \(attempt): expected two panels before Ctrl+D in left/right repro. data=\(ready)"
             )
-            guard !exitPanelId.isEmpty else {
-                XCTFail("Attempt \(attempt): missing exitPanelId in setup data. data=\(ready)")
-                return
-            }
+            XCTAssert(!exitPanelId.isEmpty, "Attempt \(attempt): missing exitPanelId in setup data. data=\(ready)")
             assertCtrlDPreconditionsBeforeTrigger(ready, expectedExitPanelId: exitPanelId, context: "Attempt \(attempt): left/right real key")
 
             app.typeKey("d", modifierFlags: [.control])
 
-            guard let done = waitForJSONKey("done", equals: "1", atPath: dataPath, timeout: 10.0) else {
-                XCTFail("Attempt \(attempt): timed out waiting for done=1 after real keyboard Ctrl+D. data=\(loadJSON(atPath: dataPath) ?? [:])")
-                return
-            }
+            let done = try XCTUnwrap(waitForJSONKey("done", equals: "1", atPath: dataPath, timeout: 10.0), "Attempt \(attempt): timed out waiting for done=1 after real keyboard Ctrl+D. data=\(loadJSON(atPath: dataPath) ?? [:])")
 
             let workspaceCountAfter = Int(done["workspaceCountAfter"] ?? "") ?? -1
             let panelCountAfter = Int(done["panelCountAfter"] ?? "") ?? -1
@@ -541,7 +488,7 @@ final class CloseWorkspaceCmdDUITests: XCTestCase {
         }
     }
 
-    func testCtrlDEarlyDuringSplitStartupKeepsWindowOpen() {
+    func testCtrlDEarlyDuringSplitStartupKeepsWindowOpen() throws {
         let attempts = 12
         for attempt in 1...attempts {
             let app = XCUIApplication()
@@ -562,10 +509,7 @@ final class CloseWorkspaceCmdDUITests: XCTestCase {
                 waitForAnyJSON(atPath: dataPath, timeout: 12.0),
                 "Attempt \(attempt): expected early Ctrl+D setup data at \(dataPath)"
             )
-            guard let done = waitForJSONKey("done", equals: "1", atPath: dataPath, timeout: 10.0) else {
-                XCTFail("Attempt \(attempt): timed out waiting for done=1 after early Ctrl+D. data=\(loadJSON(atPath: dataPath) ?? [:])")
-                return
-            }
+            let done = try XCTUnwrap(waitForJSONKey("done", equals: "1", atPath: dataPath, timeout: 10.0), "Attempt \(attempt): timed out waiting for done=1 after early Ctrl+D. data=\(loadJSON(atPath: dataPath) ?? [:])")
 
             if let setupError = done["setupError"], !setupError.isEmpty {
                 XCTFail("Attempt \(attempt): setup failed: \(setupError)")
@@ -623,14 +567,14 @@ final class CloseWorkspaceCmdDUITests: XCTestCase {
         return isCloseTabAlertPresent(app: app)
     }
 
-    // Must match the defaultValue for dialog.closeTab.title in TabManager.
+    /// Must match the defaultValue for dialog.closeTab.title in TabManager.
     private func isCloseTabAlertPresent(app: XCUIApplication) -> Bool {
         if app.dialogs.containing(.staticText, identifier: "Close tab?").firstMatch.exists { return true }
         if app.alerts.containing(.staticText, identifier: "Close tab?").firstMatch.exists { return true }
         return app.staticTexts["Close tab?"].exists
     }
 
-    // Must match the defaultValue for dialog.closeTab.title in TabManager.
+    /// Must match the defaultValue for dialog.closeTab.title in TabManager.
     private func clickCloseOnCloseTabAlert(app: XCUIApplication) {
         let dialog = app.dialogs.containing(.staticText, identifier: "Close tab?").firstMatch
         if dialog.exists {
@@ -672,10 +616,10 @@ final class CloseWorkspaceCmdDUITests: XCTestCase {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
             if app.state != .runningForeground { return true }
-            if app.windows.count == 0 { return true }
+            if app.windows.isEmpty { return true }
             RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         }
-        return app.state != .runningForeground || app.windows.count == 0
+        return app.state != .runningForeground || app.windows.isEmpty
     }
 
     private func waitForKeyequivInt(_ key: String, toBeAtLeast expected: Int, atPath path: String, timeout: TimeInterval) -> Bool {
@@ -734,10 +678,10 @@ final class CloseWorkspaceCmdDUITests: XCTestCase {
 
     private func loadJSON(atPath path: String) -> [String: String]? {
         guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: String]
+        else {
             return nil
         }
         return object
     }
-
 }

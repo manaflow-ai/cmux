@@ -1,11 +1,122 @@
-import XCTest
-import Foundation
 import CoreGraphics
+import Foundation
+import XCTest
 
 final class MultiWindowNotificationsUITests: XCTestCase {
+    // MARK: Nested Types
+
+    private enum CmuxCLIStrategy: Equatable {
+        case any
+        case bundledOnly
+    }
+
+    private final class ControlSocketClient {
+        // MARK: Properties
+
+        private let path: String
+        private let responseTimeout: TimeInterval
+
+        // MARK: Lifecycle
+
+        init(path: String, responseTimeout: TimeInterval = 2.0) {
+            self.path = path
+            self.responseTimeout = responseTimeout
+        }
+
+        // MARK: Functions
+
+        func sendLine(_ line: String) -> String? {
+            let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+            guard fd >= 0 else { return nil }
+            defer { close(fd) }
+
+            #if os(macOS)
+                var noSigPipe: Int32 = 1
+                _ = withUnsafePointer(to: &noSigPipe) { ptr in
+                    setsockopt(
+                        fd,
+                        SOL_SOCKET,
+                        SO_NOSIGPIPE,
+                        ptr,
+                        socklen_t(MemoryLayout<Int32>.size)
+                    )
+                }
+            #endif
+
+            var addr = sockaddr_un()
+            memset(&addr, 0, MemoryLayout<sockaddr_un>.size)
+            addr.sun_family = sa_family_t(AF_UNIX)
+
+            let maxLen = MemoryLayout.size(ofValue: addr.sun_path)
+            let bytes = Array(path.utf8CString)
+            guard bytes.count <= maxLen else { return nil }
+            withUnsafeMutablePointer(to: &addr.sun_path) { p in
+                let raw = UnsafeMutableRawPointer(p).assumingMemoryBound(to: CChar.self)
+                memset(raw, 0, maxLen)
+                for i in 0..<bytes.count {
+                    raw[i] = bytes[i]
+                }
+            }
+
+            let pathOffset = MemoryLayout<sockaddr_un>.offset(of: \.sun_path) ?? 0
+            let addrLen = socklen_t(pathOffset + bytes.count)
+            #if os(macOS)
+                addr.sun_len = UInt8(min(Int(addrLen), 255))
+            #endif
+
+            let connected = withUnsafePointer(to: &addr) { ptr in
+                ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
+                    connect(fd, sa, addrLen)
+                }
+            }
+            guard connected == 0 else { return nil }
+
+            let payload = line + "\n"
+            let wrote: Bool = payload.withCString { cstr in
+                var remaining = strlen(cstr)
+                var p = UnsafeRawPointer(cstr)
+                while remaining > 0 {
+                    let n = write(fd, p, remaining)
+                    if n <= 0 { return false }
+                    remaining -= n
+                    p = p.advanced(by: n)
+                }
+                return true
+            }
+            guard wrote else { return nil }
+
+            let deadline = Date().addingTimeInterval(responseTimeout)
+            var buf = [UInt8](repeating: 0, count: 4096)
+            var accum = ""
+            while Date() < deadline {
+                var pollDescriptor = pollfd(fd: fd, events: Int16(POLLIN), revents: 0)
+                let ready = poll(&pollDescriptor, 1, 100)
+                if ready < 0 {
+                    return nil
+                }
+                if ready == 0 {
+                    continue
+                }
+                let n = read(fd, &buf, buf.count)
+                if n <= 0 { break }
+                if let chunk = String(bytes: buf[0..<n], encoding: .utf8) {
+                    accum.append(chunk)
+                    if let idx = accum.firstIndex(of: "\n") {
+                        return String(accum[..<idx])
+                    }
+                }
+            }
+            return accum.isEmpty ? nil : accum.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+    }
+
+    // MARK: Properties
+
     private var dataPath = ""
     private var socketPath = ""
     private var launchTag = ""
+
+    // MARK: Overridden Functions
 
     override func setUp() {
         super.setUp()
@@ -23,7 +134,9 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         super.tearDown()
     }
 
-    func testNotificationsRouteToCorrectWindow() {
+    // MARK: Functions
+
+    func testNotificationsRouteToCorrectWindow() throws {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_UI_TEST_MULTI_WINDOW_NOTIF_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_MULTI_WINDOW_NOTIF_PATH"] = dataPath
@@ -49,10 +162,7 @@ final class MultiWindowNotificationsUITests: XCTestCase {
             "Expected multi-window notification setup data"
         )
 
-        guard let setup = loadData() else {
-            XCTFail("Missing setup data")
-            return
-        }
+        let setup = try XCTUnwrap(loadData(), "Missing setup data")
 
         let expectedLatestWindowId = setup["expectedLatestWindowId"] ?? ""
         let expectedLatestTabId = setup["expectedLatestTabId"] ?? ""
@@ -79,10 +189,7 @@ final class MultiWindowNotificationsUITests: XCTestCase {
             waitForFocusChange(from: beforeToken, timeout: 6.0),
             "Expected focus record after jump-to-unread"
         )
-        guard let afterJump = loadData() else {
-            XCTFail("Missing focus data after jump")
-            return
-        }
+        let afterJump = try XCTUnwrap(loadData(), "Missing focus data after jump")
         XCTAssertEqual(afterJump["focusedWindowId"], expectedLatestWindowId)
         XCTAssertEqual(afterJump["focusedTabId"], expectedLatestTabId)
 
@@ -101,16 +208,13 @@ final class MultiWindowNotificationsUITests: XCTestCase {
             ),
             "Expected focus record after clicking notification"
         )
-        guard let afterClick = loadData() else {
-            XCTFail("Missing focus data after click")
-            return
-        }
+        let afterClick = try XCTUnwrap(loadData(), "Missing focus data after click")
         XCTAssertEqual(afterClick["focusedWindowId"], window2Id)
         XCTAssertEqual(afterClick["focusedTabId"], tabId2)
         XCTAssertEqual(afterClick["focusedSidebarSelection"], "tabs")
     }
 
-    func testNotificationsPopoverCanCloseViaShortcutAndEscape() {
+    func testNotificationsPopoverCanCloseViaShortcutAndEscape() throws {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_UI_TEST_MULTI_WINDOW_NOTIF_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_MULTI_WINDOW_NOTIF_PATH"] = dataPath
@@ -126,10 +230,8 @@ final class MultiWindowNotificationsUITests: XCTestCase {
             "Expected multi-window notification setup data"
         )
 
-        guard let notifId1 = loadData()?["notifId1"], !notifId1.isEmpty else {
-            XCTFail("Missing setup notification id")
-            return
-        }
+        let notifId1 = try XCTUnwrap(loadData()?["notifId1"], "Missing setup notification id")
+        XCTAssert(!notifId1.isEmpty, "Missing setup notification id")
 
         XCTAssertTrue(waitForWindowCount(atLeast: 1, app: app, timeout: 6.0))
 
@@ -214,10 +316,7 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         app.typeText(marker)
         RunLoop.current.run(until: Date().addingTimeInterval(0.25))
 
-        guard let after = readCurrentTerminalText() else {
-            XCTFail("Expected terminal text from control socket")
-            return
-        }
+        let after = try XCTUnwrap(readCurrentTerminalText(), "Expected terminal text from control socket")
         XCTAssertFalse(after.contains(marker), "Expected typing to be blocked while empty notifications popover is open")
     }
 
@@ -254,10 +353,7 @@ final class MultiWindowNotificationsUITests: XCTestCase {
             "Expected multi-window notification setup data, socket readiness, and source terminal focus"
         )
 
-        guard let setup = loadData() else {
-            XCTFail("Missing setup data")
-            return
-        }
+        let setup = try XCTUnwrap(loadData(), "Missing setup data")
         guard let tabId2 = setup["tabId2"], !tabId2.isEmpty else {
             XCTFail("Missing setup workspace id")
             return
@@ -268,43 +364,37 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         if setup["socketReady"] != "1" {
             XCTFail(
                 "Control socket unavailable in this test environment. expected=\(socketPath) " +
-                socketDiagnostics(from: setup)
+                    socketDiagnostics(from: setup)
             )
             return
         }
-        guard setup["socketPingResponse"] == "PONG" else {
-            XCTFail(
-                "Control socket ping sanity check failed. path=\(socketPath) " +
-                socketDiagnostics(from: setup)
-            )
-            return
-        }
-        guard let surfaceId = setup["surfaceId2"], !surfaceId.isEmpty else {
-            XCTFail("Missing target surface id for workspace \(tabId2)")
-            return
-        }
-        guard setup["sourceTerminalReady"] == "1" else {
-            XCTFail(
-                "Expected source terminal to be focused before typing. " +
-                "failure=\(setup["sourceTerminalFocusFailure"] ?? "<unknown>")"
-            )
-            return
-        }
+        XCTAssert(setup["socketPingResponse"] == "PONG",
+                  "Control socket ping sanity check failed. path=\(socketPath) " +
+                      socketDiagnostics(from: setup))
+        let surfaceId = try XCTUnwrap(setup["surfaceId2"], "Missing target surface id for workspace \(tabId2)")
+        XCTAssert(!surfaceId.isEmpty, "Missing target surface id for workspace \(tabId2)")
+        XCTAssert(setup["sourceTerminalReady"] == "1",
+                  "Expected source terminal to be focused before typing. " +
+                      "failure=\(setup["sourceTerminalFocusFailure"] ?? "<unknown>")")
 
         XCTAssertTrue(waitForWindowCount(atLeast: 2, app: app, timeout: 6.0))
 
         let title = "focus-regression-\(UUID().uuidString.prefix(8))"
         let commandResultStem = UUID().uuidString
-        let commandStatusPath = FileManager.default.temporaryDirectory
+        let commandStatusPath = FileManager.default
+            .temporaryDirectory
             .appendingPathComponent("cmux-ui-test-notify-\(commandResultStem).status")
             .path
-        let commandStdoutPath = FileManager.default.temporaryDirectory
+        let commandStdoutPath = FileManager.default
+            .temporaryDirectory
             .appendingPathComponent("cmux-ui-test-notify-\(commandResultStem).stdout")
             .path
-        let commandStderrPath = FileManager.default.temporaryDirectory
+        let commandStderrPath = FileManager.default
+            .temporaryDirectory
             .appendingPathComponent("cmux-ui-test-notify-\(commandResultStem).stderr")
             .path
-        let commandScriptPath = FileManager.default.temporaryDirectory
+        let commandScriptPath = FileManager.default
+            .temporaryDirectory
             .appendingPathComponent("cmux-ui-test-notify-\(commandResultStem).sh")
             .path
         defer {
@@ -314,24 +404,21 @@ final class MultiWindowNotificationsUITests: XCTestCase {
             try? FileManager.default.removeItem(atPath: commandScriptPath)
         }
 
-        guard let bundledCLIPath = resolveCmuxCLIPaths(strategy: .bundledOnly).first else {
-            XCTFail("Failed to locate bundled cmux CLI for notify regression test")
-            return
-        }
+        let bundledCLIPath = try XCTUnwrap(resolveCmuxCLIPaths(strategy: .bundledOnly).first, "Failed to locate bundled cmux CLI for notify regression test")
 
         let notifyScript = [
             "#!/bin/sh",
             "sleep 1",
             "rm -f \(shellSingleQuote(commandStatusPath)) \(shellSingleQuote(commandStdoutPath)) \(shellSingleQuote(commandStderrPath))",
             "\(shellSingleQuote(bundledCLIPath)) --socket \(shellSingleQuote(socketPath)) notify --workspace \(shellSingleQuote(tabId2)) --surface \(shellSingleQuote(surfaceId)) --title \(shellSingleQuote(title)) --subtitle \(shellSingleQuote("ui-test")) --body \(shellSingleQuote("focus-regression")) >\(shellSingleQuote(commandStdoutPath)) 2>\(shellSingleQuote(commandStderrPath))",
-            "printf '%s' $? >\(shellSingleQuote(commandStatusPath))"
+            "printf '%s' $? >\(shellSingleQuote(commandStatusPath))",
         ].joined(separator: "\n")
         do {
             try notifyScript.write(toFile: commandScriptPath, atomically: true, encoding: .utf8)
         } catch {
             XCTFail(
                 "Failed to write delayed bundled `cmux notify` script. " +
-                "path=\(commandScriptPath) error=\(error)"
+                    "path=\(commandScriptPath) error=\(error)"
             )
             return
         }
@@ -364,19 +451,15 @@ final class MultiWindowNotificationsUITests: XCTestCase {
             app.state == .runningForeground,
             "Expected cmux to remain in background after bundled `cmux notify`. state=\(app.state.rawValue) stderr=\(notifyStderr)"
         )
-        guard notifyExitStatus == "0" else {
-            XCTFail(
-                "Expected bundled `cmux notify` launched from the in-app shell to succeed. " +
-                "status=\(notifyExitStatus) stdout=\(notifyStdout) stderr=\(notifyStderr)"
-            )
-            return
-        }
+        XCTAssert(notifyExitStatus == "0",
+                  "Expected bundled `cmux notify` launched from the in-app shell to succeed. " +
+                      "status=\(notifyExitStatus) stdout=\(notifyStdout) stderr=\(notifyStderr)")
         XCTAssertTrue(notifyStdout.contains("OK"), "Expected notify command to return OK. stdout=\(notifyStdout) stderr=\(notifyStderr)")
     }
 
     private func clickNotificationPopoverRowAndWaitForFocusChange(
         button: XCUIElement,
-        app: XCUIApplication,
+        app _: XCUIApplication,
         from token: String?,
         timeout: TimeInterval
     ) -> Bool {
@@ -430,7 +513,8 @@ final class MultiWindowNotificationsUITests: XCTestCase {
             if let data = loadData(),
                let current = data["focusToken"],
                !current.isEmpty,
-               current != token {
+               current != token
+            {
                 return true
             }
             RunLoop.current.run(until: Date().addingTimeInterval(0.05))
@@ -438,7 +522,8 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         if let data = loadData(),
            let current = data["focusToken"],
            !current.isEmpty,
-           current != token {
+           current != token
+        {
             return true
         }
         return false
@@ -518,7 +603,8 @@ final class MultiWindowNotificationsUITests: XCTestCase {
                 return ("PONG", stderr)
             }
             if isSocketPermissionFailure(stderr),
-               waitForSocketPong(timeout: 0.5) == "PONG" {
+               waitForSocketPong(timeout: 0.5) == "PONG"
+            {
                 return ("PONG", stderr)
             }
             RunLoop.current.run(until: Date().addingTimeInterval(0.05))
@@ -532,7 +618,8 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         let stdout = result.stdout.isEmpty ? nil : result.stdout
         let stderr = result.stderr.isEmpty ? nil : result.stderr
         if isSocketPermissionFailure(stderr),
-           waitForSocketPong(timeout: 0.5) == "PONG" {
+           waitForSocketPong(timeout: 0.5) == "PONG"
+        {
             return ("PONG", stderr)
         }
         return (stdout ?? lastStdout, stderr ?? lastStderr)
@@ -584,7 +671,8 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         guard let response = socketCommand("list_surfaces \(workspaceId)"),
               !response.isEmpty,
               !response.hasPrefix("ERROR"),
-              response != "No surfaces" else {
+              response != "No surfaces"
+        else {
             return nil
         }
 
@@ -634,7 +722,7 @@ final class MultiWindowNotificationsUITests: XCTestCase {
                 "--pane",
                 paneId,
                 "--id-format",
-                "uuids"
+                "uuids",
             ],
             responseTimeoutSeconds: 3.0
         )
@@ -655,7 +743,7 @@ final class MultiWindowNotificationsUITests: XCTestCase {
                 "--workspace",
                 workspaceId,
                 "--id-format",
-                "uuids"
+                "uuids",
             ],
             responseTimeoutSeconds: 3.0
         )
@@ -700,7 +788,7 @@ final class MultiWindowNotificationsUITests: XCTestCase {
                 "--subtitle",
                 "ui-test",
                 "--body",
-                "focus-regression"
+                "focus-regression",
             ],
             responseTimeoutSeconds: 4.0,
             cliStrategy: .bundledOnly
@@ -762,11 +850,6 @@ final class MultiWindowNotificationsUITests: XCTestCase {
             return fallbackResult
         }
         return lastPermissionFailure ?? fallbackResult
-    }
-
-    private enum CmuxCLIStrategy: Equatable {
-        case any
-        case bundledOnly
     }
 
     private func socketDiagnostics(from data: [String: String]) -> String {
@@ -835,7 +918,8 @@ final class MultiWindowNotificationsUITests: XCTestCase {
             let standardizedPath = bundleURL.standardizedFileURL.path
             let components = standardizedPath.split(separator: "/")
             guard let productsIndex = components.firstIndex(of: "Products"),
-                  productsIndex + 1 < components.count else {
+                  productsIndex + 1 < components.count
+            else {
                 return nil
             }
             let prefixComponents = components.prefix(productsIndex + 2)
@@ -930,12 +1014,11 @@ final class MultiWindowNotificationsUITests: XCTestCase {
 
     private func resolveSocketPath(timeout: TimeInterval, requiredWorkspaceId: String? = nil) -> String? {
         let primaryCandidates = expectedSocketCandidates(includeGlobalFallback: false)
-        let fallbackCandidates: [String]
-        if let requiredWorkspaceId, !requiredWorkspaceId.isEmpty {
-            fallbackCandidates = expectedSocketCandidates(includeGlobalFallback: true)
+        let fallbackCandidates: [String] = if let requiredWorkspaceId, !requiredWorkspaceId.isEmpty {
+            expectedSocketCandidates(includeGlobalFallback: true)
                 .filter { !primaryCandidates.contains($0) }
         } else {
-            fallbackCandidates = []
+            []
         }
 
         let deadline = Date().addingTimeInterval(timeout)
@@ -951,7 +1034,8 @@ final class MultiWindowNotificationsUITests: XCTestCase {
             for candidate in fallbackCandidates {
                 guard FileManager.default.fileExists(atPath: candidate) else { continue }
                 if socketRespondsToPing(at: candidate),
-                   socketMatchesRequiredWorkspace(candidate, workspaceId: requiredWorkspaceId) {
+                   socketMatchesRequiredWorkspace(candidate, workspaceId: requiredWorkspaceId)
+                {
                     return candidate
                 }
             }
@@ -966,7 +1050,8 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         for candidate in fallbackCandidates {
             guard FileManager.default.fileExists(atPath: candidate) else { continue }
             if socketRespondsToPing(at: candidate),
-               socketMatchesRequiredWorkspace(candidate, workspaceId: requiredWorkspaceId) {
+               socketMatchesRequiredWorkspace(candidate, workspaceId: requiredWorkspaceId)
+            {
                 return candidate
             }
         }
@@ -997,7 +1082,9 @@ final class MultiWindowNotificationsUITests: XCTestCase {
     }
 
     private func stableSocketPath() -> String {
-        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
+        FileManager.default
+            .urls(for: .applicationSupportDirectory, in: .userDomainMask)
+            .first?
             .appendingPathComponent("cmux", isDirectory: true)
             .appendingPathComponent("cmux.sock", isDirectory: false)
             .path ?? "/tmp/cmux.sock"
@@ -1012,7 +1099,8 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         guard let response = socketCommand("list_surfaces \(workspaceId)"),
               !response.isEmpty,
               !response.hasPrefix("ERROR"),
-              response != "No surfaces" else {
+              response != "No surfaces"
+        else {
             return false
         }
         return true
@@ -1089,104 +1177,11 @@ final class MultiWindowNotificationsUITests: XCTestCase {
 
     private func readTrimmedFile(atPath path: String) -> String? {
         guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
-              let value = String(data: data, encoding: .utf8) else {
+              let value = String(data: data, encoding: .utf8)
+        else {
             return nil
         }
         return value.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private final class ControlSocketClient {
-        private let path: String
-        private let responseTimeout: TimeInterval
-
-        init(path: String, responseTimeout: TimeInterval = 2.0) {
-            self.path = path
-            self.responseTimeout = responseTimeout
-        }
-
-        func sendLine(_ line: String) -> String? {
-            let fd = socket(AF_UNIX, SOCK_STREAM, 0)
-            guard fd >= 0 else { return nil }
-            defer { close(fd) }
-
-#if os(macOS)
-            var noSigPipe: Int32 = 1
-            _ = withUnsafePointer(to: &noSigPipe) { ptr in
-                setsockopt(
-                    fd,
-                    SOL_SOCKET,
-                    SO_NOSIGPIPE,
-                    ptr,
-                    socklen_t(MemoryLayout<Int32>.size)
-                )
-            }
-#endif
-
-            var addr = sockaddr_un()
-            memset(&addr, 0, MemoryLayout<sockaddr_un>.size)
-            addr.sun_family = sa_family_t(AF_UNIX)
-
-            let maxLen = MemoryLayout.size(ofValue: addr.sun_path)
-            let bytes = Array(path.utf8CString)
-            guard bytes.count <= maxLen else { return nil }
-            withUnsafeMutablePointer(to: &addr.sun_path) { p in
-                let raw = UnsafeMutableRawPointer(p).assumingMemoryBound(to: CChar.self)
-                memset(raw, 0, maxLen)
-                for i in 0..<bytes.count {
-                    raw[i] = bytes[i]
-                }
-            }
-
-            let pathOffset = MemoryLayout<sockaddr_un>.offset(of: \.sun_path) ?? 0
-            let addrLen = socklen_t(pathOffset + bytes.count)
-#if os(macOS)
-            addr.sun_len = UInt8(min(Int(addrLen), 255))
-#endif
-
-            let connected = withUnsafePointer(to: &addr) { ptr in
-                ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
-                    connect(fd, sa, addrLen)
-                }
-            }
-            guard connected == 0 else { return nil }
-
-            let payload = line + "\n"
-            let wrote: Bool = payload.withCString { cstr in
-                var remaining = strlen(cstr)
-                var p = UnsafeRawPointer(cstr)
-                while remaining > 0 {
-                    let n = write(fd, p, remaining)
-                    if n <= 0 { return false }
-                    remaining -= n
-                    p = p.advanced(by: n)
-                }
-                return true
-            }
-            guard wrote else { return nil }
-
-            let deadline = Date().addingTimeInterval(responseTimeout)
-            var buf = [UInt8](repeating: 0, count: 4096)
-            var accum = ""
-            while Date() < deadline {
-                var pollDescriptor = pollfd(fd: fd, events: Int16(POLLIN), revents: 0)
-                let ready = poll(&pollDescriptor, 1, 100)
-                if ready < 0 {
-                    return nil
-                }
-                if ready == 0 {
-                    continue
-                }
-                let n = read(fd, &buf, buf.count)
-                if n <= 0 { break }
-                if let chunk = String(bytes: buf[0..<n], encoding: .utf8) {
-                    accum.append(chunk)
-                    if let idx = accum.firstIndex(of: "\n") {
-                        return String(accum[..<idx])
-                    }
-                }
-            }
-            return accum.isEmpty ? nil : accum.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
     }
 
     private func readCurrentTerminalText() -> String? {

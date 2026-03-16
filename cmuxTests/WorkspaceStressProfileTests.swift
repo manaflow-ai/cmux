@@ -1,19 +1,27 @@
 import XCTest
 
 #if canImport(cmux_DEV)
-@testable import cmux_DEV
+    @testable import cmux_DEV
 #elseif canImport(cmux)
-@testable import cmux
+    @testable import cmux
 #endif
+
+// MARK: - WorkspaceStressProfileTests
 
 @MainActor
 final class WorkspaceStressProfileTests: XCTestCase {
+    // MARK: Nested Types
+
     private struct StressConfig {
+        // MARK: Properties
+
         let workspaceCount: Int
         let tabsPerWorkspace: Int
         let switchPasses: Int
         let createP95BudgetMs: Double?
         let switchP95BudgetMs: Double?
+
+        // MARK: Static Functions
 
         static func current(environment: [String: String] = ProcessInfo.processInfo.environment) -> StressConfig {
             StressConfig(
@@ -42,12 +50,16 @@ final class WorkspaceStressProfileTests: XCTestCase {
     }
 
     private struct TimingSummary {
+        // MARK: Properties
+
         let count: Int
         let averageMs: Double
         let medianMs: Double
         let p95Ms: Double
         let maxMs: Double
         let totalMs: Double
+
+        // MARK: Lifecycle
 
         init(samples: [TimedSample]) {
             let sorted = samples.map(\.elapsedMs).sorted()
@@ -59,6 +71,8 @@ final class WorkspaceStressProfileTests: XCTestCase {
             maxMs = sorted.last ?? 0
         }
 
+        // MARK: Static Functions
+
         private static func percentile(_ percentile: Double, in sortedValues: [Double]) -> Double {
             guard !sortedValues.isEmpty else { return 0 }
             let clamped = min(max(percentile, 0), 1)
@@ -67,7 +81,9 @@ final class WorkspaceStressProfileTests: XCTestCase {
         }
     }
 
-    func testWorkspaceCreationAndSwitchingStressProfile() {
+    // MARK: Functions
+
+    func testWorkspaceCreationAndSwitchingStressProfile() throws {
         let config = StressConfig.current()
         let welcomeWasShown = UserDefaults.standard.object(forKey: WelcomeSettings.shownKey)
         UserDefaults.standard.set(true, forKey: WelcomeSettings.shownKey)
@@ -91,10 +107,7 @@ final class WorkspaceStressProfileTests: XCTestCase {
             TabManager()
         }
 
-        guard let bootstrapWorkspace = manager.selectedWorkspace else {
-            XCTFail("Expected bootstrap workspace")
-            return
-        }
+        let bootstrapWorkspace = try XCTUnwrap(manager.selectedWorkspace, "Expected bootstrap workspace")
 
         timed("workspace-000-populate", collectInto: &populationSamples) {
             populate(workspace: bootstrapWorkspace, tabsPerWorkspace: config.tabsPerWorkspace)
@@ -175,7 +188,7 @@ final class WorkspaceStressProfileTests: XCTestCase {
             reportLine(title: "switch.dispatch", summary: switchDispatchSummary, slowest: slowest(switchDispatchSamples)),
             reportLine(title: "switch.drain1", summary: switchFirstDrainSummary, slowest: slowest(switchFirstDrainSamples)),
             reportLine(title: "switch.unfocus", summary: switchUnfocusSummary, slowest: slowest(switchUnfocusSamples)),
-            reportLine(title: "switch.drain2", summary: switchSecondDrainSummary, slowest: slowest(switchSecondDrainSamples))
+            reportLine(title: "switch.drain2", summary: switchSecondDrainSummary, slowest: slowest(switchSecondDrainSamples)),
         ].joined(separator: "\n")
 
         print(report)
@@ -268,7 +281,7 @@ final class WorkspaceStressProfileTests: XCTestCase {
             "p95=\(formatMs(summary.p95Ms))",
             "max=\(formatMs(summary.maxMs))",
             "total=\(formatMs(summary.totalMs))",
-            "slowest=[\(slowest)]"
+            "slowest=[\(slowest)]",
         ].joined(separator: " ")
     }
 

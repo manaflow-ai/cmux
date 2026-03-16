@@ -1,10 +1,12 @@
 import XCTest
 
 #if canImport(cmux_DEV)
-@testable import cmux_DEV
+    @testable import cmux_DEV
 #elseif canImport(cmux)
-@testable import cmux
+    @testable import cmux
 #endif
+
+// MARK: - SidebarWidthPolicyTests
 
 final class SidebarWidthPolicyTests: XCTestCase {
     func testContentViewClampAllowsNarrowSidebarBelowLegacyMinimum() {

@@ -1,9 +1,30 @@
-import XCTest
 import Foundation
+import XCTest
 
 final class BrowserPaneNavigationKeybindUITests: XCTestCase {
+    // MARK: Nested Types
+
+    private enum FindFocusRoute {
+        case cmdOptionArrows
+        case cmdCtrlLetters
+    }
+
+    // MARK: Properties
+
     private var dataPath = ""
     private var socketPath = ""
+
+    // MARK: Computed Properties
+
+    private var autofocusRacePageURL: String {
+        "data:text/html,%3Cinput%20id%3D%22q%22%3E%3Cscript%3EsetTimeout%28function%28%29%7Bdocument.getElementById%28%22q%22%29.focus%28%29%3Blocation.hash%3D%22focused%22%3B%7D%2C700%29%3B%3C%2Fscript%3E"
+    }
+
+    private var zoomRoundTripPageURL: String {
+        "data:text/html,%3Ctitle%3EIssue%201144%3C/title%3E%3Cbody%20style%3D%22margin:0;background:%231d1f24;color:white;font-family:system-ui;height:2200px%22%3E%3Cmain%20style%3D%22padding:32px%22%3E%3Ch1%3EIssue%201144%20Regression%20Page%3C/h1%3E%3Cp%3EZoom%20should%20not%20leave%20stale%20split%20chrome%20above%20the%20browser%20omnibar.%3C/p%3E%3C/main%3E%3C/body%3E"
+    }
+
+    // MARK: Overridden Functions
 
     override func setUp() {
         super.setUp()
@@ -14,7 +35,9 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         try? FileManager.default.removeItem(atPath: socketPath)
     }
 
-    func testCmdCtrlHMovesLeftWhenWebViewFocused() {
+    // MARK: Functions
+
+    func testCmdCtrlHMovesLeftWhenWebViewFocused() throws {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
@@ -27,17 +50,11 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
             "Expected goto_split setup data to be written"
         )
 
-        guard let setup = loadData() else {
-            XCTFail("Missing goto_split setup data")
-            return
-        }
+        let setup = try XCTUnwrap(loadData(), "Missing goto_split setup data")
 
         XCTAssertEqual(setup["webViewFocused"], "true", "Expected WKWebView to be first responder for this test")
 
-        guard let expectedTerminalPaneId = setup["terminalPaneId"] else {
-            XCTFail("Missing terminalPaneId in goto_split setup data")
-            return
-        }
+        let expectedTerminalPaneId = try XCTUnwrap(setup["terminalPaneId"], "Missing terminalPaneId in goto_split setup data")
 
         // Trigger pane navigation via the actual key event path (while WebKit is first responder).
         app.typeKey("h", modifierFlags: [.command, .control])
@@ -50,13 +67,10 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         )
     }
 
-    func testCmdCtrlHMovesLeftWhenWebViewFocusedUsingGhosttyConfigKeybind() {
+    func testCmdCtrlHMovesLeftWhenWebViewFocusedUsingGhosttyConfigKeybind() throws {
         // Write a test Ghostty config in the preferred macOS location so GhosttyKit loads it at app startup.
         let fileManager = FileManager.default
-        guard let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
-            XCTFail("Missing Application Support directory")
-            return
-        }
+        let appSupport = try XCTUnwrap(fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first, "Missing Application Support directory")
 
         let ghosttyDir = appSupport.appendingPathComponent("com.mitchellh.ghostty", isDirectory: true)
         let configURL = ghosttyDir.appendingPathComponent("config.ghostty", isDirectory: false)
@@ -103,18 +117,12 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
             "Expected goto_split setup data to be written"
         )
 
-        guard let setup = loadData() else {
-            XCTFail("Missing goto_split setup data")
-            return
-        }
+        let setup = try XCTUnwrap(loadData(), "Missing goto_split setup data")
 
         XCTAssertEqual(setup["webViewFocused"], "true", "Expected WKWebView to be first responder for this test")
         XCTAssertFalse((setup["ghosttyGotoSplitLeftShortcut"] ?? "").isEmpty, "Expected Ghostty trigger metadata to be present")
 
-        guard let expectedTerminalPaneId = setup["terminalPaneId"] else {
-            XCTFail("Missing terminalPaneId in goto_split setup data")
-            return
-        }
+        let expectedTerminalPaneId = try XCTUnwrap(setup["terminalPaneId"], "Missing terminalPaneId in goto_split setup data")
 
         // Trigger pane navigation via the actual key event path (while WebKit is first responder).
         app.typeKey("h", modifierFlags: [.command, .control])
@@ -127,7 +135,7 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         )
     }
 
-    func testEscapeLeavesOmnibarAndFocusesWebView() {
+    func testEscapeLeavesOmnibarAndFocusesWebView() throws {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
@@ -140,10 +148,7 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
             "Expected goto_split setup data to be written"
         )
 
-        guard let setup = loadData() else {
-            XCTFail("Missing goto_split setup data")
-            return
-        }
+        let setup = try XCTUnwrap(loadData(), "Missing goto_split setup data")
 
         XCTAssertEqual(setup["webViewFocused"], "true", "Expected WKWebView to be first responder for this test")
 
@@ -171,7 +176,7 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         )
     }
 
-    func testEscapeRestoresFocusedPageInputAfterCmdL() {
+    func testEscapeRestoresFocusedPageInputAfterCmdL() throws {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
@@ -189,40 +194,38 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
                     "webInputFocusElementId",
                     "webInputFocusSecondaryElementId",
                     "webInputFocusSecondaryClickOffsetX",
-                    "webInputFocusSecondaryClickOffsetY"
+                    "webInputFocusSecondaryClickOffsetY",
                 ],
                 timeout: 12.0
             ),
             "Expected setup data including focused page input to be written"
         )
 
-        guard let setup = loadData() else {
-            XCTFail("Missing goto_split setup data")
-            return
-        }
+        let setup = try XCTUnwrap(loadData(), "Missing goto_split setup data")
 
         XCTAssertEqual(setup["webViewFocused"], "true", "Expected WKWebView to be first responder for this test")
         XCTAssertEqual(setup["webInputFocusSeeded"], "true", "Expected test page input to be focused before Cmd+L")
 
-        guard let expectedInputId = setup["webInputFocusElementId"], !expectedInputId.isEmpty else {
-            XCTFail("Missing webInputFocusElementId in setup data")
-            return
-        }
-        guard let expectedSecondaryInputId = setup["webInputFocusSecondaryElementId"], !expectedSecondaryInputId.isEmpty else {
-            XCTFail("Missing webInputFocusSecondaryElementId in setup data")
-            return
-        }
-        guard let secondaryClickOffsetXRaw = setup["webInputFocusSecondaryClickOffsetX"],
-              let secondaryClickOffsetYRaw = setup["webInputFocusSecondaryClickOffsetY"],
-              let secondaryClickOffsetX = Double(secondaryClickOffsetXRaw),
-              let secondaryClickOffsetY = Double(secondaryClickOffsetYRaw) else {
-            XCTFail(
-                "Missing or invalid secondary input click offsets in setup data. " +
-                "webInputFocusSecondaryClickOffsetX=\(setup["webInputFocusSecondaryClickOffsetX"] ?? "nil") " +
-                "webInputFocusSecondaryClickOffsetY=\(setup["webInputFocusSecondaryClickOffsetY"] ?? "nil")"
-            )
-            return
-        }
+        let expectedInputId = try XCTUnwrap(setup["webInputFocusElementId"], "Missing webInputFocusElementId in setup data")
+        XCTAssert(!expectedInputId.isEmpty, "Missing webInputFocusElementId in setup data")
+        let expectedSecondaryInputId = try XCTUnwrap(setup["webInputFocusSecondaryElementId"], "Missing webInputFocusSecondaryElementId in setup data")
+        XCTAssert(!expectedSecondaryInputId.isEmpty, "Missing webInputFocusSecondaryElementId in setup data")
+        let secondaryClickOffsetXRaw = try XCTUnwrap(setup["webInputFocusSecondaryClickOffsetX"],
+                                                     "Missing or invalid secondary input click offsets in setup data. " +
+                                                         "webInputFocusSecondaryClickOffsetX=\(setup["webInputFocusSecondaryClickOffsetX"] ?? "nil") " +
+                                                         "webInputFocusSecondaryClickOffsetY=\(setup["webInputFocusSecondaryClickOffsetY"] ?? "nil")")
+        let secondaryClickOffsetYRaw = try XCTUnwrap(setup["webInputFocusSecondaryClickOffsetY"],
+                                                     "Missing or invalid secondary input click offsets in setup data. " +
+                                                         "webInputFocusSecondaryClickOffsetX=\(setup["webInputFocusSecondaryClickOffsetX"] ?? "nil") " +
+                                                         "webInputFocusSecondaryClickOffsetY=\(setup["webInputFocusSecondaryClickOffsetY"] ?? "nil")")
+        let secondaryClickOffsetX = try XCTUnwrap(Double(secondaryClickOffsetXRaw),
+                                                  "Missing or invalid secondary input click offsets in setup data. " +
+                                                      "webInputFocusSecondaryClickOffsetX=\(setup["webInputFocusSecondaryClickOffsetX"] ?? "nil") " +
+                                                      "webInputFocusSecondaryClickOffsetY=\(setup["webInputFocusSecondaryClickOffsetY"] ?? "nil")")
+        let secondaryClickOffsetY = try XCTUnwrap(Double(secondaryClickOffsetYRaw),
+                                                  "Missing or invalid secondary input click offsets in setup data. " +
+                                                      "webInputFocusSecondaryClickOffsetX=\(setup["webInputFocusSecondaryClickOffsetX"] ?? "nil") " +
+                                                      "webInputFocusSecondaryClickOffsetY=\(setup["webInputFocusSecondaryClickOffsetY"] ?? "nil")")
 
         app.typeKey("l", modifierFlags: [.command])
         XCTAssertTrue(
@@ -250,20 +253,20 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
             let snapshot = loadData() ?? [:]
             XCTFail(
                 "Expected Escape to restore focus to the previously focused page input. " +
-                "expectedInputId=\(expectedInputId) " +
-                "webViewFocusedAfterAddressBarExit=\(snapshot["webViewFocusedAfterAddressBarExit"] ?? "nil") " +
-                "addressBarExitActiveElementId=\(snapshot["addressBarExitActiveElementId"] ?? "nil") " +
-                "addressBarExitActiveElementTag=\(snapshot["addressBarExitActiveElementTag"] ?? "nil") " +
-                "addressBarExitActiveElementType=\(snapshot["addressBarExitActiveElementType"] ?? "nil") " +
-                "addressBarExitActiveElementEditable=\(snapshot["addressBarExitActiveElementEditable"] ?? "nil") " +
-                "addressBarExitTrackedFocusStateId=\(snapshot["addressBarExitTrackedFocusStateId"] ?? "nil") " +
-                "addressBarExitFocusTrackerInstalled=\(snapshot["addressBarExitFocusTrackerInstalled"] ?? "nil") " +
-                "addressBarFocusActiveElementId=\(snapshot["addressBarFocusActiveElementId"] ?? "nil") " +
-                "addressBarFocusTrackedFocusStateId=\(snapshot["addressBarFocusTrackedFocusStateId"] ?? "nil") " +
-                "addressBarFocusFocusTrackerInstalled=\(snapshot["addressBarFocusFocusTrackerInstalled"] ?? "nil") " +
-                "webInputFocusElementId=\(snapshot["webInputFocusElementId"] ?? "nil") " +
-                "webInputFocusTrackerInstalled=\(snapshot["webInputFocusTrackerInstalled"] ?? "nil") " +
-                "webInputFocusTrackedStateId=\(snapshot["webInputFocusTrackedStateId"] ?? "nil")"
+                    "expectedInputId=\(expectedInputId) " +
+                    "webViewFocusedAfterAddressBarExit=\(snapshot["webViewFocusedAfterAddressBarExit"] ?? "nil") " +
+                    "addressBarExitActiveElementId=\(snapshot["addressBarExitActiveElementId"] ?? "nil") " +
+                    "addressBarExitActiveElementTag=\(snapshot["addressBarExitActiveElementTag"] ?? "nil") " +
+                    "addressBarExitActiveElementType=\(snapshot["addressBarExitActiveElementType"] ?? "nil") " +
+                    "addressBarExitActiveElementEditable=\(snapshot["addressBarExitActiveElementEditable"] ?? "nil") " +
+                    "addressBarExitTrackedFocusStateId=\(snapshot["addressBarExitTrackedFocusStateId"] ?? "nil") " +
+                    "addressBarExitFocusTrackerInstalled=\(snapshot["addressBarExitFocusTrackerInstalled"] ?? "nil") " +
+                    "addressBarFocusActiveElementId=\(snapshot["addressBarFocusActiveElementId"] ?? "nil") " +
+                    "addressBarFocusTrackedFocusStateId=\(snapshot["addressBarFocusTrackedFocusStateId"] ?? "nil") " +
+                    "addressBarFocusFocusTrackerInstalled=\(snapshot["addressBarFocusFocusTrackerInstalled"] ?? "nil") " +
+                    "webInputFocusElementId=\(snapshot["webInputFocusElementId"] ?? "nil") " +
+                    "webInputFocusTrackerInstalled=\(snapshot["webInputFocusTrackerInstalled"] ?? "nil") " +
+                    "webInputFocusTrackedStateId=\(snapshot["webInputFocusTrackedStateId"] ?? "nil")"
             )
         }
 
@@ -290,13 +293,13 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
             let snapshot = loadData() ?? [:]
             XCTFail(
                 "Expected post-escape click to focus secondary page input before Cmd+L. " +
-                "secondaryInputId=\(expectedSecondaryInputId) " +
-                "addressBarFocusActiveElementId=\(snapshot["addressBarFocusActiveElementId"] ?? "nil") " +
-                "addressBarFocusActiveElementTag=\(snapshot["addressBarFocusActiveElementTag"] ?? "nil") " +
-                "addressBarFocusActiveElementType=\(snapshot["addressBarFocusActiveElementType"] ?? "nil") " +
-                "addressBarFocusActiveElementEditable=\(snapshot["addressBarFocusActiveElementEditable"] ?? "nil") " +
-                "addressBarFocusTrackedFocusStateId=\(snapshot["addressBarFocusTrackedFocusStateId"] ?? "nil") " +
-                "addressBarFocusFocusTrackerInstalled=\(snapshot["addressBarFocusFocusTrackerInstalled"] ?? "nil")"
+                    "secondaryInputId=\(expectedSecondaryInputId) " +
+                    "addressBarFocusActiveElementId=\(snapshot["addressBarFocusActiveElementId"] ?? "nil") " +
+                    "addressBarFocusActiveElementTag=\(snapshot["addressBarFocusActiveElementTag"] ?? "nil") " +
+                    "addressBarFocusActiveElementType=\(snapshot["addressBarFocusActiveElementType"] ?? "nil") " +
+                    "addressBarFocusActiveElementEditable=\(snapshot["addressBarFocusActiveElementEditable"] ?? "nil") " +
+                    "addressBarFocusTrackedFocusStateId=\(snapshot["addressBarFocusTrackedFocusStateId"] ?? "nil") " +
+                    "addressBarFocusFocusTrackerInstalled=\(snapshot["addressBarFocusFocusTrackerInstalled"] ?? "nil")"
             )
         }
 
@@ -319,7 +322,7 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         )
     }
 
-    func testCmdLOpensBrowserWhenTerminalFocused() {
+    func testCmdLOpensBrowserWhenTerminalFocused() throws {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
@@ -332,20 +335,11 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
             "Expected goto_split setup data to be written"
         )
 
-        guard let setup = loadData() else {
-            XCTFail("Missing goto_split setup data")
-            return
-        }
+        let setup = try XCTUnwrap(loadData(), "Missing goto_split setup data")
 
-        guard let originalBrowserPanelId = setup["browserPanelId"] else {
-            XCTFail("Missing browserPanelId in goto_split setup data")
-            return
-        }
+        let originalBrowserPanelId = try XCTUnwrap(setup["browserPanelId"], "Missing browserPanelId in goto_split setup data")
 
-        guard let expectedTerminalPaneId = setup["terminalPaneId"] else {
-            XCTFail("Missing terminalPaneId in goto_split setup data")
-            return
-        }
+        let expectedTerminalPaneId = try XCTUnwrap(setup["terminalPaneId"], "Missing terminalPaneId in goto_split setup data")
 
         // Move focus to the terminal pane first.
         app.typeKey("h", modifierFlags: [.command, .control])
@@ -368,7 +362,7 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         )
     }
 
-    func testClickingOmnibarFocusesBrowserPane() {
+    func testClickingOmnibarFocusesBrowserPane() throws {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
@@ -381,20 +375,11 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
             "Expected goto_split setup data to be written"
         )
 
-        guard let setup = loadData() else {
-            XCTFail("Missing goto_split setup data")
-            return
-        }
+        let setup = try XCTUnwrap(loadData(), "Missing goto_split setup data")
 
-        guard let expectedBrowserPanelId = setup["browserPanelId"] else {
-            XCTFail("Missing browserPanelId in goto_split setup data")
-            return
-        }
+        let expectedBrowserPanelId = try XCTUnwrap(setup["browserPanelId"], "Missing browserPanelId in goto_split setup data")
 
-        guard let expectedTerminalPaneId = setup["terminalPaneId"] else {
-            XCTFail("Missing terminalPaneId in goto_split setup data")
-            return
-        }
+        let expectedTerminalPaneId = try XCTUnwrap(setup["terminalPaneId"], "Missing terminalPaneId in goto_split setup data")
 
         // Move focus away from browser to terminal first.
         app.typeKey("h", modifierFlags: [.command, .control])
@@ -423,7 +408,7 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         )
     }
 
-    func testClickingBrowserDismissesCommandPaletteAndKeepsBrowserFocus() {
+    func testClickingBrowserDismissesCommandPaletteAndKeepsBrowserFocus() throws {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
@@ -436,20 +421,11 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
             "Expected goto_split setup data to be written"
         )
 
-        guard let setup = loadData() else {
-            XCTFail("Missing goto_split setup data")
-            return
-        }
+        let setup = try XCTUnwrap(loadData(), "Missing goto_split setup data")
 
-        guard let expectedBrowserPanelId = setup["browserPanelId"] else {
-            XCTFail("Missing browserPanelId in goto_split setup data")
-            return
-        }
+        let expectedBrowserPanelId = try XCTUnwrap(setup["browserPanelId"], "Missing browserPanelId in goto_split setup data")
 
-        guard let expectedTerminalPaneId = setup["terminalPaneId"] else {
-            XCTFail("Missing terminalPaneId in goto_split setup data")
-            return
-        }
+        let expectedTerminalPaneId = try XCTUnwrap(setup["terminalPaneId"], "Missing terminalPaneId in goto_split setup data")
 
         // Move focus away from browser to terminal first so Cmd+R opens the rename overlay.
         app.typeKey("h", modifierFlags: [.command, .control])
@@ -488,7 +464,7 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         )
     }
 
-    func testCmdDSplitsRightWhenWebViewFocused() {
+    func testCmdDSplitsRightWhenWebViewFocused() throws {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
@@ -500,10 +476,7 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
             "Expected goto_split setup data to be written"
         )
 
-        guard let setup = loadData() else {
-            XCTFail("Missing goto_split setup data")
-            return
-        }
+        let setup = try XCTUnwrap(loadData(), "Missing goto_split setup data")
 
         XCTAssertEqual(setup["webViewFocused"], "true", "Expected WKWebView to be first responder for this test")
         let initialPaneCount = Int(setup["initialPaneCount"] ?? "") ?? 0
@@ -521,7 +494,7 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         )
     }
 
-    func testCmdShiftDSplitsDownWhenWebViewFocused() {
+    func testCmdShiftDSplitsDownWhenWebViewFocused() throws {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
@@ -533,10 +506,7 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
             "Expected goto_split setup data to be written"
         )
 
-        guard let setup = loadData() else {
-            XCTFail("Missing goto_split setup data")
-            return
-        }
+        let setup = try XCTUnwrap(loadData(), "Missing goto_split setup data")
 
         XCTAssertEqual(setup["webViewFocused"], "true", "Expected WKWebView to be first responder for this test")
         let initialPaneCount = Int(setup["initialPaneCount"] ?? "") ?? 0
@@ -554,7 +524,7 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         )
     }
 
-    func testCmdShiftEnterKeepsBrowserOmnibarHittableAcrossZoomRoundTripWhenWebViewFocused() {
+    func testCmdShiftEnterKeepsBrowserOmnibarHittableAcrossZoomRoundTripWhenWebViewFocused() throws {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
@@ -566,15 +536,9 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
             "Expected goto_split setup data to be written"
         )
 
-        guard let setup = loadData() else {
-            XCTFail("Missing goto_split setup data")
-            return
-        }
+        let setup = try XCTUnwrap(loadData(), "Missing goto_split setup data")
 
-        guard let browserPanelId = setup["browserPanelId"] else {
-            XCTFail("Missing browserPanelId in goto_split setup data")
-            return
-        }
+        let browserPanelId = try XCTUnwrap(setup["browserPanelId"], "Missing browserPanelId in goto_split setup data")
 
         XCTAssertEqual(setup["webViewFocused"], "true", "Expected WKWebView to be first responder for this test")
 
@@ -645,7 +609,7 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         )
     }
 
-    func testCmdShiftEnterHidesBrowserPortalWhenTerminalPaneZooms() {
+    func testCmdShiftEnterHidesBrowserPortalWhenTerminalPaneZooms() throws {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
@@ -658,15 +622,9 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
             "Expected goto_split setup data to be written"
         )
 
-        guard let setup = loadData() else {
-            XCTFail("Missing goto_split setup data")
-            return
-        }
+        let setup = try XCTUnwrap(loadData(), "Missing goto_split setup data")
 
-        guard let expectedTerminalPaneId = setup["terminalPaneId"] else {
-            XCTFail("Missing terminalPaneId in goto_split setup data")
-            return
-        }
+        let expectedTerminalPaneId = try XCTUnwrap(setup["terminalPaneId"], "Missing terminalPaneId in goto_split setup data")
 
         app.typeKey("h", modifierFlags: [.command, .control])
 
@@ -698,7 +656,7 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         )
     }
 
-    func testCmdDSplitsRightWhenOmnibarFocused() {
+    func testCmdDSplitsRightWhenOmnibarFocused() throws {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
@@ -710,10 +668,7 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
             "Expected goto_split setup data to be written"
         )
 
-        guard let setup = loadData() else {
-            XCTFail("Missing goto_split setup data")
-            return
-        }
+        let setup = try XCTUnwrap(loadData(), "Missing goto_split setup data")
 
         let initialPaneCount = Int(setup["initialPaneCount"] ?? "") ?? 0
         XCTAssertGreaterThanOrEqual(initialPaneCount, 2, "Expected at least two panes before split. data=\(setup)")
@@ -739,7 +694,7 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         )
     }
 
-    func testCmdShiftDSplitsDownWhenOmnibarFocused() {
+    func testCmdShiftDSplitsDownWhenOmnibarFocused() throws {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
@@ -751,10 +706,7 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
             "Expected goto_split setup data to be written"
         )
 
-        guard let setup = loadData() else {
-            XCTFail("Missing goto_split setup data")
-            return
-        }
+        let setup = try XCTUnwrap(loadData(), "Missing goto_split setup data")
 
         let initialPaneCount = Int(setup["initialPaneCount"] ?? "") ?? 0
         XCTAssertGreaterThanOrEqual(initialPaneCount, 2, "Expected at least two panes before split. data=\(setup)")
@@ -790,11 +742,6 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
 
     func testCmdOptionPaneSwitchPreservesFindFieldFocusDuringPageAutofocusRace() {
         runFindFocusPersistenceScenario(route: .cmdOptionArrows, useAutofocusRacePage: true)
-    }
-
-    private enum FindFocusRoute {
-        case cmdOptionArrows
-        case cmdCtrlLetters
     }
 
     private func runFindFocusPersistenceScenario(route: FindFocusRoute, useAutofocusRacePage: Bool) {
@@ -908,19 +855,19 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
 
     private func focusLeftPaneForFindScenario(_ app: XCUIApplication, route: FindFocusRoute) {
         switch route {
-        case .cmdOptionArrows:
-            app.typeKey(XCUIKeyboardKey.leftArrow.rawValue, modifierFlags: [.command, .option])
-        case .cmdCtrlLetters:
-            app.typeKey("h", modifierFlags: [.command, .control])
+            case .cmdOptionArrows:
+                app.typeKey(XCUIKeyboardKey.leftArrow.rawValue, modifierFlags: [.command, .option])
+            case .cmdCtrlLetters:
+                app.typeKey("h", modifierFlags: [.command, .control])
         }
     }
 
     private func focusRightPaneForFindScenario(_ app: XCUIApplication, route: FindFocusRoute) {
         switch route {
-        case .cmdOptionArrows:
-            app.typeKey(XCUIKeyboardKey.rightArrow.rawValue, modifierFlags: [.command, .option])
-        case .cmdCtrlLetters:
-            app.typeKey("l", modifierFlags: [.command, .control])
+            case .cmdOptionArrows:
+                app.typeKey(XCUIKeyboardKey.rightArrow.rawValue, modifierFlags: [.command, .option])
+            case .cmdCtrlLetters:
+                app.typeKey("l", modifierFlags: [.command, .control])
         }
     }
 
@@ -953,20 +900,12 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
     private func waitForElementToBecomeHittable(_ element: XCUIElement, timeout: TimeInterval) -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
-            if element.exists && element.isHittable {
+            if element.exists, element.isHittable {
                 return true
             }
             RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         }
         return element.exists && element.isHittable
-    }
-
-    private var autofocusRacePageURL: String {
-        "data:text/html,%3Cinput%20id%3D%22q%22%3E%3Cscript%3EsetTimeout%28function%28%29%7Bdocument.getElementById%28%22q%22%29.focus%28%29%3Blocation.hash%3D%22focused%22%3B%7D%2C700%29%3B%3C%2Fscript%3E"
-    }
-
-    private var zoomRoundTripPageURL: String {
-        "data:text/html,%3Ctitle%3EIssue%201144%3C/title%3E%3Cbody%20style%3D%22margin:0;background:%231d1f24;color:white;font-family:system-ui;height:2200px%22%3E%3Cmain%20style%3D%22padding:32px%22%3E%3Ch1%3EIssue%201144%20Regression%20Page%3C/h1%3E%3Cp%3EZoom%20should%20not%20leave%20stale%20split%20chrome%20above%20the%20browser%20omnibar.%3C/p%3E%3C/main%3E%3C/body%3E"
     }
 
     private func launchAndEnsureForeground(_ app: XCUIApplication, timeout: TimeInterval = 12.0) {

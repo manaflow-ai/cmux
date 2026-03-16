@@ -1,13 +1,14 @@
 import XCTest
 
 #if canImport(cmux_DEV)
-@testable import cmux_DEV
+    @testable import cmux_DEV
 #elseif canImport(cmux)
-@testable import cmux
+    @testable import cmux
 #endif
 
-final class BrowserFindJavaScriptTests: XCTestCase {
+// MARK: - BrowserFindJavaScriptTests
 
+final class BrowserFindJavaScriptTests: XCTestCase {
     // MARK: - searchScript
 
     func testSearchScriptReturnsNonEmptyJavaScript() {

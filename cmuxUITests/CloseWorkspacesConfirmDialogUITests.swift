@@ -1,8 +1,12 @@
-import XCTest
 import Foundation
+import XCTest
 
 final class CloseWorkspacesConfirmDialogUITests: XCTestCase {
+    // MARK: Properties
+
     private var socketPath = ""
+
+    // MARK: Overridden Functions
 
     override func setUp() {
         super.setUp()
@@ -10,6 +14,8 @@ final class CloseWorkspacesConfirmDialogUITests: XCTestCase {
         socketPath = "/tmp/cmux-ui-test-close-workspaces-\(UUID().uuidString).sock"
         try? FileManager.default.removeItem(atPath: socketPath)
     }
+
+    // MARK: Functions
 
     func testCommandPaletteCloseOtherWorkspacesShowsSingleSummaryDialog() {
         let app = XCUIApplication()

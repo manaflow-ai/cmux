@@ -1,8 +1,21 @@
-import XCTest
 import Foundation
+import XCTest
 
 final class BrowserOmnibarSuggestionsUITests: XCTestCase {
+    // MARK: Nested Types
+
+    private struct SeedEntry {
+        let url: String
+        let title: String
+        var visitCount: Int = 2
+        var typedCount: Int = 0
+    }
+
+    // MARK: Properties
+
     private var dataPath = ""
+
+    // MARK: Overridden Functions
 
     override func setUp() {
         super.setUp()
@@ -16,6 +29,8 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
         cleanup.terminate()
         RunLoop.current.run(until: Date().addingTimeInterval(0.5))
     }
+
+    // MARK: Functions
 
     func testOmnibarSuggestionsAlignToPillAndCmdNP() {
         seedBrowserHistoryForTest(seedEntries: [
@@ -134,7 +149,7 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
         // Row 0 is the autocompletion candidate (example.com). Enter commits it.
         app.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [])
 
-        // Note: example.com may redirect to example.org in some environments.
+        /// Note: example.com may redirect to example.org in some environments.
         func containsExampleDomain(_ value: String) -> Bool {
             value.contains("example.com") || value.contains("example.org")
         }
@@ -308,7 +323,7 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
         var valueCaptured = false
         while Date() < typed {
             let value = (omnibar.value as? String) ?? ""
-            if value.contains("zx") && value != valueAfterLoad {
+            if value.contains("zx"), value != valueAfterLoad {
                 valueCaptured = true
                 break
             }
@@ -426,10 +441,12 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         }
         guard let gmailRowIndex else {
-            let rowValues = rows.enumerated().compactMap { index, row -> String? in
-                guard row.exists else { return nil }
-                return "row\(index)=\((row.value as? String) ?? "<nil>")"
-            }.joined(separator: ", ")
+            let rowValues = rows.enumerated()
+                .compactMap { index, row -> String? in
+                    guard row.exists else { return nil }
+                    return "row\(index)=\((row.value as? String) ?? "<nil>")"
+                }
+                .joined(separator: ", ")
             XCTFail("Expected a Gmail suggestion row. rows=\(rowValues)")
             return
         }
@@ -601,13 +618,6 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
         return false
     }
 
-    private struct SeedEntry {
-        let url: String
-        let title: String
-        var visitCount: Int = 2
-        var typedCount: Int = 0
-    }
-
     private func seedBrowserHistoryForTest(entries: [(String, String)]? = nil, seedEntries: [SeedEntry]? = nil) {
         // Keep the test hermetic: write a deterministic history file in the app's support dir
         // so the omnibar always has at least one local suggestion row.
@@ -628,38 +638,40 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
         }
 
         let now = Date().timeIntervalSinceReferenceDate
-        let resolved: [SeedEntry]
-        if let seedEntries {
-            resolved = seedEntries
+        let resolved: [SeedEntry] = if let seedEntries {
+            seedEntries
         } else if let entries {
-            resolved = entries.map { SeedEntry(url: $0.0, title: $0.1, visitCount: 10, typedCount: 2) }
+            entries.map { SeedEntry(url: $0.0, title: $0.1, visitCount: 10, typedCount: 2) }
         } else {
-            resolved = [
+            [
                 SeedEntry(url: "https://example.com/", title: "Example Domain", visitCount: 10, typedCount: 2),
                 SeedEntry(url: "https://go.dev/", title: "The Go Programming Language", visitCount: 10, typedCount: 2),
                 SeedEntry(url: "https://www.google.com/", title: "Google", visitCount: 10, typedCount: 2),
             ]
         }
-        let entriesJSON = resolved.enumerated().reversed().map { index, entry in
-            let recencyOffset = index * 120
-            var json = """
-              {
-                "id": "\(UUID().uuidString)",
-                "url": "\(entry.url)",
-                "title": "\(entry.title)",
-                "lastVisited": \(now - Double(recencyOffset)),
-                "visitCount": \(entry.visitCount)
-            """
-            if entry.typedCount > 0 {
-                json += """
-                ,
-                    "typedCount": \(entry.typedCount),
-                    "lastTypedAt": \(now - Double(recencyOffset))
+        let entriesJSON = resolved.enumerated()
+            .reversed()
+            .map { index, entry in
+                let recencyOffset = index * 120
+                var json = """
+                  {
+                    "id": "\(UUID().uuidString)",
+                    "url": "\(entry.url)",
+                    "title": "\(entry.title)",
+                    "lastVisited": \(now - Double(recencyOffset)),
+                    "visitCount": \(entry.visitCount)
                 """
+                if entry.typedCount > 0 {
+                    json += """
+                    ,
+                        "typedCount": \(entry.typedCount),
+                        "lastTypedAt": \(now - Double(recencyOffset))
+                    """
+                }
+                json += "\n  }"
+                return json
             }
-            json += "\n  }"
-            return json
-        }.joined(separator: ",\n")
+            .joined(separator: ",\n")
 
         let json = """
         [

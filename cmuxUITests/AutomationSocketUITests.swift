@@ -1,12 +1,16 @@
-import XCTest
 import Foundation
+import XCTest
 
 final class AutomationSocketUITests: XCTestCase {
+    // MARK: Properties
+
     private var socketPath = ""
     private let defaultsDomain = "com.cmuxterm.app.debug"
     private let modeKey = "socketControlMode"
     private let legacyKey = "socketControlEnabled"
     private let launchTag = "ui-tests-automation-socket"
+
+    // MARK: Overridden Functions
 
     override func setUp() {
         super.setUp()
@@ -16,7 +20,9 @@ final class AutomationSocketUITests: XCTestCase {
         removeSocketFile()
     }
 
-    func testSocketToggleDisablesAndEnables() {
+    // MARK: Functions
+
+    func testSocketToggleDisablesAndEnables() throws {
         let app = configuredApp(mode: "cmuxOnly")
         app.launch()
         XCTAssertTrue(
@@ -24,10 +30,7 @@ final class AutomationSocketUITests: XCTestCase {
             "Expected app to launch for socket toggle test. state=\(app.state.rawValue)"
         )
 
-        guard let resolvedPath = resolveSocketPath(timeout: 5.0) else {
-            XCTFail("Expected control socket to exist")
-            return
-        }
+        let resolvedPath = try XCTUnwrap(resolveSocketPath(timeout: 5.0), "Expected control socket to exist")
         socketPath = resolvedPath
         XCTAssertTrue(waitForSocket(exists: true, timeout: 2.0))
         app.terminate()

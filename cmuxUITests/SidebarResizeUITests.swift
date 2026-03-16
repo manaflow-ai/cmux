@@ -1,10 +1,14 @@
 import XCTest
 
 final class SidebarResizeUITests: XCTestCase {
+    // MARK: Overridden Functions
+
     override func setUp() {
         super.setUp()
         continueAfterFailure = false
     }
+
+    // MARK: Functions
 
     func testSidebarResizerTracksCursor() {
         let app = XCUIApplication()
@@ -85,7 +89,7 @@ final class SidebarResizeUITests: XCTestCase {
             remainingWidth,
             minimumExpectedRemaining,
             "Expected sidebar max-width clamp to leave substantial terminal width. " +
-            "remaining=\(remainingWidth), window=\(windowFrame.width)"
+                "remaining=\(remainingWidth), window=\(windowFrame.width)"
         )
     }
 

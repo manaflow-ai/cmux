@@ -10,11 +10,12 @@ guard CommandLine.arguments.count > 1 else {
     exit(1)
 }
 
-// Pad base64 string if needed (Sparkle keys may be stored without padding)
+/// Pad base64 string if needed (Sparkle keys may be stored without padding)
 var b64 = CommandLine.arguments[1]
 while b64.count % 4 != 0 {
     b64 += "="
 }
+
 guard let data = Data(base64Encoded: b64) else {
     fputs("Error: invalid base64 input\n", stderr)
     exit(1)

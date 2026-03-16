@@ -1,11 +1,13 @@
-import XCTest
 import AppKit
+import XCTest
 
 #if canImport(cmux_DEV)
-@testable import cmux_DEV
+    @testable import cmux_DEV
 #elseif canImport(cmux)
-@testable import cmux
+    @testable import cmux
 #endif
+
+// MARK: - WorkspaceManualUnreadTests
 
 final class WorkspaceManualUnreadTests: XCTestCase {
     func testShouldClearManualUnreadWhenFocusMovesToDifferentPanel() {
@@ -108,6 +110,8 @@ final class WorkspaceManualUnreadTests: XCTestCase {
     }
 }
 
+// MARK: - CommandPaletteFuzzyMatcherTests
+
 final class CommandPaletteFuzzyMatcherTests: XCTestCase {
     func testExactMatchScoresHigherThanPrefixAndContains() {
         let exact = CommandPaletteFuzzyMatcher.score(query: "rename tab", candidate: "rename tab")
@@ -162,7 +166,7 @@ final class CommandPaletteFuzzyMatcherTests: XCTestCase {
                 "open",
                 "ide",
                 "code",
-                "default app"
+                "default app",
             ]
         )
 
@@ -222,6 +226,8 @@ final class CommandPaletteFuzzyMatcherTests: XCTestCase {
         XCTAssertTrue(indices.contains(9))
     }
 }
+
+// MARK: - CommandPaletteSwitcherSearchIndexerTests
 
 final class CommandPaletteSwitcherSearchIndexerTests: XCTestCase {
     func testKeywordsIncludeDirectoryBranchAndPortMetadata() {
@@ -314,17 +320,10 @@ final class CommandPaletteSwitcherSearchIndexerTests: XCTestCase {
     }
 }
 
+// MARK: - CommandPaletteRequestRoutingTests
+
 @MainActor
 final class CommandPaletteRequestRoutingTests: XCTestCase {
-    private func makeWindow() -> NSWindow {
-        NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
-            styleMask: [.titled, .closable, .resizable],
-            backing: .buffered,
-            defer: false
-        )
-    }
-
     func testRequestedWindowTargetsOnlyMatchingObservedWindow() {
         let windowA = makeWindow()
         let windowB = makeWindow()
@@ -401,7 +400,18 @@ final class CommandPaletteRequestRoutingTests: XCTestCase {
             )
         )
     }
+
+    private func makeWindow() -> NSWindow {
+        NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+    }
 }
+
+// MARK: - CommandPaletteBackNavigationTests
 
 final class CommandPaletteBackNavigationTests: XCTestCase {
     func testBackspaceOnEmptyRenameInputReturnsToCommandList() {

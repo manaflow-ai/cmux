@@ -1,12 +1,18 @@
 import XCTest
 
 final class CloseWindowConfirmDialogUITests: XCTestCase {
+    // MARK: Properties
+
     private let launchTag = "ui-tests-close-window-confirm"
+
+    // MARK: Overridden Functions
 
     override func setUp() {
         super.setUp()
         continueAfterFailure = false
     }
+
+    // MARK: Functions
 
     func testCmdCtrlWShowsCloseWindowConfirmationText() {
         let app = XCUIApplication()

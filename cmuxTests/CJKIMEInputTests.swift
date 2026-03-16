@@ -1,19 +1,18 @@
-import XCTest
 import AppKit
+import XCTest
 
 #if canImport(cmux_DEV)
-@testable import cmux_DEV
+    @testable import cmux_DEV
 #elseif canImport(cmux)
-@testable import cmux
+    @testable import cmux
 #endif
 
-// MARK: - NSTextInputClient protocol: marked text (preedit) lifecycle
+// MARK: - CJKIMEMarkedTextTests
 
 /// Tests that the GhosttyNSView NSTextInputClient implementation correctly
 /// manages marked text state for CJK IME composition (Korean jamo combining,
 /// Chinese pinyin candidate selection, Japanese hiragana-to-kanji conversion).
 final class CJKIMEMarkedTextTests: XCTestCase {
-
     // MARK: - Korean (한글) jamo combining
 
     /// Korean IME sends partial jamo as marked text, then replaces/commits.
@@ -244,15 +243,14 @@ final class CJKIMEMarkedTextTests: XCTestCase {
     }
 }
 
-// MARK: - performKeyEquivalent bypasses during IME composition
+// MARK: - CJKIMEPerformKeyEquivalentTests
 
 /// Tests that performKeyEquivalent does not intercept key events when the
 /// terminal view has active CJK IME composition (marked text). Without this,
 /// CJK IME input would be broken because key events would be consumed by
 /// shortcut handling instead of flowing through to the input method.
 final class CJKIMEPerformKeyEquivalentTests: XCTestCase {
-
-    func testPerformKeyEquivalentReturnsFalseDuringIMEComposition() {
+    func testPerformKeyEquivalentReturnsFalseDuringIMEComposition() throws {
         let view = GhosttyNSView(frame: .zero)
 
         // Simulate active IME composition
@@ -260,7 +258,7 @@ final class CJKIMEPerformKeyEquivalentTests: XCTestCase {
         XCTAssertTrue(view.hasMarkedText())
 
         // Create a key event (unmodified 'a' key -- typical during Korean typing)
-        guard let event = NSEvent.keyEvent(
+        let event = try XCTUnwrap(NSEvent.keyEvent(
             with: .keyDown,
             location: .zero,
             modifierFlags: [],
@@ -271,17 +269,14 @@ final class CJKIMEPerformKeyEquivalentTests: XCTestCase {
             charactersIgnoringModifiers: "a",
             isARepeat: false,
             keyCode: 0 // kVK_ANSI_A
-        ) else {
-            XCTFail("Failed to create key event")
-            return
-        }
+        ), "Failed to create key event")
 
         // performKeyEquivalent should return false to let the event flow to keyDown/IME
         let consumed = view.performKeyEquivalent(with: event)
         XCTAssertFalse(consumed, "performKeyEquivalent must not consume events during CJK IME composition")
     }
 
-    func testPerformKeyEquivalentReturnsFalseForModifiedKeyDuringIMEComposition() {
+    func testPerformKeyEquivalentReturnsFalseForModifiedKeyDuringIMEComposition() throws {
         let view = GhosttyNSView(frame: .zero)
 
         // Simulate active Japanese composition
@@ -289,7 +284,7 @@ final class CJKIMEPerformKeyEquivalentTests: XCTestCase {
         XCTAssertTrue(view.hasMarkedText())
 
         // Shift key during composition (e.g., to type katakana in some IMEs)
-        guard let event = NSEvent.keyEvent(
+        let event = try XCTUnwrap(NSEvent.keyEvent(
             with: .keyDown,
             location: .zero,
             modifierFlags: [.shift],
@@ -300,23 +295,20 @@ final class CJKIMEPerformKeyEquivalentTests: XCTestCase {
             charactersIgnoringModifiers: "a",
             isARepeat: false,
             keyCode: 0
-        ) else {
-            XCTFail("Failed to create key event")
-            return
-        }
+        ), "Failed to create key event")
 
         let consumed = view.performKeyEquivalent(with: event)
         XCTAssertFalse(consumed, "performKeyEquivalent must not consume shift+key during CJK IME composition")
     }
 
-    func testPerformKeyEquivalentReturnsFalseForSpaceDuringIMEComposition() {
+    func testPerformKeyEquivalentReturnsFalseForSpaceDuringIMEComposition() throws {
         let view = GhosttyNSView(frame: .zero)
 
         // Space bar is used to trigger kanji conversion in Japanese IME
         view.setMarkedText("にほんご", selectedRange: NSRange(location: 0, length: 4), replacementRange: NSRange(location: NSNotFound, length: 0))
         XCTAssertTrue(view.hasMarkedText())
 
-        guard let event = NSEvent.keyEvent(
+        let event = try XCTUnwrap(NSEvent.keyEvent(
             with: .keyDown,
             location: .zero,
             modifierFlags: [],
@@ -327,23 +319,20 @@ final class CJKIMEPerformKeyEquivalentTests: XCTestCase {
             charactersIgnoringModifiers: " ",
             isARepeat: false,
             keyCode: 49 // kVK_Space
-        ) else {
-            XCTFail("Failed to create key event")
-            return
-        }
+        ), "Failed to create key event")
 
         let consumed = view.performKeyEquivalent(with: event)
         XCTAssertFalse(consumed, "performKeyEquivalent must not consume space during CJK IME composition (needed for kanji conversion)")
     }
 
-    func testPerformKeyEquivalentReturnsFalseForReturnDuringComposition() {
+    func testPerformKeyEquivalentReturnsFalseForReturnDuringComposition() throws {
         let view = GhosttyNSView(frame: .zero)
 
         // Active Japanese kanji conversion
         view.setMarkedText("日本語", selectedRange: NSRange(location: 0, length: 3), replacementRange: NSRange(location: NSNotFound, length: 0))
         XCTAssertTrue(view.hasMarkedText())
 
-        guard let event = NSEvent.keyEvent(
+        let event = try XCTUnwrap(NSEvent.keyEvent(
             with: .keyDown,
             location: .zero,
             modifierFlags: [],
@@ -354,23 +343,20 @@ final class CJKIMEPerformKeyEquivalentTests: XCTestCase {
             charactersIgnoringModifiers: "\r",
             isARepeat: false,
             keyCode: 36 // kVK_Return
-        ) else {
-            XCTFail("Failed to create return event")
-            return
-        }
+        ), "Failed to create return event")
 
         let consumed = view.performKeyEquivalent(with: event)
         XCTAssertFalse(consumed, "Return during CJK IME composition must not be consumed (needed for candidate confirmation)")
     }
 
-    func testPerformKeyEquivalentReturnsFalseForEscapeDuringComposition() {
+    func testPerformKeyEquivalentReturnsFalseForEscapeDuringComposition() throws {
         let view = GhosttyNSView(frame: .zero)
 
         // Active Chinese pinyin composition
         view.setMarkedText("nihao", selectedRange: NSRange(location: 5, length: 0), replacementRange: NSRange(location: NSNotFound, length: 0))
         XCTAssertTrue(view.hasMarkedText())
 
-        guard let event = NSEvent.keyEvent(
+        let event = try XCTUnwrap(NSEvent.keyEvent(
             with: .keyDown,
             location: .zero,
             modifierFlags: [],
@@ -381,10 +367,7 @@ final class CJKIMEPerformKeyEquivalentTests: XCTestCase {
             charactersIgnoringModifiers: "\u{1B}",
             isARepeat: false,
             keyCode: 53 // kVK_Escape
-        ) else {
-            XCTFail("Failed to create escape event")
-            return
-        }
+        ), "Failed to create escape event")
 
         let consumed = view.performKeyEquivalent(with: event)
         XCTAssertFalse(consumed, "Escape during CJK IME composition must not be consumed (needed for composition cancel)")
@@ -392,7 +375,7 @@ final class CJKIMEPerformKeyEquivalentTests: XCTestCase {
 
     /// Regression: after IME composition is complete, performKeyEquivalent
     /// should resume normal behavior (no longer bypass).
-    func testPerformKeyEquivalentResumesAfterCompositionEnds() {
+    func testPerformKeyEquivalentResumesAfterCompositionEnds() throws {
         let view = GhosttyNSView(frame: .zero)
 
         // Start composition
@@ -407,7 +390,7 @@ final class CJKIMEPerformKeyEquivalentTests: XCTestCase {
         // Without a surface it returns false, but the point is that it does
         // NOT return false at the hasMarkedText() guard — it proceeds further.
         // We verify that hasMarkedText is false so the guard doesn't trigger.
-        guard let event = NSEvent.keyEvent(
+        let event = try XCTUnwrap(NSEvent.keyEvent(
             with: .keyDown,
             location: .zero,
             modifierFlags: [],
@@ -418,10 +401,7 @@ final class CJKIMEPerformKeyEquivalentTests: XCTestCase {
             charactersIgnoringModifiers: "a",
             isARepeat: false,
             keyCode: 0
-        ) else {
-            XCTFail("Failed to create key event")
-            return
-        }
+        ), "Failed to create key event")
 
         // The view has no window/surface, so it returns false at the
         // firstResponder or surface check, but importantly NOT at the
@@ -432,13 +412,12 @@ final class CJKIMEPerformKeyEquivalentTests: XCTestCase {
     }
 }
 
-// MARK: - Shortcut handler IME bypass precondition
+// MARK: - CJKIMEShortcutBypassTests
 
 /// Tests the precondition that the app-level shortcut handler (local event monitor)
 /// checks: GhosttyNSView.hasMarkedText() must accurately reflect IME composition state.
 /// The monitor uses this to bail out during active CJK composition.
 final class CJKIMEShortcutBypassTests: XCTestCase {
-
     func testHasMarkedTextTracksCJKCompositionLifecycle() {
         let view = GhosttyNSView(frame: .zero)
 
@@ -487,11 +466,10 @@ final class CJKIMEShortcutBypassTests: XCTestCase {
     }
 }
 
-// MARK: - Multi-character composition sequences
+// MARK: - CJKIMECompositionSequenceTests
 
 /// Tests more complex IME scenarios involving multiple composition steps.
 final class CJKIMECompositionSequenceTests: XCTestCase {
-
     /// Korean: type multiple syllable blocks, each going through
     /// composition -> commit -> next block.
     func testKoreanMultiSyllableSequence() {
@@ -629,12 +607,11 @@ final class CJKIMECompositionSequenceTests: XCTestCase {
     }
 }
 
-// MARK: - IME firstRect placement and sizing
+// MARK: - CJKIMEFirstRectTests
 
 /// Regression tests for IME candidate/preedit anchor rectangle reporting.
 /// If width/height are discarded here, macOS can place preedit UI incorrectly.
 final class CJKIMEFirstRectTests: XCTestCase {
-
     func testFirstRectUsesIMEProvidedWidthAndHeight() {
         let frame = NSRect(x: 0, y: 0, width: 800, height: 600)
         let view = GhosttyNSView(frame: frame)
@@ -728,7 +705,7 @@ final class CJKIMEFirstRectTests: XCTestCase {
     }
 
     func testDocumentVisibleRectUsesScreenCoordinates() {
-        guard #available(macOS 14.0, *) else { return }
+        XCTAssert(#available(macOS 14.0, *))
 
         let frame = NSRect(x: 0, y: 0, width: 640, height: 480)
         let view = GhosttyNSView(frame: frame)
@@ -758,12 +735,11 @@ final class CJKIMEFirstRectTests: XCTestCase {
     }
 }
 
-// MARK: - Key text accumulator during CJK IME composition
+// MARK: - CJKIMEKeyTextAccumulatorTests
 
 /// Tests that the keyTextAccumulator correctly manages text during the keyDown
 /// event flow, which is critical for CJK IME composition to work.
 final class CJKIMEKeyTextAccumulatorTests: XCTestCase {
-
     func testAccumulatorStartsNil() {
         let view = GhosttyNSView(frame: .zero)
         XCTAssertNil(view.keyTextAccumulatorForTesting)
@@ -782,14 +758,14 @@ final class CJKIMEKeyTextAccumulatorTests: XCTestCase {
         XCTAssertNil(view.keyTextAccumulatorForTesting)
     }
 
-    func testAccumulatorCollectsMultipleIMECommits() {
+    func testAccumulatorCollectsMultipleIMECommits() throws {
         let view = GhosttyNSView(frame: .zero)
 
         // Simulate a keyDown event that triggers multiple insertText calls
         // (can happen with some IME behaviors)
         view.setKeyTextAccumulatorForTesting([])
 
-        var acc = view.keyTextAccumulatorForTesting!
+        var acc = try XCTUnwrap(view.keyTextAccumulatorForTesting)
         acc.append("你")
         acc.append("好")
         view.setKeyTextAccumulatorForTesting(acc)
@@ -811,12 +787,12 @@ final class CJKIMEKeyTextAccumulatorTests: XCTestCase {
     }
 }
 
-// MARK: - Shift+Space fallback suppression (IME source-switch shortcut)
+// MARK: - CJKIMEShiftSpaceFallbackTests
 
 final class CJKIMEShiftSpaceFallbackTests: XCTestCase {
-    func testSuppressesShiftSpaceFallbackWhenNoMarkedTextAndNoIMECommit() {
+    func testSuppressesShiftSpaceFallbackWhenNoMarkedTextAndNoIMECommit() throws {
         let view = GhosttyNSView(frame: .zero)
-        guard let event = NSEvent.keyEvent(
+        let event = try XCTUnwrap(NSEvent.keyEvent(
             with: .keyDown,
             location: .zero,
             modifierFlags: [.shift],
@@ -827,10 +803,7 @@ final class CJKIMEShiftSpaceFallbackTests: XCTestCase {
             charactersIgnoringModifiers: " ",
             isARepeat: false,
             keyCode: 49
-        ) else {
-            XCTFail("Failed to create Shift+Space event")
-            return
-        }
+        ), "Failed to create Shift+Space event")
 
         XCTAssertTrue(
             view.shouldSuppressShiftSpaceFallbackTextForTesting(event: event, markedTextBefore: false),
@@ -838,9 +811,9 @@ final class CJKIMEShiftSpaceFallbackTests: XCTestCase {
         )
     }
 
-    func testDoesNotSuppressRegularSpaceFallback() {
+    func testDoesNotSuppressRegularSpaceFallback() throws {
         let view = GhosttyNSView(frame: .zero)
-        guard let event = NSEvent.keyEvent(
+        let event = try XCTUnwrap(NSEvent.keyEvent(
             with: .keyDown,
             location: .zero,
             modifierFlags: [],
@@ -851,10 +824,7 @@ final class CJKIMEShiftSpaceFallbackTests: XCTestCase {
             charactersIgnoringModifiers: " ",
             isARepeat: false,
             keyCode: 49
-        ) else {
-            XCTFail("Failed to create Space event")
-            return
-        }
+        ), "Failed to create Space event")
 
         XCTAssertFalse(
             view.shouldSuppressShiftSpaceFallbackTextForTesting(event: event, markedTextBefore: false),
@@ -863,11 +833,11 @@ final class CJKIMEShiftSpaceFallbackTests: XCTestCase {
     }
 }
 
-// MARK: - Space release regression (Codex hold-to-talk in cmux)
+// MARK: - GhosttySpaceReleaseRegressionTests
 
 @MainActor
 final class GhosttySpaceReleaseRegressionTests: XCTestCase {
-    func testSyntheticSpaceReleaseCarriesUnshiftedCodepoint() {
+    func testSyntheticSpaceReleaseCarriesUnshiftedCodepoint() throws {
         _ = NSApplication.shared
 
         let surface = TerminalSurface(
@@ -889,10 +859,7 @@ final class GhosttySpaceReleaseRegressionTests: XCTestCase {
             window.orderOut(nil)
         }
 
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
-        }
+        let contentView = try XCTUnwrap(window.contentView, "Expected content view")
         hostedView.frame = contentView.bounds
         hostedView.autoresizingMask = [.width, .height]
         contentView.addSubview(hostedView)
@@ -925,15 +892,17 @@ final class GhosttySpaceReleaseRegressionTests: XCTestCase {
 
         XCTAssertEqual(releaseEvent.action, GHOSTTY_ACTION_RELEASE)
         XCTAssertEqual(releaseEvent.keycode, 49)
-        XCTAssertEqual(releaseEvent.unshifted_codepoint, " ".unicodeScalars.first!.value)
+        XCTAssertEqual(releaseEvent.unshifted_codepoint, " ".unicodeScalars.first?.value)
         XCTAssertEqual(releaseEvent.consumed_mods.rawValue, GHOSTTY_MODS_NONE.rawValue)
         XCTAssertFalse(releaseEvent.composing)
         XCTAssertNil(releaseEvent.text)
     }
 }
 
+// MARK: - GhosttyBackquoteRegressionTests
+
 final class GhosttyBackquoteRegressionTests: XCTestCase {
-    func testShiftBackquoteEscFallbackSendsLiteralTilde() {
+    func testShiftBackquoteEscFallbackSendsLiteralTilde() throws {
         _ = NSApplication.shared
 
         let surface = TerminalSurface(
@@ -955,10 +924,7 @@ final class GhosttyBackquoteRegressionTests: XCTestCase {
             window.orderOut(nil)
         }
 
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
-        }
+        let contentView = try XCTUnwrap(window.contentView, "Expected content view")
         hostedView.frame = contentView.bounds
         hostedView.autoresizingMask = [.width, .height]
         contentView.addSubview(hostedView)

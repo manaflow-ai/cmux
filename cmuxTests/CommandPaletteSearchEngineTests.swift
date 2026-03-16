@@ -1,12 +1,16 @@
 import XCTest
 
 #if canImport(cmux_DEV)
-@testable import cmux_DEV
+    @testable import cmux_DEV
 #elseif canImport(cmux)
-@testable import cmux
+    @testable import cmux
 #endif
 
+// MARK: - CommandPaletteSearchEngineTests
+
 final class CommandPaletteSearchEngineTests: XCTestCase {
+    // MARK: Nested Types
+
     private struct FixtureEntry {
         let id: String
         let rank: Int
@@ -22,170 +26,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         let titleMatchIndices: Set<Int>
     }
 
-    private func makeCommandEntries(count: Int) -> [FixtureEntry] {
-        (0..<count).map { index in
-            let title: String
-            let subtitle: String
-            let keywords: [String]
-
-            switch index % 8 {
-            case 0:
-                title = "Rename Workspace \(index)"
-                subtitle = "Workspace"
-                keywords = ["rename", "workspace", "title", "project", "switch"]
-            case 1:
-                title = "Rename Tab \(index)"
-                subtitle = "Tab"
-                keywords = ["rename", "tab", "surface", "title"]
-            case 2:
-                title = "Open Current Directory in IDE \(index)"
-                subtitle = "Terminal"
-                keywords = ["open", "directory", "cwd", "ide", "vscode"]
-            case 3:
-                title = "Toggle Sidebar \(index)"
-                subtitle = "Layout"
-                keywords = ["toggle", "sidebar", "layout", "panel"]
-            case 4:
-                title = "Apply Update If Available \(index)"
-                subtitle = "Global"
-                keywords = ["apply", "update", "install", "upgrade"]
-            case 5:
-                title = "Restart CLI Listener \(index)"
-                subtitle = "Global"
-                keywords = ["restart", "cli", "listener", "socket", "cmux"]
-            case 6:
-                title = "Show Notifications \(index)"
-                subtitle = "Notifications"
-                keywords = ["notifications", "inbox", "unread", "alerts"]
-            default:
-                title = "Split Browser Right \(index)"
-                subtitle = "Layout"
-                keywords = ["split", "browser", "right", "layout", "web"]
-            }
-
-            return FixtureEntry(
-                id: "command.\(index)",
-                rank: index,
-                title: title,
-                searchableTexts: [title, subtitle] + keywords
-            )
-        }
-    }
-
-    private func makeSwitcherEntries(count: Int) -> [FixtureEntry] {
-        (0..<count).map { index in
-            let title = "Workspace \(index) Phoenix"
-            let keywords = CommandPaletteSwitcherSearchIndexer.keywords(
-                baseKeywords: ["workspace", "switch", "go", title],
-                metadata: CommandPaletteSwitcherSearchMetadata(
-                    directories: ["/Users/example/dev/cmuxterm-hq/worktrees/feature-\(index)-rename-tab"],
-                    branches: ["feature/rename-tab-\(index)"],
-                    ports: [3000 + (index % 20), 9200 + (index % 5)]
-                ),
-                detail: .workspace
-            )
-            return FixtureEntry(
-                id: "workspace.\(index)",
-                rank: index,
-                title: title,
-                searchableTexts: [title, "Workspace"] + keywords
-            )
-        }
-    }
-
-    private func makeFinderCommandEntries() -> [FixtureEntry] {
-        [
-            FixtureEntry(
-                id: "command.find",
-                rank: 0,
-                title: "Find...",
-                searchableTexts: ["Find...", "Search", "find", "search"]
-            ),
-            FixtureEntry(
-                id: "command.finder",
-                rank: 1,
-                title: "Open Current Directory in Finder",
-                searchableTexts: ["Open Current Directory in Finder", "Terminal", "finder", "directory", "open"]
-            ),
-            FixtureEntry(
-                id: "command.filter",
-                rank: 2,
-                title: "Filter Sidebar Items",
-                searchableTexts: ["Filter Sidebar Items", "Sidebar", "filter", "sidebar", "items"]
-            ),
-        ]
-    }
-
-    private func optimizedResults(
-        entries: [FixtureEntry],
-        query: String
-    ) -> [FixtureResult] {
-        let corpus = entries.map { entry in
-            CommandPaletteSearchCorpusEntry(
-                payload: entry.id,
-                rank: entry.rank,
-                title: entry.title,
-                searchableTexts: entry.searchableTexts
-            )
-        }
-
-        return CommandPaletteSearchEngine.search(entries: corpus, query: query) { _, _ in 0 }
-            .map {
-                FixtureResult(
-                    id: $0.payload,
-                    rank: $0.rank,
-                    title: $0.title,
-                    score: $0.score,
-                    titleMatchIndices: $0.titleMatchIndices
-                )
-            }
-    }
-
-    private func legacyResults(
-        entries: [FixtureEntry],
-        query: String
-    ) -> [FixtureResult] {
-        let queryIsEmpty = query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        let results: [FixtureResult] = queryIsEmpty
-            ? entries.map { entry in
-                FixtureResult(id: entry.id, rank: entry.rank, title: entry.title, score: 0, titleMatchIndices: [])
-            }
-            : entries.compactMap { entry in
-                guard let fuzzyScore = CommandPaletteFuzzyMatcher.score(
-                    query: query,
-                    candidates: entry.searchableTexts
-                ) else {
-                    return nil
-                }
-                return FixtureResult(
-                    id: entry.id,
-                    rank: entry.rank,
-                    title: entry.title,
-                    score: fuzzyScore,
-                    titleMatchIndices: CommandPaletteFuzzyMatcher.matchCharacterIndices(
-                        query: query,
-                        candidate: entry.title
-                    )
-                )
-            }
-
-        return results.sorted { lhs, rhs in
-            if lhs.score != rhs.score { return lhs.score > rhs.score }
-            if lhs.rank != rhs.rank { return lhs.rank < rhs.rank }
-            return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
-        }
-    }
-
-    private func benchmarkElapsedMs(operation: () -> Void) -> Double {
-        let start = DispatchTime.now().uptimeNanoseconds
-        operation()
-        let elapsed = DispatchTime.now().uptimeNanoseconds - start
-        return Double(elapsed) / 1_000_000
-    }
-
-    private func repeatedQueries(_ baseQueries: [String], repetitions: Int) -> [String] {
-        Array(repeating: baseQueries, count: repetitions).flatMap { $0 }
-    }
+    // MARK: Functions
 
     func testOptimizedSearchMatchesLegacyPipeline() {
         let commandEntries = makeCommandEntries(count: 96)
@@ -564,9 +405,9 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                                 ports: [3000]
                             ),
                             surfaces: []
-                        )
+                        ),
                     ]
-                )
+                ),
             ]
         )
         let changedMetadata = ContentView.commandPaletteSwitcherFingerprint(
@@ -585,9 +426,9 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                                 ports: [4000]
                             ),
                             surfaces: []
-                        )
+                        ),
                     ]
-                )
+                ),
             ]
         )
         let changedDisplayName = ContentView.commandPaletteSwitcherFingerprint(
@@ -606,9 +447,9 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                                 ports: [3000]
                             ),
                             surfaces: []
-                        )
+                        ),
                     ]
-                )
+                ),
             ]
         )
 
@@ -642,11 +483,11 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                                         branches: ["feature/a"],
                                         ports: [3000]
                                     )
-                                )
+                                ),
                             ]
-                        )
+                        ),
                     ]
-                )
+                ),
             ]
         )
         let changedSurfaceMetadata = ContentView.commandPaletteSwitcherFingerprint(
@@ -670,11 +511,11 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                                         branches: ["feature/a"],
                                         ports: [3000]
                                     )
-                                )
+                                ),
                             ]
-                        )
+                        ),
                     ]
-                )
+                ),
             ]
         )
         let changedSurfaceKind = ContentView.commandPaletteSwitcherFingerprint(
@@ -698,11 +539,11 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                                         branches: ["feature/a"],
                                         ports: [3000]
                                     )
-                                )
+                                ),
                             ]
-                        )
+                        ),
                     ]
-                )
+                ),
             ]
         )
 
@@ -786,5 +627,177 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
             legacyMs * 1.25,
             "Optimized switcher search regressed significantly: legacy=\(legacyMs) optimized=\(optimizedMs)"
         )
+    }
+
+    private func makeCommandEntries(count: Int) -> [FixtureEntry] {
+        (0..<count).map { index in
+            let title: String
+            let subtitle: String
+            let keywords: [String]
+
+            switch index % 8 {
+                case 0:
+                    title = "Rename Workspace \(index)"
+                    subtitle = "Workspace"
+                    keywords = ["rename", "workspace", "title", "project", "switch"]
+
+                case 1:
+                    title = "Rename Tab \(index)"
+                    subtitle = "Tab"
+                    keywords = ["rename", "tab", "surface", "title"]
+
+                case 2:
+                    title = "Open Current Directory in IDE \(index)"
+                    subtitle = "Terminal"
+                    keywords = ["open", "directory", "cwd", "ide", "vscode"]
+
+                case 3:
+                    title = "Toggle Sidebar \(index)"
+                    subtitle = "Layout"
+                    keywords = ["toggle", "sidebar", "layout", "panel"]
+
+                case 4:
+                    title = "Apply Update If Available \(index)"
+                    subtitle = "Global"
+                    keywords = ["apply", "update", "install", "upgrade"]
+
+                case 5:
+                    title = "Restart CLI Listener \(index)"
+                    subtitle = "Global"
+                    keywords = ["restart", "cli", "listener", "socket", "cmux"]
+
+                case 6:
+                    title = "Show Notifications \(index)"
+                    subtitle = "Notifications"
+                    keywords = ["notifications", "inbox", "unread", "alerts"]
+
+                default:
+                    title = "Split Browser Right \(index)"
+                    subtitle = "Layout"
+                    keywords = ["split", "browser", "right", "layout", "web"]
+            }
+
+            return FixtureEntry(
+                id: "command.\(index)",
+                rank: index,
+                title: title,
+                searchableTexts: [title, subtitle] + keywords
+            )
+        }
+    }
+
+    private func makeSwitcherEntries(count: Int) -> [FixtureEntry] {
+        (0..<count).map { index in
+            let title = "Workspace \(index) Phoenix"
+            let keywords = CommandPaletteSwitcherSearchIndexer.keywords(
+                baseKeywords: ["workspace", "switch", "go", title],
+                metadata: CommandPaletteSwitcherSearchMetadata(
+                    directories: ["/Users/example/dev/cmuxterm-hq/worktrees/feature-\(index)-rename-tab"],
+                    branches: ["feature/rename-tab-\(index)"],
+                    ports: [3000 + (index % 20), 9200 + (index % 5)]
+                ),
+                detail: .workspace
+            )
+            return FixtureEntry(
+                id: "workspace.\(index)",
+                rank: index,
+                title: title,
+                searchableTexts: [title, "Workspace"] + keywords
+            )
+        }
+    }
+
+    private func makeFinderCommandEntries() -> [FixtureEntry] {
+        [
+            FixtureEntry(
+                id: "command.find",
+                rank: 0,
+                title: "Find...",
+                searchableTexts: ["Find...", "Search", "find", "search"]
+            ),
+            FixtureEntry(
+                id: "command.finder",
+                rank: 1,
+                title: "Open Current Directory in Finder",
+                searchableTexts: ["Open Current Directory in Finder", "Terminal", "finder", "directory", "open"]
+            ),
+            FixtureEntry(
+                id: "command.filter",
+                rank: 2,
+                title: "Filter Sidebar Items",
+                searchableTexts: ["Filter Sidebar Items", "Sidebar", "filter", "sidebar", "items"]
+            ),
+        ]
+    }
+
+    private func optimizedResults(
+        entries: [FixtureEntry],
+        query: String
+    ) -> [FixtureResult] {
+        let corpus = entries.map { entry in
+            CommandPaletteSearchCorpusEntry(
+                payload: entry.id,
+                rank: entry.rank,
+                title: entry.title,
+                searchableTexts: entry.searchableTexts
+            )
+        }
+
+        return CommandPaletteSearchEngine.search(entries: corpus, query: query) { _, _ in 0 }
+            .map {
+                FixtureResult(
+                    id: $0.payload,
+                    rank: $0.rank,
+                    title: $0.title,
+                    score: $0.score,
+                    titleMatchIndices: $0.titleMatchIndices
+                )
+            }
+    }
+
+    private func legacyResults(
+        entries: [FixtureEntry],
+        query: String
+    ) -> [FixtureResult] {
+        let queryIsEmpty = query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let results: [FixtureResult] = queryIsEmpty
+            ? entries.map { entry in
+                FixtureResult(id: entry.id, rank: entry.rank, title: entry.title, score: 0, titleMatchIndices: [])
+            }
+            : entries.compactMap { entry in
+                guard let fuzzyScore = CommandPaletteFuzzyMatcher.score(
+                    query: query,
+                    candidates: entry.searchableTexts
+                ) else {
+                    return nil
+                }
+                return FixtureResult(
+                    id: entry.id,
+                    rank: entry.rank,
+                    title: entry.title,
+                    score: fuzzyScore,
+                    titleMatchIndices: CommandPaletteFuzzyMatcher.matchCharacterIndices(
+                        query: query,
+                        candidate: entry.title
+                    )
+                )
+            }
+
+        return results.sorted { lhs, rhs in
+            if lhs.score != rhs.score { return lhs.score > rhs.score }
+            if lhs.rank != rhs.rank { return lhs.rank < rhs.rank }
+            return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
+        }
+    }
+
+    private func benchmarkElapsedMs(operation: () -> Void) -> Double {
+        let start = DispatchTime.now().uptimeNanoseconds
+        operation()
+        let elapsed = DispatchTime.now().uptimeNanoseconds - start
+        return Double(elapsed) / 1_000_000
+    }
+
+    private func repeatedQueries(_ baseQueries: [String], repetitions: Int) -> [String] {
+        Array(repeating: baseQueries, count: repetitions).flatMap { $0 }
     }
 }

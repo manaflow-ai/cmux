@@ -1,8 +1,12 @@
-import XCTest
 import Foundation
+import XCTest
 
 final class JumpToUnreadUITests: XCTestCase {
+    // MARK: Properties
+
     private var dataPath = ""
+
+    // MARK: Overridden Functions
 
     override func setUp() {
         super.setUp()
@@ -11,7 +15,9 @@ final class JumpToUnreadUITests: XCTestCase {
         try? FileManager.default.removeItem(atPath: dataPath)
     }
 
-    func testJumpToUnreadFocusesPanelAcrossTabs() {
+    // MARK: Functions
+
+    func testJumpToUnreadFocusesPanelAcrossTabs() throws {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_UI_TEST_JUMP_UNREAD_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_JUMP_UNREAD_PATH"] = dataPath
@@ -23,10 +29,7 @@ final class JumpToUnreadUITests: XCTestCase {
             "Expected test setup data to be written"
         )
 
-        guard let setupData = loadJumpUnreadData() else {
-            XCTFail("Missing test setup data")
-            return
-        }
+        let setupData = try XCTUnwrap(loadJumpUnreadData(), "Missing test setup data")
 
         let expectedTabId = setupData["expectedTabId"]
         let expectedSurfaceId = setupData["expectedSurfaceId"]
@@ -40,10 +43,7 @@ final class JumpToUnreadUITests: XCTestCase {
             "Expected jump-to-unread focus to be recorded"
         )
 
-        guard let focusedData = loadJumpUnreadData() else {
-            XCTFail("Missing jump-to-unread focus data")
-            return
-        }
+        let focusedData = try XCTUnwrap(loadJumpUnreadData(), "Missing jump-to-unread focus data")
 
         XCTAssertEqual(focusedData["focusedTabId"], expectedTabId)
         XCTAssertEqual(focusedData["focusedSurfaceId"], expectedSurfaceId)

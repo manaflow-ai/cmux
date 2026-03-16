@@ -1,11 +1,13 @@
-import XCTest
 import AppKit
+import XCTest
 
 #if canImport(cmux_DEV)
-@testable import cmux_DEV
+    @testable import cmux_DEV
 #elseif canImport(cmux)
-@testable import cmux
+    @testable import cmux
 #endif
+
+// MARK: - GhosttyEnsureFocusWindowActivationTests
 
 @MainActor
 final class GhosttyEnsureFocusWindowActivationTests: XCTestCase {

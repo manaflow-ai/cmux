@@ -1,14 +1,17 @@
 import XCTest
 
 #if canImport(cmux_DEV)
-@testable import cmux_DEV
+    @testable import cmux_DEV
 #elseif canImport(cmux)
-@testable import cmux
+    @testable import cmux
 #endif
+
+// MARK: - SessionPersistenceTests
 
 final class SessionPersistenceTests: XCTestCase {
     func testSaveAndLoadRoundTripWithCustomSnapshotPath() throws {
-        let tempDir = FileManager.default.temporaryDirectory
+        let tempDir = FileManager.default
+            .temporaryDirectory
             .appendingPathComponent("cmux-session-tests-\(UUID().uuidString)", isDirectory: true)
         try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tempDir) }
@@ -34,7 +37,8 @@ final class SessionPersistenceTests: XCTestCase {
     }
 
     func testSaveAndLoadRoundTripPreservesWorkspaceCustomColor() {
-        let tempDir = FileManager.default.temporaryDirectory
+        let tempDir = FileManager.default
+            .temporaryDirectory
             .appendingPathComponent("cmux-session-tests-\(UUID().uuidString)", isDirectory: true)
         try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tempDir) }
@@ -66,7 +70,8 @@ final class SessionPersistenceTests: XCTestCase {
     }
 
     func testLoadRejectsSchemaVersionMismatch() {
-        let tempDir = FileManager.default.temporaryDirectory
+        let tempDir = FileManager.default
+            .temporaryDirectory
             .appendingPathComponent("cmux-session-tests-\(UUID().uuidString)", isDirectory: true)
         try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tempDir) }
@@ -78,7 +83,8 @@ final class SessionPersistenceTests: XCTestCase {
     }
 
     func testDefaultSnapshotPathSanitizesBundleIdentifier() {
-        let tempDir = FileManager.default.temporaryDirectory
+        let tempDir = FileManager.default
+            .temporaryDirectory
             .appendingPathComponent("cmux-session-tests-\(UUID().uuidString)", isDirectory: true)
         try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tempDir) }
@@ -126,7 +132,7 @@ final class SessionPersistenceTests: XCTestCase {
             accuracy: 0.001
         )
         XCTAssertEqual(
-            SessionPersistencePolicy.sanitizedSidebarWidth(10_000),
+            SessionPersistencePolicy.sanitizedSidebarWidth(10000),
             SessionPersistencePolicy.maximumSidebarWidth,
             accuracy: 0.001
         )
@@ -157,10 +163,10 @@ final class SessionPersistenceTests: XCTestCase {
             developerToolsVisible: true,
             backHistoryURLStrings: [
                 "https://example.com/a",
-                "https://example.com/b"
+                "https://example.com/b",
             ],
             forwardHistoryURLStrings: [
-                "https://example.com/d"
+                "https://example.com/d",
             ]
         )
 
@@ -188,7 +194,8 @@ final class SessionPersistenceTests: XCTestCase {
     }
 
     func testScrollbackReplayEnvironmentWritesReplayFile() {
-        let tempDir = FileManager.default.temporaryDirectory
+        let tempDir = FileManager.default
+            .temporaryDirectory
             .appendingPathComponent("cmux-scrollback-replay-\(UUID().uuidString)", isDirectory: true)
         try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tempDir) }
@@ -208,7 +215,8 @@ final class SessionPersistenceTests: XCTestCase {
     }
 
     func testScrollbackReplayEnvironmentSkipsWhitespaceOnlyContent() {
-        let tempDir = FileManager.default.temporaryDirectory
+        let tempDir = FileManager.default
+            .temporaryDirectory
             .appendingPathComponent("cmux-scrollback-replay-\(UUID().uuidString)", isDirectory: true)
         try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tempDir) }
@@ -221,8 +229,9 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertTrue(environment.isEmpty)
     }
 
-    func testScrollbackReplayEnvironmentPreservesANSIColorSequences() {
-        let tempDir = FileManager.default.temporaryDirectory
+    func testScrollbackReplayEnvironmentPreservesANSIColorSequences() throws {
+        let tempDir = FileManager.default
+            .temporaryDirectory
             .appendingPathComponent("cmux-scrollback-replay-\(UUID().uuidString)", isDirectory: true)
         try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tempDir) }
@@ -235,31 +244,22 @@ final class SessionPersistenceTests: XCTestCase {
             tempDirectory: tempDir
         )
 
-        guard let path = environment[SessionScrollbackReplayStore.environmentKey] else {
-            XCTFail("Expected replay file path")
-            return
-        }
+        let path = try XCTUnwrap(environment[SessionScrollbackReplayStore.environmentKey], "Expected replay file path")
 
-        guard let contents = try? String(contentsOfFile: path, encoding: .utf8) else {
-            XCTFail("Expected replay file contents")
-            return
-        }
+        let contents = try XCTUnwrap(try? String(contentsOfFile: path, encoding: .utf8), "Expected replay file contents")
 
         XCTAssertTrue(contents.contains("\(red)RED\(reset)"))
         XCTAssertTrue(contents.hasPrefix(reset))
         XCTAssertTrue(contents.hasSuffix(reset))
     }
 
-    func testTruncatedScrollbackAvoidsLeadingPartialANSICSISequence() {
+    func testTruncatedScrollbackAvoidsLeadingPartialANSICSISequence() throws {
         let maxChars = SessionPersistencePolicy.maxScrollbackCharactersPerTerminal
         let source = "\u{001B}[31m"
             + String(repeating: "X", count: maxChars - 7)
             + "\u{001B}[0m"
 
-        guard let truncated = SessionPersistencePolicy.truncatedScrollback(source) else {
-            XCTFail("Expected truncated scrollback")
-            return
-        }
+        let truncated = try XCTUnwrap(SessionPersistencePolicy.truncatedScrollback(source), "Expected truncated scrollback")
 
         XCTAssertFalse(truncated.hasPrefix("31m"))
         XCTAssertFalse(truncated.hasPrefix("[31m"))
@@ -454,23 +454,23 @@ final class SessionPersistenceTests: XCTestCase {
     }
 
     func testResolvedWindowFramePrefersSavedDisplayIdentity() {
-        let savedFrame = SessionRectSnapshot(x: 1_200, y: 100, width: 600, height: 400)
+        let savedFrame = SessionRectSnapshot(x: 1200, y: 100, width: 600, height: 400)
         let savedDisplay = SessionDisplaySnapshot(
             displayID: 2,
-            frame: SessionRectSnapshot(x: 1_000, y: 0, width: 1_000, height: 800),
-            visibleFrame: SessionRectSnapshot(x: 1_000, y: 0, width: 1_000, height: 800)
+            frame: SessionRectSnapshot(x: 1000, y: 0, width: 1000, height: 800),
+            visibleFrame: SessionRectSnapshot(x: 1000, y: 0, width: 1000, height: 800)
         )
 
         // Display 1 and 2 swapped horizontal positions between snapshot and restore.
         let display1 = AppDelegate.SessionDisplayGeometry(
             displayID: 1,
-            frame: CGRect(x: 1_000, y: 0, width: 1_000, height: 800),
-            visibleFrame: CGRect(x: 1_000, y: 0, width: 1_000, height: 800)
+            frame: CGRect(x: 1000, y: 0, width: 1000, height: 800),
+            visibleFrame: CGRect(x: 1000, y: 0, width: 1000, height: 800)
         )
         let display2 = AppDelegate.SessionDisplayGeometry(
             displayID: 2,
-            frame: CGRect(x: 0, y: 0, width: 1_000, height: 800),
-            visibleFrame: CGRect(x: 0, y: 0, width: 1_000, height: 800)
+            frame: CGRect(x: 0, y: 0, width: 1000, height: 800),
+            visibleFrame: CGRect(x: 0, y: 0, width: 1000, height: 800)
         )
 
         let restored = AppDelegate.resolvedWindowFrame(
@@ -494,8 +494,8 @@ final class SessionPersistenceTests: XCTestCase {
         let savedFrame = SessionRectSnapshot(x: 120, y: 80, width: 500, height: 350)
         let display = AppDelegate.SessionDisplayGeometry(
             displayID: 1,
-            frame: CGRect(x: 0, y: 0, width: 1_000, height: 800),
-            visibleFrame: CGRect(x: 0, y: 0, width: 1_000, height: 800)
+            frame: CGRect(x: 0, y: 0, width: 1000, height: 800),
+            visibleFrame: CGRect(x: 0, y: 0, width: 1000, height: 800)
         )
 
         let restored = AppDelegate.resolvedWindowFrame(
@@ -517,13 +517,13 @@ final class SessionPersistenceTests: XCTestCase {
         let fallbackFrame = SessionRectSnapshot(x: 180, y: 140, width: 900, height: 640)
         let fallbackDisplay = SessionDisplaySnapshot(
             displayID: 1,
-            frame: SessionRectSnapshot(x: 0, y: 0, width: 1_600, height: 1_000),
-            visibleFrame: SessionRectSnapshot(x: 0, y: 0, width: 1_600, height: 1_000)
+            frame: SessionRectSnapshot(x: 0, y: 0, width: 1600, height: 1000),
+            visibleFrame: SessionRectSnapshot(x: 0, y: 0, width: 1600, height: 1000)
         )
         let display = AppDelegate.SessionDisplayGeometry(
             displayID: 1,
-            frame: CGRect(x: 0, y: 0, width: 1_600, height: 1_000),
-            visibleFrame: CGRect(x: 0, y: 0, width: 1_600, height: 1_000)
+            frame: CGRect(x: 0, y: 0, width: 1600, height: 1000),
+            visibleFrame: CGRect(x: 0, y: 0, width: 1600, height: 1000)
         )
 
         let restored = AppDelegate.resolvedStartupPrimaryWindowFrame(
@@ -547,8 +547,8 @@ final class SessionPersistenceTests: XCTestCase {
             frame: SessionRectSnapshot(x: 220, y: 160, width: 980, height: 700),
             display: SessionDisplaySnapshot(
                 displayID: 1,
-                frame: SessionRectSnapshot(x: 0, y: 0, width: 1_600, height: 1_000),
-                visibleFrame: SessionRectSnapshot(x: 0, y: 0, width: 1_600, height: 1_000)
+                frame: SessionRectSnapshot(x: 0, y: 0, width: 1600, height: 1000),
+                visibleFrame: SessionRectSnapshot(x: 0, y: 0, width: 1600, height: 1000)
             ),
             tabManager: SessionTabManagerSnapshot(selectedWorkspaceIndex: nil, workspaces: []),
             sidebar: SessionSidebarSnapshot(isVisible: true, selection: .tabs, width: 220)
@@ -556,13 +556,13 @@ final class SessionPersistenceTests: XCTestCase {
         let fallbackFrame = SessionRectSnapshot(x: 40, y: 30, width: 700, height: 500)
         let fallbackDisplay = SessionDisplaySnapshot(
             displayID: 1,
-            frame: SessionRectSnapshot(x: 0, y: 0, width: 1_600, height: 1_000),
-            visibleFrame: SessionRectSnapshot(x: 0, y: 0, width: 1_600, height: 1_000)
+            frame: SessionRectSnapshot(x: 0, y: 0, width: 1600, height: 1000),
+            visibleFrame: SessionRectSnapshot(x: 0, y: 0, width: 1600, height: 1000)
         )
         let display = AppDelegate.SessionDisplayGeometry(
             displayID: 1,
-            frame: CGRect(x: 0, y: 0, width: 1_600, height: 1_000),
-            visibleFrame: CGRect(x: 0, y: 0, width: 1_600, height: 1_000)
+            frame: CGRect(x: 0, y: 0, width: 1600, height: 1000),
+            visibleFrame: CGRect(x: 0, y: 0, width: 1600, height: 1000)
         )
 
         let restored = AppDelegate.resolvedStartupPrimaryWindowFrame(
@@ -582,11 +582,11 @@ final class SessionPersistenceTests: XCTestCase {
     }
 
     func testResolvedWindowFrameCentersInFallbackDisplayWhenOffscreen() {
-        let savedFrame = SessionRectSnapshot(x: 4_000, y: 4_000, width: 900, height: 700)
+        let savedFrame = SessionRectSnapshot(x: 4000, y: 4000, width: 900, height: 700)
         let display = AppDelegate.SessionDisplayGeometry(
             displayID: 1,
-            frame: CGRect(x: 0, y: 0, width: 1_000, height: 800),
-            visibleFrame: CGRect(x: 0, y: 0, width: 1_000, height: 800)
+            frame: CGRect(x: 0, y: 0, width: 1000, height: 800),
+            visibleFrame: CGRect(x: 0, y: 0, width: 1000, height: 800)
         )
 
         let restored = AppDelegate.resolvedWindowFrame(
@@ -606,16 +606,16 @@ final class SessionPersistenceTests: XCTestCase {
     }
 
     func testResolvedWindowFramePreservesExactGeometryWhenDisplayIsUnchanged() {
-        let savedFrame = SessionRectSnapshot(x: 1_303, y: -90, width: 1_280, height: 1_410)
+        let savedFrame = SessionRectSnapshot(x: 1303, y: -90, width: 1280, height: 1410)
         let savedDisplay = SessionDisplaySnapshot(
             displayID: 2,
-            frame: SessionRectSnapshot(x: 0, y: 0, width: 2_560, height: 1_440),
-            visibleFrame: SessionRectSnapshot(x: 0, y: 0, width: 2_560, height: 1_410)
+            frame: SessionRectSnapshot(x: 0, y: 0, width: 2560, height: 1440),
+            visibleFrame: SessionRectSnapshot(x: 0, y: 0, width: 2560, height: 1410)
         )
         let display = AppDelegate.SessionDisplayGeometry(
             displayID: 2,
-            frame: CGRect(x: 0, y: 0, width: 2_560, height: 1_440),
-            visibleFrame: CGRect(x: 0, y: 0, width: 2_560, height: 1_410)
+            frame: CGRect(x: 0, y: 0, width: 2560, height: 1440),
+            visibleFrame: CGRect(x: 0, y: 0, width: 2560, height: 1410)
         )
 
         let restored = AppDelegate.resolvedWindowFrame(
@@ -627,23 +627,23 @@ final class SessionPersistenceTests: XCTestCase {
 
         XCTAssertNotNil(restored)
         guard let restored else { return }
-        XCTAssertEqual(restored.minX, 1_303, accuracy: 0.001)
+        XCTAssertEqual(restored.minX, 1303, accuracy: 0.001)
         XCTAssertEqual(restored.minY, -90, accuracy: 0.001)
-        XCTAssertEqual(restored.width, 1_280, accuracy: 0.001)
-        XCTAssertEqual(restored.height, 1_410, accuracy: 0.001)
+        XCTAssertEqual(restored.width, 1280, accuracy: 0.001)
+        XCTAssertEqual(restored.height, 1410, accuracy: 0.001)
     }
 
     func testResolvedWindowFrameClampsWhenDisplayGeometryChangesEvenWithSameDisplayID() {
-        let savedFrame = SessionRectSnapshot(x: 1_303, y: -90, width: 1_280, height: 1_410)
+        let savedFrame = SessionRectSnapshot(x: 1303, y: -90, width: 1280, height: 1410)
         let savedDisplay = SessionDisplaySnapshot(
             displayID: 2,
-            frame: SessionRectSnapshot(x: 0, y: 0, width: 2_560, height: 1_440),
-            visibleFrame: SessionRectSnapshot(x: 0, y: 0, width: 2_560, height: 1_410)
+            frame: SessionRectSnapshot(x: 0, y: 0, width: 2560, height: 1440),
+            visibleFrame: SessionRectSnapshot(x: 0, y: 0, width: 2560, height: 1410)
         )
         let resizedDisplay = AppDelegate.SessionDisplayGeometry(
             displayID: 2,
-            frame: CGRect(x: 0, y: 0, width: 1_920, height: 1_080),
-            visibleFrame: CGRect(x: 0, y: 0, width: 1_920, height: 1_050)
+            frame: CGRect(x: 0, y: 0, width: 1920, height: 1080),
+            visibleFrame: CGRect(x: 0, y: 0, width: 1920, height: 1050)
         )
 
         let restored = AppDelegate.resolvedWindowFrame(
@@ -656,7 +656,7 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertNotNil(restored)
         guard let restored else { return }
         XCTAssertTrue(resizedDisplay.visibleFrame.contains(restored))
-        XCTAssertNotEqual(restored.minX, 1_303, "Changed display geometry should clamp/remap frame")
+        XCTAssertNotEqual(restored.minX, 1303, "Changed display geometry should clamp/remap frame")
         XCTAssertNotEqual(restored.minY, -90, "Changed display geometry should clamp/remap frame")
     }
 
@@ -744,6 +744,8 @@ final class SessionPersistenceTests: XCTestCase {
     }
 }
 
+// MARK: - SocketListenerAcceptPolicyTests
+
 final class SocketListenerAcceptPolicyTests: XCTestCase {
     func testAcceptErrorClassificationBucketsExpectedErrnos() {
         XCTAssertEqual(
@@ -805,11 +807,11 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         )
         XCTAssertEqual(
             TerminalController.acceptFailureBackoffMilliseconds(consecutiveFailures: 12),
-            5_000
+            5000
         )
         XCTAssertEqual(
             TerminalController.acceptFailureBackoffMilliseconds(consecutiveFailures: 50),
-            5_000
+            5000
         )
     }
 
@@ -832,7 +834,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         )
         XCTAssertEqual(
             TerminalController.acceptFailureRearmDelayMilliseconds(consecutiveFailures: 12),
-            5_000
+            5000
         )
     }
 

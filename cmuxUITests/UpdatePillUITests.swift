@@ -1,7 +1,7 @@
-import XCTest
 import Foundation
+import XCTest
 
-// UI runners can adjust wall clock time mid-test; use monotonic uptime for polling deadlines.
+/// UI runners can adjust wall clock time mid-test; use monotonic uptime for polling deadlines.
 private func pollUntil(
     timeout: TimeInterval,
     pollInterval: TimeInterval = 0.05,
@@ -19,11 +19,17 @@ private func pollUntil(
     }
 }
 
+// MARK: - UpdatePillUITests
+
 final class UpdatePillUITests: XCTestCase {
+    // MARK: Overridden Functions
+
     override func setUp() {
         super.setUp()
         continueAfterFailure = false
     }
+
+    // MARK: Functions
 
     func testUpdatePillShowsForAvailableUpdate() {
         let systemSettings = XCUIApplication(bundleIdentifier: "com.apple.systempreferences")
@@ -47,7 +53,8 @@ final class UpdatePillUITests: XCTestCase {
     func testUpdatePillShowsForNoUpdateThenDismisses() {
         let systemSettings = XCUIApplication(bundleIdentifier: "com.apple.systempreferences")
         systemSettings.terminate()
-        let timingPath = FileManager.default.temporaryDirectory
+        let timingPath = FileManager.default
+            .temporaryDirectory
             .appendingPathComponent("cmux-ui-test-timing-\(UUID().uuidString).json")
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
@@ -91,7 +98,8 @@ final class UpdatePillUITests: XCTestCase {
     func testCheckForUpdatesUsesMockFeedWithNoUpdate() {
         let systemSettings = XCUIApplication(bundleIdentifier: "com.apple.systempreferences")
         systemSettings.terminate()
-        let timingPath = FileManager.default.temporaryDirectory
+        let timingPath = FileManager.default
+            .temporaryDirectory
             .appendingPathComponent("cmux-ui-test-timing-\(UUID().uuidString).json")
         let app = launchAppWithMockFeed(mode: "none", version: "9.9.9", timingPath: timingPath)
 
@@ -145,7 +153,7 @@ final class UpdatePillUITests: XCTestCase {
         // On macOS, SwiftUI accessibility identifiers are not always reliably surfaced for titlebar-style
         // UI across OS/Xcode versions. Prefer the pill's accessibility label, but keep an identifier
         // fallback for local runs.
-        return app.buttons[expectedLabel]
+        app.buttons[expectedLabel]
     }
 
     private func waitForWindowCount(atLeast count: Int, app: XCUIApplication, timeout: TimeInterval) -> Bool {
@@ -232,18 +240,25 @@ final class UpdatePillUITests: XCTestCase {
 
     private func loadTimingPayload(from url: URL) -> [String: Double] {
         guard let data = try? Data(contentsOf: url),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Double] else {
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Double]
+        else {
             return [:]
         }
         return object
     }
 }
 
+// MARK: - TitlebarShortcutHintsUITests
+
 final class TitlebarShortcutHintsUITests: XCTestCase {
+    // MARK: Overridden Functions
+
     override func setUp() {
         super.setUp()
         continueAfterFailure = false
     }
+
+    // MARK: Functions
 
     func testTitlebarShortcutHintsAlignWithoutShiftingControls() {
         let baselineApp = launchApp(alwaysShowHints: false)
