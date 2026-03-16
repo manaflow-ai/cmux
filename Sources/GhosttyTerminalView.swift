@@ -3211,6 +3211,19 @@ final class TerminalSurface: Identifiable, ObservableObject {
                 unset _cmux_ghostty_bash _cmux_bash_integration; \
                 if declare -F _cmux_prompt_command >/dev/null 2>&1; then _cmux_prompt_command; fi
                 """)
+            } else if shellName == "fish" {
+                // Fish auto-sources $XDG_DATA_DIRS/fish/vendor_conf.d/*.fish.
+                // Ghostty's own fish integration is already picked up via the
+                // XDG_DATA_DIRS entry added in cmuxApp.ensureGhosttyEnv().
+                // Prepend our shell-integration dir so fish finds cmux's conf too.
+                let existingXDG = (env["XDG_DATA_DIRS"]?.isEmpty == false ? env["XDG_DATA_DIRS"] : nil)
+                    ?? getenv("XDG_DATA_DIRS").map { String(cString: $0) }
+                    ?? ProcessInfo.processInfo.environment["XDG_DATA_DIRS"]
+                if let existingXDG {
+                    env["XDG_DATA_DIRS"] = "\(integrationDir):\(existingXDG)"
+                } else {
+                    env["XDG_DATA_DIRS"] = "\(integrationDir):/usr/local/share:/usr/share"
+                }
             }
         }
         env = Self.mergedStartupEnvironment(
