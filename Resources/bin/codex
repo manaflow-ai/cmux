@@ -81,7 +81,7 @@ fi
 # Create merged config.toml: preserve user config + inject notify command
 {
     if [[ -f "$EXISTING_HOME/config.toml" ]]; then
-        grep -v '^notify\s*=' "$EXISTING_HOME/config.toml" 2>/dev/null || true
+        grep -Ev '^[[:space:]]*notify[[:space:]]*=' "$EXISTING_HOME/config.toml" 2>/dev/null || true
         printf '\n'
     fi
     if [[ -x "$NOTIFY_SCRIPT" ]]; then

@@ -24,6 +24,7 @@ run_notify() {
     local payload="$1"
     local tmpdir
     tmpdir="$(mktemp -d "${TMPDIR:-/tmp}/cmux-codex-notify-test.XXXXXX")"
+    trap "rm -rf '$tmpdir'" RETURN
     local cmux_log="$tmpdir/cmux.log"
     local fake_cmux="$tmpdir/cmux"
 
@@ -39,7 +40,6 @@ FAKECMUX
     if [[ -f "$cmux_log" ]]; then
         cat "$cmux_log"
     fi
-    rm -rf "$tmpdir"
 }
 
 # Test 1: Valid JSON with last-assistant-message
