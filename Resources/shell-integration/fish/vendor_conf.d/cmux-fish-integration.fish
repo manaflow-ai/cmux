@@ -11,7 +11,7 @@ end
 # _cmux_send — write a single-line payload to the cmux socket.
 # Uses ncat > socat > nc fallback chain.
 # ---------------------------------------------------------------------------
-function _cmux_send
+function _cmux_send --description "Send a payload to the cmux socket"
     set -l payload $argv[1]
     if command -v ncat >/dev/null 2>&1
         printf '%s\n' $payload | ncat -w 1 -U $CMUX_SOCKET_PATH --send-only
@@ -74,7 +74,7 @@ set -g _CMUX_TTY_REPORTED 0
 # Handles worktrees via `gitdir:` in a .git file.
 # Prints the resolved path and returns 0 on success, 1 if not in a git repo.
 # ---------------------------------------------------------------------------
-function _cmux_git_resolve_head_path
+function _cmux_git_resolve_head_path --description "Find .git/HEAD path including worktrees"
     set -l dir $PWD
     while true
         if test -d $dir/.git
@@ -108,7 +108,7 @@ end
 # ---------------------------------------------------------------------------
 # _cmux_git_head_signature — read the first line of a HEAD file as a signature.
 # ---------------------------------------------------------------------------
-function _cmux_git_head_signature
+function _cmux_git_head_signature --description "Read first line of HEAD file as signature"
     set -l head_path $argv[1]
     if test -z "$head_path"; or not test -r $head_path
         return 1
@@ -124,7 +124,7 @@ end
 # ---------------------------------------------------------------------------
 # _cmux_report_tty_once — send the TTY name to the app once per session.
 # ---------------------------------------------------------------------------
-function _cmux_report_tty_once
+function _cmux_report_tty_once --description "Report TTY name to app once per session"
     test $_CMUX_TTY_REPORTED -eq 1; and return 0
     test -S $CMUX_SOCKET_PATH; or return 0
     test -n "$CMUX_TAB_ID"; or return 0
@@ -138,7 +138,7 @@ end
 # ---------------------------------------------------------------------------
 # _cmux_report_shell_activity_state — send prompt/running state, de-duped.
 # ---------------------------------------------------------------------------
-function _cmux_report_shell_activity_state
+function _cmux_report_shell_activity_state --description "Send prompt/running state to app"
     set -l state $argv[1]
     test -n "$state"; or return 0
     test -S $CMUX_SOCKET_PATH; or return 0
@@ -154,7 +154,7 @@ end
 # _cmux_ports_kick — tell the app to run a batched scan for this panel.
 # The app coalesces kicks across all panels and runs a single ps+lsof.
 # ---------------------------------------------------------------------------
-function _cmux_ports_kick
+function _cmux_ports_kick --description "Trigger batched port scan in app"
     test -S $CMUX_SOCKET_PATH; or return 0
     test -n "$CMUX_TAB_ID"; or return 0
     test -n "$CMUX_PANEL_ID"; or return 0
@@ -166,7 +166,7 @@ end
 # ---------------------------------------------------------------------------
 # _cmux_clear_pr_for_panel — clear the PR badge for this panel.
 # ---------------------------------------------------------------------------
-function _cmux_clear_pr_for_panel
+function _cmux_clear_pr_for_panel --description "Clear PR badge for panel"
     test -S $CMUX_SOCKET_PATH; or return 0
     test -n "$CMUX_TAB_ID"; or return 0
     test -n "$CMUX_PANEL_ID"; or return 0
@@ -176,7 +176,7 @@ end
 # ---------------------------------------------------------------------------
 # _cmux_pr_output_indicates_no_pull_request — check if gh error means no PR.
 # ---------------------------------------------------------------------------
-function _cmux_pr_output_indicates_no_pull_request
+function _cmux_pr_output_indicates_no_pull_request --description "Check if gh error means no PR"
     set -l output (string lower -- $argv[1])
     string match -q '*no pull requests found*' -- $output; and return 0
     string match -q '*no pull request found*' -- $output; and return 0
@@ -188,7 +188,7 @@ end
 # ---------------------------------------------------------------------------
 # _cmux_report_pr_for_path — run gh pr view and send the result to cmux.
 # ---------------------------------------------------------------------------
-function _cmux_report_pr_for_path
+function _cmux_report_pr_for_path --description "Run gh pr view and send result to app"
     set -l repo_path $argv[1]
     if test -z "$repo_path"
         _cmux_clear_pr_for_panel
@@ -273,7 +273,7 @@ end
 # ---------------------------------------------------------------------------
 # _cmux_child_pids — list direct child PIDs of a given process.
 # ---------------------------------------------------------------------------
-function _cmux_child_pids
+function _cmux_child_pids --description "List direct child PIDs of process"
     set -l parent_pid $argv[1]
     test -n "$parent_pid"; or return 0
     /bin/ps -ax -o pid= -o ppid= 2>/dev/null | /usr/bin/awk -v parent=$parent_pid '$2 == parent { print $1 }'
@@ -282,7 +282,7 @@ end
 # ---------------------------------------------------------------------------
 # _cmux_kill_process_tree — recursively kill a process and all its children.
 # ---------------------------------------------------------------------------
-function _cmux_kill_process_tree
+function _cmux_kill_process_tree --description "Recursively kill process and children"
     set -l pid $argv[1]
     set -l signal TERM
     if test (count $argv) -ge 2
@@ -302,7 +302,7 @@ end
 # ---------------------------------------------------------------------------
 # _cmux_stop_pr_poll_loop — kill the background PR poll loop if running.
 # ---------------------------------------------------------------------------
-function _cmux_stop_pr_poll_loop
+function _cmux_stop_pr_poll_loop --description "Kill background PR poll loop"
     if test -n "$_CMUX_PR_POLL_PID"
         # Use SIGKILL directly to avoid blocking sleep in preexec.
         # The poll loop is lightweight and safe to kill abruptly.
@@ -319,7 +319,7 @@ end
 # _cmux_report_pr_for_path and _cmux_send are available. The integration file
 # path is set once below after all functions are defined.
 # ---------------------------------------------------------------------------
-function _cmux_start_pr_poll_loop
+function _cmux_start_pr_poll_loop --description "Start or restart background PR poll loop"
     test -S $CMUX_SOCKET_PATH; or return 0
     test -n "$CMUX_TAB_ID"; or return 0
     test -n "$CMUX_PANEL_ID"; or return 0
@@ -384,6 +384,9 @@ _cmux_report_pr_for_path '$escaped_pwd'
         sleep 1
         set -l now (date +%s)
         if test \$async_timeout -gt 0; and test (math \$now - \$started_at) -ge \$async_timeout
+            for child in (pgrep -P \$probe_pid 2>/dev/null)
+                kill -9 \$child >/dev/null 2>&1; or true
+            end
             kill -9 \$probe_pid >/dev/null 2>&1; or true
             set timed_out 1
             break
@@ -399,7 +402,7 @@ end
 # ---------------------------------------------------------------------------
 # Preexec hook — called before each command runs.
 # ---------------------------------------------------------------------------
-function _cmux_fish_preexec --on-event fish_preexec
+function _cmux_fish_preexec --description "Preexec hook before command runs" --on-event fish_preexec
     test -S $CMUX_SOCKET_PATH; or return 0
     test -n "$CMUX_TAB_ID"; or return 0
     test -n "$CMUX_PANEL_ID"; or return 0
@@ -430,7 +433,7 @@ end
 # ---------------------------------------------------------------------------
 # Prompt (precmd) hook — called before each prompt is drawn.
 # ---------------------------------------------------------------------------
-function _cmux_fish_prompt --on-event fish_prompt
+function _cmux_fish_prompt --description "Prompt hook before prompt is drawn" --on-event fish_prompt
     test -S $CMUX_SOCKET_PATH; or return 0
     test -n "$CMUX_TAB_ID"; or return 0
     test -n "$CMUX_PANEL_ID"; or return 0
@@ -448,6 +451,7 @@ function _cmux_fish_prompt --on-event fish_prompt
             set -g _CMUX_GIT_JOB_STARTED_AT 0
         else if test $_CMUX_GIT_JOB_STARTED_AT -gt 0
             and test (math $now - $_CMUX_GIT_JOB_STARTED_AT) -ge $_CMUX_ASYNC_JOB_TIMEOUT
+            _cmux_kill_process_tree $_CMUX_GIT_JOB_PID KILL
             set -g _CMUX_GIT_JOB_PID ""
             set -g _CMUX_GIT_JOB_STARTED_AT 0
         end
@@ -539,7 +543,8 @@ if test -n \"\$branch\"
     set -l first (git status --porcelain -uno 2>/dev/null | head -1)
     set -l dirty_opt ''
     if test -n \"\$first\"; set dirty_opt '--status=dirty'; end
-    _cmux_send \"report_git_branch \$branch \$dirty_opt --tab=$tab_id --panel=$panel_id\"
+    set -l escaped_branch (string replace -a '\"' '\\\\\"' -- \$branch)
+    _cmux_send \"report_git_branch \\\"\$escaped_branch\\\" \$dirty_opt --tab=$tab_id --panel=$panel_id\"
 else
     _cmux_send \"clear_git_branch --tab=$tab_id --panel=$panel_id\"
 end
@@ -587,7 +592,7 @@ end
 # Shell init files may prepend other dirs after launch; fix on first prompt
 # after all init files have run.
 # ---------------------------------------------------------------------------
-function _cmux_fix_path --on-event fish_prompt
+function _cmux_fix_path --description "Fix PATH on first prompt then remove" --on-event fish_prompt
     if set -q GHOSTTY_BIN_DIR
         set -l gui_dir (string replace -r '/$' '' -- $GHOSTTY_BIN_DIR)
         set -l bin_dir (string replace -r '/MacOS$' '' -- $gui_dir)/Resources/bin
@@ -616,7 +621,7 @@ set -g _CMUX_INTEGRATION_FILE (status filename)
 # ---------------------------------------------------------------------------
 # Cleanup on shell exit.
 # ---------------------------------------------------------------------------
-function _cmux_fish_exit --on-event fish_exit
+function _cmux_fish_exit --description "Cleanup on shell exit" --on-event fish_exit
     if test -n "$_CMUX_GIT_JOB_PID"
         kill $_CMUX_GIT_JOB_PID >/dev/null 2>&1; or true
     end
