@@ -23,10 +23,7 @@ func cmuxCurrentSurfaceFontSizePoints(_ surface: ghostty_surface_t) -> Float? {
         return nil
     }
 
-    // ghostty_surface_quicklook_font returns a borrowed (+0) reference — the surface retains
-    // ownership. Use takeUnretainedValue() so we do NOT release it when ctFont goes out of
-    // scope; takeRetainedValue() would over-release and free the font while Ghostty still holds
-    // its internal pointer, causing a use-after-free crash on the next inherited-config call.
+    // Borrowed (+0) ref — surface owns the font; takeUnretainedValue avoids over-release.
     let ctFont = Unmanaged<CTFont>.fromOpaque(quicklookFont).takeUnretainedValue()
     let points = Float(CTFontGetSize(ctFont))
     guard points > 0 else { return nil }
