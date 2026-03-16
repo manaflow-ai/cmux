@@ -10365,7 +10365,7 @@ private struct TabItemView: View, Equatable {
                             .transition(.opacity)
                     }
                 }
-                .frame(width: workspaceHintSlotWidth, height: 16, alignment: .trailing)
+                .frame(width: workspaceHintSlotWidth, height: Self.closeButtonSize, alignment: .trailing)
                 .animation(.easeInOut(duration: 0.14), value: workspaceHintSlotWidth)
             }
 
