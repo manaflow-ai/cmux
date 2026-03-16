@@ -5173,6 +5173,32 @@ final class WorkspaceReorderTests: XCTestCase {
         let manager = TabManager()
         XCTAssertFalse(manager.reorderWorkspace(tabId: UUID(), toIndex: 0))
     }
+
+    @MainActor
+    func testReorderWorkspaceKeepsUnpinnedWorkspaceBelowPinnedSegment() {
+        let manager = TabManager()
+        let firstPinned = manager.tabs[0]
+        manager.setPinned(firstPinned, pinned: true)
+        let secondPinned = manager.addWorkspace()
+        manager.setPinned(secondPinned, pinned: true)
+        let unpinned = manager.addWorkspace()
+
+        XCTAssertTrue(manager.reorderWorkspace(tabId: unpinned.id, toIndex: 0))
+        XCTAssertEqual(manager.tabs.map(\.id), [firstPinned.id, secondPinned.id, unpinned.id])
+    }
+
+    @MainActor
+    func testReorderWorkspaceKeepsPinnedWorkspaceInsidePinnedSegment() {
+        let manager = TabManager()
+        let firstPinned = manager.tabs[0]
+        manager.setPinned(firstPinned, pinned: true)
+        let secondPinned = manager.addWorkspace()
+        manager.setPinned(secondPinned, pinned: true)
+        let unpinned = manager.addWorkspace()
+
+        XCTAssertTrue(manager.reorderWorkspace(tabId: firstPinned.id, toIndex: 999))
+        XCTAssertEqual(manager.tabs.map(\.id), [secondPinned.id, firstPinned.id, unpinned.id])
+    }
 }
 
 @MainActor
@@ -7301,6 +7327,7 @@ final class SidebarDropPlannerTests: XCTestCase {
             )
         )
     }
+
 }
 
 final class SidebarDragAutoScrollPlannerTests: XCTestCase {
