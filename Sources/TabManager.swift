@@ -1389,10 +1389,11 @@ class TabManager: ObservableObject {
         guard let currentIndex = tabs.firstIndex(where: { $0.id == tabId }) else { return false }
         if tabs.count <= 1 { return true }
 
-        let clamped = max(0, min(targetIndex, tabs.count - 1))
+        let workspace = tabs[currentIndex]
+        let clamped = clampedReorderIndex(for: workspace, targetIndex: targetIndex)
         if currentIndex == clamped { return true }
 
-        let workspace = tabs.remove(at: currentIndex)
+        tabs.remove(at: currentIndex)
         tabs.insert(workspace, at: clamped)
         return true
     }
@@ -1446,6 +1447,15 @@ class TabManager: ObservableObject {
         let pinnedCount = tabs.filter { $0.isPinned }.count
         let insertIndex = min(pinnedCount, tabs.count)
         tabs.insert(tab, at: insertIndex)
+    }
+
+    private func clampedReorderIndex(for workspace: Workspace, targetIndex: Int) -> Int {
+        let clamped = max(0, min(targetIndex, tabs.count - 1))
+        let pinnedCount = tabs.filter { $0.isPinned }.count
+        if workspace.isPinned {
+            return min(clamped, max(0, pinnedCount - 1))
+        }
+        return max(clamped, pinnedCount)
     }
 
     // MARK: - Surface Directory Updates (Backwards Compatibility)
