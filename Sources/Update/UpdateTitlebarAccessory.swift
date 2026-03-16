@@ -251,11 +251,17 @@ struct TitlebarControlButton<Content: View>: View {
 }
 
 struct TitlebarControlsView: View {
+    enum VisibilityBehavior {
+        case followsFadeSetting
+        case alwaysVisible
+    }
+
     @ObservedObject var notificationStore: TerminalNotificationStore
     @ObservedObject var viewModel: TitlebarControlsViewModel
     let onToggleSidebar: () -> Void
     let onToggleNotifications: () -> Void
     let onNewTab: () -> Void
+    let visibilityBehavior: VisibilityBehavior
     @AppStorage("titlebarControlsStyle") private var styleRawValue = TitlebarControlsStyle.classic.rawValue
     @AppStorage(WorkspaceButtonFadeSettings.modeKey)
     private var workspaceButtonsFadeMode = WorkspaceButtonFadeSettings.defaultMode.rawValue
@@ -268,6 +274,22 @@ struct TitlebarControlsView: View {
     @StateObject private var modifierKeyMonitor = TitlebarShortcutHintModifierMonitor()
     private let titlebarHintRightSafetyShift: CGFloat = 10
     private let titlebarHintBaseXShift: CGFloat = -10
+
+    init(
+        notificationStore: TerminalNotificationStore,
+        viewModel: TitlebarControlsViewModel,
+        onToggleSidebar: @escaping () -> Void,
+        onToggleNotifications: @escaping () -> Void,
+        onNewTab: @escaping () -> Void,
+        visibilityBehavior: VisibilityBehavior = .followsFadeSetting
+    ) {
+        _notificationStore = ObservedObject(wrappedValue: notificationStore)
+        _viewModel = ObservedObject(wrappedValue: viewModel)
+        self.onToggleSidebar = onToggleSidebar
+        self.onToggleNotifications = onToggleNotifications
+        self.onNewTab = onNewTab
+        self.visibilityBehavior = visibilityBehavior
+    }
 
     private enum HintSlot: Int, CaseIterable {
         case toggleSidebar
@@ -304,6 +326,9 @@ struct TitlebarControlsView: View {
     }
 
     private var shouldShowControls: Bool {
+        if visibilityBehavior == .alwaysVisible {
+            return true
+        }
         if !fadeButtonsEnabled {
             return true
         }
@@ -570,7 +595,8 @@ struct HiddenTitlebarSidebarControlsView: View {
                     anchorView: viewModel.notificationsAnchorView
                 )
             },
-            onNewTab: { _ = AppDelegate.shared?.tabManager?.addTab() }
+            onNewTab: { _ = AppDelegate.shared?.tabManager?.addTab() },
+            visibilityBehavior: .alwaysVisible
         )
         .frame(width: hostWidth, height: hostHeight, alignment: .leading)
     }
