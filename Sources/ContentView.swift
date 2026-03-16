@@ -11578,6 +11578,7 @@ enum SidebarDropPlanner {
         draggedTabId: UUID?,
         targetTabId: UUID?,
         tabIds: [UUID],
+        pinnedTabIds: Set<UUID> = [],
         pointerY: CGFloat? = nil,
         targetHeight: CGFloat? = nil
     ) -> SidebarDropIndicator? {
@@ -11598,16 +11599,27 @@ enum SidebarDropPlanner {
             insertionPosition = tabIds.count
         }
 
-        let targetIndex = resolvedTargetIndex(from: fromIndex, insertionPosition: insertionPosition, totalCount: tabIds.count)
-        guard targetIndex != fromIndex else { return nil }
-        return indicatorForInsertionPosition(insertionPosition, tabIds: tabIds)
+        let legalInsertionPosition = legalInsertionPosition(
+            draggedTabId: draggedTabId,
+            proposedInsertionPosition: insertionPosition,
+            tabIds: tabIds,
+            pinnedTabIds: pinnedTabIds
+        )
+        let legalTargetIndex = resolvedTargetIndex(
+            from: fromIndex,
+            insertionPosition: legalInsertionPosition,
+            totalCount: tabIds.count
+        )
+        guard legalTargetIndex != fromIndex else { return nil }
+        return indicatorForInsertionPosition(legalInsertionPosition, tabIds: tabIds)
     }
 
     static func targetIndex(
         draggedTabId: UUID,
         targetTabId: UUID?,
         indicator: SidebarDropIndicator?,
-        tabIds: [UUID]
+        tabIds: [UUID],
+        pinnedTabIds: Set<UUID> = []
     ) -> Int? {
         guard let fromIndex = tabIds.firstIndex(of: draggedTabId) else { return nil }
 
@@ -11624,7 +11636,13 @@ enum SidebarDropPlanner {
             insertionPosition = tabIds.count
         }
 
-        return resolvedTargetIndex(from: fromIndex, insertionPosition: insertionPosition, totalCount: tabIds.count)
+        let legalInsertionPosition = legalInsertionPosition(
+            draggedTabId: draggedTabId,
+            proposedInsertionPosition: insertionPosition,
+            tabIds: tabIds,
+            pinnedTabIds: pinnedTabIds
+        )
+        return resolvedTargetIndex(from: fromIndex, insertionPosition: legalInsertionPosition, totalCount: tabIds.count)
     }
 
     private static func indicatorForInsertionPosition(_ insertionPosition: Int, tabIds: [UUID]) -> SidebarDropIndicator {
@@ -11646,6 +11664,28 @@ enum SidebarDropPlanner {
     private static func preferredEdge(fromIndex: Int, targetTabId: UUID, tabIds: [UUID]) -> SidebarDropEdge {
         guard let targetIndex = tabIds.firstIndex(of: targetTabId) else { return .top }
         return fromIndex < targetIndex ? .bottom : .top
+    }
+
+    private static func legalInsertionPosition(
+        draggedTabId: UUID,
+        proposedInsertionPosition: Int,
+        tabIds: [UUID],
+        pinnedTabIds: Set<UUID>
+    ) -> Int {
+        let clampedInsertion = max(0, min(proposedInsertionPosition, tabIds.count))
+        guard !pinnedTabIds.isEmpty else { return clampedInsertion }
+
+        let pinnedCount = tabIds.reduce(into: 0) { count, tabId in
+            if pinnedTabIds.contains(tabId) {
+                count += 1
+            }
+        }
+        guard pinnedCount > 0 else { return clampedInsertion }
+
+        if pinnedTabIds.contains(draggedTabId) {
+            return min(clampedInsertion, pinnedCount)
+        }
+        return max(clampedInsertion, pinnedCount)
     }
 
     static func edgeForPointer(locationY: CGFloat, targetHeight: CGFloat) -> SidebarDropEdge {
@@ -12030,7 +12070,8 @@ private struct SidebarTabDropDelegate: DropDelegate {
             draggedTabId: draggedTabId,
             targetTabId: targetTabId,
             indicator: dropIndicator,
-            tabIds: tabIds
+            tabIds: tabIds,
+            pinnedTabIds: Set(tabManager.tabs.filter(\.isPinned).map(\.id))
         ) else {
 #if DEBUG
             dlog(
@@ -12065,10 +12106,12 @@ private struct SidebarTabDropDelegate: DropDelegate {
 
     private func updateDropIndicator(for info: DropInfo) {
         let tabIds = tabManager.tabs.map(\.id)
+        let pinnedTabIds = Set(tabManager.tabs.filter(\.isPinned).map(\.id))
         dropIndicator = SidebarDropPlanner.indicator(
             draggedTabId: draggedTabId,
             targetTabId: targetTabId,
             tabIds: tabIds,
+            pinnedTabIds: pinnedTabIds,
             pointerY: targetTabId == nil ? nil : info.location.y,
             targetHeight: targetRowHeight
         )

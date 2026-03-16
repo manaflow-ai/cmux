@@ -7328,6 +7328,46 @@ final class SidebarDropPlannerTests: XCTestCase {
         )
     }
 
+    func testIndicatorSnapsUnpinnedDropToFirstUnpinnedBoundaryWhenHoveringPinnedWorkspace() {
+        let pinnedA = UUID()
+        let pinnedB = UUID()
+        let unpinnedA = UUID()
+        let unpinnedB = UUID()
+        let tabIds = [pinnedA, pinnedB, unpinnedA, unpinnedB]
+        let pinnedIds: Set<UUID> = [pinnedA, pinnedB]
+
+        let indicator = SidebarDropPlanner.indicator(
+            draggedTabId: unpinnedB,
+            targetTabId: pinnedA,
+            tabIds: tabIds,
+            pinnedTabIds: pinnedIds,
+            pointerY: 2,
+            targetHeight: 40
+        )
+
+        XCTAssertEqual(indicator?.tabId, unpinnedA)
+        XCTAssertEqual(indicator?.edge, .top)
+    }
+
+    func testTargetIndexSnapsUnpinnedDropToFirstUnpinnedBoundaryWhenHoveringPinnedWorkspace() {
+        let pinnedA = UUID()
+        let pinnedB = UUID()
+        let unpinnedA = UUID()
+        let unpinnedB = UUID()
+        let tabIds = [pinnedA, pinnedB, unpinnedA, unpinnedB]
+        let pinnedIds: Set<UUID> = [pinnedA, pinnedB]
+
+        let targetIndex = SidebarDropPlanner.targetIndex(
+            draggedTabId: unpinnedB,
+            targetTabId: pinnedA,
+            indicator: SidebarDropIndicator(tabId: pinnedA, edge: .top),
+            tabIds: tabIds,
+            pinnedTabIds: pinnedIds
+        )
+
+        XCTAssertEqual(targetIndex, 2)
+    }
+
 }
 
 final class SidebarDragAutoScrollPlannerTests: XCTestCase {
