@@ -522,6 +522,15 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
             "1",
             "Expected the Settings window to report itself as key after toggling the workspace titlebar setting. diagnostics=\(diagnostics ?? [:])"
         )
+        XCTAssertTrue(
+            diagnosticsRemainStable(
+                at: diagnosticsPath,
+                duration: 0.8
+            ) { data in
+                data["keyWindowIdentifier"] == "cmux.settings" && data["settingsWindowIsKey"] == "1"
+            },
+            "Expected the Settings window to stay key after toggling the workspace titlebar setting. diagnostics=\(loadDiagnostics(at: diagnosticsPath) ?? [:])"
+        )
 
         app.typeKey("w", modifierFlags: [.command])
 
@@ -742,6 +751,21 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
         }
 
         return last
+    }
+
+    private func diagnosticsRemainStable(
+        at path: String,
+        duration: TimeInterval,
+        condition: ([String: String]) -> Bool
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(duration)
+        while Date() < deadline {
+            guard let data = loadDiagnostics(at: path), condition(data) else {
+                return false
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        return true
     }
 
     private func loadDiagnostics(at path: String) -> [String: String]? {
