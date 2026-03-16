@@ -2068,7 +2068,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var socketListenerHealthCheckInFlight = false
     private static let socketListenerHealthCheckInterval: DispatchTimeInterval = .seconds(2)
     private var lastSocketListenerUnhealthyCaptureAt: Date = .distantPast
+    private var lastSocketListenerUnhealthySignature: String?
     private static let socketListenerUnhealthyCaptureCooldown: TimeInterval = 60
+    private static let socketListenerUnhealthyUnchangedCaptureCooldown: TimeInterval = 15 * 60
     private let sessionPersistenceQueue = DispatchQueue(
         label: "com.cmuxterm.app.sessionPersistence",
         qos: .utility
@@ -3002,11 +3004,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         socketListenerHealthTimer?.cancel()
         socketListenerHealthTimer = nil
         socketListenerHealthCheckInFlight = false
+        lastSocketListenerUnhealthyCaptureAt = .distantPast
+        lastSocketListenerUnhealthySignature = nil
+    }
+
+    private static func socketListenerUnhealthySignature(
+        path: String,
+        health: TerminalController.SocketListenerHealth,
+        failureSignals: [String]
+    ) -> String {
+        let orderedSignals = failureSignals.sorted().joined(separator: ",")
+        return [
+            "path=\(path)",
+            "running=\(health.isRunning ? 1 : 0)",
+            "accept=\(health.acceptLoopAlive ? 1 : 0)",
+            "pathMatch=\(health.socketPathMatches ? 1 : 0)",
+            "pathExists=\(health.socketPathExists ? 1 : 0)",
+            "probe=\(health.socketProbePerformed ? 1 : 0)",
+            "connectable=\(health.socketConnectable.map { $0 ? "1" : "0" } ?? "-")",
+            "errno=\(health.socketConnectErrno.map { String($0) } ?? "-")",
+            "signals=\(orderedSignals)"
+        ].joined(separator: "|")
     }
 
     private func restartSocketListenerIfNeededForHealthCheck(source: String) {
-        guard !socketListenerHealthCheckInFlight,
-              let config = socketListenerConfigurationIfEnabled() else { return }
+        guard !socketListenerHealthCheckInFlight else { return }
+        guard let config = socketListenerConfigurationIfEnabled() else {
+            lastSocketListenerUnhealthyCaptureAt = .distantPast
+            lastSocketListenerUnhealthySignature = nil
+            return
+        }
         let terminalController = TerminalController.shared
         let expectedSocketPath = terminalController.activeSocketPath(preferredPath: config.path)
         socketListenerHealthCheckInFlight = true
@@ -3029,11 +3056,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         source: String,
         expectedSocketPath: String
     ) {
-        guard let config = socketListenerConfigurationIfEnabled() else { return }
+        guard let config = socketListenerConfigurationIfEnabled() else {
+            lastSocketListenerUnhealthyCaptureAt = .distantPast
+            lastSocketListenerUnhealthySignature = nil
+            return
+        }
         let currentExpectedSocketPath = TerminalController.shared.activeSocketPath(preferredPath: config.path)
         guard currentExpectedSocketPath == expectedSocketPath else { return }
         guard !health.isHealthy else {
             lastSocketListenerUnhealthyCaptureAt = .distantPast
+            lastSocketListenerUnhealthySignature = nil
             return
         }
         let failureSignals = health.failureSignals
@@ -3055,12 +3087,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         sentryBreadcrumb("socket.listener.unhealthy", category: "socket", data: data)
         let now = Date()
-        if now.timeIntervalSince(lastSocketListenerUnhealthyCaptureAt) >= Self.socketListenerUnhealthyCaptureCooldown {
+        let signature = Self.socketListenerUnhealthySignature(
+            path: currentExpectedSocketPath,
+            health: health,
+            failureSignals: failureSignals
+        )
+        let signatureChanged = signature != lastSocketListenerUnhealthySignature
+        let captureCooldown = signatureChanged
+            ? Self.socketListenerUnhealthyCaptureCooldown
+            : Self.socketListenerUnhealthyUnchangedCaptureCooldown
+        if signatureChanged || now.timeIntervalSince(lastSocketListenerUnhealthyCaptureAt) >= captureCooldown {
             lastSocketListenerUnhealthyCaptureAt = now
+            lastSocketListenerUnhealthySignature = signature
+            var captureData = data
+            captureData["signature"] = signature
+            captureData["signatureChanged"] = signatureChanged ? 1 : 0
+            captureData["captureCooldownSeconds"] = Int(captureCooldown)
             sentryCaptureWarning(
                 "socket.listener.unhealthy",
                 category: "socket",
-                data: data,
+                data: captureData,
                 contextKey: "socket_listener_health"
             )
         }
