@@ -769,7 +769,10 @@ class TabManager: ObservableObject {
     private var uiTestCancellables = Set<AnyCancellable>()
 #endif
 
-    init(initialWorkingDirectory: String? = nil) {
+    private var initialConfigTemplate: ghostty_surface_config_s?
+
+    init(initialWorkingDirectory: String? = nil, initialConfigTemplate: ghostty_surface_config_s? = nil) {
+        self.initialConfigTemplate = initialConfigTemplate
         addWorkspace(workingDirectory: initialWorkingDirectory)
         observers.append(NotificationCenter.default.addObserver(
             forName: .ghosttyDidSetTitle,
@@ -1302,7 +1305,16 @@ class TabManager: ObservableObject {
             config.font_size = fallbackFontPoints
             return config
         }
+        if let seededFontPoints = initialConfigTemplate?.font_size, seededFontPoints > 0 {
+            var config = ghostty_surface_config_new()
+            config.font_size = seededFontPoints
+            return config
+        }
         return nil
+    }
+
+    func inheritedConfigForSpawnedWindow() -> ghostty_surface_config_s? {
+        inheritedTerminalConfigForNewWorkspace()
     }
 
     private func normalizedWorkingDirectory(_ directory: String?) -> String? {
