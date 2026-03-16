@@ -1,7 +1,7 @@
 import fs from "fs";
 import path from "path";
 import Image from "next/image";
-import { useTranslations } from "next-intl";
+import { useTranslations, useLocale } from "next-intl";
 import { getTranslations } from "next-intl/server";
 import { changelogMedia, type VersionMedia } from "./changelog-media";
 
@@ -111,9 +111,9 @@ function InlineMarkdown({ text }: { text: string }) {
   );
 }
 
-function formatDate(dateStr: string): string {
+function formatDate(dateStr: string, locale: string): string {
   const d = new Date(dateStr + "T00:00:00");
-  return d.toLocaleDateString("en-US", {
+  return d.toLocaleDateString(locale, {
     month: "long",
     day: "numeric",
     year: "numeric",
@@ -157,22 +157,38 @@ function FeatureImage({ src, alt }: { src: string; alt: string }) {
   );
 }
 
-function FeatureList({ media }: { media: VersionMedia }) {
+function FeatureList({
+  media,
+  version,
+  t,
+}: {
+  media: VersionMedia;
+  version: string;
+  t: (key: string) => string;
+}) {
   if (!media.features?.length) return null;
 
   return (
     <div style={{ paddingTop: 20, display: "flex", flexDirection: "column", gap: 24 }}>
-      {media.features.map((feature, i) => (
-        <div key={i}>
-          <p style={{ margin: 0, padding: 0 }}>
-            <strong>{feature.title}.</strong>{" "}
-            <span className="text-muted">{feature.description}</span>
-          </p>
-          {feature.image && (
-            <FeatureImage src={feature.image} alt={feature.title} />
-          )}
-        </div>
-      ))}
+      {media.features.map((feature, i) => {
+        const key = feature.key;
+        const vk = versionKey(version);
+        const title = key ? t(`${vk}.${key}.title`) : feature.title;
+        const description = key
+          ? t(`${vk}.${key}.description`)
+          : feature.description;
+        return (
+          <div key={i}>
+            <p style={{ margin: 0, padding: 0 }}>
+              <strong>{title}.</strong>{" "}
+              <span className="text-muted">{description}</span>
+            </p>
+            {feature.image && (
+              <FeatureImage src={feature.image} alt={title} />
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -212,7 +228,13 @@ function ContributorList({ items }: { items: string[] }) {
   );
 }
 
-function SectionBadge({ heading }: { heading: string }) {
+function SectionBadge({
+  heading,
+  t,
+}: {
+  heading: string;
+  t: (key: string) => string;
+}) {
   const lower = heading.toLowerCase();
 
   let color = "bg-border/50 text-muted";
@@ -220,16 +242,16 @@ function SectionBadge({ heading }: { heading: string }) {
 
   if (lower === "added") {
     color = "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400";
-    label = "Added";
+    label = t("badgeAdded");
   } else if (lower === "changed") {
     color = "bg-blue-500/10 text-blue-600 dark:text-blue-400";
-    label = "Changed";
+    label = t("badgeChanged");
   } else if (lower === "fixed") {
     color = "bg-amber-500/10 text-amber-600 dark:text-amber-400";
-    label = "Fixed";
+    label = t("badgeFixed");
   } else if (lower.startsWith("thanks")) {
     color = "bg-purple-500/10 text-purple-600 dark:text-purple-400";
-    label = "Contributors";
+    label = t("badgeContributors");
   }
 
   return (
@@ -241,8 +263,13 @@ function SectionBadge({ heading }: { heading: string }) {
   );
 }
 
+function versionKey(version: string): string {
+  return `v${version.replaceAll(".", "_")}`;
+}
+
 export default function ChangelogPage() {
   const t = useTranslations("docs.changelog");
+  const locale = useLocale();
   const changelogPath = path.join(process.cwd(), "..", "CHANGELOG.md");
   const markdown = fs.readFileSync(changelogPath, "utf-8");
   const versions = parseChangelog(markdown);
@@ -275,13 +302,13 @@ export default function ChangelogPage() {
                   className="text-[13px] text-muted"
                   dateTime={v.date}
                 >
-                  {formatDate(v.date)}
+                  {formatDate(v.date, locale)}
                 </time>
               </div>
 
-              {media?.title && (
+              {media?.showTitle && (
                 <div style={{ paddingTop: 12, margin: 0, fontSize: "1.5rem", fontWeight: 700, letterSpacing: "-0.025em" }}>
-                  {media.title}
+                  {t(`${versionKey(v.version)}.title`)}
                 </div>
               )}
 
@@ -289,7 +316,7 @@ export default function ChangelogPage() {
                 <HeroImage src={media.hero} version={v.version} />
               )}
 
-              {media && <FeatureList media={media} />}
+              {media && <FeatureList media={media} version={v.version} t={t} />}
 
               {v.intro && !media && (
                 <div className="text-[14px] text-muted italic" style={{ paddingTop: 12 }}>
@@ -306,7 +333,7 @@ export default function ChangelogPage() {
                   if (isContributors) {
                     return (
                       <div key={i}>
-                        <SectionBadge heading={section.heading} />
+                        <SectionBadge heading={section.heading} t={t} />
                         <ContributorList items={section.items} />
                       </div>
                     );
@@ -315,7 +342,7 @@ export default function ChangelogPage() {
                   return (
                     <div key={i}>
                       {section.heading && (
-                        <SectionBadge heading={section.heading} />
+                        <SectionBadge heading={section.heading} t={t} />
                       )}
                       <ul style={{ margin: 0, paddingTop: 8, paddingBottom: 0, paddingLeft: 24, listStyle: "disc" }}>
                         {section.items.map((item, j) => (

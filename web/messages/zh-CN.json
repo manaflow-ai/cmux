@@ -541,7 +541,87 @@
     "changelog": {
       "title": "更新日志",
       "metaDescription": "cmux 发布说明和版本历史。原生 macOS 终端的新功能、问题修复和变更记录。",
-      "metaTitle": "更新日志"
+      "metaTitle": "更新日志",
+      "badgeAdded": "新增",
+      "badgeChanged": "变更",
+      "badgeFixed": "修复",
+      "badgeContributors": "贡献者",
+      "v0_62_0": {
+        "title": "Markdown 查看器、浏览器搜索、Vi 复制模式和本地化",
+        "markdownViewer": {
+          "title": "Markdown 查看器",
+          "description": "在专用面板中打开 Markdown 文件并通过文件监视保持实时更新。笔记、README 和文档会随磁盘文件更改自动刷新。"
+        },
+        "findInBrowser": {
+          "title": "浏览器内搜索",
+          "description": "浏览器面板现支持 Cmd+F 内联搜索，无需离开 cmux 即可搜索长文档、仪表盘和 issue 会话。"
+        },
+        "viCopyMode": {
+          "title": "Vi 复制模式",
+          "description": "终端回滚现有 vi 风格导航的键盘复制模式，让检查和复制大量输出缓冲区内容变得更轻松。"
+        },
+        "customNotificationSounds": {
+          "title": "自定义通知声音",
+          "description": "从内置声音中选择或使用自己的音频文件，让后台任务通知更容易注意到，也更容易个性化。"
+        },
+        "expandedLocalization": {
+          "title": "扩展本地化",
+          "description": "cmux 现支持日语及另外 16 种语言，应用内语言设置可在不更改 macOS 系统设置的情况下切换 UI 语言。"
+        }
+      },
+      "v0_61_0": {
+        "title": "标签颜色、命令面板、固定工作区",
+        "tabColors": {
+          "title": "标签颜色",
+          "description": "右键点击侧边栏中的工作区即可分配颜色。有 17 种预设可选，也可自定义颜色。"
+        },
+        "commandPalette": {
+          "title": "命令面板",
+          "description": "按 Cmd+Shift+P 打开可搜索的命令面板。cmux 的所有操作都在这里。键盘快捷键会内联显示。"
+        },
+        "openWith": {
+          "title": "用其他应用打开",
+          "description": "从命令面板直接在 VS Code、Cursor、Zed、Xcode、Finder 或其他编辑器中打开当前目录。"
+        },
+        "pinWorkspaces": {
+          "title": "固定工作区",
+          "description": "固定工作区使其保持在侧边栏顶部。固定的工作区不会因通知或活动而重新排序。"
+        },
+        "workspaceMetadata": {
+          "title": "工作区元数据",
+          "description": "侧边栏现显示每个工作区的更多上下文：PR 链接、监听端口、git 分支和所有面板的工作目录。"
+        }
+      },
+      "v0_60_0": {
+        "title": "标签右键菜单、DevTools、通知环、CJK 输入",
+        "tabContextMenu": {
+          "title": "标签右键菜单",
+          "description": "右键点击面板中的标签可重命名、关闭左右侧标签、移动到其他面板，或在旁边新建标签。"
+        },
+        "browserDevTools": {
+          "title": "浏览器 DevTools",
+          "description": "内置浏览器现有完整的 WebKit DevTools。无需离开 cmux 即可检查元素、调试 JavaScript、监控网络请求。"
+        },
+        "notificationRings": {
+          "title": "通知环",
+          "description": "当后台进程发送通知时，终端面板会显示动画环，无需切换工作区即可一眼看到。"
+        },
+        "cjkInput": {
+          "title": "CJK 输入",
+          "description": "完整支持韩文、中文和日文 IME。预编辑文本以正确的锚定和尺寸内联显示。"
+        },
+        "claudeCode": {
+          "title": "Claude Code",
+          "description": "Claude Code 集成现默认启用。每个工作区都有独立的路由上下文，agent 可通过 API 读取终端屏幕内容。"
+        }
+      },
+      "v0_32_0": {
+        "title": "侧边栏元数据",
+        "sidebarMetadata": {
+          "title": "侧边栏元数据",
+          "description": "侧边栏现显示每个工作区的 git 分支、监听端口、日志条目、进度条和状态标签。"
+        }
+      }
     },
     "navItems": {
       "gettingStarted": "入门指南",

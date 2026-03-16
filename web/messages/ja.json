@@ -541,7 +541,87 @@
     "changelog": {
       "title": "変更履歴",
       "metaDescription": "cmuxのリリースノートとバージョン履歴。ネイティブmacOSターミナルの新機能、バグ修正、変更点。",
-      "metaTitle": "変更履歴"
+      "metaTitle": "変更履歴",
+      "badgeAdded": "追加",
+      "badgeChanged": "変更",
+      "badgeFixed": "修正",
+      "badgeContributors": "コントリビューター",
+      "v0_62_0": {
+        "title": "Markdownビューア、ブラウザ検索、Viコピーモード、ローカライズ",
+        "markdownViewer": {
+          "title": "Markdownビューア",
+          "description": "Markdownファイルを専用パネルで開き、ファイル監視でリアルタイム更新。ノート、README、ドキュメントがディスク上の変更に合わせて自動リフレッシュされます。"
+        },
+        "findInBrowser": {
+          "title": "ブラウザ内検索",
+          "description": "ブラウザパネルがCmd+Fによるインライン検索に対応。長いドキュメント、ダッシュボード、イシュースレッドをcmuxから離れることなく検索できます。"
+        },
+        "viCopyMode": {
+          "title": "Viコピーモード",
+          "description": "ターミナルスクロールバックにvi風ナビゲーション付きのキーボードコピーモードを搭載。大量の出力バッファの確認とコピーが格段に楽になります。"
+        },
+        "customNotificationSounds": {
+          "title": "カスタム通知サウンド",
+          "description": "バンドルされたサウンドから選ぶか、自分のオーディオファイルを指定。バックグラウンドタスクの通知に気づきやすく、パーソナライズも簡単です。"
+        },
+        "expandedLocalization": {
+          "title": "ローカライズ拡充",
+          "description": "日本語に加え16言語を追加。アプリ単位の言語設定でmacOSのシステム設定を変えずにUI言語を切り替えられます。"
+        }
+      },
+      "v0_61_0": {
+        "title": "タブカラー、コマンドパレット、ワークスペース固定",
+        "tabColors": {
+          "title": "タブカラー",
+          "description": "サイドバーのワークスペースを右クリックしてカラーを割り当て。17種類のプリセットまたはカスタムカラーから選べます。色はタブ本体とワークスペースインジケーターレールの両方に表示されます。"
+        },
+        "commandPalette": {
+          "title": "コマンドパレット",
+          "description": "Cmd+Shift+Pで検索可能なコマンドパレットを表示。cmuxの全アクションがここに。キーボードショートカットもインラインで表示されます。"
+        },
+        "openWith": {
+          "title": "アプリで開く",
+          "description": "コマンドパレットから直接VS Code、Cursor、Zed、Xcode、Finderなどで現在のディレクトリを開けます。"
+        },
+        "pinWorkspaces": {
+          "title": "ワークスペースの固定",
+          "description": "ワークスペースをピン留めしてサイドバーの上部に固定。通知やアクティビティによる並べ替えの影響を受けません。"
+        },
+        "workspaceMetadata": {
+          "title": "ワークスペースメタデータ",
+          "description": "サイドバーにワークスペースごとの詳細情報を表示: PRリンク、リッスンポート、gitブランチ、全ペインの作業ディレクトリ。"
+        }
+      },
+      "v0_60_0": {
+        "title": "タブコンテキストメニュー、DevTools、通知リング、CJK入力",
+        "tabContextMenu": {
+          "title": "タブコンテキストメニュー",
+          "description": "ペイン内のタブを右クリックして名前変更、左右のタブを閉じる、別のペインに移動、隣に新しいタブを作成。ペインを最大化したり、タブを未読としてマークしたりすることもできます。"
+        },
+        "browserDevTools": {
+          "title": "ブラウザDevTools",
+          "description": "内蔵ブラウザにWebKit DevToolsをフル搭載。cmuxを離れることなく要素の検査、JavaScriptのデバッグ、ネットワークリクエストの監視が可能。"
+        },
+        "notificationRings": {
+          "title": "通知リング",
+          "description": "バックグラウンドプロセスが通知を送ると、ターミナルペインにアニメーション付きリングが表示。ワークスペースを切り替えずに一目で確認できます。"
+        },
+        "cjkInput": {
+          "title": "CJK入力",
+          "description": "韓国語、中国語、日本語のIMEを完全サポート。プリエディットテキストが適切なアンカリングとサイジングでインライン表示されます。"
+        },
+        "claudeCode": {
+          "title": "Claude Code",
+          "description": "Claude Code連携がデフォルトで有効に。各ワークスペースに独自のルーティングコンテキストがあり、エージェントがAPIを通じてターミナル画面の内容を読み取れます。"
+        }
+      },
+      "v0_32_0": {
+        "title": "サイドバーメタデータ",
+        "sidebarMetadata": {
+          "title": "サイドバーメタデータ",
+          "description": "サイドバーに各ワークスペースのgitブランチ、リッスンポート、ログエントリ、プログレスバー、ステータスピルを表示。"
+        }
+      }
     },
     "navItems": {
       "gettingStarted": "はじめに",

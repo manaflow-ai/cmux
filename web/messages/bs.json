@@ -541,7 +541,23 @@
     "changelog": {
       "title": "Zapisnik promjena",
       "metaDescription": "cmux bilješke o izdanjima i historija verzija. Nove funkcionalnosti, ispravke grešaka i promjene za nativni macOS terminal.",
-      "metaTitle": "Dnevnik promjena"
+      "metaTitle": "Dnevnik promjena",
+      "badgeAdded": "Dodano",
+      "badgeChanged": "Promijenjeno",
+      "badgeFixed": "Popravljeno",
+      "badgeContributors": "Saradnici",
+      "v0_62_0": {
+        "title": "Markdown preglednik, pretraga u pregledniku, Vi režim kopiranja i lokalizacija"
+      },
+      "v0_61_0": {
+        "title": "Boje tabova, komandna paleta, zakači radne prostore"
+      },
+      "v0_60_0": {
+        "title": "Kontekstni meni tabova, DevTools, prstenovi notifikacija, CJK unos"
+      },
+      "v0_32_0": {
+        "title": "Metapodaci bočne trake"
+      }
     },
     "navItems": {
       "gettingStarted": "Početak rada",

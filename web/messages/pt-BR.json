@@ -541,7 +541,23 @@
     "changelog": {
       "title": "Changelog",
       "metaDescription": "Notas de lançamento e histórico de versões do cmux. Novos recursos, correções de bugs e mudanças para o terminal macOS nativo.",
-      "metaTitle": "Registro de alterações"
+      "metaTitle": "Registro de alterações",
+      "badgeAdded": "Adicionado",
+      "badgeChanged": "Alterado",
+      "badgeFixed": "Corrigido",
+      "badgeContributors": "Colaboradores",
+      "v0_62_0": {
+        "title": "Visualizador Markdown, busca no navegador, modo de cópia Vi e localização"
+      },
+      "v0_61_0": {
+        "title": "Cores de abas, paleta de comandos, fixar áreas de trabalho"
+      },
+      "v0_60_0": {
+        "title": "Menu de contexto de abas, DevTools, anéis de notificação, entrada CJK"
+      },
+      "v0_32_0": {
+        "title": "Metadados da barra lateral"
+      }
     },
     "navItems": {
       "gettingStarted": "Primeiros Passos",

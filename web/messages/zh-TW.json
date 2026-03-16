@@ -541,7 +541,23 @@
     "changelog": {
       "title": "更新日誌",
       "metaDescription": "cmux 版本說明和版本歷史。原生 macOS 終端機的新功能、錯誤修復和變更。",
-      "metaTitle": "更新日誌"
+      "metaTitle": "更新日誌",
+      "badgeAdded": "新增",
+      "badgeChanged": "變更",
+      "badgeFixed": "修復",
+      "badgeContributors": "貢獻者",
+      "v0_62_0": {
+        "title": "Markdown 檢視器、瀏覽器搜尋、Vi 複製模式和本地化"
+      },
+      "v0_61_0": {
+        "title": "分頁顏色、命令面板、固定工作區"
+      },
+      "v0_60_0": {
+        "title": "分頁右鍵選單、DevTools、通知環、CJK 輸入"
+      },
+      "v0_32_0": {
+        "title": "側邊欄中繼資料"
+      }
     },
     "navItems": {
       "gettingStarted": "入門指南",

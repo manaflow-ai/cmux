@@ -541,7 +541,23 @@
     "changelog": {
       "title": "Dziennik zmian",
       "metaDescription": "Notatki wydań i historia wersji cmux. Nowe funkcje, poprawki błędów i zmiany dla natywnego terminala macOS.",
-      "metaTitle": "Historia zmian"
+      "metaTitle": "Historia zmian",
+      "badgeAdded": "Dodano",
+      "badgeChanged": "Zmieniono",
+      "badgeFixed": "Naprawiono",
+      "badgeContributors": "Współtwórcy",
+      "v0_62_0": {
+        "title": "Przeglądarka Markdown, wyszukiwanie w przeglądarce, tryb kopiowania Vi i lokalizacja"
+      },
+      "v0_61_0": {
+        "title": "Kolory kart, paleta poleceń, przypinanie przestrzeni roboczych"
+      },
+      "v0_60_0": {
+        "title": "Menu kontekstowe kart, DevTools, pierścienie powiadomień, wprowadzanie CJK"
+      },
+      "v0_32_0": {
+        "title": "Metadane paska bocznego"
+      }
     },
     "navItems": {
       "gettingStarted": "Szybki start",

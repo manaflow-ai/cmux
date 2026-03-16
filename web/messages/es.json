@@ -539,9 +539,25 @@
       "metaTitle": "Automatización del navegador"
     },
     "changelog": {
-      "title": "Changelog",
+      "title": "Registro de cambios",
       "metaDescription": "Notas de versión e historial de versiones de cmux. Nuevas funciones, correcciones de errores y cambios para la terminal nativa de macOS.",
-      "metaTitle": "Registro de cambios"
+      "metaTitle": "Registro de cambios",
+      "badgeAdded": "Añadido",
+      "badgeChanged": "Cambiado",
+      "badgeFixed": "Corregido",
+      "badgeContributors": "Colaboradores",
+      "v0_62_0": {
+        "title": "Visor Markdown, búsqueda en navegador, modo de copia Vi y localización"
+      },
+      "v0_61_0": {
+        "title": "Colores de pestañas, paleta de comandos, fijar espacios de trabajo"
+      },
+      "v0_60_0": {
+        "title": "Menú contextual de pestañas, DevTools, anillos de notificación, entrada CJK"
+      },
+      "v0_32_0": {
+        "title": "Metadatos de la barra lateral"
+      }
     },
     "navItems": {
       "gettingStarted": "Primeros pasos",

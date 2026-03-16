@@ -541,7 +541,23 @@
     "changelog": {
       "title": "Endringslogg",
       "metaDescription": "cmux utgivelsesnotater og versjonshistorikk. Nye funksjoner, feilrettinger og endringer for den native macOS-terminalen.",
-      "metaTitle": "Endringslogg"
+      "metaTitle": "Endringslogg",
+      "badgeAdded": "Lagt til",
+      "badgeChanged": "Endret",
+      "badgeFixed": "Rettet",
+      "badgeContributors": "Bidragsytere",
+      "v0_62_0": {
+        "title": "Markdown-visning, nettlesersøk, Vi-kopieringsmodus og lokalisering"
+      },
+      "v0_61_0": {
+        "title": "Fanefarger, kommandopalett, fest arbeidsområder"
+      },
+      "v0_60_0": {
+        "title": "Fanekontekstmeny, DevTools, varselsringer, CJK-inndata"
+      },
+      "v0_32_0": {
+        "title": "Sidefeltsmetadata"
+      }
     },
     "navItems": {
       "gettingStarted": "Kom i gang",

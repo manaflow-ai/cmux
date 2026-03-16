@@ -541,7 +541,23 @@
     "changelog": {
       "title": "변경 로그",
       "metaDescription": "cmux 릴리스 노트 및 버전 히스토리. 네이티브 macOS 터미널의 새로운 기능, 버그 수정, 변경 사항.",
-      "metaTitle": "변경 내역"
+      "metaTitle": "변경 내역",
+      "badgeAdded": "추가",
+      "badgeChanged": "변경",
+      "badgeFixed": "수정",
+      "badgeContributors": "기여자",
+      "v0_62_0": {
+        "title": "마크다운 뷰어, 브라우저 검색, Vi 복사 모드, 현지화"
+      },
+      "v0_61_0": {
+        "title": "탭 색상, 명령 팔레트, 워크스페이스 고정"
+      },
+      "v0_60_0": {
+        "title": "탭 컨텍스트 메뉴, DevTools, 알림 링, CJK 입력"
+      },
+      "v0_32_0": {
+        "title": "사이드바 메타데이터"
+      }
     },
     "navItems": {
       "gettingStarted": "시작하기",
