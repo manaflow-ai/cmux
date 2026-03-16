@@ -30,7 +30,7 @@ This doc tracks the migration from the existing v1 line protocol (space-delimite
 
 Notes:
 - A close-top nested split sequence (T-shape) could leave terminal views detached from the window until the user switched workspaces.
-  Fix: a debounced post-close reattach pass (see `Sources/Workspace.swift`, `Sources/Panels/TerminalPanel.swift`).
+  Fix: a debounced post-close reattach pass (see `Sources/Features/Workspace/Workspace.swift`, `Sources/Features/Panels/Terminal/TerminalPanel.swift`).
 
 ## V2 Protocol Sketch
 

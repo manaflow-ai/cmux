@@ -65,6 +65,31 @@
 		A5001209 /* WindowToolbarController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001219 /* WindowToolbarController.swift */; };
 		A5001240 /* WindowDecorationsController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001241 /* WindowDecorationsController.swift */; };
 		A5001610 /* SessionPersistence.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001611 /* SessionPersistence.swift */; };
+		A51000000000000000000001 /* MenuBarExtraController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A51000000000000000000011 /* MenuBarExtraController.swift */; };
+		A51000000000000000000002 /* CommandPaletteDebug.swift in Sources */ = {isa = PBXBuildFile; fileRef = A51000000000000000000012 /* CommandPaletteDebug.swift */; };
+		A51000000000000000000003 /* NotificationMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = A51000000000000000000013 /* NotificationMenu.swift */; };
+		A52000000000000000000001 /* AppDelegate+Events.swift in Sources */ = {isa = PBXBuildFile; fileRef = A52100000000000000000001 /* AppDelegate+Events.swift */; };
+		A52000000000000000000002 /* AppDelegate+LaunchPaths.swift in Sources */ = {isa = PBXBuildFile; fileRef = A52100000000000000000002 /* AppDelegate+LaunchPaths.swift */; };
+		A52000000000000000000003 /* cmuxApp+ExtendedTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = A52100000000000000000003 /* cmuxApp+ExtendedTypes.swift */; };
+		A52000000000000000000004 /* CmuxCLIPathInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = A52100000000000000000004 /* CmuxCLIPathInstaller.swift */; };
+		A52000000000000000000005 /* AppDelegate+Debug.swift in Sources */ = {isa = PBXBuildFile; fileRef = A52100000000000000000005 /* AppDelegate+Debug.swift */; };
+		A52000000000000000000006 /* BackgroundDebug.swift in Sources */ = {isa = PBXBuildFile; fileRef = A52100000000000000000006 /* BackgroundDebug.swift */; };
+		A52000000000000000000007 /* DebugWindowConfigSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = A52100000000000000000007 /* DebugWindowConfigSnapshot.swift */; };
+		A52000000000000000000008 /* DebugWindowControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = A52100000000000000000008 /* DebugWindowControls.swift */; };
+		A52000000000000000000009 /* MenuBarExtraDebug.swift in Sources */ = {isa = PBXBuildFile; fileRef = A52100000000000000000009 /* MenuBarExtraDebug.swift */; };
+		A5200000000000000000000A /* SettingsAboutTitlebarDebug.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5210000000000000000000A /* SettingsAboutTitlebarDebug.swift */; };
+		A5200000000000000000000B /* SidebarDebug.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5210000000000000000000B /* SidebarDebug.swift */; };
+		A5200000000000000000000C /* AboutPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5210000000000000000000C /* AboutPanelView.swift */; };
+		A5200000000000000000000D /* AboutWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5210000000000000000000D /* AboutWindowController.swift */; };
+		A5200000000000000000000E /* AcknowledgmentsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5210000000000000000000E /* AcknowledgmentsView.swift */; };
+		A5200000000000000000000F /* AcknowledgmentsWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5210000000000000000000F /* AcknowledgmentsWindowController.swift */; };
+		A52000000000000000000010 /* CmuxFieldEditorOwningWebViewBox.swift in Sources */ = {isa = PBXBuildFile; fileRef = A52100000000000000000010 /* CmuxFieldEditorOwningWebViewBox.swift */; };
+		A52000000000000000000012 /* Settings.swift in Sources */ = {isa = PBXBuildFile; fileRef = A52100000000000000000012 /* Settings.swift */; };
+		A52000000000000000000013 /* SettingsRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A52100000000000000000013 /* SettingsRootView.swift */; };
+		A52000000000000000000014 /* SettingsView+Components.swift in Sources */ = {isa = PBXBuildFile; fileRef = A52100000000000000000014 /* SettingsView+Components.swift */; };
+		A52000000000000000000015 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A52100000000000000000015 /* SettingsView.swift */; };
+		A52000000000000000000016 /* SettingsWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A52100000000000000000016 /* SettingsWindowController.swift */; };
+		A52000000000000000000017 /* VSCode.swift in Sources */ = {isa = PBXBuildFile; fileRef = A52100000000000000000017 /* VSCode.swift */; };
 		A5001100 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A5001101 /* Assets.xcassets */; };
 		A5001230 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = A5001231 /* Sparkle */; };
 		B9000002A1B2C3D4E5F60719 /* cmux.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000001A1B2C3D4E5F60719 /* cmux.swift */; };
@@ -156,62 +181,87 @@
 			A5001000 /* cmux.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = cmux.app; sourceTree = BUILT_PRODUCTS_DIR; };
 			F1000002A1B2C3D4E5F60718 /* cmuxTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = cmuxTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 			7E7E6EF344A568AC7FEE3715 /* cmuxUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = cmuxUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-			A5001011 /* cmuxApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = cmuxApp.swift; sourceTree = "<group>"; };
-			A5001012 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
-			9AD52285508B1D6A9875E7B3 /* SidebarSelectionState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarSelectionState.swift; sourceTree = "<group>"; };
-			B9000017A1B2C3D4E5F60719 /* WindowDragHandleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowDragHandleView.swift; sourceTree = "<group>"; };
-			A5001013 /* TabManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabManager.swift; sourceTree = "<group>"; };
-			A5001014 /* GhosttyConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyConfig.swift; sourceTree = "<group>"; };
-			A5001015 /* GhosttyTerminalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTerminalView.swift; sourceTree = "<group>"; };
-			A5001531 /* TerminalWindowPortal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalWindowPortal.swift; sourceTree = "<group>"; };
-			A5001533 /* BrowserWindowPortal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserWindowPortal.swift; sourceTree = "<group>"; };
-		A5001541 /* PortScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortScanner.swift; sourceTree = "<group>"; };
+			A5001011 /* cmuxApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/cmuxApp.swift; sourceTree = "<group>"; };
+			A5001012 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Workspace/ContentView.swift; sourceTree = "<group>"; };
+			9AD52285508B1D6A9875E7B3 /* SidebarSelectionState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Workspace/SidebarSelectionState.swift; sourceTree = "<group>"; };
+			B9000017A1B2C3D4E5F60719 /* WindowDragHandleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/Windows/WindowDragHandleView.swift; sourceTree = "<group>"; };
+			A5001013 /* TabManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Workspace/TabManager.swift; sourceTree = "<group>"; };
+			A5001014 /* GhosttyConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Platform/Ghostty/GhosttyConfig.swift; sourceTree = "<group>"; };
+			A5001015 /* GhosttyTerminalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Panels/Terminal/GhosttyTerminalView.swift; sourceTree = "<group>"; };
+			A5001531 /* TerminalWindowPortal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Panels/Terminal/TerminalWindowPortal.swift; sourceTree = "<group>"; };
+			A5001533 /* BrowserWindowPortal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Panels/Browser/BrowserWindowPortal.swift; sourceTree = "<group>"; };
+		A5001541 /* PortScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Shared/Services/PortScanner.swift; sourceTree = "<group>"; };
 			A5001016 /* GhosttyKit.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = GhosttyKit.xcframework; sourceTree = "<group>"; };
 		A5001017 /* ghostty.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ghostty.h; sourceTree = "<group>"; };
 		A5001018 /* cmux-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "cmux-Bridging-Header.h"; sourceTree = "<group>"; };
-		A5001019 /* TerminalController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalController.swift; sourceTree = "<group>"; };
-		A5001600 /* SentryHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SentryHelper.swift; sourceTree = "<group>"; };
-		A5001620 /* AppleScriptSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleScriptSupport.swift; sourceTree = "<group>"; };
-			A5001510 /* CmuxWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/CmuxWebView.swift; sourceTree = "<group>"; };
-			A5001511 /* UITestRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UITestRecorder.swift; sourceTree = "<group>"; };
-			A5001520 /* PostHogAnalytics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostHogAnalytics.swift; sourceTree = "<group>"; };
-			A5001225 /* SocketControlSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketControlSettings.swift; sourceTree = "<group>"; };
-		A5001410 /* Panel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/Panel.swift; sourceTree = "<group>"; };
-		A5001411 /* TerminalPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/TerminalPanel.swift; sourceTree = "<group>"; };
-		A5001412 /* BrowserPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserPanel.swift; sourceTree = "<group>"; };
-		A5001413 /* TerminalPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/TerminalPanelView.swift; sourceTree = "<group>"; };
-		A5001414 /* BrowserPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserPanelView.swift; sourceTree = "<group>"; };
-		A5007421 /* BrowserPopupWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserPopupWindowController.swift; sourceTree = "<group>"; };
-		A5001415 /* PanelContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/PanelContentView.swift; sourceTree = "<group>"; };
-		A5001418 /* MarkdownPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownPanel.swift; sourceTree = "<group>"; };
-		A5001419 /* MarkdownPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownPanelView.swift; sourceTree = "<group>"; };
-		A5001416 /* Workspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Workspace.swift; sourceTree = "<group>"; };
-		A5001417 /* WorkspaceContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceContentView.swift; sourceTree = "<group>"; };
-		A5001090 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
-		A5001091 /* NotificationsPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationsPage.swift; sourceTree = "<group>"; };
-		A5001092 /* TerminalNotificationStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalNotificationStore.swift; sourceTree = "<group>"; };
-		A5001301 /* SurfaceSearchOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Find/SurfaceSearchOverlay.swift; sourceTree = "<group>"; };
-		A5008370 /* BrowserSearchOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Find/BrowserSearchOverlay.swift; sourceTree = "<group>"; };
-		A5008372 /* BrowserFindJavaScript.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Find/BrowserFindJavaScript.swift; sourceTree = "<group>"; };
-		A50012F0 /* Backport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Backport.swift; sourceTree = "<group>"; };
-		A50012F2 /* KeyboardShortcutSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutSettings.swift; sourceTree = "<group>"; };
-		A50012F4 /* KeyboardLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardLayout.swift; sourceTree = "<group>"; };
-		A5001211 /* UpdateController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/UpdateController.swift; sourceTree = "<group>"; };
-		A5001212 /* UpdateDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/UpdateDelegate.swift; sourceTree = "<group>"; };
-		A5001213 /* UpdateDriver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/UpdateDriver.swift; sourceTree = "<group>"; };
-		A5001214 /* UpdateViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/UpdateViewModel.swift; sourceTree = "<group>"; };
-		A5001215 /* UpdatePill.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/UpdatePill.swift; sourceTree = "<group>"; };
-		A5001216 /* UpdateBadge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/UpdateBadge.swift; sourceTree = "<group>"; };
-		A5001220 /* UpdateTiming.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/UpdateTiming.swift; sourceTree = "<group>"; };
-		A5001221 /* UpdateTestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/UpdateTestSupport.swift; sourceTree = "<group>"; };
-		A5001224 /* UpdateTestURLProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/UpdateTestURLProtocol.swift; sourceTree = "<group>"; };
-		A5001217 /* UpdatePopoverView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/UpdatePopoverView.swift; sourceTree = "<group>"; };
-		A5001218 /* UpdateTitlebarAccessory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/UpdateTitlebarAccessory.swift; sourceTree = "<group>"; };
-		A5001219 /* WindowToolbarController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowToolbarController.swift; sourceTree = "<group>"; };
-		A5001222 /* WindowAccessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowAccessor.swift; sourceTree = "<group>"; };
-		A5001223 /* UpdateLogStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/UpdateLogStore.swift; sourceTree = "<group>"; };
-		A5001241 /* WindowDecorationsController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowDecorationsController.swift; sourceTree = "<group>"; };
-		A5001611 /* SessionPersistence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionPersistence.swift; sourceTree = "<group>"; };
+		A5001019 /* TerminalController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Panels/Terminal/TerminalController.swift; sourceTree = "<group>"; };
+		A5001600 /* SentryHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Shared/Services/SentryHelper.swift; sourceTree = "<group>"; };
+		A5001620 /* AppleScriptSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Platform/AppleScript/AppleScriptSupport.swift; sourceTree = "<group>"; };
+			A5001510 /* CmuxWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Panels/Browser/CmuxWebView.swift; sourceTree = "<group>"; };
+			A5001511 /* UITestRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Debug/UITestRecorder.swift; sourceTree = "<group>"; };
+			A5001520 /* PostHogAnalytics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Shared/Services/PostHogAnalytics.swift; sourceTree = "<group>"; };
+			A5001225 /* SocketControlSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Shared/Persistence/SocketControlSettings.swift; sourceTree = "<group>"; };
+		A5001410 /* Panel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Panels/Panel.swift; sourceTree = "<group>"; };
+		A5001411 /* TerminalPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Panels/Terminal/TerminalPanel.swift; sourceTree = "<group>"; };
+		A5001412 /* BrowserPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Panels/Browser/BrowserPanel.swift; sourceTree = "<group>"; };
+		A5001413 /* TerminalPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Panels/Terminal/TerminalPanelView.swift; sourceTree = "<group>"; };
+		A5001414 /* BrowserPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Panels/Browser/BrowserPanelView.swift; sourceTree = "<group>"; };
+		A5007421 /* BrowserPopupWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Panels/Browser/BrowserPopupWindowController.swift; sourceTree = "<group>"; };
+		A5001415 /* PanelContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Panels/PanelContentView.swift; sourceTree = "<group>"; };
+		A5001418 /* MarkdownPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Panels/Markdown/MarkdownPanel.swift; sourceTree = "<group>"; };
+		A5001419 /* MarkdownPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Panels/Markdown/MarkdownPanelView.swift; sourceTree = "<group>"; };
+		A5001416 /* Workspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Workspace/Workspace.swift; sourceTree = "<group>"; };
+		A5001417 /* WorkspaceContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Workspace/WorkspaceContentView.swift; sourceTree = "<group>"; };
+		A5001090 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/AppDelegate.swift; sourceTree = "<group>"; };
+		A5001091 /* NotificationsPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Notifications/NotificationsPage.swift; sourceTree = "<group>"; };
+		A5001092 /* TerminalNotificationStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Notifications/TerminalNotificationStore.swift; sourceTree = "<group>"; };
+		A5001301 /* SurfaceSearchOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Find/SurfaceSearchOverlay.swift; sourceTree = "<group>"; };
+		A5008370 /* BrowserSearchOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Find/BrowserSearchOverlay.swift; sourceTree = "<group>"; };
+		A5008372 /* BrowserFindJavaScript.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Find/BrowserFindJavaScript.swift; sourceTree = "<group>"; };
+		A50012F0 /* Backport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Shared/Compatibility/Backport.swift; sourceTree = "<group>"; };
+		A50012F2 /* KeyboardShortcutSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Settings/KeyboardShortcutSettings.swift; sourceTree = "<group>"; };
+		A50012F4 /* KeyboardLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Settings/KeyboardLayout.swift; sourceTree = "<group>"; };
+		A5001211 /* UpdateController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Update/UpdateController.swift; sourceTree = "<group>"; };
+		A5001212 /* UpdateDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Update/UpdateDelegate.swift; sourceTree = "<group>"; };
+		A5001213 /* UpdateDriver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Update/UpdateDriver.swift; sourceTree = "<group>"; };
+		A5001214 /* UpdateViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Update/UpdateViewModel.swift; sourceTree = "<group>"; };
+		A5001215 /* UpdatePill.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Update/UpdatePill.swift; sourceTree = "<group>"; };
+		A5001216 /* UpdateBadge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Update/UpdateBadge.swift; sourceTree = "<group>"; };
+		A5001220 /* UpdateTiming.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Update/UpdateTiming.swift; sourceTree = "<group>"; };
+		A5001221 /* UpdateTestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Update/UpdateTestSupport.swift; sourceTree = "<group>"; };
+		A5001224 /* UpdateTestURLProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Update/UpdateTestURLProtocol.swift; sourceTree = "<group>"; };
+		A5001217 /* UpdatePopoverView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Update/UpdatePopoverView.swift; sourceTree = "<group>"; };
+		A5001218 /* UpdateTitlebarAccessory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Update/UpdateTitlebarAccessory.swift; sourceTree = "<group>"; };
+		A5001219 /* WindowToolbarController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/Windows/WindowToolbarController.swift; sourceTree = "<group>"; };
+		A5001222 /* WindowAccessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/Windows/WindowAccessor.swift; sourceTree = "<group>"; };
+		A5001223 /* UpdateLogStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Update/UpdateLogStore.swift; sourceTree = "<group>"; };
+		A5001241 /* WindowDecorationsController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/Windows/WindowDecorationsController.swift; sourceTree = "<group>"; };
+		A5001611 /* SessionPersistence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Shared/Persistence/SessionPersistence.swift; sourceTree = "<group>"; };
+		A51000000000000000000011 /* MenuBarExtraController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/Windows/MenuBarExtraController.swift; sourceTree = "<group>"; };
+		A51000000000000000000012 /* CommandPaletteDebug.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Debug/CommandPaletteDebug.swift; sourceTree = "<group>"; };
+		A51000000000000000000013 /* NotificationMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Notifications/NotificationMenu.swift; sourceTree = "<group>"; };
+		A52100000000000000000001 /* AppDelegate+Events.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/AppDelegate+Events.swift"; sourceTree = "<group>"; };
+		A52100000000000000000002 /* AppDelegate+LaunchPaths.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/AppDelegate+LaunchPaths.swift"; sourceTree = "<group>"; };
+		A52100000000000000000003 /* cmuxApp+ExtendedTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/cmuxApp+ExtendedTypes.swift"; sourceTree = "<group>"; };
+		A52100000000000000000004 /* CmuxCLIPathInstaller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLI/CmuxCLIPathInstaller.swift; sourceTree = "<group>"; };
+		A52100000000000000000005 /* AppDelegate+Debug.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Debug/AppDelegate+Debug.swift"; sourceTree = "<group>"; };
+		A52100000000000000000006 /* BackgroundDebug.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Debug/BackgroundDebug.swift; sourceTree = "<group>"; };
+		A52100000000000000000007 /* DebugWindowConfigSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Debug/DebugWindowConfigSnapshot.swift; sourceTree = "<group>"; };
+		A52100000000000000000008 /* DebugWindowControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Debug/DebugWindowControls.swift; sourceTree = "<group>"; };
+		A52100000000000000000009 /* MenuBarExtraDebug.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Debug/MenuBarExtraDebug.swift; sourceTree = "<group>"; };
+		A5210000000000000000000A /* SettingsAboutTitlebarDebug.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Debug/SettingsAboutTitlebarDebug.swift; sourceTree = "<group>"; };
+		A5210000000000000000000B /* SidebarDebug.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Debug/SidebarDebug.swift; sourceTree = "<group>"; };
+		A5210000000000000000000C /* AboutPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/About/AboutPanelView.swift; sourceTree = "<group>"; };
+		A5210000000000000000000D /* AboutWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/About/AboutWindowController.swift; sourceTree = "<group>"; };
+		A5210000000000000000000E /* AcknowledgmentsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/About/AcknowledgmentsView.swift; sourceTree = "<group>"; };
+		A5210000000000000000000F /* AcknowledgmentsWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/About/AcknowledgmentsWindowController.swift; sourceTree = "<group>"; };
+		A52100000000000000000010 /* CmuxFieldEditorOwningWebViewBox.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Panels/Browser/CmuxFieldEditorOwningWebViewBox.swift; sourceTree = "<group>"; };
+		A52100000000000000000012 /* Settings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Settings/Settings.swift; sourceTree = "<group>"; };
+		A52100000000000000000013 /* SettingsRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Settings/SettingsRootView.swift; sourceTree = "<group>"; };
+		A52100000000000000000014 /* SettingsView+Components.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Features/Settings/SettingsView+Components.swift"; sourceTree = "<group>"; };
+		A52100000000000000000015 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Settings/SettingsView.swift; sourceTree = "<group>"; };
+		A52100000000000000000016 /* SettingsWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Settings/SettingsWindowController.swift; sourceTree = "<group>"; };
+		A52100000000000000000017 /* VSCode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Integrations/VSCode.swift; sourceTree = "<group>"; };
 		818DBCD4AB69EB72573E8138 /* SidebarResizeUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarResizeUITests.swift; sourceTree = "<group>"; };
 		B8F266256A1A3D9A45BD840F /* SidebarHelpMenuUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarHelpMenuUITests.swift; sourceTree = "<group>"; };
 		C0B4D9B1A1B2C3D4E5F60718 /* UpdatePillUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdatePillUITests.swift; sourceTree = "<group>"; };
@@ -381,6 +431,7 @@
 				A5001090 /* AppDelegate.swift */,
 				A5001091 /* NotificationsPage.swift */,
 				A5001092 /* TerminalNotificationStore.swift */,
+				A51000000000000000000013 /* NotificationMenu.swift */,
 				A5001301 /* SurfaceSearchOverlay.swift */,
 				A5008370 /* BrowserSearchOverlay.swift */,
 				A5008372 /* BrowserFindJavaScript.swift */,
@@ -407,9 +458,33 @@
 				A5001217 /* UpdatePopoverView.swift */,
 				A5001218 /* UpdateTitlebarAccessory.swift */,
 				A5001219 /* WindowToolbarController.swift */,
+				A51000000000000000000011 /* MenuBarExtraController.swift */,
 				A5001241 /* WindowDecorationsController.swift */,
 				A5001222 /* WindowAccessor.swift */,
 				A5001611 /* SessionPersistence.swift */,
+				A51000000000000000000012 /* CommandPaletteDebug.swift */,
+				A52100000000000000000001 /* AppDelegate+Events.swift */,
+				A52100000000000000000002 /* AppDelegate+LaunchPaths.swift */,
+				A52100000000000000000003 /* cmuxApp+ExtendedTypes.swift */,
+				A52100000000000000000004 /* CmuxCLIPathInstaller.swift */,
+				A52100000000000000000005 /* AppDelegate+Debug.swift */,
+				A52100000000000000000006 /* BackgroundDebug.swift */,
+				A52100000000000000000007 /* DebugWindowConfigSnapshot.swift */,
+				A52100000000000000000008 /* DebugWindowControls.swift */,
+				A52100000000000000000009 /* MenuBarExtraDebug.swift */,
+				A5210000000000000000000A /* SettingsAboutTitlebarDebug.swift */,
+				A5210000000000000000000B /* SidebarDebug.swift */,
+				A5210000000000000000000C /* AboutPanelView.swift */,
+				A5210000000000000000000D /* AboutWindowController.swift */,
+				A5210000000000000000000E /* AcknowledgmentsView.swift */,
+				A5210000000000000000000F /* AcknowledgmentsWindowController.swift */,
+				A52100000000000000000010 /* CmuxFieldEditorOwningWebViewBox.swift */,
+				A52100000000000000000012 /* Settings.swift */,
+				A52100000000000000000013 /* SettingsRootView.swift */,
+				A52100000000000000000014 /* SettingsView+Components.swift */,
+				A52100000000000000000015 /* SettingsView.swift */,
+				A52100000000000000000016 /* SettingsWindowController.swift */,
+				A52100000000000000000017 /* VSCode.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -683,6 +758,31 @@
 				A5001240 /* WindowDecorationsController.swift in Sources */,
 				A500120C /* WindowAccessor.swift in Sources */,
 				A5001610 /* SessionPersistence.swift in Sources */,
+				A51000000000000000000001 /* MenuBarExtraController.swift in Sources */,
+				A51000000000000000000002 /* CommandPaletteDebug.swift in Sources */,
+				A51000000000000000000003 /* NotificationMenu.swift in Sources */,
+				A52000000000000000000001 /* AppDelegate+Events.swift in Sources */,
+				A52000000000000000000002 /* AppDelegate+LaunchPaths.swift in Sources */,
+				A52000000000000000000003 /* cmuxApp+ExtendedTypes.swift in Sources */,
+				A52000000000000000000004 /* CmuxCLIPathInstaller.swift in Sources */,
+				A52000000000000000000005 /* AppDelegate+Debug.swift in Sources */,
+				A52000000000000000000006 /* BackgroundDebug.swift in Sources */,
+				A52000000000000000000007 /* DebugWindowConfigSnapshot.swift in Sources */,
+				A52000000000000000000008 /* DebugWindowControls.swift in Sources */,
+				A52000000000000000000009 /* MenuBarExtraDebug.swift in Sources */,
+				A5200000000000000000000A /* SettingsAboutTitlebarDebug.swift in Sources */,
+				A5200000000000000000000B /* SidebarDebug.swift in Sources */,
+				A5200000000000000000000C /* AboutPanelView.swift in Sources */,
+				A5200000000000000000000D /* AboutWindowController.swift in Sources */,
+				A5200000000000000000000E /* AcknowledgmentsView.swift in Sources */,
+				A5200000000000000000000F /* AcknowledgmentsWindowController.swift in Sources */,
+				A52000000000000000000010 /* CmuxFieldEditorOwningWebViewBox.swift in Sources */,
+				A52000000000000000000012 /* Settings.swift in Sources */,
+				A52000000000000000000013 /* SettingsRootView.swift in Sources */,
+				A52000000000000000000014 /* SettingsView+Components.swift in Sources */,
+				A52000000000000000000015 /* SettingsView.swift in Sources */,
+				A52000000000000000000016 /* SettingsWindowController.swift in Sources */,
+				A52000000000000000000017 /* VSCode.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

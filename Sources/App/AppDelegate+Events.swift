@@ -1,0 +1,464 @@
+//
+//  AppDelegate+Events.swift
+//  cmux
+//
+//  Created by Gale Williams on 3/16/26.
+//
+
+import AppKit
+
+// MARK: - CmuxThemeNotifications
+
+enum CmuxThemeNotifications {
+    static let reloadConfig = Notification.Name("com.cmuxterm.themes.reload-config")
+}
+
+// MARK: - Browser Omnibar Events
+
+func browserOmnibarSelectionDeltaForCommandNavigation(
+    hasFocusedAddressBar: Bool,
+    flags: NSEvent.ModifierFlags,
+    chars: String
+) -> Int? {
+    guard hasFocusedAddressBar else { return nil }
+    let normalizedFlags = browserOmnibarNormalizedModifierFlags(flags)
+    let isCommandOrControlOnly = normalizedFlags == [.command] || normalizedFlags == [.control]
+    guard isCommandOrControlOnly else { return nil }
+    if chars == "n" { return 1 }
+    if chars == "p" { return -1 }
+    return nil
+}
+
+func browserOmnibarSelectionDeltaForArrowNavigation(
+    hasFocusedAddressBar: Bool,
+    flags: NSEvent.ModifierFlags,
+    keyCode: UInt16
+) -> Int? {
+    guard hasFocusedAddressBar else { return nil }
+    let normalizedFlags = browserOmnibarNormalizedModifierFlags(flags)
+    guard normalizedFlags == [] else { return nil }
+    switch keyCode {
+        case 125: return 1
+        case 126: return -1
+        default: return nil
+    }
+}
+
+func browserOmnibarNormalizedModifierFlags(_ flags: NSEvent.ModifierFlags) -> NSEvent.ModifierFlags {
+    flags
+        .intersection(.deviceIndependentFlagsMask)
+        .subtracting([.numericPad, .function, .capsLock])
+}
+
+func browserOmnibarShouldSubmitOnReturn(flags: NSEvent.ModifierFlags) -> Bool {
+    let normalizedFlags = browserOmnibarNormalizedModifierFlags(flags)
+    return normalizedFlags == [] || normalizedFlags == [.shift]
+}
+
+// MARK: - WorkspaceShortcutMapper
+
+enum WorkspaceShortcutMapper {
+    /// Maps Cmd+digit workspace shortcuts to a zero-based workspace index.
+    /// Cmd+1...Cmd+8 target fixed indices; Cmd+9 always targets the last workspace.
+    static func workspaceIndex(forCommandDigit digit: Int, workspaceCount: Int) -> Int? {
+        guard workspaceCount > 0 else { return nil }
+        guard (1...9).contains(digit) else { return nil }
+
+        if digit == 9 {
+            return workspaceCount - 1
+        }
+
+        let index = digit - 1
+        return index < workspaceCount ? index : nil
+    }
+
+    /// Returns the primary Cmd+digit badge to display for a workspace row.
+    /// Picks the lowest digit that maps to that row index.
+    static func commandDigitForWorkspace(at index: Int, workspaceCount: Int) -> Int? {
+        guard index >= 0, index < workspaceCount else { return nil }
+        for digit in 1...9 {
+            if workspaceIndex(forCommandDigit: digit, workspaceCount: workspaceCount) == index {
+                return digit
+            }
+        }
+        return nil
+    }
+}
+
+func commandPaletteSelectionDeltaForKeyboardNavigation(
+    flags: NSEvent.ModifierFlags,
+    chars: String,
+    keyCode: UInt16
+) -> Int? {
+    let normalizedFlags = flags
+        .intersection(.deviceIndependentFlagsMask)
+        .subtracting([.numericPad, .function])
+    let normalizedChars = chars.lowercased()
+
+    if normalizedFlags == [] {
+        switch keyCode {
+            case 125: return 1 // Down arrow
+            case 126: return -1 // Up arrow
+            default: break
+        }
+    }
+
+    if normalizedFlags == [.control] {
+        // Control modifiers can surface as either printable chars or ASCII control chars.
+        if keyCode == 45 || normalizedChars == "n" || normalizedChars == "\u{0e}" { return 1 } // Ctrl+N
+        if keyCode == 35 || normalizedChars == "p" || normalizedChars == "\u{10}" { return -1 } // Ctrl+P
+        if keyCode == 38 || normalizedChars == "j" || normalizedChars == "\u{0a}" { return 1 } // Ctrl+J
+        if keyCode == 40 || normalizedChars == "k" || normalizedChars == "\u{0b}" { return -1 } // Ctrl+K
+    }
+
+    return nil
+}
+
+func shouldConsumeShortcutWhileCommandPaletteVisible(
+    isCommandPaletteVisible: Bool,
+    normalizedFlags: NSEvent.ModifierFlags,
+    chars: String,
+    keyCode: UInt16
+) -> Bool {
+    guard isCommandPaletteVisible else { return false }
+
+    // Escape dismisses the palette, and must not leak through to the
+    // underlying terminal or browser content.
+    if normalizedFlags.isEmpty, keyCode == 53 {
+        return true
+    }
+
+    guard normalizedFlags.contains(.command) else { return false }
+
+    let normalizedChars = chars.lowercased()
+
+    if normalizedFlags == [.command] {
+        if normalizedChars == "a"
+            || normalizedChars == "c"
+            || normalizedChars == "v"
+            || normalizedChars == "x"
+            || normalizedChars == "z"
+            || normalizedChars == "y"
+        {
+            return false
+        }
+
+        switch keyCode {
+            case 51, 117, 123, 124:
+                return false
+            default:
+                break
+        }
+    }
+
+    if normalizedFlags == [.command, .shift], normalizedChars == "z" {
+        return false
+    }
+
+    return true
+}
+
+func shouldSubmitCommandPaletteWithReturn(
+    keyCode: UInt16,
+    flags: NSEvent.ModifierFlags
+) -> Bool {
+    guard keyCode == 36 || keyCode == 76 else { return false }
+    let normalizedFlags = flags
+        .intersection(.deviceIndependentFlagsMask)
+        .subtracting([.numericPad, .function, .capsLock])
+    return normalizedFlags == [] || normalizedFlags == [.shift]
+}
+
+func commandPaletteFieldEditorHasMarkedText(in window: NSWindow) -> Bool {
+    guard let editor = window.firstResponder as? NSTextView,
+          editor.isFieldEditor
+    else {
+        return false
+    }
+    return editor.hasMarkedText()
+}
+
+func shouldHandleCommandPaletteShortcutEvent(
+    _ event: NSEvent,
+    paletteWindow: NSWindow?
+) -> Bool {
+    guard let paletteWindow else { return false }
+    if let eventWindow = event.window {
+        return eventWindow === paletteWindow
+    }
+    let eventWindowNumber = event.windowNumber
+    if eventWindowNumber > 0 {
+        return eventWindowNumber == paletteWindow.windowNumber
+    }
+    if let keyWindow = NSApp.keyWindow {
+        return keyWindow === paletteWindow
+    }
+    return false
+}
+
+// MARK: - BrowserZoomShortcutAction
+
+enum BrowserZoomShortcutAction: Equatable {
+    case zoomIn
+    case zoomOut
+    case reset
+}
+
+func browserZoomShortcutAction(
+    flags: NSEvent.ModifierFlags,
+    chars: String,
+    keyCode: UInt16,
+    literalChars: String? = nil
+) -> BrowserZoomShortcutAction? {
+    let normalizedFlags = flags
+        .intersection(.deviceIndependentFlagsMask)
+        .subtracting([.numericPad, .function])
+    let hasCommand = normalizedFlags.contains(.command)
+    let hasOnlyCommandAndOptionalShift = hasCommand && normalizedFlags.isDisjoint(with: [.control, .option])
+
+    guard hasOnlyCommandAndOptionalShift else { return nil }
+    let keys = browserZoomShortcutKeyCandidates(
+        chars: chars,
+        literalChars: literalChars,
+        keyCode: keyCode
+    )
+
+    if keys.contains("=") || keys.contains("+") || keyCode == 24 || keyCode == 69 { // kVK_ANSI_Equal / kVK_ANSI_KeypadPlus
+        return .zoomIn
+    }
+
+    if keys.contains("-") || keys.contains("_") || keyCode == 27 || keyCode == 78 { // kVK_ANSI_Minus / kVK_ANSI_KeypadMinus
+        return .zoomOut
+    }
+
+    if keys.contains("0") || keyCode == 29 || keyCode == 82 { // kVK_ANSI_0 / kVK_ANSI_Keypad0
+        return .reset
+    }
+
+    return nil
+}
+
+func browserZoomShortcutKeyCandidates(
+    chars: String,
+    literalChars: String?,
+    keyCode: UInt16
+) -> Set<String> {
+    var keys: Set<String> = [chars.lowercased()]
+
+    if let literalChars, !literalChars.isEmpty {
+        keys.insert(literalChars.lowercased())
+    }
+
+    if let layoutChar = KeyboardLayout.character(forKeyCode: keyCode), !layoutChar.isEmpty {
+        keys.insert(layoutChar)
+    }
+
+    return keys
+}
+
+func shouldDispatchBrowserReturnViaFirstResponderKeyDown(
+    keyCode: UInt16,
+    firstResponderIsBrowser: Bool,
+    flags: NSEvent.ModifierFlags
+) -> Bool {
+    guard firstResponderIsBrowser else { return false }
+    guard keyCode == 36 || keyCode == 76 else { return false }
+    // Keep browser Return forwarding narrow: only plain/Shift Return should be
+    // treated as submit-intent. Command-modified Return is reserved for app shortcuts
+    // like Toggle Pane Zoom (Cmd+Shift+Enter).
+    return browserOmnibarShouldSubmitOnReturn(flags: flags)
+}
+
+func shouldToggleMainWindowFullScreenForCommandControlFShortcut(
+    flags: NSEvent.ModifierFlags,
+    chars: String,
+    keyCode: UInt16,
+    layoutCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:)
+) -> Bool {
+    let normalizedFlags = flags
+        .intersection(.deviceIndependentFlagsMask)
+        .subtracting([.numericPad, .function, .capsLock])
+    guard normalizedFlags == [.command, .control] else { return false }
+    let normalizedChars = chars.lowercased()
+    if normalizedChars == "f" {
+        return true
+    }
+    let charsAreControlSequence = !normalizedChars.isEmpty
+        && normalizedChars.unicodeScalars.allSatisfy { CharacterSet.controlCharacters.contains($0) }
+    if !normalizedChars.isEmpty, !charsAreControlSequence {
+        return false
+    }
+
+    // Fallback to layout translation only when characters are unavailable (for
+    // synthetic/key-equivalent paths that can report an empty string).
+    if let translatedCharacter = layoutCharacterProvider(keyCode, flags), !translatedCharacter.isEmpty {
+        return translatedCharacter == "f"
+    }
+
+    // Keep ANSI fallback as a final safety net when layout translation is unavailable.
+    return keyCode == 3
+}
+
+func shouldSuppressSplitShortcutForTransientTerminalFocusInputs(
+    firstResponderIsWindow: Bool,
+    hostedSize: CGSize,
+    hostedHiddenInHierarchy: Bool,
+    hostedAttachedToWindow: Bool
+) -> Bool {
+    guard firstResponderIsWindow else { return false }
+    let tinyGeometry = hostedSize.width <= 1 || hostedSize.height <= 1
+    return tinyGeometry || hostedHiddenInHierarchy || !hostedAttachedToWindow
+}
+
+func shouldRouteTerminalFontZoomShortcutToGhostty(
+    firstResponderIsGhostty: Bool,
+    flags: NSEvent.ModifierFlags,
+    chars: String,
+    keyCode: UInt16,
+    literalChars: String? = nil
+) -> Bool {
+    guard firstResponderIsGhostty else { return false }
+    return browserZoomShortcutAction(
+        flags: flags,
+        chars: chars,
+        keyCode: keyCode,
+        literalChars: literalChars
+    ) != nil
+}
+
+@discardableResult
+func startOrFocusTerminalSearch(
+    _ terminalSurface: TerminalSurface,
+    searchFocusNotifier: @escaping (TerminalSurface) -> Void = {
+        NotificationCenter.default.post(name: .ghosttySearchFocus, object: $0)
+    }
+) -> Bool {
+    if terminalSurface.searchState != nil {
+        searchFocusNotifier(terminalSurface)
+        return true
+    }
+
+    if terminalSurface.performBindingAction("start_search") {
+        DispatchQueue.main.async { [weak terminalSurface] in
+            guard let terminalSurface, terminalSurface.searchState == nil else { return }
+            terminalSurface.searchState = TerminalSurface.SearchState()
+            searchFocusNotifier(terminalSurface)
+        }
+        return true
+    }
+
+    terminalSurface.searchState = TerminalSurface.SearchState()
+    searchFocusNotifier(terminalSurface)
+    return true
+}
+
+/// Let AppKit own native Cmd+` window cycling so key-window changes do not
+/// re-enter our direct-to-menu shortcut path.
+func shouldRouteCommandEquivalentDirectlyToMainMenu(_ event: NSEvent) -> Bool {
+    let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+    guard flags.contains(.command) else { return false }
+
+    let normalizedFlags = flags.subtracting([.numericPad, .function, .capsLock])
+    if event.keyCode == 50,
+       normalizedFlags == [.command] || normalizedFlags == [.command, .shift]
+    {
+        return false
+    }
+
+    return true
+}
+
+func cmuxOwningGhosttyView(for responder: NSResponder?) -> GhosttyNSView? {
+    guard let responder else { return nil }
+    if let ghosttyView = responder as? GhosttyNSView {
+        return ghosttyView
+    }
+
+    if let view = responder as? NSView,
+       let ghosttyView = cmuxOwningGhosttyView(for: view)
+    {
+        return ghosttyView
+    }
+
+    if let textView = responder as? NSTextView,
+       let delegateView = textView.delegate as? NSView,
+       let ghosttyView = cmuxOwningGhosttyView(for: delegateView)
+    {
+        return ghosttyView
+    }
+
+    var current = responder.nextResponder
+    while let next = current {
+        if let ghosttyView = next as? GhosttyNSView {
+            return ghosttyView
+        }
+        if let view = next as? NSView,
+           let ghosttyView = cmuxOwningGhosttyView(for: view)
+        {
+            return ghosttyView
+        }
+        current = next.nextResponder
+    }
+
+    return nil
+}
+
+private func cmuxOwningGhosttyView(for view: NSView) -> GhosttyNSView? {
+    if let ghosttyView = view as? GhosttyNSView {
+        return ghosttyView
+    }
+
+    var current: NSView? = view.superview
+    while let candidate = current {
+        if let ghosttyView = candidate as? GhosttyNSView {
+            return ghosttyView
+        }
+        current = candidate.superview
+    }
+
+    return nil
+}
+
+func shouldSuppressWindowMoveForFolderDrag(hitView: NSView?) -> Bool {
+    var candidate = hitView
+    while let view = candidate {
+        if view is DraggableFolderNSView {
+            return true
+        }
+        candidate = view.superview
+    }
+    return false
+}
+
+func shouldSuppressWindowMoveForFolderDrag(window: NSWindow, event: NSEvent) -> Bool {
+    guard event.type == .leftMouseDown,
+          window.isMovable,
+          let contentView = window.contentView
+    else {
+        return false
+    }
+
+    let contentPoint = contentView.convert(event.locationInWindow, from: nil)
+    let hitView = contentView.hitTest(contentPoint)
+    return shouldSuppressWindowMoveForFolderDrag(hitView: hitView)
+}
+
+var cmuxFirstResponderGuardCurrentEventContext: NSEvent?
+var cmuxFirstResponderGuardHitViewContext: NSView?
+var cmuxFirstResponderGuardContextWindowNumber: Int?
+var cmuxBrowserReturnForwardingDepth = 0
+private var cmuxWindowFirstResponderBypassDepth = 0
+var cmuxFieldEditorOwningWebViewAssociationKey: UInt8 = 0
+
+@discardableResult
+func cmuxWithWindowFirstResponderBypass<T>(_ body: () -> T) -> T {
+    cmuxWindowFirstResponderBypassDepth += 1
+    defer {
+        cmuxWindowFirstResponderBypassDepth = max(0, cmuxWindowFirstResponderBypassDepth - 1)
+    }
+    return body()
+}
+
+func cmuxIsWindowFirstResponderBypassActive() -> Bool {
+    cmuxWindowFirstResponderBypassDepth > 0
+}

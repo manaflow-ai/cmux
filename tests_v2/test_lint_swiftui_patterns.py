@@ -97,7 +97,7 @@ def check_autoupdating_text_styles(files: List[Path]) -> List[Tuple[Path, int, s
 
 def check_command_palette_caret_tint(repo_root: Path) -> List[str]:
     """Ensure command palette text inputs keep a white caret tint."""
-    content_view = repo_root / "Sources" / "ContentView.swift"
+    content_view = repo_root / "Sources" / "Features" / "Workspace" / "ContentView.swift"
     if not content_view.exists():
         return [f"Missing expected file: {content_view}"]
 
@@ -124,14 +124,14 @@ def check_command_palette_caret_tint(repo_root: Path) -> List[str]:
         match = re.search(pattern, content, flags=re.DOTALL)
         if not match:
             violations.append(
-                f"Could not locate command palette {label} TextField block in Sources/ContentView.swift"
+                f"Could not locate command palette {label} TextField block in Sources/Features/Workspace/ContentView.swift"
             )
             continue
 
         body = match.group("body")
         if ".tint(.white)" not in body:
             violations.append(
-                f"Command palette {label} TextField must use `.tint(.white)` in Sources/ContentView.swift"
+                f"Command palette {label} TextField must use `.tint(.white)` in Sources/Features/Workspace/ContentView.swift"
             )
 
     return violations
