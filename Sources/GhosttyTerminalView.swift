@@ -361,14 +361,12 @@ func cmuxPasteboardImagePathForTesting(_ pasteboard: NSPasteboard) -> String? {
 enum TerminalOpenURLTarget: Equatable {
     case embeddedBrowser(URL)
     case external(URL)
-    case internalFile(String)
+    case internalFile(URL)
 
     var url: URL {
         switch self {
-        case let .embeddedBrowser(url), let .external(url):
+        case let .embeddedBrowser(url), let .external(url), let .internalFile(url):
             return url
-        case let .internalFile(path):
-            return URL(fileURLWithPath: path)
         }
     }
 }
@@ -462,16 +460,23 @@ func resolveTerminalOpenURLTarget(_ rawValue: String) -> TerminalOpenURLTarget? 
         #if DEBUG
         dlog("link.resolve result=internalFile(absolutePath) path=\(trimmed)")
         #endif
-        return .internalFile(trimmed)
+        return .internalFile(URL(fileURLWithPath: trimmed))
     }
 
     if let parsed = URL(string: trimmed),
        let scheme = parsed.scheme?.lowercased() {
         if scheme == "file" {
+            let host = parsed.host?.lowercased()
+            if host == nil || host == "" || host == "localhost" {
+                #if DEBUG
+                dlog("link.resolve result=internalFile(fileURL) path=\(parsed.path)")
+                #endif
+                return .internalFile(parsed)
+            }
             #if DEBUG
-            dlog("link.resolve result=internalFile(fileURL) path=\(parsed.path)")
+            dlog("link.resolve result=external(remoteFileURL) url=\(parsed)")
             #endif
-            return .internalFile(parsed.path)
+            return .external(parsed)
         }
         if scheme == "http" || scheme == "https" {
             guard BrowserInsecureHTTPSettings.normalizeHost(parsed.host ?? "") != nil else {
@@ -2316,7 +2321,9 @@ class GhosttyApp {
                 #endif
                 return false
             }
-            if !BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowser() {
+            if case .internalFile = target {
+                // Local file routing should not depend on the browser-link setting.
+            } else if !BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowser() {
                 #if DEBUG
                 dlog("link.openURL cmuxBrowser=disabled, opening externally url=\(target.url)")
                 #endif
@@ -2325,7 +2332,8 @@ class GhosttyApp {
                 }
             }
             switch target {
-            case let .internalFile(path):
+            case let .internalFile(fileURL):
+                let path = fileURL.path
                 #if DEBUG
                 dlog("link.openURL target=internalFile, opening in markdown panel path=\(path)")
                 #endif
@@ -2338,14 +2346,14 @@ class GhosttyApp {
                     dlog("link.openURL internalFile not a readable file, falling back to external path=\(path)")
                     #endif
                     return performOnMain {
-                        NSWorkspace.shared.open(URL(fileURLWithPath: path))
+                        NSWorkspace.shared.open(fileURL)
                     }
                 }
                 let sourceWorkspaceId = callbackTabId ?? surfaceView.tabId
                 let sourcePanelId = callbackSurfaceId ?? surfaceView.terminalSurface?.id
                 guard let sourceWorkspaceId, let sourcePanelId else {
                     return performOnMain {
-                        NSWorkspace.shared.open(URL(fileURLWithPath: path))
+                        NSWorkspace.shared.open(fileURL)
                     }
                 }
                 return performOnMain {
@@ -2354,7 +2362,7 @@ class GhosttyApp {
                             panelId: sourcePanelId,
                             preferredWorkspaceId: sourceWorkspaceId
                           ) else {
-                        NSWorkspace.shared.open(URL(fileURLWithPath: path))
+                        NSWorkspace.shared.open(fileURL)
                         return true
                     }
                     if resolved.workspace.newMarkdownSplit(
@@ -2365,7 +2373,7 @@ class GhosttyApp {
                         return true
                     }
                     // Split creation failed — fall back to system handler
-                    NSWorkspace.shared.open(URL(fileURLWithPath: path))
+                    NSWorkspace.shared.open(fileURL)
                     return true
                 }
             case let .external(url):
