@@ -156,7 +156,7 @@ final class BonsplitTabDragUITests: XCTestCase {
         )
     }
 
-    func testHiddenWorkspaceTitlebarSidebarControlsRevealOnlyFromSidebarHover() {
+    func testHiddenWorkspaceTitlebarSidebarControlsStayVisibleWhileSidebarIsVisible() {
         let (app, dataPath) = launchConfiguredApp()
 
         XCTAssertTrue(
@@ -195,36 +195,33 @@ final class BonsplitTabDragUITests: XCTestCase {
             "Expected visible-sidebar hidden-titlebar mode to keep pane tabs tight to the sidebar edge while the traffic lights sit over the sidebar. window=\(window.frame) sidebar=\(sidebar.frame) alphaTab=\(alphaTab.frame) paneLeadingGap=\(paneLeadingGap)"
         )
 
-        window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8)).hover()
-        XCTAssertTrue(
-            waitForCondition(timeout: 2.0) {
-                !toggleSidebarButton.isHittable && !notificationsButton.isHittable && !newWorkspaceButton.isHittable
-            },
-            "Expected hidden-titlebar sidebar controls to stay hidden away from the sidebar hover zone."
-        )
-
-        hover(in: window, at: CGPoint(x: window.frame.maxX - 48, y: window.frame.minY + 18))
-        XCTAssertTrue(
-            waitForCondition(timeout: 2.0) {
-                !toggleSidebarButton.isHittable && !notificationsButton.isHittable && !newWorkspaceButton.isHittable
-            },
-            "Expected the removed titlebar area to stop revealing hidden-titlebar controls."
-        )
-
-        hover(
-            in: window,
-            at: CGPoint(
-                x: min(sidebar.frame.maxX - 36, sidebar.frame.minX + 116),
-                y: window.frame.minY + 18
-            )
-        )
         XCTAssertTrue(
             waitForCondition(timeout: 2.0) {
                 toggleSidebarButton.exists && toggleSidebarButton.isHittable &&
                     notificationsButton.exists && notificationsButton.isHittable &&
                     newWorkspaceButton.exists && newWorkspaceButton.isHittable
             },
-            "Expected hidden-titlebar sidebar controls to reveal when hovering the sidebar chrome area."
+            "Expected hidden-titlebar sidebar controls to stay visible whenever the sidebar is visible."
+        )
+
+        window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8)).hover()
+        XCTAssertTrue(
+            waitForCondition(timeout: 2.0) {
+                toggleSidebarButton.exists && toggleSidebarButton.isHittable &&
+                    notificationsButton.exists && notificationsButton.isHittable &&
+                    newWorkspaceButton.exists && newWorkspaceButton.isHittable
+            },
+            "Expected hidden-titlebar sidebar controls to remain visible even when hovering away from the sidebar header."
+        )
+
+        hover(in: window, at: CGPoint(x: window.frame.maxX - 48, y: window.frame.minY + 18))
+        XCTAssertTrue(
+            waitForCondition(timeout: 2.0) {
+                toggleSidebarButton.exists && toggleSidebarButton.isHittable &&
+                    notificationsButton.exists && notificationsButton.isHittable &&
+                    newWorkspaceButton.exists && newWorkspaceButton.isHittable
+            },
+            "Expected hidden-titlebar sidebar controls to remain visible without any special hover zone."
         )
     }
 
@@ -277,7 +274,7 @@ final class BonsplitTabDragUITests: XCTestCase {
         )
     }
 
-    func testHiddenWorkspaceTitlebarKeepsSidebarControlsVisibleWhileNotificationsPopoverIsShown() {
+    func testHiddenWorkspaceTitlebarSidebarControlsRemainVisibleWhileNotificationsPopoverIsShown() {
         let (app, dataPath) = launchConfiguredApp()
 
         XCTAssertTrue(
@@ -302,12 +299,13 @@ final class BonsplitTabDragUITests: XCTestCase {
         let notificationsButton = app.descendants(matching: .any).matching(identifier: "titlebarControl.showNotifications").firstMatch
         let newWorkspaceButton = app.descendants(matching: .any).matching(identifier: "titlebarControl.newTab").firstMatch
 
-        window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8)).hover()
         XCTAssertTrue(
             waitForCondition(timeout: 2.0) {
-                !toggleSidebarButton.isHittable && !notificationsButton.isHittable && !newWorkspaceButton.isHittable
+                toggleSidebarButton.exists && toggleSidebarButton.isHittable &&
+                    notificationsButton.exists && notificationsButton.isHittable &&
+                    newWorkspaceButton.exists && newWorkspaceButton.isHittable
             },
-            "Expected hidden-titlebar sidebar controls to start hidden away from hover."
+            "Expected hidden-titlebar sidebar controls to stay visible while the sidebar is visible."
         )
 
         app.typeKey("i", modifierFlags: [.command])
@@ -324,7 +322,7 @@ final class BonsplitTabDragUITests: XCTestCase {
                     notificationsButton.exists && notificationsButton.isHittable &&
                     newWorkspaceButton.exists && newWorkspaceButton.isHittable
             },
-            "Expected hidden-titlebar sidebar controls to stay visible while the notifications popover is open."
+            "Expected hidden-titlebar sidebar controls to remain visible while the notifications popover is open."
         )
     }
 
