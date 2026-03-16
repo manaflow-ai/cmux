@@ -543,8 +543,7 @@ if test -n \"\$branch\"
     set -l first (git status --porcelain -uno 2>/dev/null | head -1)
     set -l dirty_opt ''
     if test -n \"\$first\"; set dirty_opt '--status=dirty'; end
-    set -l escaped_branch (string replace -a '\"' '\\\\\"' -- \$branch)
-    _cmux_send \"report_git_branch \\\"\$escaped_branch\\\" \$dirty_opt --tab=$tab_id --panel=$panel_id\"
+    _cmux_send \"report_git_branch \$branch \$dirty_opt --tab=$tab_id --panel=$panel_id\"
 else
     _cmux_send \"clear_git_branch --tab=$tab_id --panel=$panel_id\"
 end
