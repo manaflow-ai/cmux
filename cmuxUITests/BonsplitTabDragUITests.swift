@@ -392,7 +392,7 @@ final class BonsplitTabDragUITests: XCTestCase {
         if startWithHiddenSidebar {
             app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_START_WITH_HIDDEN_SIDEBAR"] = "1"
         }
-        app.launchArguments += ["-workspaceTitlebarVisible", "NO"]
+        app.launchArguments += ["-workspaceTitlebarVisible", "NO", "-workspaceButtonsFadeMode", "enabled"]
         app.launch()
         app.activate()
         return (app, dataPath)
