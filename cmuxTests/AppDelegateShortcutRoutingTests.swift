@@ -855,6 +855,21 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
     }
 
+    func testKeyboardShortcutSettingsSetShortcutPostsSpecificChangeNotification() {
+        let notificationName = Notification.Name("cmux.keyboardShortcutSettingsDidChange")
+        let expectedAction = KeyboardShortcutSettings.Action.toggleSidebar.rawValue
+        let expectation = expectation(forNotification: notificationName, object: nil) { notification in
+            notification.userInfo?["action"] as? String == expectedAction
+        }
+
+        KeyboardShortcutSettings.setShortcut(
+            StoredShortcut(key: "s", command: true, shift: false, option: false, control: true),
+            for: .toggleSidebar
+        )
+
+        wait(for: [expectation], timeout: 0.2)
+    }
+
     func testCmdPhysicalPWithDvorakCharactersDoesNotTriggerCommandPaletteSwitcher() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
