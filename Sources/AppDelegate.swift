@@ -7810,7 +7810,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func installShortcutDefaultsObserver() {
         guard shortcutDefaultsObserver == nil else { return }
         shortcutDefaultsObserver = NotificationCenter.default.addObserver(
-            forName: UserDefaults.didChangeNotification,
+            forName: KeyboardShortcutSettings.didChangeNotification,
             object: nil,
             queue: .main
         ) { [weak self] _ in

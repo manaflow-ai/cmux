@@ -332,7 +332,7 @@ struct TitlebarControlsView: View {
             .onHover { hovering in
                 isHoveringControls = hovering
             }
-            .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
+            .onReceive(NotificationCenter.default.publisher(for: KeyboardShortcutSettings.didChangeNotification)) { _ in
                 shortcutRefreshTick &+= 1
             }
             .onAppear {

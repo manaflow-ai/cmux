@@ -5419,7 +5419,7 @@ private struct ShortcutSettingRow: View {
             .onChange(of: shortcut) { newValue in
                 KeyboardShortcutSettings.setShortcut(newValue, for: action)
             }
-            .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
+            .onReceive(NotificationCenter.default.publisher(for: KeyboardShortcutSettings.didChangeNotification)) { _ in
                 let latest = KeyboardShortcutSettings.shortcut(for: action)
                 if latest != shortcut {
                     shortcut = latest

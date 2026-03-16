@@ -3,6 +3,9 @@ import SwiftUI
 
 /// Stores customizable keyboard shortcuts (definitions + persistence).
 enum KeyboardShortcutSettings {
+    static let didChangeNotification = Notification.Name("cmux.keyboardShortcutSettingsDidChange")
+    static let actionUserInfoKey = "action"
+
     enum Action: String, CaseIterable, Identifiable {
         // Titlebar / primary UI
         case toggleSidebar
@@ -198,16 +201,34 @@ enum KeyboardShortcutSettings {
         if let data = try? JSONEncoder().encode(shortcut) {
             UserDefaults.standard.set(data, forKey: action.defaultsKey)
         }
+        postDidChangeNotification(action: action)
     }
 
     static func resetShortcut(for action: Action) {
         UserDefaults.standard.removeObject(forKey: action.defaultsKey)
+        postDidChangeNotification(action: action)
     }
 
     static func resetAll() {
         for action in Action.allCases {
-            resetShortcut(for: action)
+            UserDefaults.standard.removeObject(forKey: action.defaultsKey)
         }
+        postDidChangeNotification()
+    }
+
+    private static func postDidChangeNotification(
+        action: Action? = nil,
+        center: NotificationCenter = .default
+    ) {
+        var userInfo: [AnyHashable: Any] = [:]
+        if let action {
+            userInfo[actionUserInfoKey] = action.rawValue
+        }
+        center.post(
+            name: didChangeNotification,
+            object: nil,
+            userInfo: userInfo.isEmpty ? nil : userInfo
+        )
     }
 
     // MARK: - Backwards-Compatible API (call-sites can migrate gradually)
