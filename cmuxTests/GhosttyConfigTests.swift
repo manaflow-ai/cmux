@@ -1781,7 +1781,69 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
         XCTAssertTrue(output.contains("PREEXEC=0"), output)
     }
 
-    private func runInteractiveZsh(cmuxLoadGhosttyIntegration: Bool) throws -> String {
+    func testGhosttyPromptHooksRemainAfterDeferredInitWithCmuxShellIntegration() throws {
+        let output = try runInteractiveZsh(
+            cmuxLoadGhosttyIntegration: true,
+            cmuxShellIntegration: true,
+            command:
+                "_ghostty_fd=1; " +
+                "for fn in \"${precmd_functions[@]}\"; do \"$fn\"; done; " +
+                "print -r -- \"DEFERRED=${+functions[_ghostty_deferred_init]} " +
+                "PRECMD=${+functions[_ghostty_precmd]} PREEXEC=${+functions[_ghostty_preexec]} " +
+                "PRECMDS=${(j:,:)precmd_functions} PREEXECS=${(j:,:)preexec_functions}\""
+        )
+
+        XCTAssertTrue(output.contains("DEFERRED=0"), output)
+        XCTAssertTrue(output.contains("PRECMD=1"), output)
+        XCTAssertTrue(output.contains("PREEXEC=1"), output)
+        XCTAssertTrue(output.contains("_ghostty_precmd"), output)
+        XCTAssertTrue(output.contains("_ghostty_preexec"), output)
+    }
+
+    func testCmuxPromptMarkerFollowsLaterPrecmdOutput() throws {
+        let output = try runInteractiveZsh(
+            cmuxLoadGhosttyIntegration: true,
+            cmuxShellIntegration: true,
+            command:
+                "PS1='PROMPT%# '; " +
+                "late_precmd() { print -rn -- 'LATE'; }; " +
+                "precmd_functions+=(late_precmd); " +
+                "(( $+functions[_ghostty_deferred_init] )) && _ghostty_deferred_init >/dev/null 2>&1; " +
+                "_ghostty_fd=1; " +
+                "for fn in \"${precmd_functions[@]}\"; do \"$fn\"; done; " +
+                "print -P -- \"$PS1\""
+        )
+
+        let lateRange = try XCTUnwrap(output.range(of: "LATE"), output)
+        let promptMarker = try XCTUnwrap(output.range(of: "\u{001B}]133;A"), output)
+        XCTAssertGreaterThan(
+            output.distance(from: output.startIndex, to: promptMarker.lowerBound),
+            output.distance(from: output.startIndex, to: lateRange.lowerBound),
+            output
+        )
+    }
+
+    func testCmuxPromptDrawKeepsInputMarkerWithoutZLELineInit() throws {
+        let output = try runInteractiveZsh(
+            cmuxLoadGhosttyIntegration: true,
+            cmuxShellIntegration: true,
+            command:
+                "PS1='PROMPT%# '; " +
+                "(( $+functions[_ghostty_deferred_init] )) && _ghostty_deferred_init >/dev/null 2>&1; " +
+                "unfunction _ghostty_zle_line_init >/dev/null 2>&1 || true; " +
+                "_ghostty_fd=1; " +
+                "for fn in \"${precmd_functions[@]}\"; do \"$fn\"; done; " +
+                "print -P -- \"$PS1\""
+        )
+
+        XCTAssertTrue(output.contains("\u{001B}]133;B\u{0007}"), output)
+    }
+
+    private func runInteractiveZsh(
+        cmuxLoadGhosttyIntegration: Bool,
+        cmuxShellIntegration: Bool = false,
+        command: String? = nil
+    ) throws -> String {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-zsh-shell-integration-\(UUID().uuidString)")
@@ -1797,15 +1859,17 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
             .deletingLastPathComponent()
         let cmuxZdotdir = repoRoot.appendingPathComponent("Resources/shell-integration")
         let ghosttyResources = repoRoot.appendingPathComponent("ghostty/src")
+        let socketPath = root.appendingPathComponent("cmux-zsh-shell-integration.sock")
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/zsh")
         process.arguments = [
             "-i",
             "-c",
-            "(( $+functions[_ghostty_deferred_init] )) && _ghostty_deferred_init >/dev/null 2>&1; " +
-            "print -r -- \"PRECMD=${+functions[_ghostty_precmd]} " +
-            "PREEXEC=${+functions[_ghostty_preexec]} PRECMDS=${(j:,:)precmd_functions}\""
+            command ??
+                "(( $+functions[_ghostty_deferred_init] )) && _ghostty_deferred_init >/dev/null 2>&1; " +
+                "print -r -- \"PRECMD=${+functions[_ghostty_precmd]} " +
+                "PREEXEC=${+functions[_ghostty_preexec]} PRECMDS=${(j:,:)precmd_functions}\""
         ]
         process.environment = [
             "HOME": root.path,
@@ -1814,8 +1878,12 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
             "USER": NSUserName(),
             "ZDOTDIR": cmuxZdotdir.path,
             "CMUX_ZSH_ZDOTDIR": userZdotdir.path,
-            "CMUX_SHELL_INTEGRATION": "0",
+            "CMUX_SHELL_INTEGRATION": cmuxShellIntegration ? "1" : "0",
+            "CMUX_SHELL_INTEGRATION_DIR": cmuxZdotdir.path,
             "GHOSTTY_RESOURCES_DIR": ghosttyResources.path,
+            "CMUX_SOCKET_PATH": socketPath.path,
+            "CMUX_TAB_ID": UUID().uuidString,
+            "CMUX_PANEL_ID": UUID().uuidString,
         ]
         if cmuxLoadGhosttyIntegration {
             process.environment?["CMUX_LOAD_GHOSTTY_ZSH_INTEGRATION"] = "1"
