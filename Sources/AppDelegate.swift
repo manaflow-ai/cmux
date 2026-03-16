@@ -1946,6 +1946,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var windowKeyObserver: NSObjectProtocol?
     private var shortcutMonitor: Any?
     private var shortcutDefaultsObserver: NSObjectProtocol?
+    /// Tracks the keyboard input source ID at the time of the last keyDown event
+    /// processed by the shortcut monitor. When an external tool (e.g. a keyboard
+    /// layout switcher like Mr. Borat) changes the input source via a CGEvent tap
+    /// before the local monitor fires, the ID will differ and we skip shortcut
+    /// processing for that event to let the layout switch take effect.
+    private var lastKeyboardInputSourceId: String?
     private var menuBarVisibilityObserver: NSObjectProtocol?
     private var splitButtonTooltipRefreshScheduled = false
     private var ghosttyConfigObserver: NSObjectProtocol?
@@ -7628,6 +7634,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             if self.clearEscapeSuppressionForKeyUp(event: event, consumeIfSuppressed: true) {
                 return nil
             }
+            // Keep input source tracking fresh on flagsChanged so the next
+            // keyDown can detect if an external tool changed the layout.
+            // Many layout switchers fire on modifier-only sequences (e.g.
+            // Caps Lock, double-press Shift) which only produce flagsChanged
+            // events. Only refresh when all modifiers are released to avoid
+            // unnecessary TIS calls on every Cmd/Shift press during normal use.
+            if event.type == .flagsChanged {
+                let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+                    .subtracting([.numericPad, .function, .capsLock])
+                if modifiers.isEmpty {
+                    self.lastKeyboardInputSourceId = KeyboardLayout.id
+                }
+            }
             return event
         }
     }
@@ -7846,6 +7865,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func handleCustomShortcut(event: NSEvent) -> Bool {
+        // Detect external keyboard layout switches (e.g. Mr. Borat, Input Source Pro).
+        // These tools change the macOS input source via CGEvent taps before the event
+        // reaches our local monitor. If the input source changed since the last keyDown,
+        // skip shortcut processing so the layout switch takes effect instead of triggering
+        // a bound cmux command.
+        let currentInputSourceId = KeyboardLayout.id
+        if let previousId = lastKeyboardInputSourceId,
+           let currentId = currentInputSourceId,
+           previousId != currentId {
+            lastKeyboardInputSourceId = currentId
+#if DEBUG
+            dlog("shortcut.inputSourceChanged previous=\(previousId) current=\(currentId) — skipping shortcut")
+#endif
+            return false
+        }
+        lastKeyboardInputSourceId = currentInputSourceId
+
         // `charactersIgnoringModifiers` can be nil for some synthetic NSEvents and certain special keys.
         // Treat nil as "" and rely on keyCode/layout-aware fallback logic where needed.
         let chars = (event.charactersIgnoringModifiers ?? "").lowercased()
