@@ -156,12 +156,84 @@ final class BonsplitTabDragUITests: XCTestCase {
         )
     }
 
-    func testHiddenWorkspaceTitlebarSidebarControlsStayVisibleWhileSidebarIsVisible() {
+    func testHiddenWorkspaceTitlebarSidebarControlsRevealOnlyFromSidebarHoverWhenFadeButtonsEnabled() {
         let (app, dataPath) = launchConfiguredApp()
 
         XCTAssertTrue(
             ensureForegroundAfterLaunch(app, timeout: launchTimeout),
             "Expected app to launch for hidden titlebar titlebar-controls hover UI test. state=\(app.state.rawValue)"
+        )
+        XCTAssertTrue(waitForAnyJSON(atPath: dataPath, timeout: setupTimeout), "Expected tab-drag setup data at \(dataPath)")
+        guard let ready = waitForJSONKey("ready", equals: "1", atPath: dataPath, timeout: setupTimeout) else {
+            XCTFail("Timed out waiting for ready=1. data=\(loadJSON(atPath: dataPath) ?? [:])")
+            return
+        }
+
+        if let setupError = ready["setupError"], !setupError.isEmpty {
+            XCTFail("Setup failed: \(setupError)")
+            return
+        }
+
+        let window = app.windows.element(boundBy: 0)
+        XCTAssertTrue(window.waitForExistence(timeout: 5.0), "Expected main window to exist")
+
+        let sidebar = app.descendants(matching: .any).matching(identifier: "Sidebar").firstMatch
+        XCTAssertTrue(sidebar.waitForExistence(timeout: 5.0), "Expected sidebar to exist")
+
+        let toggleSidebarButton = app.descendants(matching: .any).matching(identifier: "titlebarControl.toggleSidebar").firstMatch
+        let notificationsButton = app.descendants(matching: .any).matching(identifier: "titlebarControl.showNotifications").firstMatch
+        let newWorkspaceButton = app.descendants(matching: .any).matching(identifier: "titlebarControl.newTab").firstMatch
+
+        let alphaTitle = ready["alphaTitle"] ?? "UITest Alpha"
+        let alphaTab = app.buttons[alphaTitle]
+        XCTAssertTrue(alphaTab.waitForExistence(timeout: 5.0), "Expected alpha tab to exist")
+
+        let paneLeadingGap = alphaTab.frame.minX - sidebar.frame.maxX
+        XCTAssertLessThan(
+            paneLeadingGap,
+            28,
+            "Expected visible-sidebar hidden-titlebar mode to keep pane tabs tight to the sidebar edge while the traffic lights sit over the sidebar. window=\(window.frame) sidebar=\(sidebar.frame) alphaTab=\(alphaTab.frame) paneLeadingGap=\(paneLeadingGap)"
+        )
+
+        window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8)).hover()
+        XCTAssertTrue(
+            waitForCondition(timeout: 2.0) {
+                !toggleSidebarButton.isHittable && !notificationsButton.isHittable && !newWorkspaceButton.isHittable
+            },
+            "Expected hidden-titlebar sidebar controls to stay hidden away from the sidebar hover zone when Fade Buttons is enabled."
+        )
+
+        hover(in: window, at: CGPoint(x: window.frame.maxX - 48, y: window.frame.minY + 18))
+        XCTAssertTrue(
+            waitForCondition(timeout: 2.0) {
+                !toggleSidebarButton.isHittable && !notificationsButton.isHittable && !newWorkspaceButton.isHittable
+            },
+            "Expected the removed titlebar area to stop revealing hidden-titlebar controls when Fade Buttons is enabled."
+        )
+
+        hover(
+            in: window,
+            at: CGPoint(
+                x: min(sidebar.frame.maxX - 36, sidebar.frame.minX + 116),
+                y: window.frame.minY + 18
+            )
+        )
+        XCTAssertTrue(
+            waitForCondition(timeout: 2.0) {
+                toggleSidebarButton.exists && toggleSidebarButton.isHittable &&
+                    notificationsButton.exists && notificationsButton.isHittable &&
+                    newWorkspaceButton.exists && newWorkspaceButton.isHittable
+            },
+            "Expected hidden-titlebar sidebar controls to reveal when hovering the sidebar chrome area with Fade Buttons enabled."
+        )
+    }
+
+    func testHiddenWorkspaceTitlebarSidebarControlsStayVisibleWhenFadeButtonsDisabled() {
+        let (app, dataPath) = launchConfiguredApp(fadeButtonsMode: "disabled")
+
+        XCTAssertTrue(
+            ensureForegroundAfterLaunch(app, timeout: launchTimeout),
+            "Expected app to launch for hidden titlebar sidebar visibility UI test. state=\(app.state.rawValue)"
         )
         XCTAssertTrue(waitForAnyJSON(atPath: dataPath, timeout: setupTimeout), "Expected tab-drag setup data at \(dataPath)")
         guard let ready = waitForJSONKey("ready", equals: "1", atPath: dataPath, timeout: setupTimeout) else {
@@ -201,7 +273,7 @@ final class BonsplitTabDragUITests: XCTestCase {
                     notificationsButton.exists && notificationsButton.isHittable &&
                     newWorkspaceButton.exists && newWorkspaceButton.isHittable
             },
-            "Expected hidden-titlebar sidebar controls to stay visible whenever the sidebar is visible."
+            "Expected hidden-titlebar sidebar controls to stay visible whenever the sidebar is visible and Fade Buttons is disabled."
         )
 
         window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8)).hover()
@@ -211,7 +283,7 @@ final class BonsplitTabDragUITests: XCTestCase {
                     notificationsButton.exists && notificationsButton.isHittable &&
                     newWorkspaceButton.exists && newWorkspaceButton.isHittable
             },
-            "Expected hidden-titlebar sidebar controls to remain visible even when hovering away from the sidebar header."
+            "Expected hidden-titlebar sidebar controls to remain visible away from the sidebar header when Fade Buttons is disabled."
         )
 
         hover(in: window, at: CGPoint(x: window.frame.maxX - 48, y: window.frame.minY + 18))
@@ -221,7 +293,7 @@ final class BonsplitTabDragUITests: XCTestCase {
                     notificationsButton.exists && notificationsButton.isHittable &&
                     newWorkspaceButton.exists && newWorkspaceButton.isHittable
             },
-            "Expected hidden-titlebar sidebar controls to remain visible without any special hover zone."
+            "Expected hidden-titlebar sidebar controls to remain visible without any special hover zone when Fade Buttons is disabled."
         )
     }
 
@@ -299,13 +371,12 @@ final class BonsplitTabDragUITests: XCTestCase {
         let notificationsButton = app.descendants(matching: .any).matching(identifier: "titlebarControl.showNotifications").firstMatch
         let newWorkspaceButton = app.descendants(matching: .any).matching(identifier: "titlebarControl.newTab").firstMatch
 
+        window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8)).hover()
         XCTAssertTrue(
             waitForCondition(timeout: 2.0) {
-                toggleSidebarButton.exists && toggleSidebarButton.isHittable &&
-                    notificationsButton.exists && notificationsButton.isHittable &&
-                    newWorkspaceButton.exists && newWorkspaceButton.isHittable
+                !toggleSidebarButton.isHittable && !notificationsButton.isHittable && !newWorkspaceButton.isHittable
             },
-            "Expected hidden-titlebar sidebar controls to stay visible while the sidebar is visible."
+            "Expected hidden-titlebar sidebar controls to start hidden away from hover when Fade Buttons is enabled."
         )
 
         app.typeKey("i", modifierFlags: [.command])
@@ -380,7 +451,10 @@ final class BonsplitTabDragUITests: XCTestCase {
         )
     }
 
-    private func launchConfiguredApp(startWithHiddenSidebar: Bool = false) -> (XCUIApplication, String) {
+    private func launchConfiguredApp(
+        startWithHiddenSidebar: Bool = false,
+        fadeButtonsMode: String = "enabled"
+    ) -> (XCUIApplication, String) {
         let app = XCUIApplication()
         let dataPath = "/tmp/cmux-ui-test-bonsplit-tab-drag-\(UUID().uuidString).json"
         try? FileManager.default.removeItem(atPath: dataPath)
@@ -390,7 +464,7 @@ final class BonsplitTabDragUITests: XCTestCase {
         if startWithHiddenSidebar {
             app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_START_WITH_HIDDEN_SIDEBAR"] = "1"
         }
-        app.launchArguments += ["-workspaceTitlebarVisible", "NO", "-workspaceButtonsFadeMode", "enabled"]
+        app.launchArguments += ["-workspaceTitlebarVisible", "NO", "-workspaceButtonsFadeMode", fadeButtonsMode]
         app.launch()
         app.activate()
         return (app, dataPath)
