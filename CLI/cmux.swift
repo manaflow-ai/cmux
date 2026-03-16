@@ -1734,9 +1734,9 @@ struct CMUXCLI {
             let (icon, r1) = parseOption(commandArgs, name: "--icon")
             let (color, r2) = parseOption(r1, name: "--color")
             let (pidRaw, r3) = parseOption(r2, name: "--pid")
-            let pid: Int?
+            let pid: Int32?
             if let pidRaw {
-                guard let parsedPid = Int(pidRaw), parsedPid > 0 else {
+                guard let parsedPid = Int32(pidRaw), parsedPid > 0 else {
                     throw CLIError(message: "--pid must be a positive integer")
                 }
                 pid = parsedPid
