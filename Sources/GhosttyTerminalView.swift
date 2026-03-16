@@ -2329,6 +2329,18 @@ class GhosttyApp {
                 #if DEBUG
                 dlog("link.openURL target=internalFile, opening in markdown panel path=\(path)")
                 #endif
+                // Validate the path is a readable file (not a directory or missing).
+                // Fall back to system handler if validation fails.
+                var isDir: ObjCBool = false
+                let fileExists = FileManager.default.fileExists(atPath: path, isDirectory: &isDir)
+                guard fileExists, !isDir.boolValue else {
+                    #if DEBUG
+                    dlog("link.openURL internalFile not a readable file, falling back to external path=\(path)")
+                    #endif
+                    return performOnMain {
+                        NSWorkspace.shared.open(URL(fileURLWithPath: path))
+                    }
+                }
                 let sourceWorkspaceId = callbackTabId ?? surfaceView.tabId
                 let sourcePanelId = callbackSurfaceId ?? surfaceView.terminalSurface?.id
                 guard let sourceWorkspaceId, let sourcePanelId else {
