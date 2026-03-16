@@ -3584,6 +3584,61 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var deferredSurfaceSizeRetryQueued = false
     private var lastDrawableSize: CGSize = .zero
     private var isFindEscapeSuppressionArmed = false
+    private enum TrackedMouseButton: String, CaseIterable {
+        case left
+        case right
+        case middle
+
+        init?(mouseUpEvent: NSEvent) {
+            switch mouseUpEvent.type {
+            case .leftMouseUp:
+                self = .left
+            case .rightMouseUp:
+                self = .right
+            case .otherMouseUp:
+                guard mouseUpEvent.buttonNumber == 2 else { return nil }
+                self = .middle
+            default:
+                return nil
+            }
+        }
+
+        var ghosttyButton: ghostty_input_mouse_button_e {
+            switch self {
+            case .left:
+                return GHOSTTY_MOUSE_LEFT
+            case .right:
+                return GHOSTTY_MOUSE_RIGHT
+            case .middle:
+                return GHOSTTY_MOUSE_MIDDLE
+            }
+        }
+
+        var pressedMouseButtonsMask: Int {
+            switch self {
+            case .left:
+                return 1 << 0
+            case .right:
+                return 1 << 1
+            case .middle:
+                return 1 << 2
+            }
+        }
+    }
+    private struct RememberedGhosttyMouseState {
+        let localPoint: NSPoint
+        let surfacePoint: NSPoint
+        let mods: ghostty_input_mods_e
+    }
+    private var ghosttyPressedMouseButtons: Set<TrackedMouseButton> = []
+    private var ghosttyPressedMouseButtonGenerations: [TrackedMouseButton: UInt64] = [:]
+    private var nextGhosttyMouseButtonGeneration: UInt64 = 0
+    private var ghosttyLastMouseSurfacePoint: NSPoint?
+    private var ghosttyLastMouseMods: ghostty_input_mods_e = GHOSTTY_MODS_NONE
+    private var hasDeferredMouseButtonRepair = false
+    private var deferredGhosttyMouseButtonRepairForceButtons: Set<TrackedMouseButton> = []
+    private var deferredGhosttyMouseButtonRepairForceButtonGenerations: [TrackedMouseButton: UInt64] = [:]
+    private var deferredGhosttyMouseButtonRepairReason: String?
 #if DEBUG
     private var lastSizeSkipSignature: String?
 #endif
@@ -3729,7 +3784,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     private func installEventMonitor() {
         guard eventMonitor == nil else { return }
-        eventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.scrollWheel]) { [weak self] event in
+        eventMonitor = NSEvent.addLocalMonitorForEvents(
+            matching: [.scrollWheel, .leftMouseUp, .rightMouseUp, .otherMouseUp]
+        ) { [weak self] event in
             return self?.localEventHandler(event) ?? event
         }
     }
@@ -3738,6 +3795,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         switch event.type {
         case .scrollWheel:
             return localEventScrollWheel(event)
+        case .leftMouseUp, .rightMouseUp, .otherMouseUp:
+            return localEventMouseUp(event)
         default:
             return event
         }
@@ -3755,11 +3814,49 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return event
     }
 
+    private func localEventMouseUp(_ event: NSEvent) -> NSEvent? {
+        guard let button = TrackedMouseButton(mouseUpEvent: event),
+              ghosttyPressedMouseButtons.contains(button) else { return event }
+
+        if let eventWindow = event.window, eventWindow == window {
+            _ = rememberGhosttyMouseState(from: event)
+        }
+
+        scheduleGhosttyMouseButtonRepair(
+            reason: "localMouseUp.\(button.rawValue)",
+            forceButtons: Set([button])
+        )
+        return event
+    }
+
+    private func markGhosttyMouseButtonPressed(_ button: TrackedMouseButton) {
+        nextGhosttyMouseButtonGeneration &+= 1
+        ghosttyPressedMouseButtons.insert(button)
+        ghosttyPressedMouseButtonGenerations[button] = nextGhosttyMouseButtonGeneration
+    }
+
+    private func markGhosttyMouseButtonReleased(_ button: TrackedMouseButton) {
+        ghosttyPressedMouseButtons.remove(button)
+        ghosttyPressedMouseButtonGenerations[button] = nil
+    }
+
+    private func resetGhosttyMouseButtonTracking() {
+        ghosttyPressedMouseButtons.removeAll()
+        ghosttyPressedMouseButtonGenerations.removeAll()
+    }
+
     func attachSurface(_ surface: TerminalSurface) {
         let isSameSurface = terminalSurface === surface
         let isAlreadyAttached = surface.isAttached(to: self)
         if !isSameSurface {
             appliedColorScheme = nil
+            resetGhosttyMouseButtonTracking()
+            ghosttyLastMouseSurfacePoint = nil
+            ghosttyLastMouseMods = GHOSTTY_MODS_NONE
+            hasDeferredMouseButtonRepair = false
+            deferredGhosttyMouseButtonRepairForceButtons = []
+            deferredGhosttyMouseButtonRepairForceButtonGenerations = [:]
+            deferredGhosttyMouseButtonRepairReason = nil
         }
         terminalSurface = surface
         tabId = surface.tabId
@@ -3787,7 +3884,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             "pending=\(String(format: "%.1fx%.1f", pendingSurfaceSize?.width ?? 0, pendingSurfaceSize?.height ?? 0))"
         )
 #endif
-        guard let window else { return }
+        guard let window else {
+            scheduleGhosttyMouseButtonRepair(
+                reason: "viewDidMoveToWindow.nil",
+                forceButtons: ghosttyPressedMouseButtons
+            )
+            return
+        }
 
         // If the surface creation was deferred while detached, create/attach it now.
         terminalSurface?.attachToView(self)
@@ -4528,6 +4631,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let result = super.resignFirstResponder()
         if result {
             desiredFocus = false
+            scheduleGhosttyMouseButtonRepair(
+                reason: "resignFirstResponder",
+                forceButtons: ghosttyPressedMouseButtons
+            )
         }
         if result, let surface = surface {
             let now = CACurrentMediaTime()
@@ -5209,6 +5316,113 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return ghostty_input_mods_e(rawValue: mods)
     }
 
+    @discardableResult
+    private func rememberGhosttyMouseState(from event: NSEvent) -> RememberedGhosttyMouseState {
+        let localPoint = convert(event.locationInWindow, from: nil)
+        let surfacePoint = NSPoint(x: localPoint.x, y: bounds.height - localPoint.y)
+        let mods = modsFromEvent(event)
+        ghosttyLastMouseSurfacePoint = surfacePoint
+        ghosttyLastMouseMods = mods
+        return RememberedGhosttyMouseState(
+            localPoint: localPoint,
+            surfacePoint: surfacePoint,
+            mods: mods
+        )
+    }
+
+    private func repairGhosttyMouseButtonsIfNeeded(
+        reason: String,
+        forceButtons: Set<TrackedMouseButton> = [],
+        forceButtonGenerations: [TrackedMouseButton: UInt64]? = nil
+    ) {
+        guard let surface else {
+            resetGhosttyMouseButtonTracking()
+            return
+        }
+        guard !ghosttyPressedMouseButtons.isEmpty else { return }
+
+        let physicalButtons = NSEvent.pressedMouseButtons
+        let buttonsToRelease = ghosttyPressedMouseButtons
+            .filter { button in
+                if forceButtons.contains(button) {
+                    guard let forceButtonGenerations else { return true }
+                    guard let forceGeneration = forceButtonGenerations[button] else { return false }
+                    return ghosttyPressedMouseButtonGenerations[button] == forceGeneration
+                }
+
+                return (physicalButtons & button.pressedMouseButtonsMask) == 0
+            }
+            .sorted { $0.pressedMouseButtonsMask < $1.pressedMouseButtonsMask }
+
+        guard !buttonsToRelease.isEmpty else { return }
+
+        if let surfacePoint = ghosttyLastMouseSurfacePoint {
+            ghostty_surface_mouse_pos(surface, surfacePoint.x, surfacePoint.y, ghosttyLastMouseMods)
+        }
+
+#if DEBUG
+        let buttonList = buttonsToRelease.map(\.rawValue).joined(separator: ",")
+        dlog(
+            "terminal.mouseRepair surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") " +
+            "reason=\(reason) buttons=\(buttonList) physicalMask=\(physicalButtons)"
+        )
+#endif
+
+        for button in buttonsToRelease {
+            _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, button.ghosttyButton, ghosttyLastMouseMods)
+            markGhosttyMouseButtonReleased(button)
+        }
+    }
+
+    private func scheduleGhosttyMouseButtonRepair(
+        reason: String,
+        forceButtons: Set<TrackedMouseButton>
+    ) {
+        guard !ghosttyPressedMouseButtons.isEmpty else { return }
+        for button in forceButtons {
+            guard let generation = ghosttyPressedMouseButtonGenerations[button] else { continue }
+            deferredGhosttyMouseButtonRepairForceButtons.insert(button)
+            // Preserve the scheduled press generation so stale async repairs
+            // cannot release a newer press of the same button.
+            deferredGhosttyMouseButtonRepairForceButtonGenerations[button] = generation
+        }
+        deferredGhosttyMouseButtonRepairReason = {
+            guard let existing = deferredGhosttyMouseButtonRepairReason,
+                  existing != reason else {
+                return reason
+            }
+            return "\(existing)+\(reason)"
+        }()
+        guard !hasDeferredMouseButtonRepair else { return }
+        hasDeferredMouseButtonRepair = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            let deferredReason = self.deferredGhosttyMouseButtonRepairReason ?? reason
+            let deferredForceButtons = self.deferredGhosttyMouseButtonRepairForceButtons
+            let deferredForceButtonGenerations = self.deferredGhosttyMouseButtonRepairForceButtonGenerations
+            self.deferredGhosttyMouseButtonRepairReason = nil
+            self.deferredGhosttyMouseButtonRepairForceButtons = []
+            self.deferredGhosttyMouseButtonRepairForceButtonGenerations = [:]
+            self.hasDeferredMouseButtonRepair = false
+            self.repairGhosttyMouseButtonsIfNeeded(
+                reason: deferredReason,
+                forceButtons: deferredForceButtons,
+                forceButtonGenerations: deferredForceButtonGenerations
+            )
+        }
+    }
+
+    fileprivate func scheduleGhosttyMouseButtonRepair(reason: String) {
+        scheduleGhosttyMouseButtonRepair(reason: reason, forceButtons: [])
+    }
+
+    fileprivate func scheduleForcedGhosttyMouseButtonRepair(reason: String) {
+        scheduleGhosttyMouseButtonRepair(
+            reason: reason,
+            forceButtons: ghosttyPressedMouseButtons
+        )
+    }
+
     func beginFindEscapeSuppression() {
         isFindEscapeSuppressionArmed = true
     }
@@ -5378,8 +5592,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func mouseDown(with event: NSEvent) {
+        let mouseState = rememberGhosttyMouseState(from: event)
+        repairGhosttyMouseButtonsIfNeeded(reason: "mouseDown.preflight", forceButtons: Set([.left]))
         #if DEBUG
-        let debugPoint = convert(event.locationInWindow, from: nil)
+        let debugPoint = mouseState.localPoint
         dlog("terminal.mouseDown surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") mods=[\(debugModifierString(event.modifierFlags))] clickCount=\(event.clickCount) point=(\(String(format: "%.0f", debugPoint.x)),\(String(format: "%.0f", debugPoint.y)))")
         #endif
         // Split reparent/layout churn can suppress the later `becomeFirstResponder -> onFocus`
@@ -5394,20 +5610,24 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             )
         }
         guard let surface = surface else { return }
-        let point = convert(event.locationInWindow, from: nil)
-        ghostty_surface_mouse_pos(surface, point.x, bounds.height - point.y, modsFromEvent(event))
-        _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, modsFromEvent(event))
+        ghostty_surface_mouse_pos(surface, mouseState.surfacePoint.x, mouseState.surfacePoint.y, mouseState.mods)
+        _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, mouseState.mods)
+        markGhosttyMouseButtonPressed(.left)
     }
 
     override func mouseUp(with event: NSEvent) {
+        let mouseState = rememberGhosttyMouseState(from: event)
         #if DEBUG
         dlog("terminal.mouseUp surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") mods=[\(debugModifierString(event.modifierFlags))]")
         #endif
         guard let surface = surface else { return }
-        _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, modsFromEvent(event))
+        _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, mouseState.mods)
+        markGhosttyMouseButtonReleased(.left)
     }
 
     override func rightMouseDown(with event: NSEvent) {
+        let mouseState = rememberGhosttyMouseState(from: event)
+        repairGhosttyMouseButtonsIfNeeded(reason: "rightMouseDown.preflight", forceButtons: Set([.right]))
         guard let surface = surface else { return }
         if !ghostty_surface_mouse_captured(surface) {
             requestPointerFocusRecovery()
@@ -5417,19 +5637,23 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
         requestPointerFocusRecovery()
         window?.makeFirstResponder(self)
-        let point = convert(event.locationInWindow, from: nil)
-        ghostty_surface_mouse_pos(surface, point.x, bounds.height - point.y, modsFromEvent(event))
-        _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_RIGHT, modsFromEvent(event))
+        ghostty_surface_mouse_pos(surface, mouseState.surfacePoint.x, mouseState.surfacePoint.y, mouseState.mods)
+        _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_RIGHT, mouseState.mods)
+        markGhosttyMouseButtonPressed(.right)
     }
 
     override func rightMouseUp(with event: NSEvent) {
+        let mouseState = rememberGhosttyMouseState(from: event)
         guard let surface = surface else { return }
-        if !ghostty_surface_mouse_captured(surface) {
+        let mouseCaptured = ghostty_surface_mouse_captured(surface)
+        if mouseCaptured || ghosttyPressedMouseButtons.contains(.right) {
+            _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_RIGHT, mouseState.mods)
+            markGhosttyMouseButtonReleased(.right)
+        }
+        if !mouseCaptured {
             super.rightMouseUp(with: event)
             return
         }
-
-        _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_RIGHT, modsFromEvent(event))
     }
 
     override func otherMouseDown(with event: NSEvent) {
@@ -5437,12 +5661,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             super.otherMouseDown(with: event)
             return
         }
+        let mouseState = rememberGhosttyMouseState(from: event)
+        repairGhosttyMouseButtonsIfNeeded(reason: "otherMouseDown.preflight", forceButtons: Set([.middle]))
         requestPointerFocusRecovery()
         window?.makeFirstResponder(self)
         guard let surface = surface else { return }
-        let point = convert(event.locationInWindow, from: nil)
-        ghostty_surface_mouse_pos(surface, point.x, bounds.height - point.y, modsFromEvent(event))
-        _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_MIDDLE, modsFromEvent(event))
+        ghostty_surface_mouse_pos(surface, mouseState.surfacePoint.x, mouseState.surfacePoint.y, mouseState.mods)
+        _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_MIDDLE, mouseState.mods)
+        markGhosttyMouseButtonPressed(.middle)
     }
 
     override func otherMouseUp(with event: NSEvent) {
@@ -5450,8 +5676,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             super.otherMouseUp(with: event)
             return
         }
+        let mouseState = rememberGhosttyMouseState(from: event)
         guard let surface = surface else { return }
-        _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_MIDDLE, modsFromEvent(event))
+        _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_MIDDLE, mouseState.mods)
+        markGhosttyMouseButtonReleased(.middle)
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
@@ -5460,10 +5688,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return nil
         }
 
+        let mouseState = rememberGhosttyMouseState(from: event)
+        repairGhosttyMouseButtonsIfNeeded(reason: "menu.preflight", forceButtons: Set([.right]))
         window?.makeFirstResponder(self)
-        let point = convert(event.locationInWindow, from: nil)
-        ghostty_surface_mouse_pos(surface, point.x, bounds.height - point.y, modsFromEvent(event))
-        _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_RIGHT, modsFromEvent(event))
+        ghostty_surface_mouse_pos(surface, mouseState.surfacePoint.x, mouseState.surfacePoint.y, mouseState.mods)
+        _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_RIGHT, mouseState.mods)
+        markGhosttyMouseButtonPressed(.right)
 
         let menu = NSMenu()
         if onTriggerFlash != nil {
@@ -5539,18 +5769,20 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func mouseMoved(with event: NSEvent) {
+        repairGhosttyMouseButtonsIfNeeded(reason: "mouseMoved")
         maybeRequestFirstResponderForMouseFocus()
         guard let surface = surface else { return }
-        let point = convert(event.locationInWindow, from: nil)
-        ghostty_surface_mouse_pos(surface, point.x, bounds.height - point.y, modsFromEvent(event))
+        let mouseState = rememberGhosttyMouseState(from: event)
+        ghostty_surface_mouse_pos(surface, mouseState.surfacePoint.x, mouseState.surfacePoint.y, mouseState.mods)
     }
 
     override func mouseEntered(with event: NSEvent) {
         super.mouseEntered(with: event)
+        repairGhosttyMouseButtonsIfNeeded(reason: "mouseEntered")
         maybeRequestFirstResponderForMouseFocus()
         guard let surface = surface else { return }
-        let point = convert(event.locationInWindow, from: nil)
-        ghostty_surface_mouse_pos(surface, point.x, bounds.height - point.y, modsFromEvent(event))
+        let mouseState = rememberGhosttyMouseState(from: event)
+        ghostty_surface_mouse_pos(surface, mouseState.surfacePoint.x, mouseState.surfacePoint.y, mouseState.mods)
     }
 
     private func maybeRequestFirstResponderForMouseFocus() {
@@ -5571,21 +5803,48 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func mouseExited(with event: NSEvent) {
+        repairGhosttyMouseButtonsIfNeeded(reason: "mouseExited")
         guard let surface = surface else { return }
         if NSEvent.pressedMouseButtons != 0 {
             return
         }
-        ghostty_surface_mouse_pos(surface, -1, -1, modsFromEvent(event))
+        let mods = modsFromEvent(event)
+        ghostty_surface_mouse_pos(surface, -1, -1, mods)
     }
 
     override func mouseDragged(with event: NSEvent) {
         guard let surface = surface else { return }
-        let point = convert(event.locationInWindow, from: nil)
-        ghostty_surface_mouse_pos(surface, point.x, bounds.height - point.y, modsFromEvent(event))
+        let mouseState = rememberGhosttyMouseState(from: event)
+        ghostty_surface_mouse_pos(surface, mouseState.surfacePoint.x, mouseState.surfacePoint.y, mouseState.mods)
+    }
+
+    override func rightMouseDragged(with event: NSEvent) {
+        guard let surface = surface else {
+            super.rightMouseDragged(with: event)
+            return
+        }
+        guard ghostty_surface_mouse_captured(surface) || ghosttyPressedMouseButtons.contains(.right) else {
+            super.rightMouseDragged(with: event)
+            return
+        }
+        let mouseState = rememberGhosttyMouseState(from: event)
+        ghostty_surface_mouse_pos(surface, mouseState.surfacePoint.x, mouseState.surfacePoint.y, mouseState.mods)
+    }
+
+    override func otherMouseDragged(with event: NSEvent) {
+        guard event.buttonNumber == 2 else {
+            super.otherMouseDragged(with: event)
+            return
+        }
+        guard let surface = surface else { return }
+        let mouseState = rememberGhosttyMouseState(from: event)
+        ghostty_surface_mouse_pos(surface, mouseState.surfacePoint.x, mouseState.surfacePoint.y, mouseState.mods)
     }
 
     override func scrollWheel(with event: NSEvent) {
+        repairGhosttyMouseButtonsIfNeeded(reason: "scrollWheel")
         guard let surface = surface else { return }
+        _ = rememberGhosttyMouseState(from: event)
         lastScrollEventTime = CACurrentMediaTime()
         Self.focusLog("scrollWheel: surface=\(terminalSurface?.id.uuidString ?? "nil") firstResponder=\(String(describing: window?.firstResponder))")
         var x = event.scrollingDeltaX
@@ -7069,12 +7328,14 @@ final class GhosttySurfaceScrollView: NSView {
         }
 #endif
         if !visible {
+            surfaceView.scheduleForcedGhosttyMouseButtonRepair(reason: "setVisibleInUI.false")
             // If we were focused, yield first responder.
             if let window, let fr = window.firstResponder as? NSView,
                fr === surfaceView || fr.isDescendant(of: surfaceView) {
                 window.makeFirstResponder(nil)
             }
         } else {
+            surfaceView.scheduleGhosttyMouseButtonRepair(reason: "setVisibleInUI.true")
             applyFirstResponderIfNeeded()
         }
     }
@@ -7102,8 +7363,10 @@ final class GhosttySurfaceScrollView: NSView {
         }
 #endif
         if active {
+            surfaceView.scheduleGhosttyMouseButtonRepair(reason: "setActive.true")
             applyFirstResponderIfNeeded()
         } else {
+            surfaceView.scheduleForcedGhosttyMouseButtonRepair(reason: "setActive.false")
             resignOwnedFirstResponderIfNeeded(reason: "setActive(false)")
         }
     }
