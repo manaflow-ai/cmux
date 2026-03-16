@@ -1844,3 +1844,50 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
         return output.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
+
+final class BrowserMouseFocusTests: XCTestCase {
+    func testShouldRequestPanelFocusForMouseHoverWhenEnabledAndWindowIsActive() {
+        XCTAssertTrue(
+            CmuxWebView.shouldRequestPanelFocusForMouseHover(
+                focusFollowsMouseEnabled: true,
+                pressedMouseButtons: 0,
+                appIsActive: true,
+                windowIsKey: true,
+                alreadyFirstResponder: false
+            )
+        )
+    }
+
+    func testShouldNotRequestPanelFocusForMouseHoverWhenDisabled() {
+        XCTAssertFalse(
+            CmuxWebView.shouldRequestPanelFocusForMouseHover(
+                focusFollowsMouseEnabled: false,
+                pressedMouseButtons: 0,
+                appIsActive: true,
+                windowIsKey: true,
+                alreadyFirstResponder: false
+            )
+        )
+    }
+
+    func testShouldNotRequestPanelFocusForMouseHoverDuringDragOrWhenAlreadyFocused() {
+        XCTAssertFalse(
+            CmuxWebView.shouldRequestPanelFocusForMouseHover(
+                focusFollowsMouseEnabled: true,
+                pressedMouseButtons: 1,
+                appIsActive: true,
+                windowIsKey: true,
+                alreadyFirstResponder: false
+            )
+        )
+        XCTAssertFalse(
+            CmuxWebView.shouldRequestPanelFocusForMouseHover(
+                focusFollowsMouseEnabled: true,
+                pressedMouseButtons: 0,
+                appIsActive: true,
+                windowIsKey: true,
+                alreadyFirstResponder: true
+            )
+        )
+    }
+}
