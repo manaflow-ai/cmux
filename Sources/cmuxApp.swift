@@ -1064,6 +1064,7 @@ private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
     "cmux.settings",
     "cmux.about",
     "cmux.licenses",
+    "cmux.browser-popup",
     "cmux.settingsAboutTitlebarDebug",
     "cmux.debugWindowControls",
     "cmux.sidebarDebug",

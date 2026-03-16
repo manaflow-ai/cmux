@@ -8350,7 +8350,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             event: event,
             shortcut: StoredShortcut(key: "w", command: true, shift: false, option: false, control: false)
         ) {
-            if let targetWindow = event.window ?? NSApp.keyWindow ?? NSApp.mainWindow,
+            // Browser popup windows primarily intercept Cmd+W in BrowserPopupPanel.
+            // This AppDelegate path is a fallback for cases where AppKit routes the
+            // event through the global shortcut handler first.
+            if let targetWindow = [NSApp.keyWindow, event.window]
+                .compactMap({ $0 })
+                .first(where: { $0.identifier?.rawValue == "cmux.browser-popup" }) {
+#if DEBUG
+                dlog("shortcut.cmdW route=browserPopup")
+#endif
+                targetWindow.performClose(nil)
+                return true
+            } else if let targetWindow = event.window ?? NSApp.keyWindow ?? NSApp.mainWindow,
                cmuxWindowShouldOwnCloseShortcut(targetWindow) {
                 targetWindow.performClose(nil)
             } else {

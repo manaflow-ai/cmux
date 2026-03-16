@@ -1268,6 +1268,9 @@ final class BrowserPanel: Panel, ObservableObject {
     /// Shared process pool for cookie sharing across all browser panels
     private static let sharedProcessPool = WKProcessPool()
 
+    /// Popup windows owned by this panel (for lifecycle cleanup)
+    private var popupControllers: [BrowserPopupWindowController] = []
+
     static let telemetryHookBootstrapScriptSource = """
     (() => {
       if (window.__cmuxHooksInstalled) return true;
@@ -2014,6 +2017,9 @@ final class BrowserPanel: Panel, ObservableObject {
                 self?.endDownloadActivity()
             }
         }
+        webView.onContextMenuOpenLinkInNewTab = { [weak self] url in
+            self?.openLinkInNewTab(url: url)
+        }
         webView.navigationDelegate = navigationDelegate
         webView.uiDelegate = uiDelegate
         setupObservers(for: webView)
@@ -2096,6 +2102,9 @@ final class BrowserPanel: Panel, ObservableObject {
         }
         browserUIDelegate.requestNavigation = { [weak self] request, intent in
             self?.requestNavigation(request, intent: intent)
+        }
+        browserUIDelegate.openPopup = { [weak self] configuration, windowFeatures in
+            self?.createFloatingPopup(configuration: configuration, windowFeatures: windowFeatures)
         }
         self.uiDelegate = browserUIDelegate
 
@@ -2373,6 +2382,17 @@ final class BrowserPanel: Panel, ObservableObject {
         // Ensure we don't keep a hidden WKWebView (or its content view) as first responder while
         // bonsplit/SwiftUI reshuffles views during close.
         unfocus()
+
+        // Snapshot first: popup close unregisters itself from popupControllers.
+        let popupsToClose = popupControllers
+        popupControllers.removeAll()
+
+        // Close all owned popup windows before tearing down delegates
+        for popup in popupsToClose {
+            popup.closeAllChildPopups()
+            popup.closePopup()
+        }
+
         webView.stopLoading()
         webView.navigationDelegate = nil
         webView.uiDelegate = nil
@@ -2382,6 +2402,25 @@ final class BrowserPanel: Panel, ObservableObject {
         webViewCancellables.removeAll()
         faviconTask?.cancel()
         faviconTask = nil
+    }
+
+    // MARK: - Popup window management
+
+    func createFloatingPopup(
+        configuration: WKWebViewConfiguration,
+        windowFeatures: WKWindowFeatures
+    ) -> WKWebView? {
+        let controller = BrowserPopupWindowController(
+            configuration: configuration,
+            windowFeatures: windowFeatures,
+            openerPanel: self
+        )
+        popupControllers.append(controller)
+        return controller.webView
+    }
+
+    func removePopupController(_ controller: BrowserPopupWindowController) {
+        popupControllers.removeAll { $0 === controller }
     }
 
     private func refreshFavicon(from webView: WKWebView) {
@@ -4438,7 +4477,7 @@ private extension NSObject {
 
 /// Handles WKDownload lifecycle by saving to a temp file synchronously (no UI
 /// during WebKit callbacks), then showing NSSavePanel after the download finishes.
-private class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
+class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
     private struct DownloadState {
         let tempURL: URL
         let suggestedFilename: String
@@ -4594,6 +4633,25 @@ func browserNavigationShouldOpenInNewTab(
         return true
     }
     return false
+}
+
+func browserNavigationShouldCreatePopup(
+    navigationType: WKNavigationType,
+    modifierFlags: NSEvent.ModifierFlags,
+    buttonNumber: Int,
+    hasRecentMiddleClickIntent: Bool = false,
+    currentEventType: NSEvent.EventType? = NSApp.currentEvent?.type,
+    currentEventButtonNumber: Int? = NSApp.currentEvent?.buttonNumber
+) -> Bool {
+    let isUserNewTab = browserNavigationShouldOpenInNewTab(
+        navigationType: navigationType,
+        modifierFlags: modifierFlags,
+        buttonNumber: buttonNumber,
+        hasRecentMiddleClickIntent: hasRecentMiddleClickIntent,
+        currentEventType: currentEventType,
+        currentEventButtonNumber: currentEventButtonNumber
+    )
+    return navigationType == .other && !isUserNewTab
 }
 
 private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
@@ -4833,7 +4891,10 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
             return
         }
 
-        // target=_blank or window.open() — open in a new tab.
+        // Catch-all for nil-target navigations where createWebViewWith
+        // returned nil: external URLs, user-initiated new-window actions
+        // (target=_blank, context menu) that fall through the classifier,
+        // or when popup creation is unavailable.
         if navigationAction.targetFrame == nil,
            let url = navigationAction.request.url {
 #if DEBUG
@@ -4925,6 +4986,7 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
 private class BrowserUIDelegate: NSObject, WKUIDelegate {
     var openInNewTab: ((URL) -> Void)?
     var requestNavigation: ((URLRequest, BrowserInsecureHTTPNavigationIntent) -> Void)?
+    var openPopup: ((WKWebViewConfiguration, WKWindowFeatures) -> WKWebView?)?
 
     private func javaScriptDialogTitle(for webView: WKWebView) -> String {
         if let absolute = webView.url?.absoluteString, !absolute.isEmpty {
@@ -4945,17 +5007,17 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
         completion(alert.runModal())
     }
 
-    /// Returning nil tells WebKit not to open a new window.
-    /// createWebViewWith is only called when the page requests a new window
-    /// (window.open(), target=_blank, etc.). Always open in a new tab.
+    /// Called when the page requests a new window (window.open(), target=_blank, etc.).
+    ///
+    /// Returns a live popup WKWebView created with WebKit's supplied configuration
+    /// to preserve popup browsing-context semantics (window.opener, postMessage).
+    /// Falls back to new-tab behavior only if popup creation is unavailable.
     func webView(
         _ webView: WKWebView,
         createWebViewWith configuration: WKWebViewConfiguration,
         for navigationAction: WKNavigationAction,
         windowFeatures: WKWindowFeatures
     ) -> WKWebView? {
-        // createWebViewWith is only called when the page requests a new window,
-        // so always treat as new-tab intent regardless of modifiers/button.
 #if DEBUG
         let currentEventType = NSApp.currentEvent.map { String(describing: $0.type) } ?? "nil"
         let currentEventButton = NSApp.currentEvent.map { String($0.buttonNumber) } ?? "nil"
@@ -4963,21 +5025,45 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
         dlog(
             "browser.nav.createWebView navType=\(navType) button=\(navigationAction.buttonNumber) " +
             "mods=\(navigationAction.modifierFlags.rawValue) targetNil=\(navigationAction.targetFrame == nil ? 1 : 0) " +
-            "eventType=\(currentEventType) eventButton=\(currentEventButton) " +
-            "openInNewTab=1"
+            "eventType=\(currentEventType) eventButton=\(currentEventButton)"
         )
 #endif
-        if let url = navigationAction.request.url {
-            if browserShouldOpenURLExternally(url) {
-                let opened = NSWorkspace.shared.open(url)
-                if !opened {
-                    NSLog("BrowserPanel external navigation failed to open URL: %@", url.absoluteString)
-                }
-                #if DEBUG
-                dlog("browser.navigation.external source=uiDelegate opened=\(opened ? 1 : 0) url=\(url.absoluteString)")
-                #endif
-                return nil
+        // External URL schemes → hand off to macOS, don't create a popup
+        if let url = navigationAction.request.url,
+           browserShouldOpenURLExternally(url) {
+            let opened = NSWorkspace.shared.open(url)
+            if !opened {
+                NSLog("BrowserPanel external navigation failed to open URL: %@", url.absoluteString)
             }
+            #if DEBUG
+            dlog("browser.navigation.external source=uiDelegate opened=\(opened ? 1 : 0) url=\(url.absoluteString)")
+            #endif
+            return nil
+        }
+
+        // Classifier: only scripted requests (window.open()) get popup windows.
+        // User-initiated actions (link clicks, context menu "Open Link in New Tab",
+        // Cmd+click, middle-click) fall through to existing new-tab behavior.
+        //
+        // WebKit sometimes delivers .other for Cmd+click / middle-click, so we
+        // reuse browserNavigationShouldOpenInNewTab to recover user intent before
+        // treating .other as a scripted popup.
+        let isScriptedPopup = browserNavigationShouldCreatePopup(
+            navigationType: navigationAction.navigationType,
+            modifierFlags: navigationAction.modifierFlags,
+            buttonNumber: navigationAction.buttonNumber,
+            hasRecentMiddleClickIntent: CmuxWebView.hasRecentMiddleClickIntent(for: webView)
+        )
+
+        if isScriptedPopup, let popupWebView = openPopup?(configuration, windowFeatures) {
+#if DEBUG
+            dlog("browser.nav.createWebView.action kind=popup")
+#endif
+            return popupWebView
+        }
+
+        // Fallback: open in new tab (no opener linkage)
+        if let url = navigationAction.request.url {
             if let requestNavigation {
                 let intent: BrowserInsecureHTTPNavigationIntent = .newTab
 #if DEBUG

@@ -7276,6 +7276,23 @@
         }
       }
     },
+    "browser.popup.loadingTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Loading\u2026"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\u8aad\u307f\u8fbc\u307f\u4e2d\u2026"
+          }
+        }
+      }
+    },
     "browser.proceedInCmux": {
       "extractionState": "manual",
       "localizations": {
