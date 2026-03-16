@@ -10069,6 +10069,22 @@ enum SidebarWorkspaceShortcutHintMetrics {
         return count
     }
     #endif
+
+    static func resolvedSlotWidth(
+        showsHint: Bool,
+        showsCloseButton: Bool,
+        hintLabel: String?,
+        debugXOffset: Double,
+        closeButtonSize: CGFloat
+    ) -> CGFloat {
+        if showsHint {
+            return slotWidth(label: hintLabel, debugXOffset: debugXOffset)
+        } else if showsCloseButton {
+            return closeButtonSize
+        } else {
+            return 0
+        }
+    }
 }
 
 // PERF: TabItemView is Equatable so SwiftUI skips body re-evaluation when
@@ -10223,16 +10239,13 @@ private struct TabItemView: View, Equatable {
     }
 
     private var workspaceHintSlotWidth: CGFloat {
-        if showsWorkspaceShortcutHint {
-            return SidebarWorkspaceShortcutHintMetrics.slotWidth(
-                label: workspaceShortcutLabel,
-                debugXOffset: sidebarShortcutHintXOffset
-            )
-        } else if showCloseButton {
-            return Self.closeButtonSize
-        } else {
-            return 0
-        }
+        SidebarWorkspaceShortcutHintMetrics.resolvedSlotWidth(
+            showsHint: showsWorkspaceShortcutHint,
+            showsCloseButton: showCloseButton,
+            hintLabel: workspaceShortcutLabel,
+            debugXOffset: sidebarShortcutHintXOffset,
+            closeButtonSize: Self.closeButtonSize
+        )
     }
 
     private var visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility {

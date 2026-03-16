@@ -11852,6 +11852,53 @@ final class SidebarWorkspaceShortcutHintMetricsTests: XCTestCase {
         let widened = SidebarWorkspaceShortcutHintMetrics.slotWidth(label: "⌘1", debugXOffset: 10)
         XCTAssertGreaterThan(widened, base)
     }
+
+    func testResolvedSlotWidthReturnsZeroWhenNothingVisible() {
+        let width = SidebarWorkspaceShortcutHintMetrics.resolvedSlotWidth(
+            showsHint: false,
+            showsCloseButton: false,
+            hintLabel: "⌘1",
+            debugXOffset: 0,
+            closeButtonSize: 16
+        )
+        XCTAssertEqual(width, 0)
+    }
+
+    func testResolvedSlotWidthReturnsCloseButtonSizeOnHover() {
+        let width = SidebarWorkspaceShortcutHintMetrics.resolvedSlotWidth(
+            showsHint: false,
+            showsCloseButton: true,
+            hintLabel: "⌘1",
+            debugXOffset: 0,
+            closeButtonSize: 16
+        )
+        XCTAssertEqual(width, 16)
+    }
+
+    func testResolvedSlotWidthReturnsHintWidthWhenHintVisible() {
+        let width = SidebarWorkspaceShortcutHintMetrics.resolvedSlotWidth(
+            showsHint: true,
+            showsCloseButton: false,
+            hintLabel: "⌘1",
+            debugXOffset: 0,
+            closeButtonSize: 16
+        )
+        let expectedHintWidth = SidebarWorkspaceShortcutHintMetrics.slotWidth(label: "⌘1", debugXOffset: 0)
+        XCTAssertEqual(width, expectedHintWidth)
+        XCTAssertGreaterThan(width, 16)
+    }
+
+    func testResolvedSlotWidthHintTakesPrecedenceOverCloseButton() {
+        let width = SidebarWorkspaceShortcutHintMetrics.resolvedSlotWidth(
+            showsHint: true,
+            showsCloseButton: true,
+            hintLabel: "⌘1",
+            debugXOffset: 0,
+            closeButtonSize: 16
+        )
+        let expectedHintWidth = SidebarWorkspaceShortcutHintMetrics.slotWidth(label: "⌘1", debugXOffset: 0)
+        XCTAssertEqual(width, expectedHintWidth)
+    }
 }
 #endif
 
