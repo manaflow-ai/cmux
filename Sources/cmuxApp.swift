@@ -587,6 +587,23 @@ struct cmuxApp: App {
                     BrowserHistoryStore.shared.clearHistory()
                 }
 
+                Divider()
+
+                Button(String(localized: "menu.view.sidebarZoomIn", defaultValue: "Sidebar Zoom In")) {
+                    SidebarFontSizeSettings.increase()
+                }
+                .keyboardShortcut("=", modifiers: [.command, .shift])
+
+                Button(String(localized: "menu.view.sidebarZoomOut", defaultValue: "Sidebar Zoom Out")) {
+                    SidebarFontSizeSettings.decrease()
+                }
+                .keyboardShortcut("-", modifiers: [.command, .shift])
+
+                Button(String(localized: "menu.view.sidebarZoomReset", defaultValue: "Sidebar Actual Size")) {
+                    SidebarFontSizeSettings.reset()
+                }
+                .keyboardShortcut("0", modifiers: [.command, .shift])
+
                 splitCommandButton(title: String(localized: "menu.view.nextWorkspace", defaultValue: "Next Workspace"), shortcut: nextWorkspaceMenuShortcut) {
                     activeTabManager.selectNextTab()
                 }
