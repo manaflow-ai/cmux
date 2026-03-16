@@ -3725,7 +3725,7 @@ extension BrowserPanel {
         if suppressWebViewFocusForAddressBar {
             return true
         }
-        if searchState != nil {
+        if searchState != nil && preferredFocusIntent == .findField {
             return true
         }
         if let until = suppressWebViewFocusUntil {
@@ -3783,7 +3783,7 @@ extension BrowserPanel {
     }
 
     func noteWebViewFocused() {
-        guard searchState == nil else { return }
+        guard !(searchState != nil && preferredFocusIntent == .findField) else { return }
         guard preferredFocusIntent != .webView else { return }
         preferredFocusIntent = .webView
         invalidateSearchFocusRequests(reason: "webViewFocused")

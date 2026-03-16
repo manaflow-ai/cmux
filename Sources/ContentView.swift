@@ -6088,7 +6088,9 @@ struct ContentView: View {
         focusedBrowserAddressBarPanelId: UUID?,
         focusedPanelId: UUID?
     ) -> Bool {
-        focusedPanelIsBrowser && focusedBrowserAddressBarPanelId == focusedPanelId
+        focusedPanelIsBrowser &&
+            focusedBrowserAddressBarPanelId != nil &&
+            focusedBrowserAddressBarPanelId == focusedPanelId
     }
 
     private func syncCommandPaletteDebugStateForObservedWindow() {
@@ -6238,7 +6240,7 @@ struct ContentView: View {
     ) -> CommandPaletteRestoreFocusTarget? {
         let overlayController = commandPaletteWindowOverlayController(for: window)
         if let responder = overlayController.underlyingResponder(atWindowPoint: windowPoint),
-           let target = commandPaletteBackdropFocusTarget(for: responder) {
+           let target = commandPaletteBackdropFocusTarget(for: responder, in: window) {
             return target
         }
 
@@ -6262,7 +6264,10 @@ struct ContentView: View {
         return nil
     }
 
-    private func commandPaletteBackdropFocusTarget(for responder: NSResponder) -> CommandPaletteRestoreFocusTarget? {
+    private func commandPaletteBackdropFocusTarget(
+        for responder: NSResponder,
+        in window: NSWindow?
+    ) -> CommandPaletteRestoreFocusTarget? {
         if let terminalView = cmuxOwningGhosttyView(for: responder),
            let workspaceId = terminalView.tabId,
            let panelId = terminalView.terminalSurface?.id,
@@ -6270,28 +6275,37 @@ struct ContentView: View {
             return commandPaletteRestoreFocusTarget(
                 workspaceId: workspaceId,
                 panelId: panelId,
+                explicitIntent: commandPaletteTerminalFocusIntent(for: responder),
                 fallbackIntent: .terminal(.surface),
-                in: observedWindow
+                in: window
             )
         }
 
+        if let target = commandPaletteBrowserAddressBarFocusTarget(for: responder, in: window) {
+            return target
+        }
+
         if let webView = commandPaletteOwningWebView(for: responder),
-           let target = commandPaletteBrowserFocusTarget(for: webView) {
+           let target = commandPaletteBrowserFocusTarget(for: webView, responder: responder, in: window) {
             return target
         }
 
         return nil
     }
 
-    private func commandPaletteBrowserFocusTarget(for webView: WKWebView) -> CommandPaletteRestoreFocusTarget? {
+    private func commandPaletteBrowserFocusTarget(
+        for webView: WKWebView,
+        responder: NSResponder? = nil,
+        in window: NSWindow? = nil
+    ) -> CommandPaletteRestoreFocusTarget? {
         if let selectedWorkspace = tabManager.selectedWorkspace,
-           let target = commandPaletteBrowserFocusTarget(in: selectedWorkspace, for: webView) {
+           let target = commandPaletteBrowserFocusTarget(in: selectedWorkspace, for: webView, responder: responder, in: window) {
             return target
         }
 
         let selectedWorkspaceId = tabManager.selectedTabId
         for workspace in tabManager.tabs where workspace.id != selectedWorkspaceId {
-            if let target = commandPaletteBrowserFocusTarget(in: workspace, for: webView) {
+            if let target = commandPaletteBrowserFocusTarget(in: workspace, for: webView, responder: responder, in: window) {
                 return target
             }
         }
@@ -6301,7 +6315,9 @@ struct ContentView: View {
 
     private func commandPaletteBrowserFocusTarget(
         in workspace: Workspace,
-        for webView: WKWebView
+        for webView: WKWebView,
+        responder: NSResponder? = nil,
+        in window: NSWindow? = nil
     ) -> CommandPaletteRestoreFocusTarget? {
         for (panelId, panel) in workspace.panels {
             guard let browserPanel = panel as? BrowserPanel,
@@ -6312,8 +6328,13 @@ struct ContentView: View {
             return commandPaletteRestoreFocusTarget(
                 workspaceId: workspace.id,
                 panelId: panelId,
+                explicitIntent: commandPaletteBrowserFocusIntent(
+                    for: responder,
+                    panelId: panelId,
+                    in: window
+                ),
                 fallbackIntent: .browser(.webView),
-                in: observedWindow
+                in: window
             )
         }
 
@@ -6323,10 +6344,11 @@ struct ContentView: View {
     private func commandPaletteRestoreFocusTarget(
         workspaceId: UUID,
         panelId: UUID,
+        explicitIntent: PanelFocusIntent? = nil,
         fallbackIntent: PanelFocusIntent,
         in window: NSWindow?
     ) -> CommandPaletteRestoreFocusTarget {
-        let intent = tabManager.tabs
+        let intent = explicitIntent ?? tabManager.tabs
             .first(where: { $0.id == workspaceId })?
             .panels[panelId]?
             .captureFocusIntent(in: window) ?? fallbackIntent
@@ -6336,6 +6358,73 @@ struct ContentView: View {
             panelId: panelId,
             intent: intent
         )
+    }
+
+    private func commandPaletteTerminalFocusIntent(for responder: NSResponder) -> PanelFocusIntent {
+        if commandPaletteResponderIsTerminalSearchOverlay(responder) {
+            return .terminal(.findField)
+        }
+        return .terminal(.surface)
+    }
+
+    private func commandPaletteBrowserFocusIntent(
+        for responder: NSResponder?,
+        panelId: UUID,
+        in window: NSWindow?
+    ) -> PanelFocusIntent? {
+        if let responder,
+           let window,
+           BrowserWindowPortalRegistry.searchOverlayPanelId(for: responder, in: window) == panelId {
+            return .browser(.findField)
+        }
+
+        if browserOmnibarPanelId(for: responder) == panelId {
+            return .browser(.addressBar)
+        }
+
+        return nil
+    }
+
+    private func commandPaletteBrowserAddressBarFocusTarget(
+        for responder: NSResponder,
+        in window: NSWindow?
+    ) -> CommandPaletteRestoreFocusTarget? {
+        guard let panelId = browserOmnibarPanelId(for: responder) else {
+            return nil
+        }
+
+        for workspace in tabManager.tabs where workspace.panels[panelId] is BrowserPanel {
+            return commandPaletteRestoreFocusTarget(
+                workspaceId: workspace.id,
+                panelId: panelId,
+                explicitIntent: .browser(.addressBar),
+                fallbackIntent: .browser(.addressBar),
+                in: window
+            )
+        }
+
+        return nil
+    }
+
+    private func commandPaletteResponderOwningView(for responder: NSResponder?) -> NSView? {
+        guard let responder else { return nil }
+        if let editor = responder as? NSTextView,
+           editor.isFieldEditor,
+           let editedView = editor.delegate as? NSView {
+            return editedView
+        }
+        return responder as? NSView
+    }
+
+    private func commandPaletteResponderIsTerminalSearchOverlay(_ responder: NSResponder) -> Bool {
+        var current = commandPaletteResponderOwningView(for: responder)
+        while let view = current {
+            if view is NSHostingView<SurfaceSearchOverlay> {
+                return true
+            }
+            current = view.superview
+        }
+        return false
     }
 
     private func restoreCommandPaletteFocus(

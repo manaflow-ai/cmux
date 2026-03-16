@@ -1693,8 +1693,7 @@ final class WindowBrowserSlotView: NSView {
         let firstResponderSummary: String = {
             guard let firstResponder = window?.firstResponder else { return "nil" }
             if let editor = firstResponder as? NSTextView, editor.isFieldEditor {
-                let delegateSummary = editor.delegate.map { String(describing: type(of: $0)) } ?? "nil"
-                return "fieldEditor(delegate=\(delegateSummary))"
+                return "fieldEditor"
             }
             return String(describing: type(of: firstResponder))
         }()

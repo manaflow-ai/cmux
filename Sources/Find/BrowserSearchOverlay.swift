@@ -14,7 +14,8 @@ struct BrowserSearchOverlay: View {
     @State private var corner: Corner = .topRight
     @State private var dragOffset: CGSize = .zero
     @State private var barSize: CGSize = .zero
-    @FocusState private var isSearchFieldFocused: Bool
+    @State private var isSearchFieldFocused = false
+    @State private var focusRequestNonce: UInt64 = 0
 
     private let padding: CGFloat = 8
 
@@ -23,8 +24,7 @@ struct BrowserSearchOverlay: View {
         guard let window = NSApp.keyWindow else { return "nil" }
         guard let firstResponder = window.firstResponder else { return "nil" }
         if let editor = firstResponder as? NSTextView, editor.isFieldEditor {
-            let delegateSummary = editor.delegate.map { String(describing: type(of: $0)) } ?? "nil"
-            return "fieldEditor(delegate=\(delegateSummary))"
+            return "fieldEditor"
         }
         return String(describing: type(of: firstResponder))
     }
@@ -50,8 +50,10 @@ struct BrowserSearchOverlay: View {
 #endif
             return
         }
+
         logFocusState("request.begin origin=\(origin) remaining=\(maxAttempts)")
         isSearchFieldFocused = true
+        focusRequestNonce &+= 1
 #if DEBUG
         DispatchQueue.main.async {
             guard canApplyFocusRequest(focusRequestGeneration) else {
@@ -76,17 +78,35 @@ struct BrowserSearchOverlay: View {
     var body: some View {
         GeometryReader { geo in
             HStack(spacing: 4) {
-                TextField("Search", text: $searchState.needle)
-                    .textFieldStyle(.plain)
-                    .accessibilityIdentifier("BrowserFindSearchTextField")
-                    .frame(width: 180)
-                    .padding(.leading, 8)
-                    .padding(.trailing, 50)
-                    .padding(.vertical, 6)
-                    .background(Color.primary.opacity(0.1))
-                    .cornerRadius(6)
-                    .focused($isSearchFieldFocused)
-                    .overlay(alignment: .trailing) {
+                BrowserSearchTextFieldRepresentable(
+                    text: $searchState.needle,
+                    isFocused: $isSearchFieldFocused,
+                    focusRequestNonce: focusRequestNonce,
+                    focusRequestGeneration: focusRequestGeneration,
+                    canApplyFocusRequest: canApplyFocusRequest,
+                    onFieldDidFocus: {
+                        logFocusState("nativeField.didFocus")
+                        onFieldDidFocus()
+                    },
+                    onSubmit: { isShift in
+                        if isShift {
+                            onPrevious()
+                        } else {
+                            onNext()
+                        }
+                    },
+                    onEscape: {
+                        onClose()
+                    }
+                )
+                .accessibilityIdentifier("BrowserFindSearchTextField")
+                .frame(width: 180)
+                .padding(.leading, 8)
+                .padding(.trailing, 50)
+                .padding(.vertical, 6)
+                .background(Color.primary.opacity(0.1))
+                .cornerRadius(6)
+                .overlay(alignment: .trailing) {
                     if let selected = searchState.selected {
                         let totalText = searchState.total.map { String($0) } ?? "?"
                         Text("\(selected + 1)/\(totalText)")
@@ -100,17 +120,6 @@ struct BrowserSearchOverlay: View {
                             .foregroundColor(.secondary)
                             .monospacedDigit()
                             .padding(.trailing, 8)
-                    }
-                }
-                .onExitCommand {
-                    onClose()
-                }
-                .onSubmit {
-                    // onSubmit fires only after IME composition is committed.
-                    if NSEvent.modifierFlags.contains(.shift) {
-                        onPrevious()
-                    } else {
-                        onNext()
                     }
                 }
 
@@ -160,17 +169,15 @@ struct BrowserSearchOverlay: View {
             }
             .onChange(of: isSearchFieldFocused) { _, focused in
                 logFocusState("focusState.change next=\(focused ? 1 : 0)")
-                if focused {
-                    onFieldDidFocus()
-                }
             }
             .onReceive(NotificationCenter.default.publisher(for: .browserSearchFocus)) { notification in
                 guard let notifiedPanelId = notification.object as? UUID,
                       notifiedPanelId == panelId else { return }
                 logFocusState("notification.received")
-                DispatchQueue.main.async {
-                    requestSearchFieldFocus(origin: "notification")
-                }
+                requestSearchFieldFocus(origin: "notification")
+            }
+            .onExitCommand {
+                onClose()
             }
             .background(
                 GeometryReader { barGeo in
@@ -247,5 +254,143 @@ struct BrowserSearchOverlay: View {
             return point.y < midY ? .topLeft : .bottomLeft
         }
         return point.y < midY ? .topRight : .bottomRight
+    }
+}
+
+private final class BrowserSearchNativeTextField: NSTextField {
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        isBordered = false
+        isBezeled = false
+        drawsBackground = false
+        focusRingType = .none
+        usesSingleLineMode = true
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+}
+
+private struct BrowserSearchTextFieldRepresentable: NSViewRepresentable {
+    @Binding var text: String
+    @Binding var isFocused: Bool
+    let focusRequestNonce: UInt64
+    let focusRequestGeneration: UInt64
+    let canApplyFocusRequest: (UInt64) -> Bool
+    let onFieldDidFocus: () -> Void
+    let onSubmit: (_ isShift: Bool) -> Void
+    let onEscape: () -> Void
+
+    final class Coordinator: NSObject, NSTextFieldDelegate {
+        var parent: BrowserSearchTextFieldRepresentable
+        var isProgrammaticMutation = false
+        var lastAppliedFocusRequestNonce: UInt64 = 0
+        var pendingFocusRequest = false
+        weak var parentField: BrowserSearchNativeTextField?
+
+        init(parent: BrowserSearchTextFieldRepresentable) {
+            self.parent = parent
+        }
+
+        func controlTextDidChange(_ obj: Notification) {
+            guard !isProgrammaticMutation else { return }
+            guard let field = obj.object as? NSTextField else { return }
+            parent.text = field.stringValue
+        }
+
+        func controlTextDidBeginEditing(_ obj: Notification) {
+            parent.onFieldDidFocus()
+            if !parent.isFocused {
+                DispatchQueue.main.async {
+                    self.parent.isFocused = true
+                }
+            }
+        }
+
+        func controlTextDidEndEditing(_ obj: Notification) {
+            if parent.isFocused {
+                DispatchQueue.main.async {
+                    self.parent.isFocused = false
+                }
+            }
+        }
+
+        func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+            switch commandSelector {
+            case #selector(NSResponder.cancelOperation(_:)):
+                if textView.hasMarkedText() {
+                    return false
+                }
+                parent.onEscape()
+                return true
+            case #selector(NSResponder.insertNewline(_:)):
+                if textView.hasMarkedText() {
+                    return false
+                }
+                let isShift = NSApp.currentEvent?.modifierFlags.contains(.shift) ?? false
+                parent.onSubmit(isShift)
+                return true
+            default:
+                return false
+            }
+        }
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(parent: self)
+    }
+
+    func makeNSView(context: Context) -> BrowserSearchNativeTextField {
+        let field = BrowserSearchNativeTextField(frame: .zero)
+        field.font = .systemFont(ofSize: NSFont.systemFontSize)
+        field.placeholderString = String(localized: "search.placeholder", defaultValue: "Search")
+        field.setAccessibilityIdentifier("BrowserFindSearchTextField")
+        field.delegate = context.coordinator
+        field.stringValue = text
+        context.coordinator.parentField = field
+        return field
+    }
+
+    func updateNSView(_ nsView: BrowserSearchNativeTextField, context: Context) {
+        context.coordinator.parent = self
+        context.coordinator.parentField = nsView
+
+        if let editor = nsView.currentEditor() as? NSTextView {
+            if editor.string != text, !editor.hasMarkedText() {
+                context.coordinator.isProgrammaticMutation = true
+                editor.string = text
+                nsView.stringValue = text
+                context.coordinator.isProgrammaticMutation = false
+            }
+        } else if nsView.stringValue != text {
+            nsView.stringValue = text
+        }
+
+        guard isFocused,
+              focusRequestNonce != 0,
+              focusRequestNonce != context.coordinator.lastAppliedFocusRequestNonce,
+              canApplyFocusRequest(focusRequestGeneration),
+              !context.coordinator.pendingFocusRequest else {
+            return
+        }
+
+        context.coordinator.lastAppliedFocusRequestNonce = focusRequestNonce
+        context.coordinator.pendingFocusRequest = true
+        DispatchQueue.main.async { [weak nsView, weak coordinator = context.coordinator] in
+            guard let nsView, let coordinator else { return }
+            coordinator.pendingFocusRequest = false
+            guard coordinator.parent.isFocused else { return }
+            guard coordinator.parent.canApplyFocusRequest(coordinator.parent.focusRequestGeneration) else { return }
+            guard let window = nsView.window else { return }
+
+            let firstResponder = window.firstResponder
+            let alreadyFocused =
+                firstResponder === nsView ||
+                nsView.currentEditor() != nil ||
+                ((firstResponder as? NSTextView)?.delegate as? NSTextField) === nsView
+            guard !alreadyFocused else { return }
+            window.makeFirstResponder(nsView)
+        }
     }
 }

@@ -2,6 +2,30 @@ import Bonsplit
 import SwiftUI
 import WebKit
 import AppKit
+import ObjectiveC
+
+private var browserOmnibarPanelAssociationKey: UInt8 = 0
+
+func browserOmnibarPanelId(for responder: NSResponder?) -> UUID? {
+    var current = browserOmnibarOwningView(for: responder)
+    while let view = current {
+        if let panelId = objc_getAssociatedObject(view, &browserOmnibarPanelAssociationKey) as? UUID {
+            return panelId
+        }
+        current = view.superview
+    }
+    return nil
+}
+
+private func browserOmnibarOwningView(for responder: NSResponder?) -> NSView? {
+    guard let responder else { return nil }
+    if let editor = responder as? NSTextView,
+       editor.isFieldEditor,
+       let editedView = editor.delegate as? NSView {
+        return editedView
+    }
+    return responder as? NSView
+}
 
 enum BrowserDevToolsIconOption: String, CaseIterable, Identifiable {
     case wrenchAndScrewdriver = "wrench.and.screwdriver"
@@ -748,6 +772,7 @@ struct BrowserPanelView: View {
                     }
                 ),
                 isFocused: $addressBarFocused,
+                panelId: panel.id,
                 inlineCompletion: inlineCompletion,
                 placeholder: String(localized: "browser.addressBar.placeholder", defaultValue: "Search or enter URL"),
                 onTap: {
@@ -2780,6 +2805,7 @@ private final class OmnibarNativeTextField: NSTextField {
 private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
     @Binding var text: String
     @Binding var isFocused: Bool
+    let panelId: UUID
     let inlineCompletion: OmnibarInlineCompletion?
     let placeholder: String
     let onTap: () -> Void
@@ -3259,6 +3285,8 @@ private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
         let field = OmnibarNativeTextField(frame: .zero)
         field.font = .systemFont(ofSize: 12)
         field.placeholderString = placeholder
+        field.setAccessibilityIdentifier("BrowserOmnibarTextField")
+        objc_setAssociatedObject(field, &browserOmnibarPanelAssociationKey, panelId, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
         field.delegate = context.coordinator
         field.target = nil
         field.action = nil
@@ -3280,6 +3308,7 @@ private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
         context.coordinator.parent = self
         context.coordinator.parentField = nsView
         nsView.placeholderString = placeholder
+        objc_setAssociatedObject(nsView, &browserOmnibarPanelAssociationKey, panelId, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
 
         let activeInlineCompletion = omnibarInlineCompletionIfBufferMatchesTypedPrefix(
             bufferText: text,

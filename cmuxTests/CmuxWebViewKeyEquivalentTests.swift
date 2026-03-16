@@ -4253,6 +4253,16 @@ final class CommandPaletteRestoreFocusStateMachineTests: XCTestCase {
             )
         )
     }
+
+    func testDoesNotRestoreBrowserAddressBarWhenNoPanelHadAddressBarFocus() {
+        XCTAssertFalse(
+            ContentView.shouldRestoreBrowserAddressBarAfterCommandPaletteDismiss(
+                focusedPanelIsBrowser: true,
+                focusedBrowserAddressBarPanelId: nil,
+                focusedPanelId: nil
+            )
+        )
+    }
 }
 
 final class CommandPaletteRenameSelectionSettingsTests: XCTestCase {
