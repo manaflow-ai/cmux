@@ -1696,6 +1696,32 @@ func shouldRouteTerminalFontZoomShortcutToGhostty(
     ) != nil
 }
 
+@discardableResult
+func startOrFocusTerminalSearch(
+    _ terminalSurface: TerminalSurface,
+    searchFocusNotifier: @escaping (TerminalSurface) -> Void = {
+        NotificationCenter.default.post(name: .ghosttySearchFocus, object: $0)
+    }
+) -> Bool {
+    if terminalSurface.searchState != nil {
+        searchFocusNotifier(terminalSurface)
+        return true
+    }
+
+    if terminalSurface.performBindingAction("start_search") {
+        DispatchQueue.main.async { [weak terminalSurface] in
+            guard let terminalSurface, terminalSurface.searchState == nil else { return }
+            terminalSurface.searchState = TerminalSurface.SearchState()
+            searchFocusNotifier(terminalSurface)
+        }
+        return true
+    }
+
+    terminalSurface.searchState = TerminalSurface.SearchState()
+    searchFocusNotifier(terminalSurface)
+    return true
+}
+
 /// Let AppKit own native Cmd+` window cycling so key-window changes do not
 /// re-enter our direct-to-menu shortcut path.
 func shouldRouteCommandEquivalentDirectlyToMainMenu(_ event: NSEvent) -> Bool {

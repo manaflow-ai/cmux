@@ -12025,6 +12025,18 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         return nil
     }
 
+    private func firstResponderOwnsTextField(_ firstResponder: NSResponder?, textField: NSTextField) -> Bool {
+        if firstResponder === textField {
+            return true
+        }
+        if let editor = firstResponder as? NSTextView,
+           editor.isFieldEditor,
+           editor.delegate as? NSTextField === textField {
+            return true
+        }
+        return false
+    }
+
     func testTrackpadScrollRoutesToTerminalSurfaceAndPreservesKeyboardFocusPath() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
@@ -12157,10 +12169,103 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
 
         let searchState = TerminalSurface.SearchState(needle: "example")
         hostedView.setSearchOverlay(searchState: searchState)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         XCTAssertTrue(hostedView.debugHasSearchOverlay())
 
         hostedView.setSearchOverlay(searchState: nil)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         XCTAssertFalse(hostedView.debugHasSearchOverlay())
+    }
+
+    func testRapidSearchOverlayToggleDoesNotLeaveStaleOverlayMounted() {
+        let surface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        let hostedView = surface.hostedView
+
+        hostedView.setSearchOverlay(searchState: TerminalSurface.SearchState(needle: "example"))
+        hostedView.setSearchOverlay(searchState: nil)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        XCTAssertFalse(
+            hostedView.debugHasSearchOverlay(),
+            "A stale deferred mount must not resurrect the find overlay after it closes"
+        )
+    }
+
+    func testSearchOverlayFocusesSearchFieldAfterDeferredAttach() {
+        let surface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        let hostedView = surface.hostedView
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+        hostedView.frame = contentView.bounds
+        hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostedView)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        hostedView.setVisibleInUI(true)
+        hostedView.setActive(true)
+
+        let searchState = TerminalSurface.SearchState(needle: "")
+        surface.searchState = searchState
+        hostedView.setSearchOverlay(searchState: searchState)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        guard let searchField = findEditableTextField(in: hostedView) else {
+            XCTFail("Expected mounted find text field")
+            return
+        }
+
+        XCTAssertTrue(
+            firstResponderOwnsTextField(window.firstResponder, textField: searchField),
+            "Deferred search overlay attach should still move focus into the find field"
+        )
+    }
+
+    func testStartOrFocusTerminalSearchReusesExistingSearchState() {
+        let surface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        let existingSearchState = TerminalSurface.SearchState(needle: "existing")
+        surface.searchState = existingSearchState
+
+        var focusNotificationCount = 0
+        XCTAssertTrue(
+            startOrFocusTerminalSearch(surface) { _ in
+                focusNotificationCount += 1
+            }
+        )
+
+        XCTAssertTrue(surface.searchState === existingSearchState)
+        XCTAssertEqual(
+            focusNotificationCount,
+            1,
+            "Re-triggering terminal Find should refocus the existing overlay without recreating state"
+        )
     }
 
     func testEscapeDismissingFindOverlayDoesNotLeakEscapeKeyUpToTerminal() {
@@ -12398,6 +12503,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         )
         let hostedView = surface.hostedView
         hostedView.setSearchOverlay(searchState: TerminalSurface.SearchState(needle: "split"))
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         XCTAssertTrue(hostedView.debugHasSearchOverlay())
 
         portal.bind(hostedView: hostedView, to: anchorA, visibleInUI: true)
@@ -12436,6 +12542,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         )
         let hostedView = surface.hostedView
         hostedView.setSearchOverlay(searchState: TerminalSurface.SearchState(needle: "workspace"))
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         XCTAssertTrue(hostedView.debugHasSearchOverlay())
 
         portal.bind(hostedView: hostedView, to: anchor, visibleInUI: true)

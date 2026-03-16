@@ -5900,7 +5900,9 @@ final class GhosttySurfaceScrollView: NSView {
     private let keyboardCopyModeBadgeIconView: NSImageView
     private let keyboardCopyModeBadgeLabel: NSTextField
     private var searchOverlayHostingView: NSHostingView<SurfaceSearchOverlay>?
+    private var deferredSearchOverlayMutationWorkItem: DispatchWorkItem?
     private var lastSearchOverlayStateID: ObjectIdentifier?
+    private var searchOverlayMutationGeneration: UInt64 = 0
     private var observers: [NSObjectProtocol] = []
     private var windowObservers: [NSObjectProtocol] = []
     private var isLiveScrolling = false
@@ -6286,6 +6288,7 @@ final class GhosttySurfaceScrollView: NSView {
 #endif
         observers.forEach { NotificationCenter.default.removeObserver($0) }
         windowObservers.forEach { NotificationCenter.default.removeObserver($0) }
+        deferredSearchOverlayMutationWorkItem?.cancel()
         dropZoneOverlayView.removeFromSuperview()
         cancelFocusRequest()
     }
@@ -6372,6 +6375,9 @@ final class GhosttySurfaceScrollView: NSView {
         }
         _ = setFrameIfNeeded(notificationRingOverlayView, to: bounds)
         _ = setFrameIfNeeded(flashOverlayView, to: bounds)
+        if let overlay = searchOverlayHostingView {
+            _ = setFrameIfNeeded(overlay, to: bounds)
+        }
         updateNotificationRingPath()
         updateFlashPath(style: .standardFocus)
         synchronizeScrollView()
@@ -6609,50 +6615,42 @@ final class GhosttySurfaceScrollView: NSView {
         CATransaction.commit()
     }
 
-    func setSearchOverlay(searchState: TerminalSurface.SearchState?) {
-        if !Thread.isMainThread {
-            DispatchQueue.main.async { [weak self] in
-                self?.setSearchOverlay(searchState: searchState)
-            }
-            return
+    private func cancelDeferredSearchOverlayMutation() {
+        deferredSearchOverlayMutationWorkItem?.cancel()
+        deferredSearchOverlayMutationWorkItem = nil
+    }
+
+    private func scheduleDeferredSearchOverlayMutation(
+        generation: UInt64,
+        _ mutation: @escaping () -> Void
+    ) {
+        cancelDeferredSearchOverlayMutation()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            guard self.searchOverlayMutationGeneration == generation else { return }
+            self.deferredSearchOverlayMutationWorkItem = nil
+            mutation()
         }
+        deferredSearchOverlayMutationWorkItem = work
+        DispatchQueue.main.async(execute: work)
+    }
 
-        // Layering contract: keep terminal Cmd+F UI inside this portal-hosted AppKit view.
-        // SwiftUI panel-level overlays can fall behind portal-hosted terminal surfaces.
-        guard let terminalSurface = surfaceView.terminalSurface,
-              let searchState else {
-            let hadOverlay = searchOverlayHostingView != nil
-            lastSearchOverlayStateID = nil
-            guard hadOverlay else { return }
-#if DEBUG
-            dlog("find.setSearchOverlay REMOVE surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") hadOverlay=\(hadOverlay)")
-#endif
-            searchOverlayHostingView?.removeFromSuperview()
-            searchOverlayHostingView = nil
-            searchFocusTarget = .searchField
-            return
+    private func updateKeyboardCopyModeBadgeZOrder(relativeTo overlay: NSView?) {
+        guard !keyboardCopyModeBadgeContainerView.isHidden else { return }
+        if let overlay, overlay.superview === self {
+            addSubview(keyboardCopyModeBadgeContainerView, positioned: .above, relativeTo: overlay)
+        } else {
+            addSubview(keyboardCopyModeBadgeContainerView, positioned: .above, relativeTo: nil)
         }
+    }
 
-        let searchStateID = ObjectIdentifier(searchState)
-        if let overlay = searchOverlayHostingView,
-           lastSearchOverlayStateID == searchStateID,
-           overlay.superview === self {
-            if !keyboardCopyModeBadgeContainerView.isHidden {
-                addSubview(keyboardCopyModeBadgeContainerView, positioned: .above, relativeTo: overlay)
-            }
-            return
-        }
-
-        let hadOverlay = searchOverlayHostingView != nil
-#if DEBUG
-        dlog("find.setSearchOverlay MOUNT surface=\(terminalSurface.id.uuidString.prefix(5)) existingOverlay=\(hadOverlay ? "yes(update)" : "no(create)")")
-#endif
-
-        let tabId = terminalSurface.tabId
-        let surfaceId = terminalSurface.id
-        let rootView = SurfaceSearchOverlay(
-            tabId: tabId,
-            surfaceId: surfaceId,
+    private func makeSearchOverlayRootView(
+        terminalSurface: TerminalSurface,
+        searchState: TerminalSurface.SearchState
+    ) -> SurfaceSearchOverlay {
+        SurfaceSearchOverlay(
+            tabId: terminalSurface.tabId,
+            surfaceId: terminalSurface.id,
             searchState: searchState,
             onMoveFocusToTerminal: { [weak self] in
                 self?.searchFocusTarget = .terminal
@@ -6670,41 +6668,165 @@ final class GhosttySurfaceScrollView: NSView {
                 self?.moveFocus()
             }
         )
+    }
+
+    private func findEditableSearchField(in view: NSView?) -> NSTextField? {
+        guard let view else { return nil }
+        if let field = view as? NSTextField, field.isEditable {
+            return field
+        }
+        for subview in view.subviews {
+            if let field = findEditableSearchField(in: subview) {
+                return field
+            }
+        }
+        return nil
+    }
+
+    private func requestMountedSearchFieldFocus(
+        generation: UInt64,
+        force: Bool,
+        attemptsRemaining: Int = 4
+    ) {
+        guard searchOverlayMutationGeneration == generation else { return }
+        guard force || searchFocusTarget == .searchField else { return }
+        guard let overlay = searchOverlayHostingView,
+              overlay.superview === self,
+              let window,
+              window.isKeyWindow else { return }
+
+        guard let field = findEditableSearchField(in: overlay) else {
+            guard attemptsRemaining > 0 else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) { [weak self] in
+                self?.requestMountedSearchFieldFocus(
+                    generation: generation,
+                    force: force,
+                    attemptsRemaining: attemptsRemaining - 1
+                )
+            }
+            return
+        }
+
+        let firstResponder = window.firstResponder
+        let alreadyFocused = firstResponder === field ||
+            field.currentEditor() != nil ||
+            ((firstResponder as? NSTextView)?.delegate as? NSTextField) === field
+        guard !alreadyFocused else { return }
+
+        surfaceView.terminalSurface?.setFocus(false)
+        let result = window.makeFirstResponder(field)
+#if DEBUG
+        dlog(
+            "find.mountedFieldFocus surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") " +
+            "result=\(result ? 1 : 0) attemptsRemaining=\(attemptsRemaining) " +
+            "firstResponder=\(String(describing: window.firstResponder))"
+        )
+#endif
+        guard !result, attemptsRemaining > 0 else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) { [weak self] in
+            self?.requestMountedSearchFieldFocus(
+                generation: generation,
+                force: force,
+                attemptsRemaining: attemptsRemaining - 1
+            )
+        }
+    }
+
+    func setSearchOverlay(searchState: TerminalSurface.SearchState?) {
+        if !Thread.isMainThread {
+            DispatchQueue.main.async { [weak self] in
+                self?.setSearchOverlay(searchState: searchState)
+            }
+            return
+        }
+
+        searchOverlayMutationGeneration &+= 1
+        let mutationGeneration = searchOverlayMutationGeneration
+
+        // Layering contract: keep terminal Cmd+F UI inside this portal-hosted AppKit view.
+        // SwiftUI panel-level overlays can fall behind portal-hosted terminal surfaces.
+        guard let terminalSurface = surfaceView.terminalSurface,
+              let searchState else {
+            let hadOverlay = searchOverlayHostingView != nil
+            lastSearchOverlayStateID = nil
+            searchFocusTarget = .searchField
+            guard hadOverlay else {
+                cancelDeferredSearchOverlayMutation()
+                return
+            }
+#if DEBUG
+            dlog("find.setSearchOverlay REMOVE surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") hadOverlay=\(hadOverlay)")
+#endif
+            scheduleDeferredSearchOverlayMutation(generation: mutationGeneration) { [weak self] in
+                self?.searchOverlayHostingView?.removeFromSuperview()
+                self?.searchOverlayHostingView = nil
+            }
+            return
+        }
+
+        let searchStateID = ObjectIdentifier(searchState)
+        if let overlay = searchOverlayHostingView,
+           lastSearchOverlayStateID == searchStateID,
+           overlay.superview === self {
+            cancelDeferredSearchOverlayMutation()
+            _ = setFrameIfNeeded(overlay, to: bounds)
+            updateKeyboardCopyModeBadgeZOrder(relativeTo: overlay)
+            return
+        }
+
+        let hadOverlay = searchOverlayHostingView != nil
+#if DEBUG
+        dlog("find.setSearchOverlay MOUNT surface=\(terminalSurface.id.uuidString.prefix(5)) existingOverlay=\(hadOverlay ? "yes(update)" : "no(create)")")
+#endif
+
+        let rootView = makeSearchOverlayRootView(
+            terminalSurface: terminalSurface,
+            searchState: searchState
+        )
 
         if let overlay = searchOverlayHostingView {
             overlay.rootView = rootView
-            if overlay.superview !== self {
-                overlay.removeFromSuperview()
-                addSubview(overlay)
-                NSLayoutConstraint.activate([
-                    overlay.topAnchor.constraint(equalTo: topAnchor),
-                    overlay.bottomAnchor.constraint(equalTo: bottomAnchor),
-                    overlay.leadingAnchor.constraint(equalTo: leadingAnchor),
-                    overlay.trailingAnchor.constraint(equalTo: trailingAnchor),
-                ])
-            }
-            if !keyboardCopyModeBadgeContainerView.isHidden {
-                addSubview(keyboardCopyModeBadgeContainerView, positioned: .above, relativeTo: overlay)
-            }
             lastSearchOverlayStateID = searchStateID
+            if overlay.superview !== self {
+                scheduleDeferredSearchOverlayMutation(generation: mutationGeneration) { [weak self, weak overlay] in
+                    guard let self, let overlay else { return }
+                    overlay.removeFromSuperview()
+                    overlay.frame = self.bounds
+                    overlay.autoresizingMask = [.width, .height]
+                    self.addSubview(overlay)
+                    self.updateKeyboardCopyModeBadgeZOrder(relativeTo: overlay)
+                    self.requestMountedSearchFieldFocus(
+                        generation: mutationGeneration,
+                        force: false
+                    )
+                }
+                return
+            }
+            cancelDeferredSearchOverlayMutation()
+            _ = setFrameIfNeeded(overlay, to: bounds)
+            updateKeyboardCopyModeBadgeZOrder(relativeTo: overlay)
             return
         }
 
         searchFocusTarget = .searchField
         let overlay = NSHostingView(rootView: rootView)
-        overlay.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(overlay)
-        NSLayoutConstraint.activate([
-            overlay.topAnchor.constraint(equalTo: topAnchor),
-            overlay.bottomAnchor.constraint(equalTo: bottomAnchor),
-            overlay.leadingAnchor.constraint(equalTo: leadingAnchor),
-            overlay.trailingAnchor.constraint(equalTo: trailingAnchor),
-        ])
-        if !keyboardCopyModeBadgeContainerView.isHidden {
-            addSubview(keyboardCopyModeBadgeContainerView, positioned: .above, relativeTo: overlay)
-        }
+        overlay.frame = bounds
+        overlay.autoresizingMask = [.width, .height]
         searchOverlayHostingView = overlay
         lastSearchOverlayStateID = searchStateID
+        scheduleDeferredSearchOverlayMutation(generation: mutationGeneration) { [weak self, weak overlay] in
+            guard let self, let overlay else { return }
+            guard self.searchOverlayHostingView === overlay else { return }
+            overlay.removeFromSuperview()
+            overlay.frame = self.bounds
+            overlay.autoresizingMask = [.width, .height]
+            self.addSubview(overlay)
+            self.updateKeyboardCopyModeBadgeZOrder(relativeTo: overlay)
+            self.requestMountedSearchFieldFocus(
+                generation: mutationGeneration,
+                force: true
+            )
+        }
     }
 
     func syncKeyStateIndicator(text: String?) {
@@ -6723,11 +6845,7 @@ final class GhosttySurfaceScrollView: NSView {
                 || subviews.last !== keyboardCopyModeBadgeContainerView
             keyboardCopyModeBadgeContainerView.isHidden = false
             if needsReorder {
-                if let overlay = searchOverlayHostingView {
-                    addSubview(keyboardCopyModeBadgeContainerView, positioned: .above, relativeTo: overlay)
-                } else {
-                    addSubview(keyboardCopyModeBadgeContainerView, positioned: .above, relativeTo: nil)
-                }
+                updateKeyboardCopyModeBadgeZOrder(relativeTo: searchOverlayHostingView)
             }
             return
         }
@@ -7434,6 +7552,17 @@ final class GhosttySurfaceScrollView: NSView {
         switch searchFocusTarget {
         case .searchField:
             if let firstResponder = window.firstResponder,
+               isCurrentSurfaceSearchFieldResponder(firstResponder) {
+                surfaceView.terminalSurface?.setFocus(false)
+#if DEBUG
+                dlog(
+                    "find.restoreSearchFocus.skip surface=\(surfaceShort) target=searchField " +
+                    "reason=alreadyFocused firstResponder=\(String(describing: firstResponder))"
+                )
+#endif
+                return
+            }
+            if let firstResponder = window.firstResponder,
                isSearchOverlayOrDescendant(firstResponder),
                !isCurrentSurfaceSearchResponder(firstResponder) {
                 surfaceView.terminalSurface?.setFocus(false)
@@ -7634,6 +7763,17 @@ final class GhosttySurfaceScrollView: NSView {
 
         guard let view = resolvedResponder as? NSView else { return false }
         return view.isDescendant(of: self)
+    }
+
+    private func isCurrentSurfaceSearchFieldResponder(_ responder: NSResponder) -> Bool {
+        if let editor = responder as? NSTextView,
+           editor.isFieldEditor,
+           let editedView = editor.delegate as? NSTextField {
+            return editedView.isDescendant(of: self) && isSearchOverlayOrDescendant(editedView)
+        }
+
+        guard let textField = responder as? NSTextField else { return false }
+        return textField.isDescendant(of: self) && isSearchOverlayOrDescendant(textField)
     }
 
 #if DEBUG
