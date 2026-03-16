@@ -177,7 +177,9 @@ def test_live_socket_injects_hooks_and_preserves_config(failures: list[str]) -> 
     expect("old-notify-leaked" not in overlay, f"live socket: old notify command leaked through: {overlay}", failures)
     expect(any("ping" in line for line in cmux_log), f"live socket: expected cmux ping, got {cmux_log}", failures)
     expect(any(line == "clear-status codex" for line in cmux_log), f"live socket: expected clear-status cleanup, got {cmux_log}", failures)
-    expect(any(line == "clear-notifications" for line in cmux_log), f"live socket: expected clear-notifications cleanup, got {cmux_log}", failures)
+    # clear-notifications is intentionally omitted — it is workspace-global and
+    # would wipe notifications from other agents/sessions in the same surface.
+    expect(not any(line == "clear-notifications" for line in cmux_log), f"live socket: clear-notifications should NOT be called (workspace-global), got {cmux_log}", failures)
 
 
 def test_missing_socket_skips_injection(failures: list[str]) -> None:

@@ -60,7 +60,8 @@ CMUX_CODEX_HOME="$(mktemp -d "${TMPDIR:-/tmp}/cmux-codex-home.XXXXXX")" || {
 }
 cleanup() {
     run_cmux clear-status codex || true
-    run_cmux clear-notifications || true
+    # Note: clear-notifications is intentionally omitted — it is workspace-global
+    # and would wipe notifications from other agents/sessions in the same surface.
     rm -rf "$CMUX_CODEX_HOME"
 }
 trap cleanup EXIT HUP INT TERM
