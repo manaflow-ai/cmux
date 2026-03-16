@@ -59,6 +59,8 @@ CMUX_CODEX_HOME="$(mktemp -d "${TMPDIR:-/tmp}/cmux-codex-home.XXXXXX")" || {
     exec "$REAL_CODEX" "$@"
 }
 cleanup() {
+    run_cmux clear-status codex || true
+    run_cmux clear-notifications || true
     rm -rf "$CMUX_CODEX_HOME"
 }
 trap cleanup EXIT HUP INT TERM
@@ -81,7 +83,19 @@ fi
 # Create merged config.toml: preserve user config + inject notify command
 {
     if [[ -f "$EXISTING_HOME/config.toml" ]]; then
-        grep -Ev '^[[:space:]]*notify[[:space:]]*=' "$EXISTING_HOME/config.toml" 2>/dev/null || true
+        awk '
+            BEGIN { skip = 0 }
+            skip {
+                if ($0 ~ /\]/) skip = 0
+                next
+            }
+            /^[[:space:]]*notify[[:space:]]*=[[:space:]]*\[/ {
+                if ($0 !~ /\]/) skip = 1
+                next
+            }
+            /^[[:space:]]*notify[[:space:]]*=/ { next }
+            { print }
+        ' "$EXISTING_HOME/config.toml" 2>/dev/null || true
         printf '\n'
     fi
     if [[ -x "$NOTIFY_SCRIPT" ]]; then
@@ -90,8 +104,6 @@ fi
 } > "$CMUX_CODEX_HOME/config.toml"
 
 # Create hooks.json for SessionStart/Stop lifecycle events.
-# $CMUX_CODEX_PID is expanded at runtime by the hook's shell — it is exported
-# below and inherited through codex into its child hook processes.
 cat > "$CMUX_CODEX_HOME/hooks.json" << 'HOOKSJSON'
 {
   "hooks": {
@@ -101,7 +113,7 @@ cat > "$CMUX_CODEX_HOME/hooks.json" << 'HOOKSJSON'
         "hooks": [
           {
             "type": "command",
-            "command": "cmux set-status codex Running --icon bolt.fill --color '#4C8DFF' --pid ${CMUX_CODEX_PID:-0} 2>/dev/null; cat > /dev/null",
+            "command": "cmux set-status codex Running --icon bolt.fill --color '#4C8DFF' 2>/dev/null; cat > /dev/null",
             "timeout": 10
           }
         ]
@@ -123,14 +135,8 @@ cat > "$CMUX_CODEX_HOME/hooks.json" << 'HOOKSJSON'
 HOOKSJSON
 
 export CODEX_HOME="$CMUX_CODEX_HOME"
-export CMUX_CODEX_PID=$$
 
 run_cmux clear-status codex || true
 
 "$REAL_CODEX" "$@"
-STATUS=$?
-
-run_cmux clear-status codex || true
-run_cmux clear-notifications || true
-
-exit "$STATUS"
+exit $?
