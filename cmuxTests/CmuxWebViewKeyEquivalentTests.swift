@@ -7895,12 +7895,14 @@ final class FinderServicePathResolverTests: XCTestCase {
 final class TerminalDirectoryOpenTargetAvailabilityTests: XCTestCase {
     private func environment(
         existingPaths: Set<String>,
-        homeDirectoryPath: String = "/Users/tester"
+        homeDirectoryPath: String = "/Users/tester",
+        applicationPathsByName: [String: String] = [:]
     ) -> TerminalDirectoryOpenTarget.DetectionEnvironment {
         TerminalDirectoryOpenTarget.DetectionEnvironment(
             homeDirectoryPath: homeDirectoryPath,
             fileExistsAtPath: { existingPaths.contains($0) },
-            isExecutableFileAtPath: { existingPaths.contains($0) }
+            isExecutableFileAtPath: { existingPaths.contains($0) },
+            applicationPathForName: { applicationPathsByName[$0] }
         )
     }
 
@@ -7939,9 +7941,10 @@ final class TerminalDirectoryOpenTargetAvailabilityTests: XCTestCase {
         XCTAssertFalse(availableTargets.contains(.vscode))
     }
 
-    func testVSCodeRequiresCodeTunnelExecutable() {
+    func testVSCodeInlineRequiresCodeTunnelExecutable() {
         let env = environment(existingPaths: ["/Applications/Visual Studio Code.app"])
-        XCTAssertFalse(TerminalDirectoryOpenTarget.vscode.isAvailable(in: env))
+        XCTAssertTrue(TerminalDirectoryOpenTarget.vscode.isAvailable(in: env))
+        XCTAssertFalse(TerminalDirectoryOpenTarget.vscodeInline.isAvailable(in: env))
     }
 
     func testITerm2DetectsLegacyBundleName() {
@@ -7951,6 +7954,35 @@ final class TerminalDirectoryOpenTargetAvailabilityTests: XCTestCase {
 
     func testTowerDetected() {
         let env = environment(existingPaths: ["/Applications/Tower.app"])
+        XCTAssertTrue(TerminalDirectoryOpenTarget.tower.isAvailable(in: env))
+    }
+
+    func testAvailableTargetsFallbackToApplicationLookupForVSCodeAliasOutsideApplications() {
+        let vscodePath = "/Volumes/Tools/Code.app"
+        let env = environment(
+            existingPaths: [
+                vscodePath,
+                "\(vscodePath)/Contents/Resources/app/bin/code-tunnel",
+            ],
+            applicationPathsByName: [
+                "Code": vscodePath,
+            ]
+        )
+
+        let availableTargets = TerminalDirectoryOpenTarget.availableTargets(in: env)
+        XCTAssertTrue(availableTargets.contains(.vscode))
+        XCTAssertTrue(availableTargets.contains(.vscodeInline))
+    }
+
+    func testTowerDetectedViaApplicationLookupOutsideApplications() {
+        let towerPath = "/Volumes/Setapp/Tower.app"
+        let env = environment(
+            existingPaths: [towerPath],
+            applicationPathsByName: [
+                "Tower": towerPath,
+            ]
+        )
+
         XCTAssertTrue(TerminalDirectoryOpenTarget.tower.isAvailable(in: env))
     }
 

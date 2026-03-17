@@ -417,11 +417,13 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
         let homeDirectoryPath: String
         let fileExistsAtPath: (String) -> Bool
         let isExecutableFileAtPath: (String) -> Bool
+        let applicationPathForName: (String) -> String?
 
         static let live = DetectionEnvironment(
             homeDirectoryPath: FileManager.default.homeDirectoryForCurrentUser.path,
             fileExistsAtPath: { FileManager.default.fileExists(atPath: $0) },
-            isExecutableFileAtPath: { FileManager.default.isExecutableFile(atPath: $0) }
+            isExecutableFileAtPath: { FileManager.default.isExecutableFile(atPath: $0) },
+            applicationPathForName: { NSWorkspace.shared.fullPath(forApplication: $0) }
         )
     }
 
