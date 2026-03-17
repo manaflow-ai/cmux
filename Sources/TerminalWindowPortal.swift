@@ -680,10 +680,18 @@ final class WindowTerminalPortal: NSObject {
     private func scheduleExternalGeometrySynchronize() {
         guard !hasExternalGeometrySyncScheduled else { return }
         hasExternalGeometrySyncScheduled = true
+        let requiresSettledLayout = !(hostView.inLiveResize || window?.inLiveResize == true)
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-            self.hasExternalGeometrySyncScheduled = false
-            self.synchronizeAllEntriesFromExternalGeometryChange()
+            let performSync = {
+                self.hasExternalGeometrySyncScheduled = false
+                self.synchronizeAllEntriesFromExternalGeometryChange()
+            }
+            if requiresSettledLayout {
+                DispatchQueue.main.async(execute: performSync)
+            } else {
+                performSync()
+            }
         }
     }
 
@@ -1785,9 +1793,11 @@ enum TerminalWindowPortalRegistry {
         guard !Self.hasPendingExternalGeometrySyncForAllWindows else { return }
         Self.hasPendingExternalGeometrySyncForAllWindows = true
         DispatchQueue.main.async {
-            Self.hasPendingExternalGeometrySyncForAllWindows = false
-            for portal in Self.portalsByWindowId.values {
-                portal.synchronizeAllEntriesFromExternalGeometryChange()
+            DispatchQueue.main.async {
+                Self.hasPendingExternalGeometrySyncForAllWindows = false
+                for portal in Self.portalsByWindowId.values {
+                    portal.synchronizeAllEntriesFromExternalGeometryChange()
+                }
             }
         }
     }
