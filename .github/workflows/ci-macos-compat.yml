@@ -17,6 +17,11 @@ jobs:
           - os: warp-macos-15-arm64-6x
             timeout: 20
             smoke: true
+            skip_zig: false
+          - os: warp-macos-26-arm64-6x
+            timeout: 20
+            smoke: false
+            skip_zig: true  # zig 0.15.2 MachO linker can't resolve libSystem on macOS 26
     runs-on: ${{ matrix.os }}
     timeout-minutes: ${{ matrix.timeout }}
     steps:
@@ -62,6 +67,7 @@ jobs:
           ./scripts/download-prebuilt-ghosttykit.sh
 
       - name: Install zig
+        if: ${{ !matrix.skip_zig }}
         run: |
           ZIG_REQUIRED="0.15.2"
           if command -v zig >/dev/null 2>&1 && zig version 2>/dev/null | grep -q "^${ZIG_REQUIRED}"; then
@@ -114,6 +120,8 @@ jobs:
           done
 
       - name: Run unit tests
+        env:
+          CMUX_SKIP_ZIG_BUILD: ${{ matrix.skip_zig && '1' || '0' }}
         run: |
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
