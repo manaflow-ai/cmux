@@ -2492,17 +2492,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         let startupSnapshot = startupSessionSnapshot
 
-        // Separate quick terminal snapshot from regular windows
-        let quickTerminalSnapshot = startupSnapshot?.windows.first(where: { $0.isQuickTerminal == true })
-        let regularWindows = startupSnapshot?.windows.filter { $0.isQuickTerminal != true } ?? []
-
         // Ensure quick terminal config is loaded (installQuickTerminal may not
         // have run yet since SwiftUI window creation can precede didFinishLaunching).
         QuickTerminalController.shared.loadConfiguration()
 
+        // Separate quick terminal snapshot from regular windows. If the visor
+        // hotkey is no longer configured, treat the visor snapshot as a regular
+        // window so its workspaces aren't silently dropped.
+        let visorEnabled = QuickTerminalController.shared.keybind != nil
+        let quickTerminalSnapshot = visorEnabled
+            ? startupSnapshot?.windows.first(where: { $0.isQuickTerminal == true })
+            : nil
+        let regularWindows = startupSnapshot?.windows.filter { window in
+            if visorEnabled { return window.isQuickTerminal != true }
+            return true
+        } ?? []
+
         // Stash the visor snapshot for deferred restore when the visor window
         // is first created (on toggle or immediately below).
-        if let quickTerminalSnapshot, QuickTerminalController.shared.keybind != nil {
+        if let quickTerminalSnapshot {
             QuickTerminalController.shared.restoreSession(quickTerminalSnapshot)
         }
 
