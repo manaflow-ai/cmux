@@ -5355,6 +5355,142 @@
         }
       }
     },
+    "browser.cookieImport.error.noPermission": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permission denied reading the selected file."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択したファイルの読み取りが拒否されました。"
+          }
+        }
+      }
+    },
+    "browser.cookieImport.error.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import Failed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インポート失敗"
+          }
+        }
+      }
+    },
+    "browser.cookieImport.error.unrecognizedFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unrecognized cookie file format. Export cookies using the Cookie-Editor extension (JSON) or a Netscape-format exporter."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "認識できないCookieファイル形式です。Cookie-Editor拡張機能（JSON）またはNetscape形式のエクスポーターを使用してCookieをエクスポートしてください。"
+          }
+        }
+      }
+    },
+    "browser.cookieImport.ok": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK"
+          }
+        }
+      }
+    },
+    "browser.cookieImport.success.many": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d cookies imported successfully."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d件のCookieを正常にインポートしました。"
+          }
+        }
+      }
+    },
+    "browser.cookieImport.success.one": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 cookie imported successfully."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1件のCookieを正常にインポートしました。"
+          }
+        }
+      }
+    },
+    "browser.cookieImport.success.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cookies Imported"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cookieをインポートしました"
+          }
+        }
+      }
+    },
+    "browser.importCookies.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import Cookies"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cookieをインポート"
+          }
+        }
+      }
+    },
     "browser.downloading": {
       "extractionState": "manual",
       "localizations": {
