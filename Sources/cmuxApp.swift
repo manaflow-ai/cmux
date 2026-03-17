@@ -588,7 +588,10 @@ struct cmuxApp: App {
                 }
 
                 Button(String(localized: "menu.view.importFromBrowser", defaultValue: "Import From Browser…")) {
-                    BrowserDataImportCoordinator.shared.presentImportDialog()
+                    // Defer modal presentation until after AppKit finishes menu tracking.
+                    DispatchQueue.main.async {
+                        BrowserDataImportCoordinator.shared.presentImportDialog()
+                    }
                 }
 
                 splitCommandButton(title: String(localized: "menu.view.nextWorkspace", defaultValue: "Next Workspace"), shortcut: nextWorkspaceMenuShortcut) {

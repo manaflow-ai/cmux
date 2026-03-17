@@ -123,7 +123,7 @@ final class BrowserImportProfilesUITests: XCTestCase {
         let payloadData = try JSONSerialization.data(withJSONObject: payload)
         let captureURL = URL(fileURLWithPath: capturePath)
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.19) {
+        DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 0.18) {
             try? payloadData.write(to: captureURL)
         }
 
@@ -151,10 +151,10 @@ final class BrowserImportProfilesUITests: XCTestCase {
         XCTAssertTrue(importItem.waitForExistence(timeout: 5.0), "Expected Import From Browser menu item to exist")
         importItem.click()
 
-        XCTAssertTrue(
-            app.staticTexts["Import Browser Data"].waitForExistence(timeout: 5.0),
-            "Expected the import wizard to open"
-        )
+        let wizardOpened = browserImportPollUntil(timeout: 5.0) {
+            app.buttons["Next"].exists || app.windows["Import Browser Data"].exists
+        }
+        XCTAssertTrue(wizardOpened, "Expected the import wizard to open")
     }
 
     private func waitForCapturedSelection(timeout: TimeInterval) -> [String: Any]? {
