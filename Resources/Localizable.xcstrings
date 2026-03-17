@@ -43737,6 +43737,57 @@
         }
       }
     },
+    "settings.app.minimalMode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minimal Mode"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ミニマルモード"
+          }
+        }
+      }
+    },
+    "settings.app.minimalMode.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use the standard workspace title bar and controls."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "標準のワークスペースタイトルバーと操作を使います。"
+          }
+        }
+      }
+    },
+    "settings.app.minimalMode.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide the workspace title bar and move workspace controls into the sidebar."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースのタイトルバーを隠し、ワークスペース操作をサイドバーに移動します。"
+          }
+        }
+      }
+    },
     "settings.app.showPullRequests": {
       "extractionState": "manual",
       "localizations": {

@@ -16,6 +16,29 @@ enum WorkspaceTitlebarSettings {
     }
 }
 
+enum WorkspacePresentationModeSettings {
+    static let modeKey = "workspacePresentationMode"
+
+    enum Mode: String {
+        case standard
+        case minimal
+    }
+
+    static let defaultMode: Mode = .standard
+
+    static func mode(for rawValue: String?) -> Mode {
+        Mode(rawValue: rawValue ?? "") ?? defaultMode
+    }
+
+    static func mode(defaults: UserDefaults = .standard) -> Mode {
+        mode(for: defaults.string(forKey: modeKey))
+    }
+
+    static func isMinimal(defaults: UserDefaults = .standard) -> Bool {
+        mode(defaults: defaults) == .minimal
+    }
+}
+
 enum WorkspaceButtonFadeSettings {
     static let modeKey = "workspaceButtonsFadeMode"
     static let legacyTitlebarControlsVisibilityModeKey = "titlebarControlsVisibilityMode"
@@ -114,7 +137,6 @@ struct cmuxApp: App {
         _tabManager = StateObject(wrappedValue: TabManager())
         // Migrate legacy and old-format socket mode values to the new enum.
         let defaults = UserDefaults.standard
-        WorkspaceButtonFadeSettings.initializeStoredModeIfNeeded(defaults: defaults)
         if let stored = defaults.string(forKey: SocketControlSettings.appStorageKey) {
             let migrated = SocketControlSettings.migrateMode(stored)
             if migrated.rawValue != stored {
@@ -3235,10 +3257,8 @@ struct SettingsView: View {
     @AppStorage(LanguageSettings.languageKey) private var appLanguage = LanguageSettings.defaultLanguage.rawValue
     @AppStorage(AppearanceSettings.appearanceModeKey) private var appearanceMode = AppearanceSettings.defaultMode.rawValue
     @AppStorage(AppIconSettings.modeKey) private var appIconMode = AppIconSettings.defaultMode.rawValue
-    @AppStorage(WorkspaceTitlebarSettings.showTitlebarKey)
-    private var showWorkspaceTitlebar = WorkspaceTitlebarSettings.defaultShowTitlebar
-    @AppStorage(WorkspaceButtonFadeSettings.modeKey)
-    private var workspaceButtonsFadeMode = WorkspaceButtonFadeSettings.defaultMode.rawValue
+    @AppStorage(WorkspacePresentationModeSettings.modeKey)
+    private var workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
     @AppStorage(SocketControlSettings.appStorageKey) private var socketControlMode = SocketControlSettings.defaultMode.rawValue
     @AppStorage(ClaudeCodeIntegrationSettings.hooksEnabledKey)
     private var claudeCodeHooksEnabled = ClaudeCodeIntegrationSettings.defaultHooksEnabled
@@ -3321,33 +3341,20 @@ struct SettingsView: View {
         NewWorkspacePlacement(rawValue: newWorkspacePlacement) ?? WorkspacePlacementSettings.defaultPlacement
     }
 
-    private var workspaceTitlebarSubtitle: String {
-        if showWorkspaceTitlebar {
+    private var minimalModeEnabled: Bool {
+        WorkspacePresentationModeSettings.mode(for: workspacePresentationMode) == .minimal
+    }
+
+    private var minimalModeSubtitle: String {
+        if minimalModeEnabled {
             return String(
-                localized: "settings.app.showWorkspaceTitlebar.subtitleOn",
-                defaultValue: "Show the folder and active title above pane tabs."
+                localized: "settings.app.minimalMode.subtitleOn",
+                defaultValue: "Hide the workspace title bar and move workspace controls into the sidebar."
             )
         }
         return String(
-            localized: "settings.app.showWorkspaceTitlebar.subtitleOff",
-            defaultValue: "Hide the folder and active title above pane tabs."
-        )
-    }
-
-    private var fadeButtonsEnabled: Bool {
-        WorkspaceButtonFadeSettings.mode(for: workspaceButtonsFadeMode) == .enabled
-    }
-
-    private var workspaceButtonFadeSubtitle: String {
-        if fadeButtonsEnabled {
-            return String(
-                localized: "settings.app.fadeButtons.subtitleOn",
-                defaultValue: "Show action buttons only on hover."
-            )
-        }
-        return String(
-            localized: "settings.app.fadeButtons.subtitleOff",
-            defaultValue: "Keep action buttons always visible."
+            localized: "settings.app.minimalMode.subtitleOff",
+            defaultValue: "Use the standard workspace title bar and controls."
         )
     }
 
@@ -3398,23 +3405,13 @@ struct SettingsView: View {
         )
     }
 
-    private var showWorkspaceTitlebarBinding: Binding<Bool> {
+    private var minimalModeBinding: Binding<Bool> {
         Binding(
-            get: { showWorkspaceTitlebar },
+            get: { minimalModeEnabled },
             set: { newValue in
-                showWorkspaceTitlebar = newValue
-                SettingsWindowController.shared.preserveFocusAfterPreferenceMutation()
-            }
-        )
-    }
-
-    private var fadeButtonsBinding: Binding<Bool> {
-        Binding(
-            get: { fadeButtonsEnabled },
-            set: { newValue in
-                workspaceButtonsFadeMode = newValue
-                    ? WorkspaceButtonFadeSettings.Mode.enabled.rawValue
-                    : WorkspaceButtonFadeSettings.Mode.disabled.rawValue
+                workspacePresentationMode = newValue
+                    ? WorkspacePresentationModeSettings.Mode.minimal.rawValue
+                    : WorkspacePresentationModeSettings.Mode.standard.rawValue
                 SettingsWindowController.shared.preserveFocusAfterPreferenceMutation()
             }
         )
@@ -3766,30 +3763,15 @@ struct SettingsView: View {
                         SettingsCardDivider()
 
                         SettingsCardRow(
-                            String(localized: "settings.app.showWorkspaceTitlebar", defaultValue: "Show Workspace Title Bar"),
-                            subtitle: workspaceTitlebarSubtitle
+                            String(localized: "settings.app.minimalMode", defaultValue: "Minimal Mode"),
+                            subtitle: minimalModeSubtitle
                         ) {
-                            Toggle("", isOn: showWorkspaceTitlebarBinding)
+                            Toggle("", isOn: minimalModeBinding)
                                 .labelsHidden()
                                 .controlSize(.small)
-                                .accessibilityIdentifier("SettingsShowWorkspaceTitlebarToggle")
+                                .accessibilityIdentifier("SettingsMinimalModeToggle")
                                 .accessibilityLabel(
-                                    String(localized: "settings.app.showWorkspaceTitlebar", defaultValue: "Show Workspace Title Bar")
-                                )
-                        }
-
-                        SettingsCardDivider()
-
-                        SettingsCardRow(
-                            String(localized: "settings.app.fadeButtons", defaultValue: "Fade Buttons"),
-                            subtitle: workspaceButtonFadeSubtitle
-                        ) {
-                            Toggle("", isOn: fadeButtonsBinding)
-                                .labelsHidden()
-                                .controlSize(.small)
-                                .accessibilityIdentifier("SettingsFadeButtonsToggle")
-                                .accessibilityLabel(
-                                    String(localized: "settings.app.fadeButtons", defaultValue: "Fade Buttons")
+                                    String(localized: "settings.app.minimalMode", defaultValue: "Minimal Mode")
                                 )
                         }
 
@@ -4859,8 +4841,12 @@ struct SettingsView: View {
         ShortcutHintDebugSettings.resetVisibilityDefaults()
         alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
         newWorkspacePlacement = WorkspacePlacementSettings.defaultPlacement.rawValue
-        showWorkspaceTitlebar = WorkspaceTitlebarSettings.defaultShowTitlebar
-        workspaceButtonsFadeMode = WorkspaceButtonFadeSettings.defaultMode.rawValue
+        workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
+        let defaults = UserDefaults.standard
+        defaults.removeObject(forKey: WorkspaceTitlebarSettings.showTitlebarKey)
+        defaults.removeObject(forKey: WorkspaceButtonFadeSettings.modeKey)
+        defaults.removeObject(forKey: WorkspaceButtonFadeSettings.legacyTitlebarControlsVisibilityModeKey)
+        defaults.removeObject(forKey: WorkspaceButtonFadeSettings.legacyPaneTabBarControlsVisibilityModeKey)
         workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
         sidebarHideAllDetails = SidebarWorkspaceDetailSettings.defaultHideAllDetails
         sidebarShowNotificationMessage = SidebarWorkspaceDetailSettings.defaultShowNotificationMessage
