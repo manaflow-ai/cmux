@@ -17,69 +17,33 @@ jobs:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
-      - name: System display info (before virtual display)
+      - name: System info
         run: |
           set -euo pipefail
-          echo "=== CGSession ==="
-          python3 -c "
-          import subprocess, json
-          r = subprocess.run(['defaults', 'read', '/Library/Preferences/com.apple.loginwindow'], capture_output=True, text=True)
-          print(r.stdout or '(empty)')
-          print(r.stderr or '')
-          " || echo "(failed)"
+          echo "=== loginwindow config ==="
+          defaults read /Library/Preferences/com.apple.loginwindow 2>&1 || echo "(failed)"
 
           echo ""
-          echo "=== Quartz display services ==="
-          python3 -c "
-          import Quartz
-          displays = Quartz.CGGetActiveDisplayList(16, None, None)
-          print(f'Active displays: {displays}')
-          main = Quartz.CGMainDisplayID()
-          print(f'Main display ID: {main}')
-          bounds = Quartz.CGDisplayBounds(main)
-          print(f'Main display bounds: {bounds}')
-          online = Quartz.CGGetOnlineDisplayList(16, None, None)
-          print(f'Online displays: {online}')
-          " || echo "(failed)"
-
-          echo ""
-          echo "=== system_profiler ==="
-          system_profiler SPDisplaysDataType 2>/dev/null || echo "(no display info)"
-
-          echo ""
-          echo "=== WindowServer status ==="
+          echo "=== WindowServer / loginwindow ==="
           pgrep -lf WindowServer || echo "WindowServer not running"
-
-          echo ""
-          echo "=== loginwindow status ==="
           pgrep -lf loginwindow || echo "loginwindow not running"
 
           echo ""
           echo "=== Console user ==="
           stat -f '%Su' /dev/console 2>/dev/null || echo "(failed)"
-          python3 -c "
-          import ctypes, ctypes.util
-          sc = ctypes.cdll.LoadLibrary(ctypes.util.find_library('SystemConfiguration'))
-          cf = ctypes.cdll.LoadLibrary(ctypes.util.find_library('CoreFoundation'))
-          sc.SCDynamicStoreCopyConsoleUser.restype = ctypes.c_void_p
-          sc.SCDynamicStoreCopyConsoleUser.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32), ctypes.POINTER(ctypes.c_uint32)]
-          uid = ctypes.c_uint32()
-          gid = ctypes.c_uint32()
-          user_ref = sc.SCDynamicStoreCopyConsoleUser(None, ctypes.byref(uid), ctypes.byref(gid))
-          if user_ref:
-              cf.CFStringGetLength.restype = ctypes.c_long
-              cf.CFStringGetLength.argtypes = [ctypes.c_void_p]
-              length = cf.CFStringGetLength(user_ref)
-              buf = ctypes.create_string_buffer(512)
-              cf.CFStringGetCString(user_ref, buf, 512, 0x08000100)
-              print(f'Console user: {buf.value.decode()} (uid={uid.value}, gid={gid.value})')
-          else:
-              print('No console user (loginwindow/nobody)')
-          " || echo "(failed)"
 
           echo ""
-          echo "=== GUI session bootstrap ==="
+          echo "=== GUI session ==="
           launchctl print gui/$(id -u) 2>&1 | head -5 || echo "(failed)"
+
+          echo ""
+          echo "=== Hardware ==="
+          sysctl machdep.cpu.brand_string hw.model 2>/dev/null || true
+          system_profiler SPHardwareDataType 2>/dev/null | grep -E 'Model|Chip|Memory' || true
+
+          echo ""
+          echo "=== system_profiler displays (before virtual display) ==="
+          system_profiler SPDisplaysDataType 2>/dev/null || echo "(no display info)"
 
       - name: Create virtual display
         run: |
@@ -91,238 +55,222 @@ jobs:
           echo "VDISPLAY_PID=$VDISPLAY_PID" >> "$GITHUB_ENV"
           sleep 3
 
-          echo "=== Display after virtual display ==="
-          python3 -c "
-          import Quartz
-          displays = Quartz.CGGetActiveDisplayList(16, None, None)
-          print(f'Active displays: {displays}')
-          main = Quartz.CGMainDisplayID()
-          print(f'Main display ID: {main}')
-          bounds = Quartz.CGDisplayBounds(main)
-          print(f'Main display bounds: {bounds}')
-          " || echo "(failed)"
+          echo "=== system_profiler displays (after virtual display) ==="
           system_profiler SPDisplaysDataType 2>/dev/null || echo "(no display info)"
 
-      - name: Test app activation approaches
+      - name: Build activation probe (Swift)
+        run: |
+          set -euo pipefail
+          cat > /tmp/activation_probe.swift << 'SWIFT'
+          import AppKit
+          import Foundation
+
+          func probe() {
+              let ws = NSWorkspace.shared
+
+              // Check current state
+              if let front = ws.frontmostApplication {
+                  print("BEFORE: frontmost=\(front.localizedName ?? "nil") pid=\(front.processIdentifier) active=\(front.isActive)")
+              } else {
+                  print("BEFORE: no frontmost application")
+              }
+
+              // Launch TextEdit
+              print("\n=== Launching TextEdit via open -a ===")
+              let proc = Process()
+              proc.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+              proc.arguments = ["-a", "TextEdit"]
+              try! proc.run()
+              proc.waitUntilExit()
+              Thread.sleep(forTimeInterval: 3)
+
+              // Find TextEdit in running apps
+              var textEdit: NSRunningApplication?
+              for app in ws.runningApplications {
+                  if app.localizedName == "TextEdit" {
+                      textEdit = app
+                      break
+                  }
+              }
+
+              guard let te = textEdit else {
+                  print("ERROR: TextEdit not found in running applications")
+                  return
+              }
+
+              print("TextEdit: pid=\(te.processIdentifier) active=\(te.isActive) hidden=\(te.isHidden) terminated=\(te.isTerminated)")
+              print("TextEdit activation policy: \(te.activationPolicy.rawValue) (0=regular, 1=accessory, 2=prohibited)")
+
+              if let front = ws.frontmostApplication {
+                  print("Frontmost: \(front.localizedName ?? "nil") pid=\(front.processIdentifier)")
+              }
+
+              // Try activateWithOptions
+              print("\n=== Calling activateWithOptions_(NSApplication.ActivationOptions.activateIgnoringOtherApps) ===")
+              let activateResult = te.activate(options: .activateIgnoringOtherApps)
+              print("activateWithOptions returned: \(activateResult)")
+              Thread.sleep(forTimeInterval: 2)
+
+              print("TextEdit after activate: active=\(te.isActive) hidden=\(te.isHidden)")
+              if let front = ws.frontmostApplication {
+                  print("Frontmost after activate: \(front.localizedName ?? "nil") pid=\(front.processIdentifier) active=\(front.isActive)")
+              }
+
+              // Try osascript
+              print("\n=== Trying osascript activation ===")
+              let osa = Process()
+              osa.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+              osa.arguments = ["-e", "tell application \"TextEdit\" to activate"]
+              let pipe = Pipe()
+              osa.standardOutput = pipe
+              osa.standardError = pipe
+              try! osa.run()
+              osa.waitUntilExit()
+              let osaOutput = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+              print("osascript exit=\(osa.terminationStatus) output=\(osaOutput)")
+              Thread.sleep(forTimeInterval: 2)
+
+              print("TextEdit after osascript: active=\(te.isActive) hidden=\(te.isHidden)")
+              if let front = ws.frontmostApplication {
+                  print("Frontmost after osascript: \(front.localizedName ?? "nil") pid=\(front.processIdentifier) active=\(front.isActive)")
+              }
+
+              // Check Quartz session
+              print("\n=== Quartz session ===")
+              if let session = CGSessionCopyCurrentDictionary() as? [String: Any] {
+                  for (key, value) in session.sorted(by: { $0.key < $1.key }) {
+                      print("  \(key): \(value)")
+                  }
+              } else {
+                  print("No Quartz session dictionary")
+              }
+
+              // Check display info
+              print("\n=== Display info ===")
+              var displayCount: UInt32 = 0
+              CGGetActiveDisplayList(0, nil, &displayCount)
+              print("Active display count: \(displayCount)")
+              if displayCount > 0 {
+                  var displays = [CGDirectDisplayID](repeating: 0, count: Int(displayCount))
+                  CGGetActiveDisplayList(displayCount, &displays, nil)
+                  for d in displays {
+                      let bounds = CGDisplayBounds(d)
+                      print("  Display \(d): \(Int(bounds.width))x\(Int(bounds.height))")
+                  }
+              }
+              let mainDisplay = CGMainDisplayID()
+              print("Main display ID: \(mainDisplay)")
+
+              // Check AX trust
+              print("\n=== Accessibility ===")
+              let trusted = AXIsProcessTrusted()
+              print("Current process AX trusted: \(trusted)")
+
+              // Clean up
+              te.terminate()
+
+              print("\n=== VERDICT ===")
+              // The key question: can NSRunningApplication.activate() make an app foreground?
+              // XCUIApplication.activate() depends on this + AX APIs.
+              print("activate() returned: \(activateResult)")
+              print("App became active: \(te.isActive)")
+              if activateResult && te.isActive {
+                  print("RESULT: GUI activation WORKS on this VM")
+              } else {
+                  print("RESULT: GUI activation DOES NOT WORK on this VM")
+                  print("XCUITest will fail with 'Running Background' timeout")
+              }
+          }
+
+          probe()
+          SWIFT
+
+          swiftc -o /tmp/activation_probe /tmp/activation_probe.swift \
+            -framework AppKit -framework CoreGraphics
+
+      - name: Run activation probe
+        run: |
+          set -euo pipefail
+          echo "Running activation probe..."
+          /tmp/activation_probe
+
+      - name: Test actual XCUITest activation
         run: |
           set -euo pipefail
 
-          echo "========================================="
-          echo "APPROACH 1: open -a TextEdit"
-          echo "========================================="
-          open -a TextEdit &
-          OPEN_PID=$!
-          sleep 5
-          echo "open exit: checking TextEdit process..."
-          pgrep -lf TextEdit || echo "TextEdit not found"
+          # Create a minimal Xcode project to test XCUIApplication.activate()
+          mkdir -p /tmp/ActivationTest
+          cat > /tmp/ActivationTest/Package.swift << 'PKG'
+          // swift-tools-version:5.9
+          import PackageDescription
+          let package = Package(name: "ActivationTest")
+          PKG
 
-          # Check if it's actually in foreground
-          python3 -c "
-          import Quartz
-          from AppKit import NSWorkspace
-          ws = NSWorkspace.sharedWorkspace()
-          front = ws.frontmostApplication()
-          active = ws.runningApplications()
-          print(f'Frontmost app: {front.localizedName()} (pid={front.processIdentifier()}, active={front.isActive()})')
-          for app in active:
-              if 'TextEdit' in str(app.localizedName()):
-                  print(f'TextEdit: pid={app.processIdentifier()}, active={app.isActive()}, hidden={app.isHidden()}, state={app.activationPolicy()}')
-          " || echo "(python check failed)"
-          pkill -x TextEdit 2>/dev/null || true
-
-          echo ""
-          echo "========================================="
-          echo "APPROACH 2: NSWorkspace.openApplication"
-          echo "========================================="
-          python3 -c "
-          import time
-          from AppKit import NSWorkspace, NSWorkspaceOpenConfiguration
-          from Foundation import NSURL
-
-          ws = NSWorkspace.sharedWorkspace()
-          url = NSURL.fileURLWithPath_('/System/Applications/TextEdit.app')
-          config = NSWorkspaceOpenConfiguration.configuration()
-          config.setActivates_(True)
-          config.setHides_(False)
-
-          import threading
-          result = {'done': False, 'app': None, 'error': None}
-
-          def handler(app, error):
-              result['app'] = app
-              result['error'] = error
-              result['done'] = True
-
-          ws.openApplicationAtURL_configuration_completionHandler_(url, config, handler)
-          for _ in range(50):
-              if result['done']:
-                  break
-              time.sleep(0.1)
-
-          if result['error']:
-              print(f'Error: {result[\"error\"]}')
-          elif result['app']:
-              a = result['app']
-              time.sleep(2)
-              print(f'Launched: {a.localizedName()} pid={a.processIdentifier()} active={a.isActive()} hidden={a.isHidden()}')
-          else:
-              print('Timeout waiting for launch')
-          " || echo "(python launch failed)"
-          pkill -x TextEdit 2>/dev/null || true
-
-          echo ""
-          echo "========================================="
-          echo "APPROACH 3: NSRunningApplication.activate"
-          echo "========================================="
-          python3 -c "
-          import time, subprocess
-          from AppKit import NSWorkspace, NSRunningApplication, NSApplicationActivateIgnoringOtherApps
-
-          # Launch via open first
-          subprocess.Popen(['open', '-a', 'TextEdit'])
-          time.sleep(3)
-
-          ws = NSWorkspace.sharedWorkspace()
-          for app in ws.runningApplications():
-              if 'TextEdit' in str(app.localizedName()):
-                  print(f'Before activate: active={app.isActive()}, hidden={app.isHidden()}, pid={app.processIdentifier()}')
-                  ok = app.activateWithOptions_(NSApplicationActivateIgnoringOtherApps)
-                  time.sleep(2)
-                  print(f'activateWithOptions_ returned: {ok}')
-                  print(f'After activate: active={app.isActive()}, hidden={app.isHidden()}')
-                  break
-          else:
-              print('TextEdit not found in running apps')
-          " || echo "(python activate failed)"
-          pkill -x TextEdit 2>/dev/null || true
-
-          echo ""
-          echo "========================================="
-          echo "APPROACH 4: osascript tell app activate"
-          echo "========================================="
-          open -a TextEdit &
-          sleep 3
-          osascript -e 'tell application "TextEdit" to activate' 2>&1 || echo "(osascript failed)"
-          sleep 2
-          python3 -c "
-          from AppKit import NSWorkspace
-          ws = NSWorkspace.sharedWorkspace()
-          front = ws.frontmostApplication()
-          print(f'Frontmost after osascript: {front.localizedName()} active={front.isActive()}')
-          for app in ws.runningApplications():
-              if 'TextEdit' in str(app.localizedName()):
-                  print(f'TextEdit: active={app.isActive()}, hidden={app.isHidden()}')
-          " || echo "(python check failed)"
-          pkill -x TextEdit 2>/dev/null || true
-
-      - name: Test XCUIApplication activation (minimal)
-        run: |
-          set -euo pipefail
-
-          # Create a minimal Swift test that tries XCUIApplication
-          cat > /tmp/test_activation.swift << 'SWIFT'
+          cat > /tmp/test_xcui.swift << 'SWIFT'
           import XCTest
 
-          class MinimalActivationTest: XCTestCase {
-              func testActivateTextEdit() throws {
+          final class ActivationTest: XCTestCase {
+              func testActivateTextEdit() {
                   let app = XCUIApplication(bundleIdentifier: "com.apple.TextEdit")
+                  print("PRE-ACTIVATE: state=\(app.state.rawValue)")
 
-                  // Print pre-activation state
-                  print("STATE: Pre-activate, state=\(app.state.rawValue)")
-
-                  let startTime = Date()
+                  let start = Date()
                   app.activate()
-                  let elapsed = Date().timeIntervalSince(startTime)
+                  let activateTime = Date().timeIntervalSince(start)
+                  print("POST-ACTIVATE: state=\(app.state.rawValue) elapsed=\(String(format: "%.1f", activateTime))s")
 
-                  print("STATE: Post-activate, state=\(app.state.rawValue), elapsed=\(elapsed)s")
+                  let foreground = app.wait(for: .runningForeground, timeout: 15)
+                  let totalTime = Date().timeIntervalSince(start)
+                  print("WAIT-RESULT: foreground=\(foreground) state=\(app.state.rawValue) elapsed=\(String(format: "%.1f", totalTime))s")
 
-                  // Check if app reached foreground
-                  let reachedForeground = app.wait(for: .runningForeground, timeout: 10)
-                  let totalElapsed = Date().timeIntervalSince(startTime)
-                  print("STATE: After wait, state=\(app.state.rawValue), reachedForeground=\(reachedForeground), totalElapsed=\(totalElapsed)s")
+                  if foreground {
+                      print("SUCCESS: XCUIApplication activation works on WarpBuild!")
+                  } else {
+                      print("FAILURE: XCUIApplication stuck in state \(app.state.rawValue) after \(String(format: "%.1f", totalTime))s")
+                  }
+
+                  // Don't assert - we want to see the output either way
+                  app.terminate()
               }
           }
           SWIFT
 
-          echo "Note: This step is informational - compiling and running XCUITest"
-          echo "requires a full xcodebuild invocation. The approaches above test"
-          echo "the same activation mechanisms XCUIApplication uses internally."
-          echo ""
-          echo "XCUIApplication.activate() calls:"
-          echo "  1. NSRunningApplication.activateWithOptions_"
-          echo "  2. AX API to wait for .runningForeground"
-          echo "  3. Times out at ~62s if activation never completes"
+          # We can't easily run a standalone XCUITest without a full Xcode project,
+          # but we can use xctest directly with the right framework path
+          echo "Note: XCUITest requires xcodebuild with a test target."
+          echo "The Swift activation probe above tests the same underlying APIs."
+          echo "If activate() returns true and isActive becomes true, XCUITest should work."
 
-      - name: Check accessibility and TCC state
+      - name: Check TCC and DevTools
         run: |
           set -euo pipefail
-
           echo "=== DevToolsSecurity ==="
           DevToolsSecurity -status 2>&1 || echo "(failed)"
 
           echo ""
-          echo "=== TCC databases ==="
-          echo "--- System TCC ---"
+          echo "=== System TCC (Accessibility + DeveloperTool) ==="
           sqlite3 "/Library/Application Support/com.apple.TCC/TCC.db" \
-            "SELECT client, service, auth_value FROM access WHERE service IN ('kTCCServiceAccessibility', 'kTCCServiceDeveloperTool');" 2>&1 || echo "(no system TCC or permission denied)"
+            "SELECT client, service, auth_value FROM access WHERE service IN ('kTCCServiceAccessibility', 'kTCCServiceDeveloperTool');" 2>&1 \
+            || echo "(permission denied)"
 
           echo ""
-          echo "--- User TCC ---"
+          echo "=== User TCC ==="
           sqlite3 "$HOME/Library/Application Support/com.apple.TCC/TCC.db" \
-            "SELECT client, service, auth_value FROM access WHERE service IN ('kTCCServiceAccessibility', 'kTCCServiceDeveloperTool');" 2>&1 || echo "(no user TCC or permission denied)"
-
-          echo ""
-          echo "=== Accessibility trusted ==="
-          # Check if Terminal/XCTest runner has AX trust
-          python3 -c "
-          import Quartz
-          trusted = Quartz.AXIsProcessTrusted()
-          print(f'Current process AX trusted: {trusted}')
-          " || echo "(failed)"
-
-          echo ""
-          echo "=== Security authorization DB ==="
-          security authorizationdb read system.privilege.taskport 2>&1 | head -5 || echo "(failed)"
-
-      - name: Probe WarpBuild VM type
-        run: |
-          set -euo pipefail
-
-          echo "=== Hardware ==="
-          sysctl -a 2>/dev/null | grep -E 'machdep.cpu|hw.model|hw.machine|kern.hv' | head -20 || true
-
-          echo ""
-          echo "=== Is this a VM? ==="
-          ioreg -l 2>/dev/null | grep -i -E 'virtual|vmware|parallels|vz|apple virtualization' | head -10 || echo "(none found)"
-
-          echo ""
-          echo "=== VZVirtualMachine markers ==="
-          system_profiler SPHardwareDataType 2>/dev/null || echo "(failed)"
-
-          echo ""
-          echo "=== Quartz session info ==="
-          python3 -c "
-          import Quartz
-          session = Quartz.CGSessionCopyCurrentDictionary()
-          if session:
-              for key in session:
-                  print(f'  {key}: {session[key]}')
-          else:
-              print('No Quartz session')
-          " || echo "(failed)"
+            "SELECT client, service, auth_value FROM access WHERE service IN ('kTCCServiceAccessibility', 'kTCCServiceDeveloperTool');" 2>&1 \
+            || echo "(permission denied or no DB)"
 
       - name: Summary
         if: always()
         run: |
           echo "================================================================"
-          echo "WarpBuild GUI Activation Diagnostic Complete"
+          echo "WarpBuild GUI Activation Diagnostic v2"
           echo ""
-          echo "This workflow tests whether WarpBuild VMs can activate GUI apps"
-          echo "which is required for XCUITest to work. Check the logs above for:"
+          echo "Key questions answered:"
+          echo "1. Does CGVirtualDisplay create a usable display?"
+          echo "2. Can NSRunningApplication.activate() foreground an app?"
+          echo "3. Does osascript activation work?"
+          echo "4. Is the process AX-trusted?"
+          echo "5. What does the Quartz session look like?"
           echo ""
-          echo "1. Whether a virtual display is available"
-          echo "2. Whether apps can be activated (isActive=True)"
-          echo "3. Whether XCUIApplication.activate() would succeed"
-          echo "4. TCC/accessibility permissions state"
-          echo "5. VM type and Quartz session state"
+          echo "If activate() works, XCUITest should work on WarpBuild."
           echo "================================================================"
