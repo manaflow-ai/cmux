@@ -2,6 +2,11 @@
 
 All notable changes to cmux are documented here.
 
+## [Unreleased]
+
+### Added
+- Fish shell integration: sidebar now shows git branch, dirty state, PR badge, and CWD for fish shells, matching the existing bash/zsh integration ([#1528](https://github.com/manaflow-ai/cmux/pull/1528))
+
 ## [0.62.2] - 2026-03-14
 
 ### Added
