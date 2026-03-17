@@ -1,6 +1,8 @@
 import XCTest
 
-#if canImport(cmux)
+#if canImport(cmux_DEV)
+@testable import cmux_DEV
+#elseif canImport(cmux)
 @testable import cmux
 
 final class CLIProcessRunnerTests: XCTestCase {
@@ -436,6 +438,67 @@ print(out.decode("utf-8", "replace"), end="")
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
         XCTAssertTrue(result.stdout.contains("host cmux-macmini"), result.stdout)
+    }
+
+    func testUsageDoesNotListDebugTerminalsCommand() {
+        let cli = CMUXCLI(args: [])
+        XCTAssertFalse(cli.debugUsageTextForTesting().contains("debug-terminals"))
+    }
+
+    func testFormatsDebugTerminalsPayloadForOrphanedTerminal() {
+        let cli = CMUXCLI(args: [])
+        let payload: [String: Any] = [
+            "count": 1,
+            "terminals": [
+                [
+                    "index": 0,
+                    "mapped": false,
+                    "tree_visible": false,
+                    "window_ref": "window:1",
+                    "workspace_ref": NSNull(),
+                    "pane_ref": NSNull(),
+                    "surface_ref": "surface:7",
+                    "surface_title": "Floating terminal",
+                    "bonsplit_tab_id": NSNull(),
+                    "runtime_surface_ready": true,
+                    "surface_focused": false,
+                    "surface_selected_in_pane": false,
+                    "surface_pinned": false,
+                    "terminal_object_ptr": "0xterm",
+                    "hosted_view_ptr": "0xhosted",
+                    "ghostty_surface_ptr": "0xghostty",
+                    "portal_binding_state": "live",
+                    "portal_binding_generation": 4,
+                    "tty": "/dev/ttys123",
+                    "current_directory": "/tmp/orphan",
+                    "git_branch": "main",
+                    "git_dirty": true,
+                    "listening_ports": [4020, 4021],
+                    "hosted_view_visible_in_ui": true,
+                    "hosted_view_in_window": true,
+                    "hosted_view_has_superview": true,
+                    "hosted_view_hidden": false,
+                    "surface_view_first_responder": false,
+                    "window_number": 88,
+                    "window_key": true,
+                    "hosted_view_frame_in_window": [
+                        "x": 12.0,
+                        "y": 24.0,
+                        "width": 640.0,
+                        "height": 480.0,
+                    ],
+                ]
+            ],
+        ]
+
+        let output = cli.debugFormatDebugTerminalsPayloadForTesting(payload)
+        XCTAssertTrue(output.contains("[0] surface:7 \"Floating terminal\""), output)
+        XCTAssertTrue(output.contains("mapped=0 tree=0"), output)
+        XCTAssertTrue(output.contains("bonsplitTab=nil"), output)
+        XCTAssertTrue(output.contains("ghostty=0xghostty"), output)
+        XCTAssertTrue(output.contains("branch=main*"), output)
+        XCTAssertTrue(output.contains("ports=4020,4021"), output)
+        XCTAssertTrue(output.contains("frame={12.0,24.0 640.0x480.0}"), output)
     }
 }
 #endif

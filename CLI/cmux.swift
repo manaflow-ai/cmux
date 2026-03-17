@@ -1849,6 +1849,14 @@ struct CMUXCLI {
                 }
             }
 
+        case "debug-terminals":
+            let payload = try client.sendV2(method: "debug.terminals")
+            if jsonOutput {
+                print(jsonString(formatIDs(payload, mode: idFormat)))
+            } else {
+                print(formatDebugTerminalsPayload(payload, idFormat: idFormat))
+            }
+
         case "trigger-flash":
             let tfWsFlag = optionValue(commandArgs, name: "--workspace")
             let workspaceArg = tfWsFlag ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
@@ -2966,6 +2974,109 @@ struct CMUXCLI {
         } else {
             print(fallbackText)
         }
+    }
+
+    private func debugString(_ value: Any?) -> String? {
+        guard let value, !(value is NSNull) else { return nil }
+        if let string = value as? String {
+            return string
+        }
+        if let number = value as? NSNumber {
+            return number.stringValue
+        }
+        return String(describing: value)
+    }
+
+    private func debugBool(_ value: Any?) -> Bool? {
+        if let bool = value as? Bool {
+            return bool
+        }
+        if let number = value as? NSNumber {
+            return number.boolValue
+        }
+        if let string = value as? String {
+            return parseBoolString(string)
+        }
+        return nil
+    }
+
+    private func debugFlag(_ value: Any?) -> String {
+        guard let bool = debugBool(value) else { return "nil" }
+        return bool ? "1" : "0"
+    }
+
+    private func formatDebugRect(_ value: Any?) -> String? {
+        guard let rect = value as? [String: Any],
+              let x = rect["x"] as? Double,
+              let y = rect["y"] as? Double,
+              let width = rect["width"] as? Double,
+              let height = rect["height"] as? Double else {
+            return nil
+        }
+        return String(format: "{%.1f,%.1f %.1fx%.1f}", x, y, width, height)
+    }
+
+    private func formatDebugPorts(_ value: Any?) -> String {
+        guard let array = value as? [Any], !array.isEmpty else { return "[]" }
+        return array
+            .compactMap { intFromAny($0) }
+            .map(String.init)
+            .joined(separator: ",")
+    }
+
+    private func formatDebugTerminalsPayload(_ payload: [String: Any], idFormat: CLIIDFormat) -> String {
+        let terminals = payload["terminals"] as? [[String: Any]] ?? []
+        guard !terminals.isEmpty else { return "No terminal surfaces" }
+
+        return terminals.map { item in
+            let index = intFromAny(item["index"]) ?? 0
+            let surface = formatHandle(item, kind: "surface", idFormat: idFormat) ?? "?"
+            let window = formatHandle(item, kind: "window", idFormat: idFormat) ?? "nil"
+            let workspace = formatHandle(item, kind: "workspace", idFormat: idFormat) ?? "nil"
+            let pane = formatHandle(item, kind: "pane", idFormat: idFormat) ?? "nil"
+            let bonsplitTab = debugString(item["bonsplit_tab_id"]) ?? "nil"
+            let titleSuffix: String = {
+                guard let title = debugString(item["surface_title"]), !title.isEmpty else { return "" }
+                let escaped = title.replacingOccurrences(of: "\"", with: "\\\"")
+                return " \"\(escaped)\""
+            }()
+            let branchLabel: String = {
+                guard let branch = debugString(item["git_branch"]), !branch.isEmpty else { return "nil" }
+                return debugBool(item["git_dirty"]) == true ? "\(branch)*" : branch
+            }()
+
+            let line1 =
+                "[\(index)] \(surface)\(titleSuffix) " +
+                "mapped=\(debugFlag(item["mapped"])) tree=\(debugFlag(item["tree_visible"])) " +
+                "window=\(window) workspace=\(workspace) pane=\(pane) bonsplitTab=\(bonsplitTab)"
+
+            let line2 =
+                "    runtime=\(debugFlag(item["runtime_surface_ready"])) " +
+                "focused=\(debugFlag(item["surface_focused"])) " +
+                "selected=\(debugFlag(item["surface_selected_in_pane"])) " +
+                "pinned=\(debugFlag(item["surface_pinned"])) " +
+                "terminal=\(debugString(item["terminal_object_ptr"]) ?? "nil") " +
+                "hosted=\(debugString(item["hosted_view_ptr"]) ?? "nil") " +
+                "ghostty=\(debugString(item["ghostty_surface_ptr"]) ?? "nil") " +
+                "portal=\(debugString(item["portal_binding_state"]) ?? "nil")#\(debugString(item["portal_binding_generation"]) ?? "nil")"
+
+            let line3 =
+                "    tty=\(debugString(item["tty"]) ?? "nil") " +
+                "cwd=\(debugString(item["current_directory"]) ?? debugString(item["requested_working_directory"]) ?? "nil") " +
+                "branch=\(branchLabel) " +
+                "ports=\(formatDebugPorts(item["listening_ports"])) " +
+                "visible=\(debugFlag(item["hosted_view_visible_in_ui"])) " +
+                "inWindow=\(debugFlag(item["hosted_view_in_window"])) " +
+                "superview=\(debugFlag(item["hosted_view_has_superview"])) " +
+                "hidden=\(debugFlag(item["hosted_view_hidden"])) " +
+                "firstResponder=\(debugFlag(item["surface_view_first_responder"])) " +
+                "windowNum=\(debugString(item["window_number"]) ?? "nil") " +
+                "windowKey=\(debugFlag(item["window_key"])) " +
+                "frame=\(formatDebugRect(item["hosted_view_frame_in_window"]) ?? "nil")"
+
+            return [line1, line2, line3].joined(separator: "\n")
+        }
+        .joined(separator: "\n")
     }
 
     private func runMoveSurface(
@@ -6191,6 +6302,13 @@ struct CMUXCLI {
             Example:
               cmux surface-health
               cmux surface-health --workspace workspace:2
+            """
+        case "debug-terminals":
+            return """
+            Usage: cmux debug-terminals
+
+            Print live Ghostty terminal runtime metadata across all windows and workspaces.
+            Intended for debugging stray or detached terminal views.
             """
         case "trigger-flash":
             return """
@@ -10965,6 +11083,19 @@ struct CMUXCLI {
                               to ~/Library/Application Support/cmux/cmux.sock and auto-discovers tagged/debug sockets.
         """
     }
+
+#if DEBUG
+    func debugUsageTextForTesting() -> String {
+        usage()
+    }
+
+    func debugFormatDebugTerminalsPayloadForTesting(
+        _ payload: [String: Any],
+        idFormat: CLIIDFormat = .refs
+    ) -> String {
+        formatDebugTerminalsPayload(payload, idFormat: idFormat)
+    }
+#endif
 }
 
 @main

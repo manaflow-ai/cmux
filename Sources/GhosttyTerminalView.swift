@@ -2489,6 +2489,30 @@ final class GhosttyMetalLayer: CAMetalLayer {
     }
 }
 
+final class TerminalSurfaceRegistry {
+    static let shared = TerminalSurfaceRegistry()
+
+    private let lock = NSLock()
+    private let surfaces = NSHashTable<AnyObject>.weakObjects()
+
+    private init() {}
+
+    func register(_ surface: TerminalSurface) {
+        lock.lock()
+        defer { lock.unlock() }
+        surfaces.add(surface)
+    }
+
+    func allSurfaces() -> [TerminalSurface] {
+        lock.lock()
+        let objects = surfaces.allObjects.compactMap { $0 as? TerminalSurface }
+        lock.unlock()
+        return objects.sorted { lhs, rhs in
+            lhs.id.uuidString < rhs.id.uuidString
+        }
+    }
+}
+
 // MARK: - Terminal Surface (owns the ghostty_surface_t lifecycle)
 
 final class TerminalSurface: Identifiable, ObservableObject {
@@ -2623,6 +2647,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         self.hostedView = GhosttySurfaceScrollView(surfaceView: view)
         // Surface is created when attached to a view
         hostedView.attachSurface(self)
+        TerminalSurfaceRegistry.shared.register(self)
     }
 
 

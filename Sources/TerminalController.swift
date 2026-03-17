@@ -2090,6 +2090,8 @@ class TerminalController {
             return v2Result(id: id, self.v2SurfaceRefresh(params: params))
         case "surface.health":
             return v2Result(id: id, self.v2SurfaceHealth(params: params))
+        case "debug.terminals":
+            return v2Result(id: id, self.v2DebugTerminals(params: params))
         case "surface.send_text":
             return v2Result(id: id, self.v2SurfaceSendText(params: params))
         case "surface.send_key":
@@ -2432,6 +2434,7 @@ class TerminalController {
             "tab.action",
             "surface.refresh",
             "surface.health",
+            "debug.terminals",
             "surface.send_text",
             "surface.send_key",
             "surface.read_text",
@@ -4913,6 +4916,191 @@ class TerminalController {
 
         guard let payload else {
             return .err(code: "not_found", message: "Workspace not found", data: nil)
+        }
+        return .ok(payload)
+    }
+
+    private func v2DebugTerminals(params _: [String: Any]) -> V2CallResult {
+        var payload: [String: Any]?
+
+        v2MainSync {
+            guard let app = AppDelegate.shared else { return }
+
+            struct MappedTerminalLocation {
+                let windowIndex: Int
+                let windowId: UUID
+                let window: NSWindow?
+                let workspaceIndex: Int
+                let workspaceSelected: Bool
+                let workspace: Workspace
+                let terminalPanel: TerminalPanel
+                let paneId: PaneID?
+                let paneIndex: Int?
+                let surfaceIndex: Int
+                let selectedInPane: Bool?
+                let bonsplitTabId: TabID?
+            }
+
+            func nonEmpty(_ raw: String?) -> String? {
+                guard let raw else { return nil }
+                let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+                return trimmed.isEmpty ? nil : trimmed
+            }
+
+            func rectPayload(_ rect: CGRect) -> [String: Double] {
+                [
+                    "x": rect.origin.x,
+                    "y": rect.origin.y,
+                    "width": rect.size.width,
+                    "height": rect.size.height
+                ]
+            }
+
+            func objectPointerString(_ object: AnyObject?) -> String {
+                guard let object else { return "nil" }
+                return String(describing: Unmanaged.passUnretained(object).toOpaque())
+            }
+
+            func ghosttyPointerString(_ surface: ghostty_surface_t?) -> String {
+                guard let surface else { return "nil" }
+                return String(describing: surface)
+            }
+
+            @MainActor
+            func windowIdFromIdentifier(_ window: NSWindow?) -> UUID? {
+                guard let raw = window?.identifier?.rawValue else { return nil }
+                let prefix = "cmux.main."
+                guard raw.hasPrefix(prefix) else { return nil }
+                return UUID(uuidString: String(raw.dropFirst(prefix.count)))
+            }
+
+            let windows = app.scriptableMainWindows()
+            let windowIndexById = Dictionary(
+                uniqueKeysWithValues: windows.enumerated().map { ($0.element.windowId, $0.offset) }
+            )
+
+            var mappedLocations: [ObjectIdentifier: MappedTerminalLocation] = [:]
+            for (windowIndex, state) in windows.enumerated() {
+                let tabManager = state.tabManager
+                for (workspaceIndex, workspace) in tabManager.tabs.enumerated() {
+                    let paneIndexById = Dictionary(
+                        uniqueKeysWithValues: workspace.bonsplitController.allPaneIds.enumerated().map {
+                            ($0.element.id, $0.offset)
+                        }
+                    )
+                    var selectedInPaneByPanelId: [UUID: Bool] = [:]
+                    for paneId in workspace.bonsplitController.allPaneIds {
+                        let selectedTab = workspace.bonsplitController.selectedTab(inPane: paneId)
+                        for tab in workspace.bonsplitController.tabs(inPane: paneId) {
+                            guard let panelId = workspace.panelIdFromSurfaceId(tab.id) else { continue }
+                            selectedInPaneByPanelId[panelId] = (tab.id == selectedTab?.id)
+                        }
+                    }
+
+                    for (surfaceIndex, panel) in orderedPanels(in: workspace).enumerated() {
+                        guard let terminalPanel = panel as? TerminalPanel else { continue }
+                        mappedLocations[ObjectIdentifier(terminalPanel.surface)] = MappedTerminalLocation(
+                            windowIndex: windowIndex,
+                            windowId: state.windowId,
+                            window: state.window,
+                            workspaceIndex: workspaceIndex,
+                            workspaceSelected: workspace.id == tabManager.selectedTabId,
+                            workspace: workspace,
+                            terminalPanel: terminalPanel,
+                            paneId: workspace.paneId(forPanelId: terminalPanel.id),
+                            paneIndex: workspace.paneId(forPanelId: terminalPanel.id).flatMap { paneIndexById[$0.id] },
+                            surfaceIndex: surfaceIndex,
+                            selectedInPane: selectedInPaneByPanelId[terminalPanel.id],
+                            bonsplitTabId: workspace.surfaceIdFromPanelId(terminalPanel.id)
+                        )
+                    }
+                }
+            }
+
+            let surfaces = TerminalSurfaceRegistry.shared.allSurfaces()
+            let terminals: [[String: Any]] = surfaces.enumerated().map { index, terminalSurface in
+                let mapped = mappedLocations[ObjectIdentifier(terminalSurface)]
+                let hostedView = terminalSurface.hostedView
+                let hostedWindow = mapped?.window ?? hostedView.window
+                let resolvedWindowId = mapped?.windowId ?? windowIdFromIdentifier(hostedWindow)
+                let resolvedWindowIndex = mapped?.windowIndex ?? resolvedWindowId.flatMap { windowIndexById[$0] }
+                let workspace = mapped?.workspace
+                let panelId = mapped?.terminalPanel.id ?? terminalSurface.id
+                let portalState = hostedView.portalBindingGuardState()
+                let gitBranchState = workspace?.panelGitBranches[panelId]
+                let listeningPorts = (workspace?.surfaceListeningPorts[panelId] ?? []).sorted()
+                let title = workspace?.panelTitle(panelId: panelId)
+                let paneId = mapped?.paneId
+                let treeVisible = mapped?.bonsplitTabId != nil && paneId != nil
+                let ttyName = workspace?.surfaceTTYNames[panelId]
+                let currentDirectory = nonEmpty(workspace?.panelDirectories[panelId] ?? mapped?.terminalPanel.directory)
+
+                var item: [String: Any] = [
+                    "index": index,
+                    "mapped": mapped != nil,
+                    "tree_visible": treeVisible,
+                    "window_index": v2OrNull(resolvedWindowIndex),
+                    "window_id": v2OrNull(resolvedWindowId?.uuidString),
+                    "window_ref": v2Ref(kind: .window, uuid: resolvedWindowId),
+                    "window_number": v2OrNull(hostedWindow?.windowNumber),
+                    "window_key": hostedWindow?.isKeyWindow ?? false,
+                    "window_main": hostedWindow?.isMainWindow ?? false,
+                    "window_visible": hostedWindow?.isVisible ?? false,
+                    "window_identifier": v2OrNull(hostedWindow?.identifier?.rawValue),
+                    "workspace_index": v2OrNull(mapped?.workspaceIndex),
+                    "workspace_id": v2OrNull(workspace?.id.uuidString),
+                    "workspace_ref": v2Ref(kind: .workspace, uuid: workspace?.id),
+                    "workspace_title": v2OrNull(workspace?.title),
+                    "workspace_selected": v2OrNull(mapped?.workspaceSelected),
+                    "pane_index": v2OrNull(mapped?.paneIndex),
+                    "pane_id": v2OrNull(paneId?.id.uuidString),
+                    "pane_ref": v2Ref(kind: .pane, uuid: paneId?.id),
+                    "surface_index": v2OrNull(mapped?.surfaceIndex),
+                    "surface_index_in_pane": v2OrNull(workspace?.indexInPane(forPanelId: panelId)),
+                    "surface_id": panelId.uuidString,
+                    "surface_ref": v2Ref(kind: .surface, uuid: panelId),
+                    "surface_title": v2OrNull(title),
+                    "surface_focused": v2OrNull(workspace.map { panelId == $0.focusedPanelId }),
+                    "surface_selected_in_pane": v2OrNull(mapped?.selectedInPane),
+                    "surface_pinned": v2OrNull(workspace.map { $0.isPanelPinned(panelId) }),
+                    "bonsplit_tab_id": v2OrNull(mapped?.bonsplitTabId?.uuid.uuidString),
+                    "terminal_object_ptr": objectPointerString(terminalSurface),
+                    "ghostty_surface_ptr": ghosttyPointerString(terminalSurface.surface),
+                    "runtime_surface_ready": terminalSurface.surface != nil,
+                    "hosted_view_ptr": objectPointerString(hostedView),
+                    "hosted_view_in_window": hostedView.window != nil,
+                    "hosted_view_has_superview": hostedView.superview != nil,
+                    "hosted_view_hidden": hostedView.isHidden,
+                    "hosted_view_visible_in_ui": hostedView.debugPortalVisibleInUI,
+                    "surface_view_first_responder": hostedView.isSurfaceViewFirstResponder(),
+                    "hosted_view_frame": rectPayload(hostedView.frame),
+                    "hosted_view_bounds": rectPayload(hostedView.bounds),
+                    "hosted_view_frame_in_window": rectPayload(hostedView.debugPortalFrameInWindow),
+                    "portal_binding_state": portalState.state,
+                    "portal_binding_generation": v2OrNull(portalState.generation),
+                    "tty": v2OrNull(ttyName),
+                    "current_directory": v2OrNull(currentDirectory),
+                    "requested_working_directory": v2OrNull(nonEmpty(terminalSurface.requestedWorkingDirectory)),
+                    "git_branch": v2OrNull(nonEmpty(gitBranchState?.branch)),
+                    "git_dirty": v2OrNull(gitBranchState?.isDirty),
+                    "listening_ports": listeningPorts,
+                    "key_state_indicator": v2OrNull(nonEmpty(terminalSurface.currentKeyStateIndicatorText))
+                ]
+
+                if title == nil, let fallbackTitle = mapped?.terminalPanel.displayTitle, !fallbackTitle.isEmpty {
+                    item["surface_title"] = fallbackTitle
+                }
+                return item
+            }
+
+            payload = [
+                "count": terminals.count,
+                "terminals": terminals
+            ]
+        }
+
+        guard let payload else {
+            return .err(code: "unavailable", message: "AppDelegate not available", data: nil)
         }
         return .ok(payload)
     }
