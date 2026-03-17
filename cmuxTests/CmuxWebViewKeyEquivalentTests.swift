@@ -15147,6 +15147,32 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
         return fd
     }
 
+    private func acceptSingleClient(
+        on listenerFD: Int32,
+        handler: @escaping (_ clientFD: Int32) -> Void
+    ) -> XCTestExpectation {
+        let handled = expectation(description: "socket client handled")
+        DispatchQueue.global(qos: .userInitiated).async {
+            var clientAddr = sockaddr_un()
+            var clientAddrLen = socklen_t(MemoryLayout<sockaddr_un>.size)
+            let clientFD = withUnsafeMutablePointer(to: &clientAddr) { ptr in
+                ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                    Darwin.accept(listenerFD, sockaddrPtr, &clientAddrLen)
+                }
+            }
+            guard clientFD >= 0 else {
+                handled.fulfill()
+                return
+            }
+            defer {
+                Darwin.close(clientFD)
+                handled.fulfill()
+            }
+            handler(clientFD)
+        }
+        return handled
+    }
+
     @MainActor
     func testSocketListenerHealthRecognizesSocketPath() throws {
         let path = makeTempSocketPath()
@@ -15173,21 +15199,64 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
         XCTAssertFalse(health.isHealthy)
     }
 
+    func testProbeSocketCommandReturnsFirstLineResponse() throws {
+        let path = makeTempSocketPath()
+        let listenerFD = try bindUnixSocket(at: path)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(path)
+        }
+
+        let handled = acceptSingleClient(on: listenerFD) { clientFD in
+            var buffer = [UInt8](repeating: 0, count: 256)
+            _ = read(clientFD, &buffer, buffer.count)
+            let response = "PONG\nextra\n"
+            _ = response.withCString { ptr in
+                write(clientFD, ptr, strlen(ptr))
+            }
+        }
+
+        let response = TerminalController.probeSocketCommand("ping", at: path, timeout: 0.5)
+
+        XCTAssertEqual(response, "PONG")
+        wait(for: [handled], timeout: 1.0)
+    }
+
+    func testProbeSocketCommandTimesOutWithoutPollingUntilServerResponds() throws {
+        let path = makeTempSocketPath()
+        let listenerFD = try bindUnixSocket(at: path)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(path)
+        }
+
+        let releaseServer = DispatchSemaphore(value: 0)
+        let handled = acceptSingleClient(on: listenerFD) { clientFD in
+            var buffer = [UInt8](repeating: 0, count: 256)
+            _ = read(clientFD, &buffer, buffer.count)
+            _ = releaseServer.wait(timeout: .now() + 1.0)
+        }
+
+        let startedAt = Date()
+        let response = TerminalController.probeSocketCommand("ping", at: path, timeout: 0.2)
+        let elapsed = Date().timeIntervalSince(startedAt)
+        releaseServer.signal()
+
+        XCTAssertNil(response)
+        XCTAssertGreaterThanOrEqual(elapsed, 0.18)
+        XCTAssertLessThan(elapsed, 0.8)
+        wait(for: [handled], timeout: 1.0)
+    }
+
     func testSocketListenerHealthFailureSignalsAreEmptyWhenHealthy() {
         let health = TerminalController.SocketListenerHealth(
             isRunning: true,
             acceptLoopAlive: true,
             socketPathMatches: true,
-            socketPathExists: true,
-            socketProbePerformed: true,
-            socketConnectable: true,
-            socketConnectErrno: nil
+            socketPathExists: true
         )
         XCTAssertTrue(health.isHealthy)
         XCTAssertTrue(health.failureSignals.isEmpty)
-        XCTAssertTrue(health.socketProbePerformed)
-        XCTAssertEqual(health.socketConnectable, true)
-        XCTAssertNil(health.socketConnectErrno)
     }
 
     func testSocketListenerHealthFailureSignalsIncludeAllDetectedProblems() {
@@ -15195,15 +15264,9 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
             isRunning: false,
             acceptLoopAlive: false,
             socketPathMatches: false,
-            socketPathExists: false,
-            socketProbePerformed: false,
-            socketConnectable: nil,
-            socketConnectErrno: nil
+            socketPathExists: false
         )
         XCTAssertFalse(health.isHealthy)
-        XCTAssertFalse(health.socketProbePerformed)
-        XCTAssertNil(health.socketConnectable)
-        XCTAssertNil(health.socketConnectErrno)
         XCTAssertEqual(
             health.failureSignals,
             ["not_running", "accept_loop_dead", "socket_path_mismatch", "socket_missing"]

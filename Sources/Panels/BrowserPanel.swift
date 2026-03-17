@@ -2478,14 +2478,52 @@ final class BrowserPanel: Panel, ObservableObject {
         // Downloads save to a temp file synchronously (no NSSavePanel during WebKit
         // callbacks), then show NSSavePanel after the download completes.
         let dlDelegate = BrowserDownloadDelegate()
-        dlDelegate.onDownloadStarted = { [weak self] _ in
-            self?.beginDownloadActivity()
+        dlDelegate.onDownloadStarted = { [weak self] filename in
+            guard let self else { return }
+            self.beginDownloadActivity()
+            NotificationCenter.default.post(
+                name: .browserDownloadEventDidArrive,
+                object: self,
+                userInfo: [
+                    "surfaceId": self.id,
+                    "workspaceId": self.workspaceId,
+                    "event": [
+                        "type": "started",
+                        "filename": filename
+                    ]
+                ]
+            )
         }
         dlDelegate.onDownloadReadyToSave = { [weak self] in
-            self?.endDownloadActivity()
+            guard let self else { return }
+            self.endDownloadActivity()
+            NotificationCenter.default.post(
+                name: .browserDownloadEventDidArrive,
+                object: self,
+                userInfo: [
+                    "surfaceId": self.id,
+                    "workspaceId": self.workspaceId,
+                    "event": [
+                        "type": "ready_to_save"
+                    ]
+                ]
+            )
         }
-        dlDelegate.onDownloadFailed = { [weak self] _ in
-            self?.endDownloadActivity()
+        dlDelegate.onDownloadFailed = { [weak self] error in
+            guard let self else { return }
+            self.endDownloadActivity()
+            NotificationCenter.default.post(
+                name: .browserDownloadEventDidArrive,
+                object: self,
+                userInfo: [
+                    "surfaceId": self.id,
+                    "workspaceId": self.workspaceId,
+                    "event": [
+                        "type": "failed",
+                        "error": error.localizedDescription
+                    ]
+                ]
+            )
         }
         navDelegate.downloadDelegate = dlDelegate
         self.downloadDelegate = dlDelegate

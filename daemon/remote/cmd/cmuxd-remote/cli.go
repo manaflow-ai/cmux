@@ -122,7 +122,7 @@ doneFlags:
 	}
 
 	// refreshAddr is set when the address came from socket_addr file (not env/flag),
-	// allowing retry loops to pick up updated relay ports.
+	// allowing one stale-address refresh if another workspace has replaced socket_addr.
 	var refreshAddr func() string
 	if socketPath == "" {
 		socketPath = readSocketAddrFile()
@@ -477,11 +477,17 @@ func currentRelayAuth(socketPath string) *relayAuthState {
 
 // dialSocket connects to the cmux socket. If addr contains a colon and doesn't
 // start with '/', it's treated as a TCP address (host:port); otherwise Unix socket.
-// For TCP connections, it retries briefly to allow the SSH reverse forward to establish.
-// refreshAddr, if non-nil, is called on each retry to pick up updated socket_addr files.
+// For TCP connections, refreshAddr is used only to recover from a stale socket_addr
+// rewrite, not to poll for relay readiness.
 func dialSocket(addr string, refreshAddr func() string) (net.Conn, error) {
 	if strings.Contains(addr, ":") && !strings.HasPrefix(addr, "/") {
-		conn, connectedAddr, err := dialTCPRetry(addr, 15*time.Second, refreshAddr)
+		conn, connectedAddr, err := dialTCP(addr)
+		if err != nil && refreshAddr != nil && isConnectionRefused(err) {
+			if refreshedAddr := strings.TrimSpace(refreshAddr()); refreshedAddr != "" && refreshedAddr != addr {
+				addr = refreshedAddr
+				conn, connectedAddr, err = dialTCP(addr)
+			}
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -496,40 +502,13 @@ func dialSocket(addr string, refreshAddr func() string) (net.Conn, error) {
 	return net.Dial("unix", addr)
 }
 
-// dialTCPRetry attempts a TCP connection, retrying on "connection refused" for up to timeout.
-// This handles the case where the SSH reverse relay hasn't finished establishing yet.
-// If refreshAddr is non-nil, it's called on each retry to pick up updated addresses
-// (e.g. when socket_addr is rewritten by a new relay process).
-func dialTCPRetry(addr string, timeout time.Duration, refreshAddr func() string) (net.Conn, string, error) {
-	deadline := time.Now().Add(timeout)
-	interval := 250 * time.Millisecond
-	printed := false
-	for {
-		conn, err := net.DialTimeout("tcp", addr, 2*time.Second)
-		if err == nil {
-			setTCPNoDelay(conn)
-			return conn, addr, nil
-		}
-		if time.Now().After(deadline) {
-			return nil, addr, err
-		}
-		// Only retry on connection refused (relay not ready yet)
-		if !isConnectionRefused(err) {
-			return nil, addr, err
-		}
-		if !printed {
-			fmt.Fprintf(os.Stderr, "cmux: waiting for relay on %s...\n", addr)
-			printed = true
-		}
-		time.Sleep(interval)
-		// Re-read socket_addr in case the relay port has changed
-		if refreshAddr != nil {
-			if newAddr := refreshAddr(); newAddr != "" && newAddr != addr {
-				addr = newAddr
-				fmt.Fprintf(os.Stderr, "cmux: relay address updated to %s\n", addr)
-			}
-		}
+func dialTCP(addr string) (net.Conn, string, error) {
+	conn, err := net.DialTimeout("tcp", addr, 2*time.Second)
+	if err != nil {
+		return nil, addr, err
 	}
+	setTCPNoDelay(conn)
+	return conn, addr, nil
 }
 
 func isConnectionRefused(err error) bool {

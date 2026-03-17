@@ -1069,20 +1069,63 @@ class TabManager: ObservableObject {
         return newWorkspace
     }
 
-    private func sendWelcomeWhenReady(to workspace: Workspace, attempt: Int = 0) {
-        let maxAttempts = 60
+    @MainActor
+    private func sendWelcomeWhenReady(to workspace: Workspace) {
         if let terminalPanel = workspace.focusedTerminalPanel,
            terminalPanel.surface.surface != nil {
-            // Wait a bit more for the shell prompt to be ready
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 UserDefaults.standard.set(true, forKey: WelcomeSettings.shownKey)
                 terminalPanel.sendText("cmux welcome\n")
             }
             return
         }
-        guard attempt < maxAttempts else { return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
-            self?.sendWelcomeWhenReady(to: workspace, attempt: attempt + 1)
+
+        var resolved = false
+        var readyObserver: NSObjectProtocol?
+        var panelsCancellable: AnyCancellable?
+
+        func finishIfReady() {
+            guard !resolved,
+                  let terminalPanel = workspace.focusedTerminalPanel,
+                  terminalPanel.surface.surface != nil else { return }
+            resolved = true
+            if let readyObserver {
+                NotificationCenter.default.removeObserver(readyObserver)
+            }
+            panelsCancellable?.cancel()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                UserDefaults.standard.set(true, forKey: WelcomeSettings.shownKey)
+                terminalPanel.sendText("cmux welcome\n")
+            }
+        }
+
+        panelsCancellable = workspace.$panels
+            .map { _ in () }
+            .sink { _ in
+                Task { @MainActor in
+                    finishIfReady()
+                }
+            }
+        readyObserver = NotificationCenter.default.addObserver(
+            forName: .terminalSurfaceDidBecomeReady,
+            object: nil,
+            queue: .main
+        ) { note in
+            guard let workspaceId = note.userInfo?["workspaceId"] as? UUID,
+                  workspaceId == workspace.id else { return }
+            Task { @MainActor in
+                finishIfReady()
+            }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+            Task { @MainActor in
+                if let readyObserver, !resolved {
+                    NotificationCenter.default.removeObserver(readyObserver)
+                }
+                if !resolved {
+                    panelsCancellable?.cancel()
+                }
+            }
         }
     }
 
@@ -2748,13 +2791,22 @@ class TabManager: ObservableObject {
     // MARK: - Split Creation
 
     /// Create a new split in the current tab
-    func createSplit(direction: SplitDirection) {
+    @discardableResult
+    func createSplit(direction: SplitDirection) -> UUID? {
         guard let selectedTabId,
               let tab = tabs.first(where: { $0.id == selectedTabId }),
-              let focusedPanelId = tab.focusedPanelId else { return }
+              let focusedPanelId = tab.focusedPanelId else { return nil }
+        return createSplit(tabId: selectedTabId, surfaceId: focusedPanelId, direction: direction)
+    }
+
+    /// Create a new split from an explicit source panel.
+    @discardableResult
+    func createSplit(tabId: UUID, surfaceId: UUID, direction: SplitDirection, focus: Bool = true) -> UUID? {
+        guard let tab = tabs.first(where: { $0.id == tabId }),
+              tab.panels[surfaceId] != nil else { return nil }
         tab.clearSplitZoom()
         sentryBreadcrumb("split.create", data: ["direction": String(describing: direction)])
-        _ = newSplit(tabId: selectedTabId, surfaceId: focusedPanelId, direction: direction)
+        return newSplit(tabId: tabId, surfaceId: surfaceId, direction: direction, focus: focus)
     }
 
     /// Create a new browser split from the currently focused panel.
@@ -3268,30 +3320,149 @@ class TabManager: ObservableObject {
 
 #if DEBUG
     @MainActor
+    private func waitForWorkspacePanelsCondition(
+        tab: Workspace,
+        timeoutSeconds: TimeInterval,
+        condition: @escaping (Workspace) -> Bool
+    ) async -> Bool {
+        guard !condition(tab) else { return true }
+
+        return await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
+            var resolved = false
+            var cancellable: AnyCancellable?
+
+            func finish(_ value: Bool) {
+                guard !resolved else { return }
+                resolved = true
+                cancellable?.cancel()
+                cont.resume(returning: value)
+            }
+
+            func evaluate() {
+                if condition(tab) {
+                    finish(true)
+                }
+            }
+
+            cancellable = tab.$panels
+                .map { _ in () }
+                .sink { _ in evaluate() }
+
+            DispatchQueue.main.asyncAfter(deadline: .now() + timeoutSeconds) {
+                Task { @MainActor in
+                    finish(condition(tab))
+                }
+            }
+            evaluate()
+        }
+    }
+
+    @MainActor
+    private func waitForTerminalPanelCondition(
+        tab: Workspace,
+        panelId: UUID,
+        timeoutSeconds: TimeInterval,
+        condition: @escaping (TerminalPanel) -> Bool
+    ) async -> Bool {
+        if let panel = tab.terminalPanel(for: panelId), condition(panel) {
+            return true
+        }
+
+        return await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
+            var resolved = false
+            var panelsCancellable: AnyCancellable?
+            var readyObserver: NSObjectProtocol?
+            var hostedViewObserver: NSObjectProtocol?
+
+            @MainActor
+            func finish(_ value: Bool) {
+                guard !resolved else { return }
+                resolved = true
+                panelsCancellable?.cancel()
+                if let readyObserver {
+                    NotificationCenter.default.removeObserver(readyObserver)
+                }
+                if let hostedViewObserver {
+                    NotificationCenter.default.removeObserver(hostedViewObserver)
+                }
+                cont.resume(returning: value)
+            }
+
+            @MainActor
+            func evaluate() {
+                guard let panel = tab.terminalPanel(for: panelId) else {
+                    finish(false)
+                    return
+                }
+                panel.surface.requestBackgroundSurfaceStartIfNeeded()
+                if condition(panel) {
+                    finish(true)
+                }
+            }
+
+            panelsCancellable = tab.$panels
+                .map { _ in () }
+                .sink { _ in
+                    Task { @MainActor in
+                        evaluate()
+                    }
+                }
+            readyObserver = NotificationCenter.default.addObserver(
+                forName: .terminalSurfaceDidBecomeReady,
+                object: nil,
+                queue: .main
+            ) { note in
+                guard let readySurfaceId = note.userInfo?["surfaceId"] as? UUID,
+                      readySurfaceId == panelId else { return }
+                Task { @MainActor in
+                    evaluate()
+                }
+            }
+            hostedViewObserver = NotificationCenter.default.addObserver(
+                forName: .terminalSurfaceHostedViewDidMoveToWindow,
+                object: nil,
+                queue: .main
+            ) { note in
+                guard let hostedSurfaceId = note.userInfo?["surfaceId"] as? UUID,
+                      hostedSurfaceId == panelId else { return }
+                Task { @MainActor in
+                    evaluate()
+                }
+            }
+
+            DispatchQueue.main.asyncAfter(deadline: .now() + timeoutSeconds) {
+                Task { @MainActor in
+                    if let panel = tab.terminalPanel(for: panelId) {
+                        finish(condition(panel))
+                    } else {
+                        finish(false)
+                    }
+                }
+            }
+            evaluate()
+        }
+    }
+
+    @MainActor
     private func waitForTerminalPanelReadyForUITest(
         tab: Workspace,
         panelId: UUID,
         timeoutSeconds: TimeInterval = 6.0
     ) async -> (attached: Bool, hasSurface: Bool, firstResponder: Bool) {
-        let deadline = Date().addingTimeInterval(timeoutSeconds)
         var attached = false
         var hasSurface = false
         var firstResponder = false
 
-        while Date() < deadline {
-            guard let panel = tab.terminalPanel(for: panelId) else {
-                return (false, false, false)
-            }
-
+        let _ = await waitForTerminalPanelCondition(
+            tab: tab,
+            panelId: panelId,
+            timeoutSeconds: timeoutSeconds
+        ) { panel in
             panel.surface.requestBackgroundSurfaceStartIfNeeded()
             attached = panel.hostedView.window != nil
             hasSurface = panel.surface.surface != nil
             firstResponder = panel.hostedView.isSurfaceViewFirstResponder()
-
-            if attached, hasSurface {
-                return (attached, hasSurface, firstResponder)
-            }
-            try? await Task.sleep(nanoseconds: 50_000_000)
+            return attached && hasSurface
         }
 
         return (attached, hasSurface, firstResponder)
@@ -3895,7 +4066,16 @@ class TabManager: ObservableObject {
                     for panelId in tab.panels.keys where panelId != leftPanelId {
                         tab.closePanel(panelId, force: true)
                     }
-                    try? await Task.sleep(nanoseconds: 80_000_000)
+                    let collapsed = await self.waitForWorkspacePanelsCondition(
+                        tab: tab,
+                        timeoutSeconds: 2.0
+                    ) { workspace in
+                        workspace.panels.count == 1
+                    }
+                    if !collapsed {
+                        write(["setupError": "Timed out collapsing workspace before iteration \(i)", "done": "1"])
+                        return
+                    }
                 }
 
                 guard let rightPanel = tab.newTerminalSplit(from: leftPanelId, orientation: .horizontal) else {
@@ -3912,12 +4092,12 @@ class TabManager: ObservableObject {
                 tab.focusPanel(rightPanel.id)
                 // Wait for the split terminal surface to be attached before sending exit.
                 // Without this, very early writes can be dropped during initial surface creation.
-                let readyDeadline = Date().addingTimeInterval(2.0)
-                while Date() < readyDeadline {
-                    let attached = rightPanel.hostedView.window != nil
-                    let hasSurface = rightPanel.surface.surface != nil
-                    if attached && hasSurface { break }
-                    try? await Task.sleep(nanoseconds: 50_000_000)
+                _ = await self.waitForTerminalPanelCondition(
+                    tab: tab,
+                    panelId: rightPanel.id,
+                    timeoutSeconds: 2.0
+                ) { panel in
+                    panel.hostedView.window != nil && panel.surface.surface != nil
                 }
                 // Use an explicit shell exit command for deterministic child-exit behavior across
                 // startup timing variance; this still exercises the same SHOW_CHILD_EXITED path.
@@ -4064,12 +4244,13 @@ class TabManager: ObservableObject {
                 tab.closePanel(bottomRight.id, force: true)
                 exitPanelId = leftPanelId
 
-                let closeDeadline = Date().addingTimeInterval(2.0)
-                while Date() < closeDeadline {
-                    if tab.panels.count == 2 { break }
-                    try? await Task.sleep(nanoseconds: 50_000_000)
+                let collapsed = await self.waitForWorkspacePanelsCondition(
+                    tab: tab,
+                    timeoutSeconds: 2.0
+                ) { workspace in
+                    workspace.panels.count == 2
                 }
-                if tab.panels.count != 2 {
+                if !collapsed {
                     write([
                         "setupError": "Expected 2 panels after closing right column, got \(tab.panels.count)",
                         "done": "1",
@@ -4102,12 +4283,13 @@ class TabManager: ObservableObject {
                 for panelId in Array(tab.panels.keys) where !keepPanels.contains(panelId) {
                     tab.focusPanel(panelId)
                     tab.closePanel(panelId, force: true)
-                    let deadline = Date().addingTimeInterval(1.0)
-                    while Date() < deadline {
-                        if tab.panels[panelId] == nil { break }
-                        try? await Task.sleep(nanoseconds: 25_000_000)
+                    let closed = await self.waitForWorkspacePanelsCondition(
+                        tab: tab,
+                        timeoutSeconds: 1.0
+                    ) { workspace in
+                        workspace.panels[panelId] == nil
                     }
-                    if tab.panels[panelId] != nil {
+                    if !closed {
                         write([
                             "setupError": "Failed to close bottom pane \(panelId.uuidString)",
                             "done": "1",
@@ -4117,12 +4299,13 @@ class TabManager: ObservableObject {
                 }
                 exitPanelId = leftPanelId
 
-                let closeDeadline = Date().addingTimeInterval(2.0)
-                while Date() < closeDeadline {
-                    if tab.panels.count == 2 { break }
-                    try? await Task.sleep(nanoseconds: 50_000_000)
+                let collapsed = await self.waitForWorkspacePanelsCondition(
+                    tab: tab,
+                    timeoutSeconds: 2.0
+                ) { workspace in
+                    workspace.panels.count == 2
                 }
-                if tab.panels.count != 2 {
+                if !collapsed {
                     write([
                         "setupError": "Expected 2 panels after closing bottom row, got \(tab.panels.count)",
                         "done": "1",
@@ -4157,7 +4340,6 @@ class TabManager: ObservableObject {
                     return
                 }
                 self.ensureFocusedTerminalFirstResponder()
-                try? await Task.sleep(nanoseconds: 80_000_000)
             } else if let exitPanel = tab.terminalPanel(for: exitPanelId) {
                 exitPanelAttachedBeforeCtrlD = exitPanel.hostedView.window != nil
                 exitPanelHasSurfaceBeforeCtrlD = exitPanel.surface.surface != nil
@@ -4275,20 +4457,19 @@ class TabManager: ObservableObject {
                     var attachedBeforeTrigger = false
                     var hasSurfaceBeforeTrigger = false
                     if shouldWaitForSurface {
-                        // Wait for the target panel to be fully attached after split churn.
-                        let readyDeadline = Date().addingTimeInterval(5.0)
-                        while Date() < readyDeadline {
-                            guard let panel = tab.terminalPanel(for: exitPanelId) else {
-                                write(["autoTriggerError": "missingExitPanelBeforeTrigger"])
-                                return
-                            }
-                            panel.surface.requestBackgroundSurfaceStartIfNeeded()
+                        let ready = await self.waitForTerminalPanelCondition(
+                            tab: tab,
+                            panelId: exitPanelId,
+                            timeoutSeconds: 5.0
+                        ) { panel in
                             attachedBeforeTrigger = panel.hostedView.window != nil
                             hasSurfaceBeforeTrigger = panel.surface.surface != nil
-                            if attachedBeforeTrigger, hasSurfaceBeforeTrigger {
-                                break
-                            }
-                            try? await Task.sleep(nanoseconds: 50_000_000)
+                            return attachedBeforeTrigger && hasSurfaceBeforeTrigger
+                        }
+                        if !ready,
+                           tab.terminalPanel(for: exitPanelId) == nil {
+                            write(["autoTriggerError": "missingExitPanelBeforeTrigger"])
+                            return
                         }
                     } else if let panel = tab.terminalPanel(for: exitPanelId) {
                         attachedBeforeTrigger = panel.hostedView.window != nil
@@ -4538,4 +4719,6 @@ extension Notification.Name {
     static let browserDidFocusAddressBar = Notification.Name("browserDidFocusAddressBar")
     static let browserDidBlurAddressBar = Notification.Name("browserDidBlurAddressBar")
     static let webViewDidReceiveClick = Notification.Name("webViewDidReceiveClick")
+    static let terminalPortalVisibilityDidChange = Notification.Name("cmux.terminalPortalVisibilityDidChange")
+    static let browserPortalRegistryDidChange = Notification.Name("cmux.browserPortalRegistryDidChange")
 }

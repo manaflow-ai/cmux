@@ -528,7 +528,7 @@ enum CLIIDFormat: String {
     }
 }
 
-private enum SocketPasswordResolver {
+enum SocketPasswordResolver {
     private static let service = "com.cmuxterm.app.socket-control"
     private static let account = "local-socket-password"
     private static let directoryName = "cmux"
@@ -569,15 +569,21 @@ private enum SocketPasswordResolver {
         return normalized(value)
     }
 
-    private static func keychainServices(socketPath: String) -> [String] {
-        guard let scope = keychainScope(socketPath: socketPath) else {
+    static func keychainServices(
+        socketPath: String,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> [String] {
+        guard let scope = keychainScope(socketPath: socketPath, environment: environment) else {
             return [service]
         }
-        return ["\(service).\(scope)"]
+        return ["\(service).\(scope)", service]
     }
 
-    private static func keychainScope(socketPath: String) -> String? {
-        if let tag = normalized(ProcessInfo.processInfo.environment["CMUX_TAG"]) {
+    private static func keychainScope(
+        socketPath: String,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> String? {
+        if let tag = normalized(environment["CMUX_TAG"]) {
             let scoped = sanitizeScope(tag)
             if !scoped.isEmpty {
                 return scoped
@@ -836,15 +842,8 @@ private enum CLISocketPathResolver {
 final class SocketClient {
     private let path: String
     private var socketFD: Int32 = -1
-    private static let connectRetryWindowSeconds: TimeInterval = 2.0
-    private static let connectRetryIntervalSeconds: TimeInterval = 0.1
-    private static let retriableConnectErrnos: Set<Int32> = [
-        ENOENT,
-        ECONNREFUSED,
-        EAGAIN,
-        EINTR
-    ]
     private static let defaultResponseTimeoutSeconds: TimeInterval = 15.0
+    private static let multilineResponseIdleTimeoutSeconds: TimeInterval = 0.12
     private static let responseTimeoutSeconds: TimeInterval = {
         let env = ProcessInfo.processInfo.environment
         if let raw = env["CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC"],
@@ -865,69 +864,7 @@ final class SocketClient {
 
     func connect() throws {
         if socketFD >= 0 { return }
-
-        let deadline = Date().addingTimeInterval(Self.connectRetryWindowSeconds)
-        var lastError: CLIError?
-
-        while true {
-            // Verify socket is owned by the current user to prevent fake-socket attacks.
-            var st = stat()
-            guard stat(path, &st) == 0 else {
-                let error = CLIError(message: "Socket not found at \(path)")
-                lastError = error
-                if errno == ENOENT, Date() < deadline {
-                    Thread.sleep(forTimeInterval: Self.connectRetryIntervalSeconds)
-                    continue
-                }
-                throw error
-            }
-            guard (st.st_mode & mode_t(S_IFMT)) == mode_t(S_IFSOCK) else {
-                throw CLIError(message: "Path exists at \(path) but is not a Unix socket")
-            }
-            guard st.st_uid == getuid() else {
-                throw CLIError(message: "Socket at \(path) is not owned by the current user — refusing to connect")
-            }
-
-            socketFD = socket(AF_UNIX, SOCK_STREAM, 0)
-            if socketFD < 0 {
-                throw CLIError(message: "Failed to create socket")
-            }
-
-            var addr = sockaddr_un()
-            addr.sun_family = sa_family_t(AF_UNIX)
-            let maxLength = MemoryLayout.size(ofValue: addr.sun_path)
-            path.withCString { ptr in
-                withUnsafeMutablePointer(to: &addr.sun_path) { pathPtr in
-                    let buf = UnsafeMutableRawPointer(pathPtr).assumingMemoryBound(to: CChar.self)
-                    strncpy(buf, ptr, maxLength - 1)
-                }
-            }
-
-            let result = withUnsafePointer(to: &addr) { ptr in
-                ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
-                    Darwin.connect(socketFD, sockaddrPtr, socklen_t(MemoryLayout<sockaddr_un>.size))
-                }
-            }
-            if result == 0 {
-                return
-            }
-
-            let connectErrno = errno
-            Darwin.close(socketFD)
-            socketFD = -1
-
-            let error = CLIError(
-                message: "Failed to connect to socket at \(path) (\(String(cString: strerror(connectErrno))), errno \(connectErrno))"
-            )
-            lastError = error
-            if Self.retriableConnectErrnos.contains(connectErrno), Date() < deadline {
-                Thread.sleep(forTimeInterval: Self.connectRetryIntervalSeconds)
-                continue
-            }
-            throw error
-        }
-
-        throw lastError ?? CLIError(message: "Failed to connect to socket at \(path)")
+        try connectOnce()
     }
 
     func close() {
@@ -949,27 +886,27 @@ final class SocketClient {
 
         var data = Data()
         var sawNewline = false
-        let start = Date()
 
         while true {
-            var pollFD = pollfd(fd: socketFD, events: Int16(POLLIN), revents: 0)
-            let ready = poll(&pollFD, 1, 100)
-            if ready < 0 {
-                throw CLIError(message: "Socket read error")
-            }
-            if ready == 0 {
-                if sawNewline {
-                    break
-                }
-                if Date().timeIntervalSince(start) > Self.responseTimeoutSeconds {
-                    throw CLIError(message: "Command timed out")
-                }
-                continue
-            }
+            try configureReceiveTimeout(
+                sawNewline ? Self.multilineResponseIdleTimeoutSeconds : Self.responseTimeoutSeconds
+            )
 
             var buffer = [UInt8](repeating: 0, count: 8192)
             let count = Darwin.read(socketFD, &buffer, buffer.count)
-            if count <= 0 {
+            if count < 0 {
+                if errno == EINTR {
+                    continue
+                }
+                if errno == EAGAIN || errno == EWOULDBLOCK {
+                    if sawNewline {
+                        break
+                    }
+                    throw CLIError(message: "Command timed out")
+                }
+                throw CLIError(message: "Socket read error")
+            }
+            if count == 0 {
                 break
             }
             data.append(buffer, count: count)
@@ -985,6 +922,189 @@ final class SocketClient {
             response.removeLast()
         }
         return response
+    }
+
+    private func connectOnce() throws {
+        // Verify socket is owned by the current user to prevent fake-socket attacks.
+        var st = stat()
+        guard stat(path, &st) == 0 else {
+            throw CLIError(message: "Socket not found at \(path)")
+        }
+        guard (st.st_mode & mode_t(S_IFMT)) == mode_t(S_IFSOCK) else {
+            throw CLIError(message: "Path exists at \(path) but is not a Unix socket")
+        }
+        guard st.st_uid == getuid() else {
+            throw CLIError(message: "Socket at \(path) is not owned by the current user — refusing to connect")
+        }
+
+        socketFD = socket(AF_UNIX, SOCK_STREAM, 0)
+        if socketFD < 0 {
+            throw CLIError(message: "Failed to create socket")
+        }
+
+        var addr = sockaddr_un()
+        addr.sun_family = sa_family_t(AF_UNIX)
+        let maxLength = MemoryLayout.size(ofValue: addr.sun_path)
+        path.withCString { ptr in
+            withUnsafeMutablePointer(to: &addr.sun_path) { pathPtr in
+                let buf = UnsafeMutableRawPointer(pathPtr).assumingMemoryBound(to: CChar.self)
+                strncpy(buf, ptr, maxLength - 1)
+            }
+        }
+
+        let result = withUnsafePointer(to: &addr) { ptr in
+            ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                Darwin.connect(socketFD, sockaddrPtr, socklen_t(MemoryLayout<sockaddr_un>.size))
+            }
+        }
+        if result == 0 {
+            return
+        }
+
+        let connectErrno = errno
+        Darwin.close(socketFD)
+        socketFD = -1
+        throw CLIError(
+            message: "Failed to connect to socket at \(path) (\(String(cString: strerror(connectErrno))), errno \(connectErrno))"
+        )
+    }
+
+    private func configureReceiveTimeout(_ timeout: TimeInterval) throws {
+        var interval = timeval(
+            tv_sec: Int(timeout.rounded(.down)),
+            tv_usec: __darwin_suseconds_t((timeout - floor(timeout)) * 1_000_000)
+        )
+        let result = withUnsafePointer(to: &interval) { ptr in
+            setsockopt(
+                socketFD,
+                SOL_SOCKET,
+                SO_RCVTIMEO,
+                ptr,
+                socklen_t(MemoryLayout<timeval>.size)
+            )
+        }
+        guard result == 0 else {
+            throw CLIError(message: "Failed to configure socket receive timeout")
+        }
+    }
+
+    static func waitForConnectableSocket(path: String, timeout: TimeInterval) throws -> SocketClient {
+        let client = SocketClient(path: path)
+        if (try? client.connect()) != nil {
+            return client
+        }
+
+        guard let watchDirectory = existingWatchDirectory(forPath: path) else {
+            throw CLIError(message: "cmux app did not start in time (socket not found at \(path))")
+        }
+        let watchFD = open(watchDirectory, O_EVTONLY)
+        guard watchFD >= 0 else {
+            throw CLIError(message: "cmux app did not start in time (socket not found at \(path))")
+        }
+
+        let queue = DispatchQueue(label: "com.cmux.cli.socket-watch.\(UUID().uuidString)")
+        let semaphore = DispatchSemaphore(value: 0)
+        var connected = false
+        let source = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: watchFD,
+            eventMask: [.write, .rename, .delete, .attrib, .extend, .link],
+            queue: queue
+        )
+
+        func attemptConnect() {
+            guard !connected else { return }
+            if (try? client.connect()) != nil {
+                connected = true
+                semaphore.signal()
+            }
+        }
+
+        source.setEventHandler {
+            attemptConnect()
+        }
+        source.setCancelHandler {
+            Darwin.close(watchFD)
+        }
+        source.resume()
+        queue.async {
+            attemptConnect()
+        }
+
+        guard semaphore.wait(timeout: .now() + timeout) == .success else {
+            source.cancel()
+            client.close()
+            throw CLIError(message: "cmux app did not start in time (socket not found at \(path))")
+        }
+
+        source.cancel()
+        return client
+    }
+
+    static func waitForFilesystemPath(_ path: String, timeout: TimeInterval) throws {
+        if FileManager.default.fileExists(atPath: path) {
+            return
+        }
+
+        guard let watchDirectory = existingWatchDirectory(forPath: path) else {
+            throw CLIError(message: "Timed out waiting for \(path)")
+        }
+        let watchFD = open(watchDirectory, O_EVTONLY)
+        guard watchFD >= 0 else {
+            throw CLIError(message: "Timed out waiting for \(path)")
+        }
+
+        let queue = DispatchQueue(label: "com.cmux.cli.path-watch.\(UUID().uuidString)")
+        let semaphore = DispatchSemaphore(value: 0)
+        var found = false
+        let source = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: watchFD,
+            eventMask: [.write, .rename, .delete, .attrib, .extend, .link],
+            queue: queue
+        )
+
+        func checkPath() {
+            guard !found else { return }
+            if FileManager.default.fileExists(atPath: path) {
+                found = true
+                semaphore.signal()
+            }
+        }
+
+        source.setEventHandler {
+            checkPath()
+        }
+        source.setCancelHandler {
+            Darwin.close(watchFD)
+        }
+        source.resume()
+        queue.async {
+            checkPath()
+        }
+
+        guard semaphore.wait(timeout: .now() + timeout) == .success else {
+            source.cancel()
+            throw CLIError(message: "Timed out waiting for \(path)")
+        }
+
+        source.cancel()
+    }
+
+    private static func existingWatchDirectory(forPath path: String) -> String? {
+        let fileManager = FileManager.default
+        var candidate = URL(fileURLWithPath: (path as NSString).deletingLastPathComponent, isDirectory: true)
+
+        while !candidate.path.isEmpty {
+            var isDirectory: ObjCBool = false
+            if fileManager.fileExists(atPath: candidate.path, isDirectory: &isDirectory), isDirectory.boolValue {
+                return candidate.path
+            }
+            let parent = candidate.deletingLastPathComponent()
+            if parent.path == candidate.path {
+                break
+            }
+            candidate = parent
+        }
+        return nil
     }
 
     func sendV2(method: String, params: [String: Any] = [:]) throws -> [String: Any] {
@@ -1555,8 +1675,6 @@ struct CMUXCLI {
             let wsId = (response["workspace_ref"] as? String) ?? (response["workspace_id"] as? String) ?? ""
             print("OK \(wsId)")
             if let commandText = commandOpt, !wsId.isEmpty {
-                // Wait for shell to initialize
-                Thread.sleep(forTimeInterval: 0.5)
                 let text = unescapeSendText(commandText + "\\n")
                 let sendParams: [String: Any] = ["text": text, "workspace_id": wsId]
                 _ = try client.sendV2(method: "surface.send_text", params: sendParams)
@@ -2334,24 +2452,10 @@ struct CMUXCLI {
         if (try? client.connect()) == nil {
             client.close()
             try launchApp()
-            // Poll until socket accepts connections (up to 10 seconds)
-            let pollClient = SocketClient(path: socketPath)
-            var connected = false
-            for _ in 0..<100 {
-                if (try? pollClient.connect()) != nil {
-                    connected = true
-                    break
-                }
-                pollClient.close()
-                Thread.sleep(forTimeInterval: 0.1)
-            }
-            guard connected else {
-                throw CLIError(message: "cmux app did not start in time (socket not found at \(socketPath))")
-            }
-            // Use pollClient since it's connected
-            defer { pollClient.close() }
+            let launchedClient = try SocketClient.waitForConnectableSocket(path: socketPath, timeout: 10)
+            defer { launchedClient.close() }
             let params: [String: Any] = ["cwd": directory]
-            let response = try pollClient.sendV2(method: "workspace.create", params: params)
+            let response = try launchedClient.sendV2(method: "workspace.create", params: params)
             let wsRef = (response["workspace_ref"] as? String) ?? (response["workspace_id"] as? String) ?? ""
             if !wsRef.isEmpty {
                 print("OK \(wsRef)")
@@ -2472,26 +2576,13 @@ struct CMUXCLI {
         if launchIfNeeded && (try? client.connect()) == nil {
             client.close()
             try launchApp()
-
-            let pollClient = SocketClient(path: socketPath)
-            var connected = false
-            for _ in 0..<100 {
-                if (try? pollClient.connect()) != nil {
-                    connected = true
-                    break
-                }
-                pollClient.close()
-                Thread.sleep(forTimeInterval: 0.1)
-            }
-            guard connected else {
-                throw CLIError(message: "cmux app did not start in time (socket not found at \(socketPath))")
-            }
+            let launchedClient = try SocketClient.waitForConnectableSocket(path: socketPath, timeout: 10)
             try authenticateClientIfNeeded(
-                pollClient,
+                launchedClient,
                 explicitPassword: explicitPassword,
                 socketPath: socketPath
             )
-            return pollClient
+            return launchedClient
         }
 
         try client.connect()
@@ -3198,7 +3289,7 @@ struct CMUXCLI {
             windowOverride: windowOverride
         )
     }
-    private struct SSHCommandOptions {
+    struct SSHCommandOptions {
         let destination: String
         let port: Int?
         let identityFile: String?
@@ -3251,17 +3342,49 @@ struct CMUXCLI {
         jsonOutput: Bool,
         idFormat: CLIIDFormat
     ) throws {
+        let sshStartedAt = Date()
         // Use the socket path from this invocation (supports --socket overrides).
         let localSocketPath = client.socketPath
         let remoteRelayPort = generateRemoteRelayPort()
         let relayID = UUID().uuidString.lowercased()
         let relayToken = try randomHex(byteCount: 32)
         let sshOptions = try parseSSHCommandOptions(commandArgs, localSocketPath: localSocketPath, remoteRelayPort: remoteRelayPort)
-        prepareSSHTerminfoIfNeeded(sshOptions)
-        let sshCommand = buildSSHCommandText(sshOptions)
+        func logSSHTiming(_ stage: String, extra: String = "") {
+            let elapsedMs = Int(Date().timeIntervalSince(sshStartedAt) * 1000)
+            let suffix = extra.isEmpty ? "" : " \(extra)"
+            cliDebugLog(
+                "cli.ssh.timing target=\(sshOptions.destination) relayPort=\(sshOptions.remoteRelayPort) " +
+                "stage=\(stage) elapsedMs=\(elapsedMs)\(suffix)"
+            )
+        }
+
+        logSSHTiming("parsed")
+        let terminfoSource = localXtermGhosttyTerminfoSource()
+        cliDebugLog(
+            "cli.ssh.timing target=\(sshOptions.destination) relayPort=\(sshOptions.remoteRelayPort) " +
+            "stage=terminfo elapsedMs=0 mode=deferred term=xterm-256color " +
+            "source=\(terminfoSource == nil ? 0 : 1)"
+        )
         let shellFeaturesValue = scopedGhosttyShellFeaturesValue()
-        let sshStartupCommand = buildSSHStartupCommand(
-            sshCommand: sshCommand,
+        let initialSSHCommand = buildSSHCommandText(sshOptions)
+        let remoteTerminalBootstrapScript = sshOptions.extraArguments.isEmpty
+            ? buildInteractiveRemoteShellScript(
+                remoteRelayPort: sshOptions.remoteRelayPort,
+                shellFeatures: shellFeaturesValue,
+                terminfoSource: terminfoSource
+            )
+            : nil
+        let remoteTerminalSSHCommand = buildSSHCommandText(
+            sshOptions,
+            remoteBootstrapScript: remoteTerminalBootstrapScript
+        )
+        let initialSSHStartupCommand = try buildSSHStartupCommand(
+            sshCommand: initialSSHCommand,
+            shellFeatures: "",
+            remoteRelayPort: sshOptions.remoteRelayPort
+        )
+        let remoteTerminalSSHStartupCommand = try buildSSHStartupCommand(
+            sshCommand: remoteTerminalSSHCommand,
             shellFeatures: shellFeaturesValue,
             remoteRelayPort: sshOptions.remoteRelayPort
         )
@@ -3279,9 +3402,10 @@ struct CMUXCLI {
         )
 
         let workspaceCreateParams: [String: Any] = [
-            "initial_command": sshStartupCommand,
+            "initial_command": initialSSHStartupCommand,
         ]
 
+        let workspaceCreateStartedAt = Date()
         let workspaceCreate = try client.sendV2(method: "workspace.create", params: workspaceCreateParams)
         guard let workspaceId = workspaceCreate["workspace_id"] as? String, !workspaceId.isEmpty else {
             throw CLIError(message: "workspace.create did not return workspace_id")
@@ -3291,6 +3415,10 @@ struct CMUXCLI {
         cliDebugLog(
             "cli.ssh.workspace.created workspace=\(String(workspaceId.prefix(8))) " +
             "window=\(workspaceWindowId.map { String($0.prefix(8)) } ?? "nil")"
+        )
+        cliDebugLog(
+            "cli.ssh.timing target=\(sshOptions.destination) relayPort=\(sshOptions.remoteRelayPort) " +
+            "workspace=\(String(workspaceId.prefix(8))) stage=workspace.create elapsedMs=\(Int(Date().timeIntervalSince(workspaceCreateStartedAt) * 1000))"
         )
         let configuredPayload: [String: Any]
         do {
@@ -3322,7 +3450,7 @@ struct CMUXCLI {
                 configureParams["relay_token"] = relayToken
                 configureParams["local_socket_path"] = sshOptions.localSocketPath
             }
-            configureParams["terminal_startup_command"] = sshStartupCommand
+            configureParams["terminal_startup_command"] = remoteTerminalSSHStartupCommand
 
             cliDebugLog(
                 "cli.ssh.remote.configure workspace=\(String(workspaceId.prefix(8))) " +
@@ -3330,6 +3458,7 @@ struct CMUXCLI {
                 "controlPath=\(sshOptionValue(named: "ControlPath", in: remoteSSHOptions) ?? "nil") " +
                 "sshOptions=\(remoteSSHOptions.joined(separator: "|"))"
             )
+            let configureStartedAt = Date()
             configuredPayload = try client.sendV2(method: "workspace.remote.configure", params: configureParams)
             var selectParams: [String: Any] = ["workspace_id": workspaceId]
             if let workspaceWindowId, !workspaceWindowId.isEmpty {
@@ -3339,6 +3468,10 @@ struct CMUXCLI {
             let remoteState = ((configuredPayload["remote"] as? [String: Any])?["state"] as? String) ?? "unknown"
             cliDebugLog(
                 "cli.ssh.remote.configure.ok workspace=\(String(workspaceId.prefix(8))) state=\(remoteState)"
+            )
+            cliDebugLog(
+                "cli.ssh.timing target=\(sshOptions.destination) relayPort=\(sshOptions.remoteRelayPort) " +
+                "workspace=\(String(workspaceId.prefix(8))) stage=workspace.remote.configure elapsedMs=\(Int(Date().timeIntervalSince(configureStartedAt) * 1000))"
             )
         } catch {
             cliDebugLog(
@@ -3355,12 +3488,15 @@ struct CMUXCLI {
 
         var payload = configuredPayload
 
-        payload["ssh_command"] = sshCommand
-        payload["ssh_startup_command"] = sshStartupCommand
+        payload["ssh_command"] = initialSSHCommand
+        payload["ssh_startup_command"] = initialSSHStartupCommand
+        payload["ssh_terminal_command"] = remoteTerminalSSHCommand
+        payload["ssh_terminal_startup_command"] = remoteTerminalSSHStartupCommand
         payload["ssh_env_overrides"] = [
             "GHOSTTY_SHELL_FEATURES": shellFeaturesValue,
         ]
         payload["remote_relay_port"] = remoteRelayPort
+        logSSHTiming("complete", extra: "workspace=\(String(workspaceId.prefix(8)))")
         if jsonOutput {
             print(jsonString(formatIDs(payload, mode: idFormat)))
         } else {
@@ -3456,21 +3592,23 @@ struct CMUXCLI {
         )
     }
 
-    private func buildSSHCommandText(_ options: SSHCommandOptions) -> String {
+    func buildSSHCommandText(
+        _ options: SSHCommandOptions,
+        remoteBootstrapScript: String? = nil
+    ) -> String {
         var parts = baseSSHArguments(options)
-        let shellFeaturesValue = scopedGhosttyShellFeaturesValue()
+        let trimmedRemoteBootstrap = remoteBootstrapScript?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
 
         if options.extraArguments.isEmpty {
-            // No explicit remote command provided. Use RemoteCommand to bootstrap
-            // the relay wrapper and then hand off to an interactive shell.
+            if let trimmedRemoteBootstrap, !trimmedRemoteBootstrap.isEmpty {
+                let remoteCommand = sshPercentEscapedRemoteCommand(
+                    encodedRemoteBootstrapCommand(trimmedRemoteBootstrap)
+                )
+                parts += ["-o", "RemoteCommand=\(remoteCommand)"]
+            }
             if !hasSSHOptionKey(options.sshOptions, key: "RequestTTY") {
                 parts.append("-tt")
-            }
-            if !hasSSHOptionKey(options.sshOptions, key: "RemoteCommand") {
-                parts += [
-                    "-o",
-                    "RemoteCommand=\(buildInteractiveRemoteShellCommand(remoteRelayPort: options.remoteRelayPort, shellFeatures: shellFeaturesValue))",
-                ]
             }
             parts.append(options.destination)
         } else {
@@ -3488,11 +3626,17 @@ struct CMUXCLI {
         return merged
     }
 
-    func buildInteractiveRemoteShellCommand(remoteRelayPort: Int, shellFeatures: String) -> String {
+    func buildInteractiveRemoteShellScript(
+        remoteRelayPort: Int,
+        shellFeatures: String,
+        terminfoSource: String? = nil
+    ) -> String {
+        let remoteTerminalLines = interactiveRemoteTerminalSetupLines(terminfoSource: terminfoSource)
         let remoteEnvExportLines = interactiveRemoteShellExportLines(shellFeatures: shellFeatures)
         let relaySocket = remoteRelayPort > 0 ? "127.0.0.1:\(remoteRelayPort)" : nil
         let shellStateDir = "$HOME/.cmux/relay/\(max(remoteRelayPort, 0)).shell"
-        let commonShellLines = remoteEnvExportLines
+        let commonShellLines = remoteTerminalLines
+            + remoteEnvExportLines
             + ["export PATH=\"$HOME/.cmux/bin:$PATH\""]
             + (relaySocket.map { ["export CMUX_SOCKET_PATH=\($0)"] } ?? [])
             + [
@@ -3504,10 +3648,17 @@ struct CMUXCLI {
             "if [ -n \"${ZDOTDIR:-}\" ] && [ \"$ZDOTDIR\" != \"\(shellStateDir)\" ]; then export CMUX_REAL_ZDOTDIR=\"$ZDOTDIR\"; fi",
             "export ZDOTDIR=\"\(shellStateDir)\"",
         ]
+        let zshProfileLines = [
+            "[ -f \"$CMUX_REAL_ZDOTDIR/.zprofile\" ] && source \"$CMUX_REAL_ZDOTDIR/.zprofile\"",
+        ]
         let zshRCLines = [
             "[ -f \"$CMUX_REAL_ZDOTDIR/.zshrc\" ] && source \"$CMUX_REAL_ZDOTDIR/.zshrc\"",
         ] + commonShellLines
+        let zshLoginLines = [
+            "[ -f \"$CMUX_REAL_ZDOTDIR/.zlogin\" ] && source \"$CMUX_REAL_ZDOTDIR/.zlogin\"",
+        ]
         let bashRCLines = [
+            "if [ -f \"$HOME/.bash_profile\" ]; then . \"$HOME/.bash_profile\"; elif [ -f \"$HOME/.bash_login\" ]; then . \"$HOME/.bash_login\"; elif [ -f \"$HOME/.profile\" ]; then . \"$HOME/.profile\"; fi",
             "[ -f \"$HOME/.bashrc\" ] && . \"$HOME/.bashrc\"",
         ] + commonShellLines
         let relayWarmupLines = interactiveRemoteRelayWarmupLines(remoteRelayPort: remoteRelayPort)
@@ -3524,18 +3675,28 @@ struct CMUXCLI {
         outerLines.append(contentsOf: zshEnvLines)
         outerLines += [
             "CMUXZSHENV",
+            "    cat > \"$cmux_shell_dir/.zprofile\" <<'CMUXZSHPROFILE'",
+        ]
+        outerLines.append(contentsOf: zshProfileLines)
+        outerLines += [
+            "CMUXZSHPROFILE",
             "    cat > \"$cmux_shell_dir/.zshrc\" <<'CMUXZSHRC'",
         ]
         outerLines.append(contentsOf: zshRCLines)
         outerLines += [
             "CMUXZSHRC",
-            "    chmod 600 \"$cmux_shell_dir/.zshenv\" \"$cmux_shell_dir/.zshrc\" >/dev/null 2>&1 || true",
+            "    cat > \"$cmux_shell_dir/.zlogin\" <<'CMUXZSHLOGIN'",
+        ]
+        outerLines.append(contentsOf: zshLoginLines)
+        outerLines += [
+            "CMUXZSHLOGIN",
+            "    chmod 600 \"$cmux_shell_dir/.zshenv\" \"$cmux_shell_dir/.zprofile\" \"$cmux_shell_dir/.zshrc\" \"$cmux_shell_dir/.zlogin\" >/dev/null 2>&1 || true",
         ]
         outerLines.append(contentsOf: relayWarmupLines.map { "    " + $0 })
         outerLines += [
             "    export CMUX_REAL_ZDOTDIR=\"${ZDOTDIR:-$HOME}\"",
             "    export ZDOTDIR=\"$cmux_shell_dir\"",
-            "    exec \"$CMUX_LOGIN_SHELL\" -i",
+            "    exec \"$CMUX_LOGIN_SHELL\" -il",
             "    ;;",
             "  bash)",
             "    mkdir -p \"$HOME/.cmux/relay\"",
@@ -3554,22 +3715,57 @@ struct CMUXCLI {
             "    ;;",
             "  *)",
         ]
-        outerLines.append(contentsOf: commonShellLines.map { "    " + $0 })
-        outerLines.append(contentsOf: relayWarmupLines.map { "    " + $0 })
+        outerLines.append(contentsOf: commonShellLines)
+        outerLines.append(contentsOf: relayWarmupLines)
         outerLines += [
-            "    exec \"$CMUX_LOGIN_SHELL\" -i",
-            "    ;;",
+            "exec \"$CMUX_LOGIN_SHELL\" -i",
+            ";;",
             "esac",
         ]
 
-        let outerCommand = outerLines.joined(separator: "\n")
+        return outerLines.joined(separator: "\n")
+    }
 
-        return "/bin/sh -c \(shellQuote(outerCommand))"
+    func buildInteractiveRemoteShellCommand(
+        remoteRelayPort: Int,
+        shellFeatures: String,
+        terminfoSource: String? = nil
+    ) -> String {
+        let script = buildInteractiveRemoteShellScript(
+            remoteRelayPort: remoteRelayPort,
+            shellFeatures: shellFeatures,
+            terminfoSource: terminfoSource
+        )
+        return "/bin/sh -c \(shellQuote(script))"
+    }
+
+    private func interactiveRemoteTerminalSetupLines(terminfoSource: String?) -> [String] {
+        var lines: [String] = [
+            "cmux_term='xterm-256color'",
+            "if command -v infocmp >/dev/null 2>&1 && infocmp xterm-ghostty >/dev/null 2>&1; then",
+            "  cmux_term='xterm-ghostty'",
+            "fi",
+            "export TERM=\"$cmux_term\"",
+        ]
+        guard let terminfoSource else { return lines }
+        let trimmedTerminfoSource = terminfoSource.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedTerminfoSource.isEmpty else { return lines }
+        lines += [
+            "if [ \"$cmux_term\" != 'xterm-ghostty' ]; then",
+            "  (",
+            "    command -v tic >/dev/null 2>&1 || exit 0",
+            "    mkdir -p \"$HOME/.terminfo\" 2>/dev/null || exit 0",
+            "    cat <<'CMUXTERMINFO' | tic -x - >/dev/null 2>&1",
+            trimmedTerminfoSource,
+            "CMUXTERMINFO",
+            "  ) >/dev/null 2>&1 &",
+            "fi",
+        ]
+        return lines
     }
 
     private func interactiveRemoteShellExportLines(shellFeatures: String) -> [String] {
         let environment = ProcessInfo.processInfo.environment
-        let term = "xterm-ghostty"
         let colorTerm = Self.normalizedEnvValue(environment["COLORTERM"]) ?? "truecolor"
         let termProgram = Self.normalizedEnvValue(environment["TERM_PROGRAM"]) ?? "ghostty"
         let termProgramVersion = Self.normalizedEnvValue(environment["TERM_PROGRAM_VERSION"])
@@ -3578,7 +3774,6 @@ struct CMUXCLI {
         let trimmedShellFeatures = shellFeatures.trimmingCharacters(in: .whitespacesAndNewlines)
 
         var exports: [String] = [
-            "export TERM=\(shellQuote(term))",
             "export COLORTERM=\(shellQuote(colorTerm))",
             "export TERM_PROGRAM=\(shellQuote(termProgram))",
         ]
@@ -3593,16 +3788,7 @@ struct CMUXCLI {
 
     private func interactiveRemoteRelayWarmupLines(remoteRelayPort: Int) -> [String] {
         guard remoteRelayPort > 0 else { return [] }
-        return [
-            "cmux_wait_attempt=0",
-            "while [ \"$cmux_wait_attempt\" -lt 40 ]; do",
-            "  if [ -x \"$HOME/.cmux/bin/cmux\" ] && [ -f \"$HOME/.cmux/relay/\(remoteRelayPort).auth\" ] && CMUX_SOCKET_PATH=127.0.0.1:\(remoteRelayPort) \"$HOME/.cmux/bin/cmux\" ping >/dev/null 2>&1; then",
-            "    break",
-            "  fi",
-            "  cmux_wait_attempt=$((cmux_wait_attempt + 1))",
-            "  sleep 0.2",
-            "done",
-        ]
+        return []
     }
 
     private func baseSSHArguments(_ options: SSHCommandOptions) -> [String] {
@@ -3627,37 +3813,6 @@ struct CMUXCLI {
             parts += ["-o", option]
         }
         return parts
-    }
-
-    private func prepareSSHTerminfoIfNeeded(_ options: SSHCommandOptions) {
-        guard let terminfoSource = localXtermGhosttyTerminfoSource(), !terminfoSource.isEmpty else { return }
-
-        let effectiveSSHOptions = effectiveSSHOptions(
-            options.sshOptions,
-            remoteRelayPort: options.remoteRelayPort
-        )
-        var args = baseSSHArguments(options)
-        if !hasSSHOptionKey(effectiveSSHOptions, key: "ConnectTimeout") {
-            args += ["-o", "ConnectTimeout=3"]
-        }
-        if !hasSSHOptionKey(effectiveSSHOptions, key: "ConnectionAttempts") {
-            args += ["-o", "ConnectionAttempts=1"]
-        }
-        args += ["-o", "BatchMode=yes", "-o", "ControlMaster=no", options.destination]
-        let installScript = """
-        infocmp xterm-ghostty >/dev/null 2>&1 && exit 0
-        command -v tic >/dev/null 2>&1 || exit 1
-        mkdir -p ~/.terminfo 2>/dev/null && tic -x - 2>/dev/null && exit 0
-        exit 1
-        """
-        args.append(installScript)
-
-        _ = runProcess(
-            executablePath: "/usr/bin/ssh",
-            arguments: Array(args.dropFirst()),
-            stdinText: terminfoSource,
-            timeout: 4.0
-        )
     }
 
     private func localXtermGhosttyTerminfoSource() -> String? {
@@ -3714,25 +3869,63 @@ struct CMUXCLI {
         return merged.joined(separator: ",")
     }
 
-    private func buildSSHStartupCommand(sshCommand: String, shellFeatures: String, remoteRelayPort: Int) -> String {
+    func encodedRemoteBootstrapCommand(_ remoteBootstrapScript: String) -> String {
+        let encodedScript = Data(remoteBootstrapScript.utf8).base64EncodedString()
+        let encodedLiteral = shellQuote(encodedScript)
+        return [
+            "cmux_tmp=$(mktemp \"${TMPDIR:-/tmp}/cmux-ssh-bootstrap.XXXXXX\") || exit 1",
+            "(printf %s \(encodedLiteral) | base64 -d 2>/dev/null || printf %s \(encodedLiteral) | base64 -D 2>/dev/null) > \"$cmux_tmp\" || { rm -f \"$cmux_tmp\"; exit 1; }",
+            "chmod 700 \"$cmux_tmp\" >/dev/null 2>&1 || true",
+            "/bin/sh \"$cmux_tmp\"",
+            "cmux_status=$?",
+            "rm -f \"$cmux_tmp\"",
+            "exit $cmux_status",
+        ].joined(separator: "; ")
+    }
+
+    func sshPercentEscapedRemoteCommand(_ remoteCommand: String) -> String {
+        remoteCommand.replacingOccurrences(of: "%", with: "%%")
+    }
+
+    func buildSSHStartupCommand(
+        sshCommand: String,
+        shellFeatures: String,
+        remoteRelayPort: Int
+    ) throws -> String {
         let trimmedFeatures = shellFeatures.trimmingCharacters(in: .whitespacesAndNewlines)
         let shellFeaturesBootstrap: String = trimmedFeatures.isEmpty
             ? ""
             : "export GHOSTTY_SHELL_FEATURES=\(shellQuote(trimmedFeatures))"
         let lifecycleCleanup = buildSSHSessionEndShellCommand(remoteRelayPort: remoteRelayPort)
-        let script = [
-            shellFeaturesBootstrap,
+        var scriptLines: [String] = []
+        if !shellFeaturesBootstrap.isEmpty {
+            scriptLines.append(shellFeaturesBootstrap)
+        }
+        scriptLines += [
             "CMUX_SSH_SESSION_ENDED=0",
             "cmux_ssh_session_end() { if [ \"${CMUX_SSH_SESSION_ENDED:-0}\" = 1 ]; then return; fi; CMUX_SSH_SESSION_ENDED=1; \(lifecycleCleanup); }",
             "trap 'cmux_ssh_session_end' EXIT HUP INT TERM",
-            "command \(sshCommand)",
+        ]
+        scriptLines.append("command \(sshCommand)")
+        scriptLines += [
+            "cmux_ssh_status=$?",
             "trap - EXIT HUP INT TERM",
             "cmux_ssh_session_end",
-            "exec ${SHELL:-/bin/zsh} -l",
+            "exit $cmux_ssh_status",
         ]
-            .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-            .joined(separator: "\n")
-        return "/bin/zsh -ilc \(shellQuote(script))"
+        let script = scriptLines.joined(separator: "\n")
+        return try writeSSHStartupScript(script, remoteRelayPort: remoteRelayPort)
+    }
+
+    private func writeSSHStartupScript(_ scriptBody: String, remoteRelayPort: Int) throws -> String {
+        let tempDir = FileManager.default.temporaryDirectory
+        let scriptURL = tempDir.appendingPathComponent(
+            "cmux-ssh-startup-\(remoteRelayPort)-\(UUID().uuidString.lowercased()).sh"
+        )
+        let script = "#!/bin/sh\n\(scriptBody)\n"
+        try script.write(to: scriptURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: scriptURL.path)
+        return shellQuote(scriptURL.path)
     }
 
     private func buildSSHSessionEndShellCommand(remoteRelayPort: Int) -> String {
@@ -8902,7 +9095,6 @@ struct CMUXCLI {
                 ])
             }
             if let text = tmuxShellCommandText(commandTokens: parsed.positional, cwd: parsed.value("-c")) {
-                Thread.sleep(forTimeInterval: 0.3)
                 let surfaceId = try resolveSurfaceId(nil, workspaceId: workspaceId, client: client)
                 _ = try client.sendV2(method: "surface.send_text", params: [
                     "workspace_id": workspaceId,
@@ -8940,7 +9132,6 @@ struct CMUXCLI {
                 ])
             }
             if let text = tmuxShellCommandText(commandTokens: parsed.positional, cwd: parsed.value("-c")) {
-                Thread.sleep(forTimeInterval: 0.3)
                 let surfaceId = try resolveSurfaceId(nil, workspaceId: workspaceId, client: client)
                 _ = try client.sendV2(method: "surface.send_text", params: [
                     "workspace_id": workspaceId,
@@ -8977,7 +9168,6 @@ struct CMUXCLI {
             let paneId = created["pane_id"] as? String
             // Keep the leader pane focused while Claude starts teammates beside it.
             if let text = tmuxShellCommandText(commandTokens: parsed.positional, cwd: parsed.value("-c")) {
-                Thread.sleep(forTimeInterval: 0.3)
                 _ = try client.sendV2(method: "surface.send_text", params: [
                     "workspace_id": target.workspaceId,
                     "surface_id": surfaceId,
@@ -9381,13 +9571,17 @@ struct CMUXCLI {
                 return
             }
             let deadline = Date().addingTimeInterval(timeout)
-            while Date() < deadline {
+            do {
+                try SocketClient.waitForFilesystemPath(signalURL.path, timeout: max(0, deadline.timeIntervalSinceNow))
+                try? FileManager.default.removeItem(at: signalURL)
+                print("OK")
+                return
+            } catch {
                 if FileManager.default.fileExists(atPath: signalURL.path) {
                     try? FileManager.default.removeItem(at: signalURL)
                     print("OK")
                     return
                 }
-                Thread.sleep(forTimeInterval: 0.05)
             }
             throw CLIError(message: "wait-for timed out waiting for '\(name)'")
 

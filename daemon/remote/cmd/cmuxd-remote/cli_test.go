@@ -255,39 +255,51 @@ func mustHex(t *testing.T, value string) []byte {
 	return data
 }
 
-func TestDialTCPRetrySuccess(t *testing.T) {
-	// Get a free port, then close the listener so connection is refused initially.
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+func TestDialSocketRefreshesToUpdatedTCPAddressWithoutPolling(t *testing.T) {
+	staleListener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
-		t.Fatalf("listen: %v", err)
+		t.Fatalf("listen stale: %v", err)
 	}
-	addr := ln.Addr().String()
-	ln.Close()
+	staleAddr := staleListener.Addr().String()
+	staleListener.Close()
 
-	// Start a listener after a delay so the retry logic finds it.
+	readyListener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen ready: %v", err)
+	}
+	defer readyListener.Close()
+
+	accepted := make(chan struct{})
 	go func() {
-		time.Sleep(400 * time.Millisecond)
-		ln2, err := net.Listen("tcp", addr)
-		if err != nil {
-			return
-		}
-		defer ln2.Close()
-		conn, err := ln2.Accept()
-		if err != nil {
+		defer close(accepted)
+		conn, acceptErr := readyListener.Accept()
+		if acceptErr != nil {
 			return
 		}
 		conn.Close()
 	}()
 
-	conn, _, err := dialTCPRetry(addr, 3*time.Second, nil)
+	refreshCalls := 0
+	start := time.Now()
+	conn, err := dialSocket(staleAddr, func() string {
+		refreshCalls++
+		return readyListener.Addr().String()
+	})
+	elapsed := time.Since(start)
 	if err != nil {
-		t.Fatalf("dialTCPRetry should succeed after retry, got: %v", err)
+		t.Fatalf("dialSocket should refresh to updated address, got: %v", err)
 	}
 	conn.Close()
+	<-accepted
+	if refreshCalls != 1 {
+		t.Fatalf("refreshAddr should be called once, got %d", refreshCalls)
+	}
+	if elapsed > 500*time.Millisecond {
+		t.Fatalf("dialSocket should fail over without polling, took %v", elapsed)
+	}
 }
 
-func TestDialTCPRetryTimeout(t *testing.T) {
-	// Get a free port and close it — nothing will ever listen.
+func TestDialSocketFailsFastWhenTCPAddressStaysStale(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen: %v", err)
@@ -295,14 +307,21 @@ func TestDialTCPRetryTimeout(t *testing.T) {
 	addr := ln.Addr().String()
 	ln.Close()
 
+	refreshCalls := 0
 	start := time.Now()
-	_, _, err = dialTCPRetry(addr, 600*time.Millisecond, nil)
+	_, err = dialSocket(addr, func() string {
+		refreshCalls++
+		return addr
+	})
 	elapsed := time.Since(start)
 	if err == nil {
-		t.Fatal("dialTCPRetry should fail when nothing is listening")
+		t.Fatal("dialSocket should fail when the relay address stays stale")
 	}
-	if elapsed < 500*time.Millisecond {
-		t.Fatalf("should have retried for ~600ms, only took %v", elapsed)
+	if refreshCalls != 1 {
+		t.Fatalf("refreshAddr should be called once on stale TCP failure, got %d", refreshCalls)
+	}
+	if elapsed > 500*time.Millisecond {
+		t.Fatalf("dialSocket should fail fast without polling, took %v", elapsed)
 	}
 }
 

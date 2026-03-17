@@ -39,12 +39,30 @@ type rpcResponse struct {
 	Error  *rpcError `json:"error,omitempty"`
 }
 
+type rpcEvent struct {
+	Event      string `json:"event"`
+	StreamID   string `json:"stream_id,omitempty"`
+	DataBase64 string `json:"data_base64,omitempty"`
+	Error      string `json:"error,omitempty"`
+}
+
+type streamState struct {
+	conn          net.Conn
+	readerStarted bool
+}
+
+type stdioFrameWriter struct {
+	mu     sync.Mutex
+	writer *bufio.Writer
+}
+
 type rpcServer struct {
 	mu            sync.Mutex
 	nextStreamID  uint64
 	nextSessionID uint64
-	streams       map[string]net.Conn
+	streams       map[string]*streamState
 	sessions      map[string]*sessionState
+	frameWriter   *stdioFrameWriter
 }
 
 type sessionAttachment struct {
@@ -114,17 +132,20 @@ func usage(w io.Writer) {
 }
 
 func runStdioServer(stdin io.Reader, stdout io.Writer) error {
+	writer := &stdioFrameWriter{
+		writer: bufio.NewWriter(stdout),
+	}
 	server := &rpcServer{
 		nextStreamID:  1,
 		nextSessionID: 1,
-		streams:       map[string]net.Conn{},
+		streams:       map[string]*streamState{},
 		sessions:      map[string]*sessionState{},
+		frameWriter:   writer,
 	}
 	defer server.closeAll()
 
 	reader := bufio.NewReaderSize(stdin, 64*1024)
-	writer := bufio.NewWriter(stdout)
-	defer writer.Flush()
+	defer writer.writer.Flush()
 
 	for {
 		line, oversized, readErr := readRPCFrame(reader, maxRPCFrameBytes)
@@ -135,7 +156,7 @@ func runStdioServer(stdin io.Reader, stdout io.Writer) error {
 			return readErr
 		}
 		if oversized {
-			if err := writeResponse(writer, rpcResponse{
+			if err := writer.writeResponse(rpcResponse{
 				OK: false,
 				Error: &rpcError{
 					Code:    "invalid_request",
@@ -154,7 +175,7 @@ func runStdioServer(stdin io.Reader, stdout io.Writer) error {
 
 		var req rpcRequest
 		if err := json.Unmarshal(line, &req); err != nil {
-			if err := writeResponse(writer, rpcResponse{
+			if err := writer.writeResponse(rpcResponse{
 				OK: false,
 				Error: &rpcError{
 					Code:    "invalid_request",
@@ -167,7 +188,7 @@ func runStdioServer(stdin io.Reader, stdout io.Writer) error {
 		}
 
 		resp := server.handleRequest(req)
-		if err := writeResponse(writer, resp); err != nil {
+		if err := writer.writeResponse(resp); err != nil {
 			return err
 		}
 	}
@@ -226,18 +247,28 @@ func discardUntilNewline(reader *bufio.Reader) error {
 	}
 }
 
-func writeResponse(w *bufio.Writer, resp rpcResponse) error {
-	payload, err := json.Marshal(resp)
+func (w *stdioFrameWriter) writeResponse(resp rpcResponse) error {
+	return w.writeJSONFrame(resp)
+}
+
+func (w *stdioFrameWriter) writeEvent(event rpcEvent) error {
+	return w.writeJSONFrame(event)
+}
+
+func (w *stdioFrameWriter) writeJSONFrame(payload any) error {
+	data, err := json.Marshal(payload)
 	if err != nil {
 		return err
 	}
-	if _, err := w.Write(payload); err != nil {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if _, err := w.writer.Write(data); err != nil {
 		return err
 	}
-	if err := w.WriteByte('\n'); err != nil {
+	if err := w.writer.WriteByte('\n'); err != nil {
 		return err
 	}
-	return w.Flush()
+	return w.writer.Flush()
 }
 
 func (s *rpcServer) handleRequest(req rpcRequest) rpcResponse {
@@ -266,6 +297,7 @@ func (s *rpcServer) handleRequest(req rpcRequest) rpcResponse {
 					"proxy.http_connect",
 					"proxy.socks5",
 					"proxy.stream",
+					"proxy.stream.push",
 				},
 			},
 		}
@@ -283,8 +315,8 @@ func (s *rpcServer) handleRequest(req rpcRequest) rpcResponse {
 		return s.handleProxyClose(req)
 	case "proxy.write":
 		return s.handleProxyWrite(req)
-	case "proxy.read":
-		return s.handleProxyRead(req)
+	case "proxy.stream.subscribe":
+		return s.handleProxyStreamSubscribe(req)
 	case "session.open":
 		return s.handleSessionOpen(req)
 	case "session.close":
@@ -358,7 +390,7 @@ func (s *rpcServer) handleProxyOpen(req rpcRequest) rpcResponse {
 	s.mu.Lock()
 	streamID := fmt.Sprintf("s-%d", s.nextStreamID)
 	s.nextStreamID++
-	s.streams[streamID] = conn
+	s.streams[streamID] = &streamState{conn: conn}
 	s.mu.Unlock()
 
 	return rpcResponse{
@@ -384,7 +416,7 @@ func (s *rpcServer) handleProxyClose(req rpcRequest) rpcResponse {
 	}
 
 	s.mu.Lock()
-	conn, exists := s.streams[streamID]
+	state, exists := s.streams[streamID]
 	if exists {
 		delete(s.streams, streamID)
 	}
@@ -401,7 +433,7 @@ func (s *rpcServer) handleProxyClose(req rpcRequest) rpcResponse {
 		}
 	}
 
-	_ = conn.Close()
+	_ = state.conn.Close()
 	return rpcResponse{
 		ID: req.ID,
 		OK: true,
@@ -446,7 +478,7 @@ func (s *rpcServer) handleProxyWrite(req rpcRequest) rpcResponse {
 		}
 	}
 
-	conn, found := s.getStream(streamID)
+	state, found := s.getStream(streamID)
 	if !found {
 		return rpcResponse{
 			ID: req.ID,
@@ -457,6 +489,7 @@ func (s *rpcServer) handleProxyWrite(req rpcRequest) rpcResponse {
 			},
 		}
 	}
+	conn := state.conn
 
 	timeoutMs := 8000
 	if parsed, hasTimeout := getIntParam(req.Params, "timeout_ms"); hasTimeout {
@@ -511,7 +544,7 @@ func (s *rpcServer) handleProxyWrite(req rpcRequest) rpcResponse {
 	}
 }
 
-func (s *rpcServer) handleProxyRead(req rpcRequest) rpcResponse {
+func (s *rpcServer) handleProxyStreamSubscribe(req rpcRequest) rpcResponse {
 	streamID, ok := getStringParam(req.Params, "stream_id")
 	if !ok || streamID == "" {
 		return rpcResponse{
@@ -519,33 +552,15 @@ func (s *rpcServer) handleProxyRead(req rpcRequest) rpcResponse {
 			OK: false,
 			Error: &rpcError{
 				Code:    "invalid_params",
-				Message: "proxy.read requires stream_id",
+				Message: "proxy.stream.subscribe requires stream_id",
 			},
 		}
 	}
 
-	maxBytes := 32768
-	if parsed, hasMax := getIntParam(req.Params, "max_bytes"); hasMax {
-		maxBytes = parsed
-	}
-	if maxBytes <= 0 || maxBytes > 262144 {
-		return rpcResponse{
-			ID: req.ID,
-			OK: false,
-			Error: &rpcError{
-				Code:    "invalid_params",
-				Message: "max_bytes must be in range 1-262144",
-			},
-		}
-	}
-
-	timeoutMs := 50
-	if parsed, hasTimeout := getIntParam(req.Params, "timeout_ms"); hasTimeout && parsed >= 0 {
-		timeoutMs = parsed
-	}
-
-	conn, found := s.getStream(streamID)
+	s.mu.Lock()
+	state, found := s.streams[streamID]
 	if !found {
+		s.mu.Unlock()
 		return rpcResponse{
 			ID: req.ID,
 			OK: false,
@@ -555,51 +570,23 @@ func (s *rpcServer) handleProxyRead(req rpcRequest) rpcResponse {
 			},
 		}
 	}
+	alreadySubscribed := state.readerStarted
+	if !alreadySubscribed {
+		state.readerStarted = true
+	}
+	conn := state.conn
+	s.mu.Unlock()
 
-	_ = conn.SetReadDeadline(time.Now().Add(time.Duration(timeoutMs) * time.Millisecond))
-	defer conn.SetReadDeadline(time.Time{})
-	buffer := make([]byte, maxBytes)
-	n, readErr := conn.Read(buffer)
-	data := buffer[:max(0, n)]
-
-	if readErr != nil {
-		if netErr, ok := readErr.(net.Error); ok && netErr.Timeout() {
-			return rpcResponse{
-				ID: req.ID,
-				OK: true,
-				Result: map[string]any{
-					"data_base64": "",
-					"eof":         false,
-				},
-			}
-		}
-		if readErr == io.EOF {
-			s.dropStream(streamID)
-			return rpcResponse{
-				ID: req.ID,
-				OK: true,
-				Result: map[string]any{
-					"data_base64": base64.StdEncoding.EncodeToString(data),
-					"eof":         true,
-				},
-			}
-		}
-		return rpcResponse{
-			ID: req.ID,
-			OK: false,
-			Error: &rpcError{
-				Code:    "stream_error",
-				Message: readErr.Error(),
-			},
-		}
+	if !alreadySubscribed {
+		go s.streamPump(streamID, conn)
 	}
 
 	return rpcResponse{
 		ID: req.ID,
 		OK: true,
 		Result: map[string]any{
-			"data_base64": base64.StdEncoding.EncodeToString(data),
-			"eof":         false,
+			"subscribed":         true,
+			"already_subscribed": alreadySubscribed,
 		},
 	}
 }
@@ -951,31 +938,31 @@ func sessionSnapshot(sessionID string, session *sessionState) map[string]any {
 	}
 }
 
-func (s *rpcServer) getStream(streamID string) (net.Conn, bool) {
+func (s *rpcServer) getStream(streamID string) (*streamState, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	conn, ok := s.streams[streamID]
-	return conn, ok
+	state, ok := s.streams[streamID]
+	return state, ok
 }
 
 func (s *rpcServer) dropStream(streamID string) {
 	s.mu.Lock()
-	conn, ok := s.streams[streamID]
+	state, ok := s.streams[streamID]
 	if ok {
 		delete(s.streams, streamID)
 	}
 	s.mu.Unlock()
 	if ok {
-		_ = conn.Close()
+		_ = state.conn.Close()
 	}
 }
 
 func (s *rpcServer) closeAll() {
 	s.mu.Lock()
 	streams := make([]net.Conn, 0, len(s.streams))
-	for id, conn := range s.streams {
+	for id, state := range s.streams {
 		delete(s.streams, id)
-		streams = append(streams, conn)
+		streams = append(streams, state.conn)
 	}
 	for id := range s.sessions {
 		delete(s.sessions, id)
@@ -983,6 +970,62 @@ func (s *rpcServer) closeAll() {
 	s.mu.Unlock()
 	for _, conn := range streams {
 		_ = conn.Close()
+	}
+}
+
+func (s *rpcServer) streamPump(streamID string, conn net.Conn) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			_ = s.frameWriter.writeEvent(rpcEvent{
+				Event:    "proxy.stream.error",
+				StreamID: streamID,
+				Error:    fmt.Sprintf("stream panic: %v", recovered),
+			})
+			s.dropStream(streamID)
+		}
+	}()
+
+	buffer := make([]byte, 32768)
+	for {
+		n, readErr := conn.Read(buffer)
+		data := append([]byte(nil), buffer[:max(0, n)]...)
+		if len(data) > 0 {
+			_ = s.frameWriter.writeEvent(rpcEvent{
+				Event:      "proxy.stream.data",
+				StreamID:   streamID,
+				DataBase64: base64.StdEncoding.EncodeToString(data),
+			})
+		}
+
+		if readErr == nil {
+			if n == 0 {
+				_ = s.frameWriter.writeEvent(rpcEvent{
+					Event:    "proxy.stream.error",
+					StreamID: streamID,
+					Error:    "read made no progress",
+				})
+				s.dropStream(streamID)
+				return
+			}
+			continue
+		}
+
+		if readErr == io.EOF {
+			_ = s.frameWriter.writeEvent(rpcEvent{
+				Event:      "proxy.stream.eof",
+				StreamID:   streamID,
+				DataBase64: base64.StdEncoding.EncodeToString(data),
+			})
+		} else if !errors.Is(readErr, net.ErrClosed) {
+			_ = s.frameWriter.writeEvent(rpcEvent{
+				Event:    "proxy.stream.error",
+				StreamID: streamID,
+				Error:    readErr.Error(),
+			})
+		}
+
+		s.dropStream(streamID)
+		return
 	}
 }
 

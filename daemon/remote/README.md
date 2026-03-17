@@ -17,18 +17,19 @@ When invoked as `cmux` (via wrapper/symlink installed during bootstrap), the bin
 3. `proxy.open`
 4. `proxy.close`
 5. `proxy.write`
-6. `proxy.read`
-7. `session.open`
-8. `session.close`
-9. `session.attach`
-10. `session.resize`
-11. `session.detach`
-12. `session.status`
+6. `proxy.stream.subscribe`
+7. async `proxy.stream.data` / `proxy.stream.eof` / `proxy.stream.error` events
+8. `session.open`
+9. `session.close`
+10. `session.attach`
+11. `session.resize`
+12. `session.detach`
+13. `session.status`
 
 Current integration in cmux:
 1. `workspace.remote.configure` now bootstraps this binary over SSH when missing.
 2. Client sends `hello` before enabling remote proxy transport.
-3. Local workspace proxy broker serves SOCKS5 + HTTP CONNECT and tunnels stream traffic through `proxy.*` RPC over `serve --stdio`.
+3. Local workspace proxy broker serves SOCKS5 + HTTP CONNECT and tunnels stream traffic through `proxy.*` RPC over `serve --stdio`, using daemon-pushed stream events instead of polling reads.
 4. Daemon status/capabilities are exposed in `workspace.remote.status -> remote.daemon` (including `session.resize.min`).
 
 `workspace.remote.configure` contract notes:
@@ -67,7 +68,7 @@ Socket discovery order:
 2. `CMUX_SOCKET_PATH` environment variable
 3. `~/.cmux/socket_addr` file (written by the app after the reverse relay establishes)
 
-For TCP addresses, the CLI retries for up to 15 seconds on connection refused, re-reading `~/.cmux/socket_addr` on each attempt to pick up updated relay ports.
+For TCP addresses, the CLI dials once and only refreshes `~/.cmux/socket_addr` a single time if the first address was stale. Relay metadata is published only after the reverse forward is ready, so steady-state use does not rely on polling.
 
 Authenticated relay details:
 1. Each SSH workspace gets its own relay ID and relay token.

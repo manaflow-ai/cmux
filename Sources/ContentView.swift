@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import Combine
 import ImageIO
 import SwiftUI
 import ObjectiveC
@@ -1368,7 +1369,6 @@ struct ContentView: View {
     @State private var workspaceHandoffGeneration: UInt64 = 0
     @State private var workspaceHandoffFallbackTask: Task<Void, Never>?
     @State private var didApplyUITestSidebarSelection = false
-    @State private var workspaceHandoffReadyCheckTask: Task<Void, Never>?
     @State private var titlebarThemeGeneration: UInt64 = 0
     @State private var sidebarDraggedTabId: UUID?
     @State private var titlebarTextUpdateCoalescer = NotificationBurstCoalescer(delay: 1.0 / 30.0)
@@ -1396,6 +1396,9 @@ struct ContentView: View {
     @State private var commandPaletteVisibleResultsFingerprint: Int?
     @State private var cachedCommandPaletteScope: CommandPaletteListScope?
     @State private var cachedCommandPaletteFingerprint: Int?
+    @State private var commandPalettePendingDismissFocusTarget: CommandPaletteRestoreFocusTarget?
+    @State private var commandPaletteRestoreTimeoutWorkItem: DispatchWorkItem?
+    @State private var commandPalettePendingTextSelectionBehavior: CommandPaletteTextSelectionBehavior?
     @State private var commandPaletteSearchTask: Task<Void, Never>?
     @State private var commandPaletteSearchRequestID: UInt64 = 0
     @State private var commandPaletteResolvedSearchRequestID: UInt64 = 0
@@ -2417,6 +2420,7 @@ struct ContentView: View {
             guard let tabId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID,
                   tabId == tabManager.selectedTabId else { return }
             completeWorkspaceHandoffIfNeeded(focusedTabId: tabId, reason: "focus")
+            attemptCommandPaletteFocusRestoreIfNeeded()
             scheduleTitlebarTextRefresh()
         })
 
@@ -2431,6 +2435,7 @@ struct ContentView: View {
             guard let tabId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID,
                   tabId == tabManager.selectedTabId else { return }
             completeWorkspaceHandoffIfNeeded(focusedTabId: tabId, reason: "first_responder")
+            attemptCommandPaletteFocusRestoreIfNeeded()
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .browserDidBecomeFirstResponderWebView)) { notification in
@@ -2441,6 +2446,7 @@ struct ContentView: View {
                   let focusedBrowser = selectedWorkspace.browserPanel(for: focusedPanelId),
                   focusedBrowser.webView === webView else { return }
             completeWorkspaceHandoffIfNeeded(focusedTabId: selectedTabId, reason: "browser_first_responder")
+            attemptCommandPaletteFocusRestoreIfNeeded()
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .browserDidFocusAddressBar)) { notification in
@@ -2450,6 +2456,36 @@ struct ContentView: View {
                   selectedWorkspace.focusedPanelId == panelId,
                   selectedWorkspace.browserPanel(for: panelId) != nil else { return }
             completeWorkspaceHandoffIfNeeded(focusedTabId: selectedTabId, reason: "browser_address_bar")
+            attemptCommandPaletteFocusRestoreIfNeeded()
+        })
+
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(
+            for: NSWindow.didBecomeKeyNotification,
+            object: observedWindow
+        )) { _ in
+            attemptCommandPaletteFocusRestoreIfNeeded()
+            attemptCommandPaletteTextSelectionIfNeeded()
+        })
+
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: NSText.didBeginEditingNotification)) { notification in
+            guard commandPalettePendingTextSelectionBehavior != nil else { return }
+            guard let editor = notification.object as? NSTextView,
+                  editor.isFieldEditor else { return }
+            guard let observedWindow else { return }
+            guard editor.window === observedWindow else { return }
+            attemptCommandPaletteTextSelectionIfNeeded()
+        })
+
+        view = AnyView(view.onChange(of: isCommandPaletteSearchFocused) { _, focused in
+            if focused {
+                attemptCommandPaletteTextSelectionIfNeeded()
+            }
+        })
+
+        view = AnyView(view.onChange(of: isCommandPaletteRenameFocused) { _, focused in
+            if focused {
+                attemptCommandPaletteTextSelectionIfNeeded()
+            }
         })
 
         view = AnyView(view.onReceive(tabManager.$tabs) { tabs in
@@ -2836,7 +2872,6 @@ struct ContentView: View {
 
     private enum BackgroundWorkspacePrimePolicy {
         static let timeoutSeconds: TimeInterval = 2.0
-        static let pollIntervalNanoseconds: UInt64 = 50_000_000
     }
 
     private func primeBackgroundWorkspaceIfNeeded(workspaceId: UUID) async {
@@ -2850,39 +2885,26 @@ struct ContentView: View {
         dlog("workspace.backgroundPrime.start workspace=\(workspaceId.uuidString.prefix(5))")
 #endif
 
-        let timeout = Date().addingTimeInterval(BackgroundWorkspacePrimePolicy.timeoutSeconds)
-        while !Task.isCancelled {
-            let state = await MainActor.run {
-                stepBackgroundWorkspacePrime(workspaceId: workspaceId)
-            }
-            switch state {
-            case .pending:
-                if Date() < timeout {
-                    try? await Task.sleep(nanoseconds: BackgroundWorkspacePrimePolicy.pollIntervalNanoseconds)
-                    continue
-                }
-                await MainActor.run {
-                    tabManager.completeBackgroundWorkspaceLoad(for: workspaceId)
-                }
-#if DEBUG
-                let elapsedMs = (ProcessInfo.processInfo.systemUptime - startedAt) * 1000
-                dlog(
-                    "workspace.backgroundPrime.finish workspace=\(workspaceId.uuidString.prefix(5)) " +
-                    "reason=timeout ms=\(String(format: "%.2f", elapsedMs))"
-                )
-#endif
-                return
-            case .completed(let reason):
-#if DEBUG
-                let elapsedMs = (ProcessInfo.processInfo.systemUptime - startedAt) * 1000
-                dlog(
-                    "workspace.backgroundPrime.finish workspace=\(workspaceId.uuidString.prefix(5)) " +
-                    "reason=\(reason) ms=\(String(format: "%.2f", elapsedMs))"
-                )
-#endif
-                return
-            }
+        let initialState = await MainActor.run {
+            stepBackgroundWorkspacePrime(workspaceId: workspaceId)
         }
+        let completionReason: String
+        switch initialState {
+        case .completed(let reason):
+            completionReason = reason
+        case .pending:
+            completionReason = await waitForBackgroundWorkspacePrimeCompletion(
+                workspaceId: workspaceId,
+                timeoutSeconds: BackgroundWorkspacePrimePolicy.timeoutSeconds
+            )
+        }
+#if DEBUG
+        let elapsedMs = (ProcessInfo.processInfo.systemUptime - startedAt) * 1000
+        dlog(
+            "workspace.backgroundPrime.finish workspace=\(workspaceId.uuidString.prefix(5)) " +
+            "reason=\(completionReason) ms=\(String(format: "%.2f", elapsedMs))"
+        )
+#endif
     }
 
     @MainActor
@@ -2902,6 +2924,114 @@ struct ContentView: View {
 
         tabManager.completeBackgroundWorkspaceLoad(for: workspaceId)
         return .completed(reason: "surface_ready")
+    }
+
+    @MainActor
+    private func waitForBackgroundWorkspacePrimeCompletion(
+        workspaceId: UUID,
+        timeoutSeconds: TimeInterval
+    ) async -> String {
+        await withCheckedContinuation { (continuation: CheckedContinuation<String, Never>) in
+            var resolved = false
+            var workspacePanelsCancellable: AnyCancellable?
+            var pendingLoadsCancellable: AnyCancellable?
+            var tabsCancellable: AnyCancellable?
+            var readyObserver: NSObjectProtocol?
+            var hostedViewObserver: NSObjectProtocol?
+            var timeoutWorkItem: DispatchWorkItem?
+
+            @MainActor
+            func finish(_ reason: String) {
+                guard !resolved else { return }
+                resolved = true
+                workspacePanelsCancellable?.cancel()
+                pendingLoadsCancellable?.cancel()
+                tabsCancellable?.cancel()
+                if let readyObserver {
+                    NotificationCenter.default.removeObserver(readyObserver)
+                }
+                if let hostedViewObserver {
+                    NotificationCenter.default.removeObserver(hostedViewObserver)
+                }
+                timeoutWorkItem?.cancel()
+                continuation.resume(returning: reason)
+            }
+
+            @MainActor
+            func evaluate() {
+                switch stepBackgroundWorkspacePrime(workspaceId: workspaceId) {
+                case .pending:
+                    break
+                case .completed(let reason):
+                    finish(reason)
+                }
+            }
+
+            if let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) {
+                workspacePanelsCancellable = workspace.$panels
+                    .map { _ in () }
+                    .sink { _ in
+                        Task { @MainActor in
+                            evaluate()
+                        }
+                    }
+            }
+
+            pendingLoadsCancellable = tabManager.$pendingBackgroundWorkspaceLoadIds
+                .map { _ in () }
+                .sink { _ in
+                    Task { @MainActor in
+                        evaluate()
+                    }
+                }
+
+            tabsCancellable = tabManager.$tabs
+                .map { _ in () }
+                .sink { _ in
+                    Task { @MainActor in
+                        evaluate()
+                    }
+                }
+
+            readyObserver = NotificationCenter.default.addObserver(
+                forName: .terminalSurfaceDidBecomeReady,
+                object: nil,
+                queue: .main
+            ) { notification in
+                guard let readyWorkspaceId = notification.userInfo?["workspaceId"] as? UUID,
+                      readyWorkspaceId == workspaceId else { return }
+                Task { @MainActor in
+                    evaluate()
+                }
+            }
+
+            hostedViewObserver = NotificationCenter.default.addObserver(
+                forName: .terminalSurfaceHostedViewDidMoveToWindow,
+                object: nil,
+                queue: .main
+            ) { notification in
+                guard let hostedWorkspaceId = notification.userInfo?["workspaceId"] as? UUID,
+                      hostedWorkspaceId == workspaceId else { return }
+                Task { @MainActor in
+                    evaluate()
+                }
+            }
+
+            let timeoutWork = DispatchWorkItem {
+                Task { @MainActor in
+                    if tabManager.pendingBackgroundWorkspaceLoadIds.contains(workspaceId) {
+                        tabManager.completeBackgroundWorkspaceLoad(for: workspaceId)
+                    }
+                    finish("timeout")
+                }
+            }
+            timeoutWorkItem = timeoutWork
+            DispatchQueue.main.asyncAfter(deadline: .now() + timeoutSeconds, execute: timeoutWork)
+
+            Task { @MainActor in
+                evaluate()
+            }
+        }
     }
 
     private func addTab() {
@@ -2945,8 +3075,6 @@ struct ContentView: View {
             retiringWorkspaceId = nil
             workspaceHandoffFallbackTask?.cancel()
             workspaceHandoffFallbackTask = nil
-            workspaceHandoffReadyCheckTask?.cancel()
-            workspaceHandoffReadyCheckTask = nil
             return
         }
 
@@ -2954,7 +3082,6 @@ struct ContentView: View {
         let generation = workspaceHandoffGeneration
         retiringWorkspaceId = oldSelectedId
         workspaceHandoffFallbackTask?.cancel()
-        workspaceHandoffReadyCheckTask?.cancel()
 
 #if DEBUG
         if let snapshot = tabManager.debugCurrentWorkspaceSwitchSnapshot() {
@@ -2970,34 +3097,19 @@ struct ContentView: View {
         }
 #endif
 
-        workspaceHandoffReadyCheckTask = Task { [generation, newSelectedId] in
-            for delay in [0, 20_000_000, 40_000_000, 60_000_000] {
-                if delay > 0 {
-                    do {
-                        try await Task.sleep(nanoseconds: UInt64(delay))
-                    } catch {
-                        return
-                    }
-                }
-                let completed = await MainActor.run { () -> Bool in
-                    guard workspaceHandoffGeneration == generation else { return false }
-                    guard retiringWorkspaceId != nil else { return false }
-                    guard canCompleteWorkspaceHandoffImmediately(for: newSelectedId) else { return false }
+        if canCompleteWorkspaceHandoffImmediately(for: newSelectedId) {
 #if DEBUG
-                    if let snapshot = tabManager.debugCurrentWorkspaceSwitchSnapshot() {
-                        let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
-                        dlog(
-                            "ws.handoff.fastReady id=\(snapshot.id) dt=\(debugMsText(dtMs)) selected=\(debugShortWorkspaceId(newSelectedId))"
-                        )
-                    } else {
-                        dlog("ws.handoff.fastReady id=none selected=\(debugShortWorkspaceId(newSelectedId))")
-                    }
-#endif
-                    completeWorkspaceHandoff(reason: "ready")
-                    return true
-                }
-                if completed { return }
+            if let snapshot = tabManager.debugCurrentWorkspaceSwitchSnapshot() {
+                let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
+                dlog(
+                    "ws.handoff.fastReady id=\(snapshot.id) dt=\(debugMsText(dtMs)) selected=\(debugShortWorkspaceId(newSelectedId))"
+                )
+            } else {
+                dlog("ws.handoff.fastReady id=none selected=\(debugShortWorkspaceId(newSelectedId))")
             }
+#endif
+            completeWorkspaceHandoff(reason: "ready")
+            return
         }
 
         workspaceHandoffFallbackTask = Task { [generation] in
@@ -3031,8 +3143,6 @@ struct ContentView: View {
     private func completeWorkspaceHandoff(reason: String) {
         workspaceHandoffFallbackTask?.cancel()
         workspaceHandoffFallbackTask = nil
-        workspaceHandoffReadyCheckTask?.cancel()
-        workspaceHandoffReadyCheckTask = nil
         let retiring = retiringWorkspaceId
 
         // Hide portal-hosted views for the retiring workspace BEFORE clearing
@@ -6239,6 +6349,7 @@ struct ContentView: View {
         commandPaletteVisibleResultsFingerprint = nil
         cachedCommandPaletteScope = nil
         cachedCommandPaletteFingerprint = nil
+        commandPalettePendingTextSelectionBehavior = nil
         commandPaletteResolvedSearchRequestID = commandPaletteSearchRequestID
         commandPaletteResolvedSearchScope = nil
         commandPaletteResolvedSearchFingerprint = nil
@@ -6251,7 +6362,7 @@ struct ContentView: View {
         syncCommandPaletteDebugStateForObservedWindow()
 
         guard restoreFocus, let focusTarget else { return }
-        restoreCommandPaletteFocus(target: focusTarget, attemptsRemaining: 6)
+        requestCommandPaletteFocusRestore(target: focusTarget)
     }
 
     private func handleCommandPaletteBackdropClick(atContentPoint contentPoint: CGPoint) {
@@ -6386,38 +6497,42 @@ struct ContentView: View {
         )
     }
 
-    private func restoreCommandPaletteFocus(
-        target: CommandPaletteRestoreFocusTarget,
-        attemptsRemaining: Int
-    ) {
+    private func requestCommandPaletteFocusRestore(target: CommandPaletteRestoreFocusTarget) {
+        commandPalettePendingDismissFocusTarget = target
+        commandPaletteRestoreTimeoutWorkItem?.cancel()
+        let timeoutWork = DispatchWorkItem {
+            commandPalettePendingDismissFocusTarget = nil
+            commandPaletteRestoreTimeoutWorkItem = nil
+        }
+        commandPaletteRestoreTimeoutWorkItem = timeoutWork
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: timeoutWork)
+        attemptCommandPaletteFocusRestoreIfNeeded()
+    }
+
+    private func attemptCommandPaletteFocusRestoreIfNeeded() {
         guard !isCommandPalettePresented else { return }
-        guard tabManager.tabs.contains(where: { $0.id == target.workspaceId }) else { return }
+        guard let target = commandPalettePendingDismissFocusTarget else { return }
+        guard tabManager.tabs.contains(where: { $0.id == target.workspaceId }) else {
+            commandPalettePendingDismissFocusTarget = nil
+            commandPaletteRestoreTimeoutWorkItem?.cancel()
+            commandPaletteRestoreTimeoutWorkItem = nil
+            return
+        }
 
         if let window = observedWindow, !window.isKeyWindow {
             window.makeKeyAndOrderFront(nil)
         }
         tabManager.focusTab(target.workspaceId, surfaceId: target.panelId, suppressFlash: true)
 
-        if let context = focusedPanelContext,
-           context.workspace.id == target.workspaceId,
-           context.panelId == target.panelId {
-            if context.panel.restoreFocusIntent(target.intent) {
-                return
-            }
+        guard let context = focusedPanelContext,
+              context.workspace.id == target.workspaceId,
+              context.panelId == target.panelId else {
+            return
         }
-
-        guard attemptsRemaining > 0 else { return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) {
-            guard !isCommandPalettePresented else { return }
-            if let context = focusedPanelContext,
-               context.workspace.id == target.workspaceId,
-               context.panelId == target.panelId {
-                if context.panel.restoreFocusIntent(target.intent) {
-                    return
-                }
-            }
-            restoreCommandPaletteFocus(target: target, attemptsRemaining: attemptsRemaining - 1)
-        }
+        guard context.panel.restoreFocusIntent(target.intent) else { return }
+        commandPalettePendingDismissFocusTarget = nil
+        commandPaletteRestoreTimeoutWorkItem?.cancel()
+        commandPaletteRestoreTimeoutWorkItem = nil
     }
 
 #if DEBUG
@@ -6478,11 +6593,17 @@ struct ContentView: View {
         }
     }
 
-    private func applyCommandPaletteTextSelection(
-        _ behavior: CommandPaletteTextSelectionBehavior,
-        attemptsRemaining: Int = 20
-    ) {
-        guard isCommandPalettePresented else { return }
+    private func applyCommandPaletteTextSelection(_ behavior: CommandPaletteTextSelectionBehavior) {
+        commandPalettePendingTextSelectionBehavior = behavior
+        attemptCommandPaletteTextSelectionIfNeeded()
+    }
+
+    private func attemptCommandPaletteTextSelectionIfNeeded() {
+        guard isCommandPalettePresented else {
+            commandPalettePendingTextSelectionBehavior = nil
+            return
+        }
+        guard let behavior = commandPalettePendingTextSelectionBehavior else { return }
         switch behavior {
         case .selectAll:
             guard case .renameInput = commandPaletteMode else { return }
@@ -6496,21 +6617,18 @@ struct ContentView: View {
         }
         guard let window = observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow else { return }
 
-        if let editor = window.firstResponder as? NSTextView, editor.isFieldEditor {
-            let length = (editor.string as NSString).length
-            switch behavior {
-            case .selectAll:
-                editor.setSelectedRange(NSRange(location: 0, length: length))
-            case .caretAtEnd:
-                editor.setSelectedRange(NSRange(location: length, length: 0))
-            }
+        guard let editor = window.firstResponder as? NSTextView,
+              editor.isFieldEditor else {
             return
         }
-
-        guard attemptsRemaining > 0 else { return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.02) {
-            applyCommandPaletteTextSelection(behavior, attemptsRemaining: attemptsRemaining - 1)
+        let length = (editor.string as NSString).length
+        switch behavior {
+        case .selectAll:
+            editor.setSelectedRange(NSRange(location: 0, length: length))
+        case .caretAtEnd:
+            editor.setSelectedRange(NSRange(location: length, length: 0))
         }
+        commandPalettePendingTextSelectionBehavior = nil
     }
 
     private func refreshCommandPaletteUsageHistory() {
@@ -8446,33 +8564,43 @@ enum SidebarOutsideDropResetPolicy {
 }
 
 enum SidebarDragFailsafePolicy {
-    static let pollInterval: TimeInterval = 0.05
     static let clearDelay: TimeInterval = 0.15
 
     static func shouldRequestClear(isDragActive: Bool, isLeftMouseButtonDown: Bool) -> Bool {
         isDragActive && !isLeftMouseButtonDown
+    }
+
+    static func shouldRequestClearWhenMonitoringStarts(isLeftMouseButtonDown: Bool) -> Bool {
+        shouldRequestClear(
+            isDragActive: true,
+            isLeftMouseButtonDown: isLeftMouseButtonDown
+        )
+    }
+
+    static func shouldRequestClear(forMouseEventType eventType: NSEvent.EventType) -> Bool {
+        eventType == .leftMouseUp
     }
 }
 
 @MainActor
 private final class SidebarDragFailsafeMonitor: ObservableObject {
     private static let escapeKeyCode: UInt16 = 53
-    private var timer: Timer?
     private var pendingClearWorkItem: DispatchWorkItem?
     private var appResignObserver: NSObjectProtocol?
     private var keyDownMonitor: Any?
+    private var localMouseMonitor: Any?
+    private var globalMouseMonitor: Any?
     private var onRequestClear: ((String) -> Void)?
 
     func start(onRequestClear: @escaping (String) -> Void) {
         self.onRequestClear = onRequestClear
-        if timer == nil {
-            let timer = Timer(timeInterval: SidebarDragFailsafePolicy.pollInterval, repeats: true) { [weak self] _ in
-                Task { @MainActor [weak self] in
-                    self?.tick()
-                }
-            }
-            self.timer = timer
-            RunLoop.main.add(timer, forMode: .common)
+        if SidebarDragFailsafePolicy.shouldRequestClearWhenMonitoringStarts(
+            isLeftMouseButtonDown: CGEventSource.buttonState(
+                .combinedSessionState,
+                button: .left
+            )
+        ) {
+            requestClearSoon(reason: "mouse_up_failsafe")
         }
         if appResignObserver == nil {
             appResignObserver = NotificationCenter.default.addObserver(
@@ -8493,11 +8621,25 @@ private final class SidebarDragFailsafeMonitor: ObservableObject {
                 return event
             }
         }
+        if localMouseMonitor == nil {
+            localMouseMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseUp) { [weak self] event in
+                if SidebarDragFailsafePolicy.shouldRequestClear(forMouseEventType: event.type) {
+                    self?.requestClearSoon(reason: "mouse_up_failsafe")
+                }
+                return event
+            }
+        }
+        if globalMouseMonitor == nil {
+            globalMouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: .leftMouseUp) { [weak self] event in
+                guard SidebarDragFailsafePolicy.shouldRequestClear(forMouseEventType: event.type) else { return }
+                Task { @MainActor [weak self] in
+                    self?.requestClearSoon(reason: "mouse_up_failsafe")
+                }
+            }
+        }
     }
 
     func stop() {
-        timer?.invalidate()
-        timer = nil
         pendingClearWorkItem?.cancel()
         pendingClearWorkItem = nil
         if let appResignObserver {
@@ -8508,16 +8650,15 @@ private final class SidebarDragFailsafeMonitor: ObservableObject {
             NSEvent.removeMonitor(keyDownMonitor)
             self.keyDownMonitor = nil
         }
+        if let localMouseMonitor {
+            NSEvent.removeMonitor(localMouseMonitor)
+            self.localMouseMonitor = nil
+        }
+        if let globalMouseMonitor {
+            NSEvent.removeMonitor(globalMouseMonitor)
+            self.globalMouseMonitor = nil
+        }
         onRequestClear = nil
-    }
-
-    private func tick() {
-        let isLeftMouseButtonDown = CGEventSource.buttonState(.combinedSessionState, button: .left)
-        guard SidebarDragFailsafePolicy.shouldRequestClear(
-            isDragActive: true, // Monitor only runs while drag is active.
-            isLeftMouseButtonDown: isLeftMouseButtonDown
-        ) else { return }
-        requestClearSoon(reason: "mouse_up_failsafe")
     }
 
     private func requestClearSoon(reason: String) {

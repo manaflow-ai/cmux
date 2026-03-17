@@ -874,6 +874,40 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         )
     }
 
+    func testAcceptFailureRecoveryActionResumesAfterDelayForTransientErrors() {
+        XCTAssertEqual(
+            TerminalController.acceptFailureRecoveryAction(
+                errnoCode: EPROTO,
+                consecutiveFailures: 1
+            ),
+            .resumeAfterDelay(delayMs: 10)
+        )
+        XCTAssertEqual(
+            TerminalController.acceptFailureRecoveryAction(
+                errnoCode: EMFILE,
+                consecutiveFailures: 3
+            ),
+            .resumeAfterDelay(delayMs: 40)
+        )
+    }
+
+    func testAcceptFailureRecoveryActionRearmsForFatalAndPersistentFailures() {
+        XCTAssertEqual(
+            TerminalController.acceptFailureRecoveryAction(
+                errnoCode: EBADF,
+                consecutiveFailures: 1
+            ),
+            .rearmAfterDelay(delayMs: 100)
+        )
+        XCTAssertEqual(
+            TerminalController.acceptFailureRecoveryAction(
+                errnoCode: EPROTO,
+                consecutiveFailures: 50
+            ),
+            .rearmAfterDelay(delayMs: 5_000)
+        )
+    }
+
     func testAcceptFailureBreadcrumbSamplingPrefersEarlyAndPowerOfTwoMilestones() {
         XCTAssertTrue(TerminalController.shouldEmitAcceptFailureBreadcrumb(consecutiveFailures: 1))
         XCTAssertTrue(TerminalController.shouldEmitAcceptFailureBreadcrumb(consecutiveFailures: 2))
@@ -915,6 +949,34 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
                 isRunning: false,
                 activeGeneration: 0,
                 listenerStartInProgress: false
+            )
+        )
+    }
+}
+
+final class SidebarDragFailsafePolicyTests: XCTestCase {
+    func testRequestsClearWhenMonitorStartsAfterMouseRelease() {
+        XCTAssertTrue(
+            SidebarDragFailsafePolicy.shouldRequestClearWhenMonitoringStarts(
+                isLeftMouseButtonDown: false
+            )
+        )
+        XCTAssertFalse(
+            SidebarDragFailsafePolicy.shouldRequestClearWhenMonitoringStarts(
+                isLeftMouseButtonDown: true
+            )
+        )
+    }
+
+    func testRequestsClearForLeftMouseUpEventsOnly() {
+        XCTAssertTrue(
+            SidebarDragFailsafePolicy.shouldRequestClear(
+                forMouseEventType: .leftMouseUp
+            )
+        )
+        XCTAssertFalse(
+            SidebarDragFailsafePolicy.shouldRequestClear(
+                forMouseEventType: .leftMouseDragged
             )
         )
     }

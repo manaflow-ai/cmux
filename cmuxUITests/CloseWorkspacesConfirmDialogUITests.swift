@@ -110,25 +110,23 @@ final class CloseWorkspacesConfirmDialogUITests: XCTestCase {
     }
 
     private func waitForSocketPong(timeout: TimeInterval) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if socketCommand("ping") == "PONG" {
-                return true
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-        }
-        return socketCommand("ping") == "PONG"
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                self.socketCommand("ping") == "PONG"
+            },
+            object: NSObject()
+        )
+        return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
     }
 
     private func waitForWorkspaceCount(_ expectedCount: Int, timeout: TimeInterval) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if workspaceCount() == expectedCount {
-                return true
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-        }
-        return workspaceCount() == expectedCount
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                self.workspaceCount() == expectedCount
+            },
+            object: NSObject()
+        )
+        return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
     }
 
     private func workspaceCount() -> Int {
@@ -182,14 +180,13 @@ final class CloseWorkspacesConfirmDialogUITests: XCTestCase {
     }
 
     private func waitForCloseWorkspacesAlert(app: XCUIApplication, timeout: TimeInterval) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if isCloseWorkspacesAlertPresent(app: app) {
-                return true
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-        }
-        return isCloseWorkspacesAlertPresent(app: app)
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                self.isCloseWorkspacesAlertPresent(app: app)
+            },
+            object: NSObject()
+        )
+        return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
     }
 
     private func clickCancelOnCloseWorkspacesAlert(app: XCUIApplication) {

@@ -716,14 +716,14 @@ final class WorkspaceRemoteDaemonPendingCallRegistry {
     }
 
     func remove(_ call: PendingCall) {
-        queue.sync {
+        _ = queue.sync {
             pendingCalls.removeValue(forKey: call.id)
         }
     }
 
     func wait(for call: PendingCall, timeout: TimeInterval) -> WaitOutcome {
         if call.semaphore.wait(timeout: .now() + timeout) == .timedOut {
-            queue.sync {
+            _ = queue.sync {
                 pendingCalls.removeValue(forKey: call.id)
             }
             // A response can win the race immediately before timeout cleanup removes the call.
@@ -749,6 +749,18 @@ final class WorkspaceRemoteDaemonPendingCallRegistry {
 
 private final class WorkspaceRemoteDaemonRPCClient {
     private static let maxStdoutBufferBytes = 256 * 1024
+    static let requiredProxyStreamCapability = "proxy.stream.push"
+
+    enum StreamEvent {
+        case data(Data)
+        case eof(Data)
+        case error(String)
+    }
+
+    private struct StreamSubscription {
+        let queue: DispatchQueue
+        let handler: (StreamEvent) -> Void
+    }
 
     private let configuration: WorkspaceRemoteConfiguration
     private let remotePath: String
@@ -766,6 +778,7 @@ private final class WorkspaceRemoteDaemonRPCClient {
 
     private var stdoutBuffer = Data()
     private var stderrBuffer = ""
+    private var streamSubscriptions: [String: StreamSubscription] = [:]
 
     init(
         configuration: WorkspaceRemoteConfiguration,
@@ -824,15 +837,16 @@ private final class WorkspaceRemoteDaemonRPCClient {
             self.shouldReportTermination = true
             self.stdoutBuffer = Data()
             self.stderrBuffer = ""
+            self.streamSubscriptions.removeAll(keepingCapacity: false)
         }
         pendingCalls.reset()
 
         do {
             let hello = try call(method: "hello", params: [:], timeout: 8.0)
             let capabilities = (hello["capabilities"] as? [String]) ?? []
-            guard capabilities.contains("proxy.stream") else {
+            guard capabilities.contains(Self.requiredProxyStreamCapability) else {
                 throw NSError(domain: "cmux.remote.daemon.rpc", code: 2, userInfo: [
-                    NSLocalizedDescriptionKey: "remote daemon missing required capability proxy.stream",
+                    NSLocalizedDescriptionKey: "remote daemon missing required capability \(Self.requiredProxyStreamCapability)",
                 ])
             }
         } catch {
@@ -875,23 +889,44 @@ private final class WorkspaceRemoteDaemonRPCClient {
         )
     }
 
-    func readStream(streamID: String, maxBytes: Int = 32768, timeoutMs: Int = 250) throws -> (data: Data, eof: Bool) {
-        let result = try call(
-            method: "proxy.read",
-            params: [
-                "stream_id": streamID,
-                "max_bytes": maxBytes,
-                "timeout_ms": timeoutMs,
-            ],
-            timeout: max(2.0, TimeInterval(timeoutMs) / 1000.0 + 2.0)
-        )
-        let encoded = (result["data_base64"] as? String) ?? ""
-        let decoded = encoded.isEmpty ? Data() : (Data(base64Encoded: encoded) ?? Data())
-        let eof = (result["eof"] as? Bool) ?? false
-        return (decoded, eof)
+    func attachStream(
+        streamID: String,
+        queue: DispatchQueue,
+        onEvent: @escaping (StreamEvent) -> Void
+    ) throws {
+        let trimmedStreamID = streamID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedStreamID.isEmpty else {
+            throw NSError(domain: "cmux.remote.daemon.rpc", code: 17, userInfo: [
+                NSLocalizedDescriptionKey: "proxy.stream.subscribe requires stream_id",
+            ])
+        }
+
+        stateQueue.sync {
+            streamSubscriptions[trimmedStreamID] = StreamSubscription(queue: queue, handler: onEvent)
+        }
+
+        do {
+            _ = try call(
+                method: "proxy.stream.subscribe",
+                params: ["stream_id": trimmedStreamID],
+                timeout: 8.0
+            )
+        } catch {
+            unregisterStream(streamID: trimmedStreamID)
+            throw error
+        }
+    }
+
+    func unregisterStream(streamID: String) {
+        let trimmedStreamID = streamID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedStreamID.isEmpty else { return }
+        _ = stateQueue.sync {
+            streamSubscriptions.removeValue(forKey: trimmedStreamID)
+        }
     }
 
     func closeStream(streamID: String) {
+        unregisterStream(streamID: streamID)
         _ = try? call(
             method: "proxy.close",
             params: ["stream_id": streamID],
@@ -1004,17 +1039,12 @@ private final class WorkspaceRemoteDaemonRPCClient {
                 continue
             }
 
-            let responseID: Int = {
-                if let intValue = payload["id"] as? Int {
-                    return intValue
-                }
-                if let numberValue = payload["id"] as? NSNumber {
-                    return numberValue.intValue
-                }
-                return -1
-            }()
-            guard responseID >= 0 else { continue }
-            _ = pendingCalls.resolve(id: responseID, payload: payload)
+            if let responseID = Self.responseID(in: payload) {
+                _ = pendingCalls.resolve(id: responseID, payload: payload)
+                continue
+            }
+
+            consumeEventPayload(payload)
         }
     }
 
@@ -1024,6 +1054,44 @@ private final class WorkspaceRemoteDaemonRPCClient {
         stderrBuffer.append(chunk)
         if stderrBuffer.count > 8192 {
             stderrBuffer.removeFirst(stderrBuffer.count - 8192)
+        }
+    }
+
+    private func consumeEventPayload(_ payload: [String: Any]) {
+        guard let eventName = (payload["event"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              !eventName.isEmpty,
+              let streamID = (payload["stream_id"] as? String)?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+              !streamID.isEmpty else {
+            return
+        }
+
+        let subscription: StreamSubscription?
+        let event: StreamEvent?
+        switch eventName {
+        case "proxy.stream.data":
+            subscription = streamSubscriptions[streamID]
+            event = .data(Self.decodeBase64Data(payload["data_base64"]))
+
+        case "proxy.stream.eof":
+            subscription = streamSubscriptions.removeValue(forKey: streamID)
+            event = .eof(Self.decodeBase64Data(payload["data_base64"]))
+
+        case "proxy.stream.error":
+            subscription = streamSubscriptions.removeValue(forKey: streamID)
+            let detail = ((payload["error"] as? String)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)).flatMap { $0.isEmpty ? nil : $0 }
+                ?? "stream error"
+            event = .error(detail)
+
+        default:
+            return
+        }
+
+        guard let subscription, let event else { return }
+        subscription.queue.async {
+            subscription.handler(event)
         }
     }
 
@@ -1041,6 +1109,7 @@ private final class WorkspaceRemoteDaemonRPCClient {
         stdoutHandle = nil
         stderrHandle?.readabilityHandler = nil
         stderrHandle = nil
+        streamSubscriptions.removeAll(keepingCapacity: false)
         signalPendingFailureLocked(detail)
 
         guard shouldNotify else { return }
@@ -1067,6 +1136,7 @@ private final class WorkspaceRemoteDaemonRPCClient {
             stdinHandle = nil
             stdoutHandle = nil
             stderrHandle = nil
+            streamSubscriptions.removeAll(keepingCapacity: false)
             return (capturedProcess, capturedStdin, capturedStdout, capturedStderr, shouldNotify, detail)
         }
 
@@ -1087,6 +1157,21 @@ private final class WorkspaceRemoteDaemonRPCClient {
         pendingCalls.failAll(message)
     }
 
+    private static func responseID(in payload: [String: Any]) -> Int? {
+        if let intValue = payload["id"] as? Int {
+            return intValue
+        }
+        if let numberValue = payload["id"] as? NSNumber {
+            return numberValue.intValue
+        }
+        return nil
+    }
+
+    private static func decodeBase64Data(_ value: Any?) -> Data {
+        guard let encoded = value as? String, !encoded.isEmpty else { return Data() }
+        return Data(base64Encoded: encoded) ?? Data()
+    }
+
     private static func encodeJSON(_ object: [String: Any]) throws -> Data {
         try JSONSerialization.data(withJSONObject: object, options: [])
     }
@@ -1095,7 +1180,9 @@ private final class WorkspaceRemoteDaemonRPCClient {
         let script = "exec \(shellSingleQuoted(remotePath)) serve --stdio"
         // Use non-login sh so remote ~/.profile noise does not interfere with daemon transport startup.
         let command = "sh -c \(shellSingleQuoted(script))"
-        return sshCommonArguments(configuration: configuration, batchMode: true) + [configuration.destination, command]
+        return ["-T", "-S", "none"]
+            + sshCommonArguments(configuration: configuration, batchMode: true)
+            + ["-o", "RequestTTY=no", configuration.destination, command]
     }
 
     private static let batchSSHControlOptionKeys: Set<String> = [
@@ -1411,7 +1498,6 @@ private final class WorkspaceRemoteDaemonProxyTunnel {
         private let connection: NWConnection
         private let rpcClient: WorkspaceRemoteDaemonRPCClient
         private let queue: DispatchQueue
-        private let readQueue: DispatchQueue
         private let onClose: (UUID) -> Void
 
         private var isClosed = false
@@ -1433,10 +1519,6 @@ private final class WorkspaceRemoteDaemonProxyTunnel {
             self.connection = connection
             self.rpcClient = rpcClient
             self.queue = queue
-            self.readQueue = DispatchQueue(
-                label: "com.cmux.remote-ssh.daemon-tunnel.proxy-read.\(UUID().uuidString)",
-                qos: .utility
-            )
             self.onClose = onClose
         }
 
@@ -1677,6 +1759,9 @@ private final class WorkspaceRemoteDaemonProxyTunnel {
                 let targetHost = Self.normalizedProxyTargetHost(host)
                 let streamID = try rpcClient.openStream(host: targetHost, port: port)
                 self.streamID = streamID
+                try rpcClient.attachStream(streamID: streamID, queue: queue) { [weak self] event in
+                    self?.handleRemoteStreamEvent(streamID: streamID, event: event)
+                }
                 connection.send(content: successResponse, completion: .contentProcessed { [weak self] error in
                     guard let self else { return }
                     if let error {
@@ -1686,7 +1771,6 @@ private final class WorkspaceRemoteDaemonProxyTunnel {
                     if !pendingPayload.isEmpty {
                         self.forwardToRemote(pendingPayload, allowAfterEOF: true)
                     }
-                    self.scheduleRemoteReadLoop()
                 })
             } catch {
                 sendAndClose(failureResponse)
@@ -1710,40 +1794,27 @@ private final class WorkspaceRemoteDaemonProxyTunnel {
             }
         }
 
-        private func scheduleRemoteReadLoop() {
-            guard let streamID else { return }
-            readQueue.async { [weak self] in
-                self?.pollRemoteOnce(streamID: streamID)
-            }
-        }
-
-        private func pollRemoteOnce(streamID: String) {
-            let readResult: Result<(data: Data, eof: Bool), Error>
-            do {
-                readResult = .success(try rpcClient.readStream(streamID: streamID, maxBytes: 32768, timeoutMs: 250))
-            } catch {
-                readResult = .failure(error)
-            }
-
-            queue.async { [weak self] in
-                self?.handleRemoteReadResult(streamID: streamID, result: readResult)
-            }
-        }
-
-        private func handleRemoteReadResult(streamID: String, result: Result<(data: Data, eof: Bool), Error>) {
+        private func handleRemoteStreamEvent(
+            streamID: String,
+            event: WorkspaceRemoteDaemonRPCClient.StreamEvent
+        ) {
             guard !isClosed else { return }
             guard self.streamID == streamID else { return }
 
-            let readResult: (data: Data, eof: Bool)
-            switch result {
-            case .success(let value):
-                readResult = value
-            case .failure(let error):
-                close(reason: "proxy.read failed: \(error.localizedDescription)")
-                return
-            }
+            switch event {
+            case .data(let data):
+                forwardRemotePayloadToLocal(data, eof: false)
 
-            let localData = rewriteRemoteResponseIfNeeded(readResult.data, eof: readResult.eof)
+            case .eof(let data):
+                forwardRemotePayloadToLocal(data, eof: true)
+
+            case .error(let detail):
+                close(reason: "proxy.stream failed: \(detail)")
+            }
+        }
+
+        private func forwardRemotePayloadToLocal(_ data: Data, eof: Bool) {
+            let localData = rewriteRemoteResponseIfNeeded(data, eof: eof)
             if !localData.isEmpty {
                 connection.send(content: localData, completion: .contentProcessed { [weak self] error in
                     guard let self else { return }
@@ -1751,19 +1822,15 @@ private final class WorkspaceRemoteDaemonProxyTunnel {
                         self.close(reason: "proxy client send error: \(error)")
                         return
                     }
-                    if readResult.eof {
+                    if eof {
                         self.close(reason: nil)
-                    } else {
-                        self.scheduleRemoteReadLoop()
                     }
                 })
                 return
             }
 
-            if readResult.eof {
+            if eof {
                 close(reason: nil)
-            } else {
-                scheduleRemoteReadLoop()
             }
         }
 
@@ -2671,7 +2738,7 @@ private final class WorkspaceRemoteCLIRelayServer {
             ])
         }
 
-        return try queue.sync {
+        return queue.sync {
             if let localPort {
                 listener.newConnectionHandler = nil
                 listener.stateUpdateHandler = nil
@@ -2730,7 +2797,7 @@ private final class WorkspaceRemoteCLIRelayServer {
     }
 }
 
-private final class WorkspaceRemoteSessionController {
+final class WorkspaceRemoteSessionController {
     private struct CommandResult {
         let status: Int32
         let stdout: String
@@ -2740,6 +2807,11 @@ private final class WorkspaceRemoteSessionController {
     private struct RemotePlatform {
         let goOS: String
         let goArch: String
+    }
+
+    private struct RemoteBootstrapState {
+        let platform: RemotePlatform
+        let binaryExists: Bool
     }
 
     private struct DaemonHello {
@@ -2768,10 +2840,10 @@ private final class WorkspaceRemoteSessionController {
     private var reverseRelayStderrBuffer = ""
     private var reconnectRetryCount = 0
     private var reconnectWorkItem: DispatchWorkItem?
-    private var heartbeatWorkItem: DispatchWorkItem?
     private var heartbeatCount: Int = 0
+    private var connectionAttemptStartedAt: Date?
 
-    private static let heartbeatInterval: TimeInterval = 3.0
+    private static let reverseRelayStartupGracePeriod: TimeInterval = 0.5
 
     init(workspace: Workspace, configuration: WorkspaceRemoteConfiguration, controllerID: UUID) {
         self.workspace = workspace
@@ -2807,7 +2879,6 @@ private final class WorkspaceRemoteSessionController {
         reconnectRetryCount = 0
         reverseRelayRestartWorkItem?.cancel()
         reverseRelayRestartWorkItem = nil
-        stopHeartbeatLocked(reset: true)
         stopReverseRelayLocked()
 
         proxyLease?.release()
@@ -2823,9 +2894,9 @@ private final class WorkspaceRemoteSessionController {
     private func beginConnectionAttemptLocked() {
         guard !isStopping else { return }
 
+        connectionAttemptStartedAt = Date()
         debugLog("remote.session.connect.begin retry=\(reconnectRetryCount) \(debugConfigSummary())")
         reconnectWorkItem = nil
-        stopHeartbeatLocked(reset: true)
         let connectDetail: String
         let bootstrapDetail: String
         if reconnectRetryCount > 0 {
@@ -2839,9 +2910,9 @@ private final class WorkspaceRemoteSessionController {
         publishDaemonStatus(.bootstrapping, detail: bootstrapDetail)
         do {
             let hello = try bootstrapDaemonLocked()
-            guard hello.capabilities.contains("proxy.stream") else {
+            guard hello.capabilities.contains(WorkspaceRemoteDaemonRPCClient.requiredProxyStreamCapability) else {
                 throw NSError(domain: "cmux.remote.daemon", code: 43, userInfo: [
-                    NSLocalizedDescriptionKey: "remote daemon missing required capability proxy.stream",
+                    NSLocalizedDescriptionKey: "remote daemon missing required capability \(WorkspaceRemoteDaemonRPCClient.requiredProxyStreamCapability)",
                 ])
             }
             daemonReady = true
@@ -2855,7 +2926,7 @@ private final class WorkspaceRemoteSessionController {
                 capabilities: hello.capabilities,
                 remotePath: hello.remotePath
             )
-            prepareRemoteCLISessionLocked(remotePath: hello.remotePath)
+            recordHeartbeatActivityLocked()
             startReverseRelayLocked(remotePath: hello.remotePath)
             startProxyLocked()
         } catch {
@@ -2895,10 +2966,6 @@ private final class WorkspaceRemoteSessionController {
         proxyLease = lease
     }
 
-    private func prepareRemoteCLISessionLocked(remotePath: String) {
-        createRemoteCLISymlinkLocked(daemonRemotePath: remotePath)
-    }
-
     private func startReverseRelayLocked(remotePath: String) {
         guard !isStopping else { return }
         guard daemonReady else { return }
@@ -2916,13 +2983,15 @@ private final class WorkspaceRemoteSessionController {
 
         reverseRelayRestartWorkItem?.cancel()
         reverseRelayRestartWorkItem = nil
+        var relayServer: WorkspaceRemoteCLIRelayServer?
         do {
-            let relayServer = try ensureCLIRelayServerLocked(
+            let server = try ensureCLIRelayServerLocked(
                 localSocketPath: localSocketPath,
                 relayID: relayID,
                 relayToken: relayToken
             )
-            let localRelayPort = try relayServer.start()
+            relayServer = server
+            let localRelayPort = try server.start()
             Self.killOrphanedRelayProcesses(relayPort: relayPort, destination: configuration.destination)
 
             let process = Process()
@@ -2933,23 +3002,6 @@ private final class WorkspaceRemoteSessionController {
             process.standardOutput = FileHandle.nullDevice
             process.standardError = stderrPipe
 
-            stderrPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
-                let data = handle.availableData
-                guard !data.isEmpty else {
-                    handle.readabilityHandler = nil
-                    return
-                }
-                self?.queue.async {
-                    guard let self else { return }
-                    if let chunk = String(data: data, encoding: .utf8), !chunk.isEmpty {
-                        self.reverseRelayStderrBuffer.append(chunk)
-                        if self.reverseRelayStderrBuffer.count > 8192 {
-                            self.reverseRelayStderrBuffer.removeFirst(self.reverseRelayStderrBuffer.count - 8192)
-                        }
-                    }
-                }
-            }
-
             process.terminationHandler = { [weak self] terminated in
                 self?.queue.async {
                     self?.handleReverseRelayTerminationLocked(process: terminated)
@@ -2957,20 +3009,43 @@ private final class WorkspaceRemoteSessionController {
             }
 
             try process.run()
+            if let startupFailure = Self.reverseRelayStartupFailureDetail(
+                process: process,
+                stderrPipe: stderrPipe
+            ) {
+                let retryDelay = 2.0
+                let retrySeconds = max(1, Int(retryDelay.rounded()))
+                debugLog(
+                    "remote.relay.startFailed relayPort=\(relayPort) " +
+                    "error=\(startupFailure)"
+                )
+                relayServer?.stop()
+                publishDaemonStatus(
+                    .error,
+                    detail: "Remote SSH relay unavailable: \(startupFailure) (retry in \(retrySeconds)s)"
+                )
+                scheduleReverseRelayRestartLocked(remotePath: remotePath, delay: retryDelay)
+                return
+            }
+            installReverseRelayStderrHandlerLocked(stderrPipe)
             reverseRelayProcess = process
             cliRelayServer = relayServer
             reverseRelayStderrPipe = stderrPipe
             reverseRelayStderrBuffer = ""
-            writeRemoteRelayDaemonPathLocked(remotePath: remotePath)
             do {
-                try writeRemoteRelayAuthLocked(relayPort: relayPort, relayID: relayID, relayToken: relayToken)
+                try installRemoteRelayMetadataLocked(
+                    remotePath: remotePath,
+                    relayPort: relayPort,
+                    relayID: relayID,
+                    relayToken: relayToken
+                )
             } catch {
-                debugLog("remote.relay.auth.error \(error.localizedDescription)")
+                debugLog("remote.relay.metadata.error \(error.localizedDescription)")
                 stopReverseRelayLocked()
                 scheduleReverseRelayRestartLocked(remotePath: remotePath, delay: 2.0)
                 return
             }
-            writeRemoteSocketAddrLocked(relayPort: relayPort)
+            recordHeartbeatActivityLocked()
             debugLog(
                 "remote.relay.start relayPort=\(relayPort) localRelayPort=\(localRelayPort) " +
                 "target=\(configuration.displayTarget)"
@@ -2980,9 +3055,28 @@ private final class WorkspaceRemoteSessionController {
                 "remote.relay.startFailed relayPort=\(relayPort) " +
                 "error=\(error.localizedDescription)"
             )
-            cliRelayServer?.stop()
+            relayServer?.stop()
             cliRelayServer = nil
             scheduleReverseRelayRestartLocked(remotePath: remotePath, delay: 2.0)
+        }
+    }
+
+    private func installReverseRelayStderrHandlerLocked(_ stderrPipe: Pipe) {
+        stderrPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
+            let data = handle.availableData
+            guard !data.isEmpty else {
+                handle.readabilityHandler = nil
+                return
+            }
+            self?.queue.async {
+                guard let self else { return }
+                if let chunk = String(data: data, encoding: .utf8), !chunk.isEmpty {
+                    self.reverseRelayStderrBuffer.append(chunk)
+                    if self.reverseRelayStderrBuffer.count > 8192 {
+                        self.reverseRelayStderrBuffer.removeFirst(self.reverseRelayStderrBuffer.count - 8192)
+                    }
+                }
+            }
         }
     }
 
@@ -3045,7 +3139,7 @@ private final class WorkspaceRemoteSessionController {
             reconnectWorkItem = nil
             reconnectRetryCount = 0
             guard proxyEndpoint != endpoint else {
-                startHeartbeatLocked()
+                recordHeartbeatActivityLocked()
                 return
             }
             proxyEndpoint = endpoint
@@ -3055,11 +3149,10 @@ private final class WorkspaceRemoteSessionController {
                 .connected,
                 detail: "Connected to \(configuration.displayTarget) via shared local proxy \(endpoint.host):\(endpoint.port)"
             )
-            startHeartbeatLocked()
+            recordHeartbeatActivityLocked()
         case .error(let detail):
             debugLog("remote.proxy.error detail=\(detail) \(debugConfigSummary())")
             proxyEndpoint = nil
-            stopHeartbeatLocked(reset: false)
             publishProxyEndpoint(nil)
             publishPortsSnapshotLocked()
             publishState(.error, detail: "Remote proxy to \(configuration.displayTarget) unavailable: \(detail)")
@@ -3161,44 +3254,9 @@ private final class WorkspaceRemoteSessionController {
         }
     }
 
-    private func startHeartbeatLocked() {
-        guard !isStopping else { return }
-        guard daemonReady else { return }
-        guard proxyLease != nil else { return }
-        guard heartbeatWorkItem == nil else { return }
-
+    private func recordHeartbeatActivityLocked() {
         heartbeatCount += 1
         publishHeartbeat(count: heartbeatCount, at: Date())
-        scheduleNextHeartbeatLocked()
-    }
-
-    private func scheduleNextHeartbeatLocked() {
-        guard !isStopping else { return }
-        guard daemonReady else { return }
-        guard proxyLease != nil else { return }
-
-        heartbeatWorkItem?.cancel()
-        let workItem = DispatchWorkItem { [weak self] in
-            guard let self else { return }
-            self.heartbeatWorkItem = nil
-            guard !self.isStopping else { return }
-            guard self.daemonReady else { return }
-            guard self.proxyLease != nil else { return }
-            self.heartbeatCount += 1
-            self.publishHeartbeat(count: self.heartbeatCount, at: Date())
-            self.scheduleNextHeartbeatLocked()
-        }
-        heartbeatWorkItem = workItem
-        queue.asyncAfter(deadline: .now() + Self.heartbeatInterval, execute: workItem)
-    }
-
-    private func stopHeartbeatLocked(reset: Bool) {
-        heartbeatWorkItem?.cancel()
-        heartbeatWorkItem = nil
-        if reset {
-            heartbeatCount = 0
-            publishHeartbeat(count: 0, at: nil)
-        }
     }
 
     private func publishHeartbeat(count: Int, at date: Date?) {
@@ -3217,7 +3275,7 @@ private final class WorkspaceRemoteSessionController {
         var args: [String] = ["-N", "-T", "-S", "none"]
         args += sshCommonArguments(batchMode: true)
         args += [
-            "-o", "ExitOnForwardFailure=no",
+            "-o", "ExitOnForwardFailure=yes",
             "-o", "RequestTTY=no",
             "-R", "127.0.0.1:\(relayPort):127.0.0.1:\(localRelayPort)",
             configuration.destination,
@@ -3227,6 +3285,7 @@ private final class WorkspaceRemoteSessionController {
 
     private static let remotePlatformProbeOSMarker = "__CMUX_REMOTE_OS__="
     private static let remotePlatformProbeArchMarker = "__CMUX_REMOTE_ARCH__="
+    private static let remotePlatformProbeExistsMarker = "__CMUX_REMOTE_EXISTS__="
 
     private func sshCommonArguments(batchMode: Bool) -> [String] {
         let effectiveSSHOptions: [String] = {
@@ -3354,9 +3413,13 @@ private final class WorkspaceRemoteSessionController {
         let stdoutHandle = stdoutPipe.fileHandleForReading
         let stderrHandle = stderrPipe.fileHandleForReading
         let captureQueue = DispatchQueue(label: "cmux.remote.process.capture")
+        let exitSemaphore = DispatchSemaphore(value: 0)
         var stdoutData = Data()
         var stderrData = Data()
         let captureGroup = DispatchGroup()
+        process.terminationHandler = { _ in
+            exitSemaphore.signal()
+        }
         captureGroup.enter()
         DispatchQueue.global(qos: .utility).async {
             let data = stdoutHandle.readDataToEndOfFile()
@@ -3395,17 +3458,11 @@ private final class WorkspaceRemoteSessionController {
             try? pipe.fileHandleForWriting.close()
         }
 
-        let deadline = Date().addingTimeInterval(timeout)
-        while process.isRunning && Date() < deadline {
-            Thread.sleep(forTimeInterval: 0.05)
-        }
-        if process.isRunning {
+        let didExitBeforeTimeout = exitSemaphore.wait(timeout: .now() + max(0, timeout)) == .success
+        if !didExitBeforeTimeout, process.isRunning {
             process.terminate()
-            let terminateDeadline = Date().addingTimeInterval(2.0)
-            while process.isRunning && Date() < terminateDeadline {
-                Thread.sleep(forTimeInterval: 0.01)
-            }
-            if process.isRunning {
+            let terminatedGracefully = exitSemaphore.wait(timeout: .now() + 2.0) == .success
+            if !terminatedGracefully, process.isRunning {
                 _ = Darwin.kill(process.processIdentifier, SIGKILL)
                 process.waitUntilExit()
             }
@@ -3433,24 +3490,42 @@ private final class WorkspaceRemoteSessionController {
 
     private func bootstrapDaemonLocked() throws -> DaemonHello {
         debugLog("remote.bootstrap.begin \(debugConfigSummary())")
-        let platform = try resolveRemotePlatformLocked()
         let version = Self.remoteDaemonVersion()
+        let bootstrapState = try probeRemoteBootstrapStateLocked(version: version)
+        let platform = bootstrapState.platform
         let remotePath = Self.remoteDaemonPath(version: version, goOS: platform.goOS, goArch: platform.goArch)
-        let forceDevOverrideInstall = Self.allowLocalDaemonBuildFallback()
+        let explicitOverrideBinary = Self.explicitRemoteDaemonBinaryURL()
+        let forceExplicitOverrideInstall = explicitOverrideBinary != nil
         debugLog(
             "remote.bootstrap.platform os=\(platform.goOS) arch=\(platform.goArch) " +
-            "version=\(version) remotePath=\(remotePath) devOverride=\(forceDevOverrideInstall ? 1 : 0)"
+            "version=\(version) remotePath=\(remotePath) " +
+            "allowLocalBuildFallback=\(Self.allowLocalDaemonBuildFallback() ? 1 : 0) " +
+            "explicitOverride=\(forceExplicitOverrideInstall ? 1 : 0)"
         )
 
-        let hadExistingBinary = try remoteDaemonExistsLocked(remotePath: remotePath)
+        let hadExistingBinary = bootstrapState.binaryExists
         debugLog("remote.bootstrap.binaryExists remotePath=\(remotePath) exists=\(hadExistingBinary ? 1 : 0)")
-        if forceDevOverrideInstall || !hadExistingBinary {
+        if forceExplicitOverrideInstall || !hadExistingBinary {
             let localBinary = try buildLocalDaemonBinary(goOS: platform.goOS, goArch: platform.goArch, version: version)
             try uploadRemoteDaemonBinaryLocked(localBinary: localBinary, remotePath: remotePath)
         }
 
-        var hello = try helloRemoteDaemonLocked(remotePath: remotePath)
-        if !forceDevOverrideInstall, hadExistingBinary, !hello.capabilities.contains("proxy.stream") {
+        var hello: DaemonHello
+        do {
+            hello = try helloRemoteDaemonLocked(remotePath: remotePath)
+        } catch {
+            guard hadExistingBinary else {
+                throw error
+            }
+            debugLog(
+                "remote.bootstrap.helloRetry remotePath=\(remotePath) " +
+                "detail=\(error.localizedDescription)"
+            )
+            let localBinary = try buildLocalDaemonBinary(goOS: platform.goOS, goArch: platform.goArch, version: version)
+            try uploadRemoteDaemonBinaryLocked(localBinary: localBinary, remotePath: remotePath)
+            hello = try helloRemoteDaemonLocked(remotePath: remotePath)
+        }
+        if hadExistingBinary, !hello.capabilities.contains(WorkspaceRemoteDaemonRPCClient.requiredProxyStreamCapability) {
             debugLog("remote.bootstrap.capabilityMissing remotePath=\(remotePath) capabilities=\(hello.capabilities.joined(separator: ","))")
             let localBinary = try buildLocalDaemonBinary(goOS: platform.goOS, goArch: platform.goArch, version: version)
             try uploadRemoteDaemonBinaryLocked(localBinary: localBinary, remotePath: remotePath)
@@ -3461,29 +3536,13 @@ private final class WorkspaceRemoteSessionController {
             "remote.bootstrap.ready name=\(hello.name) version=\(hello.version) " +
             "capabilities=\(hello.capabilities.joined(separator: ",")) remotePath=\(hello.remotePath)"
         )
-        return hello
-    }
-
-    private func createRemoteCLISymlinkLocked(daemonRemotePath: String) {
-        let trimmedRemotePath = daemonRemotePath.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedRemotePath.isEmpty else { return }
-
-        let script = """
-        mkdir -p "$HOME/.cmux/bin" "$HOME/.cmux/relay"
-        ln -sf "$HOME/\(trimmedRemotePath)" "$HOME/.cmux/bin/cmuxd-remote-current"
-        ln -sf "$HOME/.cmux/bin/cmuxd-remote-current" "$HOME/.cmux/bin/cmux"
-        """
-        let command = "sh -c \(Self.shellSingleQuoted(script))"
-        do {
-            let result = try sshExec(arguments: sshCommonArguments(batchMode: true) + [configuration.destination, command], timeout: 8)
-            if result.status != 0 {
-                debugLog(
-                    "remote.relay.wrapper.error status=\(result.status) detail=\(Self.bestErrorLine(stderr: result.stderr, stdout: result.stdout) ?? "unknown")"
-                )
-            }
-        } catch {
-            debugLog("remote.relay.wrapper.error \(error.localizedDescription)")
+        if let connectionAttemptStartedAt {
+            debugLog(
+                "remote.timing.bootstrap.ready elapsedMs=\(Int(Date().timeIntervalSince(connectionAttemptStartedAt) * 1000)) " +
+                "\(debugConfigSummary())"
+            )
         }
+        return hello
     }
 
     private func ensureCLIRelayServerLocked(localSocketPath: String, relayID: String, relayToken: String) throws -> WorkspaceRemoteCLIRelayServer {
@@ -3499,74 +3558,31 @@ private final class WorkspaceRemoteSessionController {
         return relayServer
     }
 
-    private func writeRemoteSocketAddrLocked(relayPort: Int) {
-        let script = """
-        mkdir -p "$HOME/.cmux"
-        printf '%s' '127.0.0.1:\(relayPort)' > "$HOME/.cmux/socket_addr"
-        """
-        let command = "sh -c \(Self.shellSingleQuoted(script))"
-        do {
-            let result = try sshExec(arguments: sshCommonArguments(batchMode: true) + [configuration.destination, command], timeout: 8)
-            if result.status != 0 {
-                debugLog(
-                    "remote.relay.socketAddr.error status=\(result.status) detail=\(Self.bestErrorLine(stderr: result.stderr, stdout: result.stdout) ?? "unknown")"
-                )
-            }
-        } catch {
-            debugLog("remote.relay.socketAddr.error \(error.localizedDescription)")
-        }
-    }
-
-    private func writeRemoteRelayDaemonPathLocked(remotePath: String) {
-        guard let relayPort = configuration.relayPort, relayPort > 0 else { return }
-        let trimmedRemotePath = remotePath.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedRemotePath.isEmpty else { return }
-
-        let script = """
-        mkdir -p "$HOME/.cmux/relay"
-        printf '%s' "$HOME/\(trimmedRemotePath)" > "$HOME/.cmux/relay/\(relayPort).daemon_path"
-        """
-        let command = "sh -c \(Self.shellSingleQuoted(script))"
-        do {
-            let result = try sshExec(arguments: sshCommonArguments(batchMode: true) + [configuration.destination, command], timeout: 8)
-            if result.status != 0 {
-                debugLog(
-                    "remote.relay.daemonPath.error status=\(result.status) detail=\(Self.bestErrorLine(stderr: result.stderr, stdout: result.stdout) ?? "unknown")"
-                )
-            }
-        } catch {
-            debugLog("remote.relay.daemonPath.error \(error.localizedDescription)")
-        }
-    }
-
-    private func writeRemoteRelayAuthLocked(relayPort: Int, relayID: String, relayToken: String) throws {
-        let authPayload = """
-        {"relay_id":"\(relayID)","relay_token":"\(relayToken)"}
-        """
-        let script = """
-        umask 077
-        mkdir -p "$HOME/.cmux/relay"
-        chmod 700 "$HOME/.cmux/relay"
-        cat > "$HOME/.cmux/relay/\(relayPort).auth" <<'CMUXRELAYAUTH'
-        \(authPayload)
-        CMUXRELAYAUTH
-        chmod 600 "$HOME/.cmux/relay/\(relayPort).auth"
-        """
+    private func installRemoteRelayMetadataLocked(
+        remotePath: String,
+        relayPort: Int,
+        relayID: String,
+        relayToken: String
+    ) throws {
+        let script = Self.remoteRelayMetadataInstallScript(
+            daemonRemotePath: remotePath,
+            relayPort: relayPort,
+            relayID: relayID,
+            relayToken: relayToken
+        )
         let command = "sh -c \(Self.shellSingleQuoted(script))"
         let result = try sshExec(arguments: sshCommonArguments(batchMode: true) + [configuration.destination, command], timeout: 8)
         guard result.status == 0 else {
             let detail = Self.bestErrorLine(stderr: result.stderr, stdout: result.stdout) ?? "ssh exited \(result.status)"
             throw NSError(domain: "cmux.remote.relay", code: 70, userInfo: [
-                NSLocalizedDescriptionKey: "failed to install remote relay auth: \(detail)",
+                NSLocalizedDescriptionKey: "failed to install remote relay metadata: \(detail)",
             ])
         }
     }
 
     private func removeRemoteRelayMetadataLocked() {
         guard let relayPort = configuration.relayPort, relayPort > 0 else { return }
-        let script = """
-        rm -f "$HOME/.cmux/relay/\(relayPort).auth" "$HOME/.cmux/relay/\(relayPort).daemon_path"
-        """
+        let script = Self.remoteRelayMetadataCleanupScript(relayPort: relayPort)
         let command = "sh -c \(Self.shellSingleQuoted(script))"
         do {
             _ = try sshExec(arguments: sshCommonArguments(batchMode: true) + [configuration.destination, command], timeout: 8)
@@ -3575,19 +3591,42 @@ private final class WorkspaceRemoteSessionController {
         }
     }
 
-    private func resolveRemotePlatformLocked() throws -> RemotePlatform {
+    static func remoteRelayMetadataCleanupScript(relayPort: Int) -> String {
+        """
+        relay_socket='127.0.0.1:\(relayPort)'
+        socket_addr_file="$HOME/.cmux/socket_addr"
+        if [ -r "$socket_addr_file" ] && [ "$(tr -d '\\r\\n' < "$socket_addr_file")" = "$relay_socket" ]; then
+          rm -f "$socket_addr_file"
+        fi
+        rm -f "$HOME/.cmux/relay/\(relayPort).auth" "$HOME/.cmux/relay/\(relayPort).daemon_path"
+        """
+    }
+
+    private func probeRemoteBootstrapStateLocked(version: String) throws -> RemoteBootstrapState {
         let script = """
-        printf '%s%s\\n' '\(Self.remotePlatformProbeOSMarker)' "$(uname -s)"
-        printf '%s%s\\n' '\(Self.remotePlatformProbeArchMarker)' "$(uname -m)"
+        cmux_uname_os="$(uname -s)"
+        cmux_uname_arch="$(uname -m)"
+        printf '%s%s\\n' '\(Self.remotePlatformProbeOSMarker)' "$cmux_uname_os"
+        printf '%s%s\\n' '\(Self.remotePlatformProbeArchMarker)' "$cmux_uname_arch"
+        case "$(printf '%s' "$cmux_uname_os" | tr '[:upper:]' '[:lower:]')" in
+          linux|darwin|freebsd) cmux_go_os="$(printf '%s' "$cmux_uname_os" | tr '[:upper:]' '[:lower:]')" ;;
+          *) exit 70 ;;
+        esac
+        case "$(printf '%s' "$cmux_uname_arch" | tr '[:upper:]' '[:lower:]')" in
+          x86_64|amd64) cmux_go_arch=amd64 ;;
+          aarch64|arm64) cmux_go_arch=arm64 ;;
+          armv7l) cmux_go_arch=arm ;;
+          *) exit 71 ;;
+        esac
+        cmux_remote_path="$HOME/.cmux/bin/cmuxd-remote/\(version)/${cmux_go_os}-${cmux_go_arch}/cmuxd-remote"
+        if [ -x "$cmux_remote_path" ]; then
+          printf '%syes\\n' '\(Self.remotePlatformProbeExistsMarker)'
+        else
+          printf '%sno\\n' '\(Self.remotePlatformProbeExistsMarker)'
+        fi
         """
         let command = "sh -c \(Self.shellSingleQuoted(script))"
         let result = try sshExec(arguments: sshCommonArguments(batchMode: true) + [configuration.destination, command], timeout: 20)
-        guard result.status == 0 else {
-            let detail = Self.bestErrorLine(stderr: result.stderr, stdout: result.stdout) ?? "ssh exited \(result.status)"
-            throw NSError(domain: "cmux.remote.daemon", code: 10, userInfo: [
-                NSLocalizedDescriptionKey: "failed to query remote platform: \(detail)",
-            ])
-        }
 
         let lines = result.stdout
             .split(separator: "\n", omittingEmptySubsequences: false)
@@ -3598,8 +3637,9 @@ private final class WorkspaceRemoteSessionController {
         let unameArch = lines.first { $0.hasPrefix(Self.remotePlatformProbeArchMarker) }
             .map { String($0.dropFirst(Self.remotePlatformProbeArchMarker.count)) }
         guard let unameOS, let unameArch else {
+            let detail = Self.bestErrorLine(stderr: result.stderr, stdout: result.stdout) ?? "ssh exited \(result.status)"
             throw NSError(domain: "cmux.remote.daemon", code: 11, userInfo: [
-                NSLocalizedDescriptionKey: "remote platform probe returned invalid output",
+                NSLocalizedDescriptionKey: "failed to query remote platform: \(detail)",
             ])
         }
 
@@ -3610,15 +3650,19 @@ private final class WorkspaceRemoteSessionController {
             ])
         }
 
-        return RemotePlatform(goOS: goOS, goArch: goArch)
-    }
+        let binaryExists = lines.first { $0.hasPrefix(Self.remotePlatformProbeExistsMarker) }
+            .map { String($0.dropFirst(Self.remotePlatformProbeExistsMarker.count)) == "yes" }
+        if result.status != 0, binaryExists == nil {
+            let detail = Self.bestErrorLine(stderr: result.stderr, stdout: result.stdout) ?? "ssh exited \(result.status)"
+            throw NSError(domain: "cmux.remote.daemon", code: 13, userInfo: [
+                NSLocalizedDescriptionKey: "failed to query remote daemon state: \(detail)",
+            ])
+        }
 
-    private func remoteDaemonExistsLocked(remotePath: String) throws -> Bool {
-        let script = "if [ -x \(Self.shellSingleQuoted(remotePath)) ]; then echo yes; else echo no; fi"
-        let command = "sh -c \(Self.shellSingleQuoted(script))"
-        let result = try sshExec(arguments: sshCommonArguments(batchMode: true) + [configuration.destination, command], timeout: 8)
-        guard result.status == 0 else { return false }
-        return result.stdout.trimmingCharacters(in: .whitespacesAndNewlines) == "yes"
+        return RemoteBootstrapState(
+            platform: RemotePlatform(goOS: goOS, goArch: goArch),
+            binaryExists: binaryExists ?? false
+        )
     }
 
     static let remoteDaemonManifestInfoKey = "CMUXRemoteDaemonManifestJSON"
@@ -3988,6 +4032,70 @@ private final class WorkspaceRemoteSessionController {
         "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
     }
 
+    static func remoteCLIWrapperScript() -> String {
+        """
+        #!/usr/bin/env bash
+        set -euo pipefail
+
+        daemon="$HOME/.cmux/bin/cmuxd-remote-current"
+        socket_path="${CMUX_SOCKET_PATH:-}"
+        if [ -z "$socket_path" ] && [ -r "$HOME/.cmux/socket_addr" ]; then
+          socket_path="$(tr -d '\\r\\n' < "$HOME/.cmux/socket_addr")"
+        fi
+
+        if [ -n "$socket_path" ] && [ "${socket_path#/}" = "$socket_path" ] && [ "${socket_path#*:}" != "$socket_path" ]; then
+          relay_port="${socket_path##*:}"
+          relay_map="$HOME/.cmux/relay/${relay_port}.daemon_path"
+          if [ -r "$relay_map" ]; then
+            mapped_daemon="$(tr -d '\\r\\n' < "$relay_map")"
+            if [ -n "$mapped_daemon" ] && [ -x "$mapped_daemon" ]; then
+              daemon="$mapped_daemon"
+            fi
+          fi
+        fi
+
+        exec "$daemon" "$@"
+        """
+    }
+
+    static func remoteCLIWrapperInstallScript(daemonRemotePath: String) -> String {
+        let trimmedRemotePath = daemonRemotePath.trimmingCharacters(in: .whitespacesAndNewlines)
+        return """
+        mkdir -p "$HOME/.cmux/bin" "$HOME/.cmux/relay"
+        ln -sf "$HOME/\(trimmedRemotePath)" "$HOME/.cmux/bin/cmuxd-remote-current"
+        wrapper_tmp="$HOME/.cmux/bin/.cmux-wrapper.tmp.$$"
+        cat > "$wrapper_tmp" <<'CMUXWRAPPER'
+        \(remoteCLIWrapperScript())
+        CMUXWRAPPER
+        chmod 755 "$wrapper_tmp"
+        mv -f "$wrapper_tmp" "$HOME/.cmux/bin/cmux"
+        """
+    }
+
+    static func remoteRelayMetadataInstallScript(
+        daemonRemotePath: String,
+        relayPort: Int,
+        relayID: String,
+        relayToken: String
+    ) -> String {
+        let trimmedRemotePath = daemonRemotePath.trimmingCharacters(in: .whitespacesAndNewlines)
+        let authPayload = """
+        {"relay_id":"\(relayID)","relay_token":"\(relayToken)"}
+        """
+        return """
+        umask 077
+        mkdir -p "$HOME/.cmux" "$HOME/.cmux/relay"
+        chmod 700 "$HOME/.cmux/relay"
+        \(remoteCLIWrapperInstallScript(daemonRemotePath: trimmedRemotePath))
+        printf '%s' "$HOME/\(trimmedRemotePath)" > "$HOME/.cmux/relay/\(relayPort).daemon_path"
+        cat > "$HOME/.cmux/relay/\(relayPort).auth" <<'CMUXRELAYAUTH'
+        \(authPayload)
+        CMUXRELAYAUTH
+        chmod 600 "$HOME/.cmux/relay/\(relayPort).auth"
+        printf '%s' '127.0.0.1:\(relayPort)' > "$HOME/.cmux/socket_addr"
+        """
+    }
+
     private static func mapUnameOS(_ raw: String) -> String? {
         switch raw.lowercased() {
         case "linux":
@@ -4017,10 +4125,57 @@ private final class WorkspaceRemoteSessionController {
     private static func remoteDaemonVersion() -> String {
         let bundleVersion = (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        if let bundleVersion, !bundleVersion.isEmpty {
-            return bundleVersion
+        let baseVersion = (bundleVersion?.isEmpty == false) ? bundleVersion! : "dev"
+        guard allowLocalDaemonBuildFallback(),
+              let sourceFingerprint = remoteDaemonSourceFingerprint(),
+              !sourceFingerprint.isEmpty else {
+            return baseVersion
         }
-        return "dev"
+        return "\(baseVersion)-dev-\(sourceFingerprint)"
+    }
+
+    private static let cachedRemoteDaemonSourceFingerprint: String? = computeRemoteDaemonSourceFingerprint()
+
+    private static func remoteDaemonSourceFingerprint() -> String? {
+        cachedRemoteDaemonSourceFingerprint
+    }
+
+    private static func computeRemoteDaemonSourceFingerprint(fileManager: FileManager = .default) -> String? {
+        guard let repoRoot = findRepoRoot() else { return nil }
+        let daemonRoot = repoRoot.appendingPathComponent("daemon/remote", isDirectory: true)
+        guard let enumerator = fileManager.enumerator(
+            at: daemonRoot,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return nil
+        }
+
+        var relativePaths: [String] = []
+        for case let fileURL as URL in enumerator {
+            guard let resourceValues = try? fileURL.resourceValues(forKeys: [.isRegularFileKey]),
+                  resourceValues.isRegularFile == true else {
+                continue
+            }
+
+            let relativePath = fileURL.path.replacingOccurrences(of: daemonRoot.path + "/", with: "")
+            if relativePath == "go.mod" || relativePath == "go.sum" || relativePath.hasSuffix(".go") {
+                relativePaths.append(relativePath)
+            }
+        }
+
+        guard !relativePaths.isEmpty else { return nil }
+
+        let digest = SHA256.hash(data: relativePaths.sorted().reduce(into: Data()) { partialResult, relativePath in
+            let fileURL = daemonRoot.appendingPathComponent(relativePath, isDirectory: false)
+            guard let fileData = try? Data(contentsOf: fileURL) else { return }
+            partialResult.append(Data(relativePath.utf8))
+            partialResult.append(0)
+            partialResult.append(fileData)
+            partialResult.append(0)
+        })
+        let hex = digest.map { String(format: "%02x", $0) }.joined()
+        return String(hex.prefix(12))
     }
 
     private static func remoteDaemonPath(version: String, goOS: String, goArch: String) -> String {
@@ -4100,6 +4255,30 @@ private final class WorkspaceRemoteSessionController {
             return stdoutLine
         }
         return nil
+    }
+
+    static func reverseRelayStartupFailureDetail(
+        process: Process,
+        stderrPipe: Pipe,
+        gracePeriod: TimeInterval = reverseRelayStartupGracePeriod
+    ) -> String? {
+        if process.isRunning {
+            let originalTerminationHandler = process.terminationHandler
+            let exitSemaphore = DispatchSemaphore(value: 0)
+            process.terminationHandler = { terminated in
+                originalTerminationHandler?(terminated)
+                exitSemaphore.signal()
+            }
+            if !process.isRunning {
+                exitSemaphore.signal()
+            }
+            guard exitSemaphore.wait(timeout: .now() + max(0, gracePeriod)) == .success else {
+                return nil
+            }
+        }
+        let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+        let stderr = String(data: stderrData, encoding: .utf8) ?? ""
+        return bestErrorLine(stderr: stderr) ?? "status=\(process.terminationStatus)"
     }
 
     private static func meaningfulErrorLine(in text: String) -> String? {
@@ -4650,6 +4829,16 @@ final class Workspace: Identifiable, ObservableObject {
             || lowered.contains("daemon transport")
     }
 
+    private var preservesSSHTerminalConnection: Bool {
+        activeRemoteTerminalSessionCount > 0
+            && remoteConfiguration?.terminalStartupCommand?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+    }
+
+    private var hasProxyOnlyRemoteSidebarError: Bool {
+        guard let entry = statusEntries[Self.remoteErrorStatusKey]?.value else { return false }
+        return entry.lowercased().contains("remote proxy unavailable")
+    }
+
     var focusedSurfaceId: UUID? { focusedPanelId }
     var surfaceDirectories: [UUID: String] {
         get { panelDirectories }
@@ -4928,8 +5117,15 @@ final class Workspace: Identifiable, ObservableObject {
     private var debugLastDidMoveTabTimestamp: TimeInterval = 0
     private var debugDidMoveTabEventCount: UInt64 = 0
 #endif
-    private var geometryReconcileScheduled = false
-    private var geometryReconcileNeedsRerun = false
+    private var layoutFollowUpObservers: [NSObjectProtocol] = []
+    private var layoutFollowUpPanelsCancellable: AnyCancellable?
+    private var layoutFollowUpTimeoutWorkItem: DispatchWorkItem?
+    private var layoutFollowUpReason: String?
+    private var layoutFollowUpTerminalFocusPanelId: UUID?
+    private var layoutFollowUpBrowserPanelId: UUID?
+    private var layoutFollowUpBrowserExitFocusPanelId: UUID?
+    private var layoutFollowUpNeedsGeometryPass = false
+    private var isAttemptingLayoutFollowUp = false
     private var isNormalizingPinnedTabOrder = false
     private var pendingNonFocusSplitFocusReassert: PendingNonFocusSplitFocusReassert?
     private var nonFocusSplitFocusReassertGeneration: UInt64 = 0
@@ -5672,13 +5868,17 @@ final class Workspace: Identifiable, ObservableObject {
             ]
         } else {
             let proxyState: String
-            switch remoteConnectionState {
-            case .connecting:
-                proxyState = "connecting"
-            case .error:
+            if hasProxyOnlyRemoteSidebarError {
                 proxyState = "error"
-            default:
-                proxyState = "unavailable"
+            } else {
+                switch remoteConnectionState {
+                case .connecting:
+                    proxyState = "connecting"
+                case .error:
+                    proxyState = "error"
+                default:
+                    proxyState = "unavailable"
+                }
             }
             payload["proxy"] = [
                 "state": proxyState,
@@ -5835,18 +6035,29 @@ final class Workspace: Identifiable, ObservableObject {
         disconnectRemoteConnection(clearConfiguration: true)
     }
 
-    fileprivate func applyRemoteConnectionStateUpdate(
+    func applyRemoteConnectionStateUpdate(
         _ state: WorkspaceRemoteConnectionState,
         detail: String?,
         target: String
     ) {
-        remoteConnectionState = state
+        let trimmedDetail = detail?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let proxyOnlyError = trimmedDetail.map(Self.isProxyOnlyRemoteError) ?? false
+        let preserveConnectedStateForRetry =
+            state == .connecting && preservesSSHTerminalConnection && hasProxyOnlyRemoteSidebarError
+        let effectiveState: WorkspaceRemoteConnectionState
+        if state == .error && proxyOnlyError && preservesSSHTerminalConnection {
+            effectiveState = .connected
+        } else if preserveConnectedStateForRetry {
+            effectiveState = .connected
+        } else {
+            effectiveState = state
+        }
+
+        remoteConnectionState = effectiveState
         remoteConnectionDetail = detail
         applyBrowserRemoteWorkspaceStatusToPanels()
 
-        let trimmedDetail = detail?.trimmingCharacters(in: .whitespacesAndNewlines)
-        if state == .error, let trimmedDetail, !trimmedDetail.isEmpty {
-            let proxyOnlyError = Self.isProxyOnlyRemoteError(trimmedDetail)
+        if let trimmedDetail, !trimmedDetail.isEmpty, (state == .error || proxyOnlyError) {
             let statusPrefix = proxyOnlyError ? "Remote proxy unavailable" : "SSH error"
             let statusIcon = proxyOnlyError ? "exclamationmark.triangle.fill" : "network.slash"
             let notificationTitle = proxyOnlyError ? "Remote Proxy Unavailable" : "Remote SSH Error"
@@ -5878,7 +6089,7 @@ final class Workspace: Identifiable, ObservableObject {
             return
         }
 
-        if state != .error {
+        if !preserveConnectedStateForRetry && state != .error {
             statusEntries.removeValue(forKey: Self.remoteErrorStatusKey)
             remoteLastErrorFingerprint = nil
         }
@@ -7329,27 +7540,9 @@ final class Workspace: Identifiable, ObservableObject {
 
         if trigger == .terminalFirstResponder,
            panels[panelId] is TerminalPanel {
-            scheduleTerminalFirstResponderReassert(panelId: panelId)
-        }
-    }
-
-    /// A terminal click can arrive while AppKit and bonsplit already look converged, which takes
-    /// the re-entrant focus path and skips the normal explicit `ensureFocus` call. Re-assert focus
-    /// on the next couple of turns so stale callbacks from split churn can't leave keyboard input
-    /// attached to the wrong surface (#1147).
-    private func scheduleTerminalFirstResponderReassert(panelId: UUID, remainingPasses: Int = 2) {
-        guard remainingPasses > 0 else { return }
-        DispatchQueue.main.async { [weak self] in
-            guard let self,
-                  self.focusedPanelId == panelId,
-                  let terminalPanel = self.terminalPanel(for: panelId) else {
-                return
-            }
-
-            terminalPanel.hostedView.ensureFocus(for: self.id, surfaceId: panelId)
-            self.scheduleTerminalFirstResponderReassert(
-                panelId: panelId,
-                remainingPasses: remainingPasses - 1
+            beginEventDrivenLayoutFollowUp(
+                reason: "workspace.focusPanel.terminal",
+                terminalFocusPanelId: panelId
             )
         }
     }
@@ -7470,22 +7663,18 @@ final class Workspace: Identifiable, ObservableObject {
         focusPanel(panelId)
         reconcileTerminalPortalVisibilityForCurrentRenderedLayout()
         reconcileBrowserPortalVisibilityForCurrentRenderedLayout(reason: "workspace.toggleSplitZoom")
-        scheduleTerminalPortalVisibilityReconcileAfterSplitZoom(remainingPasses: 4)
-        scheduleBrowserPortalVisibilityReconcileAfterSplitZoom(
-            remainingPasses: 4,
-            reason: "workspace.toggleSplitZoom"
-        )
-        scheduleTerminalGeometryReconcile()
         if let browserPanel = browserPanel(for: panelId) {
             browserPanel.preparePortalHostReplacementForNextDistinctClaim(
                 inPane: paneId,
                 reason: "workspace.toggleSplitZoom"
             )
-            scheduleBrowserPortalReconcileAfterSplitZoom(panelId: panelId, remainingPasses: 4)
-            if wasSplitZoomed && !bonsplitController.isSplitZoomed {
-                scheduleBrowserSplitZoomExitFocusReassert(panelId: panelId, remainingPasses: 4)
-            }
         }
+        beginEventDrivenLayoutFollowUp(
+            reason: "workspace.toggleSplitZoom",
+            browserPanelId: browserPanel(for: panelId) != nil ? panelId : nil,
+            browserExitFocusPanelId: (wasSplitZoomed && !bonsplitController.isSplitZoomed) ? panelId : nil,
+            includeGeometry: true
+        )
         return true
     }
 
@@ -7668,6 +7857,243 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
+    private func beginEventDrivenLayoutFollowUp(
+        reason: String,
+        browserPanelId: UUID? = nil,
+        browserExitFocusPanelId: UUID? = nil,
+        terminalFocusPanelId: UUID? = nil,
+        includeGeometry: Bool = false
+    ) {
+        layoutFollowUpReason = reason
+        if let browserPanelId {
+            layoutFollowUpBrowserPanelId = browserPanelId
+        }
+        if let browserExitFocusPanelId {
+            layoutFollowUpBrowserExitFocusPanelId = browserExitFocusPanelId
+        }
+        if let terminalFocusPanelId {
+            layoutFollowUpTerminalFocusPanelId = terminalFocusPanelId
+        }
+        layoutFollowUpNeedsGeometryPass = layoutFollowUpNeedsGeometryPass || includeGeometry
+
+        if layoutFollowUpTimeoutWorkItem == nil {
+            installLayoutFollowUpObservers()
+        }
+        refreshLayoutFollowUpTimeout()
+        attemptEventDrivenLayoutFollowUp()
+    }
+
+    private func installLayoutFollowUpObservers() {
+        guard layoutFollowUpTimeoutWorkItem == nil else { return }
+
+        func enqueueAttempt() {
+            DispatchQueue.main.async { [weak self] in
+                self?.attemptEventDrivenLayoutFollowUp()
+            }
+        }
+
+        layoutFollowUpObservers.append(NotificationCenter.default.addObserver(
+            forName: NSWindow.didUpdateNotification,
+            object: nil,
+            queue: .main
+        ) { _ in
+            enqueueAttempt()
+        })
+        layoutFollowUpObservers.append(NotificationCenter.default.addObserver(
+            forName: .terminalSurfaceDidBecomeReady,
+            object: nil,
+            queue: .main
+        ) { _ in
+            enqueueAttempt()
+        })
+        layoutFollowUpObservers.append(NotificationCenter.default.addObserver(
+            forName: .terminalSurfaceHostedViewDidMoveToWindow,
+            object: nil,
+            queue: .main
+        ) { _ in
+            enqueueAttempt()
+        })
+        layoutFollowUpObservers.append(NotificationCenter.default.addObserver(
+            forName: .terminalPortalVisibilityDidChange,
+            object: nil,
+            queue: .main
+        ) { _ in
+            enqueueAttempt()
+        })
+        layoutFollowUpObservers.append(NotificationCenter.default.addObserver(
+            forName: .browserPortalRegistryDidChange,
+            object: nil,
+            queue: .main
+        ) { _ in
+            enqueueAttempt()
+        })
+        layoutFollowUpObservers.append(NotificationCenter.default.addObserver(
+            forName: .ghosttyDidBecomeFirstResponderSurface,
+            object: nil,
+            queue: .main
+        ) { _ in
+            enqueueAttempt()
+        })
+        layoutFollowUpObservers.append(NotificationCenter.default.addObserver(
+            forName: .browserDidBecomeFirstResponderWebView,
+            object: nil,
+            queue: .main
+        ) { _ in
+            enqueueAttempt()
+        })
+        layoutFollowUpPanelsCancellable = $panels
+            .map { _ in () }
+            .sink { _ in
+                enqueueAttempt()
+            }
+    }
+
+    private func refreshLayoutFollowUpTimeout() {
+        layoutFollowUpTimeoutWorkItem?.cancel()
+        let workItem = DispatchWorkItem { [weak self] in
+            self?.clearLayoutFollowUp()
+        }
+        layoutFollowUpTimeoutWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0, execute: workItem)
+    }
+
+    private func clearLayoutFollowUp() {
+        layoutFollowUpTimeoutWorkItem?.cancel()
+        layoutFollowUpTimeoutWorkItem = nil
+        layoutFollowUpObservers.forEach { NotificationCenter.default.removeObserver($0) }
+        layoutFollowUpObservers.removeAll()
+        layoutFollowUpPanelsCancellable?.cancel()
+        layoutFollowUpPanelsCancellable = nil
+        layoutFollowUpReason = nil
+        layoutFollowUpTerminalFocusPanelId = nil
+        layoutFollowUpBrowserPanelId = nil
+        layoutFollowUpBrowserExitFocusPanelId = nil
+        layoutFollowUpNeedsGeometryPass = false
+    }
+
+    private func flushWorkspaceWindowLayouts() {
+        for window in NSApp.windows {
+            window.contentView?.layoutSubtreeIfNeeded()
+            window.contentView?.displayIfNeeded()
+        }
+    }
+
+    private func browserPortalAnchorReady(for browserPanel: BrowserPanel) -> Bool {
+        let anchorView = browserPanel.portalAnchorView
+        return
+            anchorView.window != nil &&
+            anchorView.superview != nil &&
+            anchorView.bounds.width > 1 &&
+            anchorView.bounds.height > 1
+    }
+
+    private func browserPortalReady(for browserPanel: BrowserPanel) -> Bool {
+        browserPortalAnchorReady(for: browserPanel) &&
+            browserPanel.webView.window != nil &&
+            browserPanel.webView.superview != nil &&
+            BrowserWindowPortalRegistry.isWebView(browserPanel.webView, boundTo: browserPanel.portalAnchorView)
+    }
+
+    private func browserSplitZoomExitFocusNeedsFollowUp(panelId: UUID) -> Bool {
+        guard let browserPanel = browserPanel(for: panelId),
+              let paneId = paneId(forPanelId: panelId),
+              let tabId = surfaceIdFromPanelId(panelId) else {
+            return false
+        }
+        let selectionConverged =
+            bonsplitController.focusedPaneId == paneId &&
+            bonsplitController.selectedTab(inPane: paneId)?.id == tabId
+        return !selectionConverged || !browserPortalAnchorReady(for: browserPanel)
+    }
+
+    private func attemptEventDrivenLayoutFollowUp() {
+        guard layoutFollowUpTimeoutWorkItem != nil, !isAttemptingLayoutFollowUp else { return }
+        isAttemptingLayoutFollowUp = true
+        defer { isAttemptingLayoutFollowUp = false }
+
+        flushWorkspaceWindowLayouts()
+
+        if layoutFollowUpNeedsGeometryPass {
+            layoutFollowUpNeedsGeometryPass = reconcileTerminalGeometryPass()
+        }
+
+        if let terminalFocusPanelId = layoutFollowUpTerminalFocusPanelId {
+            if let terminalPanel = terminalPanel(for: terminalFocusPanelId),
+               focusedPanelId == terminalFocusPanelId {
+                terminalPanel.hostedView.ensureFocus(for: id, surfaceId: terminalFocusPanelId)
+                if terminalPanel.hostedView.isSurfaceViewFirstResponder() {
+                    layoutFollowUpTerminalFocusPanelId = nil
+                }
+            } else if terminalPanel(for: terminalFocusPanelId) == nil {
+                layoutFollowUpTerminalFocusPanelId = nil
+            }
+        }
+
+        reconcileTerminalPortalVisibilityForCurrentRenderedLayout()
+        let terminalPortalPending = terminalPortalVisibilityNeedsFollowUp()
+
+        let reason = layoutFollowUpReason ?? "workspace.layout"
+        reconcileBrowserPortalVisibilityForCurrentRenderedLayout(reason: reason)
+        let browserVisibilityPending = browserPortalVisibilityNeedsFollowUp()
+
+        if let browserPanelId = layoutFollowUpBrowserPanelId {
+            if let browserPanel = browserPanel(for: browserPanelId) {
+                if browserPortalAnchorReady(for: browserPanel) {
+                    BrowserWindowPortalRegistry.synchronizeForAnchor(browserPanel.portalAnchorView)
+                    BrowserWindowPortalRegistry.refresh(
+                        webView: browserPanel.webView,
+                        reason: reason
+                    )
+                }
+                if browserPortalReady(for: browserPanel) {
+                    layoutFollowUpBrowserPanelId = nil
+                }
+            } else {
+                layoutFollowUpBrowserPanelId = nil
+            }
+        }
+
+        if let browserExitFocusPanelId = layoutFollowUpBrowserExitFocusPanelId {
+            if browserSplitZoomExitFocusNeedsFollowUp(panelId: browserExitFocusPanelId) {
+                if browserPanel(for: browserExitFocusPanelId) != nil {
+                    focusPanel(browserExitFocusPanelId)
+                    scheduleFocusReconcile()
+                } else {
+                    layoutFollowUpBrowserExitFocusPanelId = nil
+                }
+            } else {
+                layoutFollowUpBrowserExitFocusPanelId = nil
+            }
+        }
+
+        let terminalFocusPending: Bool = {
+            guard let panelId = layoutFollowUpTerminalFocusPanelId,
+                  let terminalPanel = terminalPanel(for: panelId) else {
+                return false
+            }
+            return focusedPanelId != panelId || !terminalPanel.hostedView.isSurfaceViewFirstResponder()
+        }()
+        let browserPanelPending: Bool = {
+            guard let panelId = layoutFollowUpBrowserPanelId,
+                  let browserPanel = browserPanel(for: panelId) else {
+                return false
+            }
+            return !browserPortalReady(for: browserPanel)
+        }()
+        let browserExitPending = layoutFollowUpBrowserExitFocusPanelId != nil
+        let needsMoreWork =
+            layoutFollowUpNeedsGeometryPass ||
+            terminalPortalPending ||
+            browserVisibilityPending ||
+            terminalFocusPending ||
+            browserPanelPending ||
+            browserExitPending
+
+        if !needsMoreWork {
+            clearLayoutFollowUp()
+        }
+    }
+
     /// Reconcile remaining terminal view geometries after split topology changes.
     /// This keeps AppKit bounds and Ghostty surface sizes in sync in the next runloop turn.
     private func reconcileTerminalGeometryPass() -> Bool {
@@ -7707,39 +8133,11 @@ final class Workspace: Identifiable, ObservableObject {
         return needsFollowUpPass
     }
 
-    private func runScheduledTerminalGeometryReconcile(remainingPasses: Int) {
-        guard remainingPasses > 0 else {
-            geometryReconcileScheduled = false
-            geometryReconcileNeedsRerun = false
-            return
-        }
-
-        let needsFollowUpPass = reconcileTerminalGeometryPass()
-        let shouldRunAgain = geometryReconcileNeedsRerun || needsFollowUpPass
-
-        if shouldRunAgain, remainingPasses > 1 {
-            geometryReconcileNeedsRerun = false
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                self.runScheduledTerminalGeometryReconcile(remainingPasses: remainingPasses - 1)
-            }
-            return
-        }
-
-        geometryReconcileScheduled = false
-        geometryReconcileNeedsRerun = false
-    }
-
     private func scheduleTerminalGeometryReconcile() {
-        guard !geometryReconcileScheduled else {
-            geometryReconcileNeedsRerun = true
-            return
-        }
-        geometryReconcileScheduled = true
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            self.runScheduledTerminalGeometryReconcile(remainingPasses: 4)
-        }
+        beginEventDrivenLayoutFollowUp(
+            reason: "workspace.geometry",
+            includeGeometry: true
+        )
     }
 
     private func renderedVisiblePanelIdsForCurrentLayout() -> Set<UUID> {
@@ -7799,26 +8197,6 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         return false
-    }
-
-    private func scheduleTerminalPortalVisibilityReconcileAfterSplitZoom(remainingPasses: Int) {
-        guard remainingPasses > 0 else { return }
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-
-            for window in NSApp.windows {
-                window.contentView?.layoutSubtreeIfNeeded()
-                window.contentView?.displayIfNeeded()
-            }
-
-            self.reconcileTerminalPortalVisibilityForCurrentRenderedLayout()
-
-            if self.terminalPortalVisibilityNeedsFollowUp(), remainingPasses > 1 {
-                self.scheduleTerminalPortalVisibilityReconcileAfterSplitZoom(
-                    remainingPasses: remainingPasses - 1
-                )
-            }
-        }
     }
 
     private func reconcileBrowserPortalVisibilityForCurrentRenderedLayout(reason: String) {
@@ -7881,107 +8259,6 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         return false
-    }
-
-    private func scheduleBrowserPortalVisibilityReconcileAfterSplitZoom(
-        remainingPasses: Int,
-        reason: String
-    ) {
-        guard remainingPasses > 0 else { return }
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-
-            for window in NSApp.windows {
-                window.contentView?.layoutSubtreeIfNeeded()
-                window.contentView?.displayIfNeeded()
-            }
-
-            self.reconcileBrowserPortalVisibilityForCurrentRenderedLayout(reason: reason)
-
-            if self.browserPortalVisibilityNeedsFollowUp(), remainingPasses > 1 {
-                self.scheduleBrowserPortalVisibilityReconcileAfterSplitZoom(
-                    remainingPasses: remainingPasses - 1,
-                    reason: reason
-                )
-            }
-        }
-    }
-
-    // Browser panes host WKWebView in the window portal. After pane zoom toggles,
-    // force a few post-layout sync passes so the portal does not outlive the omnibar chrome.
-    private func scheduleBrowserPortalReconcileAfterSplitZoom(panelId: UUID, remainingPasses: Int) {
-        guard remainingPasses > 0 else { return }
-        DispatchQueue.main.async { [weak self] in
-            guard let self, let browserPanel = self.browserPanel(for: panelId) else { return }
-
-            for window in NSApp.windows {
-                window.contentView?.layoutSubtreeIfNeeded()
-                window.contentView?.displayIfNeeded()
-            }
-
-            let anchorView = browserPanel.portalAnchorView
-            let anchorReady =
-                anchorView.window != nil &&
-                anchorView.superview != nil &&
-                anchorView.bounds.width > 1 &&
-                anchorView.bounds.height > 1
-
-            if anchorReady {
-                BrowserWindowPortalRegistry.synchronizeForAnchor(anchorView)
-                BrowserWindowPortalRegistry.refresh(
-                    webView: browserPanel.webView,
-                    reason: "workspace.toggleSplitZoom"
-                )
-            }
-
-            let portalNeedsFollowUpPass =
-                !anchorReady ||
-                browserPanel.webView.window == nil ||
-                browserPanel.webView.superview == nil
-            if portalNeedsFollowUpPass {
-                self.scheduleBrowserPortalReconcileAfterSplitZoom(
-                    panelId: panelId,
-                    remainingPasses: remainingPasses - 1
-                )
-            }
-        }
-    }
-
-    // Browser panes can briefly keep the portal-hosted WKWebView visible while Bonsplit is
-    // still rebuilding the unzoomed pane host. Reassert pane/tab selection after layout settles
-    // so the SwiftUI chrome does not remain hidden until another browser focus command runs.
-    private func scheduleBrowserSplitZoomExitFocusReassert(panelId: UUID, remainingPasses: Int) {
-        guard remainingPasses > 0 else { return }
-        DispatchQueue.main.async { [weak self] in
-            guard let self, self.browserPanel(for: panelId) != nil else { return }
-            guard let paneId = self.paneId(forPanelId: panelId),
-                  let tabId = self.surfaceIdFromPanelId(panelId) else { return }
-
-            let selectionConverged =
-                self.bonsplitController.focusedPaneId == paneId &&
-                self.bonsplitController.selectedTab(inPane: paneId)?.id == tabId
-            let anchorReady: Bool = {
-                guard let browserPanel = self.browserPanel(for: panelId) else { return false }
-                let anchorView = browserPanel.portalAnchorView
-                return
-                    anchorView.window != nil &&
-                    anchorView.superview != nil &&
-                    anchorView.bounds.width > 1 &&
-                    anchorView.bounds.height > 1
-            }()
-
-            if !selectionConverged {
-                self.focusPanel(panelId)
-                self.scheduleFocusReconcile()
-            }
-
-            if !selectionConverged || !anchorReady {
-                self.scheduleBrowserSplitZoomExitFocusReassert(
-                    panelId: panelId,
-                    remainingPasses: remainingPasses - 1
-                )
-            }
-        }
     }
 
     private func scheduleMovedTerminalRefresh(panelId: UUID) {

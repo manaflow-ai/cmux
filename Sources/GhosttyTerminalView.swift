@@ -2057,8 +2057,11 @@ class GhosttyApp {
                 return false
             }
             return performOnMain {
-                guard let tabManager = AppDelegate.shared?.tabManager else { return false }
-                return tabManager.newSplit(tabId: tabId, surfaceId: surfaceId, direction: direction) != nil
+                guard let app = AppDelegate.shared,
+                      let tabManager = app.tabManagerFor(tabId: tabId) ?? app.tabManager else {
+                    return false
+                }
+                return tabManager.createSplit(tabId: tabId, surfaceId: surfaceId, direction: direction) != nil
             }
         case GHOSTTY_ACTION_RING_BELL:
             performOnMain {
@@ -3242,6 +3245,15 @@ final class TerminalSurface: Identifiable, ObservableObject {
             }
         }
 
+        NotificationCenter.default.post(
+            name: .terminalSurfaceDidBecomeReady,
+            object: self,
+            userInfo: [
+                "surfaceId": id,
+                "workspaceId": tabId
+            ]
+        )
+
         flushPendingTextIfNeeded()
 
         // Kick an initial draw after creation/size setup. On some startup paths Ghostty can
@@ -3859,6 +3871,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
         // If the surface creation was deferred while detached, create/attach it now.
         terminalSurface?.attachToView(self)
+        if let terminalSurface {
+            NotificationCenter.default.post(
+                name: .terminalSurfaceHostedViewDidMoveToWindow,
+                object: terminalSurface,
+                userInfo: [
+                    "surfaceId": terminalSurface.id,
+                    "workspaceId": terminalSurface.tabId
+                ]
+            )
+        }
 
         windowObserver = NotificationCenter.default.addObserver(
             forName: NSWindow.didChangeScreenNotification,
@@ -5599,7 +5621,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
               let manager = app.tabManagerFor(tabId: tabId) ?? app.tabManager else {
             return false
         }
-        return manager.newSplit(tabId: tabId, surfaceId: surfaceId, direction: direction) != nil
+        return manager.createSplit(tabId: tabId, surfaceId: surfaceId, direction: direction) != nil
     }
 
     @objc private func triggerFlash(_ sender: Any?) {
@@ -7139,6 +7161,16 @@ final class GhosttySurfaceScrollView: NSView {
             )
         }
 #endif
+        if wasVisible != visible {
+            NotificationCenter.default.post(
+                name: .terminalPortalVisibilityDidChange,
+                object: self,
+                userInfo: [
+                    GhosttyNotificationKey.surfaceId: surfaceView.terminalSurface?.id as Any,
+                    GhosttyNotificationKey.tabId: surfaceView.tabId as Any
+                ]
+            )
+        }
         if !visible {
             // If we were focused, yield first responder.
             if let window, let fr = window.firstResponder as? NSView,
@@ -7394,14 +7426,7 @@ final class GhosttySurfaceScrollView: NSView {
     }
     #endif
 
-    func ensureFocus(for tabId: UUID, surfaceId: UUID, attemptsRemaining: Int = 3) {
-        func retry() {
-            guard attemptsRemaining > 0 else { return }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) { [weak self] in
-                self?.ensureFocus(for: tabId, surfaceId: surfaceId, attemptsRemaining: attemptsRemaining - 1)
-            }
-        }
-
+    func ensureFocus(for tabId: UUID, surfaceId: UUID) {
         let hasUsablePortalGeometry: Bool = {
             let size = bounds.size
             return size.width > 1 && size.height > 1
@@ -7414,10 +7439,10 @@ final class GhosttySurfaceScrollView: NSView {
 #if DEBUG
             dlog(
                 "focus.ensure.defer surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") " +
-                "reason=not_visible attempts=\(attemptsRemaining)"
+                "reason=not_visible"
             )
 #endif
-            retry()
+            scheduleAutomaticFirstResponderApply(reason: "ensureFocus.notVisible")
             return
         }
         guard !isHiddenForFocus, hasUsablePortalGeometry else {
@@ -7425,17 +7450,17 @@ final class GhosttySurfaceScrollView: NSView {
             dlog(
                 "focus.ensure.defer surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") " +
                 "reason=hidden_or_tiny hidden=\(isHiddenForFocus ? 1 : 0) " +
-                "frame=\(String(format: "%.1fx%.1f", bounds.width, bounds.height)) attempts=\(attemptsRemaining)"
+                "frame=\(String(format: "%.1fx%.1f", bounds.width, bounds.height))"
             )
 #endif
-            retry()
+            scheduleAutomaticFirstResponderApply(reason: "ensureFocus.hiddenOrTiny")
             return
         }
 
         guard let delegate = AppDelegate.shared,
               let tabManager = delegate.tabManagerFor(tabId: tabId) ?? delegate.tabManager,
               tabManager.selectedTabId == tabId else {
-            retry()
+            scheduleAutomaticFirstResponderApply(reason: "ensureFocus.inactiveTab")
             return
         }
 
@@ -7444,13 +7469,13 @@ final class GhosttySurfaceScrollView: NSView {
               let paneId = tab.bonsplitController.allPaneIds.first(where: { paneId in
                   tab.bonsplitController.tabs(inPane: paneId).contains(where: { $0.id == tabIdForSurface })
               }) else {
-            retry()
+            scheduleAutomaticFirstResponderApply(reason: "ensureFocus.missingPane")
             return
         }
 
         guard tab.bonsplitController.selectedTab(inPane: paneId)?.id == tabIdForSurface,
               tab.bonsplitController.focusedPaneId == paneId else {
-            retry()
+            scheduleAutomaticFirstResponderApply(reason: "ensureFocus.unfocusedPane")
             return
         }
 
@@ -7460,7 +7485,7 @@ final class GhosttySurfaceScrollView: NSView {
             dlog(
                 "focus.ensure.search surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") " +
                 "tab=\(tabId.uuidString.prefix(5)) panel=\(surfaceId.uuidString.prefix(5)) " +
-                "attempts=\(attemptsRemaining) firstResponder=\(String(describing: window.firstResponder))"
+                "firstResponder=\(String(describing: window.firstResponder))"
             )
 #endif
             restoreSearchFocus(window: window)
@@ -7489,13 +7514,12 @@ final class GhosttySurfaceScrollView: NSView {
         dlog(
             "focus.ensure.apply surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") " +
             "tab=\(tabId.uuidString.prefix(5)) panel=\(surfaceId.uuidString.prefix(5)) " +
-            "result=\(result ? 1 : 0) firstResponder=\(String(describing: window.firstResponder)) " +
-            "attempts=\(attemptsRemaining)"
+            "result=\(result ? 1 : 0) firstResponder=\(String(describing: window.firstResponder))"
         )
 #endif
 
         if !isSurfaceViewFirstResponder() {
-            retry()
+            scheduleAutomaticFirstResponderApply(reason: "ensureFocus.afterMakeFirstResponder")
         } else {
             reassertTerminalSurfaceFocus(reason: "ensureFocus.afterMakeFirstResponder")
         }

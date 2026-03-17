@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
@@ -9,9 +10,39 @@ import (
 	"net"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
+
+type notifyingBuffer struct {
+	mu     sync.Mutex
+	buffer bytes.Buffer
+	notify chan struct{}
+}
+
+func newNotifyingBuffer() *notifyingBuffer {
+	return &notifyingBuffer{notify: make(chan struct{}, 1)}
+}
+
+func (b *notifyingBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	n, err := b.buffer.Write(p)
+	if n > 0 {
+		select {
+		case b.notify <- struct{}{}:
+		default:
+		}
+	}
+	return n, err
+}
+
+func (b *notifyingBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buffer.String()
+}
 
 func TestRunVersion(t *testing.T) {
 	var out bytes.Buffer
@@ -54,6 +85,16 @@ func TestRunStdioHelloAndPing(t *testing.T) {
 	capabilities, _ := firstResult["capabilities"].([]any)
 	if len(capabilities) < 2 {
 		t.Fatalf("hello should return capabilities: %v", firstResult)
+	}
+	var sawPushCapability bool
+	for _, capability := range capabilities {
+		if capability == "proxy.stream.push" {
+			sawPushCapability = true
+			break
+		}
+	}
+	if !sawPushCapability {
+		t.Fatalf("hello should advertise proxy.stream.push: %v", firstResult)
 	}
 
 	var second map[string]any
@@ -168,11 +209,15 @@ func TestProxyStreamRoundTrip(t *testing.T) {
 		_, _ = conn.Write([]byte("pong"))
 	}()
 
+	eventOutput := newNotifyingBuffer()
 	server := &rpcServer{
 		nextStreamID:  1,
 		nextSessionID: 1,
-		streams:       map[string]net.Conn{},
+		streams:       map[string]*streamState{},
 		sessions:      map[string]*sessionState{},
+		frameWriter: &stdioFrameWriter{
+			writer: bufio.NewWriter(eventOutput),
+		},
 	}
 	defer server.closeAll()
 
@@ -209,24 +254,39 @@ func TestProxyStreamRoundTrip(t *testing.T) {
 
 	readResp := server.handleRequest(rpcRequest{
 		ID:     3,
-		Method: "proxy.read",
+		Method: "proxy.stream.subscribe",
 		Params: map[string]any{
-			"stream_id":  streamID,
-			"max_bytes":  8,
-			"timeout_ms": 1000,
+			"stream_id": streamID,
 		},
 	})
 	if !readResp.OK {
-		t.Fatalf("proxy.read failed: %+v", readResp)
+		t.Fatalf("proxy.stream.subscribe failed: %+v", readResp)
 	}
-	readResult, _ := readResp.Result.(map[string]any)
-	dataBase64, _ := readResult["data_base64"].(string)
+	select {
+	case <-eventOutput.notify:
+	case <-time.After(2 * time.Second):
+		t.Fatalf("timed out waiting for proxy.stream.data event")
+	}
+
+	lines := strings.Split(strings.TrimSpace(eventOutput.String()), "\n")
+	if len(lines) == 0 || strings.TrimSpace(lines[0]) == "" {
+		t.Fatalf("proxy.stream.data event output was empty")
+	}
+
+	var event map[string]any
+	if err := json.Unmarshal([]byte(lines[0]), &event); err != nil {
+		t.Fatalf("failed to decode stream event: %v", err)
+	}
+	if got := event["event"]; got != "proxy.stream.data" {
+		t.Fatalf("unexpected stream event=%v payload=%v", got, event)
+	}
+	dataBase64, _ := event["data_base64"].(string)
 	data, decodeErr := base64.StdEncoding.DecodeString(dataBase64)
 	if decodeErr != nil {
-		t.Fatalf("proxy.read returned invalid base64: %v", decodeErr)
+		t.Fatalf("proxy.stream.data returned invalid base64: %v", decodeErr)
 	}
 	if string(data) != "pong" {
-		t.Fatalf("proxy.read payload=%q, want %q", string(data), "pong")
+		t.Fatalf("proxy.stream.data payload=%q, want %q", string(data), "pong")
 	}
 
 	closeResp := server.handleRequest(rpcRequest{
@@ -305,7 +365,7 @@ func TestProxyOpenInvalidParams(t *testing.T) {
 	server := &rpcServer{
 		nextStreamID:  1,
 		nextSessionID: 1,
-		streams:       map[string]net.Conn{},
+		streams:       map[string]*streamState{},
 		sessions:      map[string]*sessionState{},
 	}
 	defer server.closeAll()
@@ -331,7 +391,7 @@ func TestSessionResizeCoordinator(t *testing.T) {
 	server := &rpcServer{
 		nextStreamID:  1,
 		nextSessionID: 1,
-		streams:       map[string]net.Conn{},
+		streams:       map[string]*streamState{},
 		sessions:      map[string]*sessionState{},
 	}
 	defer server.closeAll()
@@ -421,7 +481,7 @@ func TestSessionInvalidParamsAndNotFound(t *testing.T) {
 	server := &rpcServer{
 		nextStreamID:  1,
 		nextSessionID: 1,
-		streams:       map[string]net.Conn{},
+		streams:       map[string]*streamState{},
 		sessions:      map[string]*sessionState{},
 	}
 	defer server.closeAll()

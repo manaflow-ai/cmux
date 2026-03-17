@@ -149,12 +149,14 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
     }
 
     private func waitForSocket(at path: String, timeout: TimeInterval = 2.0) throws {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if FileManager.default.fileExists(atPath: path) {
-                return
-            }
-            usleep(20_000)
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                FileManager.default.fileExists(atPath: path)
+            },
+            object: NSObject()
+        )
+        if XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed {
+            return
         }
         XCTFail("Timed out waiting for socket at \(path)")
         throw NSError(domain: NSPOSIXErrorDomain, code: Int(ETIMEDOUT))

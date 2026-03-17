@@ -32,7 +32,7 @@ This is a **living implementation spec** (also called an **execution spec**): a 
 ### 3.2 Bootstrap + Daemon
 - `DONE` local app probes remote platform, verifies a release-pinned `cmuxd-remote` artifact by embedded manifest SHA-256, uploads it when missing, and runs `serve --stdio`.
 - `DONE` daemon `hello` handshake is enforced.
-- `DONE` daemon now exposes proxy stream RPC (`proxy.open`, `proxy.close`, `proxy.write`, `proxy.read`).
+- `DONE` daemon now exposes proxy stream RPC (`proxy.open`, `proxy.close`, `proxy.write`, `proxy.stream.subscribe`) plus pushed `proxy.stream.*` events.
 - `DONE` local proxy broker now tunnels SOCKS5/CONNECT traffic over daemon stream RPC instead of `ssh -D`.
 - `DONE` daemon now exposes session resize-coordinator RPC (`session.open`, `session.attach`, `session.resize`, `session.detach`, `session.status`, `session.close`).
 - `DONE` transport-level proxy failures now escalate from broker retry to full daemon re-bootstrap/reconnect in the session controller.
@@ -45,9 +45,9 @@ This is a **living implementation spec** (also called an **execution spec**): a 
 - `DONE` `cmuxd-remote` includes a table-driven CLI relay (`cli` subcommand) that maps CLI args to v1 text or v2 JSON-RPC messages.
 - `DONE` busybox-style argv[0] detection: when invoked as `cmux` via wrapper/symlink, auto-dispatches to CLI relay.
 - `DONE` background `ssh -N -R 127.0.0.1:PORT:127.0.0.1:LOCAL_RELAY_PORT` process reverse-forwards a TCP port to a dedicated authenticated local relay server. Uses TCP instead of Unix socket forwarding because many servers have `AllowStreamLocalForwarding` disabled.
-- `DONE` relay process uses `ControlPath=none` (avoids ControlMaster multiplexing and inherited `RemoteForward` directives) and `ExitOnForwardFailure=no` (inherited forwards from user ssh config failing should not kill the relay).
-- `DONE` relay address written to `~/.cmux/socket_addr` on the remote with a 3s delay after the relay process starts, giving SSH time to establish the `-R` forward.
-- `DONE` Go CLI re-reads `~/.cmux/socket_addr` on each TCP retry to pick up updated relay ports when multiple workspaces overwrite the file.
+- `DONE` relay process uses `-S none` / standalone SSH transport (avoids ControlMaster multiplexing and inherited `RemoteForward` directives) and `ExitOnForwardFailure=yes` so dead reverse binds fail fast instead of publishing bad relay metadata.
+- `DONE` relay address written to `~/.cmux/socket_addr` on the remote only after the reverse forward survives startup validation.
+- `DONE` Go CLI no longer polls for relay readiness. It dials the published relay once and only refreshes `~/.cmux/socket_addr` a single time to recover from a stale shared address rewrite.
 - `DONE` `cmux ssh` startup exports session-local `CMUX_SOCKET_PATH=127.0.0.1:<relay_port>` so parallel sessions pin to their own relay instead of racing on shared socket_addr.
 - `DONE` relay startup writes `~/.cmux/relay/<relay_port>.daemon_path`; remote `cmux` wrapper uses this to select the right daemon binary per session, including mixed local cmux versions.
 - `DONE` relay startup writes `~/.cmux/relay/<relay_port>.auth` with a relay ID and token; the local relay requires HMAC-SHA256 challenge-response before forwarding any command to the real local socket.
@@ -86,8 +86,8 @@ This is a **living implementation spec** (also called an **execution spec**): a 
 5. `DONE` re-apply proxy config on reconnect/state updates.
 
 ### 4.3 Remote Daemon + Transport
-1. `DONE` `cmuxd-remote` now supports proxy stream RPC (`proxy.open`, `proxy.close`, `proxy.write`, `proxy.read`).
-2. `DONE` local side now runs a shared local broker that serves SOCKS5/CONNECT and tunnels each stream over persistent daemon stdio RPC.
+1. `DONE` `cmuxd-remote` now supports proxy stream RPC (`proxy.open`, `proxy.close`, `proxy.write`, `proxy.stream.subscribe`) with pushed `proxy.stream.data/eof/error` events.
+2. `DONE` local side now runs a shared local broker that serves SOCKS5/CONNECT and tunnels each stream over persistent daemon stdio RPC without polling reads.
 3. `DONE` removed remote service-port discovery/probing from browser routing path.
 
 ### 4.4 Explicit Non-Goal
@@ -131,7 +131,7 @@ Recompute effective size on:
 | M-004b | CLI relay: run cmux commands from within SSH sessions | DONE | Reverse TCP forward + Go CLI relay + bootstrap wrapper |
 | M-005 | Remove automatic remote port mirroring path | DONE | `WorkspaceRemoteSessionController` now uses one shared daemon-backed proxy endpoint |
 | M-006 | Transport-scoped local proxy broker (SOCKS5 + CONNECT) | DONE | Identical SSH transports now reuse one local proxy endpoint |
-| M-007 | Remote proxy stream RPC in `cmuxd-remote` | DONE | `proxy.open/close/write/read` implemented |
+| M-007 | Remote proxy stream RPC in `cmuxd-remote` | DONE | `proxy.open/close/write/proxy.stream.subscribe` plus pushed stream events implemented |
 | M-008 | WebView proxy auto-wiring for remote workspaces | DONE | Workspace-scoped `WKWebsiteDataStore.proxyConfigurations` wiring is active |
 | M-009 | PTY resize coordinator (`smallest screen wins`) | DONE | Daemon session RPC now tracks attachments and applies min cols/rows semantics with unit tests |
 | M-010 | Resize + proxy reconnect e2e test suites | DONE | `tests_v2/test_ssh_remote_docker_forwarding.py` validates HTTP/websocket egress plus SOCKS pipelined-payload handling; `tests_v2/test_ssh_remote_docker_reconnect.py` verifies reconnect recovery and repeats SOCKS pipelined-payload checks after host restart; `tests_v2/test_ssh_remote_proxy_bind_conflict.py` validates structured `proxy_unavailable` bind-conflict surfacing and `local_proxy_port` status retention under bind conflict; `tests_v2/test_ssh_remote_daemon_resize_stdio.py` validates session resize semantics over real stdio RPC process boundaries; `tests_v2/test_ssh_remote_cli_metadata.py` validates `workspace.remote.configure` numeric-string compatibility, explicit `null` clear semantics (including `workspace.remote.status` reflection), strict `port`/`local_proxy_port` validation (bounds/type), case-insensitive SSH option override precedence for StrictHostKeyChecking/control-socket keys, and `local_proxy_port` payload echo for deterministic bind-conflict test hook behavior |
