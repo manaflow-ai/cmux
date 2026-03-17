@@ -17,34 +17,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
-      - name: System info
-        run: |
-          set -euo pipefail
-          echo "=== loginwindow config ==="
-          defaults read /Library/Preferences/com.apple.loginwindow 2>&1 || echo "(failed)"
-
-          echo ""
-          echo "=== WindowServer / loginwindow ==="
-          pgrep -lf WindowServer || echo "WindowServer not running"
-          pgrep -lf loginwindow || echo "loginwindow not running"
-
-          echo ""
-          echo "=== Console user ==="
-          stat -f '%Su' /dev/console 2>/dev/null || echo "(failed)"
-
-          echo ""
-          echo "=== GUI session ==="
-          launchctl print gui/$(id -u) 2>&1 | head -5 || echo "(failed)"
-
-          echo ""
-          echo "=== Hardware ==="
-          sysctl machdep.cpu.brand_string hw.model 2>/dev/null || true
-          system_profiler SPHardwareDataType 2>/dev/null | grep -E 'Model|Chip|Memory' || true
-
-          echo ""
-          echo "=== system_profiler displays (before virtual display) ==="
-          system_profiler SPDisplaysDataType 2>/dev/null || echo "(no display info)"
-
       - name: Create virtual display
         run: |
           set -euo pipefail
@@ -55,28 +27,17 @@ jobs:
           echo "VDISPLAY_PID=$VDISPLAY_PID" >> "$GITHUB_ENV"
           sleep 3
 
-          echo "=== system_profiler displays (after virtual display) ==="
-          system_profiler SPDisplaysDataType 2>/dev/null || echo "(no display info)"
-
-      - name: Build activation probe (Swift)
+      - name: Build activation probe
         run: |
           set -euo pipefail
           cat > /tmp/activation_probe.swift << 'SWIFT'
           import AppKit
           import Foundation
 
-          func probe() {
+          func checkActivation(label: String) {
               let ws = NSWorkspace.shared
 
-              // Check current state
-              if let front = ws.frontmostApplication {
-                  print("BEFORE: frontmost=\(front.localizedName ?? "nil") pid=\(front.processIdentifier) active=\(front.isActive)")
-              } else {
-                  print("BEFORE: no frontmost application")
-              }
-
               // Launch TextEdit
-              print("\n=== Launching TextEdit via open -a ===")
               let proc = Process()
               proc.executableURL = URL(fileURLWithPath: "/usr/bin/open")
               proc.arguments = ["-a", "TextEdit"]
@@ -84,7 +45,6 @@ jobs:
               proc.waitUntilExit()
               Thread.sleep(forTimeInterval: 3)
 
-              // Find TextEdit in running apps
               var textEdit: NSRunningApplication?
               for app in ws.runningApplications {
                   if app.localizedName == "TextEdit" {
@@ -94,183 +54,286 @@ jobs:
               }
 
               guard let te = textEdit else {
-                  print("ERROR: TextEdit not found in running applications")
+                  print("[\(label)] ERROR: TextEdit not found")
                   return
               }
 
-              print("TextEdit: pid=\(te.processIdentifier) active=\(te.isActive) hidden=\(te.isHidden) terminated=\(te.isTerminated)")
-              print("TextEdit activation policy: \(te.activationPolicy.rawValue) (0=regular, 1=accessory, 2=prohibited)")
-
-              if let front = ws.frontmostApplication {
-                  print("Frontmost: \(front.localizedName ?? "nil") pid=\(front.processIdentifier)")
-              }
-
-              // Try activateWithOptions
-              print("\n=== Calling activateWithOptions_(NSApplication.ActivationOptions.activateIgnoringOtherApps) ===")
               let activateResult = te.activate(options: .activateIgnoringOtherApps)
-              print("activateWithOptions returned: \(activateResult)")
               Thread.sleep(forTimeInterval: 2)
 
-              print("TextEdit after activate: active=\(te.isActive) hidden=\(te.isHidden)")
-              if let front = ws.frontmostApplication {
-                  print("Frontmost after activate: \(front.localizedName ?? "nil") pid=\(front.processIdentifier) active=\(front.isActive)")
-              }
+              let front = ws.frontmostApplication
+              print("[\(label)] activate()=\(activateResult) isActive=\(te.isActive) frontmost=\(front?.localizedName ?? "nil")")
 
-              // Try osascript
-              print("\n=== Trying osascript activation ===")
-              let osa = Process()
-              osa.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-              osa.arguments = ["-e", "tell application \"TextEdit\" to activate"]
-              let pipe = Pipe()
-              osa.standardOutput = pipe
-              osa.standardError = pipe
-              try! osa.run()
-              osa.waitUntilExit()
-              let osaOutput = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-              print("osascript exit=\(osa.terminationStatus) output=\(osaOutput)")
-              Thread.sleep(forTimeInterval: 2)
-
-              print("TextEdit after osascript: active=\(te.isActive) hidden=\(te.isHidden)")
-              if let front = ws.frontmostApplication {
-                  print("Frontmost after osascript: \(front.localizedName ?? "nil") pid=\(front.processIdentifier) active=\(front.isActive)")
-              }
-
-              // Check Quartz session
-              print("\n=== Quartz session ===")
+              // Quartz session
               if let session = CGSessionCopyCurrentDictionary() as? [String: Any] {
-                  for (key, value) in session.sorted(by: { $0.key < $1.key }) {
-                      print("  \(key): \(value)")
-                  }
-              } else {
-                  print("No Quartz session dictionary")
+                  let locked = session["CGSSessionScreenIsLocked"] as? Int ?? -1
+                  print("[\(label)] CGSSessionScreenIsLocked=\(locked)")
               }
 
-              // Check display info
-              print("\n=== Display info ===")
-              var displayCount: UInt32 = 0
-              CGGetActiveDisplayList(0, nil, &displayCount)
-              print("Active display count: \(displayCount)")
-              if displayCount > 0 {
-                  var displays = [CGDirectDisplayID](repeating: 0, count: Int(displayCount))
-                  CGGetActiveDisplayList(displayCount, &displays, nil)
-                  for d in displays {
-                      let bounds = CGDisplayBounds(d)
-                      print("  Display \(d): \(Int(bounds.width))x\(Int(bounds.height))")
-                  }
-              }
-              let mainDisplay = CGMainDisplayID()
-              print("Main display ID: \(mainDisplay)")
-
-              // Check AX trust
-              print("\n=== Accessibility ===")
-              let trusted = AXIsProcessTrusted()
-              print("Current process AX trusted: \(trusted)")
-
-              // Clean up
               te.terminate()
-
-              print("\n=== VERDICT ===")
-              // The key question: can NSRunningApplication.activate() make an app foreground?
-              // XCUIApplication.activate() depends on this + AX APIs.
-              print("activate() returned: \(activateResult)")
-              print("App became active: \(te.isActive)")
-              if activateResult && te.isActive {
-                  print("RESULT: GUI activation WORKS on this VM")
-              } else {
-                  print("RESULT: GUI activation DOES NOT WORK on this VM")
-                  print("XCUITest will fail with 'Running Background' timeout")
-              }
+              Thread.sleep(forTimeInterval: 1)
           }
 
-          probe()
+          // Run check with a label from argv
+          let label = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "check"
+          checkActivation(label: label)
           SWIFT
 
           swiftc -o /tmp/activation_probe /tmp/activation_probe.swift \
             -framework AppKit -framework CoreGraphics
 
-      - name: Run activation probe
+      - name: "Baseline: activation before any fixes"
+        run: /tmp/activation_probe "baseline"
+
+      - name: "Fix 1: defaults write to disable screen lock"
         run: |
           set -euo pipefail
-          echo "Running activation probe..."
-          /tmp/activation_probe
+          echo "=== Disabling screen lock via defaults ==="
 
-      - name: Test actual XCUITest activation
+          # Disable screensaver password requirement
+          defaults write com.apple.screensaver askForPassword -int 0
+          defaults write com.apple.screensaver askForPasswordDelay -int 0
+          defaults -currentHost write com.apple.screensaver askForPassword -int 0
+
+          # Disable screen saver entirely
+          defaults -currentHost write com.apple.screensaver idleTime -int 0
+
+          # Try to disable login window screen lock
+          sudo defaults write /Library/Preferences/com.apple.loginwindow autoLoginUserScreenLocked -bool false 2>&1 || echo "(failed)"
+
+          # Disable display sleep
+          sudo pmset -a displaysleep 0 sleep 0 2>&1 || echo "(failed)"
+
+          echo "=== Verify settings ==="
+          defaults read com.apple.screensaver 2>&1 || true
+          sudo defaults read /Library/Preferences/com.apple.loginwindow autoLoginUserScreenLocked 2>&1 || true
+
+      - name: "Check after Fix 1"
+        run: /tmp/activation_probe "after-defaults"
+
+      - name: "Fix 2: automationmodetool"
+        run: |
+          set -euo pipefail
+          echo "=== automationmodetool ==="
+          which automationmodetool 2>&1 || echo "(not found)"
+          automationmodetool enable-automationmode-without-authentication 2>&1 || echo "(automationmodetool failed)"
+          automationmodetool 2>&1 || echo "(status check failed)"
+
+      - name: "Check after Fix 2"
+        run: /tmp/activation_probe "after-automationmode"
+
+      - name: "Fix 3: CGSession unlock via loginwindow notification"
         run: |
           set -euo pipefail
 
-          # Create a minimal Xcode project to test XCUIApplication.activate()
-          mkdir -p /tmp/ActivationTest
-          cat > /tmp/ActivationTest/Package.swift << 'PKG'
-          // swift-tools-version:5.9
-          import PackageDescription
-          let package = Package(name: "ActivationTest")
-          PKG
+          # Compile an ObjC tool that tries to unlock the screen
+          cat > /tmp/unlock_screen.m << 'OBJC'
+          #import <Foundation/Foundation.h>
+          #import <CoreGraphics/CoreGraphics.h>
+          #import <objc/runtime.h>
+          #import <dlfcn.h>
 
-          cat > /tmp/test_xcui.swift << 'SWIFT'
-          import XCTest
+          // Try multiple approaches to unlock the screen
 
-          final class ActivationTest: XCTestCase {
-              func testActivateTextEdit() {
-                  let app = XCUIApplication(bundleIdentifier: "com.apple.TextEdit")
-                  print("PRE-ACTIVATE: state=\(app.state.rawValue)")
+          // Approach A: Send unlock notification to loginwindow
+          void tryNotification(void) {
+              NSLog(@"Approach A: DistributedNotification to loginwindow");
+              [[NSDistributedNotificationCenter defaultCenter]
+                  postNotificationName:@"com.apple.screenIsUnlocked"
+                  object:nil
+                  userInfo:nil
+                  deliverImmediately:YES];
 
-                  let start = Date()
-                  app.activate()
-                  let activateTime = Date().timeIntervalSince(start)
-                  print("POST-ACTIVATE: state=\(app.state.rawValue) elapsed=\(String(format: "%.1f", activateTime))s")
+              // Also try the CGSession unlock path
+              [[NSDistributedNotificationCenter defaultCenter]
+                  postNotificationName:@"com.apple.sessionDidUnlock"
+                  object:nil
+                  userInfo:nil
+                  deliverImmediately:YES];
+          }
 
-                  let foreground = app.wait(for: .runningForeground, timeout: 15)
-                  let totalTime = Date().timeIntervalSince(start)
-                  print("WAIT-RESULT: foreground=\(foreground) state=\(app.state.rawValue) elapsed=\(String(format: "%.1f", totalTime))s")
+          // Approach B: Use CGSSessionSetScreenLocked private API
+          void tryPrivateAPI(void) {
+              NSLog(@"Approach B: CGSSessionSetScreenLocked private API");
+              typedef int CGSConnectionID;
+              typedef CGSConnectionID (*CGSMainConnectionIDFunc)(void);
+              typedef CGError (*CGSSessionSetScreenLockedFunc)(CGSConnectionID, bool);
 
-                  if foreground {
-                      print("SUCCESS: XCUIApplication activation works on WarpBuild!")
-                  } else {
-                      print("FAILURE: XCUIApplication stuck in state \(app.state.rawValue) after \(String(format: "%.1f", totalTime))s")
-                  }
-
-                  // Don't assert - we want to see the output either way
-                  app.terminate()
+              void *handle = dlopen("/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics", RTLD_LAZY);
+              if (!handle) {
+                  NSLog(@"Failed to load CoreGraphics");
+                  return;
               }
+
+              CGSMainConnectionIDFunc mainConn = (CGSMainConnectionIDFunc)dlsym(handle, "CGSMainConnectionID");
+              CGSSessionSetScreenLockedFunc setLocked = (CGSSessionSetScreenLockedFunc)dlsym(handle, "CGSSessionSetScreenLocked");
+
+              if (!mainConn || !setLocked) {
+                  NSLog(@"Private API symbols not found (mainConn=%p, setLocked=%p)", mainConn, setLocked);
+                  dlclose(handle);
+                  return;
+              }
+
+              CGSConnectionID conn = mainConn();
+              NSLog(@"CGS connection ID: %d", conn);
+              CGError err = setLocked(conn, false);
+              NSLog(@"CGSSessionSetScreenLocked(false) returned: %d", err);
+              dlclose(handle);
+          }
+
+          // Approach C: Dismiss loginwindow via AppleScript System Events
+          void trySystemEvents(void) {
+              NSLog(@"Approach C: System Events keystroke to dismiss lock screen");
+              NSTask *task = [[NSTask alloc] init];
+              task.executableURL = [NSURL fileURLWithPath:@"/usr/bin/osascript"];
+              task.arguments = @[
+                  @"-e", @"tell application \"System Events\" to keystroke return"
+              ];
+              NSPipe *pipe = [NSPipe pipe];
+              task.standardOutput = pipe;
+              task.standardError = pipe;
+              [task launch];
+              [task waitUntilExit];
+              NSData *data = [[pipe fileHandleForReading] readDataToEndOfFile];
+              NSString *output = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+              NSLog(@"osascript exit=%d output=%@", task.terminationStatus, output);
+          }
+
+          // Approach D: Use CGSSessionSetScreenLocked with _CGSDefaultConnection
+          void tryDefaultConnection(void) {
+              NSLog(@"Approach D: _CGSDefaultConnection + CGSSessionSetScreenLocked");
+              void *handle = dlopen("/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics", RTLD_LAZY);
+              if (!handle) return;
+
+              typedef int (*DefaultConnectionFunc)(void);
+              typedef CGError (*SetLockedFunc)(int, bool);
+
+              DefaultConnectionFunc defConn = (DefaultConnectionFunc)dlsym(handle, "_CGSDefaultConnection");
+              SetLockedFunc setLocked = (SetLockedFunc)dlsym(handle, "CGSSessionSetScreenLocked");
+
+              if (!defConn || !setLocked) {
+                  NSLog(@"Symbols not found (defConn=%p, setLocked=%p)", defConn, setLocked);
+                  dlclose(handle);
+                  return;
+              }
+
+              int conn = defConn();
+              NSLog(@"_CGSDefaultConnection: %d", conn);
+              CGError err = setLocked(conn, false);
+              NSLog(@"CGSSessionSetScreenLocked(false) returned: %d", err);
+              dlclose(handle);
+          }
+
+          int main(int argc, const char *argv[]) {
+              @autoreleasepool {
+                  // Check current state
+                  NSDictionary *session = CFBridgingRelease(CGSessionCopyCurrentDictionary());
+                  NSLog(@"BEFORE: CGSSessionScreenIsLocked=%@", session[@"CGSSessionScreenIsLocked"]);
+
+                  tryNotification();
+                  [NSThread sleepForTimeInterval:1];
+                  tryPrivateAPI();
+                  [NSThread sleepForTimeInterval:1];
+                  tryDefaultConnection();
+                  [NSThread sleepForTimeInterval:1];
+                  trySystemEvents();
+                  [NSThread sleepForTimeInterval:2];
+
+                  session = CFBridgingRelease(CGSessionCopyCurrentDictionary());
+                  NSLog(@"AFTER: CGSSessionScreenIsLocked=%@", session[@"CGSSessionScreenIsLocked"]);
+              }
+              return 0;
+          }
+          OBJC
+
+          clang -framework Foundation -framework CoreGraphics \
+            -o /tmp/unlock_screen /tmp/unlock_screen.m
+          /tmp/unlock_screen 2>&1
+
+      - name: "Check after Fix 3"
+        run: /tmp/activation_probe "after-unlock-attempts"
+
+      - name: "Fix 4: sysadminctl + security unlock-keychain"
+        run: |
+          set -euo pipefail
+
+          echo "=== Try sysadminctl ==="
+          # The runner user likely has no password or a known one
+          sudo sysadminctl -screenLock off 2>&1 || echo "(sysadminctl failed)"
+
+          echo ""
+          echo "=== Try security unlock-keychain ==="
+          security unlock-keychain -p "" ~/Library/Keychains/login.keychain-db 2>&1 || echo "(unlock empty pw failed)"
+          security unlock-keychain -p "runner" ~/Library/Keychains/login.keychain-db 2>&1 || echo "(unlock 'runner' pw failed)"
+
+          echo ""
+          echo "=== Try killall loginwindow (forces re-login) ==="
+          # This is aggressive but might force a fresh login without lock
+          echo "Skipping killall loginwindow (too risky, may kill session)"
+
+          echo ""
+          echo "=== Try caffeinate to prevent sleep ==="
+          caffeinate -u -t 5 &
+          sleep 2
+
+      - name: "Check after Fix 4"
+        run: /tmp/activation_probe "after-sysadminctl"
+
+      - name: "Fix 5: Use Quartz Event to simulate user activity"
+        run: |
+          set -euo pipefail
+          cat > /tmp/simulate_activity.swift << 'SWIFT'
+          import CoreGraphics
+          import Foundation
+
+          // Simulate mouse move to wake display / dismiss lock
+          print("Simulating mouse activity...")
+          let point = CGPoint(x: 100, y: 100)
+          if let event = CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: point, mouseButton: .left) {
+              event.post(tap: .cghidEventTap)
+              print("Posted mouse move event")
+          } else {
+              print("Failed to create mouse event")
+          }
+
+          // Simulate keypress (Return key to dismiss lock screen)
+          Thread.sleep(forTimeInterval: 1)
+          print("Simulating Return keypress...")
+          if let keyDown = CGEvent(keyboardEventSource: nil, virtualKey: 0x24, keyDown: true),
+             let keyUp = CGEvent(keyboardEventSource: nil, virtualKey: 0x24, keyDown: false) {
+              keyDown.post(tap: .cghidEventTap)
+              Thread.sleep(forTimeInterval: 0.1)
+              keyUp.post(tap: .cghidEventTap)
+              print("Posted Return key event")
+          } else {
+              print("Failed to create keyboard event")
+          }
+
+          Thread.sleep(forTimeInterval: 3)
+
+          // Check if screen is still locked
+          if let session = CGSessionCopyCurrentDictionary() as? [String: Any] {
+              let locked = session["CGSSessionScreenIsLocked"] as? Int ?? -1
+              print("CGSSessionScreenIsLocked after activity: \(locked)")
           }
           SWIFT
 
-          # We can't easily run a standalone XCUITest without a full Xcode project,
-          # but we can use xctest directly with the right framework path
-          echo "Note: XCUITest requires xcodebuild with a test target."
-          echo "The Swift activation probe above tests the same underlying APIs."
-          echo "If activate() returns true and isActive becomes true, XCUITest should work."
+          swiftc -o /tmp/simulate_activity /tmp/simulate_activity.swift -framework CoreGraphics
+          /tmp/simulate_activity
 
-      - name: Check TCC and DevTools
-        run: |
-          set -euo pipefail
-          echo "=== DevToolsSecurity ==="
-          DevToolsSecurity -status 2>&1 || echo "(failed)"
-
-          echo ""
-          echo "=== System TCC (Accessibility + DeveloperTool) ==="
-          sqlite3 "/Library/Application Support/com.apple.TCC/TCC.db" \
-            "SELECT client, service, auth_value FROM access WHERE service IN ('kTCCServiceAccessibility', 'kTCCServiceDeveloperTool');" 2>&1 \
-            || echo "(permission denied)"
-
-          echo ""
-          echo "=== User TCC ==="
-          sqlite3 "$HOME/Library/Application Support/com.apple.TCC/TCC.db" \
-            "SELECT client, service, auth_value FROM access WHERE service IN ('kTCCServiceAccessibility', 'kTCCServiceDeveloperTool');" 2>&1 \
-            || echo "(permission denied or no DB)"
+      - name: "Check after Fix 5"
+        run: /tmp/activation_probe "after-simulate-activity"
 
       - name: Summary
         if: always()
         run: |
           echo "================================================================"
-          echo "WarpBuild GUI Activation Diagnostic v2"
+          echo "WarpBuild GUI Activation Experiments v3"
           echo ""
-          echo "Key questions answered:"
-          echo "1. Does CGVirtualDisplay create a usable display?"
-          echo "2. Can NSRunningApplication.activate() foreground an app?"
-          echo "3. Does osascript activation work?"
-          echo "4. Is the process AX-trusted?"
-          echo "5. What does the Quartz session look like?"
-          echo ""
-          echo "If activate() works, XCUITest should work on WarpBuild."
+          echo "Tested 5 approaches to unlock screen / enable activation:"
+          echo "1. defaults write (screensaver, loginwindow, pmset)"
+          echo "2. automationmodetool enable-automationmode-without-authentication"
+          echo "3. CGSSessionSetScreenLocked private API + System Events"
+          echo "4. sysadminctl -screenLock off + keychain unlock"
+          echo "5. CGEvent simulation (mouse move + Return key)"
           echo "================================================================"
