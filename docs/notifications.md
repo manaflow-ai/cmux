@@ -1,6 +1,6 @@
 # Notifications
 
-cmux provides a notification panel for AI agents like Claude Code, Codex, and OpenCode. Notifications appear in a dedicated panel and trigger macOS system notifications.
+cmux provides a notification panel for AI agents like Claude Code, Cursor, Codex, and OpenCode. Notifications appear in a dedicated panel and trigger macOS system notifications.
 
 ## Quick Start
 
@@ -58,6 +58,50 @@ cmux notify --title "Done" --tab 0 --panel 1
 
 See the [Claude Code documentation](https://docs.anthropic.com/en/docs/claude-code) for hook configuration.
 
+### Cursor
+
+Cursor supports [hooks](https://docs.cursor.com/context/hooks) that run shell commands at key lifecycle events.
+
+**1. Create the notification script** at `~/.cursor/hooks/cmux-notify.sh`:
+
+```bash
+#!/usr/bin/env bash
+# ~/.cursor/hooks/cmux-notify.sh
+# Requires: jq (brew install jq)
+
+set -euo pipefail
+event=$(jq -r '.event' 2>/dev/null || echo "unknown")
+
+case "$event" in
+  stop|subagentStop)
+    if command -v cmux &>/dev/null; then
+      cmux notify --title "Cursor" --body "Agent finished"
+    else
+      osascript -e 'display notification "Agent finished" with title "Cursor"'
+    fi
+    ;;
+esac
+```
+
+**2. Make it executable:**
+
+```bash
+chmod +x ~/.cursor/hooks/cmux-notify.sh
+```
+
+**3. Add hook configuration** to `~/.cursor/hooks.json`:
+
+```json
+{
+  "stop": {
+    "command": "$HOME/.cursor/hooks/cmux-notify.sh"
+  },
+  "subagentStop": {
+    "command": "$HOME/.cursor/hooks/cmux-notify.sh"
+  }
+}
+```
+
 ### GitHub Copilot CLI
 
 Copilot CLI supports [hooks](https://docs.github.com/en/copilot/how-tos/use-copilot-agents/coding-agent/use-hooks) that run shell commands at key lifecycle events. Add to `~/.copilot/config.json`:
@@ -108,6 +152,67 @@ Or for repo-level hooks, create `.github/hooks/notify.json`:
   }
 }
 ```
+
+### Cursor Hooks
+
+Cursor supports [hooks](https://cursor.com/docs/hooks) that run shell scripts at key points in the agent lifecycle. Create a notification script and register it in Cursor's hooks config.
+
+> **Note:** The script uses `jq` to parse JSON. Install it via `brew install jq` (macOS) or your package manager.
+
+Create `~/.cursor/hooks/cmux-notify.sh`:
+
+```bash
+#!/bin/bash
+command -v cmux &>/dev/null || exit 0
+
+EVENT=$(cat)
+STATUS=$(echo "$EVENT" | jq -r '.status // ""')
+MODEL=$(echo "$EVENT" | jq -r '.model // ""')
+SUBAGENT_TYPE=$(echo "$EVENT" | jq -r '.subagent_type // ""')
+
+if [ -n "$SUBAGENT_TYPE" ]; then
+    DESC=$(echo "$EVENT" | jq -r '.description // .task // ""' | head -c 80)
+    case "$STATUS" in
+        completed) cmux notify --title "Cursor" --subtitle "SubAgent" --body "Complete: $DESC" ;;
+        error)     cmux notify --title "Cursor" --subtitle "SubAgent" --body "Error: $DESC" ;;
+    esac
+else
+    case "$STATUS" in
+        completed) cmux notify --title "Cursor" --body "Agent complete ($MODEL)" ;;
+        error)     cmux notify --title "Cursor" --body "Agent error ($MODEL)" ;;
+        aborted)   cmux notify --title "Cursor" --body "Agent aborted ($MODEL)" ;;
+    esac
+fi
+exit 0
+```
+
+```bash
+chmod +x ~/.cursor/hooks/cmux-notify.sh
+```
+
+Add to `~/.cursor/hooks.json`:
+
+```json
+{
+  "version": 1,
+  "hooks": {
+    "stop": [
+      {
+        "command": "$HOME/.cursor/hooks/cmux-notify.sh",
+        "timeout": 5
+      }
+    ],
+    "subagentStop": [
+      {
+        "command": "$HOME/.cursor/hooks/cmux-notify.sh",
+        "timeout": 5
+      }
+    ]
+  }
+}
+```
+
+Cursor watches `hooks.json` for changes — no restart needed.
 
 ### OpenAI Codex
 
