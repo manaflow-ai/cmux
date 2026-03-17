@@ -245,12 +245,21 @@ jobs:
             zig version
           fi
 
-      - name: Grant UI test automation permissions
+      - name: Enable GUI session for UI tests
         run: |
           set -euo pipefail
-          # WarpBuild ephemeral VMs need TCC permissions for XCUITest to
-          # activate apps (otherwise stuck in "Running Background").
-          # Grant accessibility + automation for Xcode and XCTest processes.
+          echo "=== Session diagnostics ==="
+          whoami
+          who 2>/dev/null || true
+          echo "Console user: $(stat -f '%Su' /dev/console 2>/dev/null || echo 'unknown')"
+          launchctl print gui/$(id -u) 2>/dev/null | head -5 || echo "No GUI domain"
+          echo ""
+
+          # Enable developer tools (needed for XCTest process control)
+          sudo DevToolsSecurity -enable 2>/dev/null || true
+          sudo security authorizationdb write system.privilege.taskport is-developer 2>/dev/null || true
+
+          # Grant TCC permissions for XCUITest
           TCC_DB="/Library/Application Support/com.apple.TCC/TCC.db"
           if [ -f "$TCC_DB" ]; then
             for service in kTCCServiceAccessibility kTCCServicePostEvent kTCCServiceScreenCapture; do
@@ -261,8 +270,20 @@ jobs:
             done
             echo "TCC permissions granted"
           else
-            echo "TCC database not found, skipping"
+            echo "TCC database not found at $TCC_DB"
           fi
+
+          # Check if Aqua session exists; if not, try to create one
+          if ! launchctl print gui/$(id -u) &>/dev/null; then
+            echo "No GUI session found, attempting to bootstrap one"
+            sudo launchctl bootout gui/$(id -u) 2>/dev/null || true
+            sudo launchctl bootstrap gui/$(id -u) 2>/dev/null || true
+          fi
+
+          echo "=== Post-setup diagnostics ==="
+          pgrep -l WindowServer || echo "WindowServer not running"
+          pgrep -l loginwindow || echo "loginwindow not running"
+          system_profiler SPDisplaysDataType 2>/dev/null | head -20 || true
 
       - name: Clean DerivedData
         run: rm -rf ~/Library/Developer/Xcode/DerivedData/GhosttyTabs-*
