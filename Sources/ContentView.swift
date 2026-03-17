@@ -10220,7 +10220,7 @@ enum SidebarPathFormatter {
 
 enum SidebarWorkspaceShortcutHintMetrics {
     private static let measurementFont = NSFont.systemFont(ofSize: 10, weight: .semibold)
-    private static let minimumSlotWidth: CGFloat = 28
+    private static let minimumSlotWidth: CGFloat = 16
     private static let horizontalPadding: CGFloat = 12
     private static let lock = NSLock()
     private static var cachedHintWidths: [String: CGFloat] = [:]
@@ -10269,6 +10269,22 @@ enum SidebarWorkspaceShortcutHintMetrics {
         return count
     }
     #endif
+
+    static func resolvedSlotWidth(
+        showsHint: Bool,
+        showsCloseButton: Bool,
+        hintLabel: String?,
+        debugXOffset: Double,
+        closeButtonSize: CGFloat
+    ) -> CGFloat {
+        if showsHint {
+            return slotWidth(label: hintLabel, debugXOffset: debugXOffset)
+        } else if showsCloseButton {
+            return closeButtonSize
+        } else {
+            return 0
+        }
+    }
 }
 
 // PERF: TabItemView is Equatable so SwiftUI skips body re-evaluation when
@@ -10355,6 +10371,8 @@ private struct TabItemView: View, Equatable {
         SidebarActiveTabIndicatorSettings.resolvedStyle(rawValue: activeTabIndicatorStyleRaw)
     }
 
+    private static let closeButtonSize: CGFloat = 16
+
     private var titleFontWeight: Font.Weight {
         .semibold
     }
@@ -10428,9 +10446,12 @@ private struct TabItemView: View, Equatable {
     }
 
     private var workspaceHintSlotWidth: CGFloat {
-        SidebarWorkspaceShortcutHintMetrics.slotWidth(
-            label: workspaceShortcutLabel,
-            debugXOffset: sidebarShortcutHintXOffset
+        SidebarWorkspaceShortcutHintMetrics.resolvedSlotWidth(
+            showsHint: showsWorkspaceShortcutHint,
+            showsCloseButton: showCloseButton,
+            hintLabel: workspaceShortcutLabel,
+            debugXOffset: sidebarShortcutHintXOffset,
+            closeButtonSize: Self.closeButtonSize
         )
     }
 
@@ -10572,7 +10593,7 @@ private struct TabItemView: View, Equatable {
         }()
 
         VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 8) {
+            HStack(spacing: 4) {
                 if unreadCount > 0 {
                     ZStack {
                         Circle()
@@ -10595,8 +10616,7 @@ private struct TabItemView: View, Equatable {
                     .foregroundColor(activePrimaryTextColor)
                     .lineLimit(1)
                     .truncationMode(.tail)
-
-                Spacer()
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
                 ZStack(alignment: .trailing) {
                     Button(action: {
@@ -10611,7 +10631,7 @@ private struct TabItemView: View, Equatable {
                     }
                     .buttonStyle(.plain)
                     .safeHelp(KeyboardShortcutSettings.Action.closeWorkspace.tooltip(closeWorkspaceTooltip))
-                    .frame(width: 16, height: 16, alignment: .center)
+                    .frame(width: Self.closeButtonSize, height: Self.closeButtonSize, alignment: .center)
                     .opacity(showCloseButton && !showsWorkspaceShortcutHint ? 1 : 0)
                     .allowsHitTesting(showCloseButton && !showsWorkspaceShortcutHint)
 
@@ -10632,8 +10652,8 @@ private struct TabItemView: View, Equatable {
                             .transition(.opacity)
                     }
                 }
-                .animation(.easeInOut(duration: 0.14), value: showsModifierShortcutHints || alwaysShowShortcutHints)
-                .frame(width: workspaceHintSlotWidth, height: 16, alignment: .trailing)
+                .frame(width: workspaceHintSlotWidth, height: Self.closeButtonSize, alignment: .trailing)
+                .animation(.easeInOut(duration: 0.14), value: workspaceHintSlotWidth)
             }
 
             if let subtitle = effectiveSubtitle {
@@ -10802,7 +10822,7 @@ private struct TabItemView: View, Equatable {
         .animation(.easeInOut(duration: 0.2), value: tab.logEntries.count)
         .animation(.easeInOut(duration: 0.2), value: tab.progress != nil)
         .animation(.easeInOut(duration: 0.2), value: tab.metadataBlocks.count)
-        .padding(.horizontal, 10)
+        .padding(.horizontal, 8)
         .padding(.vertical, 8)
         .background(
             RoundedRectangle(cornerRadius: 6)
