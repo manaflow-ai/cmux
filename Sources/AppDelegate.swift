@@ -5050,7 +5050,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @objc func openNewMainWindow(_ sender: Any?) {
         let sourceConfig = NSApp.keyWindow.flatMap {
-            mainWindowContexts[ObjectIdentifier($0)]?.tabManager.inheritedConfigForSpawnedWindow()
+            contextForMainTerminalWindow($0)?.tabManager.inheritedConfigForSpawnedWindow()
         }
         _ = createMainWindow(initialConfigTemplate: sourceConfig)
     }
