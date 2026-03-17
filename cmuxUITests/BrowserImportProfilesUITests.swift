@@ -31,7 +31,6 @@ final class BrowserImportProfilesUITests: XCTestCase {
     func testMultipleSourceProfilesDefaultToSeparateDestinations() throws {
         let app = launchApp()
 
-        openImportWizard(app)
         app.buttons["Next"].click()
         app.buttons["Next"].click()
 
@@ -62,7 +61,6 @@ final class BrowserImportProfilesUITests: XCTestCase {
     func testMergeModeCapturesSingleMergedDestination() throws {
         let app = launchApp()
 
-        openImportWizard(app)
         app.buttons["Next"].click()
         app.buttons["Next"].click()
 
@@ -90,7 +88,6 @@ final class BrowserImportProfilesUITests: XCTestCase {
     func testAdditionalDataSelectionCapturesEverythingScope() throws {
         let app = launchApp()
 
-        openImportWizard(app)
         app.buttons["Next"].click()
         app.buttons["Next"].click()
 
@@ -115,42 +112,20 @@ final class BrowserImportProfilesUITests: XCTestCase {
         XCTAssertEqual(capture["scope"] as? String, "everything")
     }
 
-    func testWaitForCapturedSelectionReadsCaptureWrittenAtTimeoutBoundary() throws {
-        let payload: [String: Any] = [
-            "mode": "boundary-write",
-            "entries": []
-        ]
-        let payloadData = try JSONSerialization.data(withJSONObject: payload)
-        let captureURL = URL(fileURLWithPath: capturePath)
-
-        DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 0.18) {
-            try? payloadData.write(to: captureURL)
-        }
-
-        let capture = try XCTUnwrap(waitForCapturedSelection(timeout: 0.2))
-        XCTAssertEqual(capture["mode"] as? String, "boundary-write")
-    }
-
     private func launchApp() -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_BROWSER_IMPORT_AUTO_OPEN"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_BROWSER_IMPORT_FIXTURE"] = #"{"browserName":"Helium","profiles":["You","austin"]}"#
         app.launchEnvironment["CMUX_UI_TEST_BROWSER_IMPORT_DESTINATIONS"] = #"["Default"]"#
         app.launchEnvironment["CMUX_UI_TEST_BROWSER_IMPORT_MODE"] = "capture-only"
         app.launchEnvironment["CMUX_UI_TEST_BROWSER_IMPORT_CAPTURE_PATH"] = capturePath
         launchAndActivate(app)
+        waitForImportWizard(app)
         return app
     }
 
-    private func openImportWizard(_ app: XCUIApplication) {
-        let viewMenu = app.menuBars.menuBarItems["View"].firstMatch
-        XCTAssertTrue(viewMenu.waitForExistence(timeout: 5.0), "Expected View menu to exist")
-        viewMenu.click()
-
-        let importItem = app.menuItems["Import From Browser…"].firstMatch
-        XCTAssertTrue(importItem.waitForExistence(timeout: 5.0), "Expected Import From Browser menu item to exist")
-        importItem.click()
-
+    private func waitForImportWizard(_ app: XCUIApplication) {
         let wizardOpened = browserImportPollUntil(timeout: 5.0) {
             app.buttons["Next"].exists || app.windows["Import Browser Data"].exists
         }

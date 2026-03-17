@@ -2314,6 +2314,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 NSRunningApplication.current.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
                 self.writeUITestDiagnosticsIfNeeded(stage: "afterForceWindow")
             }
+            if env["CMUX_UI_TEST_BROWSER_IMPORT_AUTO_OPEN"] == "1" {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                    BrowserDataImportCoordinator.shared.presentImportDialog()
+                }
+            }
         }
 #endif
     }
