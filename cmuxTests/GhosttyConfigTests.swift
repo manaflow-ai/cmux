@@ -2029,7 +2029,10 @@ final class BrowserInstallDetectorTests: XCTestCase {
     private func createFile(at url: URL, contents: Data) throws {
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         guard FileManager.default.createFile(atPath: url.path, contents: contents) else {
-            throw CocoaError(.fileWriteUnknown)
+            throw CocoaError(
+                .fileWriteUnknown,
+                userInfo: [NSFilePathErrorKey: url.path]
+            )
         }
     }
 }

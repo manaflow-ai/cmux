@@ -1388,7 +1388,8 @@ final class Workspace: Identifiable, ObservableObject {
             return preferredProfileID
         }
         if let sourcePanelId,
-           let sourceBrowserPanel = browserPanel(for: sourcePanelId) {
+           let sourceBrowserPanel = browserPanel(for: sourcePanelId),
+           BrowserProfileStore.shared.profileDefinition(id: sourceBrowserPanel.profileID) != nil {
             return sourceBrowserPanel.profileID
         }
         if let preferredBrowserProfileID,

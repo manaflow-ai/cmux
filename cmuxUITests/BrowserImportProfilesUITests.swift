@@ -98,6 +98,22 @@ final class BrowserImportProfilesUITests: XCTestCase {
         XCTAssertEqual(capture["scope"] as? String, "everything")
     }
 
+    func testWaitForCapturedSelectionReadsCaptureWrittenAtTimeoutBoundary() throws {
+        let payload: [String: Any] = [
+            "mode": "boundary-write",
+            "entries": []
+        ]
+        let payloadData = try JSONSerialization.data(withJSONObject: payload)
+        let captureURL = URL(fileURLWithPath: capturePath)
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.19) {
+            try? payloadData.write(to: captureURL)
+        }
+
+        let capture = try XCTUnwrap(waitForCapturedSelection(timeout: 0.2))
+        XCTAssertEqual(capture["mode"] as? String, "boundary-write")
+    }
+
     private func launchApp() -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
@@ -137,6 +153,10 @@ final class BrowserImportProfilesUITests: XCTestCase {
                 return object
             }
             RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        if let data = try? Data(contentsOf: url),
+           let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            return object
         }
         return nil
     }

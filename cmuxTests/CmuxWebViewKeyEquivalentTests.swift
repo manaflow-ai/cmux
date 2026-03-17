@@ -65,6 +65,15 @@ private func drainMainQueue() {
     XCTWaiter().wait(for: [expectation], timeout: 1.0)
 }
 
+@MainActor
+private func makeTemporaryBrowserProfile(named prefix: String) throws -> BrowserProfileDefinition {
+    try XCTUnwrap(
+        BrowserProfileStore.shared.createProfile(
+            named: "\(prefix)-\(UUID().uuidString)"
+        )
+    )
+}
+
 final class SplitShortcutTransientFocusGuardTests: XCTestCase {
     func testSuppressesWhenFirstResponderFallsBackAndHostedViewIsTiny() {
         XCTAssertTrue(
@@ -6277,18 +6286,10 @@ final class WorkspaceBrowserProfileSelectionTests: XCTestCase {
         }
     }
 
-    private func makeProfile(named prefix: String) throws -> BrowserProfileDefinition {
-        try XCTUnwrap(
-            BrowserProfileStore.shared.createProfile(
-                named: "\(prefix)-\(UUID().uuidString)"
-            )
-        )
-    }
-
     func testNewBrowserSurfacePrefersSelectedBrowserProfileInTargetPane() throws {
         let workspace = Workspace()
-        let profileA = try makeProfile(named: "Alpha")
-        let profileB = try makeProfile(named: "Beta")
+        let profileA = try makeTemporaryBrowserProfile(named: "Alpha")
+        let profileB = try makeTemporaryBrowserProfile(named: "Beta")
         let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
         let browserA = try XCTUnwrap(
             workspace.newBrowserSurface(
@@ -6332,8 +6333,8 @@ final class WorkspaceBrowserProfileSelectionTests: XCTestCase {
 
     func testNewBrowserSurfaceFailureDoesNotMutatePreferredProfile() throws {
         let workspace = Workspace()
-        let preferredProfile = try makeProfile(named: "Preferred")
-        let unexpectedProfile = try makeProfile(named: "Unexpected")
+        let preferredProfile = try makeTemporaryBrowserProfile(named: "Preferred")
+        let unexpectedProfile = try makeTemporaryBrowserProfile(named: "Unexpected")
 
         let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
         _ = try XCTUnwrap(
@@ -6363,8 +6364,8 @@ final class WorkspaceBrowserProfileSelectionTests: XCTestCase {
 
     func testNewBrowserSplitFailureDoesNotMutatePreferredProfile() throws {
         let workspace = Workspace()
-        let preferredProfile = try makeProfile(named: "Preferred")
-        let unexpectedProfile = try makeProfile(named: "Unexpected")
+        let preferredProfile = try makeTemporaryBrowserProfile(named: "Preferred")
+        let unexpectedProfile = try makeTemporaryBrowserProfile(named: "Unexpected")
 
         let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
         let browser = try XCTUnwrap(
@@ -6453,16 +6454,8 @@ final class TabManagerWorkspaceConfigInheritanceSourceTests: XCTestCase {
 
 @MainActor
 final class BrowserPanelProfileIsolationTests: XCTestCase {
-    private func makeProfile(named prefix: String) throws -> BrowserProfileDefinition {
-        try XCTUnwrap(
-            BrowserProfileStore.shared.createProfile(
-                named: "\(prefix)-\(UUID().uuidString)"
-            )
-        )
-    }
-
     func testStaleDidFinishDoesNotRecordVisitIntoSwitchedProfileHistory() throws {
-        let alternateProfile = try makeProfile(named: "Switched")
+        let alternateProfile = try makeTemporaryBrowserProfile(named: "Switched")
         let defaultStore = BrowserHistoryStore.shared
         let alternateStore = BrowserProfileStore.shared.historyStore(for: alternateProfile.id)
         defaultStore.clearHistory()
