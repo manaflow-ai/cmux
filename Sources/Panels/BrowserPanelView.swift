@@ -513,6 +513,14 @@ struct BrowserPanelView: View {
                 refreshSuggestions()
             }
         }
+        .onChange(of: isVisibleInUI) { visibleInUI in
+            guard !visibleInUI else { return }
+            // The attached WebKit inspector close button can hide DevTools without
+            // touching BrowserPanel's persisted intent. Capture the actual inspector
+            // visibility before the surface detaches so switching away and back
+            // does not resurrect a manually closed inspector.
+            panel.syncDeveloperToolsPreferenceFromInspector()
+        }
         .onChange(of: isFocused) { focused in
 #if DEBUG
             logBrowserFocusState(
@@ -5689,6 +5697,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         coordinator.lastPortalHostId = nil
         coordinator.lastSynchronizedHostGeometryRevision = 0
         if didAttachWebViewToLocalHost {
+            panel.noteDeveloperToolsHostAttached()
             panel.restoreDeveloperToolsAfterAttachIfNeeded()
             webView.needsLayout = true
             webView.layoutSubtreeIfNeeded()
@@ -5702,6 +5711,7 @@ struct WebViewRepresentable: NSViewRepresentable {
                 host.scheduleHostedInspectorDockConfigurationSync(reason: "localInline.update.async")
             }
         } else {
+            panel.consumeAttachedDeveloperToolsManualCloseIfNeeded()
             host.scheduleHostedInspectorDockConfigurationSync(reason: "localInline.update")
         }
 
