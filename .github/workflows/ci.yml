@@ -197,11 +197,9 @@ jobs:
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_version_memory_guard.py
 
   tests-ui:
-    # XCUITests require full GUI session; WarpBuild VMs cannot activate apps
-    # (stuck in "Running Background"). Use GitHub-hosted runners instead.
-    # Fork guard needed for GhosttyKit download (private repo release).
+    # Never run WarpBuild jobs for fork pull requests (avoid billing on external PRs).
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: macos-15
+    runs-on: warp-macos-15-arm64-6x
     timeout-minutes: 20
     steps:
       - name: Checkout
@@ -212,16 +210,17 @@ jobs:
       - name: Select Xcode
         run: |
           set -euo pipefail
-          XCODE_APP="$(ls -d /Applications/Xcode_*.app 2>/dev/null | sort | tail -n 1 || true)"
-          if [ -z "$XCODE_APP" ]; then
-            XCODE_APP="/Applications/Xcode.app"
+          if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
+            XCODE_DIR="/Applications/Xcode.app/Contents/Developer"
+          else
+            XCODE_APP="$(ls -d /Applications/Xcode*.app 2>/dev/null | sort | tail -n 1 || true)"
+            if [ -n "$XCODE_APP" ]; then
+              XCODE_DIR="$XCODE_APP/Contents/Developer"
+            else
+              echo "No Xcode.app found under /Applications" >&2
+              exit 1
+            fi
           fi
-          XCODE_DIR="$XCODE_APP/Contents/Developer"
-          if [ ! -d "$XCODE_DIR" ]; then
-            echo "No Xcode found under /Applications" >&2
-            exit 1
-          fi
-          echo "Selected: $XCODE_APP"
           echo "DEVELOPER_DIR=$XCODE_DIR" >> "$GITHUB_ENV"
           export DEVELOPER_DIR="$XCODE_DIR"
           xcodebuild -version
@@ -244,6 +243,25 @@ jobs:
             sudo cp -rf /tmp/zig-aarch64-macos-${ZIG_REQUIRED}/lib /usr/local/lib/zig
             export PATH="/usr/local/bin:$PATH"
             zig version
+          fi
+
+      - name: Grant UI test automation permissions
+        run: |
+          set -euo pipefail
+          # WarpBuild ephemeral VMs need TCC permissions for XCUITest to
+          # activate apps (otherwise stuck in "Running Background").
+          # Grant accessibility + automation for Xcode and XCTest processes.
+          TCC_DB="/Library/Application Support/com.apple.TCC/TCC.db"
+          if [ -f "$TCC_DB" ]; then
+            for service in kTCCServiceAccessibility kTCCServicePostEvent kTCCServiceScreenCapture; do
+              for client in com.apple.dt.Xcode com.apple.dt.XCTest.XCTestRunner; do
+                sudo sqlite3 "$TCC_DB" \
+                  "INSERT OR REPLACE INTO access (service, client, client_type, auth_value, auth_reason, auth_version) VALUES ('$service', '$client', 0, 2, 4, 1);" 2>/dev/null || true
+              done
+            done
+            echo "TCC permissions granted"
+          else
+            echo "TCC database not found, skipping"
           fi
 
       - name: Clean DerivedData
