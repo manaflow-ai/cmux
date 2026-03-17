@@ -16,10 +16,14 @@ struct WorkspaceContentView: View {
         _ notificationPayloadHex: String?
     ) -> Void)?
     @State private var config = WorkspaceContentView.resolveGhosttyAppearanceConfig(reason: "stateInit")
-    @AppStorage(WorkspaceTitlebarSettings.showTitlebarKey)
-    private var showWorkspaceTitlebar = WorkspaceTitlebarSettings.defaultShowTitlebar
+    @AppStorage(WorkspacePresentationModeSettings.modeKey)
+    private var workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
     @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject var notificationStore: TerminalNotificationStore
+
+    private var isMinimalMode: Bool {
+        WorkspacePresentationModeSettings.mode(for: workspacePresentationMode) == .minimal
+    }
 
     static func panelVisibleInUI(
         isWorkspaceVisible: Bool,
@@ -151,11 +155,11 @@ struct WorkspaceContentView: View {
         }
 
         Group {
-            if showWorkspaceTitlebar {
-                bonsplitView
-            } else {
+            if isMinimalMode {
                 bonsplitView
                     .ignoresSafeArea(.container, edges: .top)
+            } else {
+                bonsplitView
             }
         }
     }

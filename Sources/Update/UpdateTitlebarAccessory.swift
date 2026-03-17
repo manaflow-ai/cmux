@@ -256,9 +256,8 @@ struct TitlebarControlsView: View {
     let onToggleSidebar: () -> Void
     let onToggleNotifications: () -> Void
     let onNewTab: () -> Void
+    let visibilityMode: TitlebarControlsVisibilityMode
     @AppStorage("titlebarControlsStyle") private var styleRawValue = TitlebarControlsStyle.classic.rawValue
-    @AppStorage(WorkspaceButtonFadeSettings.modeKey)
-    private var workspaceButtonsFadeMode = WorkspaceButtonFadeSettings.defaultMode.rawValue
     @AppStorage(ShortcutHintDebugSettings.titlebarHintXKey) private var titlebarShortcutHintXOffset = ShortcutHintDebugSettings.defaultTitlebarHintX
     @AppStorage(ShortcutHintDebugSettings.titlebarHintYKey) private var titlebarShortcutHintYOffset = ShortcutHintDebugSettings.defaultTitlebarHintY
     @AppStorage(ShortcutHintDebugSettings.alwaysShowHintsKey) private var alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
@@ -299,12 +298,8 @@ struct TitlebarControlsView: View {
         alwaysShowShortcutHints || modifierKeyMonitor.isModifierPressed
     }
 
-    private var fadeButtonsEnabled: Bool {
-        WorkspaceButtonFadeSettings.mode(for: workspaceButtonsFadeMode) == .enabled
-    }
-
     private var shouldShowControls: Bool {
-        if !fadeButtonsEnabled {
+        if visibilityMode == .alwaysVisible {
             return true
         }
         return isHoveringControls || isNotificationsPopoverShown || shouldShowTitlebarShortcutHints
@@ -570,10 +565,16 @@ struct HiddenTitlebarSidebarControlsView: View {
                     anchorView: viewModel.notificationsAnchorView
                 )
             },
-            onNewTab: { _ = AppDelegate.shared?.tabManager?.addTab() }
+            onNewTab: { _ = AppDelegate.shared?.tabManager?.addTab() },
+            visibilityMode: .onHover
         )
         .frame(width: hostWidth, height: hostHeight, alignment: .leading)
     }
+}
+
+enum TitlebarControlsVisibilityMode {
+    case alwaysVisible
+    case onHover
 }
 
 @MainActor
@@ -782,7 +783,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
     private let viewModel = TitlebarControlsViewModel()
     private var userDefaultsObserver: NSObjectProtocol?
     var popoverIsShownForTesting: Bool { notificationsPopover.isShown }
-    private var showWorkspaceTitlebar: Bool { WorkspaceTitlebarSettings.isVisible() }
+    private var showsWorkspaceTitlebar: Bool { !WorkspacePresentationModeSettings.isMinimal() }
 
     init(notificationStore: TerminalNotificationStore) {
         self.notificationStore = notificationStore
@@ -796,7 +797,8 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
                 viewModel: viewModel,
                 onToggleSidebar: toggleSidebar,
                 onToggleNotifications: toggleNotifications,
-                onNewTab: newTab
+                onNewTab: newTab,
+                visibilityMode: .alwaysVisible
             )
         )
 
@@ -868,7 +870,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
 
     private func updateSize() {
         applyWorkspaceTitlebarVisibility()
-        guard showWorkspaceTitlebar else { return }
+        guard showsWorkspaceTitlebar else { return }
         let contentSize: NSSize
         if fittingSizeNeedsRefresh || cachedFittingSize == nil {
             hostingView.invalidateIntrinsicContentSize()
@@ -902,7 +904,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
     }
 
     private func applyWorkspaceTitlebarVisibility() {
-        let shouldShow = showWorkspaceTitlebar
+        let shouldShow = showsWorkspaceTitlebar
         view.isHidden = !shouldShow
         if !shouldShow {
             preferredContentSize = .zero
@@ -1293,7 +1295,7 @@ final class UpdateTitlebarAccessoryController {
 
         pendingAttachRetries.removeValue(forKey: ObjectIdentifier(window))
 
-        guard WorkspaceTitlebarSettings.isVisible() else {
+        guard !WorkspacePresentationModeSettings.isMinimal() else {
             removeAccessoryIfPresent(from: window)
             return
         }

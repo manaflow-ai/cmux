@@ -1951,11 +1951,15 @@ struct ContentView: View {
     /// Space at top of content area for the titlebar. This must be at least the actual titlebar
     /// height; otherwise controls like Bonsplit tab dragging can be interpreted as window drags.
     @State private var titlebarPadding: CGFloat = 32
-    @AppStorage(WorkspaceTitlebarSettings.showTitlebarKey)
-    private var showWorkspaceTitlebar = WorkspaceTitlebarSettings.defaultShowTitlebar
+    @AppStorage(WorkspacePresentationModeSettings.modeKey)
+    private var workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
+
+    private var isMinimalMode: Bool {
+        WorkspacePresentationModeSettings.mode(for: workspacePresentationMode) == .minimal
+    }
 
     private var effectiveTitlebarPadding: CGFloat {
-        showWorkspaceTitlebar ? titlebarPadding : 0
+        isMinimalMode ? 0 : titlebarPadding
     }
 
     private var terminalContent: some View {
@@ -2012,7 +2016,7 @@ struct ContentView: View {
         }
         .padding(.top, effectiveTitlebarPadding)
         .overlay(alignment: .top) {
-            if showWorkspaceTitlebar {
+            if !isMinimalMode {
                 // Titlebar overlay is only over terminal content, not the sidebar.
                 customTitlebar
             }
@@ -2054,7 +2058,8 @@ struct ContentView: View {
                     anchorView: fullscreenControlsViewModel.notificationsAnchorView
                 )
             },
-            onNewTab: { tabManager.addTab() }
+            onNewTab: { tabManager.addTab() },
+            visibilityMode: .alwaysVisible
         )
     }
 
@@ -2232,7 +2237,7 @@ struct ContentView: View {
             contentAndSidebarLayout
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .overlay(alignment: .topLeading) {
-                    if isFullScreen && sidebarState.isVisible && showWorkspaceTitlebar {
+                    if isFullScreen && sidebarState.isVisible && !isMinimalMode {
                         fullscreenControls
                             .padding(.leading, 10)
                             .padding(.top, 4)
@@ -7773,13 +7778,17 @@ struct VerticalTabsSidebar: View {
     private var sidebarHideAllDetails = SidebarWorkspaceDetailSettings.defaultHideAllDetails
     @AppStorage(SidebarWorkspaceDetailSettings.showNotificationMessageKey)
     private var sidebarShowNotificationMessage = SidebarWorkspaceDetailSettings.defaultShowNotificationMessage
-    @AppStorage(WorkspaceTitlebarSettings.showTitlebarKey)
-    private var showWorkspaceTitlebar = WorkspaceTitlebarSettings.defaultShowTitlebar
+    @AppStorage(WorkspacePresentationModeSettings.modeKey)
+    private var workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
 
     /// Space at top of sidebar for traffic light buttons
     private let trafficLightPadding: CGFloat = 28
     private let tabRowSpacing: CGFloat = 2
     private let hiddenTitlebarControlsLeadingInset: CGFloat = 72
+
+    private var isMinimalMode: Bool {
+        WorkspacePresentationModeSettings.mode(for: workspacePresentationMode) == .minimal
+    }
 
     private var showsSidebarNotificationMessage: Bool {
         SidebarWorkspaceDetailSettings.resolvedNotificationMessageVisibility(
@@ -7868,7 +7877,7 @@ struct VerticalTabsSidebar: View {
                         .frame(height: trafficLightPadding)
                 }
                 .overlay(alignment: .topLeading) {
-                    if !showWorkspaceTitlebar {
+                    if isMinimalMode {
                         HiddenTitlebarSidebarControlsView(notificationStore: notificationStore)
                             .padding(.leading, hiddenTitlebarControlsLeadingInset)
                             .padding(.top, 2)
