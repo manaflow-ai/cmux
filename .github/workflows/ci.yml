@@ -196,8 +196,11 @@ jobs:
 
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_version_memory_guard.py
 
-  tests-ui:
-    # Never run WarpBuild jobs for fork pull requests (avoid billing on external PRs).
+  tests-build-and-lag:
+    # Build the full cmux scheme and run the lag regression on WarpBuild.
+    # XCUITests cannot run on WarpBuild (Virtualization.framework limitation:
+    # XCUIApplication stuck "Running Background", 62s activation timeout per
+    # test). Interactive UI tests run via test-e2e.yml on GitHub-hosted runners.
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: warp-macos-15-arm64-6x
     timeout-minutes: 20
@@ -245,34 +248,6 @@ jobs:
             zig version
           fi
 
-      - name: Enable UI test automation permissions
-        run: |
-          set -euo pipefail
-          # Grant TCC permissions for XCUITest following CircleCI's proven approach:
-          # 1. Xcode Helper needs kTCCServiceAccessibility (UI automation)
-          # 2. Terminal needs kTCCServiceDeveloperTool (process control)
-          # Both system and user-level TCC databases must be updated.
-          # Ref: https://github.com/CircleCI-Public/macos-orb/blob/main/src/scripts/add-uitest-permissions.sh
-          if ! csrutil status | grep -q 'disabled'; then
-            echo "WARNING: SIP is enabled, TCC modifications may not take effect"
-          fi
-
-          EPOCHDATE=$(($(date +%s) * 1000))
-          SYSTEM_DB="/Library/Application Support/com.apple.TCC/TCC.db"
-          USER_DB="$HOME/Library/Application Support/com.apple.TCC/TCC.db"
-
-          TCC_ACCESSIBILITY="REPLACE INTO access (service,client,client_type,auth_value,auth_reason,auth_version,indirect_object_identifier,flags,last_modified) VALUES ('kTCCServiceAccessibility','com.apple.dt.Xcode-Helper',0,2,1,1,'UNUSED',0,$EPOCHDATE);"
-          TCC_DEVTOOL="REPLACE INTO access (service,client,client_type,auth_value,auth_reason,auth_version,indirect_object_identifier,flags,last_modified) VALUES ('kTCCServiceDeveloperTool','com.apple.Terminal',0,2,1,1,'UNUSED',0,$EPOCHDATE);"
-
-          for db in "$SYSTEM_DB" "$USER_DB"; do
-            if [ -f "$db" ]; then
-              sudo sqlite3 "$db" "$TCC_ACCESSIBILITY" && echo "Accessibility granted in $(basename $(dirname "$db"))"
-              sudo sqlite3 "$db" "$TCC_DEVTOOL" && echo "DeveloperTool granted in $(basename $(dirname "$db"))"
-            fi
-          done
-
-          sudo DevToolsSecurity -enable 2>/dev/null || true
-
       - name: Clean DerivedData
         run: rm -rf ~/Library/Developer/Xcode/DerivedData/GhosttyTabs-*
 
@@ -280,8 +255,8 @@ jobs:
         uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4
         with:
           path: .ci-source-packages
-          key: spm-ui-${{ hashFiles('GhosttyTabs.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
-          restore-keys: spm-ui-
+          key: spm-build-${{ hashFiles('GhosttyTabs.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: spm-build-
 
       - name: Resolve Swift packages
         run: |
@@ -303,6 +278,15 @@ jobs:
             sleep $((attempt * 5))
           done
 
+      - name: Build app
+        run: |
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+            -disableAutomaticPackageResolution \
+            -destination "platform=macOS" build
+
       - name: Create virtual display
         run: |
           set -euo pipefail
@@ -312,42 +296,6 @@ jobs:
           VDISPLAY_PID=$!
           echo "VDISPLAY_PID=$VDISPLAY_PID" >> "$GITHUB_ENV"
           sleep 3
-
-      - name: Run UI tests
-        run: |
-          set -euo pipefail
-          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
-          # WarpBuild VMs cannot activate macOS GUI apps (Virtualization.framework
-          # limitation: XCUIApplication stays "Running Background"). Tests still
-          # execute and report expected failures via XCTExpectFailure. The 15s
-          # per-test timeout prevents each expected failure from burning 62s on
-          # the activation timeout. For full interactive UI test runs, use
-          # test-e2e.yml which runs on GitHub-hosted runners with display support.
-          #
-          # SidebarResizeUITests hangs on headless runners (mouse drag simulation
-          # doesn't work without a physical display, even with virtual display).
-          set +eo pipefail
-          xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug \
-            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
-            -disableAutomaticPackageResolution \
-            -destination "platform=macOS" \
-            -maximum-test-execution-time-allowance 15 \
-            -only-testing:cmuxUITests \
-            -skip-testing:cmuxUITests/SidebarResizeUITests test 2>&1 \
-            | tee /tmp/ui-test-output.txt
-          EXIT_CODE=${PIPESTATUS[0]}
-          set -eo pipefail
-
-          # xcodebuild exits 65 even for expected failures (XCTExpectFailure).
-          if [ "$EXIT_CODE" -ne 0 ]; then
-            SUMMARY=$(grep "Executed.*tests.*with.*failures" /tmp/ui-test-output.txt | tail -1)
-            if echo "$SUMMARY" | grep -q "(0 unexpected)"; then
-              echo "All failures are expected, treating as pass"
-            else
-              echo "Unexpected test failures detected"
-              exit 1
-            fi
-          fi
 
       - name: Run workspace churn typing-lag regression
         run: |
