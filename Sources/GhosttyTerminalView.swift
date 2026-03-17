@@ -1708,6 +1708,7 @@ class GhosttyApp {
     }
 
     private func loadDefaultConfigFilesWithLegacyFallback(_ config: ghostty_config_t) {
+        loadClassicLightThemeIfNeeded(config)
         ghostty_config_load_default_files(config)
         loadLegacyGhosttyConfigIfNeeded(config)
         ghostty_config_load_recursive_files(config)
