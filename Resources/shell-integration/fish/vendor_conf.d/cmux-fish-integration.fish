@@ -219,6 +219,11 @@ function _cmux_report_pr_for_path --description "Run gh pr view and send result 
 
     set -l gh_output ""
     cd $repo_path 2>/dev/null
+    if test $status -ne 0
+        _cmux_clear_pr_for_panel
+        /bin/rm -f -- $err_file >/dev/null 2>&1; or true
+        return 1
+    end
     set gh_output (gh pr view \
         --json number,state,url \
         --jq '[.number, .state, .url] | @tsv' \
@@ -362,6 +367,7 @@ set -x CMUX_SOCKET_PATH '$escaped_socket'
 set -x CMUX_TAB_ID '$tab_id'
 set -x CMUX_PANEL_ID '$panel_id'
 set -x CMUX_SHELL_INTEGRATION 1
+source '$escaped_integration'
 set -l watch_pwd '$escaped_pwd'
 set -l interval $interval
 set -l watch_shell_pid $watch_shell_pid
@@ -384,10 +390,7 @@ _cmux_report_pr_for_path '$escaped_pwd'
         sleep 1
         set -l now (date +%s)
         if test \$async_timeout -gt 0; and test (math \$now - \$started_at) -ge \$async_timeout
-            for child in (pgrep -P \$probe_pid 2>/dev/null)
-                kill -9 \$child >/dev/null 2>&1; or true
-            end
-            kill -9 \$probe_pid >/dev/null 2>&1; or true
+            _cmux_kill_process_tree \$probe_pid KILL
             set timed_out 1
             break
         end
@@ -489,7 +492,8 @@ function _cmux_fish_prompt --description "Prompt hook before prompt is drawn" --
         if test -n "$head_signature" -a "$head_signature" != "$_CMUX_GIT_HEAD_SIGNATURE"
             set -g _CMUX_GIT_HEAD_SIGNATURE $head_signature
             set git_head_changed 1
-            # Also invalidate the PR poller so it refreshes with the new branch.
+            # Force both git and PR probes to refresh immediately.
+            set -g _CMUX_GIT_FORCE 1
             set -g _CMUX_PR_FORCE 1
         end
     end
