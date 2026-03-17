@@ -855,6 +855,27 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
     }
 
+    func testWorkspaceMinimalModeDefaultsToStandardPresentation() {
+        let defaults = UserDefaults.standard
+        let savedMode = defaults.object(forKey: WorkspacePresentationModeSettings.modeKey)
+        let savedLegacyTitlebar = defaults.object(forKey: WorkspaceTitlebarSettings.showTitlebarKey)
+        let savedLegacyFade = defaults.object(forKey: WorkspaceButtonFadeSettings.modeKey)
+        defer {
+            restoreDefaultsValue(savedMode, forKey: WorkspacePresentationModeSettings.modeKey, defaults: defaults)
+            restoreDefaultsValue(savedLegacyTitlebar, forKey: WorkspaceTitlebarSettings.showTitlebarKey, defaults: defaults)
+            restoreDefaultsValue(savedLegacyFade, forKey: WorkspaceButtonFadeSettings.modeKey, defaults: defaults)
+        }
+
+        defaults.removeObject(forKey: WorkspacePresentationModeSettings.modeKey)
+        defaults.set(false, forKey: WorkspaceTitlebarSettings.showTitlebarKey)
+        defaults.set(WorkspaceButtonFadeSettings.Mode.enabled.rawValue, forKey: WorkspaceButtonFadeSettings.modeKey)
+
+        XCTAssertEqual(
+            WorkspacePresentationModeSettings.mode(defaults: defaults),
+            .standard
+        )
+    }
+
     func testKeyboardShortcutSettingsSetShortcutPostsSpecificChangeNotification() {
         let notificationName = Notification.Name("cmux.keyboardShortcutSettingsDidChange")
         let expectedAction = KeyboardShortcutSettings.Action.toggleSidebar.rawValue
