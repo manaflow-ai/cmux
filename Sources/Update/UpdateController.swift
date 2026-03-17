@@ -27,10 +27,10 @@ class UpdateController {
     }
 
     init() {
-        // Default to manual update checks. This also prevents Sparkle from prompting at startup.
+        // cmux checks for updates in the background, but keeps automatic download and
+        // profile submission disabled so all install intent stays user-driven.
         let defaults = UserDefaults.standard
         defaults.register(defaults: [
-            "SUEnableAutomaticChecks": false,
             "SUSendProfileInfo": false,
             "SUAutomaticallyUpdate": false,
         ])
@@ -59,8 +59,8 @@ class UpdateController {
         guard !didStartUpdater else { return }
         ensureSparkleInstallationCache()
 #if DEBUG
-        // UI tests need to exercise Sparkle's permission request deterministically.
-        // Clearing these defaults causes Sparkle to re-request permission on next start.
+        // Keep the permission-related defaults resettable for UI tests even though the
+        // delegate now suppresses Sparkle's permission UI entirely.
         if ProcessInfo.processInfo.environment["CMUX_UI_TEST_RESET_SPARKLE_PERMISSION"] == "1" {
             let defaults = UserDefaults.standard
             defaults.removeObject(forKey: "SUEnableAutomaticChecks")
@@ -71,13 +71,9 @@ class UpdateController {
         }
 #endif
         do {
-            // cmux never enables automatic update checks; we rely on the in-app update pill.
-            // Sparkle reads these from defaults, but set them explicitly before starting.
-            let defaults = UserDefaults.standard
-            defaults.set(false, forKey: "SUEnableAutomaticChecks")
-            defaults.set(false, forKey: "SUSendProfileInfo")
-            defaults.set(false, forKey: "SUAutomaticallyUpdate")
-
+            updater.automaticallyChecksForUpdates = true
+            updater.automaticallyDownloadsUpdates = false
+            updater.sendsSystemProfile = false
             try updater.start()
             didStartUpdater = true
         } catch {
@@ -201,7 +197,7 @@ class UpdateController {
     /// Validate the check for updates menu item.
     func validateMenuItem(_ item: NSMenuItem) -> Bool {
         if item.action == #selector(checkForUpdates) {
-            // Always allow user-initiated checks; we start Sparkle lazily on first use.
+            // Always allow user-initiated checks; Sparkle can safely surface current progress.
             return true
         }
         return true

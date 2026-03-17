@@ -6,6 +6,14 @@ enum UpdateTestSupport {
     static func applyIfNeeded(to viewModel: UpdateViewModel) {
         let env = ProcessInfo.processInfo.environment
         guard env["CMUX_UI_TEST_MODE"] == "1" else { return }
+
+        if let detectedVersion = env["CMUX_UI_TEST_DETECTED_UPDATE_VERSION"],
+           !detectedVersion.isEmpty {
+            DispatchQueue.main.async {
+                viewModel.detectedUpdateVersion = UpdateViewModel.normalizedDetectedUpdateVersion(from: detectedVersion)
+            }
+        }
+
         guard let state = env["CMUX_UI_TEST_UPDATE_STATE"] else { return }
 
         DispatchQueue.main.async {

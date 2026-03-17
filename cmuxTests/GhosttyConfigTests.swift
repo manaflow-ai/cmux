@@ -47,19 +47,6 @@ final class GhosttyConfigTests: XCTestCase {
         let blue: Int
     }
 
-    private func writeAppSupportConfig(
-        root: URL,
-        bundleIdentifier: String,
-        name: String = "config",
-        contents: String = "font-size = 14\n"
-    ) throws -> URL {
-        let directory = root.appendingPathComponent(bundleIdentifier, isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let url = directory.appendingPathComponent(name, isDirectory: false)
-        try contents.write(to: url, atomically: true, encoding: .utf8)
-        return url
-    }
-
     func testResolveThemeNamePrefersLightEntryForPairedTheme() {
         let resolved = GhosttyConfig.resolveThemeName(
             from: "light:Builtin Solarized Light,dark:Builtin Solarized Dark",
@@ -324,71 +311,84 @@ final class GhosttyConfigTests: XCTestCase {
         )
     }
 
-    func testReleaseAppSupportFallbackLoadsForDebugWhenOnlyReleaseConfigExists() {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-release-config-\(UUID().uuidString)", isDirectory: true)
-        try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+    func testCmuxAppSupportConfigURLsUseReleaseConfigForDebugBundleWithoutCurrentConfig() throws {
+        try withTemporaryAppSupportDirectory { appSupportDirectory in
+            let releaseConfigURL = try writeAppSupportConfig(
+                appSupportDirectory: appSupportDirectory,
+                bundleIdentifier: "com.cmuxterm.app",
+                filename: "config",
+                contents: "font-size = 13\n"
+            )
 
-        let releaseURL = try? writeAppSupportConfig(
-            root: root,
-            bundleIdentifier: "com.cmuxterm.app"
-        )
-
-        XCTAssertEqual(
-            GhosttyApp.cmuxAppSupportConfigURLs(
-                currentBundleIdentifier: "com.cmuxterm.app.debug",
-                appSupportDirectory: root
-            ),
-            [releaseURL].compactMap { $0 }
-        )
+            XCTAssertEqual(
+                GhosttyApp.cmuxAppSupportConfigURLs(
+                    currentBundleIdentifier: "com.cmuxterm.app.debug",
+                    appSupportDirectory: appSupportDirectory
+                ),
+                [releaseConfigURL]
+            )
+        }
     }
 
-    func testReleaseAppSupportFallbackSkipsWhenDebugConfigAlreadyExists() {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-release-config-\(UUID().uuidString)", isDirectory: true)
-        try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+    func testCmuxAppSupportConfigURLsPreferCurrentBundleConfigWhenPresent() throws {
+        try withTemporaryAppSupportDirectory { appSupportDirectory in
+            _ = try writeAppSupportConfig(
+                appSupportDirectory: appSupportDirectory,
+                bundleIdentifier: "com.cmuxterm.app",
+                filename: "config",
+                contents: "font-size = 13\n"
+            )
+            let currentConfigURL = try writeAppSupportConfig(
+                appSupportDirectory: appSupportDirectory,
+                bundleIdentifier: "com.cmuxterm.app.debug.issue-829",
+                filename: "config.ghostty",
+                contents: "font-size = 14\n"
+            )
 
-        _ = try? writeAppSupportConfig(root: root, bundleIdentifier: "com.cmuxterm.app")
-        let debugURL = try? writeAppSupportConfig(
-            root: root,
-            bundleIdentifier: "com.cmuxterm.app.debug.issue-829",
-            name: "config.ghostty"
-        )
-
-        XCTAssertEqual(
-            GhosttyApp.cmuxAppSupportConfigURLs(
-                currentBundleIdentifier: "com.cmuxterm.app.debug.issue-829",
-                appSupportDirectory: root
-            ),
-            [debugURL].compactMap { $0 }
-        )
+            XCTAssertEqual(
+                GhosttyApp.cmuxAppSupportConfigURLs(
+                    currentBundleIdentifier: "com.cmuxterm.app.debug.issue-829",
+                    appSupportDirectory: appSupportDirectory
+                ),
+                [currentConfigURL]
+            )
+        }
     }
 
-    func testReleaseAppSupportFallbackSkipsForNonDebugBundleOrMissingReleaseConfig() {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-release-config-\(UUID().uuidString)", isDirectory: true)
-        try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+    func testCmuxAppSupportConfigURLsSkipReleaseFallbackForNonDebugBundle() throws {
+        try withTemporaryAppSupportDirectory { appSupportDirectory in
+            _ = try writeAppSupportConfig(
+                appSupportDirectory: appSupportDirectory,
+                bundleIdentifier: "com.cmuxterm.app",
+                filename: "config",
+                contents: "font-size = 13\n"
+            )
 
-        _ = try? writeAppSupportConfig(root: root, bundleIdentifier: "com.cmuxterm.app")
+            XCTAssertTrue(
+                GhosttyApp.cmuxAppSupportConfigURLs(
+                    currentBundleIdentifier: "com.example.other-app",
+                    appSupportDirectory: appSupportDirectory
+                ).isEmpty
+            )
+        }
+    }
 
-        XCTAssertEqual(
-            GhosttyApp.cmuxAppSupportConfigURLs(
-                currentBundleIdentifier: "com.cmuxterm.app",
-                appSupportDirectory: root
-            ).count,
-            1
-        )
+    func testCmuxAppSupportConfigURLsIgnoreMissingOrEmptyFiles() throws {
+        try withTemporaryAppSupportDirectory { appSupportDirectory in
+            _ = try writeAppSupportConfig(
+                appSupportDirectory: appSupportDirectory,
+                bundleIdentifier: "com.cmuxterm.app",
+                filename: "config.ghostty",
+                contents: ""
+            )
 
-        XCTAssertEqual(
-            GhosttyApp.cmuxAppSupportConfigURLs(
-                currentBundleIdentifier: "com.cmuxterm.app.debug",
-                appSupportDirectory: root.appendingPathComponent("missing", isDirectory: true)
-            ),
-            []
-        )
+            XCTAssertTrue(
+                GhosttyApp.cmuxAppSupportConfigURLs(
+                    currentBundleIdentifier: "com.cmuxterm.app.debug",
+                    appSupportDirectory: appSupportDirectory
+                ).isEmpty
+            )
+        }
     }
 
     func testDefaultBackgroundUpdateScopePrioritizesSurfaceOverAppAndUnscoped() {
@@ -596,6 +596,33 @@ final class GhosttyConfigTests: XCTestCase {
             green: Int(round(green * 255)),
             blue: Int(round(blue * 255))
         )
+    }
+
+    private func withTemporaryAppSupportDirectory(
+        _ body: (URL) throws -> Void
+    ) throws {
+        let fileManager = FileManager.default
+        let directory = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-app-support-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: directory) }
+        try body(directory)
+    }
+
+    private func writeAppSupportConfig(
+        appSupportDirectory: URL,
+        bundleIdentifier: String,
+        filename: String,
+        contents: String
+    ) throws -> URL {
+        let fileManager = FileManager.default
+        let bundleDirectory = appSupportDirectory
+            .appendingPathComponent(bundleIdentifier, isDirectory: true)
+        try fileManager.createDirectory(at: bundleDirectory, withIntermediateDirectories: true)
+
+        let configURL = bundleDirectory.appendingPathComponent(filename, isDirectory: false)
+        try contents.write(to: configURL, atomically: true, encoding: .utf8)
+        return configURL
     }
 }
 
@@ -1447,6 +1474,7 @@ final class RecentlyClosedBrowserStackTests: XCTestCase {
         ClosedBrowserPanelRestoreSnapshot(
             workspaceId: UUID(),
             url: URL(string: "https://example.com/\(index)"),
+            profileID: nil,
             originalPaneId: UUID(),
             originalTabIndex: index,
             fallbackSplitOrientation: .horizontal,
@@ -2018,6 +2046,157 @@ final class GhosttyMouseFocusTests: XCTestCase {
     }
 }
 
+final class SidebarBackgroundConfigTests: XCTestCase {
+
+    func testParseSidebarBackgroundSingleHex() {
+        var config = GhosttyConfig()
+        config.parse("sidebar-background = #336699")
+        XCTAssertEqual(config.rawSidebarBackground, "#336699")
+    }
+
+    func testParseSidebarBackgroundDualMode() {
+        var config = GhosttyConfig()
+        config.parse("sidebar-background = light:#fbf3db,dark:#103c48")
+        XCTAssertEqual(config.rawSidebarBackground, "light:#fbf3db,dark:#103c48")
+    }
+
+    func testParseSidebarTintOpacity() {
+        var config = GhosttyConfig()
+        config.parse("sidebar-tint-opacity = 0.4")
+        XCTAssertEqual(config.sidebarTintOpacity ?? -1, 0.4, accuracy: 0.0001)
+    }
+
+    func testParseSidebarTintOpacityClampedAboveOne() {
+        var config = GhosttyConfig()
+        config.parse("sidebar-tint-opacity = 1.5")
+        XCTAssertEqual(config.sidebarTintOpacity ?? -1, 1.0, accuracy: 0.0001)
+    }
+
+    func testParseSidebarTintOpacityClampedBelowZero() {
+        var config = GhosttyConfig()
+        config.parse("sidebar-tint-opacity = -0.3")
+        XCTAssertEqual(config.sidebarTintOpacity ?? -1, 0.0, accuracy: 0.0001)
+    }
+
+    func testResolveSidebarBackgroundSingleHex() {
+        var config = GhosttyConfig()
+        config.rawSidebarBackground = "#336699"
+        config.resolveSidebarBackground(preferredColorScheme: .light)
+
+        XCTAssertNotNil(config.sidebarBackground)
+        XCTAssertNil(config.sidebarBackgroundLight)
+        XCTAssertNil(config.sidebarBackgroundDark)
+    }
+
+    func testResolveSidebarBackgroundDualModeSetsLightAndDark() {
+        var config = GhosttyConfig()
+        config.rawSidebarBackground = "light:#fbf3db,dark:#103c48"
+        config.resolveSidebarBackground(preferredColorScheme: .light)
+
+        XCTAssertNotNil(config.sidebarBackgroundLight)
+        XCTAssertNotNil(config.sidebarBackgroundDark)
+        XCTAssertNotNil(config.sidebarBackground)
+    }
+
+    func testResolveSidebarBackgroundNilWhenNoRaw() {
+        var config = GhosttyConfig()
+        config.resolveSidebarBackground(preferredColorScheme: .dark)
+
+        XCTAssertNil(config.sidebarBackground)
+        XCTAssertNil(config.sidebarBackgroundLight)
+        XCTAssertNil(config.sidebarBackgroundDark)
+    }
+
+    func testApplyToUserDefaultsSkipsWritesWhenNoConfig() {
+        let defaults = UserDefaults.standard
+        let testKey = "sidebarTintHex"
+        let original = defaults.string(forKey: testKey)
+        defer { restoreDefaultsValue(original, key: testKey, defaults: defaults) }
+
+        defaults.set("#AAAAAA", forKey: testKey)
+
+        var config = GhosttyConfig()
+        config.applySidebarAppearanceToUserDefaults()
+
+        XCTAssertEqual(defaults.string(forKey: testKey), "#AAAAAA",
+                       "Should not overwrite UserDefaults when rawSidebarBackground is nil")
+    }
+
+    func testApplyToUserDefaultsWritesHexWhenConfigSet() {
+        let defaults = UserDefaults.standard
+        let keys = ["sidebarTintHex", "sidebarTintHexLight", "sidebarTintHexDark"]
+        let originals = keys.map { defaults.object(forKey: $0) }
+        defer {
+            for (key, original) in zip(keys, originals) {
+                restoreDefaultsValue(original, key: key, defaults: defaults)
+            }
+        }
+
+        var config = GhosttyConfig()
+        config.rawSidebarBackground = "#336699"
+        config.resolveSidebarBackground(preferredColorScheme: .light)
+        config.applySidebarAppearanceToUserDefaults()
+
+        XCTAssertEqual(defaults.string(forKey: "sidebarTintHex"), "#336699")
+        XCTAssertNil(defaults.string(forKey: "sidebarTintHexLight"))
+        XCTAssertNil(defaults.string(forKey: "sidebarTintHexDark"))
+    }
+
+    func testApplyToUserDefaultsClearsStaleKeysOnSwitchFromDualToSingle() {
+        let defaults = UserDefaults.standard
+        let keys = ["sidebarTintHex", "sidebarTintHexLight", "sidebarTintHexDark"]
+        let originals = keys.map { defaults.object(forKey: $0) }
+        defer {
+            for (key, original) in zip(keys, originals) {
+                restoreDefaultsValue(original, key: key, defaults: defaults)
+            }
+        }
+
+        defaults.set("#AAAAAA", forKey: "sidebarTintHexLight")
+        defaults.set("#BBBBBB", forKey: "sidebarTintHexDark")
+
+        var config = GhosttyConfig()
+        config.rawSidebarBackground = "#222222"
+        config.resolveSidebarBackground(preferredColorScheme: .light)
+        config.applySidebarAppearanceToUserDefaults()
+
+        XCTAssertEqual(defaults.string(forKey: "sidebarTintHex"), "#222222")
+        XCTAssertNil(defaults.string(forKey: "sidebarTintHexLight"),
+                     "Stale light key should be cleared")
+        XCTAssertNil(defaults.string(forKey: "sidebarTintHexDark"),
+                     "Stale dark key should be cleared")
+    }
+
+    func testApplyToUserDefaultsOnlyWritesOpacityWhenExplicit() {
+        let defaults = UserDefaults.standard
+        let keys = ["sidebarTintHex", "sidebarTintHexLight", "sidebarTintHexDark", "sidebarTintOpacity"]
+        let originals = keys.map { defaults.object(forKey: $0) }
+        defer {
+            for (key, original) in zip(keys, originals) {
+                restoreDefaultsValue(original, key: key, defaults: defaults)
+            }
+        }
+
+        defaults.set(0.18, forKey: "sidebarTintOpacity")
+
+        var config = GhosttyConfig()
+        config.rawSidebarBackground = "#336699"
+        config.resolveSidebarBackground(preferredColorScheme: .light)
+        config.applySidebarAppearanceToUserDefaults()
+
+        XCTAssertEqual(defaults.double(forKey: "sidebarTintOpacity"), 0.18, accuracy: 0.0001,
+                       "Should not overwrite opacity when config doesn't set sidebar-tint-opacity")
+    }
+
+    private func restoreDefaultsValue(_ value: Any?, key: String, defaults: UserDefaults) {
+        if let value = value {
+            defaults.set(value, forKey: key)
+        } else {
+            defaults.removeObject(forKey: key)
+        }
+    }
+}
+
 final class ZshShellIntegrationHandoffTests: XCTestCase {
     func testGhosttyPromptHooksLoadWhenCmuxRequestsZshIntegration() throws {
         let output = try runInteractiveZsh(cmuxLoadGhosttyIntegration: true)
@@ -2131,5 +2310,234 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
 
         XCTAssertEqual(process.terminationStatus, 0, error)
         return output.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+final class BrowserInstallDetectorTests: XCTestCase {
+    func testDetectInstalledBrowsersUsesBundleIdAndProfileData() throws {
+        let home = makeTemporaryHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        try createFile(
+            at: home
+                .appendingPathComponent("Library/Application Support/Google/Chrome/Default/History"),
+            contents: Data()
+        )
+        try createFile(
+            at: home
+                .appendingPathComponent("Library/Application Support/Firefox/Profiles/dev.default-release/cookies.sqlite"),
+            contents: Data()
+        )
+
+        let detected = InstalledBrowserDetector.detectInstalledBrowsers(
+            homeDirectoryURL: home,
+            bundleLookup: { bundleIdentifier in
+                if bundleIdentifier == "com.google.Chrome" {
+                    return URL(fileURLWithPath: "/Applications/Google Chrome.app", isDirectory: true)
+                }
+                return nil
+            },
+            applicationSearchDirectories: []
+        )
+
+        guard let chrome = detected.first(where: { $0.descriptor.id == "google-chrome" }) else {
+            XCTFail("Expected Chrome to be detected")
+            return
+        }
+        guard let firefox = detected.first(where: { $0.descriptor.id == "firefox" }) else {
+            XCTFail("Expected Firefox to be detected from profile data")
+            return
+        }
+
+        XCTAssertNotNil(chrome.appURL)
+        XCTAssertEqual(firefox.profileURLs.count, 1)
+        XCTAssertNil(firefox.appURL)
+    }
+
+    func testDetectInstalledBrowsersReturnsEmptyWhenNoSignalsExist() throws {
+        let home = makeTemporaryHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let detected = InstalledBrowserDetector.detectInstalledBrowsers(
+            homeDirectoryURL: home,
+            bundleLookup: { _ in nil },
+            applicationSearchDirectories: []
+        )
+
+        XCTAssertTrue(detected.isEmpty)
+    }
+
+    func testUngoogledChromiumRequiresAppSignal() throws {
+        let home = makeTemporaryHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        try createFile(
+            at: home
+                .appendingPathComponent("Library/Application Support/Chromium/Default/History"),
+            contents: Data()
+        )
+
+        let detected = InstalledBrowserDetector.detectInstalledBrowsers(
+            homeDirectoryURL: home,
+            bundleLookup: { _ in nil },
+            applicationSearchDirectories: []
+        )
+
+        XCTAssertTrue(detected.contains(where: { $0.descriptor.id == "chromium" }))
+        XCTAssertFalse(detected.contains(where: { $0.descriptor.id == "ungoogled-chromium" }))
+    }
+
+    func testDetectInstalledBrowsersDiscoversHeliumProfilesFromChromiumLayout() throws {
+        let home = makeTemporaryHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let heliumRoot = home.appendingPathComponent("Library/Application Support/net.imput.helium", isDirectory: true)
+        try createFile(
+            at: heliumRoot.appendingPathComponent("Default/History"),
+            contents: Data()
+        )
+        try createFile(
+            at: heliumRoot.appendingPathComponent("Profile 1/Cookies"),
+            contents: Data()
+        )
+        try createFile(
+            at: heliumRoot.appendingPathComponent("Local State"),
+            contents: Data(
+                """
+                {
+                  "profile": {
+                    "info_cache": {
+                      "Default": {
+                        "name": "Personal"
+                      },
+                      "Profile 1": {
+                        "name": "Work"
+                      }
+                    }
+                  }
+                }
+                """.utf8
+            )
+        )
+
+        let detected = InstalledBrowserDetector.detectInstalledBrowsers(
+            homeDirectoryURL: home,
+            bundleLookup: { _ in nil },
+            applicationSearchDirectories: []
+        )
+
+        guard let helium = detected.first(where: { $0.descriptor.id == "helium" }) else {
+            XCTFail("Expected Helium to be detected")
+            return
+        }
+
+        XCTAssertEqual(helium.family, .chromium)
+        XCTAssertEqual(helium.profiles.map(\.displayName), ["Personal", "Work"])
+        XCTAssertEqual(
+            helium.profiles.map(\.rootURL.lastPathComponent),
+            ["Default", "Profile 1"]
+        )
+    }
+
+    func testDetectInstalledBrowsersDiscoversSafariProfiles() throws {
+        let home = makeTemporaryHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        try createFile(
+            at: home.appendingPathComponent("Library/Safari/History.db"),
+            contents: Data()
+        )
+        try createFile(
+            at: home.appendingPathComponent(
+                "Library/Safari/Profiles/Work/History.db"
+            ),
+            contents: Data()
+        )
+        try createFile(
+            at: home.appendingPathComponent(
+                "Library/Containers/com.apple.Safari/Data/Library/Safari/Profiles/Travel/History.db"
+            ),
+            contents: Data()
+        )
+
+        let detected = InstalledBrowserDetector.detectInstalledBrowsers(
+            homeDirectoryURL: home,
+            bundleLookup: { _ in nil },
+            applicationSearchDirectories: []
+        )
+
+        guard let safari = detected.first(where: { $0.descriptor.id == "safari" }) else {
+            XCTFail("Expected Safari to be detected")
+            return
+        }
+
+        XCTAssertEqual(safari.profiles.map(\.displayName), ["Default", "Work", "Travel"])
+        XCTAssertEqual(
+            safari.profiles.map { $0.rootURL.path(percentEncoded: false) }.sorted(),
+            [
+                home.appendingPathComponent("Library/Safari", isDirectory: true).path(percentEncoded: false),
+                home.appendingPathComponent("Library/Safari/Profiles/Work", isDirectory: true).path(percentEncoded: false),
+                home.appendingPathComponent(
+                    "Library/Containers/com.apple.Safari/Data/Library/Safari/Profiles/Travel",
+                    isDirectory: true
+                ).path(percentEncoded: false),
+            ].sorted()
+        )
+    }
+
+    private func makeTemporaryHome() -> URL {
+        FileManager.default.temporaryDirectory.appendingPathComponent("cmux-browser-detect-\(UUID().uuidString)")
+    }
+
+    private func createFile(at url: URL, contents: Data) throws {
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        _ = FileManager.default.createFile(atPath: url.path, contents: contents)
+    }
+}
+
+final class BrowserImportScopeTests: XCTestCase {
+    func testFromSelectionCookiesOnly() {
+        let scope = BrowserImportScope.fromSelection(
+            includeCookies: true,
+            includeHistory: false,
+            includeAdditionalData: false
+        )
+        XCTAssertEqual(scope, .cookiesOnly)
+    }
+
+    func testFromSelectionHistoryOnly() {
+        let scope = BrowserImportScope.fromSelection(
+            includeCookies: false,
+            includeHistory: true,
+            includeAdditionalData: false
+        )
+        XCTAssertEqual(scope, .historyOnly)
+    }
+
+    func testFromSelectionCookiesAndHistory() {
+        let scope = BrowserImportScope.fromSelection(
+            includeCookies: true,
+            includeHistory: true,
+            includeAdditionalData: false
+        )
+        XCTAssertEqual(scope, .cookiesAndHistory)
+    }
+
+    func testFromSelectionEverything() {
+        let scope = BrowserImportScope.fromSelection(
+            includeCookies: false,
+            includeHistory: false,
+            includeAdditionalData: true
+        )
+        XCTAssertEqual(scope, .everything)
+    }
+
+    func testFromSelectionRejectsEmptySelection() {
+        let scope = BrowserImportScope.fromSelection(
+            includeCookies: false,
+            includeHistory: false,
+            includeAdditionalData: false
+        )
+        XCTAssertNil(scope)
     }
 }

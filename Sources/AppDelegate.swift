@@ -368,13 +368,24 @@ enum FinderServicePathResolver {
         return canonical
     }
 
+    private static func resolvedDirectoryURL(from url: URL) -> URL {
+        let standardized = url.standardizedFileURL
+        if standardized.hasDirectoryPath {
+            return standardized
+        }
+        if let resourceValues = try? standardized.resourceValues(forKeys: [.isDirectoryKey]),
+           resourceValues.isDirectory == true {
+            return standardized
+        }
+        return standardized.deletingLastPathComponent()
+    }
+
     static func orderedUniqueDirectories(from pathURLs: [URL]) -> [String] {
         var seen: Set<String> = []
         var directories: [String] = []
 
         for url in pathURLs {
-            let standardized = url.standardizedFileURL
-            let directoryURL = standardized.hasDirectoryPath ? standardized : standardized.deletingLastPathComponent()
+            let directoryURL = resolvedDirectoryURL(from: url)
             let path = canonicalDirectoryPath(directoryURL.path(percentEncoded: false))
             guard !path.isEmpty else { continue }
             if seen.insert(path).inserted {
@@ -1696,6 +1707,32 @@ func shouldRouteTerminalFontZoomShortcutToGhostty(
     ) != nil
 }
 
+@discardableResult
+func startOrFocusTerminalSearch(
+    _ terminalSurface: TerminalSurface,
+    searchFocusNotifier: @escaping (TerminalSurface) -> Void = {
+        NotificationCenter.default.post(name: .ghosttySearchFocus, object: $0)
+    }
+) -> Bool {
+    if terminalSurface.searchState != nil {
+        searchFocusNotifier(terminalSurface)
+        return true
+    }
+
+    if terminalSurface.performBindingAction("start_search") {
+        DispatchQueue.main.async { [weak terminalSurface] in
+            guard let terminalSurface, terminalSurface.searchState == nil else { return }
+            terminalSurface.searchState = TerminalSurface.SearchState()
+            searchFocusNotifier(terminalSurface)
+        }
+        return true
+    }
+
+    terminalSurface.searchState = TerminalSurface.SearchState()
+    searchFocusNotifier(terminalSurface)
+    return true
+}
+
 /// Let AppKit own native Cmd+` window cycling so key-window changes do not
 /// re-enter our direct-to-menu shortcut path.
 func shouldRouteCommandEquivalentDirectlyToMainMenu(_ event: NSEvent) -> Bool {
@@ -2128,6 +2165,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         Self.shared = self
     }
 
+    func application(_ application: NSApplication, open urls: [URL]) {
+        let directories = externalOpenDirectories(from: urls)
+        guard !directories.isEmpty else { return }
+
+        prepareForExplicitOpenIntentAtStartup()
+        for directory in directories {
+            openWorkspaceForExternalDirectory(
+                workingDirectory: directory,
+                debugSource: "application.openURLs"
+            )
+        }
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         let env = ProcessInfo.processInfo.environment
         let isRunningUnderXCTest = isRunningUnderXCTest(env)
@@ -2221,8 +2271,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             configureUserNotifications()
             installMenuBarVisibilityObserver()
             syncMenuBarExtraVisibility()
-            // Sparkle updater is started lazily on first manual check. This avoids any
-            // first-launch permission prompts and keeps cmux aligned with the update pill UI.
+            updateController.startUpdaterIfNeeded()
         }
         titlebarAccessoryController.start()
         windowDecorationsController.start()
@@ -2337,7 +2386,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         stopSocketListenerHealthMonitor()
         TerminalController.shared.stop()
         VSCodeServeWebController.shared.stop()
-        BrowserHistoryStore.shared.flushPendingSaves()
+        BrowserProfileStore.shared.flushPendingSaves()
         if TelemetrySettings.enabledForCurrentLaunch {
             PostHogAnalytics.shared.flush()
         }
@@ -5052,11 +5101,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         target: ServiceOpenTarget,
         error: AutoreleasingUnsafeMutablePointer<NSString>
     ) {
-        didHandleExplicitOpenIntentAtStartup = true
-        if !didAttemptStartupSessionRestore {
-            startupSessionSnapshot = nil
-            didAttemptStartupSessionRestore = true
-        }
+        prepareForExplicitOpenIntentAtStartup()
 
         let pathURLs = servicePathURLs(from: pasteboard)
         guard !pathURLs.isEmpty else {
@@ -5064,7 +5109,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return
         }
 
-        let directories = FinderServicePathResolver.orderedUniqueDirectories(from: pathURLs)
+        let directories = externalOpenDirectories(from: pathURLs)
         guard !directories.isEmpty else {
             error.pointee = Self.serviceErrorNoPath
             return
@@ -5109,10 +5154,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func openWorkspaceFromService(workingDirectory: String) {
+        openWorkspaceForExternalDirectory(
+            workingDirectory: workingDirectory,
+            debugSource: "service.openTab"
+        )
+    }
+
+    private func prepareForExplicitOpenIntentAtStartup() {
+        didHandleExplicitOpenIntentAtStartup = true
+        if !didAttemptStartupSessionRestore {
+            startupSessionSnapshot = nil
+            didAttemptStartupSessionRestore = true
+        }
+    }
+
+    private func externalOpenDirectories(from urls: [URL]) -> [String] {
+        FinderServicePathResolver.orderedUniqueDirectories(from: urls.filter { $0.isFileURL })
+    }
+
+    private func openWorkspaceForExternalDirectory(
+        workingDirectory: String,
+        debugSource: String
+    ) {
         if addWorkspaceInPreferredMainWindow(
             workingDirectory: workingDirectory,
             shouldBringToFront: true,
-            debugSource: "service.openTab"
+            debugSource: debugSource
         ) != nil {
             return
         }
@@ -7902,11 +7969,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let commandPaletteResponderActiveInTargetWindow = commandPaletteTargetWindow.map {
             isCommandPaletteResponderActive(in: $0)
         } ?? false
-        let commandPaletteEffectiveInTargetWindow =
+        let commandPaletteInteractiveInTargetWindow =
             commandPaletteVisibleInTargetWindow
-            || commandPalettePendingOpenInTargetWindow
             || commandPaletteOverlayVisibleInTargetWindow
             || commandPaletteResponderActiveInTargetWindow
+        let commandPaletteEffectiveInTargetWindow =
+            commandPaletteInteractiveInTargetWindow
+            || commandPalettePendingOpenInTargetWindow
 
         if normalizedFlags.isEmpty, event.keyCode == 53 {
             let activePaletteWindow = activeCommandPaletteWindow()
@@ -7995,7 +8064,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             chars: chars,
             keyCode: event.keyCode
         ),
-           commandPaletteVisibleInTargetWindow,
+           commandPaletteInteractiveInTargetWindow,
            let paletteWindow = commandPaletteShortcutWindow {
             NotificationCenter.default.post(
                 name: .commandPaletteMoveSelection,
@@ -8005,7 +8074,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if commandPaletteVisibleInTargetWindow,
+        if commandPaletteInteractiveInTargetWindow,
            let paletteWindow = commandPaletteShortcutWindow {
             let paletteFieldEditorHasMarkedText = commandPaletteFieldEditorHasMarkedText(in: paletteWindow)
             if normalizedFlags.isEmpty, event.keyCode == 53 {
@@ -8050,6 +8119,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Scope the omnibar check to the shortcut's routed window context so a
         // focused omnibar in another window does not suppress Cmd+P here.
         let hasFocusedAddressBarInShortcutContext = focusedBrowserAddressBarPanelIdForShortcutEvent(event) != nil
+        let isCommandShiftP = matchShortcut(
+            event: event,
+            shortcut: StoredShortcut(key: "p", command: true, shift: true, option: false, control: false)
+        )
+        if isCommandShiftP {
+            let targetWindow = commandPaletteTargetWindow ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
+            requestCommandPaletteCommands(preferredWindow: targetWindow, source: "shortcut.cmdShiftP")
+            return true
+        }
+
         let isCommandP = !hasFocusedAddressBarInShortcutContext
             && matchShortcut(
                 event: event,
@@ -8058,16 +8137,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if isCommandP {
             let targetWindow = commandPaletteTargetWindow ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
             requestCommandPaletteSwitcher(preferredWindow: targetWindow, source: "shortcut.cmdP")
-            return true
-        }
-
-        let isCommandShiftP = matchShortcut(
-            event: event,
-            shortcut: StoredShortcut(key: "p", command: true, shift: true, option: false, control: false)
-        )
-        if isCommandShiftP {
-            let targetWindow = commandPaletteTargetWindow ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
-            requestCommandPaletteCommands(preferredWindow: targetWindow, source: "shortcut.cmdShiftP")
             return true
         }
 
@@ -8348,8 +8417,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             event: event,
             shortcut: StoredShortcut(key: "w", command: true, shift: false, option: false, control: false)
         ) {
-            if let targetWindow = event.window ?? NSApp.keyWindow ?? NSApp.mainWindow,
-               targetWindow.identifier?.rawValue == "cmux.settings" {
+            // Browser popup windows primarily intercept Cmd+W in BrowserPopupPanel.
+            // This AppDelegate path is a fallback for cases where AppKit routes the
+            // event through the global shortcut handler first.
+            if let targetWindow = [NSApp.keyWindow, event.window]
+                .compactMap({ $0 })
+                .first(where: { $0.identifier?.rawValue == "cmux.browser-popup" }) {
+#if DEBUG
+                dlog("shortcut.cmdW route=browserPopup")
+#endif
+                targetWindow.performClose(nil)
+                return true
+            } else if let targetWindow = event.window ?? NSApp.keyWindow ?? NSApp.mainWindow,
+               cmuxWindowShouldOwnCloseShortcut(targetWindow) {
                 targetWindow.performClose(nil)
             } else {
                 let responder = event.window?.firstResponder
@@ -8781,7 +8861,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @discardableResult
     func openBrowserAndFocusAddressBar(url: URL? = nil, insertAtEnd: Bool = false) -> UUID? {
-        guard let panelId = tabManager?.openBrowser(url: url, insertAtEnd: insertAtEnd) else {
+        let preferredProfileID =
+            tabManager?.focusedBrowserPanel?.profileID
+            ?? tabManager?.selectedWorkspace?.preferredBrowserProfileID
+        guard let panelId = tabManager?.openBrowser(
+            url: url,
+            preferredProfileID: preferredProfileID,
+            insertAtEnd: insertAtEnd
+        ) else {
 #if DEBUG
             dlog(
                 "browser.focus.openAndFocus result=open_failed insertAtEnd=\(insertAtEnd ? 1 : 0) " +
@@ -9528,6 +9615,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         case ".": return 47  // kVK_ANSI_Period
         case "`": return 50  // kVK_ANSI_Grave
         case "\r": return 36 // kVK_Return
+        case "←": return 123 // kVK_LeftArrow
+        case "→": return 124 // kVK_RightArrow
+        case "↓": return 125 // kVK_DownArrow
+        case "↑": return 126 // kVK_UpArrow
         default:
             return nil
         }

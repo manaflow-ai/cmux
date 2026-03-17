@@ -8,7 +8,7 @@ enum SessionSnapshotSchema {
 
 enum SessionPersistencePolicy {
     static let defaultSidebarWidth: Double = 200
-    static let minimumSidebarWidth: Double = 186
+    static let minimumSidebarWidth: Double = 180
     static let maximumSidebarWidth: Double = 600
     static let minimumWindowWidth: Double = 300
     static let minimumWindowHeight: Double = 200
@@ -228,6 +228,7 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
 
 struct SessionBrowserPanelSnapshot: Codable, Sendable {
     var urlString: String?
+    var profileID: UUID?
     var shouldRenderWebView: Bool
     var pageZoom: Double
     var developerToolsVisible: Bool

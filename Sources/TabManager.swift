@@ -636,6 +636,15 @@ class TabManager: ObservableObject {
     private struct InitialWorkspaceGitMetadataSnapshot: Equatable {
         let branch: String?
         let isDirty: Bool
+        let pullRequest: SidebarPullRequestState?
+    }
+
+    private struct CommandResult {
+        let stdout: String?
+        let stderr: String?
+        let exitStatus: Int32?
+        let timedOut: Bool
+        let executionError: String?
     }
 
     /// The window that owns this TabManager. Set by AppDelegate.registerMainWindow().
@@ -651,6 +660,7 @@ class TabManager: ObservableObject {
     /// Static so port ranges don't overlap across multiple windows (each window has its own TabManager).
     private static var nextPortOrdinal: Int = 0
     private static let initialWorkspaceGitProbeDelays: [TimeInterval] = [0, 0.5, 1.5, 3.0, 6.0, 10.0]
+    private nonisolated static let initialWorkspacePullRequestProbeTimeout: TimeInterval = 5.0
     @Published var selectedTabId: UUID? {
         willSet {
 #if DEBUG
@@ -760,6 +770,7 @@ class TabManager: ObservableObject {
             return tabs.first(where: { $0.id == selectedTabId })
         }
     }
+    private var agentPIDSweepTimer: DispatchSourceTimer?
 #if DEBUG
     private var debugWorkspaceSwitchCounter: UInt64 = 0
     private var debugWorkspaceSwitchId: UInt64 = 0
@@ -805,6 +816,8 @@ class TabManager: ObservableObject {
             }
         })
 
+        startAgentPIDSweepTimer()
+
 #if DEBUG
         setupUITestFocusShortcutsIfNeeded()
         setupSplitCloseRightUITestIfNeeded()
@@ -815,6 +828,54 @@ class TabManager: ObservableObject {
 
     deinit {
         workspaceCycleCooldownTask?.cancel()
+        agentPIDSweepTimer?.cancel()
+    }
+
+    // MARK: - Agent PID Sweep
+
+    /// Periodically checks agent PIDs associated with status entries.
+    /// If a process has exited (SIGKILL, crash, etc.), clears the stale status entry.
+    /// This is the safety net for cases where no hook fires (e.g. SIGKILL).
+    private func startAgentPIDSweepTimer() {
+        let timer = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
+        timer.schedule(deadline: .now() + 30, repeating: 30)
+        timer.setEventHandler { [weak self] in
+            guard let self else { return }
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.sweepStaleAgentPIDs()
+            }
+        }
+        timer.resume()
+        agentPIDSweepTimer = timer
+    }
+
+    private func sweepStaleAgentPIDs() {
+        for tab in tabs {
+            var keysToRemove: [String] = []
+            for (key, pid) in tab.agentPIDs {
+                guard pid > 0 else {
+                    keysToRemove.append(key)
+                    continue
+                }
+                // kill(pid, 0) probes process liveness without sending a signal.
+                // ESRCH = process doesn't exist (stale). EPERM = process exists
+                // but we lack permission (not stale, keep tracking).
+                errno = 0
+                if kill(pid, 0) == -1, POSIXErrorCode(rawValue: errno) == .ESRCH {
+                    keysToRemove.append(key)
+                }
+            }
+            if !keysToRemove.isEmpty {
+                for key in keysToRemove {
+                    tab.statusEntries.removeValue(forKey: key)
+                    tab.agentPIDs.removeValue(forKey: key)
+                }
+                // Also clear stale notifications (e.g. "Doing well, thanks!")
+                // left behind when Claude was killed without SessionEnd firing.
+                AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: tab.id)
+            }
+        }
     }
 
     private func wireClosedBrowserTracking(for workspace: Workspace) {
@@ -863,6 +924,20 @@ class TabManager: ObservableObject {
             NSLog("Find: startSearch workspace=%@ panel=%@", panel.workspaceId.uuidString, panel.id.uuidString)
             NotificationCenter.default.post(name: .ghosttySearchFocus, object: panel.surface)
             _ = panel.performBindingAction("start_search")
+            return
+        }
+        if let panel = selectedTerminalPanel {
+            let hadExistingSearch = panel.searchState != nil
+            let handled = startOrFocusTerminalSearch(panel.surface)
+            NSLog("Find: startSearch workspace=%@ panel=%@", panel.workspaceId.uuidString, panel.id.uuidString)
+#if DEBUG
+            dlog(
+                "find.startSearch workspace=\(panel.workspaceId.uuidString.prefix(5)) " +
+                "panel=\(panel.id.uuidString.prefix(5)) existing=\(hadExistingSearch ? "yes" : "no") " +
+                "handled=\(handled ? 1 : 0) " +
+                "firstResponder=\(String(describing: panel.surface.hostedView.window?.firstResponder))"
+            )
+#endif
             return
         }
 
@@ -1118,15 +1193,25 @@ class TabManager: ObservableObject {
             workspace.clearPanelGitBranch(panelId: panelId)
         }
 
-        if previousBranch != nextBranch || (nextBranch == nil && workspace.panelPullRequests[panelId] != nil) {
+        if let pullRequest = snapshot.pullRequest {
+            workspace.updatePanelPullRequest(
+                panelId: panelId,
+                number: pullRequest.number,
+                label: pullRequest.label,
+                url: pullRequest.url,
+                status: pullRequest.status
+            )
+        } else if previousBranch != nextBranch || (nextBranch == nil && workspace.panelPullRequests[panelId] != nil) {
             workspace.clearPanelPullRequest(panelId: panelId)
         }
 
 #if DEBUG
         let branchLabel = snapshot.branch ?? "none"
+        let prLabel = snapshot.pullRequest.map { "#\($0.number):\($0.status.rawValue)" } ?? "none"
         dlog(
             "workspace.gitProbe.apply workspace=\(workspaceId.uuidString.prefix(5)) " +
-            "panel=\(panelId.uuidString.prefix(5)) branch=\(branchLabel) dirty=\(snapshot.isDirty ? 1 : 0)"
+            "panel=\(panelId.uuidString.prefix(5)) branch=\(branchLabel) dirty=\(snapshot.isDirty ? 1 : 0) " +
+            "pr=\(prLabel)"
         )
 #endif
     }
@@ -1136,36 +1221,233 @@ class TabManager: ObservableObject {
     ) -> InitialWorkspaceGitMetadataSnapshot {
         let branch = normalizedBranchName(runGitCommand(directory: directory, arguments: ["branch", "--show-current"]))
         guard let branch else {
-            return InitialWorkspaceGitMetadataSnapshot(branch: nil, isDirty: false)
+            return InitialWorkspaceGitMetadataSnapshot(branch: nil, isDirty: false, pullRequest: nil)
         }
 
         let statusOutput = runGitCommand(directory: directory, arguments: ["status", "--porcelain", "-uno"])
         let isDirty = !(statusOutput?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
-        return InitialWorkspaceGitMetadataSnapshot(branch: branch, isDirty: isDirty)
+        let pullRequest = initialWorkspacePullRequestSnapshot(directory: directory, branch: branch)
+        return InitialWorkspaceGitMetadataSnapshot(branch: branch, isDirty: isDirty, pullRequest: pullRequest)
     }
 
     private nonisolated static func runGitCommand(directory: String, arguments: [String]) -> String? {
+        runCommand(
+            directory: directory,
+            executable: "git",
+            arguments: arguments
+        )
+    }
+
+    private nonisolated static func initialWorkspacePullRequestSnapshot(
+        directory: String,
+        branch: String
+    ) -> SidebarPullRequestState? {
+        let repoSlug = githubRepositorySlug(directory: directory)
+        let repoArguments = repoSlug.map { ["--repo", $0] } ?? []
+        let result = runCommandResult(
+            directory: directory,
+            executable: "gh",
+            arguments: [
+                "pr", "view", branch,
+            ] + repoArguments + [
+                "--json", "number,state,url",
+                "--jq", "[.number, .state, .url] | @tsv",
+            ],
+            timeout: initialWorkspacePullRequestProbeTimeout
+        )
+
+        guard let result else { return nil }
+        guard let output = result.stdout,
+              result.exitStatus == 0,
+              !output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+#if DEBUG
+            let statusText: String
+            if result.timedOut {
+                statusText = "timeout"
+            } else if let exitStatus = result.exitStatus {
+                statusText = "exit=\(exitStatus)"
+            } else if let executionError = result.executionError {
+                statusText = "error=\(executionError)"
+            } else {
+                statusText = "unknown"
+            }
+            let stderr = debugLogSnippet(result.stderr) ?? "none"
+            dlog(
+                "workspace.gitProbe.pr.fail dir=\(directory) branch=\(branch) " +
+                "repo=\(repoSlug ?? "none") status=\(statusText) stderr=\(stderr)"
+            )
+#endif
+            return nil
+        }
+
+        let trimmedOutput = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        let fields = trimmedOutput
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .split(separator: "\t", maxSplits: 2, omittingEmptySubsequences: false)
+        guard fields.count == 3,
+              let number = Int(fields[0]),
+              let url = URL(string: String(fields[2])) else {
+#if DEBUG
+            dlog(
+                "workspace.gitProbe.pr.parseFail dir=\(directory) branch=\(branch) " +
+                "repo=\(repoSlug ?? "none") output=\(debugLogSnippet(trimmedOutput) ?? "none")"
+            )
+#endif
+            return nil
+        }
+
+        let status: SidebarPullRequestStatus
+        switch fields[1].uppercased() {
+        case "OPEN":
+            status = .open
+        case "MERGED":
+            status = .merged
+        case "CLOSED":
+            status = .closed
+        default:
+            return nil
+        }
+
+#if DEBUG
+        dlog(
+            "workspace.gitProbe.pr.success dir=\(directory) branch=\(branch) " +
+            "repo=\(repoSlug ?? "none") number=\(number) state=\(status.rawValue)"
+        )
+#endif
+        return SidebarPullRequestState(number: number, label: "PR", url: url, status: status)
+    }
+
+    private nonisolated static func runCommand(
+        directory: String,
+        executable: String,
+        arguments: [String],
+        timeout: TimeInterval? = nil
+    ) -> String? {
+        let result = runCommandResult(
+            directory: directory,
+            executable: executable,
+            arguments: arguments,
+            timeout: timeout
+        )
+        guard let result,
+              result.exitStatus == 0,
+              !result.timedOut else {
+            return nil
+        }
+        return result.stdout
+    }
+
+    private nonisolated static func runCommandResult(
+        directory: String,
+        executable: String,
+        arguments: [String],
+        timeout: TimeInterval? = nil
+    ) -> CommandResult? {
         let process = Process()
         let stdout = Pipe()
+        let stderr = Pipe()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = ["git", "-C", directory] + arguments
+        process.arguments = [executable] + arguments
+        process.currentDirectoryURL = URL(fileURLWithPath: directory)
         process.standardOutput = stdout
-        process.standardError = FileHandle.nullDevice
+        process.standardError = stderr
+
+        let completion = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in
+            completion.signal()
+        }
 
         do {
             try process.run()
         } catch {
+            return CommandResult(
+                stdout: nil,
+                stderr: nil,
+                exitStatus: nil,
+                timedOut: false,
+                executionError: String(describing: error)
+            )
+        }
+
+        if let timeout,
+           completion.wait(timeout: .now() + timeout) == .timedOut {
+            process.terminate()
+            if completion.wait(timeout: .now() + 0.2) == .timedOut {
+                kill(process.processIdentifier, SIGKILL)
+                _ = completion.wait(timeout: .now() + 0.2)
+            }
+            return CommandResult(
+                stdout: nil,
+                stderr: nil,
+                exitStatus: nil,
+                timedOut: true,
+                executionError: nil
+            )
+        } else if timeout == nil {
+            completion.wait()
+        }
+
+        let stdoutData = stdout.fileHandleForReading.readDataToEndOfFile()
+        let stderrData = stderr.fileHandleForReading.readDataToEndOfFile()
+        return CommandResult(
+            stdout: String(data: stdoutData, encoding: .utf8),
+            stderr: String(data: stderrData, encoding: .utf8),
+            exitStatus: process.terminationStatus,
+            timedOut: false,
+            executionError: nil
+        )
+    }
+
+    private nonisolated static func githubRepositorySlug(directory: String) -> String? {
+        guard let remoteURL = runGitCommand(
+            directory: directory,
+            arguments: ["remote", "get-url", "origin"]
+        ) else {
             return nil
         }
 
-        // Drain stdout while the subprocess is active so large repos cannot fill the pipe buffer.
-        let data = stdout.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-        guard process.terminationStatus == 0 else {
+        let trimmed = remoteURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        let githubPrefixes = [
+            "git@github.com:",
+            "ssh://git@github.com/",
+            "https://github.com/",
+            "http://github.com/",
+            "git://github.com/",
+        ]
+        for prefix in githubPrefixes where trimmed.hasPrefix(prefix) {
+            let path = String(trimmed.dropFirst(prefix.count))
+            return normalizedGitHubRepositorySlug(path)
+        }
+
+        guard let url = URL(string: trimmed),
+              let host = url.host?.lowercased(),
+              host == "github.com" else {
             return nil
         }
 
-        return String(data: data, encoding: .utf8)
+        return normalizedGitHubRepositorySlug(url.path)
+    }
+
+    private nonisolated static func normalizedGitHubRepositorySlug(_ rawPath: String) -> String? {
+        let trimmedPath = rawPath.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        guard !trimmedPath.isEmpty else { return nil }
+        let components = trimmedPath.split(separator: "/").map(String.init)
+        guard components.count >= 2 else { return nil }
+        let owner = components[0]
+        var repo = components[1]
+        if repo.hasSuffix(".git") {
+            repo.removeLast(4)
+        }
+        guard !owner.isEmpty, !repo.isEmpty else { return nil }
+        return "\(owner)/\(repo)"
+    }
+
+    private nonisolated static func debugLogSnippet(_ value: String?) -> String? {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !trimmed.isEmpty else { return nil }
+        return String(trimmed.prefix(180))
     }
 
     private nonisolated static func normalizedBranchName(_ branch: String?) -> String? {
@@ -1353,10 +1635,11 @@ class TabManager: ObservableObject {
         guard let currentIndex = tabs.firstIndex(where: { $0.id == tabId }) else { return false }
         if tabs.count <= 1 { return true }
 
-        let clamped = max(0, min(targetIndex, tabs.count - 1))
+        let workspace = tabs[currentIndex]
+        let clamped = clampedReorderIndex(for: workspace, targetIndex: targetIndex)
         if currentIndex == clamped { return true }
 
-        let workspace = tabs.remove(at: currentIndex)
+        tabs.remove(at: currentIndex)
         tabs.insert(workspace, at: clamped)
         return true
     }
@@ -1410,6 +1693,15 @@ class TabManager: ObservableObject {
         let pinnedCount = tabs.filter { $0.isPinned }.count
         let insertIndex = min(pinnedCount, tabs.count)
         tabs.insert(tab, at: insertIndex)
+    }
+
+    private func clampedReorderIndex(for workspace: Workspace, targetIndex: Int) -> Int {
+        let clamped = max(0, min(targetIndex, tabs.count - 1))
+        let pinnedCount = tabs.filter { $0.isPinned }.count
+        if workspace.isPinned {
+            return min(clamped, max(0, pinnedCount - 1))
+        }
+        return max(clamped, pinnedCount)
     }
 
     // MARK: - Surface Directory Updates (Backwards Compatibility)
@@ -2686,6 +2978,7 @@ class TabManager: ObservableObject {
         orientation: SplitOrientation,
         insertFirst: Bool = false,
         url: URL? = nil,
+        preferredProfileID: UUID? = nil,
         focus: Bool = true
     ) -> UUID? {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return nil }
@@ -2694,14 +2987,24 @@ class TabManager: ObservableObject {
             orientation: orientation,
             insertFirst: insertFirst,
             url: url,
+            preferredProfileID: preferredProfileID,
             focus: focus
         )?.id
     }
 
     /// Create a new browser surface in a pane
-    func newBrowserSurface(tabId: UUID, inPane paneId: PaneID, url: URL? = nil) -> UUID? {
+    func newBrowserSurface(
+        tabId: UUID,
+        inPane paneId: PaneID,
+        url: URL? = nil,
+        preferredProfileID: UUID? = nil
+    ) -> UUID? {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return nil }
-        return tab.newBrowserSurface(inPane: paneId, url: url)?.id
+        return tab.newBrowserSurface(
+            inPane: paneId,
+            url: url,
+            preferredProfileID: preferredProfileID
+        )?.id
     }
 
     /// Get a browser panel by ID
@@ -2716,6 +3019,7 @@ class TabManager: ObservableObject {
         inWorkspace tabId: UUID,
         url: URL? = nil,
         preferSplitRight: Bool = false,
+        preferredProfileID: UUID? = nil,
         insertAtEnd: Bool = false
     ) -> UUID? {
         guard let workspace = tabs.first(where: { $0.id == tabId }) else { return nil }
@@ -2729,7 +3033,8 @@ class TabManager: ObservableObject {
                    inPane: targetPaneId,
                    url: url,
                    focus: true,
-                   insertAtEnd: insertAtEnd
+                   insertAtEnd: insertAtEnd,
+                   preferredProfileID: preferredProfileID
                ) {
                 rememberFocusedSurface(tabId: tabId, surfaceId: browserPanel.id)
                 return browserPanel.id
@@ -2755,6 +3060,7 @@ class TabManager: ObservableObject {
                    from: splitSourcePanelId,
                    orientation: .horizontal,
                    url: url,
+                   preferredProfileID: preferredProfileID,
                    focus: true
                ) {
                 rememberFocusedSurface(tabId: tabId, surfaceId: browserPanel.id)
@@ -2767,7 +3073,8 @@ class TabManager: ObservableObject {
                   inPane: paneId,
                   url: url,
                   focus: true,
-                  insertAtEnd: insertAtEnd
+                  insertAtEnd: insertAtEnd,
+                  preferredProfileID: preferredProfileID
               ) else {
             return nil
         }
@@ -2777,12 +3084,17 @@ class TabManager: ObservableObject {
 
     /// Open a browser in the currently focused pane (as a new surface)
     @discardableResult
-    func openBrowser(url: URL? = nil, insertAtEnd: Bool = false) -> UUID? {
+    func openBrowser(
+        url: URL? = nil,
+        preferredProfileID: UUID? = nil,
+        insertAtEnd: Bool = false
+    ) -> UUID? {
         guard let tabId = selectedTabId else { return nil }
         return openBrowser(
             inWorkspace: tabId,
             url: url,
             preferSplitRight: false,
+            preferredProfileID: preferredProfileID,
             insertAtEnd: insertAtEnd
         )
     }
@@ -2878,7 +3190,12 @@ class TabManager: ObservableObject {
         in workspace: Workspace
     ) -> UUID? {
         if let originalPane = workspace.bonsplitController.allPaneIds.first(where: { $0.id == snapshot.originalPaneId }),
-           let browserPanel = workspace.newBrowserSurface(inPane: originalPane, url: snapshot.url, focus: true) {
+           let browserPanel = workspace.newBrowserSurface(
+               inPane: originalPane,
+               url: snapshot.url,
+               focus: true,
+               preferredProfileID: snapshot.profileID
+           ) {
             let tabCount = workspace.bonsplitController.tabs(inPane: originalPane).count
             let maxIndex = max(0, tabCount - 1)
             let targetIndex = min(max(snapshot.originalTabIndex, 0), maxIndex)
@@ -2895,7 +3212,8 @@ class TabManager: ObservableObject {
                from: anchorPanelId,
                orientation: orientation,
                insertFirst: snapshot.fallbackSplitInsertFirst,
-               url: snapshot.url
+               url: snapshot.url,
+               preferredProfileID: snapshot.profileID
            )?.id {
             return browserPanelId
         }
@@ -2903,7 +3221,12 @@ class TabManager: ObservableObject {
         guard let focusedPane = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
             return nil
         }
-        return workspace.newBrowserSurface(inPane: focusedPane, url: snapshot.url, focus: true)?.id
+        return workspace.newBrowserSurface(
+            inPane: focusedPane,
+            url: snapshot.url,
+            focus: true,
+            preferredProfileID: snapshot.profileID
+        )?.id
     }
 
     /// Flash the currently focused panel so the user can visually confirm focus.
@@ -4081,6 +4404,9 @@ extension TabManager {
         for tab in tabs {
             unwireClosedBrowserTracking(for: tab)
         }
+        for workspaceId in Array(initialWorkspaceGitProbeGenerationByWorkspace.keys) {
+            clearInitialWorkspaceGitProbe(workspaceId: workspaceId)
+        }
 
         // Clear non-@Published state without touching tabs/selectedTabId yet.
         lastFocusedPanelByTab.removeAll()
@@ -4137,6 +4463,21 @@ extension TabManager {
         // never see an intermediate state with empty tabs or nil selection.
         tabs = newTabs
         selectedTabId = newSelectedId
+        for workspace in newTabs {
+            guard let terminalPanel = workspace.focusedTerminalPanel ?? workspace.panels.values
+                .compactMap({ $0 as? TerminalPanel })
+                .first,
+                  let directory = normalizedWorkingDirectory(
+                    workspace.panelDirectories[terminalPanel.id] ?? workspace.currentDirectory
+                  ) else {
+                continue
+            }
+            scheduleInitialWorkspaceGitMetadataRefresh(
+                workspaceId: workspace.id,
+                panelId: terminalPanel.id,
+                directory: directory
+            )
+        }
 
         if let selectedTabId {
             NotificationCenter.default.post(

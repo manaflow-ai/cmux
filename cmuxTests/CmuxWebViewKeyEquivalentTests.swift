@@ -1197,6 +1197,55 @@ final class AppDelegateWindowContextRoutingTests: XCTestCase {
         XCTAssertEqual(managerB.tabs.count, originalTabCountB + 1)
         XCTAssertTrue(managerB.tabs.contains(where: { $0.id == createdWorkspaceId }))
     }
+
+    func testApplicationOpenURLsAddsWorkspaceForDroppedFolderURL() throws {
+        _ = NSApplication.shared
+        let app = AppDelegate()
+
+        let windowId = UUID()
+        let window = makeMainWindow(id: windowId)
+        defer { window.orderOut(nil) }
+
+        let manager = TabManager()
+        app.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState()
+        )
+
+        window.makeKeyAndOrderFront(nil)
+        _ = app.synchronizeActiveMainWindowContext(preferredWindow: window)
+
+        let defaults = UserDefaults.standard
+        let previousWelcomeShown = defaults.object(forKey: WelcomeSettings.shownKey)
+        defaults.set(true, forKey: WelcomeSettings.shownKey)
+        defer {
+            if let previousWelcomeShown {
+                defaults.set(previousWelcomeShown, forKey: WelcomeSettings.shownKey)
+            } else {
+                defaults.removeObject(forKey: WelcomeSettings.shownKey)
+            }
+        }
+
+        let rootDirectory = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let droppedDirectory = rootDirectory.appendingPathComponent("project", isDirectory: true)
+        try FileManager.default.createDirectory(at: droppedDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: rootDirectory) }
+
+        let existingWorkspaceIds = Set(manager.tabs.map(\.id))
+
+        app.application(
+            NSApplication.shared,
+            open: [URL(fileURLWithPath: droppedDirectory.path)]
+        )
+
+        let createdWorkspace = manager.tabs.first { !existingWorkspaceIds.contains($0.id) }
+        XCTAssertNotNil(createdWorkspace)
+        XCTAssertEqual(createdWorkspace?.currentDirectory, droppedDirectory.path)
+    }
 }
 
 @MainActor
@@ -2614,6 +2663,113 @@ final class BrowserNavigationNewTabDecisionTests: XCTestCase {
                 buttonNumber: 2
             )
         )
+    }
+}
+
+final class BrowserPopupDecisionTests: XCTestCase {
+    func testLinkActivatedPlainLeftClickDoesNotCreatePopup() {
+        XCTAssertFalse(
+            browserNavigationShouldCreatePopup(
+                navigationType: .linkActivated,
+                modifierFlags: [],
+                buttonNumber: 0
+            )
+        )
+    }
+
+    func testOtherNavigationPlainLeftClickCreatesPopup() {
+        XCTAssertTrue(
+            browserNavigationShouldCreatePopup(
+                navigationType: .other,
+                modifierFlags: [],
+                buttonNumber: 0
+            )
+        )
+    }
+
+    func testOtherNavigationMiddleClickDoesNotCreatePopup() {
+        XCTAssertFalse(
+            browserNavigationShouldCreatePopup(
+                navigationType: .other,
+                modifierFlags: [],
+                buttonNumber: 2
+            )
+        )
+    }
+
+    func testLinkActivatedCmdClickDoesNotCreatePopup() {
+        XCTAssertFalse(
+            browserNavigationShouldCreatePopup(
+                navigationType: .linkActivated,
+                modifierFlags: [.command],
+                buttonNumber: 0
+            )
+        )
+    }
+}
+
+final class BrowserNilTargetFallbackDecisionTests: XCTestCase {
+    func testOtherNavigationDoesNotFallbackToNewTab() {
+        XCTAssertFalse(
+            browserNavigationShouldFallbackNilTargetToNewTab(
+                navigationType: .other
+            )
+        )
+    }
+
+    func testLinkActivatedNavigationFallsBackToNewTab() {
+        XCTAssertTrue(
+            browserNavigationShouldFallbackNilTargetToNewTab(
+                navigationType: .linkActivated
+            )
+        )
+    }
+}
+
+final class BrowserPopupContentRectTests: XCTestCase {
+    func testExplicitTopOriginCoordinatesConvertToAppKitBottomOrigin() {
+        let rect = browserPopupContentRect(
+            requestedWidth: 400,
+            requestedHeight: 300,
+            requestedX: 150,
+            requestedTopY: 120,
+            visibleFrame: NSRect(x: 100, y: 50, width: 1000, height: 800)
+        )
+
+        XCTAssertEqual(rect.origin.x, 150, accuracy: 0.01)
+        XCTAssertEqual(rect.origin.y, 430, accuracy: 0.01)
+        XCTAssertEqual(rect.width, 400, accuracy: 0.01)
+        XCTAssertEqual(rect.height, 300, accuracy: 0.01)
+    }
+
+    func testExplicitCoordinatesClampToVisibleFrame() {
+        let rect = browserPopupContentRect(
+            requestedWidth: 1400,
+            requestedHeight: 1200,
+            requestedX: 900,
+            requestedTopY: -25,
+            visibleFrame: NSRect(x: 100, y: 50, width: 1000, height: 800)
+        )
+
+        XCTAssertEqual(rect.origin.x, 100, accuracy: 0.01)
+        XCTAssertEqual(rect.origin.y, 50, accuracy: 0.01)
+        XCTAssertEqual(rect.width, 1000, accuracy: 0.01)
+        XCTAssertEqual(rect.height, 800, accuracy: 0.01)
+    }
+
+    func testMissingCoordinatesCentersPopup() {
+        let rect = browserPopupContentRect(
+            requestedWidth: 300,
+            requestedHeight: 200,
+            requestedX: nil,
+            requestedTopY: nil,
+            visibleFrame: NSRect(x: 100, y: 50, width: 1000, height: 800)
+        )
+
+        XCTAssertEqual(rect.origin.x, 450, accuracy: 0.01)
+        XCTAssertEqual(rect.origin.y, 350, accuracy: 0.01)
+        XCTAssertEqual(rect.width, 300, accuracy: 0.01)
+        XCTAssertEqual(rect.height, 200, accuracy: 0.01)
     }
 }
 
@@ -5125,6 +5281,32 @@ final class WorkspaceReorderTests: XCTestCase {
         let manager = TabManager()
         XCTAssertFalse(manager.reorderWorkspace(tabId: UUID(), toIndex: 0))
     }
+
+    @MainActor
+    func testReorderWorkspaceKeepsUnpinnedWorkspaceBelowPinnedSegment() {
+        let manager = TabManager()
+        let firstPinned = manager.tabs[0]
+        manager.setPinned(firstPinned, pinned: true)
+        let secondPinned = manager.addWorkspace()
+        manager.setPinned(secondPinned, pinned: true)
+        let unpinned = manager.addWorkspace()
+
+        XCTAssertTrue(manager.reorderWorkspace(tabId: unpinned.id, toIndex: 0))
+        XCTAssertEqual(manager.tabs.map(\.id), [firstPinned.id, secondPinned.id, unpinned.id])
+    }
+
+    @MainActor
+    func testReorderWorkspaceKeepsPinnedWorkspaceInsidePinnedSegment() {
+        let manager = TabManager()
+        let firstPinned = manager.tabs[0]
+        manager.setPinned(firstPinned, pinned: true)
+        let secondPinned = manager.addWorkspace()
+        manager.setPinned(secondPinned, pinned: true)
+        let unpinned = manager.addWorkspace()
+
+        XCTAssertTrue(manager.reorderWorkspace(tabId: firstPinned.id, toIndex: 999))
+        XCTAssertEqual(manager.tabs.map(\.id), [secondPinned.id, firstPinned.id, unpinned.id])
+    }
 }
 
 @MainActor
@@ -7152,14 +7334,16 @@ final class SidebarDropPlannerTests: XCTestCase {
             SidebarDropPlanner.indicator(
                 draggedTabId: first,
                 targetTabId: first,
-                tabIds: tabIds
+                tabIds: tabIds,
+                pinnedTabIds: []
             )
         )
         XCTAssertNil(
             SidebarDropPlanner.indicator(
                 draggedTabId: third,
                 targetTabId: nil,
-                tabIds: tabIds
+                tabIds: tabIds,
+                pinnedTabIds: []
             )
         )
     }
@@ -7170,14 +7354,16 @@ final class SidebarDropPlannerTests: XCTestCase {
             SidebarDropPlanner.indicator(
                 draggedTabId: only,
                 targetTabId: nil,
-                tabIds: [only]
+                tabIds: [only],
+                pinnedTabIds: []
             )
         )
         XCTAssertNil(
             SidebarDropPlanner.indicator(
                 draggedTabId: only,
                 targetTabId: only,
-                tabIds: [only]
+                tabIds: [only],
+                pinnedTabIds: []
             )
         )
     }
@@ -7191,7 +7377,8 @@ final class SidebarDropPlannerTests: XCTestCase {
         let indicator = SidebarDropPlanner.indicator(
             draggedTabId: second,
             targetTabId: nil,
-            tabIds: tabIds
+            tabIds: tabIds,
+            pinnedTabIds: []
         )
         XCTAssertEqual(indicator?.tabId, nil)
         XCTAssertEqual(indicator?.edge, .bottom)
@@ -7207,7 +7394,8 @@ final class SidebarDropPlannerTests: XCTestCase {
             draggedTabId: second,
             targetTabId: nil,
             indicator: SidebarDropIndicator(tabId: nil, edge: .bottom),
-            tabIds: tabIds
+            tabIds: tabIds,
+            pinnedTabIds: []
         )
         XCTAssertEqual(index, 2)
     }
@@ -7222,7 +7410,8 @@ final class SidebarDropPlannerTests: XCTestCase {
             SidebarDropPlanner.indicator(
                 draggedTabId: second,
                 targetTabId: second,
-                tabIds: tabIds
+                tabIds: tabIds,
+                pinnedTabIds: []
             )
         )
     }
@@ -7238,6 +7427,7 @@ final class SidebarDropPlannerTests: XCTestCase {
                 draggedTabId: first,
                 targetTabId: second,
                 tabIds: tabIds,
+                pinnedTabIds: [],
                 pointerY: 2,
                 targetHeight: 40
             )
@@ -7254,6 +7444,7 @@ final class SidebarDropPlannerTests: XCTestCase {
             draggedTabId: first,
             targetTabId: second,
             tabIds: tabIds,
+            pinnedTabIds: [],
             pointerY: 38,
             targetHeight: 40
         )
@@ -7264,7 +7455,8 @@ final class SidebarDropPlannerTests: XCTestCase {
                 draggedTabId: first,
                 targetTabId: second,
                 indicator: indicator,
-                tabIds: tabIds
+                tabIds: tabIds,
+                pinnedTabIds: []
             ),
             1
         )
@@ -7280,6 +7472,7 @@ final class SidebarDropPlannerTests: XCTestCase {
             draggedTabId: third,
             targetTabId: first,
             tabIds: tabIds,
+            pinnedTabIds: [],
             pointerY: 38,
             targetHeight: 40
         )
@@ -7287,6 +7480,7 @@ final class SidebarDropPlannerTests: XCTestCase {
             draggedTabId: third,
             targetTabId: second,
             tabIds: tabIds,
+            pinnedTabIds: [],
             pointerY: 2,
             targetHeight: 40
         )
@@ -7308,11 +7502,53 @@ final class SidebarDropPlannerTests: XCTestCase {
                 draggedTabId: third,
                 targetTabId: second,
                 tabIds: tabIds,
+                pinnedTabIds: [],
                 pointerY: 38,
                 targetHeight: 40
             )
         )
     }
+
+    func testIndicatorSnapsUnpinnedDropToFirstUnpinnedBoundaryWhenHoveringPinnedWorkspace() {
+        let pinnedA = UUID()
+        let pinnedB = UUID()
+        let unpinnedA = UUID()
+        let unpinnedB = UUID()
+        let tabIds = [pinnedA, pinnedB, unpinnedA, unpinnedB]
+        let pinnedIds: Set<UUID> = [pinnedA, pinnedB]
+
+        let indicator = SidebarDropPlanner.indicator(
+            draggedTabId: unpinnedB,
+            targetTabId: pinnedA,
+            tabIds: tabIds,
+            pinnedTabIds: pinnedIds,
+            pointerY: 2,
+            targetHeight: 40
+        )
+
+        XCTAssertEqual(indicator?.tabId, unpinnedA)
+        XCTAssertEqual(indicator?.edge, .top)
+    }
+
+    func testTargetIndexSnapsUnpinnedDropToFirstUnpinnedBoundaryWhenHoveringPinnedWorkspace() {
+        let pinnedA = UUID()
+        let pinnedB = UUID()
+        let unpinnedA = UUID()
+        let unpinnedB = UUID()
+        let tabIds = [pinnedA, pinnedB, unpinnedA, unpinnedB]
+        let pinnedIds: Set<UUID> = [pinnedA, pinnedB]
+
+        let targetIndex = SidebarDropPlanner.targetIndex(
+            draggedTabId: unpinnedB,
+            targetTabId: pinnedA,
+            indicator: SidebarDropIndicator(tabId: pinnedA, edge: .top),
+            tabIds: tabIds,
+            pinnedTabIds: pinnedIds
+        )
+
+        XCTAssertEqual(targetIndex, 2)
+    }
+
 }
 
 final class SidebarDragAutoScrollPlannerTests: XCTestCase {
@@ -12055,6 +12291,18 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         return nil
     }
 
+    private func firstResponderOwnsTextField(_ firstResponder: NSResponder?, textField: NSTextField) -> Bool {
+        if firstResponder === textField {
+            return true
+        }
+        if let editor = firstResponder as? NSTextView,
+           editor.isFieldEditor,
+           editor.delegate as? NSTextField === textField {
+            return true
+        }
+        return false
+    }
+
     func testTrackpadScrollRoutesToTerminalSurfaceAndPreservesKeyboardFocusPath() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
@@ -12187,10 +12435,103 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
 
         let searchState = TerminalSurface.SearchState(needle: "example")
         hostedView.setSearchOverlay(searchState: searchState)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         XCTAssertTrue(hostedView.debugHasSearchOverlay())
 
         hostedView.setSearchOverlay(searchState: nil)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         XCTAssertFalse(hostedView.debugHasSearchOverlay())
+    }
+
+    func testRapidSearchOverlayToggleDoesNotLeaveStaleOverlayMounted() {
+        let surface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        let hostedView = surface.hostedView
+
+        hostedView.setSearchOverlay(searchState: TerminalSurface.SearchState(needle: "example"))
+        hostedView.setSearchOverlay(searchState: nil)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        XCTAssertFalse(
+            hostedView.debugHasSearchOverlay(),
+            "A stale deferred mount must not resurrect the find overlay after it closes"
+        )
+    }
+
+    func testSearchOverlayFocusesSearchFieldAfterDeferredAttach() {
+        let surface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        let hostedView = surface.hostedView
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+        hostedView.frame = contentView.bounds
+        hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostedView)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        hostedView.setVisibleInUI(true)
+        hostedView.setActive(true)
+
+        let searchState = TerminalSurface.SearchState(needle: "")
+        surface.searchState = searchState
+        hostedView.setSearchOverlay(searchState: searchState)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        guard let searchField = findEditableTextField(in: hostedView) else {
+            XCTFail("Expected mounted find text field")
+            return
+        }
+
+        XCTAssertTrue(
+            firstResponderOwnsTextField(window.firstResponder, textField: searchField),
+            "Deferred search overlay attach should still move focus into the find field"
+        )
+    }
+
+    func testStartOrFocusTerminalSearchReusesExistingSearchState() {
+        let surface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        let existingSearchState = TerminalSurface.SearchState(needle: "existing")
+        surface.searchState = existingSearchState
+
+        var focusNotificationCount = 0
+        XCTAssertTrue(
+            startOrFocusTerminalSearch(surface) { _ in
+                focusNotificationCount += 1
+            }
+        )
+
+        XCTAssertTrue(surface.searchState === existingSearchState)
+        XCTAssertEqual(
+            focusNotificationCount,
+            1,
+            "Re-triggering terminal Find should refocus the existing overlay without recreating state"
+        )
     }
 
     func testEscapeDismissingFindOverlayDoesNotLeakEscapeKeyUpToTerminal() {
@@ -12428,6 +12769,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         )
         let hostedView = surface.hostedView
         hostedView.setSearchOverlay(searchState: TerminalSurface.SearchState(needle: "split"))
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         XCTAssertTrue(hostedView.debugHasSearchOverlay())
 
         portal.bind(hostedView: hostedView, to: anchorA, visibleInUI: true)
@@ -12466,6 +12808,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         )
         let hostedView = surface.hostedView
         hostedView.setSearchOverlay(searchState: TerminalSurface.SearchState(needle: "workspace"))
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         XCTAssertTrue(hostedView.debugHasSearchOverlay())
 
         portal.bind(hostedView: hostedView, to: anchor, visibleInUI: true)

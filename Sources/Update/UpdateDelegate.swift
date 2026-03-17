@@ -13,6 +13,10 @@ enum UpdateFeedResolver {
 }
 
 extension UpdateDriver: SPUUpdaterDelegate {
+    func updaterShouldPromptForPermissionToCheck(forUpdates _: SPUUpdater) -> Bool {
+        false
+    }
+
     func feedURLString(for updater: SPUUpdater) -> String? {
 #if DEBUG
         let env = ProcessInfo.processInfo.environment
@@ -35,6 +39,7 @@ extension UpdateDriver: SPUUpdaterDelegate {
     /// Called when an update is scheduled to install silently,
     /// which occurs when automatic download is enabled.
     func updater(_ updater: SPUUpdater, willInstallUpdateOnQuit item: SUAppcastItem, immediateInstallationBlock immediateInstallHandler: @escaping () -> Void) -> Bool {
+        viewModel.clearDetectedUpdate()
         viewModel.state = .installing(.init(
             isAutoUpdate: true,
             retryTerminatingApplication: immediateInstallHandler,
@@ -56,6 +61,7 @@ extension UpdateDriver: SPUUpdaterDelegate {
     }
 
     func updater(_ updater: SPUUpdater, didFindValidUpdate item: SUAppcastItem) {
+        viewModel.recordDetectedUpdate(item)
         let version = item.displayVersionString
         let fileURL = item.fileURL?.absoluteString ?? ""
         if fileURL.isEmpty {
@@ -66,6 +72,7 @@ extension UpdateDriver: SPUUpdaterDelegate {
     }
 
     func updaterDidNotFindUpdate(_ updater: SPUUpdater, error: Error) {
+        viewModel.clearDetectedUpdate()
         let nsError = error as NSError
         let reasonValue = (nsError.userInfo[SPUNoUpdateFoundReasonKey] as? NSNumber)?.intValue
         let reason = reasonValue.map { SPUNoUpdateFoundReason(rawValue: OSStatus($0)) } ?? nil
@@ -80,13 +87,18 @@ extension UpdateDriver: SPUUpdaterDelegate {
         }
     }
 
-    @MainActor
+    func updater(_ updater: SPUUpdater, userDidMake _: SPUUserUpdateChoice, forUpdate _: SUAppcastItem, state _: SPUUserUpdateState) {
+        viewModel.clearDetectedUpdate()
+    }
+
     func updaterWillRelaunchApplication(_ updater: SPUUpdater) {
-        AppDelegate.shared?.persistSessionForUpdateRelaunch()
-        TerminalController.shared.stop()
-        NSApp.invalidateRestorableState()
-        for window in NSApp.windows {
-            window.invalidateRestorableState()
+        Task { @MainActor in
+            AppDelegate.shared?.persistSessionForUpdateRelaunch()
+            TerminalController.shared.stop()
+            NSApp.invalidateRestorableState()
+            for window in NSApp.windows {
+                window.invalidateRestorableState()
+            }
         }
     }
 }

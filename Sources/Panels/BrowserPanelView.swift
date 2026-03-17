@@ -203,9 +203,39 @@ func resolvedBrowserOmnibarPillBackgroundColor(
     return themeBackgroundColor.blended(withFraction: darkenMix, of: .black) ?? themeBackgroundColor
 }
 
+private struct BrowserChromeStyle {
+    let backgroundColor: NSColor
+    let colorScheme: ColorScheme
+    let omnibarPillBackgroundColor: NSColor
+
+    static func resolve(
+        for colorScheme: ColorScheme,
+        themeBackgroundColor: NSColor
+    ) -> BrowserChromeStyle {
+        let backgroundColor = resolvedBrowserChromeBackgroundColor(
+            for: colorScheme,
+            themeBackgroundColor: themeBackgroundColor
+        )
+        let chromeColorScheme = resolvedBrowserChromeColorScheme(
+            for: colorScheme,
+            themeBackgroundColor: backgroundColor
+        )
+        let omnibarPillBackgroundColor = resolvedBrowserOmnibarPillBackgroundColor(
+            for: chromeColorScheme,
+            themeBackgroundColor: backgroundColor
+        )
+        return BrowserChromeStyle(
+            backgroundColor: backgroundColor,
+            colorScheme: chromeColorScheme,
+            omnibarPillBackgroundColor: omnibarPillBackgroundColor
+        )
+    }
+}
+
 /// View for rendering a browser panel with address bar
 struct BrowserPanelView: View {
     @ObservedObject var panel: BrowserPanel
+    @ObservedObject private var browserProfileStore = BrowserProfileStore.shared
     let paneId: PaneID
     let isFocused: Bool
     let isVisibleInUI: Bool
@@ -220,10 +250,15 @@ struct BrowserPanelView: View {
     @AppStorage(BrowserDevToolsButtonDebugSettings.iconNameKey) private var devToolsIconNameRaw = BrowserDevToolsButtonDebugSettings.defaultIcon.rawValue
     @AppStorage(BrowserDevToolsButtonDebugSettings.iconColorKey) private var devToolsIconColorRaw = BrowserDevToolsButtonDebugSettings.defaultColor.rawValue
     @AppStorage(BrowserThemeSettings.modeKey) private var browserThemeModeRaw = BrowserThemeSettings.defaultMode.rawValue
+    @AppStorage(KeyboardShortcutSettings.Action.toggleBrowserDeveloperTools.defaultsKey)
+    private var toggleBrowserDeveloperToolsShortcutData = Data()
     @State private var suggestionTask: Task<Void, Never>?
     @State private var isLoadingRemoteSuggestions: Bool = false
     @State private var latestRemoteSuggestionQuery: String = ""
     @State private var latestRemoteSuggestions: [String] = []
+    @State private var emptyStateImportBrowsers: [InstalledBrowserCandidate] = []
+    @State private var emptyStateImportBrowserRefreshTask: Task<Void, Never>?
+    @State private var emptyStateImportBrowserRefreshGeneration: UInt64 = 0
     @State private var inlineCompletion: OmnibarInlineCompletion?
     @State private var omnibarSelectionRange: NSRange = NSRange(location: NSNotFound, length: 0)
     @State private var omnibarHasMarkedText: Bool = false
@@ -235,8 +270,13 @@ struct BrowserPanelView: View {
     @State private var lastHandledAddressBarFocusRequestId: UUID?
     @State private var pendingAddressBarFocusRetryRequestId: UUID?
     @State private var pendingAddressBarFocusRetryGeneration: UInt64 = 0
+    @State private var isBrowserProfileMenuPresented = false
     @State private var isBrowserThemeMenuPresented = false
-    @State private var ghosttyBackgroundGeneration: Int = 0
+    @State private var browserChromeStyle = BrowserChromeStyle.resolve(
+        for: .light,
+        themeBackgroundColor: GhosttyBackgroundTheme.currentColor()
+    )
+    @State private var toggleBrowserDeveloperToolsShortcut = KeyboardShortcutSettings.Action.toggleBrowserDeveloperTools.defaultShortcut
     // Keep this below half of the compact omnibar height so it reads as a squircle,
     // not a capsule.
     private let omnibarPillCornerRadius: CGFloat = 10
@@ -282,24 +322,15 @@ struct BrowserPanelView: View {
     }
 
     private var browserChromeBackground: Color {
-        _ = ghosttyBackgroundGeneration
-        return Color(nsColor: GhosttyBackgroundTheme.currentColor())
+        Color(nsColor: browserChromeStyle.backgroundColor)
     }
 
     private var browserChromeBackgroundColor: NSColor {
-        _ = ghosttyBackgroundGeneration
-        return resolvedBrowserChromeBackgroundColor(
-            for: colorScheme,
-            themeBackgroundColor: GhosttyBackgroundTheme.currentColor()
-        )
+        browserChromeStyle.backgroundColor
     }
 
     private var browserChromeColorScheme: ColorScheme {
-        _ = ghosttyBackgroundGeneration
-        return resolvedBrowserChromeColorScheme(
-            for: colorScheme,
-            themeBackgroundColor: GhosttyBackgroundTheme.currentColor()
-        )
+        browserChromeStyle.colorScheme
     }
 
     private var browserContentAccessibilityIdentifier: String {
@@ -307,10 +338,12 @@ struct BrowserPanelView: View {
     }
 
     private var omnibarPillBackgroundColor: NSColor {
-        resolvedBrowserOmnibarPillBackgroundColor(
-            for: browserChromeColorScheme,
-            themeBackgroundColor: browserChromeBackgroundColor
-        )
+        browserChromeStyle.omnibarPillBackgroundColor
+    }
+
+    private var developerToolsButtonHelp: String {
+        let base = String(localized: "browser.toggleDevTools", defaultValue: "Toggle Developer Tools")
+        return "\(base) (\(toggleBrowserDeveloperToolsShortcut.displayString))"
     }
 
     private var owningWorkspace: Workspace? {
@@ -420,6 +453,8 @@ struct BrowserPanelView: View {
                 BrowserSearchSettings.searchSuggestionsEnabledKey: BrowserSearchSettings.defaultSearchSuggestionsEnabled,
                 BrowserThemeSettings.modeKey: BrowserThemeSettings.defaultMode.rawValue,
             ])
+            refreshBrowserChromeStyle()
+            refreshToggleBrowserDeveloperToolsShortcut()
             let resolvedThemeMode = BrowserThemeSettings.mode(defaults: .standard)
             if browserThemeModeRaw != resolvedThemeMode.rawValue {
                 browserThemeModeRaw = resolvedThemeMode.rawValue
@@ -431,7 +466,8 @@ struct BrowserPanelView: View {
             // If the browser surface is focused but has no URL loaded yet, auto-focus the omnibar.
             autoFocusOmnibarIfBlank()
             syncWebViewResponderPolicyWithViewState(reason: "onAppear")
-            BrowserHistoryStore.shared.loadIfNeeded()
+            refreshEmptyStateImportBrowsers()
+            panel.historyStore.loadIfNeeded()
 #if DEBUG
             logBrowserFocusState(event: "view.onAppear")
 #endif
@@ -450,6 +486,9 @@ struct BrowserPanelView: View {
                !isWebViewBlank() {
                 setAddressBarFocused(false, reason: "panel.currentURL.loaded")
             }
+            if isWebViewBlank() {
+                refreshEmptyStateImportBrowsers()
+            }
         }
         .onChange(of: browserThemeModeRaw) { _ in
             let normalizedMode = BrowserThemeSettings.mode(for: browserThemeModeRaw)
@@ -459,10 +498,20 @@ struct BrowserPanelView: View {
             panel.setBrowserThemeMode(normalizedMode)
         }
         .onChange(of: colorScheme) { _ in
+            refreshBrowserChromeStyle()
             panel.refreshAppearanceDrivenColors()
+        }
+        .onChange(of: toggleBrowserDeveloperToolsShortcutData) { _ in
+            refreshToggleBrowserDeveloperToolsShortcut()
         }
         .onChange(of: panel.pendingAddressBarFocusRequestId) { _ in
             applyPendingAddressBarFocusRequestIfNeeded()
+        }
+        .onChange(of: panel.profileID) { _ in
+            panel.historyStore.loadIfNeeded()
+            if addressBarFocused {
+                refreshSuggestions()
+            }
         }
         .onChange(of: isFocused) { focused in
 #if DEBUG
@@ -536,7 +585,7 @@ struct BrowserPanelView: View {
             applyOmnibarEffects(effects)
             refreshInlineCompletion()
         }
-        .onReceive(BrowserHistoryStore.shared.$entries) { _ in
+        .onReceive(panel.historyStore.$entries) { _ in
             guard addressBarFocused else { return }
             refreshSuggestions()
         }
@@ -552,7 +601,7 @@ struct BrowserPanelView: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)) { _ in
-            ghosttyBackgroundGeneration &+= 1
+            refreshBrowserChromeStyle()
         }
     }
 
@@ -564,10 +613,9 @@ struct BrowserPanelView: View {
                 .accessibilityIdentifier("BrowserOmnibarPill")
                 .accessibilityLabel("Browser omnibar")
 
-            if !panel.isShowingNewTabPage {
-                browserThemeModeButton
-                developerToolsButton
-            }
+            browserProfileButton
+            browserThemeModeButton
+            developerToolsButton
         }
         .padding(.horizontal, 8)
         .padding(.vertical, addressBarVerticalPadding)
@@ -668,8 +716,36 @@ struct BrowserPanelView: View {
         }
         .buttonStyle(OmnibarAddressButtonStyle())
         .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
-        .safeHelp(KeyboardShortcutSettings.Action.toggleBrowserDeveloperTools.tooltip(String(localized: "browser.toggleDevTools", defaultValue: "Toggle Developer Tools")))
+        .safeHelp(developerToolsButtonHelp)
         .accessibilityIdentifier("BrowserToggleDevToolsButton")
+    }
+
+    private var browserProfileButton: some View {
+        Button(action: {
+            isBrowserProfileMenuPresented.toggle()
+        }) {
+            Image(systemName: "person.crop.circle")
+                .symbolRenderingMode(.monochrome)
+                .cmuxFlatSymbolColorRendering()
+                .font(.system(size: devToolsButtonIconSize, weight: .medium))
+                .foregroundStyle(devToolsColorOption.color)
+                .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
+        }
+        .buttonStyle(OmnibarAddressButtonStyle())
+        .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
+        .popover(isPresented: $isBrowserProfileMenuPresented, arrowEdge: .bottom) {
+            browserProfilePopover
+        }
+        .safeHelp(
+            String(
+                format: String(
+                    localized: "browser.profile.buttonHelp",
+                    defaultValue: "Browser Profile: %@"
+                ),
+                panel.profileDisplayName
+            )
+        )
+        .accessibilityIdentifier("BrowserProfileButton")
     }
 
     private var browserThemeModeButton: some View {
@@ -688,8 +764,74 @@ struct BrowserPanelView: View {
         .popover(isPresented: $isBrowserThemeMenuPresented, arrowEdge: .bottom) {
             browserThemeModePopover
         }
-        .safeHelp("Browser Theme: \(browserThemeMode.displayName)")
+        .safeHelp(
+            String(
+                format: String(
+                    localized: "browser.theme.buttonHelp",
+                    defaultValue: "Browser Theme: %@"
+                ),
+                browserThemeMode.displayName
+            )
+        )
         .accessibilityIdentifier("BrowserThemeModeButton")
+    }
+
+    private var browserProfilePopover: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(String(localized: "browser.profile.menu.title", defaultValue: "Profiles"))
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.secondary)
+
+            VStack(alignment: .leading, spacing: 2) {
+                ForEach(browserProfileStore.profiles) { profile in
+                    Button {
+                        applyBrowserProfileSelection(profile.id)
+                    } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: profile.id == panel.profileID ? "checkmark" : "circle")
+                                .font(.system(size: 10, weight: .semibold))
+                                .opacity(profile.id == panel.profileID ? 1.0 : 0.0)
+                                .frame(width: 12, alignment: .center)
+                            Text(profile.displayName)
+                                .font(.system(size: 12))
+                            Spacer(minLength: 0)
+                        }
+                        .padding(.horizontal, 8)
+                        .frame(height: 24)
+                        .contentShape(Rectangle())
+                        .background(
+                            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                .fill(profile.id == panel.profileID ? Color.primary.opacity(0.12) : Color.clear)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+
+            Divider()
+
+            Button {
+                isBrowserProfileMenuPresented = false
+                presentCreateBrowserProfilePrompt()
+            } label: {
+                Text(String(localized: "browser.profile.new", defaultValue: "New Profile..."))
+                    .font(.system(size: 12))
+            }
+            .buttonStyle(.plain)
+
+            if browserProfileStore.canRenameProfile(id: panel.profileID) {
+                Button {
+                    isBrowserProfileMenuPresented = false
+                    presentRenameBrowserProfilePrompt()
+                } label: {
+                    Text(String(localized: "browser.profile.rename", defaultValue: "Rename Current Profile..."))
+                        .font(.system(size: 12))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(8)
+        .frame(minWidth: 208)
     }
 
     private var browserThemeModePopover: some View {
@@ -876,6 +1018,11 @@ struct BrowserPanelView: View {
                             setAddressBarFocused(false, reason: "placeholderContent.tapBlur")
                         }
                     }
+                    .overlay {
+                        if shouldShowEmptyStateImportOverlay {
+                            emptyBrowserStateOverlay
+                        }
+                    }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -905,6 +1052,28 @@ struct BrowserPanelView: View {
         case .easeOut:
             return .easeOut(duration: duration)
         }
+    }
+
+    private func refreshBrowserChromeStyle() {
+        browserChromeStyle = BrowserChromeStyle.resolve(
+            for: colorScheme,
+            themeBackgroundColor: GhosttyBackgroundTheme.currentColor()
+        )
+    }
+
+    private func refreshToggleBrowserDeveloperToolsShortcut() {
+        toggleBrowserDeveloperToolsShortcut = decodeShortcut(
+            from: toggleBrowserDeveloperToolsShortcutData,
+            fallback: KeyboardShortcutSettings.Action.toggleBrowserDeveloperTools.defaultShortcut
+        )
+    }
+
+    private func decodeShortcut(from data: Data, fallback: StoredShortcut) -> StoredShortcut {
+        guard !data.isEmpty,
+              let shortcut = try? JSONDecoder().decode(StoredShortcut.self, from: data) else {
+            return fallback
+        }
+        return shortcut
     }
 
     private func syncWebViewResponderPolicyWithViewState(
@@ -1119,6 +1288,51 @@ struct BrowserPanelView: View {
 #endif
     }
 
+    private var emptyBrowserStateOverlay: some View {
+        VStack {
+            Spacer(minLength: 22)
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text(String(localized: "settings.browser.emptyImport.title", defaultValue: "Import browser data"))
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.secondary)
+
+                Text(InstalledBrowserDetector.summaryText(for: emptyStateImportBrowsers))
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Button(String(localized: "settings.browser.emptyImport.choose", defaultValue: "Choose What to Import…")) {
+                    BrowserDataImportCoordinator.shared.presentImportDialog(
+                        defaultDestinationProfileID: panel.profileID
+                    )
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
+            .padding(12)
+            .frame(maxWidth: 360, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(Color(nsColor: .windowBackgroundColor).opacity(0.9))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(
+                    Color(nsColor: .separatorColor).opacity(0.45),
+                    lineWidth: 1
+                )
+            )
+            .shadow(color: Color.black.opacity(0.08), radius: 8, y: 3)
+
+            Spacer()
+        }
+        .padding(.horizontal, 18)
+    }
+
+    private var shouldShowEmptyStateImportOverlay: Bool {
+        !panel.shouldRenderWebView && isWebViewBlank()
+    }
+
     /// Treat a WebView with no URL (or about:blank) as "blank" for UX purposes.
     private func isWebViewBlank() -> Bool {
         guard let url = panel.webView.url else { return true }
@@ -1168,6 +1382,31 @@ struct BrowserPanelView: View {
 #if DEBUG
         logBrowserFocusState(event: "addressBarFocus.autoFocus.apply")
 #endif
+    }
+
+    private func refreshEmptyStateImportBrowsers() {
+        emptyStateImportBrowserRefreshTask?.cancel()
+        emptyStateImportBrowserRefreshGeneration &+= 1
+        let generation = emptyStateImportBrowserRefreshGeneration
+
+        guard shouldShowEmptyStateImportOverlay else {
+            emptyStateImportBrowsers = []
+            emptyStateImportBrowserRefreshTask = nil
+            return
+        }
+
+        emptyStateImportBrowserRefreshTask = Task {
+            let browsers = await Task.detached(priority: .utility) {
+                InstalledBrowserDetector.detectInstalledBrowsers()
+            }.value
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                guard emptyStateImportBrowserRefreshGeneration == generation,
+                      shouldShowEmptyStateImportOverlay else { return }
+                emptyStateImportBrowsers = browsers
+                emptyStateImportBrowserRefreshTask = nil
+            }
+        }
     }
 
     private func openDevTools() {
@@ -1273,8 +1512,71 @@ struct BrowserPanelView: View {
 
         let target = omnibarState.suggestions[idx]
         guard case .history(let url, _) = target.kind else { return }
-        guard BrowserHistoryStore.shared.removeHistoryEntry(urlString: url) else { return }
+        guard panel.historyStore.removeHistoryEntry(urlString: url) else { return }
         refreshSuggestions()
+    }
+
+    private func applyBrowserProfileSelection(_ profileID: UUID) {
+        isBrowserProfileMenuPresented = false
+        owningWorkspace?.setPreferredBrowserProfileID(profileID)
+        _ = panel.switchToProfile(profileID)
+    }
+
+    private func presentCreateBrowserProfilePrompt() {
+        let alert = NSAlert()
+        alert.messageText = String(localized: "browser.profile.new.title", defaultValue: "New Browser Profile")
+        alert.informativeText = String(localized: "browser.profile.new.message", defaultValue: "Create a separate browser profile for cookies, history, and local storage.")
+
+        let input = NSTextField(string: "")
+        input.placeholderString = String(localized: "browser.profile.new.placeholder", defaultValue: "Profile name")
+        input.frame = NSRect(x: 0, y: 0, width: 260, height: 22)
+        alert.accessoryView = input
+
+        alert.addButton(withTitle: String(localized: "common.create", defaultValue: "Create"))
+        alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
+
+        let alertWindow = alert.window
+        alertWindow.initialFirstResponder = input
+        DispatchQueue.main.async {
+            alertWindow.makeFirstResponder(input)
+            input.selectText(nil)
+        }
+
+        guard alert.runModal() == .alertFirstButtonReturn,
+              let profile = browserProfileStore.createProfile(named: input.stringValue) else {
+            return
+        }
+
+        applyBrowserProfileSelection(profile.id)
+    }
+
+    private func presentRenameBrowserProfilePrompt() {
+        guard let profile = browserProfileStore.profileDefinition(id: panel.profileID),
+              browserProfileStore.canRenameProfile(id: profile.id) else {
+            return
+        }
+
+        let alert = NSAlert()
+        alert.messageText = String(localized: "browser.profile.rename.title", defaultValue: "Rename Browser Profile")
+        alert.informativeText = String(localized: "browser.profile.rename.message", defaultValue: "Choose a new name for this browser profile.")
+
+        let input = NSTextField(string: profile.displayName)
+        input.placeholderString = String(localized: "browser.profile.new.placeholder", defaultValue: "Profile name")
+        input.frame = NSRect(x: 0, y: 0, width: 260, height: 22)
+        alert.accessoryView = input
+
+        alert.addButton(withTitle: String(localized: "common.rename", defaultValue: "Rename"))
+        alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
+
+        let alertWindow = alert.window
+        alertWindow.initialFirstResponder = input
+        DispatchQueue.main.async {
+            alertWindow.makeFirstResponder(input)
+            input.selectText(nil)
+        }
+
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        _ = browserProfileStore.renameProfile(id: profile.id, to: input.stringValue)
     }
 
     private func refreshInlineCompletion() {
@@ -1312,9 +1614,9 @@ struct BrowserPanelView: View {
         let query = omnibarState.buffer.trimmingCharacters(in: .whitespacesAndNewlines)
         let historyEntries: [BrowserHistoryStore.Entry] = {
             if query.isEmpty {
-                return BrowserHistoryStore.shared.recentSuggestions(limit: 12)
+                return panel.historyStore.recentSuggestions(limit: 12)
             }
-            return BrowserHistoryStore.shared.suggestions(for: query, limit: 12)
+            return panel.historyStore.suggestions(for: query, limit: 12)
         }()
         let openTabMatches = query.isEmpty ? [] : matchingOpenTabSuggestions(for: query, limit: 12)
         let isSingleCharacterQuery = omnibarSingleCharacterQuery(for: query) != nil
@@ -1378,7 +1680,7 @@ struct BrowserPanelView: View {
                 let merged = buildOmnibarSuggestions(
                     query: query,
                     engineName: searchEngine.displayName,
-                    historyEntries: BrowserHistoryStore.shared.suggestions(for: query, limit: 12),
+                    historyEntries: panel.historyStore.suggestions(for: query, limit: 12),
                     openTabMatches: matchingOpenTabSuggestions(for: query, limit: 12),
                     remoteQueries: remote,
                     resolvedURL: panel.resolveNavigableURL(from: query),

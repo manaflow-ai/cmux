@@ -158,7 +158,7 @@ printf '\\e]99;i=1;e=1;d=1;p=body:All tests passed\\e\\\\'`}</CodeBlock>
 [ -S /tmp/cmux.sock ] || exit 0
 
 EVENT=$(cat)
-EVENT_TYPE=$(echo "$EVENT" | jq -r '.event // "unknown"')
+EVENT_TYPE=$(echo "$EVENT" | jq -r '.hook_event_name // "unknown"')
 TOOL=$(echo "$EVENT" | jq -r '.tool_name // ""')
 
 case "$EVENT_TYPE" in
@@ -174,11 +174,26 @@ esac`}</CodeBlock>
       <h3>{t("configureClaude")}</h3>
       <CodeBlock title="~/.claude/settings.json" lang="json">{`{
   "hooks": {
-    "Stop": ["~/.claude/hooks/cmux-notify.sh"],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/cmux-notify.sh"
+          }
+        ]
+      }
+    ],
     "PostToolUse": [
       {
         "matcher": "Task",
-        "hooks": ["~/.claude/hooks/cmux-notify.sh"]
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/cmux-notify.sh"
+          }
+        ]
       }
     ]
   }
