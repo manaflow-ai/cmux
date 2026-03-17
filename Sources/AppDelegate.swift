@@ -2371,12 +2371,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         isTerminatingApp = true
         _ = saveSessionSnapshot(includeScrollback: true, removeWhenEmpty: false)
+        autosaveActiveProfiles(includeScrollback: true)
         return .terminateNow
     }
 
     func applicationWillTerminate(_ notification: Notification) {
         isTerminatingApp = true
         _ = saveSessionSnapshot(includeScrollback: true, removeWhenEmpty: false)
+        autosaveActiveProfiles(includeScrollback: true)
         stopSessionAutosaveTimer()
         TerminalController.shared.stop()
         VSCodeServeWebController.shared.stop()
@@ -3214,6 +3216,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let saveStart = ProcessInfo.processInfo.systemUptime
 #endif
         _ = saveSessionSnapshot(includeScrollback: false)
+        autosaveActiveProfiles(includeScrollback: true)
 #if DEBUG
         saveMs = (ProcessInfo.processInfo.systemUptime - saveStart) * 1000.0
 #endif
@@ -3222,6 +3225,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             persistedAt: now,
             fingerprint: autosaveFingerprint
         )
+    }
+
+    /// Auto-saves any active profiles so changes are persisted without explicit user action.
+    private func autosaveActiveProfiles(includeScrollback: Bool = false) {
+        let contexts = Array(mainWindowContexts.values)
+        for context in contexts {
+            guard let profileName = context.tabManager.activeProfileName else { continue }
+            _ = ProfileStore.saveCurrentSession(
+                name: profileName,
+                tabManager: context.tabManager,
+                includeScrollback: includeScrollback
+            )
+        }
     }
 
     fileprivate func recordTypingActivity() {

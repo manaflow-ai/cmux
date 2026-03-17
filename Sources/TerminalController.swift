@@ -1786,6 +1786,17 @@ class TerminalController {
         case "read_screen":
             return readScreenText(args)
 
+        case "profile_list":
+            return profileList()
+
+        case "profile_save":
+            return profileSave(args)
+
+        case "profile_load":
+            return profileLoad(args)
+
+        case "profile_delete":
+            return profileDelete(args)
 
 #if DEBUG
         case "send_workspace":
@@ -2312,6 +2323,16 @@ class TerminalController {
         // Markdown
         case "markdown.open":
             return v2Result(id: id, self.v2MarkdownOpen(params: params))
+
+        // Profiles
+        case "profile.list":
+            return v2Result(id: id, self.v2ProfileList(params: params))
+        case "profile.save":
+            return v2Result(id: id, self.v2ProfileSave(params: params))
+        case "profile.load":
+            return v2Result(id: id, self.v2ProfileLoad(params: params))
+        case "profile.delete":
+            return v2Result(id: id, self.v2ProfileDelete(params: params))
 
         case "surface.read_text":
             return v2Result(id: id, self.v2SurfaceReadText(params: params))
@@ -7122,6 +7143,125 @@ class TerminalController {
         return result
     }
 
+    // MARK: - Profiles
+
+    private func v2ProfileList(params: [String: Any]) -> V2CallResult {
+        let profiles = ProfileStore.list()
+        let entries: [[String: Any]] = profiles.map { profile in
+            [
+                "id": profile.id.uuidString,
+                "name": profile.name,
+                "workspace_count": profile.snapshot.workspaces.count,
+                "created_at": profile.createdAt.timeIntervalSince1970,
+                "updated_at": profile.updatedAt.timeIntervalSince1970,
+            ]
+        }
+        return .ok(["profiles": entries, "count": entries.count])
+    }
+
+    private func v2ProfileSave(params: [String: Any]) -> V2CallResult {
+        guard let name = v2String(params, "name"),
+              !name.isEmpty else {
+            return .err(code: "invalid_params", message: "Missing or empty 'name' parameter", data: nil)
+        }
+        let includeScrollback = v2Bool(params, "include_scrollback") ?? true
+
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+
+        var result: V2CallResult = .err(code: "internal_error", message: "Failed to save profile", data: nil)
+        v2MainSync {
+            guard let profile = ProfileStore.saveCurrentSession(
+                name: name,
+                tabManager: tabManager,
+                includeScrollback: includeScrollback
+            ) else {
+                result = .err(code: "save_failed", message: "Failed to save profile '\(name)'", data: nil)
+                return
+            }
+            result = .ok([
+                "id": profile.id.uuidString,
+                "name": profile.name,
+                "workspace_count": profile.snapshot.workspaces.count,
+            ])
+        }
+        return result
+    }
+
+    private func v2ProfileLoad(params: [String: Any]) -> V2CallResult {
+        guard let name = v2String(params, "name"),
+              !name.isEmpty else {
+            return .err(code: "invalid_params", message: "Missing or empty 'name' parameter", data: nil)
+        }
+
+        guard let profile = ProfileStore.load(name: name) else {
+            return .err(code: "not_found", message: "Profile '\(name)' not found", data: nil)
+        }
+
+        let inNewWindow = v2Bool(params, "new_window") ?? false
+
+        var result: V2CallResult = .err(code: "internal_error", message: "Failed to load profile", data: nil)
+        v2MainSync {
+            if inNewWindow {
+                guard let appDelegate = AppDelegate.shared else {
+                    result = .err(code: "unavailable", message: "AppDelegate not available", data: nil)
+                    return
+                }
+                let snapshot = SessionWindowSnapshot(
+                    frame: nil,
+                    display: nil,
+                    tabManager: profile.snapshot,
+                    sidebar: SessionSidebarSnapshot(
+                        isVisible: true,
+                        selection: .tabs,
+                        width: nil
+                    )
+                )
+                let windowId = appDelegate.createMainWindow(sessionWindowSnapshot: snapshot)
+                appDelegate.tabManagerFor(windowId: windowId)?.setActiveProfileName(profile.name)
+                result = .ok([
+                    "name": profile.name,
+                    "window_id": windowId.uuidString,
+                    "workspace_count": profile.snapshot.workspaces.count,
+                    "mode": "new_window",
+                ])
+            } else {
+                guard let tabManager = v2ResolveTabManager(params: params) else {
+                    result = .err(code: "unavailable", message: "TabManager not available", data: nil)
+                    return
+                }
+                tabManager.restoreSessionSnapshot(profile.snapshot)
+                tabManager.setActiveProfileName(profile.name)
+                let windowId = v2ResolveWindowId(tabManager: tabManager)
+                result = .ok([
+                    "name": profile.name,
+                    "window_id": v2OrNull(windowId?.uuidString),
+                    "workspace_count": profile.snapshot.workspaces.count,
+                    "mode": "replace",
+                ])
+            }
+        }
+        return result
+    }
+
+    private func v2ProfileDelete(params: [String: Any]) -> V2CallResult {
+        guard let name = v2String(params, "name"),
+              !name.isEmpty else {
+            return .err(code: "invalid_params", message: "Missing or empty 'name' parameter", data: nil)
+        }
+
+        guard ProfileStore.load(name: name) != nil else {
+            return .err(code: "not_found", message: "Profile '\(name)' not found", data: nil)
+        }
+
+        guard ProfileStore.delete(name: name) else {
+            return .err(code: "delete_failed", message: "Failed to delete profile '\(name)'", data: nil)
+        }
+
+        return .ok(["name": name, "deleted": true])
+    }
+
     // MARK: - Browser
 
     private func v2BrowserOpenSplit(params: [String: Any]) -> V2CallResult {
@@ -10758,6 +10898,93 @@ class TerminalController {
         return result
     }
 
+    // MARK: - Profile Commands (v1)
+
+    private func profileList() -> String {
+        let profiles = ProfileStore.list()
+        if profiles.isEmpty {
+            return "OK: No profiles saved"
+        }
+        let lines = profiles.map { profile in
+            "\(profile.name) (workspaces: \(profile.snapshot.workspaces.count))"
+        }
+        return "OK:\n" + lines.joined(separator: "\n")
+    }
+
+    private func profileSave(_ args: String) -> String {
+        let name = args.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else {
+            return "ERROR: Usage: profile_save <name>"
+        }
+        guard let tabManager else {
+            return "ERROR: TabManager not available"
+        }
+        guard let profile = ProfileStore.saveCurrentSession(name: name, tabManager: tabManager) else {
+            return "ERROR: Failed to save profile '\(name)'"
+        }
+        return "OK: Profile '\(profile.name)' saved with \(profile.snapshot.workspaces.count) workspace(s)"
+    }
+
+    private func profileLoad(_ args: String) -> String {
+        let parts = args.trimmingCharacters(in: .whitespacesAndNewlines)
+            .components(separatedBy: " ")
+            .filter { !$0.isEmpty }
+        guard !parts.isEmpty else {
+            return "ERROR: Usage: profile_load <name> [--new-window]"
+        }
+
+        let inNewWindow = parts.contains("--new-window")
+        let nameParts = parts.filter { $0 != "--new-window" }
+        let name = nameParts.joined(separator: " ")
+        guard !name.isEmpty else {
+            return "ERROR: Usage: profile_load <name> [--new-window]"
+        }
+
+        guard let profile = ProfileStore.load(name: name) else {
+            return "ERROR: Profile '\(name)' not found"
+        }
+
+        if inNewWindow {
+            let snapshot = SessionWindowSnapshot(
+                frame: nil,
+                display: nil,
+                tabManager: profile.snapshot,
+                sidebar: SessionSidebarSnapshot(
+                    isVisible: true,
+                    selection: .tabs,
+                    width: nil
+                )
+            )
+            guard let appDelegate = AppDelegate.shared else {
+                return "ERROR: AppDelegate not available"
+            }
+            let windowId = appDelegate.createMainWindow(sessionWindowSnapshot: snapshot)
+            appDelegate.tabManagerFor(windowId: windowId)?.setActiveProfileName(name)
+            return "OK: Profile '\(name)' loaded in new window (\(profile.snapshot.workspaces.count) workspace(s))"
+        } else {
+            guard let tabManager else {
+                return "ERROR: TabManager not available"
+            }
+            tabManager.restoreSessionSnapshot(profile.snapshot)
+            tabManager.setActiveProfileName(name)
+            return "OK: Profile '\(name)' loaded (\(profile.snapshot.workspaces.count) workspace(s))"
+        }
+    }
+
+    private func profileDelete(_ args: String) -> String {
+        let name = args.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else {
+            return "ERROR: Usage: profile_delete <name>"
+        }
+        guard ProfileStore.load(name: name) != nil else {
+            return "ERROR: Profile '\(name)' not found"
+        }
+        guard ProfileStore.delete(name: name) else {
+            return "ERROR: Failed to delete profile '\(name)'"
+        }
+        return "OK: Profile '\(name)' deleted"
+    }
+
     private func readScreenText(_ args: String) -> String {
         let options: ReadScreenOptions
         switch parseReadScreenArgs(args) {
@@ -10855,6 +11082,12 @@ class TerminalController {
           clear_ports [--tab=X] [--panel=Y] - Clear listening ports
           sidebar_state [--tab=X] - Dump sidebar metadata
           reset_sidebar [--tab=X] - Clear sidebar metadata
+
+        Profile commands:
+          profile_list                    - List all saved profiles
+          profile_save <name>             - Save current workspaces as a named profile
+          profile_load <name> [--new-window] - Load a profile (replace current or open in new window)
+          profile_delete <name>           - Delete a saved profile
 
         Browser commands:
           open_browser [url]              - Create browser panel with optional URL

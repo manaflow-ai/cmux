@@ -8922,27 +8922,60 @@ private final class SidebarShortcutHintModifierMonitor: ObservableObject {
 private struct SidebarFooter: View {
     @ObservedObject var updateViewModel: UpdateViewModel
     let onSendFeedback: () -> Void
+    @EnvironmentObject var tabManager: TabManager
 
     var body: some View {
 #if DEBUG
         SidebarDevFooter(updateViewModel: updateViewModel, onSendFeedback: onSendFeedback)
 #else
-        SidebarFooterButtons(updateViewModel: updateViewModel, onSendFeedback: onSendFeedback)
-            .padding(.leading, 6)
-            .padding(.trailing, 10)
-            .padding(.bottom, 6)
+        SidebarFooterButtons(
+            updateViewModel: updateViewModel,
+            onSendFeedback: onSendFeedback,
+            activeProfileName: tabManager.activeProfileName
+        )
+        .padding(.leading, 6)
+        .padding(.trailing, 10)
+        .padding(.bottom, 6)
 #endif
+    }
+}
+
+private struct SidebarActiveProfileBadge: View {
+    let name: String
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        HStack(spacing: 3) {
+            Image(systemName: "person.crop.rectangle.stack")
+                .font(.system(size: 9, weight: .medium))
+            Text(name)
+                .font(.system(size: 10, weight: .medium))
+                .lineLimit(1)
+                .truncationMode(.tail)
+        }
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 5)
+        .padding(.vertical, 2)
+        .background(
+            RoundedRectangle(cornerRadius: 4)
+                .fill(Color.primary.opacity(colorScheme == .dark ? 0.08 : 0.06))
+        )
     }
 }
 
 private struct SidebarFooterButtons: View {
     @ObservedObject var updateViewModel: UpdateViewModel
     let onSendFeedback: () -> Void
+    var activeProfileName: String? = nil
 
     var body: some View {
         HStack(spacing: 4) {
             SidebarHelpMenuButton(onSendFeedback: onSendFeedback)
             UpdatePill(model: updateViewModel)
+            Spacer(minLength: 0)
+            if let name = activeProfileName {
+                SidebarActiveProfileBadge(name: name)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -10057,12 +10090,17 @@ private struct SidebarFooterIconButtonStyleBody: View {
 private struct SidebarDevFooter: View {
     @ObservedObject var updateViewModel: UpdateViewModel
     let onSendFeedback: () -> Void
+    @EnvironmentObject var tabManager: TabManager
     @AppStorage(DevBuildBannerDebugSettings.sidebarBannerVisibleKey)
     private var showSidebarDevBuildBanner = DevBuildBannerDebugSettings.defaultShowSidebarBanner
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            SidebarFooterButtons(updateViewModel: updateViewModel, onSendFeedback: onSendFeedback)
+            SidebarFooterButtons(
+                updateViewModel: updateViewModel,
+                onSendFeedback: onSendFeedback,
+                activeProfileName: tabManager.activeProfileName
+            )
             if showSidebarDevBuildBanner {
                 Text(String(localized: "debug.devBuildBanner.title", defaultValue: "THIS IS A DEV BUILD"))
                     .font(.system(size: 11, weight: .semibold))

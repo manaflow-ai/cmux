@@ -656,6 +656,14 @@ class TabManager: ObservableObject {
     @Published private(set) var pendingBackgroundWorkspaceLoadIds: Set<UUID> = []
     @Published private(set) var debugPinnedWorkspaceLoadIds: Set<UUID> = []
 
+    /// The name of the currently active profile, if workspaces were loaded from one.
+    /// Cleared when workspaces are manually added or removed.
+    @Published private(set) var activeProfileName: String?
+
+    func setActiveProfileName(_ name: String?) {
+        activeProfileName = name
+    }
+
     /// Global monotonically increasing counter for CMUX_PORT ordinal assignment.
     /// Static so port ranges don't overlap across multiple windows (each window has its own TabManager).
     private static var nextPortOrdinal: Int = 0
