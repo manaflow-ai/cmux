@@ -1518,8 +1518,9 @@ struct BrowserPanelView: View {
 
     private func applyBrowserProfileSelection(_ profileID: UUID) {
         isBrowserProfileMenuPresented = false
+        let didApply = panel.profileID == profileID || panel.switchToProfile(profileID)
+        guard didApply else { return }
         owningWorkspace?.setPreferredBrowserProfileID(profileID)
-        _ = panel.switchToProfile(profileID)
     }
 
     private func presentCreateBrowserProfilePrompt() {

@@ -150,7 +150,7 @@ final class SessionPersistenceTests: XCTestCase {
     }
 
     func testSessionBrowserPanelSnapshotHistoryRoundTrip() throws {
-        let profileID = UUID(uuidString: "8F03A658-5A84-428B-AD03-5A6D04692F64")
+        let profileID = try XCTUnwrap(UUID(uuidString: "8F03A658-5A84-428B-AD03-5A6D04692F64"))
         let source = SessionBrowserPanelSnapshot(
             urlString: "https://example.com/current",
             profileID: profileID,

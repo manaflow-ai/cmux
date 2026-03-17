@@ -2354,9 +2354,39 @@ final class BrowserPanel: Panel, ObservableObject {
         webView.onContextMenuOpenLinkInNewTab = { [weak self] url in
             self?.openLinkInNewTab(url: url)
         }
+        configureNavigationDelegateCallbacks()
         webView.navigationDelegate = navigationDelegate
         webView.uiDelegate = uiDelegate
         setupObservers(for: webView)
+    }
+
+    private func configureNavigationDelegateCallbacks() {
+        guard let navigationDelegate else { return }
+        let boundWebViewInstanceID = webViewInstanceID
+        let boundHistoryStore = historyStore
+
+        navigationDelegate.didFinish = { [weak self] webView in
+            Task { @MainActor [weak self] in
+                guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
+                boundHistoryStore.recordVisit(url: webView.url, title: webView.title)
+                self.refreshFavicon(from: webView)
+                self.applyBrowserThemeModeIfNeeded()
+                // Keep find-in-page open through load completion and refresh matches for the new DOM.
+                self.restoreFindStateAfterNavigation(replaySearch: true)
+            }
+        }
+        navigationDelegate.didFailNavigation = { [weak self] failedWebView, failedURL in
+            Task { @MainActor in
+                guard let self, self.isCurrentWebView(failedWebView, instanceID: boundWebViewInstanceID) else { return }
+                // Clear stale title/favicon from the previous page so the tab
+                // shows the failed URL instead of the old page's branding.
+                self.pageTitle = failedURL.isEmpty ? "" : failedURL
+                self.faviconPNGData = nil
+                self.lastFaviconURLString = nil
+                // Keep find-in-page open and clear stale counters on failed loads.
+                self.restoreFindStateAfterNavigation(replaySearch: false)
+            }
+        }
     }
 
     private func isCurrentWebView(_ candidate: WKWebView, instanceID: UUID? = nil) -> Bool {
@@ -2389,30 +2419,6 @@ final class BrowserPanel: Panel, ObservableObject {
 
         // Set up navigation delegate
         let navDelegate = BrowserNavigationDelegate()
-        navDelegate.didFinish = { webView in
-            Task { @MainActor [weak self] in
-                self?.historyStore.recordVisit(url: webView.url, title: webView.title)
-            }
-            Task { @MainActor [weak self] in
-                guard let self, self.isCurrentWebView(webView) else { return }
-                self.refreshFavicon(from: webView)
-                self.applyBrowserThemeModeIfNeeded()
-                // Keep find-in-page open through load completion and refresh matches for the new DOM.
-                self.restoreFindStateAfterNavigation(replaySearch: true)
-            }
-        }
-        navDelegate.didFailNavigation = { [weak self] failedWebView, failedURL in
-            Task { @MainActor in
-                guard let self, self.isCurrentWebView(failedWebView) else { return }
-                // Clear stale title/favicon from the previous page so the tab
-                // shows the failed URL instead of the old page's branding.
-                self.pageTitle = failedURL.isEmpty ? "" : failedURL
-                self.faviconPNGData = nil
-                self.lastFaviconURLString = nil
-                // Keep find-in-page open and clear stale counters on failed loads.
-                self.restoreFindStateAfterNavigation(replaySearch: false)
-            }
-        }
         navDelegate.openInNewTab = { [weak self] url in
             self?.openLinkInNewTab(url: url)
         }

@@ -6271,6 +6271,12 @@ final class WorkspaceBrowserProfileSelectionTests: XCTestCase {
         }
     }
 
+    private final class RejectingSplitPaneDelegate: BonsplitDelegate {
+        func splitTabBar(_ controller: BonsplitController, shouldSplitPane pane: PaneID, orientation: SplitOrientation) -> Bool {
+            false
+        }
+    }
+
     private func makeProfile(named prefix: String) throws -> BrowserProfileDefinition {
         try XCTUnwrap(
             BrowserProfileStore.shared.createProfile(
@@ -6354,6 +6360,38 @@ final class WorkspaceBrowserProfileSelectionTests: XCTestCase {
             "Expected a failed browser creation to leave the workspace preferred profile unchanged"
         )
     }
+
+    func testNewBrowserSplitFailureDoesNotMutatePreferredProfile() throws {
+        let workspace = Workspace()
+        let preferredProfile = try makeProfile(named: "Preferred")
+        let unexpectedProfile = try makeProfile(named: "Unexpected")
+
+        let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+        let browser = try XCTUnwrap(
+            workspace.newBrowserSurface(
+                inPane: paneId,
+                focus: true,
+                preferredProfileID: preferredProfile.id
+            )
+        )
+        XCTAssertEqual(workspace.preferredBrowserProfileID, preferredProfile.id)
+
+        let rejectingDelegate = RejectingSplitPaneDelegate()
+        workspace.bonsplitController.delegate = rejectingDelegate
+        let created = workspace.newBrowserSplit(
+            from: browser.id,
+            orientation: .horizontal,
+            preferredProfileID: unexpectedProfile.id,
+            focus: false
+        )
+
+        XCTAssertNil(created)
+        XCTAssertEqual(
+            workspace.preferredBrowserProfileID,
+            preferredProfile.id,
+            "Expected a failed browser split to leave the workspace preferred profile unchanged"
+        )
+    }
 }
 
 @MainActor
@@ -6434,7 +6472,10 @@ final class BrowserPanelProfileIsolationTests: XCTestCase {
             alternateStore.clearHistory()
         }
 
-        let panel = BrowserPanel(workspaceId: UUID())
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            profileID: BrowserProfileStore.shared.builtInDefaultProfileID
+        )
         let staleWebView = panel.webView
         let staleDelegate = try XCTUnwrap(staleWebView.navigationDelegate)
         let staleURL = try XCTUnwrap(URL(string: "https://example.com/stale-finish"))
@@ -6443,18 +6484,23 @@ final class BrowserPanelProfileIsolationTests: XCTestCase {
             baseURL: staleURL
         )
 
-        XCTAssertTrue(panel.switchToProfile(alternateProfile.id))
+        XCTAssertTrue(
+            panel.switchToProfile(alternateProfile.id),
+            "Expected profile switch to succeed, current=\(panel.profileID) requested=\(alternateProfile.id) exists=\(BrowserProfileStore.shared.profileDefinition(id: alternateProfile.id) != nil)"
+        )
+        defaultStore.clearHistory()
+        alternateStore.clearHistory()
 
         staleDelegate.webView?(staleWebView, didFinish: nil)
         drainMainQueue()
 
         XCTAssertTrue(
             defaultStore.entries.isEmpty,
-            "Expected stale completion callbacks to avoid writing into the old profile history store"
+            "Expected stale completion callbacks to avoid writing into the old profile history store, found \(defaultStore.entries.map { $0.url })"
         )
         XCTAssertTrue(
             alternateStore.entries.isEmpty,
-            "Expected stale completion callbacks to avoid writing into the newly selected profile history store"
+            "Expected stale completion callbacks to avoid writing into the newly selected profile history store, found \(alternateStore.entries.map { $0.url })"
         )
     }
 }

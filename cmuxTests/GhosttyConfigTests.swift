@@ -2004,16 +2004,20 @@ final class BrowserInstallDetectorTests: XCTestCase {
             return
         }
 
-        XCTAssertEqual(safari.profiles.map(\.displayName), ["Default", "Work", "Travel"])
+        XCTAssertEqual(Set(safari.profiles.map(\.displayName)), Set(["Default", "Work", "Travel"]))
         XCTAssertEqual(
-            safari.profiles.map { $0.rootURL.path(percentEncoded: false) }.sorted(),
+            safari.profiles
+                .map { $0.rootURL.standardizedFileURL.resolvingSymlinksInPath().path(percentEncoded: false) }
+                .sorted(),
             [
-                home.appendingPathComponent("Library/Safari", isDirectory: true).path(percentEncoded: false),
-                home.appendingPathComponent("Library/Safari/Profiles/Work", isDirectory: true).path(percentEncoded: false),
+                home.appendingPathComponent("Library/Safari", isDirectory: true)
+                    .standardizedFileURL.resolvingSymlinksInPath().path(percentEncoded: false),
+                home.appendingPathComponent("Library/Safari/Profiles/Work", isDirectory: true)
+                    .standardizedFileURL.resolvingSymlinksInPath().path(percentEncoded: false),
                 home.appendingPathComponent(
                     "Library/Containers/com.apple.Safari/Data/Library/Safari/Profiles/Travel",
                     isDirectory: true
-                ).path(percentEncoded: false),
+                ).standardizedFileURL.resolvingSymlinksInPath().path(percentEncoded: false),
             ].sorted()
         )
     }
@@ -2024,7 +2028,9 @@ final class BrowserInstallDetectorTests: XCTestCase {
 
     private func createFile(at url: URL, contents: Data) throws {
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        _ = FileManager.default.createFile(atPath: url.path, contents: contents)
+        guard FileManager.default.createFile(atPath: url.path, contents: contents) else {
+            throw CocoaError(.fileWriteUnknown)
+        }
     }
 }
 

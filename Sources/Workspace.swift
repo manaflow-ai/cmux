@@ -2326,7 +2326,6 @@ final class Workspace: Identifiable, ObservableObject {
         )
         panels[browserPanel.id] = browserPanel
         panelTitles[browserPanel.id] = browserPanel.displayTitle
-        setPreferredBrowserProfileID(browserPanel.profileID)
 
         // Pre-generate the bonsplit tab ID so the mapping exists before the split lands.
         let newTab = Bonsplit.Tab(
@@ -2350,6 +2349,7 @@ final class Workspace: Identifiable, ObservableObject {
             panelTitles.removeValue(forKey: browserPanel.id)
             return nil
         }
+        setPreferredBrowserProfileID(browserPanel.profileID)
 
         // See newTerminalSplit: suppress old view's becomeFirstResponder during reparenting.
         let previousHostedView = focusedTerminalPanel?.hostedView
@@ -2386,16 +2386,19 @@ final class Workspace: Identifiable, ObservableObject {
         bypassInsecureHTTPHostOnce: String? = nil
     ) -> BrowserPanel? {
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
+        let sourcePanelId = effectiveSelectedPanelId(inPane: paneId)
 
         let browserPanel = BrowserPanel(
             workspaceId: id,
-            profileID: resolvedNewBrowserProfileID(preferredProfileID: preferredProfileID),
+            profileID: resolvedNewBrowserProfileID(
+                preferredProfileID: preferredProfileID,
+                sourcePanelId: sourcePanelId
+            ),
             initialURL: url,
             bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce
         )
         panels[browserPanel.id] = browserPanel
         panelTitles[browserPanel.id] = browserPanel.displayTitle
-        setPreferredBrowserProfileID(browserPanel.profileID)
 
         guard let newTabId = bonsplitController.createTab(
             title: browserPanel.displayTitle,
@@ -2412,6 +2415,7 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         surfaceIdToPanelId[newTabId] = browserPanel.id
+        setPreferredBrowserProfileID(browserPanel.profileID)
 
         // Keyboard/browser-open paths want "new tab at end" regardless of global new-tab placement.
         if insertAtEnd {

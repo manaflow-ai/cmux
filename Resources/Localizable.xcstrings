@@ -4797,7 +4797,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ブラウザ: %@"
+            "value": "ブラウザー: %@"
           }
         }
       }
@@ -37876,7 +37876,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ブラウザから取り込む…"
+            "value": "ブラウザーから取り込む…"
           }
         }
       }
@@ -50658,7 +50658,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ブラウザデータを取り込む"
+            "value": "ブラウザーデータを取り込む"
           }
         }
       }
@@ -50788,7 +50788,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ブラウザから取り込む"
+            "value": "ブラウザーから取り込む"
           }
         }
       }
