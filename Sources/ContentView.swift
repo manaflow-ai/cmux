@@ -1404,6 +1404,7 @@ struct ContentView: View {
     @State private var commandPaletteResolvedSearchRequestID: UInt64 = 0
     @State private var commandPaletteResolvedSearchScope: CommandPaletteListScope?
     @State private var commandPaletteResolvedSearchFingerprint: Int?
+    @State private var commandPaletteResolvedMatchingQuery = ""
     @State private var isCommandPaletteSearchPending = false
     @State private var commandPalettePendingActivation: CommandPalettePendingActivation?
     @State private var commandPaletteResultsRevision: UInt64 = 0
@@ -3257,7 +3258,7 @@ struct ContentView: View {
                 // stale switcher rows cannot linger above command-mode results.
                 VStack(spacing: 0) {
                     if visibleResults.isEmpty {
-                        if commandPaletteHasCurrentResolvedResults {
+                        if commandPaletteShouldShowEmptyState {
                             Text(commandPaletteEmptyStateText)
                                 .font(.system(size: 13, weight: .regular))
                                 .foregroundStyle(.secondary)
@@ -4106,6 +4107,27 @@ struct ContentView: View {
         !hasVisibleResultsForScope
     }
 
+    static func commandPaletteShouldPreserveEmptyStateWhileSearchPending(
+        isSearchPending: Bool,
+        visibleResultsScopeMatches: Bool,
+        resolvedSearchScopeMatches: Bool,
+        resolvedSearchFingerprintMatches: Bool,
+        resolvedResultsAreEmpty: Bool,
+        currentMatchingQuery: String,
+        resolvedMatchingQuery: String
+    ) -> Bool {
+        guard isSearchPending,
+              visibleResultsScopeMatches,
+              resolvedSearchScopeMatches,
+              resolvedSearchFingerprintMatches,
+              resolvedResultsAreEmpty else {
+            return false
+        }
+
+        return currentMatchingQuery == resolvedMatchingQuery
+            || currentMatchingQuery.hasPrefix(resolvedMatchingQuery)
+    }
+
     private func scheduleCommandPaletteResultsRefresh(
         query: String? = nil,
         forceSearchCorpusRefresh: Bool = false
@@ -4152,6 +4174,7 @@ struct ContentView: View {
             commandPaletteResolvedSearchRequestID = requestID
             commandPaletteResolvedSearchScope = scope
             commandPaletteResolvedSearchFingerprint = fingerprint
+            commandPaletteResolvedMatchingQuery = matchingQuery
             isCommandPaletteSearchPending = false
             setCommandPaletteVisibleResults(
                 cachedCommandPaletteResults,
@@ -4210,6 +4233,7 @@ struct ContentView: View {
                 commandPaletteResolvedSearchRequestID = requestID
                 commandPaletteResolvedSearchScope = scope
                 commandPaletteResolvedSearchFingerprint = fingerprint
+                commandPaletteResolvedMatchingQuery = matchingQuery
                 isCommandPaletteSearchPending = false
                 setCommandPaletteVisibleResults(
                     cachedCommandPaletteResults,
@@ -6094,6 +6118,23 @@ struct ContentView: View {
 
     private var commandPaletteHasCurrentResolvedResults: Bool {
         !isCommandPaletteSearchPending && commandPaletteResolvedSearchRequestID == commandPaletteSearchRequestID
+    }
+
+    private var commandPaletteShouldShowEmptyState: Bool {
+        guard commandPaletteVisibleResults.isEmpty else { return false }
+        if commandPaletteHasCurrentResolvedResults {
+            return true
+        }
+
+        return Self.commandPaletteShouldPreserveEmptyStateWhileSearchPending(
+            isSearchPending: isCommandPaletteSearchPending,
+            visibleResultsScopeMatches: commandPaletteVisibleResultsScope == commandPaletteListScope,
+            resolvedSearchScopeMatches: commandPaletteResolvedSearchScope == commandPaletteListScope,
+            resolvedSearchFingerprintMatches: commandPaletteResolvedSearchFingerprint == commandPaletteVisibleResultsFingerprint,
+            resolvedResultsAreEmpty: cachedCommandPaletteResults.isEmpty,
+            currentMatchingQuery: commandPaletteQueryForMatching,
+            resolvedMatchingQuery: commandPaletteResolvedMatchingQuery
+        )
     }
 
     private func runCommandPaletteResolvedActivation(_ activation: CommandPaletteResolvedActivation) {
