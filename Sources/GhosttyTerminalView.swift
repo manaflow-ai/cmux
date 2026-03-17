@@ -6089,6 +6089,8 @@ final class GhosttySurfaceScrollView: NSView {
     private var windowObservers: [NSObjectProtocol] = []
     private var isLiveScrolling = false
     private var lastSentRow: Int?
+    /// Scroll row saved when the view is hidden (workspace switch). Restored on next layout.
+    private var savedScrollRow: Int?
     private var isActive = true
     private var lastFocusRefreshAt: CFTimeInterval = 0
     private var activeDropZone: DropZone?
@@ -7242,6 +7244,26 @@ final class GhosttySurfaceScrollView: NSView {
     func setVisibleInUI(_ visible: Bool) {
         let wasVisible = surfaceView.isVisibleInUI
         surfaceView.setVisibleInUI(visible)
+
+        if !visible {
+            // Save scroll position before hiding so it survives workspace switches.
+            // Only save when the user is scrolled up; if they were following output at
+            // the bottom, let the default synchronizeScrollView() behavior keep them there.
+            if let scrollbar = surfaceView.scrollbar, scrollbar.offset > 0 {
+                savedScrollRow = currentScrollRow()
+            } else {
+                savedScrollRow = nil
+            }
+        } else {
+            // Restore scroll position: tell Ghostty to scroll to the saved row *before*
+            // isHidden = false, so synchronizeScrollView() picks up the correct offset
+            // when layout() fires.
+            if let row = savedScrollRow {
+                savedScrollRow = nil
+                _ = surfaceView.performBindingAction("scroll_to_row:\(row)")
+            }
+        }
+
         isHidden = !visible
 #if DEBUG
         if wasVisible != visible {
@@ -8352,15 +8374,19 @@ final class GhosttySurfaceScrollView: NSView {
         synchronizeSurfaceView()
     }
 
-    private func handleLiveScroll() {
+    /// Returns the current scroll row derived from the NSScrollView visible rect,
+    /// using the same calculation as handleLiveScroll. Returns nil if cell height is unavailable.
+    private func currentScrollRow() -> Int? {
         let cellHeight = surfaceView.cellSize.height
-        guard cellHeight > 0 else { return }
-
+        guard cellHeight > 0 else { return nil }
         let visibleRect = scrollView.contentView.documentVisibleRect
         let documentHeight = documentView.frame.height
         let scrollOffset = documentHeight - visibleRect.origin.y - visibleRect.height
-        let row = Int(scrollOffset / cellHeight)
+        return Int(scrollOffset / cellHeight)
+    }
 
+    private func handleLiveScroll() {
+        guard let row = currentScrollRow() else { return }
         guard row != lastSentRow else { return }
         lastSentRow = row
         _ = surfaceView.performBindingAction("scroll_to_row:\(row)")
