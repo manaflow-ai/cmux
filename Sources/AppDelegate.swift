@@ -7870,11 +7870,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // reaches our local monitor. If the input source changed since the last keyDown,
         // skip shortcut processing so the layout switch takes effect instead of triggering
         // a bound cmux command.
+        //
+        // Do not update lastKeyboardInputSourceId in the skip branch: the same event
+        // can re-enter via handleBrowserSurfaceKeyEquivalent → handleCustomShortcut,
+        // and updating here would let the second pass process shortcuts normally.
+        // The baseline is only updated when we proceed with normal shortcut handling.
         let currentInputSourceId = KeyboardLayout.id
         if let previousId = lastKeyboardInputSourceId,
            let currentId = currentInputSourceId,
            previousId != currentId {
-            lastKeyboardInputSourceId = currentId
 #if DEBUG
             dlog("shortcut.inputSourceChanged previous=\(previousId) current=\(currentId) — skipping shortcut")
 #endif
