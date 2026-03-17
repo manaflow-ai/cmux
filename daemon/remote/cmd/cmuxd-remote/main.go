@@ -425,10 +425,9 @@ func (s *rpcServer) handleProxyClose(req rpcRequest) rpcResponse {
 	if !exists {
 		return rpcResponse{
 			ID: req.ID,
-			OK: false,
-			Error: &rpcError{
-				Code:    "not_found",
-				Message: "stream not found",
+			OK: true,
+			Result: map[string]any{
+				"closed": true,
 			},
 		}
 	}
