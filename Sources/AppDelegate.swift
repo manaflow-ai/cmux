@@ -435,8 +435,6 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
         Set(commandPaletteShortcutTargets.filter { $0.isAvailable(in: environment) })
     }
 
-    static let cachedLiveAvailableTargets: Set<Self> = availableTargets(in: .live)
-
     var commandPaletteCommandId: String {
         "palette.terminalOpenDirectory.\(rawValue)"
     }
@@ -526,6 +524,17 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
         for path in expandedCandidatePaths(in: environment) where environment.fileExistsAtPath(path) {
             return path
         }
+
+        // Fall back to LaunchServices so apps outside the standard bundle paths
+        // still appear in the command palette.
+        for applicationName in applicationSearchNames {
+            guard let resolvedPath = environment.applicationPathForName(applicationName),
+                  environment.fileExistsAtPath(resolvedPath) else {
+                continue
+            }
+            return resolvedPath
+        }
+
         return nil
     }
 
@@ -543,6 +552,14 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
         }
 
         return uniquePreservingOrder(expanded)
+    }
+
+    private var applicationSearchNames: [String] {
+        uniquePreservingOrder(
+            applicationBundlePathCandidates.map {
+                URL(fileURLWithPath: $0).deletingPathExtension().lastPathComponent
+            }
+        )
     }
 
     private var applicationBundlePathCandidates: [String] {
