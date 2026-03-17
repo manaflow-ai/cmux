@@ -901,6 +901,41 @@ final class RemoteLoopbackHTTPRequestRewriterTests: XCTestCase {
         XCTAssertFalse(text.contains("cmux-loopback.localtest.me"))
     }
 
+    func testFlushesBufferedLoopbackAliasHeadersOnEOFWhenHeadersRemainIncomplete() {
+        var streamRewriter = RemoteLoopbackHTTPRequestStreamRewriter(
+            aliasHost: "cmux-loopback.localtest.me"
+        )
+
+        let firstChunk = Data(
+            (
+                "GET /demo HTTP/1.1\r\n" +
+                "Host: cmux-loop"
+            ).utf8
+        )
+        let secondChunk = Data(
+            (
+                "back.localtest.me:3000\r\n" +
+                "Origin: http://cmux-loopback.localtest.me:3000\r\n" +
+                "Referer: http://cmux-loopback.localtest.me:3000/app\r\n" +
+                "body=1"
+            ).utf8
+        )
+
+        let firstOutput = streamRewriter.rewriteNextChunk(firstChunk, eof: false)
+        let secondOutput = streamRewriter.rewriteNextChunk(secondChunk, eof: true)
+        let thirdOutput = streamRewriter.rewriteNextChunk(Data(), eof: true)
+
+        XCTAssertTrue(firstOutput.isEmpty)
+
+        let text = String(decoding: secondOutput, as: UTF8.self)
+        XCTAssertTrue(text.contains("Host: localhost:3000"))
+        XCTAssertTrue(text.contains("Origin: http://localhost:3000"))
+        XCTAssertTrue(text.contains("Referer: http://localhost:3000/app"))
+        XCTAssertTrue(text.hasSuffix("\r\nbody=1"))
+        XCTAssertFalse(text.contains("cmux-loopback.localtest.me"))
+        XCTAssertTrue(thirdOutput.isEmpty)
+    }
+
     func testRewritesLoopbackResponseHeadersBackToAlias() {
         let original = Data(
             (

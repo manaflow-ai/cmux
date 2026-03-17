@@ -1293,8 +1293,23 @@ enum RemoteLoopbackHTTPRequestRewriter {
     private static let requestLineMethods = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS", "TRACE", "PRI"]
 
     static func rewriteIfNeeded(data: Data, aliasHost: String) -> Data {
-        guard let headerRange = data.range(of: headerDelimiter) else { return data }
-        let headerData = Data(data[..<headerRange.upperBound])
+        rewriteIfNeeded(data: data, aliasHost: aliasHost, allowIncompleteHeadersAtEOF: false)
+    }
+
+    static func rewriteIfNeeded(data: Data, aliasHost: String, allowIncompleteHeadersAtEOF: Bool) -> Data {
+        let headerData: Data
+        let remainder: Data
+
+        if let headerRange = data.range(of: headerDelimiter) {
+            headerData = Data(data[..<headerRange.upperBound])
+            remainder = Data(data[headerRange.upperBound...])
+        } else if allowIncompleteHeadersAtEOF {
+            headerData = data
+            remainder = Data()
+        } else {
+            return data
+        }
+
         guard let headerText = String(data: headerData, encoding: .utf8) else { return data }
 
         var lines = headerText.components(separatedBy: "\r\n")
@@ -1313,7 +1328,7 @@ enum RemoteLoopbackHTTPRequestRewriter {
 
         let rewrittenHeaderText = lines.joined(separator: "\r\n")
         guard rewrittenHeaderText != headerText else { return data }
-        return Data(rewrittenHeaderText.utf8) + data[headerRange.upperBound...]
+        return Data(rewrittenHeaderText.utf8) + remainder
     }
 
     private static func requestLineLooksHTTP(_ requestLine: String) -> Bool {
@@ -1400,6 +1415,9 @@ enum RemoteLoopbackHTTPRequestRewriter {
 }
 
 struct RemoteLoopbackHTTPRequestStreamRewriter {
+    private static let maxHeaderBytes = 64 * 1024
+    private static let headerDelimiter = Data([0x0D, 0x0A, 0x0D, 0x0A])
+
     private let aliasHost: String
     private var pendingHeaderBytes = Data()
     private var hasForwardedHeaders = false
@@ -1412,15 +1430,26 @@ struct RemoteLoopbackHTTPRequestStreamRewriter {
         guard !hasForwardedHeaders else { return data }
 
         pendingHeaderBytes.append(data)
-        let marker = Data([0x0D, 0x0A, 0x0D, 0x0A])
-        guard pendingHeaderBytes.range(of: marker) != nil else {
+        if pendingHeaderBytes.count > Self.maxHeaderBytes {
+            hasForwardedHeaders = true
+            let payload = pendingHeaderBytes
+            pendingHeaderBytes = Data()
+            return RemoteLoopbackHTTPRequestRewriter.rewriteIfNeeded(
+                data: payload,
+                aliasHost: aliasHost,
+                allowIncompleteHeadersAtEOF: true
+            )
+        }
+
+        guard pendingHeaderBytes.range(of: Self.headerDelimiter) != nil else {
             guard eof else { return Data() }
             hasForwardedHeaders = true
             let payload = pendingHeaderBytes
             pendingHeaderBytes = Data()
             return RemoteLoopbackHTTPRequestRewriter.rewriteIfNeeded(
                 data: payload,
-                aliasHost: aliasHost
+                aliasHost: aliasHost,
+                allowIncompleteHeadersAtEOF: true
             )
         }
 
