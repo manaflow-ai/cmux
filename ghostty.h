@@ -621,6 +621,12 @@ typedef enum {
   GHOSTTY_READONLY_ON,
 } ghostty_action_readonly_e;
 
+// apprt.action.TmuxState
+typedef enum {
+  GHOSTTY_TMUX_STATE_ENTER,
+  GHOSTTY_TMUX_STATE_EXIT,
+} ghostty_action_tmux_state_e;
+
 // apprt.action.DesktopNotification.C
 typedef struct {
   const char* title;
@@ -910,6 +916,8 @@ typedef enum {
   GHOSTTY_ACTION_SEARCH_TOTAL,
   GHOSTTY_ACTION_SEARCH_SELECTED,
   GHOSTTY_ACTION_READONLY,
+  GHOSTTY_ACTION_COPY_TITLE_TO_CLIPBOARD,
+  GHOSTTY_ACTION_TMUX_STATE,
 } ghostty_action_tag_e;
 
 typedef union {
@@ -950,6 +958,7 @@ typedef union {
   ghostty_action_search_total_s search_total;
   ghostty_action_search_selected_s search_selected;
   ghostty_action_readonly_e readonly;
+  ghostty_action_tmux_state_e tmux_state;
 } ghostty_action_u;
 
 typedef struct {
@@ -1121,6 +1130,11 @@ bool ghostty_surface_read_text(ghostty_surface_t,
                                ghostty_selection_s,
                                ghostty_text_s*);
 void ghostty_surface_free_text(ghostty_surface_t, ghostty_text_s*);
+
+// Pass as pane_id to ghostty_surface_tmux_pane_text to read the first
+// available pane (convenience when the active pane ID is not yet known).
+#define GHOSTTY_TMUX_PANE_ID_ANY ((uintptr_t)-1)
+bool ghostty_surface_tmux_pane_text(ghostty_surface_t, uintptr_t pane_id, ghostty_text_s*);
 
 #ifdef __APPLE__
 void ghostty_surface_set_display_id(ghostty_surface_t, uint32_t);

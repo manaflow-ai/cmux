@@ -2305,6 +2305,17 @@ class GhosttyApp {
                 surfaceView.updateKeyTable(action.action.key_table)
                 return true
             }
+        case GHOSTTY_ACTION_MOUSE_OVER_LINK:
+            #if DEBUG
+            let mol = action.action.mouse_over_link
+            if let ptr = mol.url, mol.len > 0 {
+                let linkStr = String(data: Data(bytes: ptr, count: Int(mol.len)), encoding: .utf8) ?? ""
+                dlog("link.mouseOverLink url=\(linkStr)")
+            } else {
+                dlog("link.mouseOverLink url=nil (cleared)")
+            }
+            #endif
+            return true
         case GHOSTTY_ACTION_OPEN_URL:
             let openUrl = action.action.open_url
             guard let cstr = openUrl.url else { return false }
@@ -2460,6 +2471,45 @@ class GhosttyApp {
                         return workspace.newBrowserSplit(from: sourcePanelId, orientation: .horizontal, url: url) != nil
                     }
                 }
+            }
+        case GHOSTTY_ACTION_TMUX_STATE:
+            let entered = action.action.tmux_state == GHOSTTY_TMUX_STATE_ENTER
+            #if DEBUG
+            dlog("tmux.state entered=\(entered)")
+            if !entered {
+                dlog("tmux.exit — control mode disconnected (likely tmux detached or session ended)")
+            }
+            if entered, let surface = surfaceView.terminalSurface?.surface {
+                // Query immediately (likely no panes yet)
+                var textResult = ghostty_text_s()
+                let ok = ghostty_surface_tmux_pane_text(surface, UInt.max, &textResult)
+                if ok, let ptr = textResult.text {
+                    let paneText = String(cString: ptr)
+                    let preview = String(paneText.prefix(200))
+                    dlog("tmux.paneText.immediate len=\(paneText.count) preview=\(preview)")
+                    ghostty_surface_free_text(surface, &textResult)
+                } else {
+                    dlog("tmux.paneText.immediate returned false (no panes yet)")
+                }
+                // Retry after 2s to let viewer populate panes
+                let surfaceCopy = surface
+                DispatchQueue.global().asyncAfter(deadline: .now() + 2.0) {
+                    var delayedResult = ghostty_text_s()
+                    let ok2 = ghostty_surface_tmux_pane_text(surfaceCopy, UInt.max, &delayedResult)
+                    if ok2, let ptr2 = delayedResult.text {
+                        let text2 = String(cString: ptr2)
+                        let preview2 = String(text2.prefix(300))
+                        dlog("tmux.paneText.delayed len=\(text2.count) preview=\(preview2)")
+                        ghostty_surface_free_text(surfaceCopy, &delayedResult)
+                    } else {
+                        dlog("tmux.paneText.delayed returned false")
+                    }
+                }
+            }
+            #endif
+            return performOnMain {
+                surfaceView.tmuxControlMode = entered
+                return true
             }
         default:
             return false
@@ -3597,6 +3647,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     var desiredFocus: Bool = false
     var suppressingReparentFocus: Bool = false
     var tabId: UUID?
+    /// True when this surface is in tmux control mode.
+    var tmuxControlMode: Bool = false
     var onFocus: (() -> Void)?
     var onTriggerFlash: (() -> Void)?
     var backgroundColor: NSColor?
