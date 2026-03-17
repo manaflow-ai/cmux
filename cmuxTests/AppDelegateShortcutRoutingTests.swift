@@ -671,21 +671,20 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
     }
 
-    func testHiddenWorkspaceTitlebarUsesZeroTopSafeAreaForMainWindowContentView() {
+    func testMinimalModeUsesZeroTopSafeAreaForMainWindowContentView() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
             return
         }
 
         let defaults = UserDefaults.standard
-        let previousValue = defaults.object(forKey: WorkspaceTitlebarSettings.showTitlebarKey)
-        defaults.set(false, forKey: WorkspaceTitlebarSettings.showTitlebarKey)
+        let savedMode = defaults.object(forKey: WorkspacePresentationModeSettings.modeKey)
+        let savedLegacyTitlebar = defaults.object(forKey: WorkspaceTitlebarSettings.showTitlebarKey)
+        defaults.set(WorkspacePresentationModeSettings.Mode.minimal.rawValue, forKey: WorkspacePresentationModeSettings.modeKey)
+        defaults.removeObject(forKey: WorkspaceTitlebarSettings.showTitlebarKey)
         defer {
-            if let previousValue {
-                defaults.set(previousValue, forKey: WorkspaceTitlebarSettings.showTitlebarKey)
-            } else {
-                defaults.removeObject(forKey: WorkspaceTitlebarSettings.showTitlebarKey)
-            }
+            restoreDefaultsValue(savedMode, forKey: WorkspacePresentationModeSettings.modeKey, defaults: defaults)
+            restoreDefaultsValue(savedLegacyTitlebar, forKey: WorkspaceTitlebarSettings.showTitlebarKey, defaults: defaults)
         }
 
         let windowId = appDelegate.createMainWindow()
@@ -704,25 +703,24 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             contentView.safeAreaInsets.top,
             0,
             accuracy: 0.5,
-            "Hidden workspace titlebar should not leave a top safe-area inset in the main window content view"
+            "Minimal mode should not leave a top safe-area inset in the main window content view"
         )
     }
 
-    func testAttachUpdateAccessoryRemovesTitlebarAccessoryWhenWorkspaceTitlebarHidden() {
+    func testAttachUpdateAccessoryRemovesTitlebarAccessoryWhenMinimalModeEnabled() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
             return
         }
 
         let defaults = UserDefaults.standard
-        let previousValue = defaults.object(forKey: WorkspaceTitlebarSettings.showTitlebarKey)
-        defaults.set(true, forKey: WorkspaceTitlebarSettings.showTitlebarKey)
+        let savedMode = defaults.object(forKey: WorkspacePresentationModeSettings.modeKey)
+        let savedLegacyTitlebar = defaults.object(forKey: WorkspaceTitlebarSettings.showTitlebarKey)
+        defaults.set(WorkspacePresentationModeSettings.Mode.standard.rawValue, forKey: WorkspacePresentationModeSettings.modeKey)
+        defaults.removeObject(forKey: WorkspaceTitlebarSettings.showTitlebarKey)
         defer {
-            if let previousValue {
-                defaults.set(previousValue, forKey: WorkspaceTitlebarSettings.showTitlebarKey)
-            } else {
-                defaults.removeObject(forKey: WorkspaceTitlebarSettings.showTitlebarKey)
-            }
+            restoreDefaultsValue(savedMode, forKey: WorkspacePresentationModeSettings.modeKey, defaults: defaults)
+            restoreDefaultsValue(savedLegacyTitlebar, forKey: WorkspaceTitlebarSettings.showTitlebarKey, defaults: defaults)
         }
 
         let windowId = appDelegate.createMainWindow()
@@ -741,13 +739,13 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         XCTAssertTrue(hasTitlebarAccessory(), "Expected visible-titlebar mode to attach the titlebar accessory")
 
-        defaults.set(false, forKey: WorkspaceTitlebarSettings.showTitlebarKey)
+        defaults.set(WorkspacePresentationModeSettings.Mode.minimal.rawValue, forKey: WorkspacePresentationModeSettings.modeKey)
         appDelegate.attachUpdateAccessory(to: window)
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
 
         XCTAssertFalse(
             hasTitlebarAccessory(),
-            "Hidden workspace titlebar should remove the titlebar accessory instead of keeping a hidden controller attached"
+            "Minimal mode should remove the titlebar accessory instead of keeping a hidden controller attached"
         )
     }
 
