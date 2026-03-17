@@ -10572,7 +10572,6 @@ private struct TabItemView: View, Equatable {
             dropIndicator = nil
             return SidebarTabDragPayload.provider(for: tab.id)
         }
-        .internalOnlyTabDrag()
         .onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: SidebarTabDropDelegate(
             targetTabId: tab.id,
             tabManager: tabManager,
