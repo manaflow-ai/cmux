@@ -5669,6 +5669,125 @@
         }
       }
     },
+    "browser.import.hint.dismiss": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide Hint"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ヒントを隠す"
+          }
+        }
+      }
+    },
+    "browser.import.hint.import": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インポート…"
+          }
+        }
+      }
+    },
+    "browser.import.hint.settings": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browser Settings"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザー設定"
+          }
+        }
+      }
+    },
+    "browser.import.hint.settingsFootnote": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You can always find this in Settings > Browser."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "あとでいつでも「設定 > ブラウザー」で見つけられます。"
+          }
+        }
+      }
+    },
+    "browser.import.hint.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import browser data"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザーデータをインポート"
+          }
+        }
+      }
+    },
+    "browser.import.hint.toolbar": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インポート"
+          }
+        }
+      }
+    },
+    "browser.import.hint.toolbar.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import browser data"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザーデータをインポート"
+          }
+        }
+      }
+    },
     "browser.import.validation.scope": {
       "extractionState": "manual",
       "localizations": {
@@ -50823,6 +50942,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "再読み込み"
+          }
+        }
+      }
+    },
+    "settings.browser.import.hint.note.hidden": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The blank-tab import hint is hidden. Turn it back on here any time."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "空タブのインポート案内は非表示です。ここでいつでも再表示できます。"
+          }
+        }
+      }
+    },
+    "settings.browser.import.hint.note.settingsOnly": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blank tabs are currently using Settings only mode from the debug window."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在、空タブはデバッグウィンドウの「設定のみ」モードになっています。"
+          }
+        }
+      }
+    },
+    "settings.browser.import.hint.note.visible": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blank browser tabs can show this import suggestion. Hide or re-enable it here."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "空のブラウザータブにこのインポート案内を表示できます。ここで非表示や再表示を切り替えられます。"
+          }
+        }
+      }
+    },
+    "settings.browser.import.hint.show": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show import hint on blank browser tabs"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "空のブラウザータブにインポート案内を表示"
           }
         }
       }

@@ -144,6 +144,50 @@ final class BrowserImportMappingTests: XCTestCase {
         XCTAssertTrue(manyProfilesPresentation.showsHelpText)
     }
 
+    func testBrowserImportHintPresentationDefaultsToInlineStrip() {
+        let presentation = BrowserImportHintPresentation(
+            variant: .inlineStrip,
+            showOnBlankTabs: true,
+            isDismissed: false
+        )
+
+        XCTAssertEqual(presentation.blankTabPlacement, .inlineStrip)
+        XCTAssertEqual(presentation.settingsStatus, .visible)
+    }
+
+    func testBrowserImportHintPresentationHidesBlankTabHintWhenDismissed() {
+        let presentation = BrowserImportHintPresentation(
+            variant: .floatingCard,
+            showOnBlankTabs: true,
+            isDismissed: true
+        )
+
+        XCTAssertEqual(presentation.blankTabPlacement, .hidden)
+        XCTAssertEqual(presentation.settingsStatus, .hidden)
+    }
+
+    func testBrowserImportHintPresentationUsesToolbarChipWhenEnabled() {
+        let presentation = BrowserImportHintPresentation(
+            variant: .toolbarChip,
+            showOnBlankTabs: true,
+            isDismissed: false
+        )
+
+        XCTAssertEqual(presentation.blankTabPlacement, .toolbarChip)
+        XCTAssertEqual(presentation.settingsStatus, .visible)
+    }
+
+    func testBrowserImportHintPresentationSettingsOnlyVariantStaysInSettings() {
+        let presentation = BrowserImportHintPresentation(
+            variant: .settingsOnly,
+            showOnBlankTabs: true,
+            isDismissed: false
+        )
+
+        XCTAssertEqual(presentation.blankTabPlacement, .hidden)
+        XCTAssertEqual(presentation.settingsStatus, .settingsOnly)
+    }
+
     @MainActor
     func testRealizePlanCreatesMissingDestinationProfilesOnlyWhenRequested() throws {
         let suiteName = "BrowserImportMappingTests-\(UUID().uuidString)"

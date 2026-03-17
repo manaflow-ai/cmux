@@ -250,6 +250,9 @@ struct BrowserPanelView: View {
     @AppStorage(BrowserDevToolsButtonDebugSettings.iconNameKey) private var devToolsIconNameRaw = BrowserDevToolsButtonDebugSettings.defaultIcon.rawValue
     @AppStorage(BrowserDevToolsButtonDebugSettings.iconColorKey) private var devToolsIconColorRaw = BrowserDevToolsButtonDebugSettings.defaultColor.rawValue
     @AppStorage(BrowserThemeSettings.modeKey) private var browserThemeModeRaw = BrowserThemeSettings.defaultMode.rawValue
+    @AppStorage(BrowserImportHintSettings.variantKey) private var browserImportHintVariantRaw = BrowserImportHintSettings.defaultVariant.rawValue
+    @AppStorage(BrowserImportHintSettings.showOnBlankTabsKey) private var showBrowserImportHintOnBlankTabs = BrowserImportHintSettings.defaultShowOnBlankTabs
+    @AppStorage(BrowserImportHintSettings.dismissedKey) private var isBrowserImportHintDismissed = BrowserImportHintSettings.defaultDismissed
     @AppStorage(KeyboardShortcutSettings.Action.toggleBrowserDeveloperTools.defaultsKey)
     private var toggleBrowserDeveloperToolsShortcutData = Data()
     @State private var suggestionTask: Task<Void, Never>?
@@ -267,6 +270,7 @@ struct BrowserPanelView: View {
     @State private var focusFlashAnimationGeneration: Int = 0
     @State private var omnibarPillFrame: CGRect = .zero
     @State private var addressBarHeight: CGFloat = 0
+    @State private var isBrowserImportHintPopoverPresented = false
     @State private var lastHandledAddressBarFocusRequestId: UUID?
     @State private var pendingAddressBarFocusRetryRequestId: UUID?
     @State private var pendingAddressBarFocusRetryGeneration: UInt64 = 0
@@ -321,6 +325,18 @@ struct BrowserPanelView: View {
         BrowserThemeSettings.mode(for: browserThemeModeRaw)
     }
 
+    private var browserImportHintVariant: BrowserImportHintVariant {
+        BrowserImportHintSettings.variant(for: browserImportHintVariantRaw)
+    }
+
+    private var browserImportHintPresentation: BrowserImportHintPresentation {
+        BrowserImportHintPresentation(
+            variant: browserImportHintVariant,
+            showOnBlankTabs: showBrowserImportHintOnBlankTabs,
+            isDismissed: isBrowserImportHintDismissed
+        )
+    }
+
     private var browserChromeBackground: Color {
         Color(nsColor: browserChromeStyle.backgroundColor)
     }
@@ -344,6 +360,14 @@ struct BrowserPanelView: View {
     private var developerToolsButtonHelp: String {
         let base = String(localized: "browser.toggleDevTools", defaultValue: "Toggle Developer Tools")
         return "\(base) (\(toggleBrowserDeveloperToolsShortcut.displayString))"
+    }
+
+    private var browserImportHintSummary: String {
+        InstalledBrowserDetector.summaryText(for: emptyStateImportBrowsers)
+    }
+
+    private var shouldShowToolbarImportHintChip: Bool {
+        shouldShowEmptyStateImportOverlay && browserImportHintPresentation.blankTabPlacement == .toolbarChip
     }
 
     private var owningWorkspace: Workspace? {
@@ -458,6 +482,10 @@ struct BrowserPanelView: View {
             let resolvedThemeMode = BrowserThemeSettings.mode(defaults: .standard)
             if browserThemeModeRaw != resolvedThemeMode.rawValue {
                 browserThemeModeRaw = resolvedThemeMode.rawValue
+            }
+            let resolvedHintVariant = BrowserImportHintSettings.variant(for: browserImportHintVariantRaw)
+            if browserImportHintVariantRaw != resolvedHintVariant.rawValue {
+                browserImportHintVariantRaw = resolvedHintVariant.rawValue
             }
             panel.refreshAppearanceDrivenColors()
             panel.setBrowserThemeMode(browserThemeMode)
@@ -613,6 +641,9 @@ struct BrowserPanelView: View {
                 .accessibilityIdentifier("BrowserOmnibarPill")
                 .accessibilityLabel("Browser omnibar")
 
+            if shouldShowToolbarImportHintChip {
+                browserImportHintToolbarChip
+            }
             browserProfileButton
             browserThemeModeButton
             developerToolsButton
@@ -774,6 +805,29 @@ struct BrowserPanelView: View {
             )
         )
         .accessibilityIdentifier("BrowserThemeModeButton")
+    }
+
+    private var browserImportHintToolbarChip: some View {
+        Button(action: {
+            isBrowserImportHintPopoverPresented.toggle()
+        }) {
+            HStack(spacing: 4) {
+                Image(systemName: "square.and.arrow.down.on.square")
+                    .font(.system(size: 10, weight: .medium))
+                Text(String(localized: "browser.import.hint.toolbar", defaultValue: "Import"))
+                    .font(.system(size: 11, weight: .medium))
+                    .lineLimit(1)
+            }
+            .foregroundStyle(devToolsColorOption.color)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+        }
+        .buttonStyle(OmnibarAddressButtonStyle())
+        .popover(isPresented: $isBrowserImportHintPopoverPresented, arrowEdge: .bottom) {
+            browserImportHintPopover
+        }
+        .safeHelp(String(localized: "browser.import.hint.toolbar.help", defaultValue: "Import browser data"))
+        .accessibilityIdentifier("BrowserImportHintToolbarChip")
     }
 
     private var browserProfilePopover: some View {
@@ -1018,9 +1072,16 @@ struct BrowserPanelView: View {
                             setAddressBarFocused(false, reason: "placeholderContent.tapBlur")
                         }
                     }
+                    .overlay(alignment: .topLeading) {
+                        if shouldShowEmptyStateImportOverlay,
+                           browserImportHintPresentation.blankTabPlacement == .inlineStrip {
+                            emptyBrowserStateInlineStrip
+                        }
+                    }
                     .overlay {
-                        if shouldShowEmptyStateImportOverlay {
-                            emptyBrowserStateOverlay
+                        if shouldShowEmptyStateImportOverlay,
+                           browserImportHintPresentation.blankTabPlacement == .floatingCard {
+                            emptyBrowserStateCardOverlay
                         }
                     }
             }
@@ -1288,28 +1349,11 @@ struct BrowserPanelView: View {
 #endif
     }
 
-    private var emptyBrowserStateOverlay: some View {
+    private var emptyBrowserStateCardOverlay: some View {
         VStack {
             Spacer(minLength: 22)
 
-            VStack(alignment: .leading, spacing: 8) {
-                Text(String(localized: "settings.browser.emptyImport.title", defaultValue: "Import browser data"))
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(.secondary)
-
-                Text(InstalledBrowserDetector.summaryText(for: emptyStateImportBrowsers))
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                Button(String(localized: "settings.browser.emptyImport.choose", defaultValue: "Choose What to Import…")) {
-                    BrowserDataImportCoordinator.shared.presentImportDialog(
-                        defaultDestinationProfileID: panel.profileID
-                    )
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-            }
+            browserImportHintBody
             .padding(12)
             .frame(maxWidth: 360, alignment: .leading)
             .background(
@@ -1329,8 +1373,116 @@ struct BrowserPanelView: View {
         .padding(.horizontal, 18)
     }
 
+    private var emptyBrowserStateInlineStrip: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            browserImportHintBody
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .frame(maxWidth: 520, alignment: .leading)
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(Color(nsColor: .windowBackgroundColor).opacity(0.84))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(
+                        Color(nsColor: .separatorColor).opacity(0.35),
+                        lineWidth: 1
+                    )
+                )
+                .shadow(color: Color.black.opacity(0.05), radius: 6, y: 2)
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 18)
+        .padding(.top, 14)
+    }
+
+    private var browserImportHintPopover: some View {
+        browserImportHintBody
+            .padding(12)
+            .frame(width: 300, alignment: .leading)
+    }
+
+    private var browserImportHintBody: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(String(localized: "browser.import.hint.title", defaultValue: "Import browser data"))
+                .font(.system(size: 12.5, weight: .semibold))
+
+            Text(browserImportHintSummary)
+                .font(.system(size: 11.5))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Text(String(localized: "browser.import.hint.settingsFootnote", defaultValue: "You can always find this in Settings > Browser."))
+                .font(.system(size: 10.5))
+                .foregroundStyle(.tertiary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 10) {
+                    browserImportHintPrimaryButton
+                    browserImportHintSettingsButton
+                    browserImportHintDismissButton
+                }
+
+                VStack(alignment: .leading, spacing: 8) {
+                    browserImportHintPrimaryButton
+                    HStack(spacing: 10) {
+                        browserImportHintSettingsButton
+                        browserImportHintDismissButton
+                    }
+                }
+            }
+        }
+        .accessibilityElement(children: .contain)
+    }
+
+    private var browserImportHintPrimaryButton: some View {
+        Button(String(localized: "browser.import.hint.import", defaultValue: "Import…")) {
+            presentImportDialogFromHint()
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+    }
+
+    private var browserImportHintSettingsButton: some View {
+        Button(String(localized: "browser.import.hint.settings", defaultValue: "Browser Settings")) {
+            openBrowserImportSettings()
+        }
+        .buttonStyle(.plain)
+        .controlSize(.small)
+        .accessibilityIdentifier("BrowserImportHintSettingsButton")
+    }
+
+    private var browserImportHintDismissButton: some View {
+        Button(String(localized: "browser.import.hint.dismiss", defaultValue: "Hide Hint")) {
+            dismissBrowserImportHint()
+        }
+        .buttonStyle(.plain)
+        .controlSize(.small)
+        .accessibilityIdentifier("BrowserImportHintDismissButton")
+    }
+
     private var shouldShowEmptyStateImportOverlay: Bool {
         !panel.shouldRenderWebView && isWebViewBlank()
+    }
+
+    private func presentImportDialogFromHint() {
+        isBrowserImportHintPopoverPresented = false
+        BrowserDataImportCoordinator.shared.presentImportDialog(
+            defaultDestinationProfileID: panel.profileID
+        )
+    }
+
+    private func openBrowserImportSettings() {
+        isBrowserImportHintPopoverPresented = false
+        AppDelegate.presentPreferencesWindow(navigationTarget: .browser)
+    }
+
+    private func dismissBrowserImportHint() {
+        showBrowserImportHintOnBlankTabs = false
+        isBrowserImportHintDismissed = true
+        isBrowserImportHintPopoverPresented = false
     }
 
     /// Treat a WebView with no URL (or about:blank) as "blank" for UX purposes.
