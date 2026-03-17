@@ -13,9 +13,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [warp-macos-14-arm64-6x, warp-macos-15-arm64-6x]
+        include:
+          - os: macos-14
+            timeout: 30
+          - os: warp-macos-15-arm64-6x
+            timeout: 20
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
+    timeout-minutes: ${{ matrix.timeout }}
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
