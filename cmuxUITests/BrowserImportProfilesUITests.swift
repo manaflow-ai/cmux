@@ -1,6 +1,23 @@
 import XCTest
 import Foundation
 
+private func browserImportPollUntil(
+    timeout: TimeInterval,
+    pollInterval: TimeInterval = 0.05,
+    condition: () -> Bool
+) -> Bool {
+    let start = ProcessInfo.processInfo.systemUptime
+    while true {
+        if condition() {
+            return true
+        }
+        if (ProcessInfo.processInfo.systemUptime - start) >= timeout {
+            return false
+        }
+        RunLoop.current.run(until: Date().addingTimeInterval(pollInterval))
+    }
+}
+
 final class BrowserImportProfilesUITests: XCTestCase {
     private var capturePath = ""
 
@@ -121,11 +138,7 @@ final class BrowserImportProfilesUITests: XCTestCase {
         app.launchEnvironment["CMUX_UI_TEST_BROWSER_IMPORT_DESTINATIONS"] = #"["Default"]"#
         app.launchEnvironment["CMUX_UI_TEST_BROWSER_IMPORT_MODE"] = "capture-only"
         app.launchEnvironment["CMUX_UI_TEST_BROWSER_IMPORT_CAPTURE_PATH"] = capturePath
-        app.launch()
-        XCTAssertTrue(
-            ensureForegroundAfterLaunch(app, timeout: 12.0),
-            "Expected app to launch in the foreground for browser import UI tests"
-        )
+        launchAndActivate(app)
         return app
     }
 
@@ -145,30 +158,33 @@ final class BrowserImportProfilesUITests: XCTestCase {
     }
 
     private func waitForCapturedSelection(timeout: TimeInterval) -> [String: Any]? {
-        let deadline = Date().addingTimeInterval(timeout)
         let url = URL(fileURLWithPath: capturePath)
-        while Date() < deadline {
+        let foundCapture = browserImportPollUntil(timeout: timeout) {
             if let data = try? Data(contentsOf: url),
                let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                return object
+                return !object.isEmpty
             }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+            return false
         }
-        if let data = try? Data(contentsOf: url),
+        if foundCapture,
+           let data = try? Data(contentsOf: url),
            let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
             return object
         }
         return nil
     }
 
-    private func ensureForegroundAfterLaunch(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
-        if app.wait(for: .runningForeground, timeout: timeout) {
-            return true
-        }
-        if app.state == .runningBackground {
+    private func launchAndActivate(_ app: XCUIApplication, activateTimeout: TimeInterval = 2.0) {
+        app.launch()
+        let activated = browserImportPollUntil(timeout: activateTimeout) {
+            guard app.state != .runningForeground else {
+                return true
+            }
             app.activate()
-            return app.wait(for: .runningForeground, timeout: 6.0)
+            return app.state == .runningForeground
         }
-        return false
+        if !activated {
+            app.activate()
+        }
     }
 }
