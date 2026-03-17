@@ -228,6 +228,7 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
 
 struct SessionBrowserPanelSnapshot: Codable, Sendable {
     var urlString: String?
+    var profileID: UUID?
     var shouldRenderWebView: Bool
     var pageZoom: Double
     var developerToolsVisible: Bool

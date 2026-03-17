@@ -4,6 +4,13 @@ import WebKit
 import AppKit
 import Bonsplit
 import SQLite3
+import CryptoKit
+#if canImport(CommonCrypto)
+import CommonCrypto
+#endif
+#if canImport(Security)
+import Security
+#endif
 
 enum GhosttyBackgroundTheme {
     static func clampedOpacity(_ opacity: Double) -> CGFloat {
@@ -172,6 +179,209 @@ enum BrowserThemeSettings {
         }
 
         return defaultMode
+    }
+}
+
+struct BrowserProfileDefinition: Codable, Hashable, Identifiable, Sendable {
+    let id: UUID
+    var displayName: String
+    let createdAt: Date
+    let isBuiltInDefault: Bool
+
+    var slug: String {
+        if isBuiltInDefault {
+            return "default"
+        }
+
+        let normalized = displayName
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: "[^a-z0-9]+", with: "-", options: .regularExpression)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+        return normalized.isEmpty ? id.uuidString.lowercased() : normalized
+    }
+}
+
+@MainActor
+final class BrowserProfileStore: ObservableObject {
+    static let shared = BrowserProfileStore()
+
+    private static let profilesDefaultsKey = "browserProfiles.v1"
+    private static let lastUsedProfileDefaultsKey = "browserProfiles.lastUsed"
+    private static let builtInDefaultProfileID = UUID(uuidString: "52B43C05-4A1D-45D3-8FD5-9EF94952E445")!
+
+    @Published private(set) var profiles: [BrowserProfileDefinition] = []
+    @Published private(set) var lastUsedProfileID: UUID = builtInDefaultProfileID
+
+    private let defaults: UserDefaults
+    private var dataStores: [UUID: WKWebsiteDataStore] = [:]
+    private var historyStores: [UUID: BrowserHistoryStore] = [:]
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        load()
+    }
+
+    var builtInDefaultProfileID: UUID {
+        Self.builtInDefaultProfileID
+    }
+
+    var effectiveLastUsedProfileID: UUID {
+        profileDefinition(id: lastUsedProfileID) != nil ? lastUsedProfileID : Self.builtInDefaultProfileID
+    }
+
+    func profileDefinition(id: UUID) -> BrowserProfileDefinition? {
+        profiles.first(where: { $0.id == id })
+    }
+
+    func displayName(for id: UUID) -> String {
+        profileDefinition(id: id)?.displayName
+        ?? String(localized: "browser.profile.default", defaultValue: "Default")
+    }
+
+    func createProfile(named rawName: String) -> BrowserProfileDefinition? {
+        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return nil }
+        let profile = BrowserProfileDefinition(
+            id: UUID(),
+            displayName: name,
+            createdAt: Date(),
+            isBuiltInDefault: false
+        )
+        profiles.append(profile)
+        profiles.sort {
+            if $0.isBuiltInDefault != $1.isBuiltInDefault {
+                return $0.isBuiltInDefault && !$1.isBuiltInDefault
+            }
+            return $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
+        }
+        persist()
+        noteUsed(profile.id)
+        return profile
+    }
+
+    func renameProfile(id: UUID, to rawName: String) -> Bool {
+        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty,
+              let index = profiles.firstIndex(where: { $0.id == id }),
+              !profiles[index].isBuiltInDefault else {
+            return false
+        }
+        profiles[index].displayName = name
+        profiles.sort {
+            if $0.isBuiltInDefault != $1.isBuiltInDefault {
+                return $0.isBuiltInDefault && !$1.isBuiltInDefault
+            }
+            return $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
+        }
+        persist()
+        return true
+    }
+
+    func canRenameProfile(id: UUID) -> Bool {
+        guard let profile = profileDefinition(id: id) else { return false }
+        return !profile.isBuiltInDefault
+    }
+
+    func noteUsed(_ id: UUID) {
+        guard profileDefinition(id: id) != nil else { return }
+        if lastUsedProfileID != id {
+            lastUsedProfileID = id
+            defaults.set(id.uuidString, forKey: Self.lastUsedProfileDefaultsKey)
+        }
+    }
+
+    func websiteDataStore(for profileID: UUID) -> WKWebsiteDataStore {
+        if profileID == Self.builtInDefaultProfileID {
+            return .default()
+        }
+        if let existing = dataStores[profileID] {
+            return existing
+        }
+        let store = WKWebsiteDataStore(forIdentifier: profileID)
+        dataStores[profileID] = store
+        return store
+    }
+
+    func historyStore(for profileID: UUID) -> BrowserHistoryStore {
+        if profileID == Self.builtInDefaultProfileID {
+            return .shared
+        }
+        if let existing = historyStores[profileID] {
+            return existing
+        }
+        let store = BrowserHistoryStore(fileURL: historyFileURL(for: profileID))
+        historyStores[profileID] = store
+        return store
+    }
+
+    func historyFileURL(for profileID: UUID) -> URL? {
+        if profileID == Self.builtInDefaultProfileID {
+            return BrowserHistoryStore.defaultHistoryFileURLForCurrentBundle()
+        }
+
+        let fm = FileManager.default
+        guard let appSupport = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+            return nil
+        }
+        let bundleId = Bundle.main.bundleIdentifier ?? "cmux"
+        let namespace = BrowserHistoryStore.normalizedBrowserHistoryNamespaceForBundleIdentifier(bundleId)
+        let profilesDir = appSupport
+            .appendingPathComponent(namespace, isDirectory: true)
+            .appendingPathComponent("browser_profiles", isDirectory: true)
+            .appendingPathComponent(profileID.uuidString.lowercased(), isDirectory: true)
+        return profilesDir.appendingPathComponent("browser_history.json", isDirectory: false)
+    }
+
+    func flushPendingSaves() {
+        BrowserHistoryStore.shared.flushPendingSaves()
+        for store in historyStores.values {
+            store.flushPendingSaves()
+        }
+    }
+
+    private func load() {
+        let builtInDefaultProfile = BrowserProfileDefinition(
+            id: Self.builtInDefaultProfileID,
+            displayName: String(localized: "browser.profile.default", defaultValue: "Default"),
+            createdAt: Date(timeIntervalSince1970: 0),
+            isBuiltInDefault: true
+        )
+
+        if let data = defaults.data(forKey: Self.profilesDefaultsKey),
+           let decoded = try? JSONDecoder().decode([BrowserProfileDefinition].self, from: data),
+           !decoded.isEmpty {
+            var resolvedProfiles = decoded.filter { $0.id != Self.builtInDefaultProfileID }
+            resolvedProfiles.append(builtInDefaultProfile)
+            profiles = sortedProfiles(resolvedProfiles)
+        } else {
+            profiles = [builtInDefaultProfile]
+            persist()
+        }
+
+        if let rawLastUsed = defaults.string(forKey: Self.lastUsedProfileDefaultsKey),
+           let parsed = UUID(uuidString: rawLastUsed),
+           profileDefinition(id: parsed) != nil {
+            lastUsedProfileID = parsed
+        } else {
+            lastUsedProfileID = Self.builtInDefaultProfileID
+            defaults.set(lastUsedProfileID.uuidString, forKey: Self.lastUsedProfileDefaultsKey)
+        }
+    }
+
+    private func persist() {
+        let encoder = JSONEncoder()
+        guard let data = try? encoder.encode(profiles) else { return }
+        defaults.set(data, forKey: Self.profilesDefaultsKey)
+    }
+
+    private func sortedProfiles(_ profiles: [BrowserProfileDefinition]) -> [BrowserProfileDefinition] {
+        profiles.sorted {
+            if $0.isBuiltInDefault != $1.isBuiltInDefault {
+                return $0.isBuiltInDefault && !$1.isBuiltInDefault
+            }
+            return $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
+        }
     }
 }
 
@@ -1169,6 +1379,14 @@ final class BrowserHistoryStore: ObservableObject {
         let data = try encoder.encode(snapshot)
         try data.write(to: fileURL, options: [.atomic])
     }
+
+    nonisolated static func defaultHistoryFileURLForCurrentBundle() -> URL? {
+        defaultHistoryFileURL()
+    }
+
+    nonisolated static func normalizedBrowserHistoryNamespaceForBundleIdentifier(_ bundleIdentifier: String) -> String {
+        normalizedBrowserHistoryNamespace(bundleIdentifier: bundleIdentifier)
+    }
 }
 
 actor BrowserSearchSuggestionService {
@@ -1491,6 +1709,9 @@ final class BrowserPanel: Panel, ObservableObject {
 
     /// The workspace ID this panel belongs to
     private(set) var workspaceId: UUID
+
+    @Published private(set) var profileID: UUID
+    @Published private(set) var historyStore: BrowserHistoryStore
 
     /// The underlying web view
     private(set) var webView: WKWebView
@@ -1889,6 +2110,14 @@ final class BrowserPanel: Panel, ObservableObject {
         return String(localized: "browser.newTab", defaultValue: "New tab")
     }
 
+    var profileDisplayName: String {
+        BrowserProfileStore.shared.displayName(for: profileID)
+    }
+
+    var usesBuiltInDefaultProfile: Bool {
+        profileID == BrowserProfileStore.shared.builtInDefaultProfileID
+    }
+
     private static let portalHostAreaThreshold: CGFloat = 4
     private static let portalHostReplacementAreaGainRatio: CGFloat = 1.2
 
@@ -2047,13 +2276,11 @@ final class BrowserPanel: Panel, ObservableObject {
         false
     }
 
-    private static func makeWebView() -> CmuxWebView {
+    private static func makeWebView(profileID: UUID) -> CmuxWebView {
         let config = WKWebViewConfiguration()
         config.processPool = BrowserPanel.sharedProcessPool
         config.mediaTypesRequiringUserActionForPlayback = []
-        // Ensure browser cookies/storage persist across navigations and launches.
-        // This reduces repeated consent/bot-challenge flows on sites like Google.
-        config.websiteDataStore = .default()
+        config.websiteDataStore = BrowserProfileStore.shared.websiteDataStore(for: profileID)
 
         // Enable developer extras (DevTools)
         config.preferences.setValue(true, forKey: "developerExtrasEnabled")
@@ -2110,20 +2337,34 @@ final class BrowserPanel: Panel, ObservableObject {
         return instanceID == webViewInstanceID
     }
 
-    init(workspaceId: UUID, initialURL: URL? = nil, bypassInsecureHTTPHostOnce: String? = nil) {
+    init(
+        workspaceId: UUID,
+        profileID: UUID? = nil,
+        initialURL: URL? = nil,
+        bypassInsecureHTTPHostOnce: String? = nil
+    ) {
         self.id = UUID()
         self.workspaceId = workspaceId
+        let requestedProfileID = profileID ?? BrowserProfileStore.shared.effectiveLastUsedProfileID
+        let resolvedProfileID = BrowserProfileStore.shared.profileDefinition(id: requestedProfileID) != nil
+            ? requestedProfileID
+            : BrowserProfileStore.shared.builtInDefaultProfileID
+        self.profileID = resolvedProfileID
+        self.historyStore = BrowserProfileStore.shared.historyStore(for: resolvedProfileID)
         self.insecureHTTPBypassHostOnce = BrowserInsecureHTTPSettings.normalizeHost(bypassInsecureHTTPHostOnce ?? "")
         self.browserThemeMode = BrowserThemeSettings.mode()
 
-        let webView = Self.makeWebView()
+        let webView = Self.makeWebView(profileID: resolvedProfileID)
         self.webView = webView
         self.insecureHTTPAlertFactory = { NSAlert() }
+        BrowserProfileStore.shared.noteUsed(resolvedProfileID)
 
         // Set up navigation delegate
         let navDelegate = BrowserNavigationDelegate()
         navDelegate.didFinish = { webView in
-            BrowserHistoryStore.shared.recordVisit(url: webView.url, title: webView.title)
+            Task { @MainActor [weak self] in
+                self?.historyStore.recordVisit(url: webView.url, title: webView.title)
+            }
             Task { @MainActor [weak self] in
                 guard let self, self.isCurrentWebView(webView) else { return }
                 self.refreshFavicon(from: webView)
@@ -2224,6 +2465,84 @@ final class BrowserPanel: Panel, ObservableObject {
 
     func updateWorkspaceId(_ newWorkspaceId: UUID) {
         workspaceId = newWorkspaceId
+    }
+
+    @discardableResult
+    func switchToProfile(_ requestedProfileID: UUID) -> Bool {
+        let resolvedProfileID = BrowserProfileStore.shared.profileDefinition(id: requestedProfileID) != nil
+            ? requestedProfileID
+            : BrowserProfileStore.shared.builtInDefaultProfileID
+        guard resolvedProfileID != profileID else {
+            BrowserProfileStore.shared.noteUsed(resolvedProfileID)
+            return false
+        }
+
+        let previousWebView = webView
+        let wasRenderable = shouldRenderWebView
+        let restoreURL = previousWebView.url ?? currentURL
+        let restoreURLString = restoreURL?.absoluteString
+        let shouldRestoreURL = wasRenderable && restoreURLString != nil && restoreURLString != blankURLString
+        let history = sessionNavigationHistorySnapshot()
+        let historyCurrentURL = preferredURLStringForOmnibar()
+        let desiredZoom = max(minPageZoom, min(maxPageZoom, previousWebView.pageZoom))
+        let restoreDeveloperTools = preferredDeveloperToolsVisible || isDeveloperToolsVisible()
+
+        invalidateSearchFocusRequests(reason: "profileSwitch")
+        searchState = nil
+
+        _ = hideDeveloperTools()
+        cancelDeveloperToolsRestoreRetry()
+
+        webViewObservers.removeAll()
+        webViewCancellables.removeAll()
+        faviconTask?.cancel()
+        faviconTask = nil
+        faviconRefreshGeneration &+= 1
+        BrowserWindowPortalRegistry.detach(webView: previousWebView)
+        previousWebView.stopLoading()
+        previousWebView.navigationDelegate = nil
+        previousWebView.uiDelegate = nil
+        if let previousCmuxWebView = previousWebView as? CmuxWebView {
+            previousCmuxWebView.onContextMenuDownloadStateChanged = nil
+        }
+
+        profileID = resolvedProfileID
+        historyStore = BrowserProfileStore.shared.historyStore(for: resolvedProfileID)
+        BrowserProfileStore.shared.noteUsed(resolvedProfileID)
+
+        let replacement = Self.makeWebView(profileID: resolvedProfileID)
+        replacement.pageZoom = desiredZoom
+        webViewInstanceID = UUID()
+        webView = replacement
+        currentURL = restoreURL
+        shouldRenderWebView = wasRenderable
+
+        bindWebView(replacement)
+        applyBrowserThemeModeIfNeeded()
+
+        if !history.backHistoryURLStrings.isEmpty || !history.forwardHistoryURLStrings.isEmpty {
+            restoreSessionNavigationHistory(
+                backHistoryURLStrings: history.backHistoryURLStrings,
+                forwardHistoryURLStrings: history.forwardHistoryURLStrings,
+                currentURLString: historyCurrentURL
+            )
+        }
+
+        if shouldRestoreURL, let restoreURL {
+            navigateWithoutInsecureHTTPPrompt(
+                to: restoreURL,
+                recordTypedNavigation: false,
+                preserveRestoredSessionHistory: true
+            )
+        } else {
+            refreshNavigationAvailability()
+        }
+
+        if restoreDeveloperTools {
+            requestDeveloperToolsRefreshAfterNextAttach(reason: "profile_switch")
+        }
+
+        return true
     }
 
     func triggerFlash() {
@@ -2373,7 +2692,7 @@ final class BrowserPanel: Panel, ObservableObject {
             terminatedCmuxWebView.onContextMenuDownloadStateChanged = nil
         }
 
-        let replacement = Self.makeWebView()
+        let replacement = Self.makeWebView(profileID: profileID)
         replacement.pageZoom = desiredZoom
         webViewInstanceID = UUID()
         webView = replacement
@@ -2698,7 +3017,7 @@ final class BrowserPanel: Panel, ObservableObject {
         webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
         shouldRenderWebView = true
         if recordTypedNavigation {
-            BrowserHistoryStore.shared.recordTypedNavigation(url: url)
+            historyStore.recordTypedNavigation(url: url)
         }
         navigationDelegate?.lastAttemptedURL = url
         browserLoadRequest(request, in: webView)
@@ -2924,7 +3243,7 @@ extension BrowserPanel {
             oldCmuxWebView.onContextMenuDownloadStateChanged = nil
         }
 
-        let replacement = Self.makeWebView()
+        let replacement = Self.makeWebView(profileID: profileID)
         webViewInstanceID = UUID()
         webView = replacement
         shouldRenderWebView = false
@@ -3058,6 +3377,7 @@ extension BrowserPanel {
             inPane: paneId,
             url: url,
             focus: true,
+            preferredProfileID: profileID,
             bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce
         )
 #if DEBUG
@@ -5179,13 +5499,13 @@ enum BrowserImportScope: String, CaseIterable, Identifiable {
     var displayName: String {
         switch self {
         case .cookiesOnly:
-            return "Cookies only"
+            return String(localized: "browser.import.scope.cookiesOnly", defaultValue: "Cookies only")
         case .historyOnly:
-            return "History only"
+            return String(localized: "browser.import.scope.historyOnly", defaultValue: "History only")
         case .cookiesAndHistory:
-            return "Cookies + history"
+            return String(localized: "browser.import.scope.cookiesAndHistory", defaultValue: "Cookies + history")
         case .everything:
-            return "Everything"
+            return String(localized: "browser.import.scope.everything", defaultValue: "Everything")
         }
     }
 
@@ -5232,6 +5552,16 @@ enum BrowserImportEngineFamily: String, Hashable {
     case webkit
 }
 
+struct InstalledBrowserProfile: Identifiable, Hashable {
+    let displayName: String
+    let rootURL: URL
+    let isDefault: Bool
+
+    var id: String {
+        rootURL.standardizedFileURL.resolvingSymlinksInPath().path
+    }
+}
+
 struct BrowserImportBrowserDescriptor: Hashable {
     let id: String
     let displayName: String
@@ -5246,16 +5576,18 @@ struct BrowserImportBrowserDescriptor: Hashable {
 
 struct InstalledBrowserCandidate: Identifiable, Hashable {
     let descriptor: BrowserImportBrowserDescriptor
+    let resolvedFamily: BrowserImportEngineFamily
     let homeDirectoryURL: URL
     let appURL: URL?
     let dataRootURL: URL?
-    let profileURLs: [URL]
+    let profiles: [InstalledBrowserProfile]
     let detectionSignals: [String]
     let detectionScore: Int
 
     var id: String { descriptor.id }
     var displayName: String { descriptor.displayName }
-    var family: BrowserImportEngineFamily { descriptor.family }
+    var family: BrowserImportEngineFamily { resolvedFamily }
+    var profileURLs: [URL] { profiles.map(\.rootURL) }
 }
 
 enum InstalledBrowserDetector {
@@ -5461,11 +5793,14 @@ enum InstalledBrowserDetector {
         BrowserImportBrowserDescriptor(
             id: "helium",
             displayName: "Helium",
-            family: .webkit,
+            family: .chromium,
             tier: 3,
-            bundleIdentifiers: ["com.jadenGeller.Helium", "com.jaden.geller.helium"],
+            bundleIdentifiers: ["net.imput.helium", "com.jadenGeller.Helium", "com.jaden.geller.helium"],
             appNames: ["Helium.app"],
-            dataRootRelativePaths: ["Library/Application Support/Helium"],
+            dataRootRelativePaths: [
+                "Library/Application Support/net.imput.helium",
+                "Library/Application Support/Helium",
+            ],
             dataArtifactRelativePaths: [],
             supportsDataOnlyDetection: true
         ),
@@ -5537,6 +5872,7 @@ enum InstalledBrowserDetector {
             let dataDetection = detectData(
                 descriptor: descriptor,
                 homeDirectoryURL: homeDirectoryURL,
+                appBundleIdentifier: appDetection.bundleIdentifier,
                 fileManager: fileManager
             )
 
@@ -5545,7 +5881,7 @@ enum InstalledBrowserDetector {
                 return nil
             }
 
-            let hasData = dataDetection.dataRootURL != nil || !dataDetection.profileURLs.isEmpty || !dataDetection.artifactHits.isEmpty
+            let hasData = dataDetection.dataRootURL != nil || !dataDetection.profiles.isEmpty || !dataDetection.artifactHits.isEmpty
             guard appDetection.url != nil || hasData else {
                 return nil
             }
@@ -5557,7 +5893,7 @@ enum InstalledBrowserDetector {
             if dataDetection.dataRootURL != nil {
                 score += 24
             }
-            score += min(24, dataDetection.profileURLs.count * 6)
+            score += min(24, dataDetection.profiles.count * 6)
             score += min(16, dataDetection.artifactHits.count * 4)
 
             var signals: [String] = []
@@ -5565,8 +5901,8 @@ enum InstalledBrowserDetector {
             if let root = dataDetection.dataRootURL {
                 signals.append("data:\(root.lastPathComponent)")
             }
-            if !dataDetection.profileURLs.isEmpty {
-                signals.append("profiles:\(dataDetection.profileURLs.count)")
+            if !dataDetection.profiles.isEmpty {
+                signals.append("profiles:\(dataDetection.profiles.count)")
             }
             if !dataDetection.artifactHits.isEmpty {
                 signals.append(contentsOf: dataDetection.artifactHits.map { "artifact:\($0)" })
@@ -5574,10 +5910,11 @@ enum InstalledBrowserDetector {
 
             return InstalledBrowserCandidate(
                 descriptor: descriptor,
+                resolvedFamily: dataDetection.family,
                 homeDirectoryURL: homeDirectoryURL,
                 appURL: appDetection.url,
                 dataRootURL: dataDetection.dataRootURL,
-                profileURLs: dataDetection.profileURLs,
+                profiles: dataDetection.profiles,
                 detectionSignals: signals,
                 detectionScore: score
             )
@@ -5595,13 +5932,31 @@ enum InstalledBrowserDetector {
     }
 
     static func summaryText(for browsers: [InstalledBrowserCandidate], limit: Int = 4) -> String {
-        guard !browsers.isEmpty else { return "No supported browsers detected." }
+        guard !browsers.isEmpty else {
+            return String(
+                localized: "browser.import.detected.none",
+                defaultValue: "No supported browsers detected."
+            )
+        }
         let names = browsers.map(\.displayName)
         if names.count <= limit {
-            return "Detected: \(names.joined(separator: ", "))."
+            return String(
+                format: String(
+                    localized: "browser.import.detected.all",
+                    defaultValue: "Detected: %@."
+                ),
+                names.joined(separator: ", ")
+            )
         }
         let shown = names.prefix(limit).joined(separator: ", ")
-        return "Detected: \(shown), +\(names.count - limit) more."
+        return String(
+            format: String(
+                localized: "browser.import.detected.more",
+                defaultValue: "Detected: %@, +%ld more."
+            ),
+            shown,
+            names.count - limit
+        )
     }
 
     private static func detectApplication(
@@ -5609,10 +5964,10 @@ enum InstalledBrowserDetector {
         appSearchDirectories: [URL],
         bundleLookup: BundleLookup,
         fileManager: FileManager
-    ) -> (url: URL?, signals: [String]) {
-        for bundleIdentifier in descriptor.bundleIdentifiers {
-            if let appURL = bundleLookup(bundleIdentifier) {
-                return (appURL, ["bundle:\(bundleIdentifier)"])
+    ) -> (url: URL?, signals: [String], bundleIdentifier: String?) {
+        for knownBundleIdentifier in descriptor.bundleIdentifiers {
+            if let appURL = bundleLookup(knownBundleIdentifier) {
+                return (appURL, ["bundle:\(knownBundleIdentifier)"], bundleIdentifier(for: appURL) ?? knownBundleIdentifier)
             }
         }
 
@@ -5620,42 +5975,54 @@ enum InstalledBrowserDetector {
             for directory in appSearchDirectories {
                 let appURL = directory.appendingPathComponent(appName, isDirectory: true)
                 if fileManager.fileExists(atPath: appURL.path) {
-                    return (appURL, ["app:\(appName)"])
+                    return (appURL, ["app:\(appName)"], bundleIdentifier(for: appURL))
                 }
             }
         }
 
-        return (nil, [])
+        return (nil, [], nil)
     }
 
     private static func detectData(
         descriptor: BrowserImportBrowserDescriptor,
         homeDirectoryURL: URL,
+        appBundleIdentifier: String?,
         fileManager: FileManager
-    ) -> (dataRootURL: URL?, profileURLs: [URL], artifactHits: [String]) {
+    ) -> (dataRootURL: URL?, family: BrowserImportEngineFamily, profiles: [InstalledBrowserProfile], artifactHits: [String]) {
         var bestRootURL: URL?
-        var bestProfiles: [URL] = []
+        var bestFamily = descriptor.family
+        var bestProfiles: [InstalledBrowserProfile] = []
         var bestArtifacts: [String] = []
+        let candidateRootPaths = candidateDataRootRelativePaths(
+            descriptor: descriptor,
+            appBundleIdentifier: appBundleIdentifier
+        )
 
-        for relativePath in descriptor.dataRootRelativePaths {
+        for relativePath in candidateRootPaths {
             let rootURL = homeDirectoryURL.appendingPathComponent(relativePath, isDirectory: true)
             guard fileManager.fileExists(atPath: rootURL.path) else { continue }
 
-            let profiles: [URL]
-            switch descriptor.family {
-            case .chromium:
-                profiles = chromiumProfileURLs(rootURL: rootURL, fileManager: fileManager)
-            case .firefox:
-                profiles = firefoxProfileURLs(rootURL: rootURL, fileManager: fileManager)
-            case .webkit:
-                profiles = []
-            }
+            let detectedProfiles = detectProfiles(
+                descriptor: descriptor,
+                rootURL: rootURL,
+                homeDirectoryURL: homeDirectoryURL,
+                fileManager: fileManager
+            )
 
-            let score = (profiles.count * 10) + 8
-            let currentScore = (bestProfiles.count * 10) + (bestRootURL == nil ? 0 : 8)
+            let score = scoreProfileDetection(
+                family: detectedProfiles.family,
+                profiles: detectedProfiles.profiles,
+                preferredFamily: descriptor.family
+            ) + 8
+            let currentScore = scoreProfileDetection(
+                family: bestFamily,
+                profiles: bestProfiles,
+                preferredFamily: descriptor.family
+            ) + (bestRootURL == nil ? 0 : 8)
             if score > currentScore {
                 bestRootURL = rootURL
-                bestProfiles = profiles
+                bestFamily = detectedProfiles.family
+                bestProfiles = detectedProfiles.profiles
             }
         }
 
@@ -5670,7 +6037,7 @@ enum InstalledBrowserDetector {
         if !artifactHits.isEmpty {
             bestArtifacts = artifactHits
             if bestRootURL == nil,
-               let rootPath = descriptor.dataRootRelativePaths.first {
+               let rootPath = candidateRootPaths.first {
                 let rootURL = homeDirectoryURL.appendingPathComponent(rootPath, isDirectory: true)
                 if fileManager.fileExists(atPath: rootURL.path) {
                     bestRootURL = rootURL
@@ -5678,20 +6045,122 @@ enum InstalledBrowserDetector {
             }
         }
 
+        if bestProfiles.isEmpty, let bestRootURL {
+            bestProfiles = [
+                InstalledBrowserProfile(
+                    displayName: String(localized: "browser.profile.default", defaultValue: "Default"),
+                    rootURL: bestRootURL,
+                    isDefault: true
+                )
+            ]
+        }
+
         return (
             dataRootURL: bestRootURL,
-            profileURLs: dedupedCanonicalURLs(bestProfiles),
+            family: bestFamily,
+            profiles: sortProfiles(dedupedProfiles(bestProfiles)),
             artifactHits: bestArtifacts
         )
     }
 
-    private static func chromiumProfileURLs(
+    private static func detectProfiles(
+        descriptor: BrowserImportBrowserDescriptor,
+        rootURL: URL,
+        homeDirectoryURL: URL,
+        fileManager: FileManager
+    ) -> (family: BrowserImportEngineFamily, profiles: [InstalledBrowserProfile]) {
+        let candidates: [(BrowserImportEngineFamily, [InstalledBrowserProfile])] = [
+            (.chromium, chromiumProfiles(rootURL: rootURL, fileManager: fileManager)),
+            (.firefox, firefoxProfiles(rootURL: rootURL, fileManager: fileManager)),
+            (.webkit, webKitProfiles(
+                descriptor: descriptor,
+                rootURL: rootURL,
+                homeDirectoryURL: homeDirectoryURL,
+                fileManager: fileManager
+            )),
+        ]
+
+        return candidates.max { lhs, rhs in
+            let lhsScore = scoreProfileDetection(
+                family: lhs.0,
+                profiles: lhs.1,
+                preferredFamily: descriptor.family
+            )
+            let rhsScore = scoreProfileDetection(
+                family: rhs.0,
+                profiles: rhs.1,
+                preferredFamily: descriptor.family
+            )
+            if lhsScore != rhsScore {
+                return lhsScore < rhsScore
+            }
+            return lhs.0.rawValue > rhs.0.rawValue
+        } ?? (descriptor.family, [])
+    }
+
+    private static func bundleIdentifier(for appURL: URL) -> String? {
+        Bundle(url: appURL)?.bundleIdentifier
+    }
+
+    private static func candidateDataRootRelativePaths(
+        descriptor: BrowserImportBrowserDescriptor,
+        appBundleIdentifier: String?
+    ) -> [String] {
+        var result: [String] = []
+        var seen = Set<String>()
+
+        func append(_ relativePath: String) {
+            if seen.insert(relativePath).inserted {
+                result.append(relativePath)
+            }
+        }
+
+        for relativePath in descriptor.dataRootRelativePaths {
+            append(relativePath)
+        }
+
+        let bundleIdentifiers = [appBundleIdentifier].compactMap { $0 } + descriptor.bundleIdentifiers
+        for bundleIdentifier in bundleIdentifiers {
+            append("Library/Application Support/\(bundleIdentifier)")
+            append("Library/Containers/\(bundleIdentifier)/Data/Library/Application Support/\(bundleIdentifier)")
+        }
+
+        return result
+    }
+
+    private static func scoreProfileDetection(
+        family: BrowserImportEngineFamily,
+        profiles: [InstalledBrowserProfile],
+        preferredFamily: BrowserImportEngineFamily
+    ) -> Int {
+        var score = profiles.count * 10
+        if family == preferredFamily {
+            score += 3
+        }
+        if profiles.contains(where: \.isDefault) {
+            score += 1
+        }
+        return score
+    }
+
+    private static func chromiumProfiles(
         rootURL: URL,
         fileManager: FileManager
-    ) -> [URL] {
-        var profiles: [URL] = []
+    ) -> [InstalledBrowserProfile] {
+        let nameMap = chromiumProfileNameMap(rootURL: rootURL)
+        var profiles: [InstalledBrowserProfile] = []
         if looksLikeChromiumProfile(rootURL: rootURL, fileManager: fileManager) {
-            profiles.append(rootURL)
+            profiles.append(
+                InstalledBrowserProfile(
+                    displayName: chromiumProfileDisplayName(
+                        directoryName: rootURL.lastPathComponent,
+                        nameMap: nameMap,
+                        isDefault: true
+                    ),
+                    rootURL: rootURL,
+                    isDefault: true
+                )
+            )
         }
 
         let children = (try? fileManager.contentsOfDirectory(
@@ -5707,23 +6176,30 @@ enum InstalledBrowserDetector {
                 name == "Default" ||
                 name.hasPrefix("Profile ") ||
                 name.hasPrefix("Guest Profile") ||
-                name.hasPrefix("Person ")
+                name.hasPrefix("Person ") ||
+                nameMap[name] != nil
             if isLikelyProfile && looksLikeChromiumProfile(rootURL: child, fileManager: fileManager) {
-                profiles.append(child)
+                profiles.append(
+                    InstalledBrowserProfile(
+                        displayName: chromiumProfileDisplayName(
+                            directoryName: name,
+                            nameMap: nameMap,
+                            isDefault: name == "Default"
+                        ),
+                        rootURL: child,
+                        isDefault: name == "Default"
+                    )
+                )
             }
         }
 
-        profiles = dedupedCanonicalURLs(profiles)
-        return profiles.sorted {
-            profileRecency(for: $0, preferredFiles: ["History", "Cookies"], fileManager: fileManager) >
-                profileRecency(for: $1, preferredFiles: ["History", "Cookies"], fileManager: fileManager)
-        }
+        return sortProfiles(dedupedProfiles(profiles))
     }
 
-    private static func firefoxProfileURLs(
+    private static func firefoxProfiles(
         rootURL: URL,
         fileManager: FileManager
-    ) -> [URL] {
+    ) -> [InstalledBrowserProfile] {
         var profiles = firefoxProfilesFromINI(rootURL: rootURL, fileManager: fileManager)
 
         let likelyProfileRoots = [
@@ -5740,27 +6216,56 @@ enum InstalledBrowserDetector {
             for child in children {
                 guard (try? child.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true else { continue }
                 if looksLikeFirefoxProfile(rootURL: child, fileManager: fileManager) {
-                    profiles.append(child)
+                    let directoryName = child.lastPathComponent
+                    profiles.append(
+                        InstalledBrowserProfile(
+                            displayName: directoryName,
+                            rootURL: child,
+                            isDefault: directoryName.localizedCaseInsensitiveContains("default")
+                        )
+                    )
                 }
             }
         }
 
-        profiles = dedupedCanonicalURLs(profiles)
-        return profiles.sorted {
-            profileRecency(for: $0, preferredFiles: ["places.sqlite", "cookies.sqlite"], fileManager: fileManager) >
-                profileRecency(for: $1, preferredFiles: ["places.sqlite", "cookies.sqlite"], fileManager: fileManager)
-        }
+        return sortProfiles(dedupedProfiles(profiles))
     }
 
     private static func firefoxProfilesFromINI(
         rootURL: URL,
         fileManager: FileManager
-    ) -> [URL] {
+    ) -> [InstalledBrowserProfile] {
         let iniURL = rootURL.appendingPathComponent("profiles.ini", isDirectory: false)
         guard let contents = try? String(contentsOf: iniURL, encoding: .utf8) else {
             return []
         }
 
+        let sections = parseINISections(contents: contents)
+        var profiles: [InstalledBrowserProfile] = []
+        for section in sections {
+            guard let pathValue = section["Path"], !pathValue.isEmpty else { continue }
+            let isRelative = section["IsRelative"] != "0"
+            let profileURL: URL
+            if isRelative {
+                profileURL = rootURL.appendingPathComponent(pathValue, isDirectory: true)
+            } else {
+                profileURL = URL(fileURLWithPath: pathValue, isDirectory: true)
+            }
+            if looksLikeFirefoxProfile(rootURL: profileURL, fileManager: fileManager) {
+                let displayName = section["Name"]?.trimmingCharacters(in: .whitespacesAndNewlines)
+                profiles.append(
+                    InstalledBrowserProfile(
+                        displayName: (displayName?.isEmpty == false ? displayName! : profileURL.lastPathComponent),
+                        rootURL: profileURL,
+                        isDefault: section["Default"] == "1"
+                    )
+                )
+            }
+        }
+        return profiles
+    }
+
+    private static func parseINISections(contents: String) -> [[String: String]] {
         var sections: [[String: String]] = []
         var current: [String: String] = [:]
 
@@ -5786,22 +6291,7 @@ enum InstalledBrowserDetector {
             current[key] = value
         }
         flushCurrent()
-
-        var urls: [URL] = []
-        for section in sections {
-            guard let pathValue = section["Path"], !pathValue.isEmpty else { continue }
-            let isRelative = section["IsRelative"] != "0"
-            let profileURL: URL
-            if isRelative {
-                profileURL = rootURL.appendingPathComponent(pathValue, isDirectory: true)
-            } else {
-                profileURL = URL(fileURLWithPath: pathValue, isDirectory: true)
-            }
-            if looksLikeFirefoxProfile(rootURL: profileURL, fileManager: fileManager) {
-                urls.append(profileURL)
-            }
-        }
-        return urls
+        return sections
     }
 
     private static func looksLikeChromiumProfile(rootURL: URL, fileManager: FileManager) -> Bool {
@@ -5816,22 +6306,133 @@ enum InstalledBrowserDetector {
         return fileManager.fileExists(atPath: historyURL.path) || fileManager.fileExists(atPath: cookiesURL.path)
     }
 
-    private static func profileRecency(
-        for profileURL: URL,
-        preferredFiles: [String],
+    private static func webKitProfiles(
+        descriptor: BrowserImportBrowserDescriptor,
+        rootURL: URL,
+        homeDirectoryURL: URL,
         fileManager: FileManager
-    ) -> TimeInterval {
-        var latest: TimeInterval = 0
-        for fileName in preferredFiles {
-            let url = profileURL.appendingPathComponent(fileName, isDirectory: false)
-            guard fileManager.fileExists(atPath: url.path),
-                  let values = try? url.resourceValues(forKeys: [.contentModificationDateKey]),
-                  let date = values.contentModificationDate else {
+    ) -> [InstalledBrowserProfile] {
+        var profiles: [InstalledBrowserProfile] = []
+        if looksLikeWebKitProfile(rootURL: rootURL, fileManager: fileManager) {
+            profiles.append(
+                InstalledBrowserProfile(
+                    displayName: String(localized: "browser.profile.default", defaultValue: "Default"),
+                    rootURL: rootURL,
+                    isDefault: true
+                )
+            )
+        }
+
+        var profileRoots = [rootURL.appendingPathComponent("Profiles", isDirectory: true)]
+        if descriptor.id == "safari" {
+            profileRoots.append(
+                homeDirectoryURL
+                    .appendingPathComponent("Library", isDirectory: true)
+                    .appendingPathComponent("Containers", isDirectory: true)
+                    .appendingPathComponent("com.apple.Safari", isDirectory: true)
+                    .appendingPathComponent("Data", isDirectory: true)
+                    .appendingPathComponent("Library", isDirectory: true)
+                    .appendingPathComponent("Safari", isDirectory: true)
+                    .appendingPathComponent("Profiles", isDirectory: true)
+            )
+        }
+
+        var profileIndex = 1
+        for profileRoot in dedupedCanonicalURLs(profileRoots) where fileManager.fileExists(atPath: profileRoot.path) {
+            let children = (try? fileManager.contentsOfDirectory(
+                at: profileRoot,
+                includingPropertiesForKeys: [.isDirectoryKey],
+                options: [.skipsHiddenFiles]
+            )) ?? []
+            for child in children {
+                guard (try? child.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true else { continue }
+                guard looksLikeWebKitProfile(rootURL: child, fileManager: fileManager) else { continue }
+                profiles.append(
+                    InstalledBrowserProfile(
+                        displayName: webKitProfileDisplayName(
+                            directoryName: child.lastPathComponent,
+                            fallbackIndex: profileIndex
+                        ),
+                        rootURL: child,
+                        isDefault: false
+                    )
+                )
+                profileIndex += 1
+            }
+        }
+
+        return sortProfiles(dedupedProfiles(profiles))
+    }
+
+    private static func chromiumProfileNameMap(rootURL: URL) -> [String: String] {
+        let localStateURL = rootURL.appendingPathComponent("Local State", isDirectory: false)
+        guard let data = try? Data(contentsOf: localStateURL),
+              let jsonObject = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let profileSection = jsonObject["profile"] as? [String: Any],
+              let infoCache = profileSection["info_cache"] as? [String: Any] else {
+            return [:]
+        }
+
+        var result: [String: String] = [:]
+        for (directoryName, rawProfileInfo) in infoCache {
+            guard let profileInfo = rawProfileInfo as? [String: Any],
+                  let name = profileInfo["name"] as? String else {
                 continue
             }
-            latest = max(latest, date.timeIntervalSince1970)
+            let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmedName.isEmpty {
+                result[directoryName] = trimmedName
+            }
         }
-        return latest
+        return result
+    }
+
+    private static func chromiumProfileDisplayName(
+        directoryName: String,
+        nameMap: [String: String],
+        isDefault: Bool
+    ) -> String {
+        if let mappedName = nameMap[directoryName], !mappedName.isEmpty {
+            return mappedName
+        }
+        if isDefault {
+            return String(localized: "browser.profile.default", defaultValue: "Default")
+        }
+        return directoryName
+    }
+
+    private static func looksLikeWebKitProfile(rootURL: URL, fileManager: FileManager) -> Bool {
+        let candidatePaths = [
+            "History.db",
+            "Cookies.binarycookies",
+            "Cookies.sqlite",
+            "WebsiteData",
+            "LocalStorage",
+        ]
+
+        for candidatePath in candidatePaths {
+            let url = rootURL.appendingPathComponent(candidatePath, isDirectory: candidatePath != "History.db" && candidatePath != "Cookies.binarycookies" && candidatePath != "Cookies.sqlite")
+            if fileManager.fileExists(atPath: url.path) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private static func webKitProfileDisplayName(directoryName: String, fallbackIndex: Int) -> String {
+        if directoryName.caseInsensitiveCompare("Default") == .orderedSame {
+            return String(localized: "browser.profile.default", defaultValue: "Default")
+        }
+        if UUID(uuidString: directoryName) != nil {
+            return String(
+                format: String(
+                    localized: "browser.import.sourceProfile.fallback",
+                    defaultValue: "Profile %ld"
+                ),
+                fallbackIndex
+            )
+        }
+        return directoryName
     }
 
     private static func defaultApplicationSearchDirectories(homeDirectoryURL: URL) -> [URL] {
@@ -5854,17 +6455,738 @@ enum InstalledBrowserDetector {
         }
         return result
     }
+
+    private static func dedupedProfiles(_ profiles: [InstalledBrowserProfile]) -> [InstalledBrowserProfile] {
+        var seen = Set<String>()
+        var result: [InstalledBrowserProfile] = []
+        for profile in profiles {
+            if seen.insert(profile.id).inserted {
+                result.append(profile)
+            }
+        }
+        return result
+    }
+
+    private static func sortProfiles(_ profiles: [InstalledBrowserProfile]) -> [InstalledBrowserProfile] {
+        profiles.sorted { lhs, rhs in
+            if lhs.isDefault != rhs.isDefault {
+                return lhs.isDefault && !rhs.isDefault
+            }
+            let comparison = lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName)
+            if comparison != .orderedSame {
+                return comparison == .orderedAscending
+            }
+            return lhs.id < rhs.id
+        }
+    }
 }
 
-struct BrowserImportOutcome {
-    let browserName: String
-    let scope: BrowserImportScope
-    let domainFilters: [String]
+struct BrowserImportOutcomeEntry: Sendable {
+    let sourceProfileNames: [String]
+    let destinationProfileName: String
     let importedCookies: Int
     let skippedCookies: Int
     let importedHistoryEntries: Int
     let warnings: [String]
 }
+
+struct BrowserImportOutcome: Sendable {
+    let browserName: String
+    let scope: BrowserImportScope
+    let domainFilters: [String]
+    let createdDestinationProfileNames: [String]
+    let entries: [BrowserImportOutcomeEntry]
+    let warnings: [String]
+
+    var totalImportedCookies: Int {
+        entries.reduce(0) { $0 + $1.importedCookies }
+    }
+
+    var totalSkippedCookies: Int {
+        entries.reduce(0) { $0 + $1.skippedCookies }
+    }
+
+    var totalImportedHistoryEntries: Int {
+        entries.reduce(0) { $0 + $1.importedHistoryEntries }
+    }
+}
+
+struct RealizedBrowserImportExecutionEntry: Sendable {
+    let sourceProfiles: [InstalledBrowserProfile]
+    let destinationProfileID: UUID
+    let destinationProfileName: String
+}
+
+struct RealizedBrowserImportExecutionPlan: Sendable {
+    let mode: BrowserImportDestinationMode
+    let entries: [RealizedBrowserImportExecutionEntry]
+    let createdProfiles: [BrowserProfileDefinition]
+}
+
+enum BrowserImportPlanRealizationError: LocalizedError {
+    case missingDestinationProfile(UUID)
+    case profileCreationFailed(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .missingDestinationProfile:
+            return String(
+                localized: "browser.import.error.destinationMissing",
+                defaultValue: "The selected cmux browser profile no longer exists. Pick a destination profile again."
+            )
+        case .profileCreationFailed(let name):
+            return String(
+                format: String(
+                    localized: "browser.import.error.destinationCreateFailed",
+                    defaultValue: "cmux could not create the destination profile \"%@\"."
+                ),
+                name
+            )
+        }
+    }
+}
+
+enum BrowserImportOutcomeFormatter {
+    static func lines(for outcome: BrowserImportOutcome) -> [String] {
+        var lines: [String] = []
+        lines.append(
+            String(
+                format: String(
+                    localized: "browser.import.complete.browser",
+                    defaultValue: "Browser: %@"
+                ),
+                outcome.browserName
+            )
+        )
+
+        if outcome.entries.count == 1, let entry = outcome.entries.first {
+            if !entry.sourceProfileNames.isEmpty {
+                lines.append(
+                    String(
+                        format: String(
+                            localized: "browser.import.complete.sourceProfiles",
+                            defaultValue: "Source profiles: %@"
+                        ),
+                        entry.sourceProfileNames.joined(separator: ", ")
+                    )
+                )
+            }
+            lines.append(
+                String(
+                    format: String(
+                        localized: "browser.import.complete.destinationProfile",
+                        defaultValue: "Destination profile: %@"
+                    ),
+                    entry.destinationProfileName
+                )
+            )
+        } else if !outcome.entries.isEmpty {
+            lines.append(
+                String(
+                    localized: "browser.import.complete.profileMappings",
+                    defaultValue: "Profile mappings:"
+                )
+            )
+            for entry in outcome.entries {
+                let sourceNames = entry.sourceProfileNames.joined(separator: ", ")
+                lines.append(
+                    String(
+                        format: String(
+                            localized: "browser.import.complete.profileMapping",
+                            defaultValue: "%@ -> %@"
+                        ),
+                        sourceNames,
+                        entry.destinationProfileName
+                    )
+                )
+            }
+        }
+
+        lines.append(
+            String(
+                format: String(
+                    localized: "browser.import.complete.scope",
+                    defaultValue: "Scope: %@"
+                ),
+                outcome.scope.displayName
+            )
+        )
+        lines.append(
+            String(
+                format: String(
+                    localized: "browser.import.complete.importedCookies",
+                    defaultValue: "Imported cookies: %ld"
+                ),
+                outcome.totalImportedCookies
+            )
+        )
+        if outcome.totalSkippedCookies > 0 {
+            lines.append(
+                String(
+                    format: String(
+                        localized: "browser.import.complete.skippedCookies",
+                        defaultValue: "Skipped cookies: %ld"
+                    ),
+                    outcome.totalSkippedCookies
+                )
+            )
+        }
+        if outcome.scope.includesHistory {
+            lines.append(
+                String(
+                    format: String(
+                        localized: "browser.import.complete.importedHistory",
+                        defaultValue: "Imported history entries: %ld"
+                    ),
+                    outcome.totalImportedHistoryEntries
+                )
+            )
+        }
+        if !outcome.domainFilters.isEmpty {
+            lines.append(
+                String(
+                    format: String(
+                        localized: "browser.import.complete.domainFilter",
+                        defaultValue: "Domain filter: %@"
+                    ),
+                    outcome.domainFilters.joined(separator: ", ")
+                )
+            )
+        }
+        if !outcome.createdDestinationProfileNames.isEmpty {
+            lines.append(
+                String(
+                    format: String(
+                        localized: "browser.import.complete.createdProfiles",
+                        defaultValue: "Created cmux profiles: %@"
+                    ),
+                    outcome.createdDestinationProfileNames.joined(separator: ", ")
+                )
+            )
+        }
+        if !outcome.warnings.isEmpty {
+            lines.append("")
+            lines.append(
+                String(
+                    localized: "browser.import.complete.warnings",
+                    defaultValue: "Warnings:"
+                )
+            )
+            for warning in outcome.warnings {
+                lines.append("- \(warning)")
+            }
+        }
+
+        return lines
+    }
+}
+
+enum BrowserImportDestinationMode: Equatable, Sendable {
+    case singleDestination
+    case separateProfiles
+    case mergeIntoOne
+}
+
+enum BrowserImportDestinationRequest: Equatable, Sendable {
+    case existing(UUID)
+    case createNamed(String)
+}
+
+struct BrowserImportExecutionEntry: Equatable, Sendable {
+    var sourceProfiles: [InstalledBrowserProfile]
+    var destination: BrowserImportDestinationRequest
+}
+
+struct BrowserImportExecutionPlan: Equatable, Sendable {
+    var mode: BrowserImportDestinationMode
+    var entries: [BrowserImportExecutionEntry]
+}
+
+struct BrowserImportStep3Presentation: Equatable {
+    let showsModeSelector: Bool
+    let showsSeparateRows: Bool
+    let showsSingleDestinationPicker: Bool
+
+    init(plan: BrowserImportExecutionPlan) {
+        showsModeSelector = plan.entries.count > 1 || plan.entries.contains { $0.sourceProfiles.count > 1 }
+        showsSeparateRows = plan.mode == .separateProfiles
+        showsSingleDestinationPicker = plan.mode != .separateProfiles
+    }
+}
+
+enum BrowserImportPlanResolver {
+    @MainActor
+    static func defaultPlan(
+        selectedSourceProfiles: [InstalledBrowserProfile],
+        destinationProfiles: [BrowserProfileDefinition],
+        preferredSingleDestinationProfileID: UUID
+    ) -> BrowserImportExecutionPlan {
+        let resolvedSourceProfiles = selectedSourceProfiles.isEmpty ? [] : selectedSourceProfiles
+
+        guard resolvedSourceProfiles.count > 1 else {
+            let destinationRequest: BrowserImportDestinationRequest
+            if let sourceProfile = resolvedSourceProfiles.first,
+               let matchingProfile = matchingDestinationProfile(
+                for: sourceProfile.displayName,
+                destinationProfiles: destinationProfiles
+               ) {
+                destinationRequest = .existing(matchingProfile.id)
+            } else {
+                destinationRequest = .existing(preferredSingleDestinationProfileID)
+            }
+
+            return BrowserImportExecutionPlan(
+                mode: .singleDestination,
+                entries: resolvedSourceProfiles.map {
+                    BrowserImportExecutionEntry(
+                        sourceProfiles: [$0],
+                        destination: destinationRequest
+                    )
+                }
+            )
+        }
+
+        return separateProfilesPlan(
+            selectedSourceProfiles: resolvedSourceProfiles,
+            destinationProfiles: destinationProfiles
+        )
+    }
+
+    static func separateProfilesPlan(
+        selectedSourceProfiles: [InstalledBrowserProfile],
+        destinationProfiles: [BrowserProfileDefinition]
+    ) -> BrowserImportExecutionPlan {
+        var reservedNames = Set(destinationProfiles.map { normalizedProfileName($0.displayName) })
+
+        return BrowserImportExecutionPlan(
+            mode: .separateProfiles,
+            entries: selectedSourceProfiles.map { profile in
+                if let matchingProfile = matchingDestinationProfile(
+                    for: profile.displayName,
+                    destinationProfiles: destinationProfiles
+                ) {
+                    return BrowserImportExecutionEntry(
+                        sourceProfiles: [profile],
+                        destination: .existing(matchingProfile.id)
+                    )
+                }
+
+                let createName = nextCreateName(
+                    baseName: profile.displayName,
+                    takenNames: reservedNames
+                )
+                reservedNames.insert(normalizedProfileName(createName))
+                return BrowserImportExecutionEntry(
+                    sourceProfiles: [profile],
+                    destination: .createNamed(createName)
+                )
+            }
+        )
+    }
+
+    private static func matchingDestinationProfile(
+        for sourceProfileName: String,
+        destinationProfiles: [BrowserProfileDefinition]
+    ) -> BrowserProfileDefinition? {
+        let normalizedSourceName = normalizedProfileName(sourceProfileName)
+        guard !normalizedSourceName.isEmpty else { return nil }
+        return destinationProfiles.first {
+            normalizedProfileName($0.displayName) == normalizedSourceName
+        }
+    }
+
+    private static func nextCreateName(
+        baseName: String,
+        takenNames: Set<String>
+    ) -> String {
+        let trimmedBaseName = baseName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedBaseName = trimmedBaseName.isEmpty ? "Profile" : trimmedBaseName
+        if !takenNames.contains(normalizedProfileName(resolvedBaseName)) {
+            return resolvedBaseName
+        }
+
+        var suffix = 2
+        while true {
+            let candidate = "\(resolvedBaseName) (\(suffix))"
+            if !takenNames.contains(normalizedProfileName(candidate)) {
+                return candidate
+            }
+            suffix += 1
+        }
+    }
+
+    private static func normalizedProfileName(_ rawName: String) -> String {
+        rawName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
+    @MainActor
+    static func realize(
+        plan: BrowserImportExecutionPlan,
+        profileStore: BrowserProfileStore = .shared
+    ) throws -> RealizedBrowserImportExecutionPlan {
+        var realizedEntries: [RealizedBrowserImportExecutionEntry] = []
+        var createdProfiles: [BrowserProfileDefinition] = []
+
+        for entry in plan.entries {
+            let destinationProfile: BrowserProfileDefinition
+            switch entry.destination {
+            case .existing(let id):
+                guard let existingProfile = profileStore.profileDefinition(id: id) else {
+                    throw BrowserImportPlanRealizationError.missingDestinationProfile(id)
+                }
+                destinationProfile = existingProfile
+            case .createNamed(let name):
+                if let existingProfile = matchingDestinationProfile(
+                    for: name,
+                    destinationProfiles: profileStore.profiles
+                ) {
+                    destinationProfile = existingProfile
+                } else if let createdProfile = profileStore.createProfile(named: name) {
+                    createdProfiles.append(createdProfile)
+                    destinationProfile = createdProfile
+                } else {
+                    throw BrowserImportPlanRealizationError.profileCreationFailed(name)
+                }
+            }
+
+            realizedEntries.append(
+                RealizedBrowserImportExecutionEntry(
+                    sourceProfiles: entry.sourceProfiles,
+                    destinationProfileID: destinationProfile.id,
+                    destinationProfileName: destinationProfile.displayName
+                )
+            )
+        }
+
+        return RealizedBrowserImportExecutionPlan(
+            mode: plan.mode,
+            entries: realizedEntries,
+            createdProfiles: createdProfiles
+        )
+    }
+}
+
+#if canImport(CommonCrypto) && canImport(Security)
+private struct ChromiumCookieKeychainItem: Hashable {
+    let service: String
+    let account: String
+}
+
+private final class ChromiumCookieDecryptor {
+    private enum KeychainLookupResult {
+        case success(Data)
+        case failure(OSStatus)
+    }
+
+    enum FailureReason {
+        case keychain(OSStatus)
+        case itemNotFound
+        case unreadableSecret
+        case decrypt
+        case unsupportedFormat
+    }
+
+    private let browser: InstalledBrowserCandidate
+    private var cachedKeychainItem: ChromiumCookieKeychainItem?
+    private var cachedPasswordData: Data?
+    private var attemptedLookup = false
+    private(set) var lastFailureReason: FailureReason?
+
+    init(browser: InstalledBrowserCandidate) {
+        self.browser = browser
+    }
+
+    var resolvedKeychainItemName: String? {
+        cachedKeychainItem?.service
+    }
+
+    func decryptCookieValue(encryptedValue: Data, host: String) -> String? {
+        guard let versionPrefix = chromiumVersionPrefix(in: encryptedValue) else {
+            lastFailureReason = .unsupportedFormat
+            return nil
+        }
+
+        guard let passwordData = passwordData() else {
+            return nil
+        }
+
+        let ciphertext = encryptedValue.dropFirst(versionPrefix.count)
+        guard let key = deriveKey(from: passwordData),
+              let plaintext = decrypt(ciphertext: Data(ciphertext), key: key),
+              let cookieValue = decodePlaintext(plaintext, host: host) else {
+            lastFailureReason = .decrypt
+            return nil
+        }
+
+        lastFailureReason = nil
+        return cookieValue
+    }
+
+    func warningMessage(browserName: String, skippedCount: Int) -> String? {
+        guard skippedCount > 0, let failure = lastFailureReason else { return nil }
+        switch failure {
+        case .keychain, .itemNotFound, .unreadableSecret:
+            let itemName = resolvedKeychainItemName ?? suggestedKeychainItems().first?.service ?? "\(browserName) Storage Key"
+            return String(
+                format: String(
+                    localized: "browser.import.warning.keychainDecryptFailed",
+                    defaultValue: "Skipped %ld encrypted %@ cookies because %@ could not be unlocked from Keychain."
+                ),
+                skippedCount,
+                browserName,
+                itemName
+            )
+        case .decrypt, .unsupportedFormat:
+            return String(
+                format: String(
+                    localized: "browser.import.warning.encryptedCookiesSkipped",
+                    defaultValue: "Skipped %ld encrypted cookies that require Keychain decryption."
+                ),
+                skippedCount
+            )
+        }
+    }
+
+    private func passwordData() -> Data? {
+        if let cachedPasswordData {
+            return cachedPasswordData
+        }
+        guard !attemptedLookup else {
+            return nil
+        }
+        attemptedLookup = true
+
+        for item in suggestedKeychainItems() {
+            switch readPasswordData(item: item) {
+            case .success(let passwordData):
+                guard !passwordData.isEmpty else {
+                    cachedKeychainItem = item
+                    lastFailureReason = .unreadableSecret
+                    return nil
+                }
+                cachedKeychainItem = item
+                cachedPasswordData = passwordData
+                lastFailureReason = nil
+                return passwordData
+            case .failure(let status):
+                if status == errSecItemNotFound {
+                    continue
+                }
+                cachedKeychainItem = item
+                lastFailureReason = .keychain(status)
+                return nil
+            }
+        }
+
+        lastFailureReason = .itemNotFound
+        return nil
+    }
+
+    private func suggestedKeychainItems() -> [ChromiumCookieKeychainItem] {
+        var result: [ChromiumCookieKeychainItem] = []
+        var seen = Set<ChromiumCookieKeychainItem>()
+
+        func append(service: String, account: String) {
+            let trimmedService = service.trimmingCharacters(in: .whitespacesAndNewlines)
+            let trimmedAccount = account.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmedService.isEmpty, !trimmedAccount.isEmpty else { return }
+            let item = ChromiumCookieKeychainItem(service: trimmedService, account: trimmedAccount)
+            if seen.insert(item).inserted {
+                result.append(item)
+            }
+        }
+
+        for baseName in keychainBaseNames() {
+            append(service: "\(baseName) Storage Key", account: baseName)
+            append(service: "\(baseName) Safe Storage", account: baseName)
+        }
+
+        for baseName in keychainBaseNames() {
+            let query: [CFString: Any] = [
+                kSecClass: kSecClassGenericPassword,
+                kSecAttrAccount: baseName,
+                kSecReturnAttributes: true,
+                kSecMatchLimit: kSecMatchLimitAll,
+            ]
+            var rawResult: CFTypeRef?
+            let status = SecItemCopyMatching(query as CFDictionary, &rawResult)
+            guard status == errSecSuccess else { continue }
+            let attributesList = rawResult as? [[String: Any]] ?? []
+            for attributes in attributesList {
+                guard let service = attributes[kSecAttrService as String] as? String else { continue }
+                guard service.contains("Storage Key") || service.contains("Safe Storage") else { continue }
+                append(service: service, account: baseName)
+            }
+        }
+
+        return result
+    }
+
+    private func keychainBaseNames() -> [String] {
+        var result: [String] = []
+        var seen = Set<String>()
+
+        func append(_ rawName: String?) {
+            guard let rawName else { return }
+            let trimmedName = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmedName.isEmpty else { return }
+            if seen.insert(trimmedName).inserted {
+                result.append(trimmedName)
+            }
+        }
+
+        append(browser.displayName)
+        append(browser.appURL?.deletingPathExtension().lastPathComponent)
+        append(browser.descriptor.appNames.first?.replacingOccurrences(of: ".app", with: ""))
+
+        if let appURL = browser.appURL,
+           let bundle = Bundle(url: appURL) {
+            append(bundle.object(forInfoDictionaryKey: "CFBundleName") as? String)
+            append(bundle.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String)
+        }
+
+        for name in Array(result) {
+            if name.hasPrefix("Google ") {
+                append(String(name.dropFirst("Google ".count)))
+            }
+            if name.hasSuffix(" Browser") {
+                append(String(name.dropLast(" Browser".count)))
+            }
+        }
+
+        switch browser.descriptor.id {
+        case "google-chrome":
+            append("Chrome")
+        case "chromium":
+            append("Chromium")
+        case "brave":
+            append("Brave")
+        case "helium":
+            append("Helium")
+        default:
+            break
+        }
+
+        return result
+    }
+
+    private func readPasswordData(item: ChromiumCookieKeychainItem) -> KeychainLookupResult {
+        let query: [CFString: Any] = [
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrService: item.service,
+            kSecAttrAccount: item.account,
+            kSecReturnData: true,
+            kSecMatchLimit: kSecMatchLimitOne,
+        ]
+
+        var rawResult: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &rawResult)
+        guard status == errSecSuccess else {
+            return .failure(status)
+        }
+        guard let passwordData = rawResult as? Data else {
+            return .failure(errSecDecode)
+        }
+        return .success(passwordData)
+    }
+
+    private func chromiumVersionPrefix(in encryptedValue: Data) -> Data? {
+        for prefix in [Data("v10".utf8), Data("v11".utf8)] where encryptedValue.starts(with: prefix) {
+            return prefix
+        }
+        return nil
+    }
+
+    private func deriveKey(from passwordData: Data) -> Data? {
+        let salt = Data("saltysalt".utf8)
+        var derivedKey = Data(count: kCCKeySizeAES128)
+
+        let status = derivedKey.withUnsafeMutableBytes { derivedBytes in
+            passwordData.withUnsafeBytes { passwordBytes in
+                salt.withUnsafeBytes { saltBytes in
+                    CCKeyDerivationPBKDF(
+                        CCPBKDFAlgorithm(kCCPBKDF2),
+                        passwordBytes.baseAddress?.assumingMemoryBound(to: Int8.self),
+                        passwordData.count,
+                        saltBytes.baseAddress?.assumingMemoryBound(to: UInt8.self),
+                        salt.count,
+                        CCPseudoRandomAlgorithm(kCCPRFHmacAlgSHA1),
+                        1003,
+                        derivedBytes.baseAddress?.assumingMemoryBound(to: UInt8.self),
+                        kCCKeySizeAES128
+                    )
+                }
+            }
+        }
+
+        guard status == kCCSuccess else { return nil }
+        return derivedKey
+    }
+
+    private func decrypt(ciphertext: Data, key: Data) -> Data? {
+        let iv = Data(repeating: 0x20, count: kCCBlockSizeAES128)
+        var plaintext = Data(count: ciphertext.count + kCCBlockSizeAES128)
+        var plaintextLength = 0
+        let plaintextCapacity = plaintext.count
+
+        let status = plaintext.withUnsafeMutableBytes { plaintextBytes in
+            ciphertext.withUnsafeBytes { ciphertextBytes in
+                key.withUnsafeBytes { keyBytes in
+                    iv.withUnsafeBytes { ivBytes in
+                        CCCrypt(
+                            CCOperation(kCCDecrypt),
+                            CCAlgorithm(kCCAlgorithmAES),
+                            CCOptions(kCCOptionPKCS7Padding),
+                            keyBytes.baseAddress,
+                            key.count,
+                            ivBytes.baseAddress,
+                            ciphertextBytes.baseAddress,
+                            ciphertext.count,
+                            plaintextBytes.baseAddress,
+                            plaintextCapacity,
+                            &plaintextLength
+                        )
+                    }
+                }
+            }
+        }
+
+        guard status == kCCSuccess else { return nil }
+        plaintext.removeSubrange(plaintextLength...)
+        return plaintext
+    }
+
+    private func decodePlaintext(_ plaintext: Data, host: String) -> String? {
+        if let value = String(data: plaintext, encoding: .utf8) {
+            return value
+        }
+
+        let hostDigest = Data(SHA256.hash(data: Data(host.utf8)))
+        if plaintext.starts(with: hostDigest) {
+            return String(data: plaintext.dropFirst(hostDigest.count), encoding: .utf8)
+        }
+
+        return nil
+    }
+}
+#else
+private final class ChromiumCookieDecryptor {
+    init(browser: InstalledBrowserCandidate) {}
+
+    func decryptCookieValue(encryptedValue: Data, host: String) -> String? { nil }
+
+    func warningMessage(browserName: String, skippedCount: Int) -> String? {
+        guard skippedCount > 0 else { return nil }
+        return String(
+            format: String(
+                localized: "browser.import.warning.encryptedCookiesSkipped",
+                defaultValue: "Skipped %ld encrypted cookies that require Keychain decryption."
+            ),
+            skippedCount
+        )
+    }
+}
+#endif
 
 enum BrowserDataImporter {
     private struct CookieImportResult {
@@ -5906,29 +7228,83 @@ enum BrowserDataImporter {
 
     static func importData(
         from browser: InstalledBrowserCandidate,
+        plan: RealizedBrowserImportExecutionPlan,
         scope: BrowserImportScope,
         domainFilters: [String]
     ) async -> BrowserImportOutcome {
-        var cookieResult = CookieImportResult()
-        if scope.includesCookies {
-            cookieResult = await importCookies(from: browser, domainFilters: domainFilters)
+        var outcomeEntries: [BrowserImportOutcomeEntry] = []
+        var warnings: [String] = []
+        var seenWarnings = Set<String>()
+
+        for entry in plan.entries {
+            let outcomeEntry = await importEntry(
+                from: browser,
+                sourceProfiles: entry.sourceProfiles,
+                destinationProfileID: entry.destinationProfileID,
+                destinationProfileName: entry.destinationProfileName,
+                scope: scope,
+                domainFilters: domainFilters
+            )
+            outcomeEntries.append(outcomeEntry)
+            for warning in outcomeEntry.warnings where seenWarnings.insert(warning).inserted {
+                warnings.append(warning)
+            }
         }
 
-        var historyResult = HistoryImportResult()
-        if scope.includesHistory {
-            historyResult = await importHistory(from: browser, domainFilters: domainFilters)
-        }
-
-        var warnings = cookieResult.warnings
-        warnings.append(contentsOf: historyResult.warnings)
         if scope == .everything {
-            warnings.append("Bookmarks/settings import is not implemented yet; imported cookies and history only.")
+            let unavailableWarning = String(
+                localized: "browser.import.warning.additionalDataUnavailable",
+                defaultValue: "Bookmarks, settings, and extensions import are not available yet. Imported cookies and history only."
+            )
+            if seenWarnings.insert(unavailableWarning).inserted {
+                warnings.append(unavailableWarning)
+            }
         }
 
         return BrowserImportOutcome(
             browserName: browser.displayName,
             scope: scope,
             domainFilters: domainFilters,
+            createdDestinationProfileNames: plan.createdProfiles.map(\.displayName),
+            entries: outcomeEntries,
+            warnings: warnings
+        )
+    }
+
+    private static func importEntry(
+        from browser: InstalledBrowserCandidate,
+        sourceProfiles: [InstalledBrowserProfile],
+        destinationProfileID: UUID,
+        destinationProfileName: String,
+        scope: BrowserImportScope,
+        domainFilters: [String]
+    ) async -> BrowserImportOutcomeEntry {
+        let resolvedSourceProfiles = sourceProfiles.isEmpty ? browser.profiles : sourceProfiles
+        var cookieResult = CookieImportResult()
+        if scope.includesCookies {
+            cookieResult = await importCookies(
+                from: browser,
+                sourceProfiles: resolvedSourceProfiles,
+                destinationProfileID: destinationProfileID,
+                domainFilters: domainFilters
+            )
+        }
+
+        var historyResult = HistoryImportResult()
+        if scope.includesHistory {
+            historyResult = await importHistory(
+                from: browser,
+                sourceProfiles: resolvedSourceProfiles,
+                destinationProfileID: destinationProfileID,
+                domainFilters: domainFilters
+            )
+        }
+
+        var warnings = cookieResult.warnings
+        warnings.append(contentsOf: historyResult.warnings)
+        return BrowserImportOutcomeEntry(
+            sourceProfileNames: resolvedSourceProfiles.map(\.displayName),
+            destinationProfileName: destinationProfileName,
             importedCookies: cookieResult.importedCount,
             skippedCookies: cookieResult.skippedCount,
             importedHistoryEntries: historyResult.importedCount,
@@ -5938,20 +7314,35 @@ enum BrowserDataImporter {
 
     private static func importCookies(
         from browser: InstalledBrowserCandidate,
+        sourceProfiles: [InstalledBrowserProfile],
+        destinationProfileID: UUID,
         domainFilters: [String]
     ) async -> CookieImportResult {
         switch browser.family {
         case .firefox:
-            return await importFirefoxCookies(from: browser, domainFilters: domainFilters)
+            return await importFirefoxCookies(
+                from: browser,
+                sourceProfiles: sourceProfiles,
+                destinationProfileID: destinationProfileID,
+                domainFilters: domainFilters
+            )
         case .chromium:
-            return await importChromiumCookies(from: browser, domainFilters: domainFilters)
+            return await importChromiumCookies(
+                from: browser,
+                sourceProfiles: sourceProfiles,
+                destinationProfileID: destinationProfileID,
+                domainFilters: domainFilters
+            )
         case .webkit:
             if browser.descriptor.id == "safari" {
                 return CookieImportResult(
                     importedCount: 0,
                     skippedCount: 0,
                     warnings: [
-                        "Safari cookies are stored in Cookies.binarycookies and are not yet supported by this importer."
+                        String(
+                            localized: "browser.import.warning.safariCookiesUnsupported",
+                            defaultValue: "Safari cookies are stored in Cookies.binarycookies and are not yet supported by this importer."
+                        )
                     ]
                 )
             }
@@ -5959,7 +7350,13 @@ enum BrowserDataImporter {
                 importedCount: 0,
                 skippedCount: 0,
                 warnings: [
-                    "\(browser.displayName) cookie import is not implemented yet."
+                    String(
+                        format: String(
+                            localized: "browser.import.warning.cookieImportUnsupported",
+                            defaultValue: "%@ cookie import is not implemented yet."
+                        ),
+                        browser.displayName
+                    )
                 ]
             )
         }
@@ -5967,28 +7364,47 @@ enum BrowserDataImporter {
 
     private static func importHistory(
         from browser: InstalledBrowserCandidate,
+        sourceProfiles: [InstalledBrowserProfile],
+        destinationProfileID: UUID,
         domainFilters: [String]
     ) async -> HistoryImportResult {
         switch browser.family {
         case .firefox:
-            return await importFirefoxHistory(from: browser, domainFilters: domainFilters)
+            return await importFirefoxHistory(
+                from: browser,
+                sourceProfiles: sourceProfiles,
+                destinationProfileID: destinationProfileID,
+                domainFilters: domainFilters
+            )
         case .chromium:
-            return await importChromiumHistory(from: browser, domainFilters: domainFilters)
+            return await importChromiumHistory(
+                from: browser,
+                sourceProfiles: sourceProfiles,
+                destinationProfileID: destinationProfileID,
+                domainFilters: domainFilters
+            )
         case .webkit:
-            return await importWebKitHistory(from: browser, domainFilters: domainFilters)
+            return await importWebKitHistory(
+                from: browser,
+                sourceProfiles: sourceProfiles,
+                destinationProfileID: destinationProfileID,
+                domainFilters: domainFilters
+            )
         }
     }
 
     private static func importFirefoxCookies(
         from browser: InstalledBrowserCandidate,
+        sourceProfiles: [InstalledBrowserProfile],
+        destinationProfileID: UUID,
         domainFilters: [String]
     ) async -> CookieImportResult {
         let fileManager = FileManager.default
         var cookies: [HTTPCookie] = []
         var warnings: [String] = []
 
-        let databaseURLs = browser.profileURLs.map {
-            $0.appendingPathComponent("cookies.sqlite", isDirectory: false)
+        let databaseURLs = sourceProfiles.map {
+            $0.rootURL.appendingPathComponent("cookies.sqlite", isDirectory: false)
         }.filter { fileManager.fileExists(atPath: $0.path) }
 
         for databaseURL in databaseURLs {
@@ -6024,26 +7440,38 @@ enum BrowserDataImporter {
                     }
                 }
             } catch {
-                warnings.append("Failed reading Firefox cookies at \(databaseURL.lastPathComponent): \(error.localizedDescription)")
+                warnings.append(
+                    String(
+                        format: String(
+                            localized: "browser.import.warning.firefoxCookiesReadFailed",
+                            defaultValue: "Failed reading Firefox cookies at %@: %@"
+                        ),
+                        databaseURL.lastPathComponent,
+                        error.localizedDescription
+                    )
+                )
             }
         }
 
         let dedupedCookies = dedupeCookies(cookies)
-        let importedCount = await setCookiesInStore(dedupedCookies)
+        let importedCount = await setCookiesInStore(dedupedCookies, destinationProfileID: destinationProfileID)
         return CookieImportResult(importedCount: importedCount, skippedCount: max(0, dedupedCookies.count - importedCount), warnings: warnings)
     }
 
     private static func importChromiumCookies(
         from browser: InstalledBrowserCandidate,
+        sourceProfiles: [InstalledBrowserProfile],
+        destinationProfileID: UUID,
         domainFilters: [String]
     ) async -> CookieImportResult {
         let fileManager = FileManager.default
         var cookies: [HTTPCookie] = []
         var warnings: [String] = []
         var skippedEncryptedCookies = 0
+        let decryptor = ChromiumCookieDecryptor(browser: browser)
 
-        let databaseURLs = browser.profileURLs.map {
-            $0.appendingPathComponent("Cookies", isDirectory: false)
+        let databaseURLs = sourceProfiles.map {
+            $0.rootURL.appendingPathComponent("Cookies", isDirectory: false)
         }.filter { fileManager.fileExists(atPath: $0.path) }
 
         for databaseURL in databaseURLs {
@@ -6058,15 +7486,22 @@ enum BrowserDataImporter {
                     let path = sqliteColumnText(statement, index: 3) ?? "/"
                     let expiresUTC = sqliteColumnInt64(statement, index: 4)
                     let isSecure = sqliteColumnInt64(statement, index: 5) != 0
-                    let encryptedLength = sqliteColumnBytes(statement, index: 6)
+                    let encryptedValue = sqliteColumnData(statement, index: 6)
 
                     guard !name.isEmpty else { return }
                     guard domainMatches(host: host, filters: domainFilters) else { return }
 
-                    let usableValue = value.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if usableValue.isEmpty && encryptedLength > 0 {
-                        skippedEncryptedCookies += 1
-                        return
+                    var usableValue = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if usableValue.isEmpty && !encryptedValue.isEmpty {
+                        if let decryptedValue = decryptor.decryptCookieValue(
+                            encryptedValue: encryptedValue,
+                            host: host
+                        ) {
+                            usableValue = decryptedValue
+                        } else {
+                            skippedEncryptedCookies += 1
+                            return
+                        }
                     }
 
                     var properties: [HTTPCookiePropertyKey: Any] = [
@@ -6086,14 +7521,27 @@ enum BrowserDataImporter {
                     }
                 }
             } catch {
-                warnings.append("Failed reading \(browser.displayName) cookies at \(databaseURL.lastPathComponent): \(error.localizedDescription)")
+                warnings.append(
+                    String(
+                        format: String(
+                            localized: "browser.import.warning.browserCookiesReadFailed",
+                            defaultValue: "Failed reading %@ cookies at %@: %@"
+                        ),
+                        browser.displayName,
+                        databaseURL.lastPathComponent,
+                        error.localizedDescription
+                    )
+                )
             }
         }
 
         let dedupedCookies = dedupeCookies(cookies)
-        let importedCount = await setCookiesInStore(dedupedCookies)
-        if skippedEncryptedCookies > 0 {
-            warnings.append("Skipped \(skippedEncryptedCookies) encrypted cookies that require Keychain decryption.")
+        let importedCount = await setCookiesInStore(dedupedCookies, destinationProfileID: destinationProfileID)
+        if let warning = decryptor.warningMessage(
+            browserName: browser.displayName,
+            skippedCount: skippedEncryptedCookies
+        ) {
+            warnings.append(warning)
         }
         let skippedCount = max(0, dedupedCookies.count - importedCount) + skippedEncryptedCookies
         return CookieImportResult(importedCount: importedCount, skippedCount: skippedCount, warnings: warnings)
@@ -6101,14 +7549,16 @@ enum BrowserDataImporter {
 
     private static func importFirefoxHistory(
         from browser: InstalledBrowserCandidate,
+        sourceProfiles: [InstalledBrowserProfile],
+        destinationProfileID: UUID,
         domainFilters: [String]
     ) async -> HistoryImportResult {
         let fileManager = FileManager.default
         var rows: [HistoryRow] = []
         var warnings: [String] = []
 
-        let databaseURLs = browser.profileURLs.map {
-            $0.appendingPathComponent("places.sqlite", isDirectory: false)
+        let databaseURLs = sourceProfiles.map {
+            $0.rootURL.appendingPathComponent("places.sqlite", isDirectory: false)
         }.filter { fileManager.fileExists(atPath: $0.path) }
 
         for databaseURL in databaseURLs {
@@ -6136,24 +7586,35 @@ enum BrowserDataImporter {
                     rows.append(HistoryRow(url: url, title: title, visitCount: visitCount, lastVisited: lastVisited))
                 }
             } catch {
-                warnings.append("Failed reading Firefox history at \(databaseURL.lastPathComponent): \(error.localizedDescription)")
+                warnings.append(
+                    String(
+                        format: String(
+                            localized: "browser.import.warning.firefoxHistoryReadFailed",
+                            defaultValue: "Failed reading Firefox history at %@: %@"
+                        ),
+                        databaseURL.lastPathComponent,
+                        error.localizedDescription
+                    )
+                )
             }
         }
 
-        let importedCount = await mergeHistoryRows(rows)
+        let importedCount = await mergeHistoryRows(rows, destinationProfileID: destinationProfileID)
         return HistoryImportResult(importedCount: importedCount, warnings: warnings)
     }
 
     private static func importChromiumHistory(
         from browser: InstalledBrowserCandidate,
+        sourceProfiles: [InstalledBrowserProfile],
+        destinationProfileID: UUID,
         domainFilters: [String]
     ) async -> HistoryImportResult {
         let fileManager = FileManager.default
         var rows: [HistoryRow] = []
         var warnings: [String] = []
 
-        let databaseURLs = browser.profileURLs.map {
-            $0.appendingPathComponent("History", isDirectory: false)
+        let databaseURLs = sourceProfiles.map {
+            $0.rootURL.appendingPathComponent("History", isDirectory: false)
         }.filter { fileManager.fileExists(atPath: $0.path) }
 
         for databaseURL in databaseURLs {
@@ -6181,25 +7642,36 @@ enum BrowserDataImporter {
                     rows.append(HistoryRow(url: url, title: title, visitCount: visitCount, lastVisited: lastVisited))
                 }
             } catch {
-                warnings.append("Failed reading \(browser.displayName) history at \(databaseURL.lastPathComponent): \(error.localizedDescription)")
+                warnings.append(
+                    String(
+                        format: String(
+                            localized: "browser.import.warning.browserHistoryReadFailed",
+                            defaultValue: "Failed reading %@ history at %@: %@"
+                        ),
+                        browser.displayName,
+                        databaseURL.lastPathComponent,
+                        error.localizedDescription
+                    )
+                )
             }
         }
 
-        let importedCount = await mergeHistoryRows(rows)
+        let importedCount = await mergeHistoryRows(rows, destinationProfileID: destinationProfileID)
         return HistoryImportResult(importedCount: importedCount, warnings: warnings)
     }
 
     private static func importWebKitHistory(
         from browser: InstalledBrowserCandidate,
+        sourceProfiles: [InstalledBrowserProfile],
+        destinationProfileID: UUID,
         domainFilters: [String]
     ) async -> HistoryImportResult {
         let fileManager = FileManager.default
         var rows: [HistoryRow] = []
         var warnings: [String] = []
 
-        var candidateDatabaseURLs: [URL] = []
-        if let dataRootURL = browser.dataRootURL {
-            candidateDatabaseURLs.append(dataRootURL.appendingPathComponent("History.db", isDirectory: false))
+        var candidateDatabaseURLs = sourceProfiles.map {
+            $0.rootURL.appendingPathComponent("History.db", isDirectory: false)
         }
         if browser.descriptor.id == "safari" {
             candidateDatabaseURLs.append(
@@ -6212,7 +7684,18 @@ enum BrowserDataImporter {
         let uniqueURLs = dedupedCanonicalURLs(candidateDatabaseURLs).filter { fileManager.fileExists(atPath: $0.path) }
 
         if uniqueURLs.isEmpty {
-            return HistoryImportResult(importedCount: 0, warnings: ["No history database found for \(browser.displayName)."])
+            return HistoryImportResult(
+                importedCount: 0,
+                warnings: [
+                    String(
+                        format: String(
+                            localized: "browser.import.warning.noHistoryDatabase",
+                            defaultValue: "No history database found for %@."
+                        ),
+                        browser.displayName
+                    )
+                ]
+            )
         }
 
         for databaseURL in uniqueURLs {
@@ -6245,15 +7728,25 @@ enum BrowserDataImporter {
                     rows.append(HistoryRow(url: url, title: title, visitCount: visitCount, lastVisited: lastVisited))
                 }
             } catch {
-                warnings.append("Failed reading \(browser.displayName) history at \(databaseURL.lastPathComponent): \(error.localizedDescription)")
+                warnings.append(
+                    String(
+                        format: String(
+                            localized: "browser.import.warning.browserHistoryReadFailed",
+                            defaultValue: "Failed reading %@ history at %@: %@"
+                        ),
+                        browser.displayName,
+                        databaseURL.lastPathComponent,
+                        error.localizedDescription
+                    )
+                )
             }
         }
 
-        let importedCount = await mergeHistoryRows(rows)
+        let importedCount = await mergeHistoryRows(rows, destinationProfileID: destinationProfileID)
         return HistoryImportResult(importedCount: importedCount, warnings: warnings)
     }
 
-    private static func mergeHistoryRows(_ rows: [HistoryRow]) async -> Int {
+    private static func mergeHistoryRows(_ rows: [HistoryRow], destinationProfileID: UUID) async -> Int {
         guard !rows.isEmpty else { return 0 }
         return await MainActor.run {
             let entries = rows.compactMap { row -> BrowserHistoryStore.Entry? in
@@ -6271,23 +7764,31 @@ enum BrowserDataImporter {
                     visitCount: max(1, row.visitCount)
                 )
             }
-            return BrowserHistoryStore.shared.mergeImportedEntries(entries)
+            let historyStore = BrowserProfileStore.shared.historyStore(for: destinationProfileID)
+            return historyStore.mergeImportedEntries(entries)
         }
     }
 
-    private static func setCookiesInStore(_ cookies: [HTTPCookie]) async -> Int {
+    private static func setCookiesInStore(_ cookies: [HTTPCookie], destinationProfileID: UUID) async -> Int {
         guard !cookies.isEmpty else { return 0 }
-        let store = WKWebsiteDataStore.default().httpCookieStore
+        let store = await MainActor.run {
+            BrowserProfileStore.shared.websiteDataStore(for: destinationProfileID).httpCookieStore
+        }
         var importedCount = 0
         for cookie in cookies {
-            await withCheckedContinuation { continuation in
-                store.setCookie(cookie) {
-                    importedCount += 1
-                    continuation.resume()
-                }
-            }
+            await setCookie(cookie, in: store)
+            importedCount += 1
         }
         return importedCount
+    }
+
+    @MainActor
+    private static func setCookie(_ cookie: HTTPCookie, in store: WKHTTPCookieStore) async {
+        await withCheckedContinuation { continuation in
+            store.setCookie(cookie) {
+                continuation.resume()
+            }
+        }
     }
 
     private static func dedupeCookies(_ cookies: [HTTPCookie]) -> [HTTPCookie] {
@@ -6422,6 +7923,14 @@ enum BrowserDataImporter {
         Int(sqlite3_column_bytes(statement, index))
     }
 
+    private static func sqliteColumnData(_ statement: OpaquePointer, index: Int32) -> Data {
+        let length = Int(sqlite3_column_bytes(statement, index))
+        guard length > 0, let pointer = sqlite3_column_blob(statement, index) else {
+            return Data()
+        }
+        return Data(bytes: pointer, count: length)
+    }
+
     private static func dedupedCanonicalURLs(_ urls: [URL]) -> [URL] {
         var seen = Set<String>()
         var result: [URL] = []
@@ -6435,6 +7944,96 @@ enum BrowserDataImporter {
     }
 }
 
+#if DEBUG
+enum BrowserImportUITestFixtureLoader {
+    private struct BrowserFixture: Decodable {
+        let browserName: String
+        let profiles: [String]
+    }
+
+    static func browsers(from environment: [String: String]) -> [InstalledBrowserCandidate]? {
+        guard let rawFixture = environment["CMUX_UI_TEST_BROWSER_IMPORT_FIXTURE"],
+              let data = rawFixture.data(using: .utf8),
+              let fixture = try? JSONDecoder().decode(BrowserFixture.self, from: data) else {
+            return nil
+        }
+
+        let resolvedProfiles = fixture.profiles.enumerated().map { index, name in
+            InstalledBrowserProfile(
+                displayName: name,
+                rootURL: FileManager.default.temporaryDirectory
+                    .appendingPathComponent("cmux-ui-test-browser-import")
+                    .appendingPathComponent(
+                        fixture.browserName
+                            .lowercased()
+                            .replacingOccurrences(of: "[^a-z0-9]+", with: "-", options: .regularExpression)
+                    )
+                    .appendingPathComponent("\(index)-\(name)")
+                    .standardizedFileURL,
+                isDefault: index == 0
+            )
+        }
+
+        let descriptor = InstalledBrowserDetector.allBrowserDescriptors.first(where: {
+            $0.displayName == fixture.browserName
+        }) ?? BrowserImportBrowserDescriptor(
+            id: fixture.browserName
+                .lowercased()
+                .replacingOccurrences(of: "[^a-z0-9]+", with: "-", options: .regularExpression)
+                .trimmingCharacters(in: CharacterSet(charactersIn: "-")),
+            displayName: fixture.browserName,
+            family: .chromium,
+            tier: 0,
+            bundleIdentifiers: [],
+            appNames: [],
+            dataRootRelativePaths: [],
+            dataArtifactRelativePaths: [],
+            supportsDataOnlyDetection: false
+        )
+
+        return [
+            InstalledBrowserCandidate(
+                descriptor: descriptor,
+                resolvedFamily: descriptor.family,
+                homeDirectoryURL: FileManager.default.homeDirectoryForCurrentUser,
+                appURL: nil,
+                dataRootURL: nil,
+                profiles: resolvedProfiles,
+                detectionSignals: ["ui-test-fixture"],
+                detectionScore: Int.max
+            )
+        ]
+    }
+
+    static func destinationProfiles(from environment: [String: String]) -> [BrowserProfileDefinition]? {
+        guard let rawDestinations = environment["CMUX_UI_TEST_BROWSER_IMPORT_DESTINATIONS"],
+              let data = rawDestinations.data(using: .utf8),
+              let names = try? JSONDecoder().decode([String].self, from: data),
+              !names.isEmpty else {
+            return nil
+        }
+
+        return names.enumerated().map { index, rawName in
+            let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+            if name.localizedCaseInsensitiveCompare("Default") == .orderedSame {
+                return BrowserProfileDefinition(
+                    id: UUID(uuidString: "52B43C05-4A1D-45D3-8FD5-9EF94952E445")!,
+                    displayName: "Default",
+                    createdAt: .distantPast,
+                    isBuiltInDefault: true
+                )
+            }
+            return BrowserProfileDefinition(
+                id: UUID(),
+                displayName: name.isEmpty ? "Profile \(index + 1)" : name,
+                createdAt: .distantPast,
+                isBuiltInDefault: false
+            )
+        }
+    }
+}
+#endif
+
 @MainActor
 final class BrowserDataImportCoordinator {
     static let shared = BrowserDataImportCoordinator()
@@ -6443,40 +8042,94 @@ final class BrowserDataImportCoordinator {
 
     private init() {}
 
-    func presentImportDialog() {
-        presentImportDialog(prefilledBrowsers: nil)
+    func presentImportDialog(defaultDestinationProfileID: UUID? = nil) {
+        presentImportDialog(prefilledBrowsers: nil, defaultDestinationProfileID: defaultDestinationProfileID)
     }
 
     private struct ImportSelection {
         let browser: InstalledBrowserCandidate
+        let executionPlan: BrowserImportExecutionPlan
         let scope: BrowserImportScope
         let domainFilters: [String]
     }
 
-    private func presentImportDialog(prefilledBrowsers: [InstalledBrowserCandidate]?) {
+    private func presentImportDialog(
+        prefilledBrowsers: [InstalledBrowserCandidate]?,
+        defaultDestinationProfileID: UUID?
+    ) {
         guard !importInProgress else { return }
+#if DEBUG
+        let environment = ProcessInfo.processInfo.environment
+        let fixtureBrowsers = BrowserImportUITestFixtureLoader.browsers(from: environment)
+        let fixtureDestinationProfiles = BrowserImportUITestFixtureLoader.destinationProfiles(from: environment)
+        let browsers = prefilledBrowsers ?? fixtureBrowsers ?? InstalledBrowserDetector.detectInstalledBrowsers()
+#else
+        let fixtureDestinationProfiles: [BrowserProfileDefinition]? = nil
         let browsers = prefilledBrowsers ?? InstalledBrowserDetector.detectInstalledBrowsers()
+#endif
         guard !browsers.isEmpty else {
             let alert = NSAlert()
             alert.alertStyle = .warning
-            alert.messageText = "No importable browsers found"
-            alert.informativeText = "cmux could not find browser profiles to import from on this Mac."
-            alert.addButton(withTitle: "OK")
+            alert.messageText = String(
+                localized: "browser.import.noBrowsers.title",
+                defaultValue: "No importable browsers found"
+            )
+            alert.informativeText = String(
+                localized: "browser.import.noBrowsers.message",
+                defaultValue: "cmux could not find browser profiles to import from on this Mac."
+            )
+            alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
             alert.runModal()
             return
         }
 
-        guard let selection = promptForSelection(browsers: browsers) else { return }
+        guard let selection = promptForSelection(
+            browsers: browsers,
+            destinationProfiles: fixtureDestinationProfiles,
+            defaultDestinationProfileID: defaultDestinationProfileID
+        ) else { return }
+
+#if DEBUG
+        if captureSelectionIfRequested(selection, destinationProfiles: fixtureDestinationProfiles) {
+            return
+        }
+#endif
+        let realizedPlan: RealizedBrowserImportExecutionPlan
+        do {
+            realizedPlan = try BrowserImportPlanResolver.realize(plan: selection.executionPlan)
+        } catch {
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = String(
+                localized: "browser.import.error.title",
+                defaultValue: "Import could not start"
+            )
+            alert.informativeText = error.localizedDescription
+            alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
+            alert.runModal()
+            return
+        }
         importInProgress = true
 
         let progressWindow = showProgressWindow(
-            title: "Importing Browser Data",
-            message: "Importing \(selection.scope.displayName.lowercased()) from \(selection.browser.displayName)…"
+            title: String(
+                localized: "browser.import.progress.title",
+                defaultValue: "Importing Browser Data"
+            ),
+            message: String(
+                format: String(
+                    localized: "browser.import.progress.message",
+                    defaultValue: "Importing %@ from %@…"
+                ),
+                selection.scope.displayName.lowercased(),
+                selection.browser.displayName
+            )
         )
 
         Task.detached(priority: .userInitiated) {
             let outcome = await BrowserDataImporter.importData(
                 from: selection.browser,
+                plan: realizedPlan,
                 scope: selection.scope,
                 domainFilters: selection.domainFilters
             )
@@ -6489,53 +8142,165 @@ final class BrowserDataImportCoordinator {
         }
     }
 
-    private func promptForSelection(browsers: [InstalledBrowserCandidate]) -> ImportSelection? {
+    private func promptForSelection(
+        browsers: [InstalledBrowserCandidate],
+        destinationProfiles: [BrowserProfileDefinition]?,
+        defaultDestinationProfileID: UUID?
+    ) -> ImportSelection? {
         guard !browsers.isEmpty else { return nil }
-        let wizard = ImportWizardWindowController(browsers: browsers)
+        let wizard = ImportWizardWindowController(
+            browsers: browsers,
+            destinationProfiles: destinationProfiles,
+            defaultDestinationProfileID: defaultDestinationProfileID
+        )
         return wizard.runModal()
     }
 
+#if DEBUG
+    private struct CapturedImportSelection: Encodable {
+        struct Entry: Encodable {
+            let sourceProfiles: [String]
+            let destinationKind: String
+            let destinationName: String
+        }
+
+        let browserName: String
+        let mode: String
+        let scope: String
+        let domainFilters: [String]
+        let entries: [Entry]
+    }
+
+    private func captureSelectionIfRequested(
+        _ selection: ImportSelection,
+        destinationProfiles: [BrowserProfileDefinition]?
+    ) -> Bool {
+        let environment = ProcessInfo.processInfo.environment
+        guard environment["CMUX_UI_TEST_BROWSER_IMPORT_MODE"] == "capture-only" else { return false }
+        guard let path = environment["CMUX_UI_TEST_BROWSER_IMPORT_CAPTURE_PATH"], !path.isEmpty else {
+            return true
+        }
+
+        let availableDestinationProfiles = destinationProfiles ?? BrowserProfileStore.shared.profiles
+        let payload = CapturedImportSelection(
+            browserName: selection.browser.displayName,
+            mode: captureModeName(selection.executionPlan.mode),
+            scope: selection.scope.rawValue,
+            domainFilters: selection.domainFilters,
+            entries: selection.executionPlan.entries.map { entry in
+                let destinationKind: String
+                let destinationName: String
+                switch entry.destination {
+                case .existing(let id):
+                    destinationKind = "existing"
+                    destinationName = availableDestinationProfiles.first(where: { $0.id == id })?.displayName
+                        ?? BrowserProfileStore.shared.displayName(for: id)
+                case .createNamed(let name):
+                    destinationKind = "create"
+                    destinationName = name
+                }
+                return CapturedImportSelection.Entry(
+                    sourceProfiles: entry.sourceProfiles.map(\.displayName),
+                    destinationKind: destinationKind,
+                    destinationName: destinationName
+                )
+            }
+        )
+
+        guard let data = try? JSONEncoder().encode(payload) else { return true }
+        let url = URL(fileURLWithPath: path)
+        try? FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true,
+            attributes: nil
+        )
+        try? data.write(to: url)
+        return true
+    }
+
+    private func captureModeName(_ mode: BrowserImportDestinationMode) -> String {
+        switch mode {
+        case .singleDestination:
+            return "singleDestination"
+        case .separateProfiles:
+            return "separateProfiles"
+        case .mergeIntoOne:
+            return "mergeIntoOne"
+        }
+    }
+#endif
+
     @MainActor
     private final class ImportWizardWindowController: NSObject, @preconcurrency NSWindowDelegate {
+        private final class FlippedDocumentView: NSView {
+            override var isFlipped: Bool { true }
+        }
+
         private enum Step {
             case source
+            case sourceProfiles
             case dataTypes
         }
 
         private let browsers: [InstalledBrowserCandidate]
+        private let destinationProfiles: [BrowserProfileDefinition]
+        private let initialDestinationProfileID: UUID
 
         private var step: Step = .source
         private var didFinishModal = false
         private(set) var selection: ImportSelection?
+        private var selectedSourceProfileIDsByBrowserID: [String: Set<String>] = [:]
+        private var sourceProfileCheckboxes: [NSButton] = []
+        private var destinationMode: BrowserImportDestinationMode = .singleDestination
+        private var separateExecutionEntries: [BrowserImportExecutionEntry] = []
+        private var separateDestinationOptionsByEntryIndex: [Int: [BrowserImportDestinationRequest]] = [:]
+        private var mergeDestinationProfileID: UUID
 
         private let panel: NSPanel
 
         private let stepLabel = NSTextField(labelWithString: "")
         private let sourcePopup = NSPopUpButton(frame: .zero, pullsDown: false)
         private let sourceContainer = NSStackView()
+        private let sourceProfilesContainer = NSStackView()
+        private let sourceProfilesList = NSStackView()
+        private let sourceProfilesDocumentView = FlippedDocumentView(frame: .zero)
+        private let sourceProfilesEmptyLabel = NSTextField(wrappingLabelWithString: "")
+        private let sourceProfilesHelpLabel = NSTextField(labelWithString: "")
+        private let sourceProfilesScrollView = NSScrollView()
         private let dataTypesContainer = NSStackView()
         private let validationLabel = NSTextField(labelWithString: "")
+        private let destinationModeContainer = NSStackView()
+        private let separateProfilesRadio = NSButton(radioButtonWithTitle: "", target: nil, action: nil)
+        private let mergeProfilesRadio = NSButton(radioButtonWithTitle: "", target: nil, action: nil)
+        private let separateDestinationRows = NSStackView()
+        private let mergeDestinationRow = NSStackView()
+        private let mergeDestinationPopup = NSPopUpButton(frame: .zero, pullsDown: false)
+        private let destinationHelpLabel = NSTextField(wrappingLabelWithString: "")
 
-        private let cookiesCheckbox = NSButton(
-            checkboxWithTitle: "Cookies (site sign-ins)",
-            target: nil,
-            action: nil
-        )
-        private let historyCheckbox = NSButton(
-            checkboxWithTitle: "History (visited pages)",
-            target: nil,
-            action: nil
-        )
+        private let cookiesCheckbox = NSButton(checkboxWithTitle: "", target: nil, action: nil)
+        private let historyCheckbox = NSButton(checkboxWithTitle: "", target: nil, action: nil)
         private let domainField = NSTextField(frame: .zero)
 
-        private let backButton = NSButton(title: "Back", target: nil, action: nil)
-        private let cancelButton = NSButton(title: "Cancel", target: nil, action: nil)
-        private let primaryButton = NSButton(title: "Next", target: nil, action: nil)
+        private let backButton = NSButton(title: "", target: nil, action: nil)
+        private let cancelButton = NSButton(title: "", target: nil, action: nil)
+        private let primaryButton = NSButton(title: "", target: nil, action: nil)
 
-        init(browsers: [InstalledBrowserCandidate]) {
+        init(
+            browsers: [InstalledBrowserCandidate],
+            destinationProfiles: [BrowserProfileDefinition]?,
+            defaultDestinationProfileID: UUID?
+        ) {
+            let resolvedDestinationProfiles = destinationProfiles ?? BrowserProfileStore.shared.profiles
+            let fallbackDestinationProfileID = resolvedDestinationProfiles.first?.id
+                ?? BrowserProfileStore.shared.effectiveLastUsedProfileID
             self.browsers = browsers
+            self.destinationProfiles = resolvedDestinationProfiles
+            self.initialDestinationProfileID = defaultDestinationProfileID
+                .flatMap { candidateID in resolvedDestinationProfiles.first(where: { $0.id == candidateID })?.id }
+                ?? fallbackDestinationProfileID
+            self.mergeDestinationProfileID = self.initialDestinationProfileID
             self.panel = NSPanel(
-                contentRect: NSRect(x: 0, y: 0, width: 560, height: 300),
+                contentRect: NSRect(x: 0, y: 0, width: 620, height: 420),
                 styleMask: [.titled, .closable],
                 backing: .buffered,
                 defer: false
@@ -6565,8 +8330,14 @@ final class BrowserDataImportCoordinator {
 
         @objc
         private func handleBack() {
-            guard step == .dataTypes else { return }
-            step = .source
+            switch step {
+            case .source:
+                return
+            case .sourceProfiles:
+                step = .source
+            case .dataTypes:
+                step = .sourceProfiles
+            }
             validationLabel.isHidden = true
             updateStepUI()
         }
@@ -6580,6 +8351,22 @@ final class BrowserDataImportCoordinator {
         private func handlePrimary() {
             switch step {
             case .source:
+                step = .sourceProfiles
+                validationLabel.isHidden = true
+                refreshSourceProfilesList()
+                updateStepUI()
+            case .sourceProfiles:
+                let selectedSourceProfiles = selectedSourceProfiles()
+                guard !selectedSourceProfiles.isEmpty else {
+                    validationLabel.stringValue = String(
+                        localized: "browser.import.validation.sourceProfiles",
+                        defaultValue: "Choose at least one source profile to import."
+                    )
+                    validationLabel.isHidden = false
+                    return
+                }
+
+                resetStep3State()
                 step = .dataTypes
                 validationLabel.isHidden = true
                 updateStepUI()
@@ -6591,16 +8378,19 @@ final class BrowserDataImportCoordinator {
                     includeHistory: includeHistory,
                     includeAdditionalData: false
                 ) else {
-                    validationLabel.stringValue = "Select Cookies, History, or both before starting import."
+                    validationLabel.stringValue = String(
+                        localized: "browser.import.validation.scope",
+                        defaultValue: "Select Cookies, History, or both before starting import."
+                    )
                     validationLabel.isHidden = false
                     return
                 }
 
-                let selectedIndex = max(0, min(sourcePopup.indexOfSelectedItem, browsers.count - 1))
-                let selectedBrowser = browsers[selectedIndex]
+                let selectedBrowser = selectedBrowser()
                 let domainFilters = BrowserDataImporter.parseDomainFilters(domainField.stringValue)
                 selection = ImportSelection(
                     browser: selectedBrowser,
+                    executionPlan: currentExecutionPlan(),
                     scope: scope,
                     domainFilters: domainFilters
                 )
@@ -6608,44 +8398,105 @@ final class BrowserDataImportCoordinator {
             }
         }
 
+        @objc
+        private func handleSourceChanged() {
+            validationLabel.isHidden = true
+            refreshSourceProfilesList()
+            updateStepUI()
+        }
+
+        @objc
+        private func handleSourceProfileToggled(_ sender: NSButton) {
+            guard let profileID = sender.identifier?.rawValue else { return }
+            let browserID = selectedBrowser().id
+            var selectedIDs = storedSelectedSourceProfileIDs(for: selectedBrowser())
+            if sender.state == .on {
+                selectedIDs.insert(profileID)
+            } else {
+                selectedIDs.remove(profileID)
+            }
+            selectedSourceProfileIDsByBrowserID[browserID] = selectedIDs
+            validationLabel.isHidden = true
+        }
+
+        @objc
+        private func handleDestinationModeChanged(_ sender: NSButton) {
+            let selectedSourceProfiles = selectedSourceProfiles()
+            guard selectedSourceProfiles.count > 1 else { return }
+            destinationMode = sender == separateProfilesRadio ? .separateProfiles : .mergeIntoOne
+            rebuildStep3DestinationUI()
+        }
+
+        @objc
+        private func handleMergeDestinationChanged(_ sender: NSPopUpButton) {
+            let selectedIndex = max(0, min(sender.indexOfSelectedItem, destinationProfiles.count - 1))
+            guard destinationProfiles.indices.contains(selectedIndex) else { return }
+            mergeDestinationProfileID = destinationProfiles[selectedIndex].id
+            validationLabel.isHidden = true
+        }
+
+        @objc
+        private func handleSeparateDestinationChanged(_ sender: NSPopUpButton) {
+            let entryIndex = sender.tag
+            guard separateExecutionEntries.indices.contains(entryIndex),
+                  let options = separateDestinationOptionsByEntryIndex[entryIndex],
+                  options.indices.contains(sender.indexOfSelectedItem) else {
+                return
+            }
+            separateExecutionEntries[entryIndex].destination = options[sender.indexOfSelectedItem]
+            validationLabel.isHidden = true
+        }
+
         private func setupUI() {
-            panel.title = "Import Browser Data"
+            panel.title = String(
+                localized: "browser.import.title",
+                defaultValue: "Import Browser Data"
+            )
             panel.isReleasedWhenClosed = false
             panel.delegate = self
             panel.standardWindowButton(.miniaturizeButton)?.isHidden = true
             panel.standardWindowButton(.zoomButton)?.isHidden = true
 
-            let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 560, height: 300))
+            let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 620, height: 420))
             contentView.translatesAutoresizingMaskIntoConstraints = false
             panel.contentView = contentView
 
-            let titleLabel = NSTextField(labelWithString: "Import Browser Data")
+            let titleLabel = NSTextField(
+                labelWithString: String(
+                    localized: "browser.import.title",
+                    defaultValue: "Import Browser Data"
+                )
+            )
             titleLabel.font = NSFont.systemFont(ofSize: 24, weight: .semibold)
 
             stepLabel.font = NSFont.systemFont(ofSize: 15, weight: .medium)
             stepLabel.textColor = .secondaryLabelColor
 
             setupSourceContainer()
+            setupSourceProfilesContainer()
             setupDataTypesContainer()
 
             validationLabel.font = NSFont.systemFont(ofSize: 12, weight: .regular)
             validationLabel.textColor = .systemRed
             validationLabel.isHidden = true
             validationLabel.lineBreakMode = .byWordWrapping
-            validationLabel.maximumNumberOfLines = 2
+            validationLabel.maximumNumberOfLines = 3
 
             backButton.target = self
             backButton.action = #selector(handleBack)
             backButton.bezelStyle = .rounded
+            backButton.title = String(localized: "browser.import.back", defaultValue: "Back")
 
             cancelButton.target = self
             cancelButton.action = #selector(handleCancel)
             cancelButton.bezelStyle = .rounded
+            cancelButton.title = String(localized: "common.cancel", defaultValue: "Cancel")
             cancelButton.keyEquivalent = "\u{1b}"
 
             primaryButton.target = self
             primaryButton.action = #selector(handlePrimary)
             primaryButton.bezelStyle = .rounded
+            primaryButton.title = String(localized: "browser.import.next", defaultValue: "Next")
             primaryButton.keyEquivalent = "\r"
 
             let buttonSpacer = NSView(frame: .zero)
@@ -6658,9 +8509,14 @@ final class BrowserDataImportCoordinator {
             buttonSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
             buttonSpacer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
-            let contentStack = NSStackView(
-                views: [titleLabel, stepLabel, sourceContainer, dataTypesContainer, validationLabel]
-            )
+            let contentStack = NSStackView(views: [
+                titleLabel,
+                stepLabel,
+                sourceContainer,
+                sourceProfilesContainer,
+                dataTypesContainer,
+                validationLabel,
+            ])
             contentStack.orientation = .vertical
             contentStack.spacing = 10
             contentStack.alignment = .leading
@@ -6687,8 +8543,12 @@ final class BrowserDataImportCoordinator {
                 sourcePopup.addItem(withTitle: browser.displayName)
             }
             sourcePopup.selectItem(at: 0)
+            sourcePopup.target = self
+            sourcePopup.action = #selector(handleSourceChanged)
 
-            let sourceLabel = NSTextField(labelWithString: "Source")
+            let sourceLabel = NSTextField(
+                labelWithString: String(localized: "browser.import.source", defaultValue: "Source")
+            )
             sourceLabel.alignment = .right
             sourceLabel.frame.size.width = 80
 
@@ -6712,14 +8572,126 @@ final class BrowserDataImportCoordinator {
             sourceContainer.addArrangedSubview(detectedLabel)
         }
 
+        private func setupSourceProfilesContainer() {
+            let sourceProfilesTitle = NSTextField(
+                labelWithString: String(
+                    localized: "browser.import.sourceProfiles",
+                    defaultValue: "Source Profiles"
+                )
+            )
+            sourceProfilesTitle.font = NSFont.systemFont(ofSize: 13, weight: .semibold)
+
+            sourceProfilesList.orientation = .vertical
+            sourceProfilesList.spacing = 6
+            sourceProfilesList.alignment = .leading
+            sourceProfilesList.translatesAutoresizingMaskIntoConstraints = false
+
+            sourceProfilesEmptyLabel.font = NSFont.systemFont(ofSize: 13)
+            sourceProfilesEmptyLabel.textColor = .secondaryLabelColor
+            sourceProfilesEmptyLabel.maximumNumberOfLines = 0
+            sourceProfilesEmptyLabel.preferredMaxLayoutWidth = 520
+
+            sourceProfilesDocumentView.frame = NSRect(x: 0, y: 0, width: 1, height: 1)
+            sourceProfilesDocumentView.translatesAutoresizingMaskIntoConstraints = false
+            sourceProfilesDocumentView.addSubview(sourceProfilesList)
+            NSLayoutConstraint.activate([
+                sourceProfilesList.topAnchor.constraint(equalTo: sourceProfilesDocumentView.topAnchor),
+                sourceProfilesList.leadingAnchor.constraint(equalTo: sourceProfilesDocumentView.leadingAnchor),
+                sourceProfilesList.trailingAnchor.constraint(equalTo: sourceProfilesDocumentView.trailingAnchor),
+                sourceProfilesList.bottomAnchor.constraint(equalTo: sourceProfilesDocumentView.bottomAnchor),
+                sourceProfilesList.widthAnchor.constraint(equalTo: sourceProfilesDocumentView.widthAnchor),
+            ])
+
+            sourceProfilesScrollView.drawsBackground = false
+            sourceProfilesScrollView.borderType = .bezelBorder
+            sourceProfilesScrollView.hasVerticalScroller = true
+            sourceProfilesScrollView.documentView = sourceProfilesDocumentView
+            sourceProfilesScrollView.translatesAutoresizingMaskIntoConstraints = false
+            sourceProfilesScrollView.contentView.postsBoundsChangedNotifications = true
+            sourceProfilesScrollView.heightAnchor.constraint(equalToConstant: 180).isActive = true
+
+            sourceProfilesHelpLabel.font = NSFont.systemFont(ofSize: 12)
+            sourceProfilesHelpLabel.textColor = .secondaryLabelColor
+            sourceProfilesHelpLabel.maximumNumberOfLines = 2
+            sourceProfilesHelpLabel.lineBreakMode = .byWordWrapping
+            sourceProfilesHelpLabel.stringValue = String(
+                localized: "browser.import.sourceProfiles.help",
+                defaultValue: "Choose one or more source profiles. Step 3 lets you keep them separate or merge them into one cmux profile."
+            )
+
+            sourceProfilesContainer.orientation = .vertical
+            sourceProfilesContainer.spacing = 10
+            sourceProfilesContainer.alignment = .leading
+            sourceProfilesContainer.addArrangedSubview(sourceProfilesTitle)
+            sourceProfilesContainer.addArrangedSubview(sourceProfilesScrollView)
+            sourceProfilesContainer.addArrangedSubview(sourceProfilesHelpLabel)
+            sourceProfilesContainer.setHuggingPriority(.defaultLow, for: .vertical)
+            sourceProfilesContainer.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
+        }
+
         private func setupDataTypesContainer() {
             cookiesCheckbox.state = .on
             historyCheckbox.state = .on
+            cookiesCheckbox.title = String(
+                localized: "browser.import.cookies",
+                defaultValue: "Cookies (site sign-ins)"
+            )
+            historyCheckbox.title = String(
+                localized: "browser.import.history",
+                defaultValue: "History (visited pages)"
+            )
+            separateProfilesRadio.title = String(
+                localized: "browser.import.destinationMode.separate",
+                defaultValue: "Keep profiles separate"
+            )
+            mergeProfilesRadio.title = String(
+                localized: "browser.import.destinationMode.merge",
+                defaultValue: "Merge all into one cmux profile"
+            )
+            separateProfilesRadio.target = self
+            separateProfilesRadio.action = #selector(handleDestinationModeChanged(_:))
+            mergeProfilesRadio.target = self
+            mergeProfilesRadio.action = #selector(handleDestinationModeChanged(_:))
 
-            domainField.placeholderString = "Optional domains only (e.g. github.com, openai.com)"
+            destinationModeContainer.orientation = .vertical
+            destinationModeContainer.spacing = 6
+            destinationModeContainer.alignment = .leading
+            destinationModeContainer.addArrangedSubview(separateProfilesRadio)
+            destinationModeContainer.addArrangedSubview(mergeProfilesRadio)
+
+            mergeDestinationPopup.target = self
+            mergeDestinationPopup.action = #selector(handleMergeDestinationChanged(_:))
+
+            separateDestinationRows.orientation = .vertical
+            separateDestinationRows.spacing = 8
+            separateDestinationRows.alignment = .leading
+
+            mergeDestinationRow.orientation = .horizontal
+            mergeDestinationRow.spacing = 8
+            mergeDestinationRow.alignment = .centerY
+
+            destinationHelpLabel.font = NSFont.systemFont(ofSize: 12)
+            destinationHelpLabel.textColor = .secondaryLabelColor
+            destinationHelpLabel.maximumNumberOfLines = 3
+            destinationHelpLabel.preferredMaxLayoutWidth = 540
+
+            domainField.placeholderString = String(
+                localized: "browser.import.domain.placeholder",
+                defaultValue: "Optional domains only (e.g. github.com, openai.com)"
+            )
             domainField.stringValue = ""
 
-            let domainLabel = NSTextField(labelWithString: "Limit to")
+            let destinationTitleLabel = NSTextField(
+                labelWithString: String(
+                    localized: "browser.import.destination.cmux",
+                    defaultValue: "cmux destination"
+                )
+            )
+            destinationTitleLabel.font = NSFont.systemFont(ofSize: 13, weight: .semibold)
+
+            let domainLabel = NSTextField(
+                labelWithString: String(localized: "browser.import.domain", defaultValue: "Limit to")
+            )
             domainLabel.alignment = .right
             domainLabel.frame.size.width = 80
 
@@ -6729,16 +8701,24 @@ final class BrowserDataImportCoordinator {
             domainRow.alignment = .centerY
 
             let noteLabel = NSTextField(
-                wrappingLabelWithString: "Bookmarks, settings, and extensions import are not available yet."
+                wrappingLabelWithString: String(
+                    localized: "browser.import.additionalData.note",
+                    defaultValue: "Bookmarks, settings, and extensions import are not available yet."
+                )
             )
             noteLabel.font = NSFont.systemFont(ofSize: 12)
             noteLabel.textColor = .secondaryLabelColor
             noteLabel.maximumNumberOfLines = 2
-            noteLabel.preferredMaxLayoutWidth = 500
+            noteLabel.preferredMaxLayoutWidth = 540
 
             dataTypesContainer.orientation = .vertical
             dataTypesContainer.spacing = 8
             dataTypesContainer.alignment = .leading
+            dataTypesContainer.addArrangedSubview(destinationTitleLabel)
+            dataTypesContainer.addArrangedSubview(destinationModeContainer)
+            dataTypesContainer.addArrangedSubview(separateDestinationRows)
+            dataTypesContainer.addArrangedSubview(mergeDestinationRow)
+            dataTypesContainer.addArrangedSubview(destinationHelpLabel)
             dataTypesContainer.addArrangedSubview(cookiesCheckbox)
             dataTypesContainer.addArrangedSubview(historyCheckbox)
             dataTypesContainer.addArrangedSubview(domainRow)
@@ -6747,30 +8727,366 @@ final class BrowserDataImportCoordinator {
 
         private func configureInitialState() {
             step = .source
+            refreshSourceProfilesList()
             updateStepUI()
         }
 
         private func updateStepUI() {
             switch step {
             case .source:
-                stepLabel.stringValue = "Step 1 of 2: Choose the browser to import from."
+                stepLabel.stringValue = String(
+                    localized: "browser.import.step.source",
+                    defaultValue: "Step 1 of 3: Choose the browser to import from."
+                )
                 sourceContainer.isHidden = false
+                sourceProfilesContainer.isHidden = true
                 dataTypesContainer.isHidden = true
                 backButton.isHidden = true
-                primaryButton.title = "Next"
-            case .dataTypes:
-                let selectedBrowserName = selectedBrowser().displayName
-                stepLabel.stringValue = "Step 2 of 2: Choose what to import from \(selectedBrowserName)."
+                primaryButton.isEnabled = true
+                primaryButton.title = String(localized: "browser.import.next", defaultValue: "Next")
+            case .sourceProfiles:
+                stepLabel.stringValue = String(
+                    format: String(
+                        localized: "browser.import.step.sourceProfiles",
+                        defaultValue: "Step 2 of 3: Choose source profiles from %@."
+                    ),
+                    selectedBrowser().displayName
+                )
                 sourceContainer.isHidden = true
+                sourceProfilesContainer.isHidden = false
+                dataTypesContainer.isHidden = true
+                backButton.isHidden = false
+                primaryButton.isEnabled = !selectedBrowser().profiles.isEmpty
+                primaryButton.title = String(localized: "browser.import.next", defaultValue: "Next")
+            case .dataTypes:
+                rebuildStep3DestinationUI()
+                stepLabel.stringValue = String(
+                    format: String(
+                        localized: "browser.import.step.dataTypes",
+                        defaultValue: "Step 3 of 3: Choose what to import from %@ and where to put it."
+                    ),
+                    selectedBrowser().displayName
+                )
+                sourceContainer.isHidden = true
+                sourceProfilesContainer.isHidden = true
                 dataTypesContainer.isHidden = false
                 backButton.isHidden = false
-                primaryButton.title = "Start Import"
+                primaryButton.isEnabled = true
+                primaryButton.title = String(
+                    localized: "browser.import.start",
+                    defaultValue: "Start Import"
+                )
             }
         }
 
         private func selectedBrowser() -> InstalledBrowserCandidate {
             let selectedIndex = max(0, min(sourcePopup.indexOfSelectedItem, browsers.count - 1))
             return browsers[selectedIndex]
+        }
+
+        private func refreshSourceProfilesList() {
+            let browser = selectedBrowser()
+            let selectedIDs = storedSelectedSourceProfileIDs(for: browser)
+
+            sourceProfileCheckboxes.removeAll()
+            for arrangedSubview in sourceProfilesList.arrangedSubviews {
+                sourceProfilesList.removeArrangedSubview(arrangedSubview)
+                arrangedSubview.removeFromSuperview()
+            }
+
+            if browser.profiles.isEmpty {
+                sourceProfilesEmptyLabel.stringValue = String(
+                    format: String(
+                        localized: "browser.import.sourceProfiles.empty",
+                        defaultValue: "No source profiles detected for %@."
+                    ),
+                    browser.displayName
+                )
+                sourceProfilesList.addArrangedSubview(sourceProfilesEmptyLabel)
+                return
+            }
+
+            for profile in browser.profiles {
+                let checkbox = NSButton(
+                    checkboxWithTitle: profile.displayName,
+                    target: self,
+                    action: #selector(handleSourceProfileToggled(_:))
+                )
+                checkbox.identifier = NSUserInterfaceItemIdentifier(profile.id)
+                checkbox.state = selectedIDs.contains(profile.id) ? .on : .off
+                checkbox.lineBreakMode = .byTruncatingTail
+                sourceProfilesList.addArrangedSubview(checkbox)
+                sourceProfileCheckboxes.append(checkbox)
+            }
+        }
+
+        private func storedSelectedSourceProfileIDs(for browser: InstalledBrowserCandidate) -> Set<String> {
+            if let existing = selectedSourceProfileIDsByBrowserID[browser.id] {
+                return existing
+            }
+            let defaultSelection = defaultSelectedSourceProfileIDs(for: browser)
+            selectedSourceProfileIDsByBrowserID[browser.id] = defaultSelection
+            return defaultSelection
+        }
+
+        private func defaultSelectedSourceProfileIDs(for browser: InstalledBrowserCandidate) -> Set<String> {
+            if let defaultProfile = browser.profiles.first(where: \.isDefault) {
+                return [defaultProfile.id]
+            }
+            if let firstProfile = browser.profiles.first {
+                return [firstProfile.id]
+            }
+            return []
+        }
+
+        private func selectedSourceProfiles() -> [InstalledBrowserProfile] {
+            let browser = selectedBrowser()
+            let selectedIDs = storedSelectedSourceProfileIDs(for: browser)
+            return browser.profiles.filter { selectedIDs.contains($0.id) }
+        }
+
+        private func resetStep3State() {
+            let selectedProfiles = selectedSourceProfiles()
+            let defaultPlan = BrowserImportPlanResolver.defaultPlan(
+                selectedSourceProfiles: selectedProfiles,
+                destinationProfiles: destinationProfiles,
+                preferredSingleDestinationProfileID: initialDestinationProfileID
+            )
+            destinationMode = defaultPlan.mode
+            separateExecutionEntries = BrowserImportPlanResolver.separateProfilesPlan(
+                selectedSourceProfiles: selectedProfiles,
+                destinationProfiles: destinationProfiles
+            ).entries
+            if let initialDestination = defaultPlan.entries.first.flatMap(destinationProfileID(for:)) {
+                mergeDestinationProfileID = initialDestination
+            } else {
+                mergeDestinationProfileID = initialDestinationProfileID
+            }
+            rebuildStep3DestinationUI()
+        }
+
+        private func currentExecutionPlan() -> BrowserImportExecutionPlan {
+            let selectedProfiles = selectedSourceProfiles()
+            guard !selectedProfiles.isEmpty else {
+                return BrowserImportExecutionPlan(mode: .singleDestination, entries: [])
+            }
+
+            guard selectedProfiles.count > 1 else {
+                return BrowserImportExecutionPlan(
+                    mode: .singleDestination,
+                    entries: [
+                        BrowserImportExecutionEntry(
+                            sourceProfiles: selectedProfiles,
+                            destination: .existing(resolvedMergeDestinationProfileID())
+                        )
+                    ]
+                )
+            }
+
+            switch destinationMode {
+            case .separateProfiles:
+                let entriesBySourceID = Dictionary(
+                    uniqueKeysWithValues: separateExecutionEntries.compactMap { entry in
+                        entry.sourceProfiles.first.map { ($0.id, entry.destination) }
+                    }
+                )
+                let entries = selectedProfiles.map { profile in
+                    BrowserImportExecutionEntry(
+                        sourceProfiles: [profile],
+                        destination: entriesBySourceID[profile.id] ?? defaultSeparateDestinationRequest(for: profile)
+                    )
+                }
+                return BrowserImportExecutionPlan(mode: .separateProfiles, entries: entries)
+            case .singleDestination, .mergeIntoOne:
+                return BrowserImportExecutionPlan(
+                    mode: .mergeIntoOne,
+                    entries: [
+                        BrowserImportExecutionEntry(
+                            sourceProfiles: selectedProfiles,
+                            destination: .existing(resolvedMergeDestinationProfileID())
+                        )
+                    ]
+                )
+            }
+        }
+
+        private func rebuildStep3DestinationUI() {
+            let plan = currentExecutionPlan()
+            let presentation = BrowserImportStep3Presentation(plan: plan)
+            destinationModeContainer.isHidden = !presentation.showsModeSelector
+            separateDestinationRows.isHidden = !presentation.showsSeparateRows
+            mergeDestinationRow.isHidden = !presentation.showsSingleDestinationPicker
+
+            if presentation.showsModeSelector {
+                separateProfilesRadio.state = destinationMode == .separateProfiles ? .on : .off
+                mergeProfilesRadio.state = destinationMode == .mergeIntoOne ? .on : .off
+            } else {
+                separateProfilesRadio.state = .off
+                mergeProfilesRadio.state = .off
+            }
+
+            rebuildSeparateDestinationRows(with: plan)
+            rebuildMergeDestinationRow()
+
+            if presentation.showsSeparateRows {
+                destinationHelpLabel.stringValue = String(
+                    localized: "browser.import.destinationProfile.separateHelp",
+                    defaultValue: "Missing cmux profiles are created when import starts."
+                )
+            } else if plan.entries.count > 1 {
+                destinationHelpLabel.stringValue = String(
+                    localized: "browser.import.destinationProfile.mergeHelp",
+                    defaultValue: "All selected source profiles will be merged into the chosen cmux browser profile."
+                )
+            } else {
+                destinationHelpLabel.stringValue = String(
+                    localized: "browser.import.destinationProfile.help",
+                    defaultValue: "Imported cookies and history go into the selected cmux browser profile."
+                )
+            }
+        }
+
+        private func rebuildSeparateDestinationRows(with plan: BrowserImportExecutionPlan) {
+            separateDestinationOptionsByEntryIndex.removeAll()
+            for arrangedSubview in separateDestinationRows.arrangedSubviews {
+                separateDestinationRows.removeArrangedSubview(arrangedSubview)
+                arrangedSubview.removeFromSuperview()
+            }
+
+            guard plan.mode == .separateProfiles else { return }
+
+            for (index, entry) in plan.entries.enumerated() {
+                guard let sourceProfile = entry.sourceProfiles.first else { continue }
+                let sourceLabel = NSTextField(labelWithString: sourceProfile.displayName)
+                sourceLabel.alignment = .right
+                sourceLabel.frame.size.width = 140
+
+                let popup = NSPopUpButton(frame: .zero, pullsDown: false)
+                popup.target = self
+                popup.action = #selector(handleSeparateDestinationChanged(_:))
+                popup.tag = index
+                popup.setAccessibilityIdentifier(
+                    "BrowserImportDestinationPopup-\(accessibilitySlug(for: sourceProfile, index: index))"
+                )
+
+                let options = destinationOptions(for: entry, sourceProfile: sourceProfile)
+                separateDestinationOptionsByEntryIndex[index] = options
+                for option in options {
+                    popup.addItem(withTitle: title(for: option))
+                }
+                if let selectedIndex = options.firstIndex(of: entry.destination) {
+                    popup.selectItem(at: selectedIndex)
+                } else {
+                    popup.selectItem(at: 0)
+                }
+
+                let row = NSStackView(views: [sourceLabel, popup])
+                row.orientation = .horizontal
+                row.spacing = 8
+                row.alignment = .centerY
+                separateDestinationRows.addArrangedSubview(row)
+            }
+        }
+
+        private func rebuildMergeDestinationRow() {
+            for arrangedSubview in mergeDestinationRow.arrangedSubviews {
+                mergeDestinationRow.removeArrangedSubview(arrangedSubview)
+                arrangedSubview.removeFromSuperview()
+            }
+
+            mergeDestinationPopup.removeAllItems()
+            for profile in destinationProfiles {
+                mergeDestinationPopup.addItem(withTitle: profile.displayName)
+            }
+            if let selectedIndex = destinationProfiles.firstIndex(where: { $0.id == resolvedMergeDestinationProfileID() }) {
+                mergeDestinationPopup.selectItem(at: selectedIndex)
+            } else {
+                mergeDestinationPopup.selectItem(at: 0)
+                if let firstProfile = destinationProfiles.first {
+                    mergeDestinationProfileID = firstProfile.id
+                }
+            }
+            mergeDestinationPopup.setAccessibilityIdentifier("BrowserImportDestinationPopup-merge")
+
+            let destinationLabel = NSTextField(
+                labelWithString: String(
+                    localized: "browser.import.destinationProfile",
+                    defaultValue: "Import into"
+                )
+            )
+            destinationLabel.alignment = .right
+            destinationLabel.frame.size.width = 140
+
+            mergeDestinationRow.addArrangedSubview(destinationLabel)
+            mergeDestinationRow.addArrangedSubview(mergeDestinationPopup)
+        }
+
+        private func destinationOptions(
+            for entry: BrowserImportExecutionEntry,
+            sourceProfile: InstalledBrowserProfile
+        ) -> [BrowserImportDestinationRequest] {
+            var options = destinationProfiles.map { BrowserImportDestinationRequest.existing($0.id) }
+            let createName: String
+            switch entry.destination {
+            case .createNamed(let name):
+                createName = name
+            case .existing:
+                createName = sourceProfile.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            if !createName.isEmpty,
+               !destinationProfiles.contains(where: {
+                   $0.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+                       .localizedCaseInsensitiveCompare(createName) == .orderedSame
+               }) {
+                options.append(.createNamed(createName))
+            }
+            return options
+        }
+
+        private func title(for request: BrowserImportDestinationRequest) -> String {
+            switch request {
+            case .existing(let id):
+                return destinationProfiles.first(where: { $0.id == id })?.displayName
+                    ?? BrowserProfileStore.shared.displayName(for: id)
+            case .createNamed(let name):
+                return String(
+                    format: String(
+                        localized: "browser.import.destinationProfile.create",
+                        defaultValue: "Create \"%@\""
+                    ),
+                    name
+                )
+            }
+        }
+
+        private func destinationProfileID(for entry: BrowserImportExecutionEntry) -> UUID? {
+            guard case .existing(let id) = entry.destination else { return nil }
+            return id
+        }
+
+        private func resolvedMergeDestinationProfileID() -> UUID {
+            if destinationProfiles.contains(where: { $0.id == mergeDestinationProfileID }) {
+                return mergeDestinationProfileID
+            }
+            return initialDestinationProfileID
+        }
+
+        private func defaultSeparateDestinationRequest(
+            for profile: InstalledBrowserProfile
+        ) -> BrowserImportDestinationRequest {
+            BrowserImportPlanResolver.separateProfilesPlan(
+                selectedSourceProfiles: [profile],
+                destinationProfiles: destinationProfiles
+            ).entries.first?.destination ?? .createNamed(profile.displayName)
+        }
+
+        private func accessibilitySlug(for profile: InstalledBrowserProfile, index: Int) -> String {
+            let base = profile.displayName
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+                .replacingOccurrences(of: "[^a-z0-9]+", with: "-", options: .regularExpression)
+                .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+            return base.isEmpty ? "profile-\(index)" : base
         }
 
         private func finishModal(with response: NSApplication.ModalResponse) {
@@ -6810,7 +9126,12 @@ final class BrowserDataImportCoordinator {
         titleLabel.font = NSFont.systemFont(ofSize: 13, weight: .medium)
         content.addSubview(titleLabel)
 
-        let subtitleLabel = NSTextField(labelWithString: "This can take a few seconds for large profiles.")
+        let subtitleLabel = NSTextField(
+            labelWithString: String(
+                localized: "browser.import.progress.subtitle",
+                defaultValue: "This can take a few seconds for large profiles."
+            )
+        )
         subtitleLabel.frame = NSRect(x: 52, y: 34, width: 340, height: 16)
         subtitleLabel.font = NSFont.systemFont(ofSize: 11)
         subtitleLabel.textColor = .secondaryLabelColor
@@ -6837,32 +9158,15 @@ final class BrowserDataImportCoordinator {
     }
 
     private func presentOutcome(_ outcome: BrowserImportOutcome) {
-        var lines: [String] = []
-        lines.append("Browser: \(outcome.browserName)")
-        lines.append("Scope: \(outcome.scope.displayName)")
-        lines.append("Imported cookies: \(outcome.importedCookies)")
-        if outcome.skippedCookies > 0 {
-            lines.append("Skipped cookies: \(outcome.skippedCookies)")
-        }
-        if outcome.scope.includesHistory {
-            lines.append("Imported history entries: \(outcome.importedHistoryEntries)")
-        }
-        if !outcome.domainFilters.isEmpty {
-            lines.append("Domain filter: \(outcome.domainFilters.joined(separator: ", "))")
-        }
-        if !outcome.warnings.isEmpty {
-            lines.append("")
-            lines.append("Warnings:")
-            for warning in outcome.warnings {
-                lines.append("- \(warning)")
-            }
-        }
-
+        let lines = BrowserImportOutcomeFormatter.lines(for: outcome)
         let alert = NSAlert()
         alert.alertStyle = .informational
-        alert.messageText = "Browser data import complete"
+        alert.messageText = String(
+            localized: "browser.import.complete.title",
+            defaultValue: "Browser data import complete"
+        )
         alert.informativeText = lines.joined(separator: "\n")
-        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
         alert.runModal()
     }
 }

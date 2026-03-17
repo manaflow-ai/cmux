@@ -206,6 +206,7 @@ func resolvedBrowserOmnibarPillBackgroundColor(
 /// View for rendering a browser panel with address bar
 struct BrowserPanelView: View {
     @ObservedObject var panel: BrowserPanel
+    @ObservedObject private var browserProfileStore = BrowserProfileStore.shared
     let paneId: PaneID
     let isFocused: Bool
     let isVisibleInUI: Bool
@@ -236,6 +237,7 @@ struct BrowserPanelView: View {
     @State private var lastHandledAddressBarFocusRequestId: UUID?
     @State private var pendingAddressBarFocusRetryRequestId: UUID?
     @State private var pendingAddressBarFocusRetryGeneration: UInt64 = 0
+    @State private var isBrowserProfileMenuPresented = false
     @State private var isBrowserThemeMenuPresented = false
     @State private var ghosttyBackgroundGeneration: Int = 0
     // Keep this below half of the compact omnibar height so it reads as a squircle,
@@ -433,7 +435,7 @@ struct BrowserPanelView: View {
             autoFocusOmnibarIfBlank()
             syncWebViewResponderPolicyWithViewState(reason: "onAppear")
             refreshEmptyStateImportBrowsers()
-            BrowserHistoryStore.shared.loadIfNeeded()
+            panel.historyStore.loadIfNeeded()
 #if DEBUG
             logBrowserFocusState(event: "view.onAppear")
 #endif
@@ -468,6 +470,12 @@ struct BrowserPanelView: View {
         }
         .onChange(of: panel.pendingAddressBarFocusRequestId) { _ in
             applyPendingAddressBarFocusRequestIfNeeded()
+        }
+        .onChange(of: panel.profileID) { _ in
+            panel.historyStore.loadIfNeeded()
+            if addressBarFocused {
+                refreshSuggestions()
+            }
         }
         .onChange(of: isFocused) { focused in
 #if DEBUG
@@ -541,7 +549,7 @@ struct BrowserPanelView: View {
             applyOmnibarEffects(effects)
             refreshInlineCompletion()
         }
-        .onReceive(BrowserHistoryStore.shared.$entries) { _ in
+        .onReceive(panel.historyStore.$entries) { _ in
             guard addressBarFocused else { return }
             refreshSuggestions()
         }
@@ -569,10 +577,9 @@ struct BrowserPanelView: View {
                 .accessibilityIdentifier("BrowserOmnibarPill")
                 .accessibilityLabel("Browser omnibar")
 
-            if !panel.isShowingNewTabPage {
-                browserThemeModeButton
-                developerToolsButton
-            }
+            browserProfileButton
+            browserThemeModeButton
+            developerToolsButton
         }
         .padding(.horizontal, 8)
         .padding(.vertical, addressBarVerticalPadding)
@@ -677,6 +684,34 @@ struct BrowserPanelView: View {
         .accessibilityIdentifier("BrowserToggleDevToolsButton")
     }
 
+    private var browserProfileButton: some View {
+        Button(action: {
+            isBrowserProfileMenuPresented.toggle()
+        }) {
+            Image(systemName: "person.crop.circle")
+                .symbolRenderingMode(.monochrome)
+                .cmuxFlatSymbolColorRendering()
+                .font(.system(size: devToolsButtonIconSize, weight: .medium))
+                .foregroundStyle(devToolsColorOption.color)
+                .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
+        }
+        .buttonStyle(OmnibarAddressButtonStyle())
+        .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
+        .popover(isPresented: $isBrowserProfileMenuPresented, arrowEdge: .bottom) {
+            browserProfilePopover
+        }
+        .safeHelp(
+            String(
+                format: String(
+                    localized: "browser.profile.buttonHelp",
+                    defaultValue: "Browser Profile: %@"
+                ),
+                panel.profileDisplayName
+            )
+        )
+        .accessibilityIdentifier("BrowserProfileButton")
+    }
+
     private var browserThemeModeButton: some View {
         Button(action: {
             isBrowserThemeMenuPresented.toggle()
@@ -693,8 +728,74 @@ struct BrowserPanelView: View {
         .popover(isPresented: $isBrowserThemeMenuPresented, arrowEdge: .bottom) {
             browserThemeModePopover
         }
-        .safeHelp("Browser Theme: \(browserThemeMode.displayName)")
+        .safeHelp(
+            String(
+                format: String(
+                    localized: "browser.theme.buttonHelp",
+                    defaultValue: "Browser Theme: %@"
+                ),
+                browserThemeMode.displayName
+            )
+        )
         .accessibilityIdentifier("BrowserThemeModeButton")
+    }
+
+    private var browserProfilePopover: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(String(localized: "browser.profile.menu.title", defaultValue: "Profiles"))
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.secondary)
+
+            VStack(alignment: .leading, spacing: 2) {
+                ForEach(browserProfileStore.profiles) { profile in
+                    Button {
+                        applyBrowserProfileSelection(profile.id)
+                    } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: profile.id == panel.profileID ? "checkmark" : "circle")
+                                .font(.system(size: 10, weight: .semibold))
+                                .opacity(profile.id == panel.profileID ? 1.0 : 0.0)
+                                .frame(width: 12, alignment: .center)
+                            Text(profile.displayName)
+                                .font(.system(size: 12))
+                            Spacer(minLength: 0)
+                        }
+                        .padding(.horizontal, 8)
+                        .frame(height: 24)
+                        .contentShape(Rectangle())
+                        .background(
+                            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                .fill(profile.id == panel.profileID ? Color.primary.opacity(0.12) : Color.clear)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+
+            Divider()
+
+            Button {
+                isBrowserProfileMenuPresented = false
+                presentCreateBrowserProfilePrompt()
+            } label: {
+                Text(String(localized: "browser.profile.new", defaultValue: "New Profile..."))
+                    .font(.system(size: 12))
+            }
+            .buttonStyle(.plain)
+
+            if browserProfileStore.canRenameProfile(id: panel.profileID) {
+                Button {
+                    isBrowserProfileMenuPresented = false
+                    presentRenameBrowserProfilePrompt()
+                } label: {
+                    Text(String(localized: "browser.profile.rename", defaultValue: "Rename Current Profile..."))
+                        .font(.system(size: 12))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(8)
+        .frame(minWidth: 208)
     }
 
     private var browserThemeModePopover: some View {
@@ -1145,7 +1246,9 @@ struct BrowserPanelView: View {
 
                 Button(String(localized: "settings.browser.emptyImport.choose", defaultValue: "Choose What to Import…")) {
                     refreshEmptyStateImportBrowsers()
-                    BrowserDataImportCoordinator.shared.presentImportDialog()
+                    BrowserDataImportCoordinator.shared.presentImportDialog(
+                        defaultDestinationProfileID: panel.profileID
+                    )
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
@@ -1327,8 +1430,71 @@ struct BrowserPanelView: View {
 
         let target = omnibarState.suggestions[idx]
         guard case .history(let url, _) = target.kind else { return }
-        guard BrowserHistoryStore.shared.removeHistoryEntry(urlString: url) else { return }
+        guard panel.historyStore.removeHistoryEntry(urlString: url) else { return }
         refreshSuggestions()
+    }
+
+    private func applyBrowserProfileSelection(_ profileID: UUID) {
+        isBrowserProfileMenuPresented = false
+        owningWorkspace?.setPreferredBrowserProfileID(profileID)
+        _ = panel.switchToProfile(profileID)
+    }
+
+    private func presentCreateBrowserProfilePrompt() {
+        let alert = NSAlert()
+        alert.messageText = String(localized: "browser.profile.new.title", defaultValue: "New Browser Profile")
+        alert.informativeText = String(localized: "browser.profile.new.message", defaultValue: "Create a separate browser profile for cookies, history, and local storage.")
+
+        let input = NSTextField(string: "")
+        input.placeholderString = String(localized: "browser.profile.new.placeholder", defaultValue: "Profile name")
+        input.frame = NSRect(x: 0, y: 0, width: 260, height: 22)
+        alert.accessoryView = input
+
+        alert.addButton(withTitle: String(localized: "common.create", defaultValue: "Create"))
+        alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
+
+        let alertWindow = alert.window
+        alertWindow.initialFirstResponder = input
+        DispatchQueue.main.async {
+            alertWindow.makeFirstResponder(input)
+            input.selectText(nil)
+        }
+
+        guard alert.runModal() == .alertFirstButtonReturn,
+              let profile = browserProfileStore.createProfile(named: input.stringValue) else {
+            return
+        }
+
+        applyBrowserProfileSelection(profile.id)
+    }
+
+    private func presentRenameBrowserProfilePrompt() {
+        guard let profile = browserProfileStore.profileDefinition(id: panel.profileID),
+              browserProfileStore.canRenameProfile(id: profile.id) else {
+            return
+        }
+
+        let alert = NSAlert()
+        alert.messageText = String(localized: "browser.profile.rename.title", defaultValue: "Rename Browser Profile")
+        alert.informativeText = String(localized: "browser.profile.rename.message", defaultValue: "Choose a new name for this browser profile.")
+
+        let input = NSTextField(string: profile.displayName)
+        input.placeholderString = String(localized: "browser.profile.new.placeholder", defaultValue: "Profile name")
+        input.frame = NSRect(x: 0, y: 0, width: 260, height: 22)
+        alert.accessoryView = input
+
+        alert.addButton(withTitle: String(localized: "common.rename", defaultValue: "Rename"))
+        alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
+
+        let alertWindow = alert.window
+        alertWindow.initialFirstResponder = input
+        DispatchQueue.main.async {
+            alertWindow.makeFirstResponder(input)
+            input.selectText(nil)
+        }
+
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        _ = browserProfileStore.renameProfile(id: profile.id, to: input.stringValue)
     }
 
     private func refreshInlineCompletion() {
@@ -1366,9 +1532,9 @@ struct BrowserPanelView: View {
         let query = omnibarState.buffer.trimmingCharacters(in: .whitespacesAndNewlines)
         let historyEntries: [BrowserHistoryStore.Entry] = {
             if query.isEmpty {
-                return BrowserHistoryStore.shared.recentSuggestions(limit: 12)
+                return panel.historyStore.recentSuggestions(limit: 12)
             }
-            return BrowserHistoryStore.shared.suggestions(for: query, limit: 12)
+            return panel.historyStore.suggestions(for: query, limit: 12)
         }()
         let openTabMatches = query.isEmpty ? [] : matchingOpenTabSuggestions(for: query, limit: 12)
         let isSingleCharacterQuery = omnibarSingleCharacterQuery(for: query) != nil
@@ -1432,7 +1598,7 @@ struct BrowserPanelView: View {
                 let merged = buildOmnibarSuggestions(
                     query: query,
                     engineName: searchEngine.displayName,
-                    historyEntries: BrowserHistoryStore.shared.suggestions(for: query, limit: 12),
+                    historyEntries: panel.historyStore.suggestions(for: query, limit: 12),
                     openTabMatches: matchingOpenTabSuggestions(for: query, limit: 12),
                     remoteQueries: remote,
                     resolvedURL: panel.resolveNavigableURL(from: query),

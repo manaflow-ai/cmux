@@ -150,8 +150,10 @@ final class SessionPersistenceTests: XCTestCase {
     }
 
     func testSessionBrowserPanelSnapshotHistoryRoundTrip() throws {
+        let profileID = UUID(uuidString: "8F03A658-5A84-428B-AD03-5A6D04692F64")
         let source = SessionBrowserPanelSnapshot(
             urlString: "https://example.com/current",
+            profileID: profileID,
             shouldRenderWebView: true,
             pageZoom: 1.2,
             developerToolsVisible: true,
@@ -167,6 +169,7 @@ final class SessionPersistenceTests: XCTestCase {
         let data = try JSONEncoder().encode(source)
         let decoded = try JSONDecoder().decode(SessionBrowserPanelSnapshot.self, from: data)
         XCTAssertEqual(decoded.urlString, source.urlString)
+        XCTAssertEqual(decoded.profileID, source.profileID)
         XCTAssertEqual(decoded.backHistoryURLStrings, source.backHistoryURLStrings)
         XCTAssertEqual(decoded.forwardHistoryURLStrings, source.forwardHistoryURLStrings)
     }
@@ -183,6 +186,7 @@ final class SessionPersistenceTests: XCTestCase {
 
         let decoded = try JSONDecoder().decode(SessionBrowserPanelSnapshot.self, from: json)
         XCTAssertEqual(decoded.urlString, "https://example.com/current")
+        XCTAssertNil(decoded.profileID)
         XCTAssertNil(decoded.backHistoryURLStrings)
         XCTAssertNil(decoded.forwardHistoryURLStrings)
     }

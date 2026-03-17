@@ -2313,7 +2313,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         stopSocketListenerHealthMonitor()
         TerminalController.shared.stop()
         VSCodeServeWebController.shared.stop()
-        BrowserHistoryStore.shared.flushPendingSaves()
+        BrowserProfileStore.shared.flushPendingSaves()
         if TelemetrySettings.enabledForCurrentLaunch {
             PostHogAnalytics.shared.flush()
         }
@@ -8673,7 +8673,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @discardableResult
     func openBrowserAndFocusAddressBar(url: URL? = nil, insertAtEnd: Bool = false) -> UUID? {
-        guard let panelId = tabManager?.openBrowser(url: url, insertAtEnd: insertAtEnd) else {
+        let preferredProfileID =
+            tabManager?.focusedBrowserPanel?.profileID
+            ?? tabManager?.selectedWorkspace?.preferredBrowserProfileID
+        guard let panelId = tabManager?.openBrowser(
+            url: url,
+            preferredProfileID: preferredProfileID,
+            insertAtEnd: insertAtEnd
+        ) else {
 #if DEBUG
             dlog(
                 "browser.focus.openAndFocus result=open_failed insertAtEnd=\(insertAtEnd ? 1 : 0) " +
