@@ -3824,6 +3824,12 @@ extension BrowserPanel {
             return
         }
         guard !isDeveloperToolsTransitionInFlight else { return }
+        // Ensure webView is in a window before attempting restoration. Inspector
+        // may not be immediately available after workspace switch; retry later.
+        guard webView.window != nil else {
+            scheduleDeveloperToolsRestoreRetry()
+            return
+        }
         guard let inspector = webView.cmuxInspectorObject() else {
             scheduleDeveloperToolsRestoreRetry()
             return
