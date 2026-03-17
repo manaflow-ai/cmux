@@ -88,7 +88,7 @@ case "$CMD" in
                 ;;
             list)
                 FROM_PARAM=""
-                if [ "$1" = "--from" ] && [ -n "$2" ]; then
+                if [ "$1" = "--from-agent" ] && [ -n "$2" ]; then
                     FROM_PARAM=",\"from\":\"$2\""
                 fi
                 send_rpc "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"team.message.list\",\"params\":{\"team_name\":\"$TEAM\"$FROM_PARAM}}"

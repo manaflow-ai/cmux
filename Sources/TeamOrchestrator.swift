@@ -759,7 +759,7 @@ final class TeamOrchestrator {
         ## Message Channel
         ```
         \(tmAgent) msg list
-        \(tmAgent) msg list --from <agent_name>
+        \(tmAgent) msg list --from-agent <agent_name>
         ```
 
         ## Task Board
@@ -767,7 +767,7 @@ final class TeamOrchestrator {
         \(tmAgent) task create '<title>' --assign <agent_name> --priority 2
         \(tmAgent) task list
         \(tmAgent) task get <id>
-        \(tmAgent) task-start <id> --assign <agent_name>
+        \(tmAgent) task start <id>
         \(tmAgent) task block <id> '<reason>'
         \(tmAgent) task review <id> '<summary>'
         \(tmAgent) task done <id> '<result>'
@@ -888,7 +888,7 @@ final class TeamOrchestrator {
         ## Message Channel
         ```
         \(tmAgent) msg list
-        \(tmAgent) msg list --from <agent_name>
+        \(tmAgent) msg list --from-agent <agent_name>
         ```
 
         ## Task Board
@@ -896,7 +896,7 @@ final class TeamOrchestrator {
         \(tmAgent) task create '<title>' --assign <agent_name> --priority 2
         \(tmAgent) task list
         \(tmAgent) task get <id>
-        \(tmAgent) task-start <id> --assign <agent_name>
+        \(tmAgent) task start <id>
         \(tmAgent) task block <id> '<reason>'
         \(tmAgent) task review <id> '<summary>'
         \(tmAgent) task done <id> '<result>'

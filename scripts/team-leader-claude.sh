@@ -212,7 +212,7 @@ Create and track tasks for agents:
 tm-agent task create '<title>' --assign <agent_name> --priority 2
 tm-agent task list
 tm-agent task get <id>
-tm-agent task start <id> --assign <agent_name>
+tm-agent task start <id>
 tm-agent task block <id> '<reason>'
 tm-agent task review <id> '<summary>'
 tm-agent task done <id> '<result summary>'

@@ -9,7 +9,7 @@ Last updated: March 14, 2026
 - Task creation with title, assignee, priority, acceptance criteria, dependencies
 - Task lifecycle: queued, assigned, in_progress, blocked, review_ready, completed, failed
 - Task commands: create, start, done, block, review, get, list, update, reassign, unblock, split, clear
-- Message operations: send, list, clear with optional --to and --from filtering
+- Message operations: send, list, clear with optional --to and --from-agent filtering
 - Dashboard with task board, agent list, and message panel
 - Leader and worker agent initialization prompts with task lifecycle guidance
 - Model picker with CLI-dependent model selection (claude, codex, gemini)
