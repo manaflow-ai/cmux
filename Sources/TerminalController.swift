@@ -13611,39 +13611,25 @@ class TerminalController {
         }
         let label = String(labelRaw.prefix(16))
 
-        var result = "OK"
-        DispatchQueue.main.sync {
-            guard let tab = resolveTabForReport(args) else {
-                result = parsed.options["tab"] != nil ? "ERROR: Tab not found" : "ERROR: No tab selected"
-                return
-            }
+        // Use async dispatch to avoid blocking socket threads during expensive main thread work
+        // (e.g., SwiftUI render passes). Telemetry commands should not block.
+        DispatchQueue.main.async {
+            guard let tab = self.resolveTabForReport(args) else { return }
             let validSurfaceIds = Set(tab.panels.keys)
             tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
 
             let panelArg = parsed.options["panel"] ?? parsed.options["surface"]
             let surfaceId: UUID
             if let panelArg {
-                if panelArg.isEmpty {
-                    result = "ERROR: Missing panel id — usage: report_pr <number> <url> [--label=PR] [--state=open|merged|closed] [--tab=X] [--panel=Y]"
-                    return
-                }
-                guard let parsedId = UUID(uuidString: panelArg) else {
-                    result = "ERROR: Invalid panel id '\(panelArg)'"
-                    return
-                }
+                if panelArg.isEmpty { return }
+                guard let parsedId = UUID(uuidString: panelArg) else { return }
                 surfaceId = parsedId
             } else {
-                guard let focused = tab.focusedPanelId else {
-                    result = "ERROR: Missing panel id (no focused surface)"
-                    return
-                }
+                guard let focused = tab.focusedPanelId else { return }
                 surfaceId = focused
             }
 
-            guard validSurfaceIds.contains(surfaceId) else {
-                result = "ERROR: Panel not found '\(surfaceId.uuidString)'"
-                return
-            }
+            guard validSurfaceIds.contains(surfaceId) else { return }
 
             guard Self.shouldReplacePullRequest(
                 current: tab.panelPullRequests[surfaceId],
@@ -13651,9 +13637,7 @@ class TerminalController {
                 label: label,
                 url: url,
                 status: status
-            ) else {
-                return
-            }
+            ) else { return }
 
             tab.updatePanelPullRequest(
                 panelId: surfaceId,
@@ -13663,48 +13647,33 @@ class TerminalController {
                 status: status
             )
         }
-        return result
+        return "OK"
     }
 
     private func clearPullRequest(_ args: String) -> String {
         let parsed = parseOptions(args)
-        var result = "OK"
-        DispatchQueue.main.sync {
-            guard let tab = resolveTabForReport(args) else {
-                result = parsed.options["tab"] != nil ? "ERROR: Tab not found" : "ERROR: No tab selected"
-                return
-            }
+        // Use async dispatch to avoid blocking socket threads during expensive main thread work
+        // (e.g., SwiftUI render passes). Telemetry commands should not block.
+        DispatchQueue.main.async {
+            guard let tab = self.resolveTabForReport(args) else { return }
             let validSurfaceIds = Set(tab.panels.keys)
             tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
 
             let panelArg = parsed.options["panel"] ?? parsed.options["surface"]
             let surfaceId: UUID
             if let panelArg {
-                if panelArg.isEmpty {
-                    result = "ERROR: Missing panel id — usage: clear_pr [--tab=X] [--panel=Y]"
-                    return
-                }
-                guard let parsedId = UUID(uuidString: panelArg) else {
-                    result = "ERROR: Invalid panel id '\(panelArg)'"
-                    return
-                }
+                if panelArg.isEmpty { return }
+                guard let parsedId = UUID(uuidString: panelArg) else { return }
                 surfaceId = parsedId
             } else {
-                guard let focused = tab.focusedPanelId else {
-                    result = "ERROR: Missing panel id (no focused surface)"
-                    return
-                }
+                guard let focused = tab.focusedPanelId else { return }
                 surfaceId = focused
             }
 
-            guard validSurfaceIds.contains(surfaceId) else {
-                result = "ERROR: Panel not found '\(surfaceId.uuidString)'"
-                return
-            }
-
+            guard validSurfaceIds.contains(surfaceId) else { return }
             tab.clearPanelPullRequest(panelId: surfaceId)
         }
-        return result
+        return "OK"
     }
 
     private func reportPorts(_ args: String) -> String {
