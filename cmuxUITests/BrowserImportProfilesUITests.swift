@@ -120,7 +120,7 @@ final class BrowserImportProfilesUITests: XCTestCase {
         settingsButton.click()
 
         XCTAssertTrue(
-            app.otherElements["SettingsBrowserSection"].waitForExistence(timeout: 5.0),
+            app.switches["SettingsBrowserImportHintToggle"].waitForExistence(timeout: 5.0),
             "Expected Browser Settings to open from the blank-tab import hint"
         )
     }
@@ -141,13 +141,16 @@ final class BrowserImportProfilesUITests: XCTestCase {
     private func launchApp() -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
-        app.launchEnvironment["CMUX_UI_TEST_BROWSER_IMPORT_AUTO_OPEN"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_BROWSER_IMPORT_FIXTURE"] = #"{"browserName":"Helium","profiles":["You","austin"]}"#
         app.launchEnvironment["CMUX_UI_TEST_BROWSER_IMPORT_DESTINATIONS"] = #"["Default"]"#
         app.launchEnvironment["CMUX_UI_TEST_BROWSER_IMPORT_MODE"] = "capture-only"
         app.launchEnvironment["CMUX_UI_TEST_BROWSER_IMPORT_CAPTURE_PATH"] = capturePath
+        app.launchEnvironment["CMUX_UI_TEST_BROWSER_IMPORT_HINT_VARIANT"] = "inlineStrip"
+        app.launchEnvironment["CMUX_UI_TEST_BROWSER_IMPORT_HINT_SHOW"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_BROWSER_IMPORT_HINT_DISMISSED"] = "0"
+        app.launchEnvironment["CMUX_UI_TEST_BROWSER_IMPORT_HINT_OPEN_BLANK_BROWSER"] = "1"
         launchAndActivate(app)
-        waitForImportWizard(app)
+        openImportWizardFromBlankImportHint(app)
         return app
     }
 
@@ -172,9 +175,19 @@ final class BrowserImportProfilesUITests: XCTestCase {
 
     private func waitForBlankImportHint(_ app: XCUIApplication) {
         let hintOpened = browserImportPollUntil(timeout: 5.0) {
-            app.buttons["BrowserImportHintDismissButton"].exists
+            app.buttons["BrowserImportHintImportButton"].exists
         }
         XCTAssertTrue(hintOpened, "Expected the blank browser import hint to appear")
+    }
+
+    private func openImportWizardFromBlankImportHint(_ app: XCUIApplication) {
+        waitForBlankImportHint(app)
+
+        let importButton = app.buttons["BrowserImportHintImportButton"]
+        XCTAssertTrue(importButton.waitForExistence(timeout: 5.0))
+        importButton.click()
+
+        waitForImportWizard(app)
     }
 
     private func waitForCapturedSelection(timeout: TimeInterval) -> [String: Any]? {

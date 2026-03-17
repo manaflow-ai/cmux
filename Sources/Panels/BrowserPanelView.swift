@@ -1443,6 +1443,7 @@ struct BrowserPanelView: View {
         }
         .buttonStyle(.bordered)
         .controlSize(.small)
+        .accessibilityIdentifier("BrowserImportHintImportButton")
     }
 
     private var browserImportHintSettingsButton: some View {
