@@ -973,14 +973,14 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
 
     private func waitForData(keys: [String], timeout: TimeInterval) -> Bool {
         waitForCondition(timeout: timeout) {
-            guard let data = loadData() else { return false }
+            guard let data = self.loadData() else { return false }
             return keys.allSatisfy { data[$0] != nil }
         }
     }
 
-    private func waitForDataMatch(timeout: TimeInterval, predicate: ([String: String]) -> Bool) -> Bool {
+    private func waitForDataMatch(timeout: TimeInterval, predicate: @escaping ([String: String]) -> Bool) -> Bool {
         waitForCondition(timeout: timeout) {
-            guard let data = loadData() else { return false }
+            guard let data = self.loadData() else { return false }
             return predicate(data)
         }
     }

@@ -4,6 +4,16 @@ import CoreGraphics
 import ImageIO
 import Darwin
 
+private extension XCTestCase {
+    func waitForCondition(timeout: TimeInterval, predicate: @escaping () -> Bool) -> Bool {
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in predicate() },
+            object: nil
+        )
+        return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
+    }
+}
+
 final class MenuKeyEquivalentRoutingUITests: XCTestCase {
     private var gotoSplitPath = ""
     private var keyequivPath = ""
@@ -127,21 +137,21 @@ final class MenuKeyEquivalentRoutingUITests: XCTestCase {
 
     private func waitForGotoSplit(keys: [String], timeout: TimeInterval) -> Bool {
         waitForCondition(timeout: timeout) {
-            guard let data = loadGotoSplit() else { return false }
+            guard let data = self.loadGotoSplit() else { return false }
             return keys.allSatisfy { data[$0] != nil }
         }
     }
 
-    private func waitForGotoSplitMatch(timeout: TimeInterval, predicate: ([String: String]) -> Bool) -> Bool {
+    private func waitForGotoSplitMatch(timeout: TimeInterval, predicate: @escaping ([String: String]) -> Bool) -> Bool {
         waitForCondition(timeout: timeout) {
-            guard let data = loadGotoSplit() else { return false }
+            guard let data = self.loadGotoSplit() else { return false }
             return predicate(data)
         }
     }
 
     private func waitForKeyequivInt(key: String, toBeAtLeast expected: Int, timeout: TimeInterval) -> Bool {
         waitForCondition(timeout: timeout) {
-            let value = loadKeyequiv()[key].flatMap(Int.init) ?? 0
+            let value = self.loadKeyequiv()[key].flatMap(Int.init) ?? 0
             return value >= expected
         }
     }
@@ -798,14 +808,14 @@ final class SplitCloseRightBlankRegressionUITests: XCTestCase {
 
     private func waitForData(keys: [String], timeout: TimeInterval) -> Bool {
         waitForCondition(timeout: timeout) {
-            guard let data = loadData() else { return false }
+            guard let data = self.loadData() else { return false }
             return keys.allSatisfy { data[$0] != nil }
         }
     }
 
     private func waitForAnyData(timeout: TimeInterval) -> Bool {
         waitForCondition(timeout: timeout) {
-            loadData() != nil
+            self.loadData() != nil
         }
     }
 
@@ -813,7 +823,7 @@ final class SplitCloseRightBlankRegressionUITests: XCTestCase {
         var last: [String: String]?
 
         _ = waitForCondition(timeout: timeout) {
-            guard let data = loadData() else { return false }
+            guard let data = self.loadData() else { return false }
             last = data
 
             if let setupError = data["setupError"], !setupError.isEmpty {
@@ -866,22 +876,14 @@ final class SplitCloseRightBlankRegressionUITests: XCTestCase {
 
     private func waitForSocketPong(timeout: TimeInterval) -> Bool {
         waitForCondition(timeout: timeout) {
-            socketCommand("ping") == "PONG"
+            self.socketCommand("ping") == "PONG"
         }
     }
 
     private func waitForVisualDone(timeout: TimeInterval) -> Bool {
         waitForCondition(timeout: timeout) {
-            loadData()?["visualDone"] == "1"
+            self.loadData()?["visualDone"] == "1"
         }
-    }
-
-    private func waitForCondition(timeout: TimeInterval, predicate: @escaping () -> Bool) -> Bool {
-        let expectation = XCTNSPredicateExpectation(
-            predicate: NSPredicate { _, _ in predicate() },
-            object: nil
-        )
-        return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
     }
 
     private func socketCommand(_ cmd: String) -> String? {

@@ -423,7 +423,7 @@ final class MultiWindowNotificationsUITests: XCTestCase {
 
     private func waitForFocusChange(from token: String?, timeout: TimeInterval) -> Bool {
         waitForCondition(timeout: timeout) {
-            guard let data = loadData(),
+            guard let data = self.loadData(),
                   let current = data["focusToken"],
                   !current.isEmpty else {
                 return false
@@ -434,14 +434,14 @@ final class MultiWindowNotificationsUITests: XCTestCase {
 
     private func waitForData(keys: [String], timeout: TimeInterval) -> Bool {
         waitForCondition(timeout: timeout) {
-            guard let data = loadData() else { return false }
+            guard let data = self.loadData() else { return false }
             return keys.allSatisfy { (data[$0] ?? "").isEmpty == false }
         }
     }
 
-    private func waitForDataMatch(timeout: TimeInterval, predicate: ([String: String]) -> Bool) -> Bool {
+    private func waitForDataMatch(timeout: TimeInterval, predicate: @escaping ([String: String]) -> Bool) -> Bool {
         waitForCondition(timeout: timeout) {
-            guard let data = loadData() else { return false }
+            guard let data = self.loadData() else { return false }
             return predicate(data)
         }
     }
@@ -449,7 +449,7 @@ final class MultiWindowNotificationsUITests: XCTestCase {
     private func waitForSocketPong(timeout: TimeInterval) -> String? {
         var lastResponse: String?
         _ = waitForCondition(timeout: timeout) {
-            lastResponse = socketCommand("ping")
+            lastResponse = self.socketCommand("ping")
             return lastResponse == "PONG"
         }
         return lastResponse == "PONG" ? "PONG" : (socketCommand("ping") ?? lastResponse)
@@ -457,7 +457,7 @@ final class MultiWindowNotificationsUITests: XCTestCase {
 
     private func waitForTerminalFocus(surfaceId: String, timeout: TimeInterval) -> Bool {
         waitForCondition(timeout: timeout) {
-            socketCommand("is_terminal_focused \(surfaceId)") == "true"
+            self.socketCommand("is_terminal_focused \(surfaceId)") == "true"
         }
     }
 
@@ -465,8 +465,8 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         var lastStdout: String?
         var lastStderr: String?
         let didSucceed = waitForCondition(timeout: timeout) {
-            let result = runCmuxCommand(
-                socketPath: socketPath,
+            let result = self.runCmuxCommand(
+                socketPath: self.socketPath,
                 arguments: ["ping"],
                 responseTimeoutSeconds: 2.0
             )
@@ -481,8 +481,8 @@ final class MultiWindowNotificationsUITests: XCTestCase {
             if result.terminationStatus == 0, stdout == "PONG" {
                 return true
             }
-            if isSocketPermissionFailure(stderr),
-               waitForSocketPong(timeout: 0.5) == "PONG" {
+            if self.isSocketPermissionFailure(stderr),
+               self.waitForSocketPong(timeout: 0.5) == "PONG" {
                 return true
             }
             return false
@@ -553,7 +553,7 @@ final class MultiWindowNotificationsUITests: XCTestCase {
     private func waitForSurfaceId(forWorkspaceId workspaceId: String, timeout: TimeInterval) -> String? {
         var surfaceId: String?
         _ = waitForCondition(timeout: timeout) {
-            surfaceId = firstSurfaceId(forWorkspaceId: workspaceId)
+            surfaceId = self.firstSurfaceId(forWorkspaceId: workspaceId)
             return surfaceId != nil
         }
         return surfaceId ?? firstSurfaceId(forWorkspaceId: workspaceId)
@@ -562,7 +562,7 @@ final class MultiWindowNotificationsUITests: XCTestCase {
     private func waitForSurfaceIdViaCLI(forWorkspaceId workspaceId: String, timeout: TimeInterval) -> String? {
         var surfaceId: String?
         _ = waitForCondition(timeout: timeout) {
-            surfaceId = firstSurfaceIdViaCLI(forWorkspaceId: workspaceId)
+            surfaceId = self.firstSurfaceIdViaCLI(forWorkspaceId: workspaceId)
             return surfaceId != nil
         }
         return surfaceId ?? firstSurfaceIdViaCLI(forWorkspaceId: workspaceId)
@@ -899,15 +899,15 @@ final class MultiWindowNotificationsUITests: XCTestCase {
                 guard FileManager.default.fileExists(atPath: candidate) else { continue }
                 // Primary candidate is the explicitly requested CMUX_SOCKET_PATH. If it responds,
                 // prefer it even before workspace contents are fully initialized.
-                if socketRespondsToPing(at: candidate) {
+                if self.socketRespondsToPing(at: candidate) {
                     resolvedPath = candidate
                     return true
                 }
             }
             for candidate in fallbackCandidates {
                 guard FileManager.default.fileExists(atPath: candidate) else { continue }
-                if socketRespondsToPing(at: candidate),
-                   socketMatchesRequiredWorkspace(candidate, workspaceId: requiredWorkspaceId) {
+                if self.socketRespondsToPing(at: candidate),
+                   self.socketMatchesRequiredWorkspace(candidate, workspaceId: requiredWorkspaceId) {
                     resolvedPath = candidate
                     return true
                 }

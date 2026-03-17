@@ -98,7 +98,7 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
         // Note: example.com may redirect to example.org in some environments.
         XCTAssertTrue(
             waitForCondition(timeout: 8.0) {
-                containsExampleDomain((omnibar.value as? String) ?? "")
+                self.containsExampleDomain((omnibar.value as? String) ?? "")
             },
             "Expected omnibar to navigate to example.com after keyboard nav + Enter. value=\(String(describing: omnibar.value))"
         )
@@ -134,7 +134,7 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
         // Note: example.com may redirect to example.org in some environments.
         XCTAssertTrue(
             waitForCondition(timeout: 8.0) {
-                containsExampleDomain((omnibar.value as? String) ?? "")
+                self.containsExampleDomain((omnibar.value as? String) ?? "")
             },
             "Expected committed omnibar value to contain example.com or example.org. value=\(String(describing: omnibar.value))"
         )
@@ -328,7 +328,7 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
 
         let loaded = waitForCondition(timeout: 8.0) {
             let value = ((omnibar.value as? String) ?? "").lowercased()
-            return containsExampleDomain(value)
+            return self.containsExampleDomain(value)
         }
         XCTAssertTrue(loaded, "Expected baseline navigation to load before Cmd+L fast-typing check.")
 
@@ -642,7 +642,7 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
 
     private func waitForSuggestionRowToBeSelected(_ row: XCUIElement, timeout: TimeInterval) -> Bool {
         waitForCondition(timeout: timeout) {
-            isSuggestionRowSelected(row)
+            self.isSuggestionRowSelected(row)
         }
     }
 
