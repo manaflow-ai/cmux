@@ -4740,13 +4740,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bookmarks, settings, and extensions import are not available yet."
+            "value": "Bookmarks, settings, and extensions are not available yet."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ブックマーク、設定、拡張機能のインポートにはまだ対応していません。"
+            "value": "ブックマーク、設定、拡張機能はまだ利用できません。"
           }
         }
       }
@@ -5029,13 +5029,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux destination"
+            "value": "Destination"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux の保存先"
+            "value": "保存先"
           }
         }
       }
@@ -5080,13 +5080,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Imported cookies and history go into the selected cmux browser profile."
+            "value": "Imported data goes into the selected cmux profile."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "インポートしたCookieと履歴は、選択したcmuxブラウザープロファイルに保存されます。"
+            "value": "インポートしたデータは、選択した cmux プロファイルに保存されます。"
           }
         }
       }
@@ -5097,13 +5097,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "All selected source profiles will be merged into the chosen cmux browser profile."
+            "value": "All selected source profiles go into one cmux profile."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "選択した元プロファイルはすべて、選んだ cmux ブラウザープロファイルにまとめて取り込まれます。"
+            "value": "選択した元プロファイルは、1つの cmux プロファイルにまとめて取り込まれます。"
           }
         }
       }
@@ -5114,13 +5114,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Missing cmux profiles are created when import starts."
+            "value": "Missing cmux profiles are created on import."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "不足している cmux プロファイルは、インポート開始時に作成されます。"
+            "value": "不足している cmux プロファイルは、インポート時に作成されます。"
           }
         }
       }
@@ -5131,13 +5131,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Merge all into one cmux profile"
+            "value": "Merge into one"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "すべてを1つの cmux プロファイルにまとめる"
+            "value": "1つにまとめる"
           }
         }
       }
@@ -5148,13 +5148,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Keep profiles separate"
+            "value": "Separate profiles"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "プロファイルを分けたまま取り込む"
+            "value": "分けて取り込む"
           }
         }
       }
@@ -5233,13 +5233,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Limit to"
+            "value": "Domains"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "対象ドメイン"
+            "value": "ドメイン"
           }
         }
       }
@@ -5250,13 +5250,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Optional domains only (e.g. github.com, openai.com)"
+            "value": "Optional domains, comma-separated"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "任意のドメインのみ（例: github.com, openai.com）"
+            "value": "任意のドメインをカンマ区切りで指定"
           }
         }
       }
@@ -5505,13 +5505,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Source"
+            "value": "Browser"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "インポート元"
+            "value": "ブラウザー"
           }
         }
       }
@@ -5539,13 +5539,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Source Profiles"
+            "value": "Profiles"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "元プロファイル"
+            "value": "プロファイル"
           }
         }
       }
@@ -5556,13 +5556,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Choose one or more source profiles. Step 3 lets you keep them separate or merge them into one cmux profile."
+            "value": "Select one or more profiles."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "元プロファイルを1つ以上選択してください。3 / 3 で、分けたまま取り込むか、1つの cmux プロファイルにまとめるかを選べます。"
+            "value": "1つ以上のプロファイルを選択してください。"
           }
         }
       }
@@ -5607,13 +5607,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Step 3 of 3: Choose what to import from %@ and where to put it."
+            "value": "Step 3 of 3"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "3 / 3: %@ から何をインポートし、どこに保存するかを選択します。"
+            "value": "3 / 3"
           }
         }
       }
@@ -5624,13 +5624,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Step 1 of 3: Choose the browser to import from."
+            "value": "Step 1 of 3"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "1 / 3: インポート元のブラウザーを選択します。"
+            "value": "1 / 3"
           }
         }
       }
@@ -5641,13 +5641,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Step 2 of 3: Choose source profiles from %@."
+            "value": "Step 2 of 3"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "2 / 3: %@ の元プロファイルを選択します。"
+            "value": "2 / 3"
           }
         }
       }

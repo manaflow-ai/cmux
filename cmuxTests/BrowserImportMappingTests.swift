@@ -127,6 +127,23 @@ final class BrowserImportMappingTests: XCTestCase {
         XCTAssertTrue(presentation.showsSingleDestinationPicker)
     }
 
+    func testSourceProfilesPresentationShrinksListForSmallProfileCounts() {
+        let presentation = BrowserImportSourceProfilesPresentation(profileCount: 2)
+
+        XCTAssertEqual(presentation.scrollHeight, 76)
+        XCTAssertTrue(presentation.showsHelpText)
+    }
+
+    func testSourceProfilesPresentationCapsListHeightAndHidesHelpForSingleProfile() {
+        let singleProfilePresentation = BrowserImportSourceProfilesPresentation(profileCount: 1)
+        let manyProfilesPresentation = BrowserImportSourceProfilesPresentation(profileCount: 9)
+
+        XCTAssertEqual(singleProfilePresentation.scrollHeight, 76)
+        XCTAssertFalse(singleProfilePresentation.showsHelpText)
+        XCTAssertEqual(manyProfilesPresentation.scrollHeight, 144)
+        XCTAssertTrue(manyProfilesPresentation.showsHelpText)
+    }
+
     @MainActor
     func testRealizePlanCreatesMissingDestinationProfilesOnlyWhenRequested() throws {
         let suiteName = "BrowserImportMappingTests-\(UUID().uuidString)"

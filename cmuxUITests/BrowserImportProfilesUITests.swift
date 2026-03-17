@@ -19,10 +19,10 @@ final class BrowserImportProfilesUITests: XCTestCase {
         app.buttons["Next"].click()
 
         XCTAssertTrue(
-            app.radioButtons["Keep profiles separate"].waitForExistence(timeout: 5.0),
+            app.radioButtons["Separate profiles"].waitForExistence(timeout: 5.0),
             "Expected Step 3 to show the separate-profiles default"
         )
-        XCTAssertTrue(app.radioButtons["Merge all into one cmux profile"].exists)
+        XCTAssertTrue(app.radioButtons["Merge into one"].exists)
         XCTAssertTrue(app.popUpButtons["BrowserImportDestinationPopup-you"].exists)
         XCTAssertTrue(app.popUpButtons["BrowserImportDestinationPopup-austin"].exists)
 
@@ -49,7 +49,7 @@ final class BrowserImportProfilesUITests: XCTestCase {
         app.buttons["Next"].click()
         app.buttons["Next"].click()
 
-        let mergeRadio = app.radioButtons["Merge all into one cmux profile"]
+        let mergeRadio = app.radioButtons["Merge into one"]
         XCTAssertTrue(mergeRadio.waitForExistence(timeout: 5.0))
         mergeRadio.click()
 

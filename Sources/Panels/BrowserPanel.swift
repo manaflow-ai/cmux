@@ -6837,6 +6837,18 @@ struct BrowserImportStep3Presentation: Equatable {
     }
 }
 
+struct BrowserImportSourceProfilesPresentation: Equatable {
+    let scrollHeight: CGFloat
+    let showsHelpText: Bool
+
+    init(profileCount: Int) {
+        let visibleRows = min(max(profileCount, 1), 5)
+        let contentHeight = CGFloat(visibleRows * 26 + 14)
+        scrollHeight = max(76, contentHeight)
+        showsHelpText = profileCount > 1
+    }
+}
+
 enum BrowserImportPlanResolver {
     @MainActor
     static func defaultPlan(
@@ -8378,6 +8390,7 @@ final class BrowserDataImportCoordinator {
         private let sourceProfilesEmptyLabel = NSTextField(wrappingLabelWithString: "")
         private let sourceProfilesHelpLabel = NSTextField(labelWithString: "")
         private let sourceProfilesScrollView = NSScrollView()
+        private var sourceProfilesScrollHeightConstraint: NSLayoutConstraint?
         private let dataTypesContainer = NSStackView()
         private let validationLabel = NSTextField(labelWithString: "")
         private let destinationModeContainer = NSStackView()
@@ -8387,6 +8400,7 @@ final class BrowserDataImportCoordinator {
         private let mergeDestinationRow = NSStackView()
         private let mergeDestinationPopup = NSPopUpButton(frame: .zero, pullsDown: false)
         private let destinationHelpLabel = NSTextField(wrappingLabelWithString: "")
+        private let additionalDataNoteLabel = NSTextField(wrappingLabelWithString: "")
 
         private let cookiesCheckbox = NSButton(checkboxWithTitle: "", target: nil, action: nil)
         private let historyCheckbox = NSButton(checkboxWithTitle: "", target: nil, action: nil)
@@ -8412,7 +8426,7 @@ final class BrowserDataImportCoordinator {
                 ?? fallbackDestinationProfileID
             self.mergeDestinationProfileID = self.initialDestinationProfileID
             self.panel = NSPanel(
-                contentRect: NSRect(x: 0, y: 0, width: 620, height: 420),
+                contentRect: NSRect(x: 0, y: 0, width: 560, height: 292),
                 styleMask: [.titled, .closable],
                 backing: .buffered,
                 defer: false
@@ -8538,6 +8552,7 @@ final class BrowserDataImportCoordinator {
             guard selectedSourceProfiles.count > 1 else { return }
             destinationMode = sender == separateProfilesRadio ? .separateProfiles : .mergeIntoOne
             rebuildStep3DestinationUI()
+            updatePanelSize()
         }
 
         @objc
@@ -8560,6 +8575,13 @@ final class BrowserDataImportCoordinator {
             validationLabel.isHidden = true
         }
 
+        @objc
+        private func handleImportOptionChanged(_ sender: NSButton) {
+            validationLabel.isHidden = true
+            updateAdditionalDataNoteVisibility()
+            updatePanelSize()
+        }
+
         private func setupUI() {
             panel.title = String(
                 localized: "browser.import.title",
@@ -8570,7 +8592,7 @@ final class BrowserDataImportCoordinator {
             panel.standardWindowButton(.miniaturizeButton)?.isHidden = true
             panel.standardWindowButton(.zoomButton)?.isHidden = true
 
-            let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 620, height: 420))
+            let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 560, height: 292))
             contentView.translatesAutoresizingMaskIntoConstraints = false
             panel.contentView = contentView
 
@@ -8580,9 +8602,9 @@ final class BrowserDataImportCoordinator {
                     defaultValue: "Import Browser Data"
                 )
             )
-            titleLabel.font = NSFont.systemFont(ofSize: 24, weight: .semibold)
+            titleLabel.font = NSFont.systemFont(ofSize: 22, weight: .semibold)
 
-            stepLabel.font = NSFont.systemFont(ofSize: 15, weight: .medium)
+            stepLabel.font = NSFont.systemFont(ofSize: 13, weight: .semibold)
             stepLabel.textColor = .secondaryLabelColor
 
             setupSourceContainer()
@@ -8594,6 +8616,7 @@ final class BrowserDataImportCoordinator {
             validationLabel.isHidden = true
             validationLabel.lineBreakMode = .byWordWrapping
             validationLabel.maximumNumberOfLines = 3
+            validationLabel.translatesAutoresizingMaskIntoConstraints = false
 
             backButton.target = self
             backButton.action = #selector(handleBack)
@@ -8631,23 +8654,32 @@ final class BrowserDataImportCoordinator {
                 validationLabel,
             ])
             contentStack.orientation = .vertical
-            contentStack.spacing = 10
+            contentStack.spacing = 8
             contentStack.alignment = .leading
             contentStack.translatesAutoresizingMaskIntoConstraints = false
+
+            sourceContainer.translatesAutoresizingMaskIntoConstraints = false
+            sourceProfilesContainer.translatesAutoresizingMaskIntoConstraints = false
+            dataTypesContainer.translatesAutoresizingMaskIntoConstraints = false
 
             guard let panelContent = panel.contentView else { return }
             panelContent.addSubview(contentStack)
             panelContent.addSubview(buttonRow)
 
             NSLayoutConstraint.activate([
-                contentStack.topAnchor.constraint(equalTo: panelContent.topAnchor, constant: 18),
-                contentStack.leadingAnchor.constraint(equalTo: panelContent.leadingAnchor, constant: 20),
-                contentStack.trailingAnchor.constraint(equalTo: panelContent.trailingAnchor, constant: -20),
+                contentStack.topAnchor.constraint(equalTo: panelContent.topAnchor, constant: 16),
+                contentStack.leadingAnchor.constraint(equalTo: panelContent.leadingAnchor, constant: 18),
+                contentStack.trailingAnchor.constraint(equalTo: panelContent.trailingAnchor, constant: -18),
 
                 buttonRow.topAnchor.constraint(greaterThanOrEqualTo: contentStack.bottomAnchor, constant: 14),
-                buttonRow.leadingAnchor.constraint(equalTo: panelContent.leadingAnchor, constant: 20),
-                buttonRow.trailingAnchor.constraint(equalTo: panelContent.trailingAnchor, constant: -20),
-                buttonRow.bottomAnchor.constraint(equalTo: panelContent.bottomAnchor, constant: -16),
+                buttonRow.leadingAnchor.constraint(equalTo: panelContent.leadingAnchor, constant: 18),
+                buttonRow.trailingAnchor.constraint(equalTo: panelContent.trailingAnchor, constant: -18),
+                buttonRow.bottomAnchor.constraint(equalTo: panelContent.bottomAnchor, constant: -14),
+
+                sourceContainer.widthAnchor.constraint(equalTo: contentStack.widthAnchor),
+                sourceProfilesContainer.widthAnchor.constraint(equalTo: contentStack.widthAnchor),
+                dataTypesContainer.widthAnchor.constraint(equalTo: contentStack.widthAnchor),
+                validationLabel.widthAnchor.constraint(equalTo: contentStack.widthAnchor),
             ])
         }
 
@@ -8663,23 +8695,27 @@ final class BrowserDataImportCoordinator {
                 labelWithString: String(localized: "browser.import.source", defaultValue: "Source")
             )
             sourceLabel.alignment = .right
-            sourceLabel.frame.size.width = 80
+            sourceLabel.frame.size.width = 64
+
+            sourcePopup.setContentHuggingPriority(.defaultLow, for: .horizontal)
+            sourcePopup.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
             let sourceRow = NSStackView(views: [sourceLabel, sourcePopup])
             sourceRow.orientation = .horizontal
             sourceRow.spacing = 8
             sourceRow.alignment = .centerY
+            sourceRow.distribution = .fill
 
             let detectedLabel = NSTextField(
                 wrappingLabelWithString: InstalledBrowserDetector.summaryText(for: browsers)
             )
-            detectedLabel.font = NSFont.systemFont(ofSize: 12)
+            detectedLabel.font = NSFont.systemFont(ofSize: 11)
             detectedLabel.textColor = .secondaryLabelColor
             detectedLabel.maximumNumberOfLines = 2
             detectedLabel.preferredMaxLayoutWidth = 500
 
             sourceContainer.orientation = .vertical
-            sourceContainer.spacing = 10
+            sourceContainer.spacing = 8
             sourceContainer.alignment = .leading
             sourceContainer.addArrangedSubview(sourceRow)
             sourceContainer.addArrangedSubview(detectedLabel)
@@ -8692,17 +8728,17 @@ final class BrowserDataImportCoordinator {
                     defaultValue: "Source Profiles"
                 )
             )
-            sourceProfilesTitle.font = NSFont.systemFont(ofSize: 13, weight: .semibold)
+            sourceProfilesTitle.font = NSFont.systemFont(ofSize: 12, weight: .semibold)
 
             sourceProfilesList.orientation = .vertical
             sourceProfilesList.spacing = 6
             sourceProfilesList.alignment = .leading
             sourceProfilesList.translatesAutoresizingMaskIntoConstraints = false
 
-            sourceProfilesEmptyLabel.font = NSFont.systemFont(ofSize: 13)
+            sourceProfilesEmptyLabel.font = NSFont.systemFont(ofSize: 12)
             sourceProfilesEmptyLabel.textColor = .secondaryLabelColor
             sourceProfilesEmptyLabel.maximumNumberOfLines = 0
-            sourceProfilesEmptyLabel.preferredMaxLayoutWidth = 520
+            sourceProfilesEmptyLabel.preferredMaxLayoutWidth = 500
 
             sourceProfilesDocumentView.frame = NSRect(x: 0, y: 0, width: 1, height: 1)
             sourceProfilesDocumentView.translatesAutoresizingMaskIntoConstraints = false
@@ -8721,19 +8757,22 @@ final class BrowserDataImportCoordinator {
             sourceProfilesScrollView.documentView = sourceProfilesDocumentView
             sourceProfilesScrollView.translatesAutoresizingMaskIntoConstraints = false
             sourceProfilesScrollView.contentView.postsBoundsChangedNotifications = true
-            sourceProfilesScrollView.heightAnchor.constraint(equalToConstant: 180).isActive = true
+            sourceProfilesScrollHeightConstraint = sourceProfilesScrollView.heightAnchor.constraint(equalToConstant: 76)
+            sourceProfilesScrollHeightConstraint?.isActive = true
+            sourceProfilesScrollView.widthAnchor.constraint(equalTo: sourceProfilesContainer.widthAnchor).isActive = true
 
-            sourceProfilesHelpLabel.font = NSFont.systemFont(ofSize: 12)
+            sourceProfilesHelpLabel.font = NSFont.systemFont(ofSize: 11)
             sourceProfilesHelpLabel.textColor = .secondaryLabelColor
             sourceProfilesHelpLabel.maximumNumberOfLines = 2
             sourceProfilesHelpLabel.lineBreakMode = .byWordWrapping
+            sourceProfilesHelpLabel.preferredMaxLayoutWidth = 500
             sourceProfilesHelpLabel.stringValue = String(
                 localized: "browser.import.sourceProfiles.help",
                 defaultValue: "Choose one or more source profiles. Step 3 lets you keep them separate or merge them into one cmux profile."
             )
 
             sourceProfilesContainer.orientation = .vertical
-            sourceProfilesContainer.spacing = 10
+            sourceProfilesContainer.spacing = 8
             sourceProfilesContainer.alignment = .leading
             sourceProfilesContainer.addArrangedSubview(sourceProfilesTitle)
             sourceProfilesContainer.addArrangedSubview(sourceProfilesScrollView)
@@ -8758,6 +8797,12 @@ final class BrowserDataImportCoordinator {
                 localized: "browser.import.additionalData",
                 defaultValue: "Additional data (bookmarks, settings, extensions)"
             )
+            cookiesCheckbox.target = self
+            cookiesCheckbox.action = #selector(handleImportOptionChanged(_:))
+            historyCheckbox.target = self
+            historyCheckbox.action = #selector(handleImportOptionChanged(_:))
+            additionalDataCheckbox.target = self
+            additionalDataCheckbox.action = #selector(handleImportOptionChanged(_:))
             cookiesCheckbox.setAccessibilityIdentifier("BrowserImportCookiesCheckbox")
             historyCheckbox.setAccessibilityIdentifier("BrowserImportHistoryCheckbox")
             additionalDataCheckbox.setAccessibilityIdentifier("BrowserImportAdditionalDataCheckbox")
@@ -8782,25 +8827,29 @@ final class BrowserDataImportCoordinator {
 
             mergeDestinationPopup.target = self
             mergeDestinationPopup.action = #selector(handleMergeDestinationChanged(_:))
+            mergeDestinationPopup.setContentHuggingPriority(.defaultLow, for: .horizontal)
+            mergeDestinationPopup.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
             separateDestinationRows.orientation = .vertical
-            separateDestinationRows.spacing = 8
+            separateDestinationRows.spacing = 6
             separateDestinationRows.alignment = .leading
 
             mergeDestinationRow.orientation = .horizontal
-            mergeDestinationRow.spacing = 8
+            mergeDestinationRow.spacing = 6
             mergeDestinationRow.alignment = .centerY
 
-            destinationHelpLabel.font = NSFont.systemFont(ofSize: 12)
+            destinationHelpLabel.font = NSFont.systemFont(ofSize: 11)
             destinationHelpLabel.textColor = .secondaryLabelColor
-            destinationHelpLabel.maximumNumberOfLines = 3
-            destinationHelpLabel.preferredMaxLayoutWidth = 540
+            destinationHelpLabel.maximumNumberOfLines = 2
+            destinationHelpLabel.preferredMaxLayoutWidth = 500
 
             domainField.placeholderString = String(
                 localized: "browser.import.domain.placeholder",
                 defaultValue: "Optional domains only (e.g. github.com, openai.com)"
             )
             domainField.stringValue = ""
+            domainField.setContentHuggingPriority(.defaultLow, for: .horizontal)
+            domainField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
             let destinationTitleLabel = NSTextField(
                 labelWithString: String(
@@ -8808,32 +8857,32 @@ final class BrowserDataImportCoordinator {
                     defaultValue: "cmux destination"
                 )
             )
-            destinationTitleLabel.font = NSFont.systemFont(ofSize: 13, weight: .semibold)
+            destinationTitleLabel.font = NSFont.systemFont(ofSize: 12, weight: .semibold)
 
             let domainLabel = NSTextField(
                 labelWithString: String(localized: "browser.import.domain", defaultValue: "Limit to")
             )
             domainLabel.alignment = .right
-            domainLabel.frame.size.width = 80
+            domainLabel.frame.size.width = 72
 
             let domainRow = NSStackView(views: [domainLabel, domainField])
             domainRow.orientation = .horizontal
             domainRow.spacing = 8
             domainRow.alignment = .centerY
+            domainRow.distribution = .fill
 
-            let noteLabel = NSTextField(
-                wrappingLabelWithString: String(
-                    localized: "browser.import.additionalData.note",
-                    defaultValue: "Bookmarks, settings, and extensions import are not available yet."
-                )
+            additionalDataNoteLabel.stringValue = String(
+                localized: "browser.import.additionalData.note",
+                defaultValue: "Bookmarks, settings, and extensions import are not available yet."
             )
-            noteLabel.font = NSFont.systemFont(ofSize: 12)
-            noteLabel.textColor = .secondaryLabelColor
-            noteLabel.maximumNumberOfLines = 2
-            noteLabel.preferredMaxLayoutWidth = 540
+            additionalDataNoteLabel.font = NSFont.systemFont(ofSize: 11)
+            additionalDataNoteLabel.textColor = .secondaryLabelColor
+            additionalDataNoteLabel.maximumNumberOfLines = 2
+            additionalDataNoteLabel.preferredMaxLayoutWidth = 500
+            additionalDataNoteLabel.isHidden = true
 
             dataTypesContainer.orientation = .vertical
-            dataTypesContainer.spacing = 8
+            dataTypesContainer.spacing = 6
             dataTypesContainer.alignment = .leading
             dataTypesContainer.addArrangedSubview(destinationTitleLabel)
             dataTypesContainer.addArrangedSubview(destinationModeContainer)
@@ -8843,13 +8892,14 @@ final class BrowserDataImportCoordinator {
             dataTypesContainer.addArrangedSubview(cookiesCheckbox)
             dataTypesContainer.addArrangedSubview(historyCheckbox)
             dataTypesContainer.addArrangedSubview(additionalDataCheckbox)
+            dataTypesContainer.addArrangedSubview(additionalDataNoteLabel)
             dataTypesContainer.addArrangedSubview(domainRow)
-            dataTypesContainer.addArrangedSubview(noteLabel)
         }
 
         private func configureInitialState() {
             step = .source
             refreshSourceProfilesList()
+            updateAdditionalDataNoteVisibility()
             updateStepUI()
         }
 
@@ -8858,7 +8908,7 @@ final class BrowserDataImportCoordinator {
             case .source:
                 stepLabel.stringValue = String(
                     localized: "browser.import.step.source",
-                    defaultValue: "Step 1 of 3: Choose the browser to import from."
+                    defaultValue: "Step 1 of 3"
                 )
                 sourceContainer.isHidden = false
                 sourceProfilesContainer.isHidden = true
@@ -8868,11 +8918,8 @@ final class BrowserDataImportCoordinator {
                 primaryButton.title = String(localized: "browser.import.next", defaultValue: "Next")
             case .sourceProfiles:
                 stepLabel.stringValue = String(
-                    format: String(
-                        localized: "browser.import.step.sourceProfiles",
-                        defaultValue: "Step 2 of 3: Choose source profiles from %@."
-                    ),
-                    selectedBrowser().displayName
+                    localized: "browser.import.step.sourceProfiles",
+                    defaultValue: "Step 2 of 3"
                 )
                 sourceContainer.isHidden = true
                 sourceProfilesContainer.isHidden = false
@@ -8883,11 +8930,8 @@ final class BrowserDataImportCoordinator {
             case .dataTypes:
                 rebuildStep3DestinationUI()
                 stepLabel.stringValue = String(
-                    format: String(
-                        localized: "browser.import.step.dataTypes",
-                        defaultValue: "Step 3 of 3: Choose what to import from %@ and where to put it."
-                    ),
-                    selectedBrowser().displayName
+                    localized: "browser.import.step.dataTypes",
+                    defaultValue: "Step 3 of 3"
                 )
                 sourceContainer.isHidden = true
                 sourceProfilesContainer.isHidden = true
@@ -8899,6 +8943,7 @@ final class BrowserDataImportCoordinator {
                     defaultValue: "Start Import"
                 )
             }
+            updatePanelSize()
         }
 
         private func selectedBrowser() -> InstalledBrowserCandidate {
@@ -8925,6 +8970,7 @@ final class BrowserDataImportCoordinator {
                     browser.displayName
                 )
                 sourceProfilesList.addArrangedSubview(sourceProfilesEmptyLabel)
+                updateSourceProfilesPresentation(for: browser)
                 return
             }
 
@@ -8940,6 +8986,8 @@ final class BrowserDataImportCoordinator {
                 sourceProfilesList.addArrangedSubview(checkbox)
                 sourceProfileCheckboxes.append(checkbox)
             }
+
+            updateSourceProfilesPresentation(for: browser)
         }
 
         private func storedSelectedSourceProfileIDs(for browser: InstalledBrowserCandidate) -> Set<String> {
@@ -9055,16 +9103,16 @@ final class BrowserDataImportCoordinator {
                     localized: "browser.import.destinationProfile.separateHelp",
                     defaultValue: "Missing cmux profiles are created when import starts."
                 )
+                destinationHelpLabel.isHidden = false
             } else if plan.entries.count > 1 {
                 destinationHelpLabel.stringValue = String(
                     localized: "browser.import.destinationProfile.mergeHelp",
                     defaultValue: "All selected source profiles will be merged into the chosen cmux browser profile."
                 )
+                destinationHelpLabel.isHidden = false
             } else {
-                destinationHelpLabel.stringValue = String(
-                    localized: "browser.import.destinationProfile.help",
-                    defaultValue: "Imported cookies and history go into the selected cmux browser profile."
-                )
+                destinationHelpLabel.stringValue = ""
+                destinationHelpLabel.isHidden = true
             }
         }
 
@@ -9081,7 +9129,7 @@ final class BrowserDataImportCoordinator {
                 guard let sourceProfile = entry.sourceProfiles.first else { continue }
                 let sourceLabel = NSTextField(labelWithString: sourceProfile.displayName)
                 sourceLabel.alignment = .right
-                sourceLabel.frame.size.width = 140
+                sourceLabel.frame.size.width = 110
 
                 let popup = NSPopUpButton(frame: .zero, pullsDown: false)
                 popup.target = self
@@ -9101,11 +9149,14 @@ final class BrowserDataImportCoordinator {
                 } else {
                     popup.selectItem(at: 0)
                 }
+                popup.setContentHuggingPriority(.defaultLow, for: .horizontal)
+                popup.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
                 let row = NSStackView(views: [sourceLabel, popup])
                 row.orientation = .horizontal
-                row.spacing = 8
+                row.spacing = 6
                 row.alignment = .centerY
+                row.distribution = .fill
                 separateDestinationRows.addArrangedSubview(row)
             }
         }
@@ -9137,7 +9188,7 @@ final class BrowserDataImportCoordinator {
                 )
             )
             destinationLabel.alignment = .right
-            destinationLabel.frame.size.width = 140
+            destinationLabel.frame.size.width = 110
 
             mergeDestinationRow.addArrangedSubview(destinationLabel)
             mergeDestinationRow.addArrangedSubview(mergeDestinationPopup)
@@ -9209,6 +9260,51 @@ final class BrowserDataImportCoordinator {
                 .replacingOccurrences(of: "[^a-z0-9]+", with: "-", options: .regularExpression)
                 .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
             return base.isEmpty ? "profile-\(index)" : base
+        }
+
+        private func updateSourceProfilesPresentation(for browser: InstalledBrowserCandidate) {
+            let presentation = BrowserImportSourceProfilesPresentation(profileCount: browser.profiles.count)
+            sourceProfilesScrollHeightConstraint?.constant = presentation.scrollHeight
+            sourceProfilesHelpLabel.isHidden = !presentation.showsHelpText
+        }
+
+        private func updateAdditionalDataNoteVisibility() {
+            additionalDataNoteLabel.isHidden = additionalDataCheckbox.state != .on
+        }
+
+        private func updatePanelSize() {
+            let contentSize = preferredContentSize()
+            let targetFrame = panel.frameRect(forContentRect: NSRect(origin: .zero, size: contentSize))
+
+            guard panel.frame.size != targetFrame.size else { return }
+            if !panel.isVisible {
+                panel.setContentSize(contentSize)
+                return
+            }
+
+            var frame = panel.frame
+            frame.origin.x -= (targetFrame.width - frame.width) / 2
+            frame.origin.y -= (targetFrame.height - frame.height) / 2
+            frame.size = targetFrame.size
+            panel.setFrame(frame, display: true)
+        }
+
+        private func preferredContentSize() -> NSSize {
+            switch step {
+            case .source:
+                return NSSize(width: 560, height: 292)
+            case .sourceProfiles:
+                let presentation = BrowserImportSourceProfilesPresentation(profileCount: selectedBrowser().profiles.count)
+                let helpHeight: CGFloat = presentation.showsHelpText ? 24 : 0
+                let height = 214 + presentation.scrollHeight + helpHeight
+                return NSSize(width: 560, height: min(max(height, 292), 360))
+            case .dataTypes:
+                var height: CGFloat = currentExecutionPlan().mode == .separateProfiles ? 412 : 374
+                if additionalDataCheckbox.state == .on {
+                    height += 24
+                }
+                return NSSize(width: 560, height: height)
+            }
         }
 
         private func finishModal(with response: NSApplication.ModalResponse) {
