@@ -2562,6 +2562,10 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private var lastPixelHeight: UInt32 = 0
     private var lastXScale: CGFloat = 0
     private var lastYScale: CGFloat = 0
+    private let createdAt: Date = Date()
+    private var runtimeSurfaceCreatedAt: Date?
+    private var teardownRequestedAt: Date?
+    private var teardownRequestReason: String?
     private var pendingTextQueue: [Data] = []
     private var pendingTextBytes: Int = 0
     private let maxPendingTextBytes = 1_048_576
@@ -2704,6 +2708,41 @@ final class TerminalSurface: Identifiable, ObservableObject {
         portalLifecycleState.rawValue
     }
 
+    func debugCreatedAt() -> Date {
+        createdAt
+    }
+
+    func debugRuntimeSurfaceCreatedAt() -> Date? {
+        runtimeSurfaceCreatedAt
+    }
+
+    func debugTeardownRequest() -> (requestedAt: Date?, reason: String?) {
+        (teardownRequestedAt, teardownRequestReason)
+    }
+
+    func debugLastKnownWorkspaceId() -> UUID {
+        tabId
+    }
+
+    func debugSurfaceContextLabel() -> String {
+        cmuxSurfaceContextName(surfaceContext)
+    }
+
+    func debugInitialCommand() -> String? {
+        initialCommand
+    }
+
+    func debugPortalHostLease() -> (hostId: String?, inWindow: Bool?, area: CGFloat?) {
+        guard let activePortalHostLease else {
+            return (nil, nil, nil)
+        }
+        return (
+            hostId: String(describing: activePortalHostLease.hostId),
+            inWindow: activePortalHostLease.inWindow,
+            area: activePortalHostLease.area
+        )
+    }
+
     func canAcceptPortalBinding(expectedSurfaceId: UUID?, expectedGeneration: UInt64?) -> Bool {
         guard portalLifecycleState == .live else { return false }
         if let expectedSurfaceId, expectedSurfaceId != id {
@@ -2799,9 +2838,20 @@ final class TerminalSurface: Identifiable, ObservableObject {
 #endif
     }
 
+    private func recordTeardownRequest(reason: String) {
+        if teardownRequestedAt == nil {
+            teardownRequestedAt = Date()
+        }
+        if let existing = teardownRequestReason, !existing.isEmpty {
+            return
+        }
+        teardownRequestReason = reason
+    }
+
     func beginPortalCloseLifecycle(reason: String) {
         guard portalLifecycleState != .closed else { return }
         guard portalLifecycleState != .closing else { return }
+        recordTeardownRequest(reason: reason)
         portalLifecycleState = .closing
         portalLifecycleGeneration &+= 1
 #if DEBUG
@@ -2830,6 +2880,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
     /// before deinit; deinit will skip the free if already torn down.
     @MainActor
     func teardownSurface() {
+        recordTeardownRequest(reason: "surface.teardown")
         markPortalLifecycleClosed(reason: "teardown")
 
         let callbackContext = surfaceCallbackContext
@@ -3223,6 +3274,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
             return
         }
         guard let createdSurface = surface else { return }
+        runtimeSurfaceCreatedAt = Date()
 
         // Session scrollback replay must be one-shot. Reusing it on a later runtime
         // surface recreation would inject stale restored output into a live shell.

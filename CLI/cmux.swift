@@ -2714,6 +2714,14 @@ struct CMUXCLI {
         return nil
     }
 
+    private func doubleFromAny(_ value: Any?) -> Double? {
+        if let d = value as? Double { return d }
+        if let f = value as? Float { return Double(f) }
+        if let n = value as? NSNumber { return n.doubleValue }
+        if let s = value as? String { return Double(s) }
+        return nil
+    }
+
     private func parseBoolString(_ raw: String) -> Bool? {
         switch raw.lowercased() {
         case "1", "true", "yes", "on":
@@ -3024,6 +3032,23 @@ struct CMUXCLI {
             .joined(separator: ",")
     }
 
+    private func formatDebugList(_ value: Any?) -> String? {
+        guard let array = value as? [Any], !array.isEmpty else { return nil }
+        let items = array.compactMap { item -> String? in
+            if let string = item as? String {
+                return string
+            }
+            return debugString(item)
+        }
+        guard !items.isEmpty else { return nil }
+        return items.joined(separator: ">")
+    }
+
+    private func formatDebugAge(_ value: Any?) -> String? {
+        guard let seconds = doubleFromAny(value) else { return nil }
+        return String(format: "%.3fs", seconds)
+    }
+
     private func formatDebugTerminalsPayload(_ payload: [String: Any], idFormat: CLIIDFormat) -> String {
         let terminals = payload["terminals"] as? [[String: Any]] ?? []
         guard !terminals.isEmpty else { return "No terminal surfaces" }
@@ -3035,6 +3060,7 @@ struct CMUXCLI {
             let workspace = formatHandle(item, kind: "workspace", idFormat: idFormat) ?? "nil"
             let pane = formatHandle(item, kind: "pane", idFormat: idFormat) ?? "nil"
             let bonsplitTab = debugString(item["bonsplit_tab_id"]) ?? "nil"
+            let lastKnownWorkspace = debugString(item["last_known_workspace_ref"]) ?? debugString(item["last_known_workspace_id"]) ?? "nil"
             let titleSuffix: String = {
                 guard let title = debugString(item["surface_title"]), !title.isEmpty else { return "" }
                 let escaped = title.replacingOccurrences(of: "\"", with: "\\\"")
@@ -3044,11 +3070,31 @@ struct CMUXCLI {
                 guard let branch = debugString(item["git_branch"]), !branch.isEmpty else { return "nil" }
                 return debugBool(item["git_dirty"]) == true ? "\(branch)*" : branch
             }()
+            let teardownLabel: String = {
+                guard debugBool(item["teardown_requested"]) == true else { return "nil" }
+                let reason = debugString(item["teardown_requested_reason"]) ?? "requested"
+                let age = formatDebugAge(item["teardown_requested_age_seconds"]) ?? "unknown"
+                return "\(reason)@\(age)"
+            }()
+            let portalHostLabel: String = {
+                let hostId = debugString(item["portal_host_id"]) ?? "nil"
+                let area = doubleFromAny(item["portal_host_area"]).map { String(format: "%.1f", $0) } ?? "nil"
+                let inWindow = debugFlag(item["portal_host_in_window"])
+                return "\(hostId)/win=\(inWindow)/area=\(area)"
+            }()
+            let windowMetaLabel: String = {
+                let title = debugString(item["window_title"]) ?? "nil"
+                let windowClass = debugString(item["window_class"]) ?? "nil"
+                let controllerClass = debugString(item["window_controller_class"]) ?? "nil"
+                let delegateClass = debugString(item["window_delegate_class"]) ?? "nil"
+                return "title=\(title) class=\(windowClass) controller=\(controllerClass) delegate=\(delegateClass)"
+            }()
 
             let line1 =
                 "[\(index)] \(surface)\(titleSuffix) " +
                 "mapped=\(debugFlag(item["mapped"])) tree=\(debugFlag(item["tree_visible"])) " +
-                "window=\(window) workspace=\(workspace) pane=\(pane) bonsplitTab=\(bonsplitTab)"
+                "window=\(window) workspace=\(workspace) pane=\(pane) bonsplitTab=\(bonsplitTab) " +
+                "ctx=\(debugString(item["surface_context"]) ?? "nil")"
 
             let line2 =
                 "    runtime=\(debugFlag(item["runtime_surface_ready"])) " +
@@ -3058,7 +3104,8 @@ struct CMUXCLI {
                 "terminal=\(debugString(item["terminal_object_ptr"]) ?? "nil") " +
                 "hosted=\(debugString(item["hosted_view_ptr"]) ?? "nil") " +
                 "ghostty=\(debugString(item["ghostty_surface_ptr"]) ?? "nil") " +
-                "portal=\(debugString(item["portal_binding_state"]) ?? "nil")#\(debugString(item["portal_binding_generation"]) ?? "nil")"
+                "portal=\(debugString(item["portal_binding_state"]) ?? "nil")#\(debugString(item["portal_binding_generation"]) ?? "nil") " +
+                "teardown=\(teardownLabel)"
 
             let line3 =
                 "    tty=\(debugString(item["tty"]) ?? "nil") " +
@@ -3069,12 +3116,24 @@ struct CMUXCLI {
                 "inWindow=\(debugFlag(item["hosted_view_in_window"])) " +
                 "superview=\(debugFlag(item["hosted_view_has_superview"])) " +
                 "hidden=\(debugFlag(item["hosted_view_hidden"])) " +
+                "ancestorHidden=\(debugFlag(item["hosted_view_hidden_or_ancestor_hidden"])) " +
                 "firstResponder=\(debugFlag(item["surface_view_first_responder"])) " +
                 "windowNum=\(debugString(item["window_number"]) ?? "nil") " +
                 "windowKey=\(debugFlag(item["window_key"])) " +
                 "frame=\(formatDebugRect(item["hosted_view_frame_in_window"]) ?? "nil")"
 
-            return [line1, line2, line3].joined(separator: "\n")
+            let line4 =
+                "    created=\(formatDebugAge(item["surface_age_seconds"]) ?? "nil") " +
+                "runtimeCreated=\(formatDebugAge(item["runtime_surface_age_seconds"]) ?? "nil") " +
+                "lastWorkspace=\(lastKnownWorkspace) " +
+                "initialCommand=\(debugString(item["initial_command"]) ?? "nil") " +
+                "portalHost=\(portalHostLabel)"
+
+            let line5 =
+                "    window=\(windowMetaLabel) " +
+                "chain=\(formatDebugList(item["hosted_view_superview_chain"]) ?? "nil")"
+
+            return [line1, line2, line3, line4, line5].joined(separator: "\n")
         }
         .joined(separator: "\n")
     }

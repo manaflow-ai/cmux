@@ -4,6 +4,7 @@ import XCTest
 @testable import cmux_DEV
 #elseif canImport(cmux)
 @testable import cmux
+#endif
 
 final class CLIProcessRunnerTests: XCTestCase {
     private func writeExecutable(_ contents: String, to url: URL) throws {
@@ -459,18 +460,26 @@ print(out.decode("utf-8", "replace"), end="")
                     "pane_ref": NSNull(),
                     "surface_ref": "surface:7",
                     "surface_title": "Floating terminal",
+                    "surface_context": "split",
+                    "surface_age_seconds": 12.5,
+                    "runtime_surface_age_seconds": 10.0,
                     "bonsplit_tab_id": NSNull(),
                     "runtime_surface_ready": true,
                     "surface_focused": false,
                     "surface_selected_in_pane": false,
                     "surface_pinned": false,
+                    "teardown_requested": false,
                     "terminal_object_ptr": "0xterm",
                     "hosted_view_ptr": "0xhosted",
                     "ghostty_surface_ptr": "0xghostty",
                     "portal_binding_state": "live",
                     "portal_binding_generation": 4,
+                    "portal_host_id": "ObjectIdentifier(0x1234)",
+                    "portal_host_in_window": true,
+                    "portal_host_area": 4096.0,
                     "tty": "/dev/ttys123",
                     "current_directory": "/tmp/orphan",
+                    "initial_command": "update-helper",
                     "git_branch": "main",
                     "git_dirty": true,
                     "listening_ports": [4020, 4021],
@@ -478,9 +487,16 @@ print(out.decode("utf-8", "replace"), end="")
                     "hosted_view_in_window": true,
                     "hosted_view_has_superview": true,
                     "hosted_view_hidden": false,
+                    "hosted_view_hidden_or_ancestor_hidden": false,
+                    "hosted_view_superview_chain": ["GhosttySurfaceScrollView", "WindowTerminalPortalView"],
                     "surface_view_first_responder": false,
                     "window_number": 88,
                     "window_key": true,
+                    "window_title": "Claude Code",
+                    "window_class": "GhosttyWindow",
+                    "window_controller_class": "TerminalWindowController",
+                    "window_delegate_class": "AppDelegate",
+                    "last_known_workspace_ref": "workspace:3",
                     "hosted_view_frame_in_window": [
                         "x": 12.0,
                         "y": 24.0,
@@ -495,10 +511,13 @@ print(out.decode("utf-8", "replace"), end="")
         XCTAssertTrue(output.contains("[0] surface:7 \"Floating terminal\""), output)
         XCTAssertTrue(output.contains("mapped=0 tree=0"), output)
         XCTAssertTrue(output.contains("bonsplitTab=nil"), output)
+        XCTAssertTrue(output.contains("ctx=split"), output)
         XCTAssertTrue(output.contains("ghostty=0xghostty"), output)
         XCTAssertTrue(output.contains("branch=main*"), output)
         XCTAssertTrue(output.contains("ports=4020,4021"), output)
         XCTAssertTrue(output.contains("frame={12.0,24.0 640.0x480.0}"), output)
+        XCTAssertTrue(output.contains("lastWorkspace=workspace:3"), output)
+        XCTAssertTrue(output.contains("initialCommand=update-helper"), output)
+        XCTAssertTrue(output.contains("chain=GhosttySurfaceScrollView>WindowTerminalPortalView"), output)
     }
 }
-#endif
