@@ -132,7 +132,7 @@ function _cmux_report_tty_once --description "Report TTY name to app once per se
     test -n "$_CMUX_TTY_NAME"; or return 0
     set -g _CMUX_TTY_REPORTED 1
     _cmux_send "report_tty $_CMUX_TTY_NAME --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID" >/dev/null 2>&1 &
-    disown 2>/dev/null
+    disown $last_pid 2>/dev/null
 end
 
 # ---------------------------------------------------------------------------
@@ -147,7 +147,7 @@ function _cmux_report_shell_activity_state --description "Send prompt/running st
     test "$_CMUX_SHELL_ACTIVITY_LAST" = "$state"; and return 0
     set -g _CMUX_SHELL_ACTIVITY_LAST $state
     _cmux_send "report_shell_state $state --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID" >/dev/null 2>&1 &
-    disown 2>/dev/null
+    disown $last_pid 2>/dev/null
 end
 
 # ---------------------------------------------------------------------------
@@ -160,7 +160,7 @@ function _cmux_ports_kick --description "Trigger batched port scan in app"
     test -n "$CMUX_PANEL_ID"; or return 0
     set -g _CMUX_PORTS_LAST_RUN (date +%s)
     _cmux_send "ports_kick --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID" >/dev/null 2>&1 &
-    disown 2>/dev/null
+    disown $last_pid 2>/dev/null
 end
 
 # ---------------------------------------------------------------------------
@@ -413,7 +413,7 @@ _cmux_report_pr_for_path '$escaped_pwd'
 end
 " >/dev/null 2>&1 &
     set -g _CMUX_PR_POLL_PID $last_pid
-    disown $_CMUX_PR_POLL_PID 2>/dev/null; or disown 2>/dev/null
+    disown $_CMUX_PR_POLL_PID 2>/dev/null
 end
 
 # ---------------------------------------------------------------------------
@@ -490,7 +490,7 @@ function _cmux_fish_prompt --description "Prompt hook before prompt is drawn" --
         set -g _CMUX_PWD_LAST_PWD $pwd
         set -l quoted_pwd (string replace -a '"' '\\"' -- $pwd)
         _cmux_send "report_pwd \"$quoted_pwd\" --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID" >/dev/null 2>&1 &
-        disown 2>/dev/null
+        disown $last_pid 2>/dev/null
     end
 
     # HEAD signature tracking: detect branch/commit changes without running git.
@@ -570,7 +570,7 @@ else
 end
 " >/dev/null 2>&1 &
             set -g _CMUX_GIT_JOB_PID $last_pid
-            disown $_CMUX_GIT_JOB_PID 2>/dev/null; or disown 2>/dev/null
+            disown $_CMUX_GIT_JOB_PID 2>/dev/null
             set -g _CMUX_GIT_JOB_STARTED_AT $now
         end
     end

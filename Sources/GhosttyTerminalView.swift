@@ -3217,7 +3217,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
             // auto-sources vendor_conf.d/*.fish whether it is the primary shell
             // or launched as a sub-shell (e.g. exec'd from a zsh wrapper script).
             // Ghostty follows the same pattern via ensureGhosttyEnv().
-            let existingXDG = (env["XDG_DATA_DIRS"]?.isEmpty == false ? env["XDG_DATA_DIRS"] : nil)
+            let existingXDG = initialEnvironmentOverrides["XDG_DATA_DIRS"]
+                ?? (env["XDG_DATA_DIRS"]?.isEmpty == false ? env["XDG_DATA_DIRS"] : nil)
                 ?? getenv("XDG_DATA_DIRS").map { String(cString: $0) }
                 ?? ProcessInfo.processInfo.environment["XDG_DATA_DIRS"]
             if let existingXDG {
