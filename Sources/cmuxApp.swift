@@ -28,6 +28,7 @@ struct cmuxApp: App {
     @AppStorage(KeyboardShortcutSettings.Action.prevSidebarTab.defaultsKey) private var prevWorkspaceShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.splitRight.defaultsKey) private var splitRightShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.splitDown.defaultsKey) private var splitDownShortcutData = Data()
+    @AppStorage(BrowserToolbarAccessorySpacingDebugSettings.key) private var browserToolbarAccessorySpacingRaw = BrowserToolbarAccessorySpacingDebugSettings.defaultSpacing
     @AppStorage(KeyboardShortcutSettings.Action.toggleBrowserDeveloperTools.defaultsKey)
     private var toggleBrowserDeveloperToolsShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.showBrowserJavaScriptConsole.defaultsKey)
@@ -38,6 +39,10 @@ struct cmuxApp: App {
     @AppStorage(KeyboardShortcutSettings.Action.openFolder.defaultsKey) private var openFolderShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.closeWorkspace.defaultsKey) private var closeWorkspaceShortcutData = Data()
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+
+    private var browserToolbarAccessorySpacing: Int {
+        BrowserToolbarAccessorySpacingDebugSettings.resolved(browserToolbarAccessorySpacingRaw)
+    }
 
     init() {
         if SocketControlSettings.shouldBlockUntaggedDebugLaunch() {
@@ -341,6 +346,15 @@ struct cmuxApp: App {
                         BrowserImportHintDebugWindowController.shared.show()
                     }
 
+                    Button(
+                        String(
+                            localized: "debug.menu.browserProfilePopoverDebug",
+                            defaultValue: "Browser Profile Popover Debug…"
+                        )
+                    ) {
+                        BrowserProfilePopoverDebugWindowController.shared.show()
+                    }
+
                     Button("Settings/About Titlebar Debug…") {
                         SettingsAboutTitlebarDebugWindowController.shared.show()
                     }
@@ -362,6 +376,29 @@ struct cmuxApp: App {
 
                     Button("Open All Debug Windows") {
                         openAllDebugWindows()
+                    }
+                }
+
+                Menu(
+                    String(
+                        localized: "debug.menu.browserToolbarButtonSpacing",
+                        defaultValue: "Browser Toolbar Button Spacing"
+                    )
+                ) {
+                    ForEach(BrowserToolbarAccessorySpacingDebugSettings.supportedValues, id: \.self) { spacing in
+                        Button {
+                            browserToolbarAccessorySpacingRaw = spacing
+                        } label: {
+                            if browserToolbarAccessorySpacing == spacing {
+                                Label {
+                                    Text(verbatim: "\(spacing)")
+                                } icon: {
+                                    Image(systemName: "checkmark")
+                                }
+                            } else {
+                                Text(verbatim: "\(spacing)")
+                            }
+                        }
                     }
                 }
 
@@ -1065,6 +1102,7 @@ struct cmuxApp: App {
 
     private func openAllDebugWindows() {
         BrowserImportHintDebugWindowController.shared.show()
+        BrowserProfilePopoverDebugWindowController.shared.show()
         SettingsAboutTitlebarDebugWindowController.shared.show()
         SidebarDebugWindowController.shared.show()
         BackgroundDebugWindowController.shared.show()
@@ -1698,6 +1736,14 @@ private struct DebugWindowControlsView: View {
                         Button("Browser Import Hint Debug…") {
                             BrowserImportHintDebugWindowController.shared.show()
                         }
+                        Button(
+                            String(
+                                localized: "debug.menu.browserProfilePopoverDebug",
+                                defaultValue: "Browser Profile Popover Debug…"
+                            )
+                        ) {
+                            BrowserProfilePopoverDebugWindowController.shared.show()
+                        }
                         Button("Settings/About Titlebar Debug…") {
                             SettingsAboutTitlebarDebugWindowController.shared.show()
                         }
@@ -1712,6 +1758,7 @@ private struct DebugWindowControlsView: View {
                         }
                         Button("Open All Debug Windows") {
                             BrowserImportHintDebugWindowController.shared.show()
+                            BrowserProfilePopoverDebugWindowController.shared.show()
                             SettingsAboutTitlebarDebugWindowController.shared.show()
                             SidebarDebugWindowController.shared.show()
                             BackgroundDebugWindowController.shared.show()
@@ -1946,6 +1993,205 @@ private final class BrowserImportHintDebugWindowController: NSWindowController, 
     func show() {
         window?.center()
         window?.makeKeyAndOrderFront(nil)
+    }
+}
+
+private final class BrowserProfilePopoverDebugWindowController: NSWindowController, NSWindowDelegate {
+    static let shared = BrowserProfilePopoverDebugWindowController()
+
+    private init() {
+        let window = NSPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 340),
+            styleMask: [.titled, .closable, .utilityWindow],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = String(
+            localized: "debug.windows.browserProfilePopover.title",
+            defaultValue: "Browser Profile Popover Debug"
+        )
+        window.titleVisibility = .visible
+        window.titlebarAppearsTransparent = false
+        window.isMovableByWindowBackground = true
+        window.isReleasedWhenClosed = false
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.browserProfilePopoverDebug")
+        window.center()
+        window.contentView = NSHostingView(rootView: BrowserProfilePopoverDebugView())
+        AppDelegate.shared?.applyWindowDecorations(to: window)
+        super.init(window: window)
+        window.delegate = self
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func show() {
+        window?.center()
+        window?.makeKeyAndOrderFront(nil)
+    }
+}
+
+private struct BrowserProfilePopoverDebugView: View {
+    @AppStorage(BrowserProfilePopoverDebugSettings.horizontalPaddingKey)
+    private var horizontalPaddingRaw = BrowserProfilePopoverDebugSettings.defaultHorizontalPadding
+    @AppStorage(BrowserProfilePopoverDebugSettings.verticalPaddingKey)
+    private var verticalPaddingRaw = BrowserProfilePopoverDebugSettings.defaultVerticalPadding
+
+    private var horizontalPaddingBinding: Binding<Double> {
+        Binding(
+            get: { BrowserProfilePopoverDebugSettings.resolvedHorizontalPadding(horizontalPaddingRaw) },
+            set: { horizontalPaddingRaw = BrowserProfilePopoverDebugSettings.resolvedHorizontalPadding($0) }
+        )
+    }
+
+    private var verticalPaddingBinding: Binding<Double> {
+        Binding(
+            get: { BrowserProfilePopoverDebugSettings.resolvedVerticalPadding(verticalPaddingRaw) },
+            set: { verticalPaddingRaw = BrowserProfilePopoverDebugSettings.resolvedVerticalPadding($0) }
+        )
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                Text(
+                    String(
+                        localized: "debug.browserProfilePopover.heading",
+                        defaultValue: "Browser Profile Popover"
+                    )
+                )
+                .font(.headline)
+
+                Text(
+                    String(
+                        localized: "debug.browserProfilePopover.note",
+                        defaultValue: "Tune the profile popover padding live while comparing it against the browser toolbar menu."
+                    )
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+                GroupBox(
+                    String(
+                        localized: "debug.browserProfilePopover.group.padding",
+                        defaultValue: "Padding"
+                    )
+                ) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        sliderRow(
+                            String(
+                                localized: "debug.browserProfilePopover.label.horizontal",
+                                defaultValue: "Horizontal"
+                            ),
+                            value: horizontalPaddingBinding,
+                            range: BrowserProfilePopoverDebugSettings.horizontalPaddingRange
+                        )
+                        sliderRow(
+                            String(
+                                localized: "debug.browserProfilePopover.label.vertical",
+                                defaultValue: "Vertical"
+                            ),
+                            value: verticalPaddingBinding,
+                            range: BrowserProfilePopoverDebugSettings.verticalPaddingRange
+                        )
+                    }
+                    .padding(.top, 2)
+                }
+
+                GroupBox(
+                    String(
+                        localized: "debug.browserProfilePopover.group.preview",
+                        defaultValue: "Preview"
+                    )
+                ) {
+                    profilePopoverPreview
+                        .padding(.top, 2)
+                }
+
+                HStack(spacing: 12) {
+                    Button(
+                        String(
+                            localized: "debug.browserProfilePopover.reset",
+                            defaultValue: "Reset"
+                        )
+                    ) {
+                        horizontalPaddingRaw = BrowserProfilePopoverDebugSettings.defaultHorizontalPadding
+                        verticalPaddingRaw = BrowserProfilePopoverDebugSettings.defaultVerticalPadding
+                    }
+                }
+
+                Text(
+                    String(
+                        localized: "debug.browserProfilePopover.liveNote",
+                        defaultValue: "Changes apply live to the browser profile popover."
+                    )
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+                Spacer(minLength: 0)
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    private var profilePopoverPreview: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(String(localized: "browser.profile.menu.title", defaultValue: "Profiles"))
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.secondary)
+
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 8) {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 10, weight: .semibold))
+                        .frame(width: 12, alignment: .center)
+                    Text(String(localized: "browser.profile.default", defaultValue: "Default"))
+                        .font(.system(size: 12))
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 8)
+                .frame(height: 24)
+                .background(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(Color.primary.opacity(0.12))
+                )
+            }
+
+            Divider()
+
+            Text(String(localized: "browser.profile.new", defaultValue: "New Profile..."))
+                .font(.system(size: 12))
+
+            Text(String(localized: "menu.view.importFromBrowser", defaultValue: "Import From Browser…"))
+                .font(.system(size: 12))
+        }
+        .padding(.horizontal, BrowserProfilePopoverDebugSettings.resolvedHorizontalPadding(horizontalPaddingRaw))
+        .padding(.vertical, BrowserProfilePopoverDebugSettings.resolvedVerticalPadding(verticalPaddingRaw))
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color(nsColor: .windowBackgroundColor))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .stroke(Color.primary.opacity(0.08))
+                )
+        )
+    }
+
+    private func sliderRow(_ label: String, value: Binding<Double>, range: ClosedRange<Double>) -> some View {
+        HStack(spacing: 8) {
+            Text(label)
+            Slider(value: value, in: range, step: 1)
+            Text(String(format: "%.0f", value.wrappedValue))
+                .font(.caption)
+                .monospacedDigit()
+                .frame(width: 32, alignment: .trailing)
+        }
     }
 }
 
@@ -3369,6 +3615,7 @@ struct SettingsView: View {
     @AppStorage("sidebarTintHexLight") private var sidebarTintHexLight: String?
     @AppStorage("sidebarTintHexDark") private var sidebarTintHexDark: String?
     @AppStorage("sidebarTintOpacity") private var sidebarTintOpacity = SidebarTintDefaults.opacity
+
     @ObservedObject private var notificationStore = TerminalNotificationStore.shared
     @State private var shortcutResetToken = UUID()
     @State private var topBlurOpacity: Double = 0

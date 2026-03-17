@@ -1470,6 +1470,56 @@ final class BrowserDevToolsButtonDebugSettingsTests: XCTestCase {
         )
     }
 
+    func testBrowserToolbarAccessorySpacingDefaultsToTwoWhenUnset() {
+        let defaults = makeIsolatedDefaults()
+        defaults.removeObject(forKey: BrowserToolbarAccessorySpacingDebugSettings.key)
+
+        XCTAssertEqual(
+            BrowserToolbarAccessorySpacingDebugSettings.current(defaults: defaults),
+            BrowserToolbarAccessorySpacingDebugSettings.defaultSpacing
+        )
+    }
+
+    func testBrowserToolbarAccessorySpacingFallsBackToDefaultForUnsupportedValue() {
+        let defaults = makeIsolatedDefaults()
+        defaults.set(99, forKey: BrowserToolbarAccessorySpacingDebugSettings.key)
+
+        XCTAssertEqual(
+            BrowserToolbarAccessorySpacingDebugSettings.current(defaults: defaults),
+            BrowserToolbarAccessorySpacingDebugSettings.defaultSpacing
+        )
+    }
+
+    func testBrowserProfilePopoverPaddingDefaultsWhenUnset() {
+        let defaults = makeIsolatedDefaults()
+        defaults.removeObject(forKey: BrowserProfilePopoverDebugSettings.horizontalPaddingKey)
+        defaults.removeObject(forKey: BrowserProfilePopoverDebugSettings.verticalPaddingKey)
+
+        XCTAssertEqual(
+            BrowserProfilePopoverDebugSettings.currentHorizontalPadding(defaults: defaults),
+            BrowserProfilePopoverDebugSettings.defaultHorizontalPadding
+        )
+        XCTAssertEqual(
+            BrowserProfilePopoverDebugSettings.currentVerticalPadding(defaults: defaults),
+            BrowserProfilePopoverDebugSettings.defaultVerticalPadding
+        )
+    }
+
+    func testBrowserProfilePopoverPaddingFallsBackForUnsupportedValues() {
+        let defaults = makeIsolatedDefaults()
+        defaults.set(-3, forKey: BrowserProfilePopoverDebugSettings.horizontalPaddingKey)
+        defaults.set(999, forKey: BrowserProfilePopoverDebugSettings.verticalPaddingKey)
+
+        XCTAssertEqual(
+            BrowserProfilePopoverDebugSettings.currentHorizontalPadding(defaults: defaults),
+            BrowserProfilePopoverDebugSettings.defaultHorizontalPadding
+        )
+        XCTAssertEqual(
+            BrowserProfilePopoverDebugSettings.currentVerticalPadding(defaults: defaults),
+            BrowserProfilePopoverDebugSettings.defaultVerticalPadding
+        )
+    }
+
     func testCopyPayloadUsesPersistedValues() {
         let defaults = makeIsolatedDefaults()
         defaults.set(BrowserDevToolsIconOption.scope.rawValue, forKey: BrowserDevToolsButtonDebugSettings.iconNameKey)

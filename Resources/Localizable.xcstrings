@@ -805,6 +805,193 @@
         }
       }
     },
+    "debug.menu.browserToolbarButtonSpacing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browser Toolbar Button Spacing"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザーツールバーのボタン間隔"
+          }
+        }
+      }
+    },
+    "debug.menu.browserProfilePopoverDebug": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browser Profile Popover Debug…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザープロファイルポップオーバーのデバッグ…"
+          }
+        }
+      }
+    },
+    "debug.windows.browserProfilePopover.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browser Profile Popover Debug"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザープロファイルポップオーバーのデバッグ"
+          }
+        }
+      }
+    },
+    "debug.browserProfilePopover.heading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browser Profile Popover"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザープロファイルポップオーバー"
+          }
+        }
+      }
+    },
+    "debug.browserProfilePopover.note": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tune the profile popover padding live while comparing it against the browser toolbar menu."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザーツールバーのメニューと見比べながら、プロファイルポップオーバーの余白をライブで調整します。"
+          }
+        }
+      }
+    },
+    "debug.browserProfilePopover.group.padding": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Padding"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "余白"
+          }
+        }
+      }
+    },
+    "debug.browserProfilePopover.label.horizontal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Horizontal"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "水平"
+          }
+        }
+      }
+    },
+    "debug.browserProfilePopover.label.vertical": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vertical"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "垂直"
+          }
+        }
+      }
+    },
+    "debug.browserProfilePopover.group.preview": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preview"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プレビュー"
+          }
+        }
+      }
+    },
+    "debug.browserProfilePopover.reset": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reset"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リセット"
+          }
+        }
+      }
+    },
+    "debug.browserProfilePopover.liveNote": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Changes apply live to the browser profile popover."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "変更はブラウザープロファイルポップオーバーにライブで反映されます。"
+          }
+        }
+      }
+    },
     "debug.devBuildBanner.title": {
       "extractionState": "manual",
       "localizations": {

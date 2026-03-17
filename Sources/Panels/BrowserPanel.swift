@@ -8385,6 +8385,21 @@ final class BrowserDataImportCoordinator {
     }
 
 #if DEBUG
+    func debugMakeImportWizardWindow(
+        browsers: [InstalledBrowserCandidate],
+        destinationProfiles: [BrowserProfileDefinition]? = nil,
+        defaultDestinationProfileID: UUID? = nil
+    ) -> NSWindow {
+        let wizard = ImportWizardWindowController(
+            browsers: browsers,
+            destinationProfiles: destinationProfiles,
+            defaultDestinationProfileID: defaultDestinationProfileID
+        )
+        return wizard.debugPanelWindow
+    }
+#endif
+
+#if DEBUG
     private struct CapturedImportSelection: Encodable {
         struct Entry: Encodable {
             let sourceProfiles: [String]
@@ -8554,6 +8569,10 @@ final class BrowserDataImportCoordinator {
             guard response == .OK else { return nil }
             return selection
         }
+
+#if DEBUG
+        var debugPanelWindow: NSWindow { panel }
+#endif
 
         func windowWillClose(_ notification: Notification) {
             finishModal(with: .cancel)
@@ -8864,7 +8883,9 @@ final class BrowserDataImportCoordinator {
             sourceProfilesScrollView.contentView.postsBoundsChangedNotifications = true
             sourceProfilesScrollHeightConstraint = sourceProfilesScrollView.heightAnchor.constraint(equalToConstant: 76)
             sourceProfilesScrollHeightConstraint?.isActive = true
-            sourceProfilesScrollView.widthAnchor.constraint(equalTo: sourceProfilesContainer.widthAnchor).isActive = true
+            let sourceProfilesScrollWidthConstraint = sourceProfilesScrollView.widthAnchor.constraint(
+                equalTo: sourceProfilesContainer.widthAnchor
+            )
 
             sourceProfilesHelpLabel.font = NSFont.systemFont(ofSize: 11)
             sourceProfilesHelpLabel.textColor = .secondaryLabelColor
@@ -8882,6 +8903,7 @@ final class BrowserDataImportCoordinator {
             sourceProfilesContainer.addArrangedSubview(sourceProfilesTitle)
             sourceProfilesContainer.addArrangedSubview(sourceProfilesScrollView)
             sourceProfilesContainer.addArrangedSubview(sourceProfilesHelpLabel)
+            sourceProfilesScrollWidthConstraint.isActive = true
             sourceProfilesContainer.setHuggingPriority(.defaultLow, for: .vertical)
             sourceProfilesContainer.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
         }

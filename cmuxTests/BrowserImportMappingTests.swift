@@ -284,11 +284,72 @@ final class BrowserImportMappingTests: XCTestCase {
         XCTAssertTrue(lines.contains("Created cmux profiles: You, austin"))
     }
 
+    @MainActor
+    func testImportWizardCanBeConstructedForSettingsChoosePath() {
+        let destinationProfiles = [
+            BrowserProfileDefinition(
+                id: UUID(uuidString: "52B43C05-4A1D-45D3-8FD5-9EF94952E445")!,
+                displayName: "Default",
+                createdAt: .distantPast,
+                isBuiltInDefault: true
+            )
+        ]
+        let browser = makeInstalledBrowserCandidate(
+            descriptorID: "google-chrome",
+            displayName: "Chrome",
+            profiles: [
+                makeSourceProfile(displayName: "Default", path: "/tmp/browser-import-chrome-default", isDefault: true),
+                makeSourceProfile(displayName: "Profile 1", path: "/tmp/browser-import-chrome-profile-1", isDefault: false),
+            ]
+        )
+
+        let window = BrowserDataImportCoordinator.shared.debugMakeImportWizardWindow(
+            browsers: [browser],
+            destinationProfiles: destinationProfiles,
+            defaultDestinationProfileID: destinationProfiles[0].id
+        )
+        defer {
+            window.orderOut(nil)
+            window.close()
+        }
+
+        XCTAssertEqual(window.title, "Import Browser Data")
+        XCTAssertNotNil(window.contentView)
+    }
+
     private func makeSourceProfile(displayName: String, path: String, isDefault: Bool) -> InstalledBrowserProfile {
         InstalledBrowserProfile(
             displayName: displayName,
             rootURL: URL(fileURLWithPath: path, isDirectory: true),
             isDefault: isDefault
+        )
+    }
+
+    private func makeInstalledBrowserCandidate(
+        descriptorID: String,
+        displayName: String,
+        profiles: [InstalledBrowserProfile]
+    ) -> InstalledBrowserCandidate {
+        let descriptor = try! XCTUnwrap(InstalledBrowserDetector.allBrowserDescriptors.first(where: { $0.id == descriptorID }))
+        return InstalledBrowserCandidate(
+            descriptor: BrowserImportBrowserDescriptor(
+                id: descriptor.id,
+                displayName: displayName,
+                family: descriptor.family,
+                tier: descriptor.tier,
+                bundleIdentifiers: descriptor.bundleIdentifiers,
+                appNames: descriptor.appNames,
+                dataRootRelativePaths: descriptor.dataRootRelativePaths,
+                dataArtifactRelativePaths: descriptor.dataArtifactRelativePaths,
+                supportsDataOnlyDetection: descriptor.supportsDataOnlyDetection
+            ),
+            resolvedFamily: descriptor.family,
+            homeDirectoryURL: URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true),
+            appURL: nil,
+            dataRootURL: URL(fileURLWithPath: "/tmp/browser-import-\(descriptorID)", isDirectory: true),
+            profiles: profiles,
+            detectionSignals: ["test"],
+            detectionScore: 1
         )
     }
 }

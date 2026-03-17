@@ -110,6 +110,45 @@ enum BrowserDevToolsButtonDebugSettings {
     }
 }
 
+enum BrowserToolbarAccessorySpacingDebugSettings {
+    static let key = "browserToolbarAccessorySpacing"
+    static let defaultSpacing = 2
+    static let supportedValues = [0, 2, 4, 6, 8]
+
+    static func resolved(_ rawValue: Int) -> Int {
+        supportedValues.contains(rawValue) ? rawValue : defaultSpacing
+    }
+
+    static func current(defaults: UserDefaults = .standard) -> Int {
+        resolved(defaults.object(forKey: key) as? Int ?? defaultSpacing)
+    }
+}
+
+enum BrowserProfilePopoverDebugSettings {
+    static let horizontalPaddingKey = "browserProfilePopoverHorizontalPadding"
+    static let verticalPaddingKey = "browserProfilePopoverVerticalPadding"
+    static let defaultHorizontalPadding = 12.0
+    static let defaultVerticalPadding = 10.0
+    static let horizontalPaddingRange = 8.0...20.0
+    static let verticalPaddingRange = 4.0...14.0
+
+    static func resolvedHorizontalPadding(_ rawValue: Double) -> Double {
+        horizontalPaddingRange.contains(rawValue) ? rawValue : defaultHorizontalPadding
+    }
+
+    static func resolvedVerticalPadding(_ rawValue: Double) -> Double {
+        verticalPaddingRange.contains(rawValue) ? rawValue : defaultVerticalPadding
+    }
+
+    static func currentHorizontalPadding(defaults: UserDefaults = .standard) -> Double {
+        resolvedHorizontalPadding((defaults.object(forKey: horizontalPaddingKey) as? NSNumber)?.doubleValue ?? defaultHorizontalPadding)
+    }
+
+    static func currentVerticalPadding(defaults: UserDefaults = .standard) -> Double {
+        resolvedVerticalPadding((defaults.object(forKey: verticalPaddingKey) as? NSNumber)?.doubleValue ?? defaultVerticalPadding)
+    }
+}
+
 struct OmnibarInlineCompletion: Equatable {
     let typedText: String
     let displayText: String
@@ -249,6 +288,11 @@ struct BrowserPanelView: View {
     @AppStorage(BrowserSearchSettings.searchSuggestionsEnabledKey) private var searchSuggestionsEnabledStorage = BrowserSearchSettings.defaultSearchSuggestionsEnabled
     @AppStorage(BrowserDevToolsButtonDebugSettings.iconNameKey) private var devToolsIconNameRaw = BrowserDevToolsButtonDebugSettings.defaultIcon.rawValue
     @AppStorage(BrowserDevToolsButtonDebugSettings.iconColorKey) private var devToolsIconColorRaw = BrowserDevToolsButtonDebugSettings.defaultColor.rawValue
+    @AppStorage(BrowserToolbarAccessorySpacingDebugSettings.key) private var browserToolbarAccessorySpacingRaw = BrowserToolbarAccessorySpacingDebugSettings.defaultSpacing
+    @AppStorage(BrowserProfilePopoverDebugSettings.horizontalPaddingKey)
+    private var browserProfilePopoverHorizontalPaddingRaw = BrowserProfilePopoverDebugSettings.defaultHorizontalPadding
+    @AppStorage(BrowserProfilePopoverDebugSettings.verticalPaddingKey)
+    private var browserProfilePopoverVerticalPaddingRaw = BrowserProfilePopoverDebugSettings.defaultVerticalPadding
     @AppStorage(BrowserThemeSettings.modeKey) private var browserThemeModeRaw = BrowserThemeSettings.defaultMode.rawValue
     @AppStorage(BrowserImportHintSettings.variantKey) private var browserImportHintVariantRaw = BrowserImportHintSettings.defaultVariant.rawValue
     @AppStorage(BrowserImportHintSettings.showOnBlankTabsKey) private var showBrowserImportHintOnBlankTabs = BrowserImportHintSettings.defaultShowOnBlankTabs
@@ -335,6 +379,18 @@ struct BrowserPanelView: View {
             showOnBlankTabs: showBrowserImportHintOnBlankTabs,
             isDismissed: isBrowserImportHintDismissed
         )
+    }
+
+    private var browserToolbarAccessorySpacing: CGFloat {
+        CGFloat(BrowserToolbarAccessorySpacingDebugSettings.resolved(browserToolbarAccessorySpacingRaw))
+    }
+
+    private var browserProfilePopoverHorizontalPadding: CGFloat {
+        CGFloat(BrowserProfilePopoverDebugSettings.resolvedHorizontalPadding(browserProfilePopoverHorizontalPaddingRaw))
+    }
+
+    private var browserProfilePopoverVerticalPadding: CGFloat {
+        CGFloat(BrowserProfilePopoverDebugSettings.resolvedVerticalPadding(browserProfilePopoverVerticalPaddingRaw))
     }
 
     private var browserChromeBackground: Color {
@@ -475,6 +531,9 @@ struct BrowserPanelView: View {
             UserDefaults.standard.register(defaults: [
                 BrowserSearchSettings.searchEngineKey: BrowserSearchSettings.defaultSearchEngine.rawValue,
                 BrowserSearchSettings.searchSuggestionsEnabledKey: BrowserSearchSettings.defaultSearchSuggestionsEnabled,
+                BrowserToolbarAccessorySpacingDebugSettings.key: BrowserToolbarAccessorySpacingDebugSettings.defaultSpacing,
+                BrowserProfilePopoverDebugSettings.horizontalPaddingKey: BrowserProfilePopoverDebugSettings.defaultHorizontalPadding,
+                BrowserProfilePopoverDebugSettings.verticalPaddingKey: BrowserProfilePopoverDebugSettings.defaultVerticalPadding,
                 BrowserThemeSettings.modeKey: BrowserThemeSettings.defaultMode.rawValue,
             ])
             refreshBrowserChromeStyle()
@@ -486,6 +545,18 @@ struct BrowserPanelView: View {
             let resolvedHintVariant = BrowserImportHintSettings.variant(for: browserImportHintVariantRaw)
             if browserImportHintVariantRaw != resolvedHintVariant.rawValue {
                 browserImportHintVariantRaw = resolvedHintVariant.rawValue
+            }
+            let resolvedToolbarAccessorySpacing = BrowserToolbarAccessorySpacingDebugSettings.resolved(browserToolbarAccessorySpacingRaw)
+            if browserToolbarAccessorySpacingRaw != resolvedToolbarAccessorySpacing {
+                browserToolbarAccessorySpacingRaw = resolvedToolbarAccessorySpacing
+            }
+            let resolvedProfilePopoverHorizontalPadding = BrowserProfilePopoverDebugSettings.resolvedHorizontalPadding(browserProfilePopoverHorizontalPaddingRaw)
+            if browserProfilePopoverHorizontalPaddingRaw != resolvedProfilePopoverHorizontalPadding {
+                browserProfilePopoverHorizontalPaddingRaw = resolvedProfilePopoverHorizontalPadding
+            }
+            let resolvedProfilePopoverVerticalPadding = BrowserProfilePopoverDebugSettings.resolvedVerticalPadding(browserProfilePopoverVerticalPaddingRaw)
+            if browserProfilePopoverVerticalPaddingRaw != resolvedProfilePopoverVerticalPadding {
+                browserProfilePopoverVerticalPaddingRaw = resolvedProfilePopoverVerticalPadding
             }
             panel.refreshAppearanceDrivenColors()
             panel.setBrowserThemeMode(browserThemeMode)
@@ -641,12 +712,14 @@ struct BrowserPanelView: View {
                 .accessibilityIdentifier("BrowserOmnibarPill")
                 .accessibilityLabel("Browser omnibar")
 
-            if shouldShowToolbarImportHintChip {
-                browserImportHintToolbarChip
+            HStack(spacing: browserToolbarAccessorySpacing) {
+                if shouldShowToolbarImportHintChip {
+                    browserImportHintToolbarChip
+                }
+                browserProfileButton
+                browserThemeModeButton
+                developerToolsButton
             }
-            browserProfileButton
-            browserThemeModeButton
-            developerToolsButton
         }
         .padding(.horizontal, 8)
         .padding(.vertical, addressBarVerticalPadding)
@@ -892,7 +965,8 @@ struct BrowserPanelView: View {
                 .buttonStyle(.plain)
             }
         }
-        .padding(8)
+        .padding(.horizontal, browserProfilePopoverHorizontalPadding)
+        .padding(.vertical, browserProfilePopoverVerticalPadding)
         .frame(minWidth: 208)
     }
 
