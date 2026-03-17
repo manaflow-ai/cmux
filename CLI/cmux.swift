@@ -1850,6 +1850,10 @@ struct CMUXCLI {
             }
 
         case "debug-terminals":
+            let unexpected = commandArgs.filter { $0 != "--" }
+            if let extra = unexpected.first {
+                throw CLIError(message: "debug-terminals: unexpected argument '\(extra)'")
+            }
             let payload = try client.sendV2(method: "debug.terminals")
             if jsonOutput {
                 print(jsonString(formatIDs(payload, mode: idFormat)))
@@ -3015,10 +3019,10 @@ struct CMUXCLI {
 
     private func formatDebugRect(_ value: Any?) -> String? {
         guard let rect = value as? [String: Any],
-              let x = rect["x"] as? Double,
-              let y = rect["y"] as? Double,
-              let width = rect["width"] as? Double,
-              let height = rect["height"] as? Double else {
+              let x = doubleFromAny(rect["x"]),
+              let y = doubleFromAny(rect["y"]),
+              let width = doubleFromAny(rect["width"]),
+              let height = doubleFromAny(rect["height"]) else {
             return nil
         }
         return String(format: "{%.1f,%.1f %.1fx%.1f}", x, y, width, height)
@@ -3026,10 +3030,10 @@ struct CMUXCLI {
 
     private func formatDebugPorts(_ value: Any?) -> String {
         guard let array = value as? [Any], !array.isEmpty else { return "[]" }
-        return array
+        let ports = array
             .compactMap { intFromAny($0) }
             .map(String.init)
-            .joined(separator: ",")
+        return ports.isEmpty ? "[]" : ports.joined(separator: ",")
     }
 
     private func formatDebugList(_ value: Any?) -> String? {

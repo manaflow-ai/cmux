@@ -2562,6 +2562,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private var lastPixelHeight: UInt32 = 0
     private var lastXScale: CGFloat = 0
     private var lastYScale: CGFloat = 0
+    private let debugMetadataLock = NSLock()
     private let createdAt: Date = Date()
     private var runtimeSurfaceCreatedAt: Date?
     private var teardownRequestedAt: Date?
@@ -2708,16 +2709,22 @@ final class TerminalSurface: Identifiable, ObservableObject {
         portalLifecycleState.rawValue
     }
 
+    private func withDebugMetadataLock<T>(_ body: () -> T) -> T {
+        debugMetadataLock.lock()
+        defer { debugMetadataLock.unlock() }
+        return body()
+    }
+
     func debugCreatedAt() -> Date {
-        createdAt
+        withDebugMetadataLock { createdAt }
     }
 
     func debugRuntimeSurfaceCreatedAt() -> Date? {
-        runtimeSurfaceCreatedAt
+        withDebugMetadataLock { runtimeSurfaceCreatedAt }
     }
 
     func debugTeardownRequest() -> (requestedAt: Date?, reason: String?) {
-        (teardownRequestedAt, teardownRequestReason)
+        withDebugMetadataLock { (teardownRequestedAt, teardownRequestReason) }
     }
 
     func debugLastKnownWorkspaceId() -> UUID {
@@ -2839,13 +2846,21 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     private func recordTeardownRequest(reason: String) {
-        if teardownRequestedAt == nil {
-            teardownRequestedAt = Date()
+        withDebugMetadataLock {
+            if teardownRequestedAt == nil {
+                teardownRequestedAt = Date()
+            }
+            if let existing = teardownRequestReason, !existing.isEmpty {
+                return
+            }
+            teardownRequestReason = reason
         }
-        if let existing = teardownRequestReason, !existing.isEmpty {
-            return
+    }
+
+    private func recordRuntimeSurfaceCreation() {
+        withDebugMetadataLock {
+            runtimeSurfaceCreatedAt = Date()
         }
-        teardownRequestReason = reason
     }
 
     func beginPortalCloseLifecycle(reason: String) {
@@ -3274,7 +3289,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
             return
         }
         guard let createdSurface = surface else { return }
-        runtimeSurfaceCreatedAt = Date()
+        recordRuntimeSurfaceCreation()
 
         // Session scrollback replay must be one-shot. Reusing it on a later runtime
         // surface recreation would inject stale restored output into a live shell.
