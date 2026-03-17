@@ -344,7 +344,6 @@ struct cmuxApp: App {
                 }
                 .onChange(of: appearanceMode) { _ in
                     applyAppearance()
-                    GhosttyApp.shared.reloadConfiguration(source: "appearanceModeChanged")
                 }
                 .onChange(of: socketControlMode) { _ in
                     updateSocketController()
@@ -836,6 +835,7 @@ struct cmuxApp: App {
             NSApplication.shared.appearance = nil
         case .light, .classicLight:
             NSApplication.shared.appearance = NSAppearance(named: .aqua)
+            GhosttyApp.shared.reloadConfiguration(source: "appearanceModeChanged")
         case .dark:
             NSApplication.shared.appearance = NSAppearance(named: .darkAqua)
         case .auto:
