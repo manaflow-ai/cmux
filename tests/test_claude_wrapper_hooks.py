@@ -178,11 +178,21 @@ def test_stale_socket_skips_hook_injection(failures: list[str]) -> None:
     expect(claudecode == "__UNSET__", f"stale socket: expected CLAUDECODE unset, got {claudecode!r}", failures)
 
 
+def test_auth_subcommands_skip_hook_injection(failures: list[str]) -> None:
+    for argv in (["auth"], ["setup-token"]):
+        code, real_argv, cmux_log, stderr, claudecode = run_wrapper(socket_state="live", argv=argv)
+        expect(code == 0, f"{argv[0]}: wrapper exited {code}: {stderr}", failures)
+        expect(real_argv == argv, f"{argv[0]}: expected passthrough args, got {real_argv}", failures)
+        expect(any(" ping" in line for line in cmux_log), f"{argv[0]}: expected cmux ping probe, got {cmux_log}", failures)
+        expect(claudecode == "__UNSET__", f"{argv[0]}: expected CLAUDECODE unset, got {claudecode!r}", failures)
+
+
 def main() -> int:
     failures: list[str] = []
     test_live_socket_injects_supported_hooks(failures)
     test_missing_socket_skips_hook_injection(failures)
     test_stale_socket_skips_hook_injection(failures)
+    test_auth_subcommands_skip_hook_injection(failures)
 
     if failures:
         print("FAIL: claude wrapper regression checks failed")
