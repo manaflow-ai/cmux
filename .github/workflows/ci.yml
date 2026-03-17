@@ -245,45 +245,33 @@ jobs:
             zig version
           fi
 
-      - name: Enable GUI session for UI tests
+      - name: Enable UI test automation permissions
         run: |
           set -euo pipefail
-          echo "=== Session diagnostics ==="
-          whoami
-          who 2>/dev/null || true
-          echo "Console user: $(stat -f '%Su' /dev/console 2>/dev/null || echo 'unknown')"
-          launchctl print gui/$(id -u) 2>/dev/null | head -5 || echo "No GUI domain"
-          echo ""
+          # Grant TCC permissions for XCUITest following CircleCI's proven approach:
+          # 1. Xcode Helper needs kTCCServiceAccessibility (UI automation)
+          # 2. Terminal needs kTCCServiceDeveloperTool (process control)
+          # Both system and user-level TCC databases must be updated.
+          # Ref: https://github.com/CircleCI-Public/macos-orb/blob/main/src/scripts/add-uitest-permissions.sh
+          if ! csrutil status | grep -q 'disabled'; then
+            echo "WARNING: SIP is enabled, TCC modifications may not take effect"
+          fi
 
-          # Enable developer tools (needed for XCTest process control)
+          EPOCHDATE=$(($(date +%s) * 1000))
+          SYSTEM_DB="/Library/Application Support/com.apple.TCC/TCC.db"
+          USER_DB="$HOME/Library/Application Support/com.apple.TCC/TCC.db"
+
+          TCC_ACCESSIBILITY="REPLACE INTO access (service,client,client_type,auth_value,auth_reason,auth_version,indirect_object_identifier,flags,last_modified) VALUES ('kTCCServiceAccessibility','com.apple.dt.Xcode-Helper',0,2,1,1,'UNUSED',0,$EPOCHDATE);"
+          TCC_DEVTOOL="REPLACE INTO access (service,client,client_type,auth_value,auth_reason,auth_version,indirect_object_identifier,flags,last_modified) VALUES ('kTCCServiceDeveloperTool','com.apple.Terminal',0,2,1,1,'UNUSED',0,$EPOCHDATE);"
+
+          for db in "$SYSTEM_DB" "$USER_DB"; do
+            if [ -f "$db" ]; then
+              sudo sqlite3 "$db" "$TCC_ACCESSIBILITY" && echo "Accessibility granted in $(basename $(dirname "$db"))"
+              sudo sqlite3 "$db" "$TCC_DEVTOOL" && echo "DeveloperTool granted in $(basename $(dirname "$db"))"
+            fi
+          done
+
           sudo DevToolsSecurity -enable 2>/dev/null || true
-          sudo security authorizationdb write system.privilege.taskport is-developer 2>/dev/null || true
-
-          # Grant TCC permissions for XCUITest
-          TCC_DB="/Library/Application Support/com.apple.TCC/TCC.db"
-          if [ -f "$TCC_DB" ]; then
-            for service in kTCCServiceAccessibility kTCCServicePostEvent kTCCServiceScreenCapture; do
-              for client in com.apple.dt.Xcode com.apple.dt.XCTest.XCTestRunner; do
-                sudo sqlite3 "$TCC_DB" \
-                  "INSERT OR REPLACE INTO access (service, client, client_type, auth_value, auth_reason, auth_version) VALUES ('$service', '$client', 0, 2, 4, 1);" 2>/dev/null || true
-              done
-            done
-            echo "TCC permissions granted"
-          else
-            echo "TCC database not found at $TCC_DB"
-          fi
-
-          # Check if Aqua session exists; if not, try to create one
-          if ! launchctl print gui/$(id -u) &>/dev/null; then
-            echo "No GUI session found, attempting to bootstrap one"
-            sudo launchctl bootout gui/$(id -u) 2>/dev/null || true
-            sudo launchctl bootstrap gui/$(id -u) 2>/dev/null || true
-          fi
-
-          echo "=== Post-setup diagnostics ==="
-          pgrep -l WindowServer || echo "WindowServer not running"
-          pgrep -l loginwindow || echo "loginwindow not running"
-          system_profiler SPDisplaysDataType 2>/dev/null | head -20 || true
 
       - name: Clean DerivedData
         run: rm -rf ~/Library/Developer/Xcode/DerivedData/GhosttyTabs-*
