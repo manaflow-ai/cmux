@@ -15,7 +15,7 @@ jobs:
       matrix:
         include:
           - os: warp-macos-14-arm64-6x
-            timeout: 30
+            timeout: 45
           - os: warp-macos-15-arm64-6x
             timeout: 20
     runs-on: ${{ matrix.os }}
