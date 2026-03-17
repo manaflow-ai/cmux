@@ -680,11 +680,17 @@ final class WindowTerminalPortal: NSObject {
     private func scheduleExternalGeometrySynchronize() {
         guard !hasExternalGeometrySyncScheduled else { return }
         hasExternalGeometrySyncScheduled = true
+        let requiresSettledLayout = !(hostView.inLiveResize || window?.inLiveResize == true)
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-            DispatchQueue.main.async {
+            let performSync = {
                 self.hasExternalGeometrySyncScheduled = false
                 self.synchronizeAllEntriesFromExternalGeometryChange()
+            }
+            if requiresSettledLayout {
+                DispatchQueue.main.async(execute: performSync)
+            } else {
+                performSync()
             }
         }
     }

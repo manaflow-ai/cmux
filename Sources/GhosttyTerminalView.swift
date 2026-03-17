@@ -8573,13 +8573,17 @@ struct GhosttyTerminalView: NSViewRepresentable {
         return !hostedViewHasSuperview
     }
 
-    private static func scheduleDeferredPortalGeometrySynchronize(
+    private static func synchronizePortalGeometry(
         for host: HostContainerView,
         coordinator: Coordinator
     ) {
         let geometryRevision = host.geometryRevision
         guard coordinator.lastSynchronizedHostGeometryRevision != geometryRevision else { return }
         coordinator.lastSynchronizedHostGeometryRevision = geometryRevision
+        if host.inLiveResize || host.window?.inLiveResize == true {
+            TerminalWindowPortalRegistry.synchronizeForAnchor(host)
+            return
+        }
         // Avoid synchronizing the terminal portal while AppKit is still inside
         // the current layout turn. Re-entrant syncs here can wedge window resize
         // handling and leave the app spinning on the wait cursor.
@@ -8745,7 +8749,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
                     hostedView.setActive(coordinator.desiredIsActive)
                     hostedView.setNotificationRing(visible: coordinator.desiredShowsUnreadNotificationRing)
                 }
-                Self.scheduleDeferredPortalGeometrySynchronize(
+                Self.synchronizePortalGeometry(
                     for: host,
                     coordinator: coordinator
                 )
@@ -8783,7 +8787,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
                     coordinator.lastBoundHostId = hostId
                     coordinator.lastSynchronizedHostGeometryRevision = geometryRevision
                 } else if coordinator.lastSynchronizedHostGeometryRevision != geometryRevision {
-                    Self.scheduleDeferredPortalGeometrySynchronize(
+                    Self.synchronizePortalGeometry(
                         for: host,
                         coordinator: coordinator
                     )
