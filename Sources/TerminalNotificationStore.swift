@@ -651,6 +651,7 @@ final class TerminalNotificationStore: ObservableObject {
 
     static let categoryIdentifier = "com.cmuxterm.app.userNotification"
     static let actionShowIdentifier = "com.cmuxterm.app.userNotification.show"
+    private static let notificationSettingsPromptSuppressedKey = "notifications.enablePromptSuppressed"
     private enum AuthorizationRequestOrigin: String {
         case notificationDelivery = "notification_delivery"
         case settingsButton = "settings_button"
@@ -758,6 +759,21 @@ final class TerminalNotificationStore: ObservableObject {
             return "ephemeral"
         @unknown default:
             return "unknown(\(status.rawValue))"
+        }
+    }
+
+    private static func isNotificationSettingsPromptSuppressed(defaults: UserDefaults = .standard) -> Bool {
+        defaults.bool(forKey: notificationSettingsPromptSuppressedKey)
+    }
+
+    private static func setNotificationSettingsPromptSuppressed(
+        _ isSuppressed: Bool,
+        defaults: UserDefaults = .standard
+    ) {
+        if isSuppressed {
+            defaults.set(true, forKey: notificationSettingsPromptSuppressedKey)
+        } else {
+            defaults.removeObject(forKey: notificationSettingsPromptSuppressedKey)
         }
     }
 
@@ -1066,8 +1082,14 @@ final class TerminalNotificationStore: ObservableObject {
                 case .authorized, .provisional, .ephemeral:
                     completion(true)
                 case .denied:
-                    self.logAuthorization("ensure denied origin=\(origin.rawValue) prompting_settings")
-                    self.promptToEnableNotifications()
+                    switch origin {
+                    case .notificationDelivery:
+                        self.logAuthorization("ensure denied origin=\(origin.rawValue) prompting_settings")
+                        self.promptToEnableNotifications()
+                    case .settingsButton, .settingsTest:
+                        self.logAuthorization("ensure denied origin=\(origin.rawValue) opening_settings")
+                        self.openNotificationSettings()
+                    }
                     completion(false)
                 case .notDetermined:
                     if Self.shouldDeferAutomaticAuthorizationRequest(
@@ -1128,7 +1150,12 @@ final class TerminalNotificationStore: ObservableObject {
 
     private func promptToEnableNotifications() {
         DispatchQueue.main.async { [weak self] in
-            guard let self, !self.hasPromptedForSettings else { return }
+            guard let self else { return }
+            guard !Self.isNotificationSettingsPromptSuppressed() else {
+                self.logAuthorization("prompt settings skipped suppressed=1")
+                return
+            }
+            guard !self.hasPromptedForSettings else { return }
             self.logAuthorization("prompt settings shown")
             self.hasPromptedForSettings = true
             self.presentNotificationSettingsPrompt(attempt: 0)
@@ -1151,14 +1178,24 @@ final class TerminalNotificationStore: ObservableObject {
 
         let alert = notificationSettingsAlertFactory()
         alert.messageText = String(localized: "dialog.enableNotifications.title", defaultValue: "Enable Notifications for cmux")
-        alert.informativeText = String(localized: "dialog.enableNotifications.message", defaultValue: "Notifications are disabled for cmux. Enable them in System Settings to see alerts.")
+        alert.informativeText = String(
+            localized: "dialog.enableNotifications.message",
+            defaultValue: "Notifications are off for cmux. Turn them on in System Settings to get alerts. If you want to revisit this later, open Settings > Notifications in cmux anytime."
+        )
         alert.addButton(withTitle: String(localized: "dialog.enableNotifications.openSettings", defaultValue: "Open Settings"))
         alert.addButton(withTitle: String(localized: "dialog.enableNotifications.notNow", defaultValue: "Not Now"))
+        alert.addButton(withTitle: String(localized: "dialog.enableNotifications.neverAskAgain", defaultValue: "Never Ask Again"))
         alert.beginSheetModal(for: window) { [weak self] response in
-            guard response == .alertFirstButtonReturn else {
-                return
+            guard let self else { return }
+            switch response {
+            case .alertFirstButtonReturn:
+                self.openNotificationSettings()
+            case .alertThirdButtonReturn:
+                Self.setNotificationSettingsPromptSuppressed(true)
+                self.logAuthorization("prompt settings never_ask_again")
+            default:
+                self.logAuthorization("prompt settings dismissed response=\(response.rawValue)")
             }
-            self?.openNotificationSettings()
         }
     }
 
@@ -1248,6 +1285,15 @@ final class TerminalNotificationStore: ObservableObject {
             NSWorkspace.shared.open(url)
         }
         hasPromptedForSettings = false
+        Self.setNotificationSettingsPromptSuppressed(false)
+    }
+
+    func setNotificationSettingsPromptSuppressedForTesting(_ isSuppressed: Bool) {
+        Self.setNotificationSettingsPromptSuppressed(isSuppressed)
+    }
+
+    func isNotificationSettingsPromptSuppressedForTesting() -> Bool {
+        Self.isNotificationSettingsPromptSuppressed()
     }
 
     func configureNotificationDeliveryHandlerForTesting(

@@ -28374,13 +28374,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Notifications are disabled for cmux. Enable them in System Settings to see alerts."
+            "value": "Notifications are off for cmux. Turn them on in System Settings to get alerts. If you want to revisit this later, open Settings > Notifications in cmux anytime."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmuxの通知が無効になっています。アラートを表示するにはシステム設定で有効にしてください。"
+            "value": "cmuxの通知はオフになっています。通知を受け取るには、システム設定で有効にしてください。後で見直す場合は、cmuxの「設定 > 通知」からいつでも開けます。"
           }
         },
         "zh-Hans": {
@@ -28590,6 +28590,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Şimdi Değil"
+          }
+        }
+      }
+    },
+    "dialog.enableNotifications.neverAskAgain": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Never Ask Again"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今後は表示しない"
           }
         }
       }
