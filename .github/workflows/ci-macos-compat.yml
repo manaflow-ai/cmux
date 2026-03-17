@@ -14,12 +14,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: warp-macos-14-arm64-6x
-            timeout: 20
-            smoke: false
           - os: warp-macos-15-arm64-6x
             timeout: 20
             smoke: true
+          - os: warp-macos-26-arm64-6x
+            timeout: 20
+            smoke: false  # WarpBuild screen lock blocks app activation on macOS 26
     runs-on: ${{ matrix.os }}
     timeout-minutes: ${{ matrix.timeout }}
     steps:
