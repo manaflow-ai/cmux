@@ -15,9 +15,11 @@ jobs:
       matrix:
         include:
           - os: warp-macos-14-arm64-6x
-            timeout: 45
+            timeout: 20
+            smoke: false
           - os: warp-macos-15-arm64-6x
             timeout: 20
+            smoke: true
     runs-on: ${{ matrix.os }}
     timeout-minutes: ${{ matrix.timeout }}
     steps:
@@ -155,6 +157,7 @@ jobs:
           fi
 
       - name: Create virtual display
+        if: matrix.smoke
         run: |
           set -euo pipefail
           echo "=== Display before ==="
@@ -170,6 +173,7 @@ jobs:
           system_profiler SPDisplaysDataType 2>/dev/null || echo "(no display info)"
 
       - name: Build app for smoke test
+        if: matrix.smoke
         run: |
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
@@ -179,6 +183,7 @@ jobs:
             -destination "platform=macOS" build
 
       - name: Smoke test
+        if: matrix.smoke
         run: |
           set -euo pipefail
           chmod +x scripts/smoke-test-ci.sh
