@@ -8,6 +8,9 @@ import (
 	"io"
 	"math"
 	"net"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -44,6 +47,35 @@ func (b *notifyingBuffer) String() string {
 	return b.buffer.String()
 }
 
+type eofWithPayloadConn struct {
+	payload  []byte
+	readOnce bool
+}
+
+func (c *eofWithPayloadConn) Read(p []byte) (int, error) {
+	if c.readOnce {
+		return 0, io.EOF
+	}
+	c.readOnce = true
+	n := copy(p, c.payload)
+	return n, io.EOF
+}
+
+func (c *eofWithPayloadConn) Write(p []byte) (int, error) {
+	return len(p), nil
+}
+
+func (c *eofWithPayloadConn) Close() error { return nil }
+func (c *eofWithPayloadConn) LocalAddr() net.Addr {
+	return &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0}
+}
+func (c *eofWithPayloadConn) RemoteAddr() net.Addr {
+	return &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0}
+}
+func (c *eofWithPayloadConn) SetDeadline(time.Time) error      { return nil }
+func (c *eofWithPayloadConn) SetReadDeadline(time.Time) error  { return nil }
+func (c *eofWithPayloadConn) SetWriteDeadline(time.Time) error { return nil }
+
 func TestRunVersion(t *testing.T) {
 	var out bytes.Buffer
 	code := run([]string{"version"}, strings.NewReader(""), &out, &bytes.Buffer{})
@@ -52,6 +84,46 @@ func TestRunVersion(t *testing.T) {
 	}
 	if strings.TrimSpace(out.String()) == "" {
 		t.Fatalf("version output should not be empty")
+	}
+}
+
+func TestWrapperBinaryDispatchesIntoCLI(t *testing.T) {
+	if os.Getenv("CMUXD_REMOTE_MAIN_HELPER") == "1" {
+		separator := 0
+		for i, arg := range os.Args {
+			if arg == "--" {
+				separator = i
+				break
+			}
+		}
+		if separator == 0 {
+			t.Fatal("helper process missing -- separator")
+		}
+		os.Args = append([]string{os.Args[0]}, os.Args[separator+1:]...)
+		main()
+		return
+	}
+
+	sockPath := startMockSocket(t, "PONG")
+	wrapperPath := filepath.Join(t.TempDir(), "cmuxd-remote-current")
+	if err := os.Symlink(os.Args[0], wrapperPath); err != nil {
+		t.Fatalf("symlink wrapper path: %v", err)
+	}
+
+	cmd := exec.Command(
+		wrapperPath,
+		"-test.run=TestWrapperBinaryDispatchesIntoCLI",
+		"--",
+		"--socket", sockPath, "ping",
+	)
+	cmd.Env = append(os.Environ(), "CMUXD_REMOTE_MAIN_HELPER=1")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("wrapper invocation failed: %v\n%s", err, output)
+	}
+
+	if got := strings.TrimSpace(string(output)); got != "PONG" {
+		t.Fatalf("wrapper invocation output = %q, want %q", got, "PONG")
 	}
 }
 
@@ -305,6 +377,90 @@ func TestProxyStreamRoundTrip(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatalf("proxy test server goroutine did not finish")
 	}
+}
+
+func TestProxyStreamEOFPayloadIsNotDuplicatedAcrossDataAndEOFEvents(t *testing.T) {
+	eventOutput := newNotifyingBuffer()
+	server := &rpcServer{
+		nextStreamID:  1,
+		nextSessionID: 1,
+		streams: map[string]*streamState{
+			"stream-1": {
+				conn: &eofWithPayloadConn{payload: []byte("tail")},
+			},
+		},
+		sessions: map[string]*sessionState{},
+		frameWriter: &stdioFrameWriter{
+			writer: bufio.NewWriter(eventOutput),
+		},
+	}
+	defer server.closeAll()
+
+	resp := server.handleRequest(rpcRequest{
+		ID:     1,
+		Method: "proxy.stream.subscribe",
+		Params: map[string]any{"stream_id": "stream-1"},
+	})
+	if !resp.OK {
+		t.Fatalf("proxy.stream.subscribe failed: %+v", resp)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for strings.Count(strings.TrimSpace(eventOutput.String()), "\n")+boolToInt(strings.TrimSpace(eventOutput.String()) != "") < 2 {
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			t.Fatalf("timed out waiting for proxy stream events: %q", eventOutput.String())
+		}
+		select {
+		case <-eventOutput.notify:
+		case <-time.After(remaining):
+			t.Fatalf("timed out waiting for proxy stream events: %q", eventOutput.String())
+		}
+	}
+
+	lines := strings.Split(strings.TrimSpace(eventOutput.String()), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("expected exactly 2 stream events, got %d: %q", len(lines), eventOutput.String())
+	}
+
+	var first map[string]any
+	if err := json.Unmarshal([]byte(lines[0]), &first); err != nil {
+		t.Fatalf("decode first event: %v", err)
+	}
+	var second map[string]any
+	if err := json.Unmarshal([]byte(lines[1]), &second); err != nil {
+		t.Fatalf("decode second event: %v", err)
+	}
+
+	if got := first["event"]; got != "proxy.stream.data" {
+		t.Fatalf("first event = %v, want proxy.stream.data", got)
+	}
+	if got := second["event"]; got != "proxy.stream.eof" {
+		t.Fatalf("second event = %v, want proxy.stream.eof", got)
+	}
+
+	firstPayload, err := base64.StdEncoding.DecodeString(first["data_base64"].(string))
+	if err != nil {
+		t.Fatalf("decode first payload: %v", err)
+	}
+	secondPayload, err := base64.StdEncoding.DecodeString(second["data_base64"].(string))
+	if err != nil {
+		t.Fatalf("decode second payload: %v", err)
+	}
+
+	if string(firstPayload) != "tail" {
+		t.Fatalf("proxy.stream.data payload = %q, want %q", string(firstPayload), "tail")
+	}
+	if len(secondPayload) != 0 {
+		t.Fatalf("proxy.stream.eof payload = %q, want empty payload after data event", string(secondPayload))
+	}
+}
+
+func boolToInt(value bool) int {
+	if value {
+		return 1
+	}
+	return 0
 }
 
 func TestGetIntParamRejectsFractionalFloat64(t *testing.T) {
