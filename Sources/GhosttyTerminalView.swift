@@ -1618,6 +1618,7 @@ class GhosttyApp {
                 return
             }
 
+            loadClassicLightThemeIfNeeded(fallbackConfig)
             loadInlineGhosttyConfig(
                 "macos-background-from-layer = true",
                 into: fallbackConfig,
