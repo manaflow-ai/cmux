@@ -536,6 +536,13 @@ struct BrowserPanelView: View {
                 panel.invalidateAddressBarPageFocusRestoreAttempts()
                 hideSuggestions()
                 setAddressBarFocused(false, reason: "panelFocus.onChange.unfocused")
+                // Surface switches in split layouts can keep the browser visible, so
+                // `isVisibleInUI` never flips to false. Sample the real inspector
+                // state when focus leaves the panel as well, otherwise an X-close can
+                // leave the persisted DevTools intent stale until the next reattach.
+                DispatchQueue.main.async {
+                    panel.syncDeveloperToolsPreferenceFromInspector()
+                }
             }
             syncWebViewResponderPolicyWithViewState(
                 reason: "panelFocusChanged",
