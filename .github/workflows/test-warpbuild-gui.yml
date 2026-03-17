@@ -1,6 +1,11 @@
 name: Test WarpBuild GUI Activation
 
 on:
+  push:
+    branches:
+      - task-migrate-warpcloud-consolidated
+    paths:
+      - '.github/workflows/test-warpbuild-gui.yml'
   workflow_dispatch:
 
 jobs:
