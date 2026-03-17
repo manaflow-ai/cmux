@@ -344,6 +344,7 @@ struct cmuxApp: App {
                 }
                 .onChange(of: appearanceMode) { _ in
                     applyAppearance()
+                    GhosttyApp.shared.reloadConfiguration(source: "appearanceModeChanged")
                 }
                 .onChange(of: socketControlMode) { _ in
                     updateSocketController()
@@ -833,7 +834,7 @@ struct cmuxApp: App {
         switch mode {
         case .system:
             NSApplication.shared.appearance = nil
-        case .light:
+        case .light, .classicLight:
             NSApplication.shared.appearance = NSAppearance(named: .aqua)
         case .dark:
             NSApplication.shared.appearance = NSAppearance(named: .darkAqua)
@@ -3523,13 +3524,14 @@ private struct AboutVisualEffectBackground: NSViewRepresentable {
 enum AppearanceMode: String, CaseIterable, Identifiable {
     case system
     case light
+    case classicLight
     case dark
     case auto
 
     var id: String { rawValue }
 
     static var visibleCases: [AppearanceMode] {
-        [.system, .light, .dark]
+        [.system, .light, .classicLight, .dark]
     }
 
     var displayName: String {
@@ -3538,6 +3540,8 @@ enum AppearanceMode: String, CaseIterable, Identifiable {
             return String(localized: "appearance.system", defaultValue: "System")
         case .light:
             return String(localized: "appearance.light", defaultValue: "Light")
+        case .classicLight:
+            return String(localized: "appearance.classicLight", defaultValue: "Classic Light")
         case .dark:
             return String(localized: "appearance.dark", defaultValue: "Dark")
         case .auto:
