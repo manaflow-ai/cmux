@@ -43,12 +43,21 @@ func captureStdout(t *testing.T, fn func()) string {
 	return string(output)
 }
 
+func makeShortUnixSocketPath(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("/tmp", "cmuxd-")
+	if err != nil {
+		t.Fatalf("mkdtemp: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	return filepath.Join(dir, "cmux.sock")
+}
+
 // startMockSocket creates a Unix socket that accepts one connection,
 // reads a line, and responds with the given canned response.
 func startMockSocket(t *testing.T, response string) string {
 	t.Helper()
-	dir := t.TempDir()
-	sockPath := filepath.Join(dir, "cmux.sock")
+	sockPath := makeShortUnixSocketPath(t)
 
 	ln, err := net.Listen("unix", sockPath)
 	if err != nil {
@@ -77,8 +86,7 @@ func startMockSocket(t *testing.T, response string) string {
 // back as a successful JSON-RPC response with the method name in the result.
 func startMockV2Socket(t *testing.T) string {
 	t.Helper()
-	dir := t.TempDir()
-	sockPath := filepath.Join(dir, "cmux.sock")
+	sockPath := makeShortUnixSocketPath(t)
 
 	ln, err := net.Listen("unix", sockPath)
 	if err != nil {
@@ -113,6 +121,50 @@ func startMockV2Socket(t *testing.T) string {
 	}()
 
 	return sockPath
+}
+
+func startMockV2SocketWithRequestCapture(t *testing.T) (string, <-chan map[string]any) {
+	t.Helper()
+	sockPath := makeShortUnixSocketPath(t)
+	requests := make(chan map[string]any, 8)
+
+	ln, err := net.Listen("unix", sockPath)
+	if err != nil {
+		t.Fatalf("failed to listen: %v", err)
+	}
+	t.Cleanup(func() { ln.Close() })
+
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func(conn net.Conn) {
+				defer conn.Close()
+				buf := make([]byte, 4096)
+				n, _ := conn.Read(buf)
+				if n == 0 {
+					return
+				}
+				var req map[string]any
+				if err := json.Unmarshal(buf[:n], &req); err != nil {
+					_, _ = conn.Write([]byte(`{"ok":false,"error":{"code":"parse","message":"bad json"}}` + "\n"))
+					return
+				}
+				requests <- req
+				resp := map[string]any{
+					"id":     req["id"],
+					"ok":     true,
+					"result": map[string]any{"method": req["method"], "params": req["params"]},
+				}
+				payload, _ := json.Marshal(resp)
+				_, _ = conn.Write(append(payload, '\n'))
+			}(conn)
+		}
+	}()
+
+	return sockPath, requests
 }
 
 func startMockV2TCPSocketWithResult(t *testing.T, result any) string {
@@ -615,6 +667,137 @@ func TestCLIBrowserSubcommand(t *testing.T) {
 	code := runCLI([]string{"--socket", sockPath, "--json", "browser", "open", "--url", "https://example.com"})
 	if code != 0 {
 		t.Fatalf("browser open should return 0, got %d", code)
+	}
+}
+
+func TestCLINewPaneDefaultsDirectionAndForwardsExtraFlags(t *testing.T) {
+	sockPath, requests := startMockV2SocketWithRequestCapture(t)
+	code := runCLI([]string{
+		"--socket", sockPath, "--json",
+		"new-pane",
+		"--workspace", "ws-1",
+		"--type", "browser",
+		"--url", "https://example.com",
+	})
+	if code != 0 {
+		t.Fatalf("new-pane should return 0, got %d", code)
+	}
+
+	select {
+	case req := <-requests:
+		if got := req["method"]; got != "pane.create" {
+			t.Fatalf("expected pane.create, got %v", got)
+		}
+		params, _ := req["params"].(map[string]any)
+		if got := params["workspace_id"]; got != "ws-1" {
+			t.Fatalf("expected workspace_id ws-1, got %v", got)
+		}
+		if got := params["direction"]; got != "right" {
+			t.Fatalf("expected default direction right, got %v", got)
+		}
+		if got := params["type"]; got != "browser" {
+			t.Fatalf("expected type browser, got %v", got)
+		}
+		if got := params["url"]; got != "https://example.com" {
+			t.Fatalf("expected url to be forwarded, got %v", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for new-pane request")
+	}
+}
+
+func TestCLIListPanelsUsesSurfaceList(t *testing.T) {
+	sockPath, requests := startMockV2SocketWithRequestCapture(t)
+	code := runCLI([]string{"--socket", sockPath, "--json", "list-panels", "--workspace", "ws-1"})
+	if code != 0 {
+		t.Fatalf("list-panels should return 0, got %d", code)
+	}
+
+	select {
+	case req := <-requests:
+		if got := req["method"]; got != "surface.list" {
+			t.Fatalf("expected surface.list, got %v", got)
+		}
+		params, _ := req["params"].(map[string]any)
+		if got := params["workspace_id"]; got != "ws-1" {
+			t.Fatalf("expected workspace_id ws-1, got %v", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for list-panels request")
+	}
+}
+
+func TestCLIFocusPanelUsesSurfaceFocus(t *testing.T) {
+	sockPath, requests := startMockV2SocketWithRequestCapture(t)
+	code := runCLI([]string{"--socket", sockPath, "--json", "focus-panel", "--workspace", "ws-1", "--panel", "surface-1"})
+	if code != 0 {
+		t.Fatalf("focus-panel should return 0, got %d", code)
+	}
+
+	select {
+	case req := <-requests:
+		if got := req["method"]; got != "surface.focus" {
+			t.Fatalf("expected surface.focus, got %v", got)
+		}
+		params, _ := req["params"].(map[string]any)
+		if got := params["workspace_id"]; got != "ws-1" {
+			t.Fatalf("expected workspace_id ws-1, got %v", got)
+		}
+		if got := params["surface_id"]; got != "surface-1" {
+			t.Fatalf("expected surface_id surface-1, got %v", got)
+		}
+		if _, ok := params["panel_id"]; ok {
+			t.Fatalf("did not expect panel_id in params: %v", params)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for focus-panel request")
+	}
+}
+
+func TestCLIBrowserOpenUsesOpenSplitAndWorkspaceEnv(t *testing.T) {
+	sockPath, requests := startMockV2SocketWithRequestCapture(t)
+	t.Setenv("CMUX_WORKSPACE_ID", "env-ws")
+	code := runCLI([]string{"--socket", sockPath, "--json", "browser", "open", "https://example.com"})
+	if code != 0 {
+		t.Fatalf("browser open should return 0, got %d", code)
+	}
+
+	select {
+	case req := <-requests:
+		if got := req["method"]; got != "browser.open_split" {
+			t.Fatalf("expected browser.open_split, got %v", got)
+		}
+		params, _ := req["params"].(map[string]any)
+		if got := params["workspace_id"]; got != "env-ws" {
+			t.Fatalf("expected workspace_id env-ws, got %v", got)
+		}
+		if got := params["url"]; got != "https://example.com" {
+			t.Fatalf("expected positional url to be forwarded, got %v", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for browser open request")
+	}
+}
+
+func TestCLIBrowserGetURLUsesCurrentMethodAndSurfaceEnv(t *testing.T) {
+	sockPath, requests := startMockV2SocketWithRequestCapture(t)
+	t.Setenv("CMUX_SURFACE_ID", "env-sf")
+	code := runCLI([]string{"--socket", sockPath, "--json", "browser", "get-url"})
+	if code != 0 {
+		t.Fatalf("browser get-url should return 0, got %d", code)
+	}
+
+	select {
+	case req := <-requests:
+		if got := req["method"]; got != "browser.url.get" {
+			t.Fatalf("expected browser.url.get, got %v", got)
+		}
+		params, _ := req["params"].(map[string]any)
+		if got := params["surface_id"]; got != "env-sf" {
+			t.Fatalf("expected surface_id env-sf, got %v", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for browser get-url request")
 	}
 }
 
