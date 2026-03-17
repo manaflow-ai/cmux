@@ -1,6 +1,23 @@
 import XCTest
 import Foundation
 
+private func browserImportPollUntil(
+    timeout: TimeInterval,
+    pollInterval: TimeInterval = 0.05,
+    condition: () -> Bool
+) -> Bool {
+    let start = ProcessInfo.processInfo.systemUptime
+    while true {
+        if condition() {
+            return true
+        }
+        if (ProcessInfo.processInfo.systemUptime - start) >= timeout {
+            return false
+        }
+        RunLoop.current.run(until: Date().addingTimeInterval(pollInterval))
+    }
+}
+
 final class BrowserImportProfilesUITests: XCTestCase {
     private var capturePath = ""
 
@@ -14,15 +31,14 @@ final class BrowserImportProfilesUITests: XCTestCase {
     func testMultipleSourceProfilesDefaultToSeparateDestinations() throws {
         let app = launchApp()
 
-        openImportWizard(app)
         app.buttons["Next"].click()
         app.buttons["Next"].click()
 
         XCTAssertTrue(
-            app.radioButtons["Keep profiles separate"].waitForExistence(timeout: 5.0),
+            app.radioButtons["Separate profiles"].waitForExistence(timeout: 5.0),
             "Expected Step 3 to show the separate-profiles default"
         )
-        XCTAssertTrue(app.radioButtons["Merge all into one cmux profile"].exists)
+        XCTAssertTrue(app.radioButtons["Merge into one"].exists)
         XCTAssertTrue(app.popUpButtons["BrowserImportDestinationPopup-you"].exists)
         XCTAssertTrue(app.popUpButtons["BrowserImportDestinationPopup-austin"].exists)
 
@@ -45,11 +61,10 @@ final class BrowserImportProfilesUITests: XCTestCase {
     func testMergeModeCapturesSingleMergedDestination() throws {
         let app = launchApp()
 
-        openImportWizard(app)
         app.buttons["Next"].click()
         app.buttons["Next"].click()
 
-        let mergeRadio = app.radioButtons["Merge all into one cmux profile"]
+        let mergeRadio = app.radioButtons["Merge into one"]
         XCTAssertTrue(mergeRadio.waitForExistence(timeout: 5.0))
         mergeRadio.click()
 
@@ -73,7 +88,6 @@ final class BrowserImportProfilesUITests: XCTestCase {
     func testAdditionalDataSelectionCapturesEverythingScope() throws {
         let app = launchApp()
 
-        openImportWizard(app)
         app.buttons["Next"].click()
         app.buttons["Next"].click()
 
@@ -98,6 +112,45 @@ final class BrowserImportProfilesUITests: XCTestCase {
         XCTAssertEqual(capture["scope"] as? String, "everything")
     }
 
+    func testBlankBrowserImportHintCanOpenBrowserSettings() {
+        let app = launchAppForBlankImportHint()
+
+        let settingsButton = app.buttons["BrowserImportHintSettingsButton"]
+        XCTAssertTrue(settingsButton.waitForExistence(timeout: 5.0))
+        settingsButton.click()
+
+        let importSection = app.otherElements["SettingsBrowserImportSection"]
+        XCTAssertTrue(
+            importSection.waitForExistence(timeout: 5.0),
+            "Expected Browser Settings to scroll to the import section"
+        )
+
+        let chooseButton = app.buttons["SettingsBrowserImportChooseButton"]
+        XCTAssertTrue(
+            chooseButton.waitForExistence(timeout: 5.0),
+            "Expected Browser Settings to expose the import actions"
+        )
+        XCTAssertTrue(
+            browserImportPollUntil(timeout: 5.0) {
+                importSection.isHittable && chooseButton.isHittable
+            },
+            "Expected Browser Settings to scroll directly to the import controls"
+        )
+    }
+
+    func testBlankBrowserImportHintCanBeDismissed() {
+        let app = launchAppForBlankImportHint()
+
+        let dismissButton = app.buttons["BrowserImportHintDismissButton"]
+        XCTAssertTrue(dismissButton.waitForExistence(timeout: 5.0))
+        dismissButton.click()
+
+        XCTAssertTrue(
+            browserImportPollUntil(timeout: 2.0) { !dismissButton.exists },
+            "Expected the blank-tab import hint to disappear after dismissal"
+        )
+    }
+
     private func launchApp() -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
@@ -105,55 +158,79 @@ final class BrowserImportProfilesUITests: XCTestCase {
         app.launchEnvironment["CMUX_UI_TEST_BROWSER_IMPORT_DESTINATIONS"] = #"["Default"]"#
         app.launchEnvironment["CMUX_UI_TEST_BROWSER_IMPORT_MODE"] = "capture-only"
         app.launchEnvironment["CMUX_UI_TEST_BROWSER_IMPORT_CAPTURE_PATH"] = capturePath
-        app.launch()
-        XCTAssertTrue(
-            ensureForegroundAfterLaunch(app, timeout: 12.0),
-            "Expected app to launch in the foreground for browser import UI tests"
-        )
+        app.launchEnvironment["CMUX_UI_TEST_BROWSER_IMPORT_HINT_VARIANT"] = "inlineStrip"
+        app.launchEnvironment["CMUX_UI_TEST_BROWSER_IMPORT_HINT_SHOW"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_BROWSER_IMPORT_HINT_DISMISSED"] = "0"
+        app.launchEnvironment["CMUX_UI_TEST_BROWSER_IMPORT_HINT_OPEN_BLANK_BROWSER"] = "1"
+        launchAndActivate(app)
+        openImportWizardFromBlankImportHint(app)
         return app
     }
 
-    private func openImportWizard(_ app: XCUIApplication) {
-        let viewMenu = app.menuBars.menuBarItems["View"].firstMatch
-        XCTAssertTrue(viewMenu.waitForExistence(timeout: 5.0), "Expected View menu to exist")
-        viewMenu.click()
+    private func launchAppForBlankImportHint() -> XCUIApplication {
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_BROWSER_IMPORT_HINT_VARIANT"] = "inlineStrip"
+        app.launchEnvironment["CMUX_UI_TEST_BROWSER_IMPORT_HINT_SHOW"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_BROWSER_IMPORT_HINT_DISMISSED"] = "0"
+        app.launchEnvironment["CMUX_UI_TEST_BROWSER_IMPORT_HINT_OPEN_BLANK_BROWSER"] = "1"
+        launchAndActivate(app)
+        waitForBlankImportHint(app)
+        return app
+    }
 
-        let importItem = app.menuItems["Import From Browser…"].firstMatch
-        XCTAssertTrue(importItem.waitForExistence(timeout: 5.0), "Expected Import From Browser menu item to exist")
-        importItem.click()
+    private func waitForImportWizard(_ app: XCUIApplication) {
+        let wizardOpened = browserImportPollUntil(timeout: 5.0) {
+            app.buttons["Next"].exists || app.windows["Import Browser Data"].exists
+        }
+        XCTAssertTrue(wizardOpened, "Expected the import wizard to open")
+    }
 
-        XCTAssertTrue(
-            app.staticTexts["Import Browser Data"].waitForExistence(timeout: 5.0),
-            "Expected the import wizard to open"
-        )
+    private func waitForBlankImportHint(_ app: XCUIApplication) {
+        let hintOpened = browserImportPollUntil(timeout: 5.0) {
+            app.buttons["BrowserImportHintImportButton"].exists
+        }
+        XCTAssertTrue(hintOpened, "Expected the blank browser import hint to appear")
+    }
+
+    private func openImportWizardFromBlankImportHint(_ app: XCUIApplication) {
+        waitForBlankImportHint(app)
+
+        let importButton = app.buttons["BrowserImportHintImportButton"]
+        XCTAssertTrue(importButton.waitForExistence(timeout: 5.0))
+        importButton.click()
+
+        waitForImportWizard(app)
     }
 
     private func waitForCapturedSelection(timeout: TimeInterval) -> [String: Any]? {
-        let deadline = Date().addingTimeInterval(timeout)
         let url = URL(fileURLWithPath: capturePath)
-        while Date() < deadline {
+        let foundCapture = browserImportPollUntil(timeout: timeout) {
             if let data = try? Data(contentsOf: url),
                let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                return object
+                return !object.isEmpty
             }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+            return false
         }
-
-        guard let data = try? Data(contentsOf: url),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            return nil
+        if foundCapture,
+           let data = try? Data(contentsOf: url),
+           let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            return object
         }
-        return object
+        return nil
     }
 
-    private func ensureForegroundAfterLaunch(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
-        if app.wait(for: .runningForeground, timeout: timeout) {
-            return true
-        }
-        if app.state == .runningBackground {
+    private func launchAndActivate(_ app: XCUIApplication, activateTimeout: TimeInterval = 2.0) {
+        app.launch()
+        let activated = browserImportPollUntil(timeout: activateTimeout) {
+            guard app.state != .runningForeground else {
+                return true
+            }
             app.activate()
-            return app.wait(for: .runningForeground, timeout: 6.0)
+            return app.state == .runningForeground
         }
-        return false
+        if !activated {
+            app.activate()
+        }
     }
 }

@@ -9144,6 +9144,7 @@ private final class FeedbackComposerMessageEditorView: NSView {
 }
 
 private enum SidebarHelpMenuAction {
+    case importBrowserData
     case keyboardShortcuts
     case docs
     case changelog
@@ -9714,6 +9715,12 @@ private struct SidebarHelpMenuButton: View {
                 accessibilityIdentifier: "SidebarHelpMenuOptionKeyboardShortcuts",
                 isExternalLink: false
             )
+            helpOptionButton(
+                title: String(localized: "menu.view.importFromBrowser", defaultValue: "Import From Browser…"),
+                action: .importBrowserData,
+                accessibilityIdentifier: "SidebarHelpMenuOptionImportBrowserData",
+                isExternalLink: false
+            )
             if docsURL != nil {
                 helpOptionButton(
                     title: String(localized: "about.docs", defaultValue: "Docs"),
@@ -9818,6 +9825,11 @@ private struct SidebarHelpMenuButton: View {
 
     private func perform(_ action: SidebarHelpMenuAction) {
         switch action {
+        case .importBrowserData:
+            isPopoverPresented = false
+            DispatchQueue.main.async {
+                BrowserDataImportCoordinator.shared.presentImportDialog()
+            }
         case .keyboardShortcuts:
             isPopoverPresented = false
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
