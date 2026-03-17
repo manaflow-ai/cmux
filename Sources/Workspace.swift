@@ -3846,6 +3846,9 @@ final class Workspace: Identifiable, ObservableObject {
                         reason: reason
                     )
                 }
+                // Restore DevTools when workspace becomes visible again after being hidden
+                // (e.g., after workspace switch). This fixes blank DevTools UI issue.
+                browserPanel.restoreDeveloperToolsAfterAttachIfNeeded()
             } else {
                 BrowserWindowPortalRegistry.updateEntryVisibility(
                     for: browserPanel.webView,
