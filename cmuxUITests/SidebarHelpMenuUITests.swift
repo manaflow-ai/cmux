@@ -475,7 +475,7 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
         )
     }
 
-    func testWorkspaceTitlebarToggleKeepsSettingsWindowFocused() throws {
+    func testMinimalModeToggleKeepsSettingsWindowFocused() throws {
         let app = XCUIApplication()
         let diagnosticsPath = "/tmp/cmux-ui-test-settings-focus-\(UUID().uuidString).json"
         try? FileManager.default.removeItem(atPath: diagnosticsPath)
@@ -493,7 +493,7 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
         )
 
         focusSettingsWindow(app: app)
-        let toggle = try requireShowWorkspaceTitlebarToggle(app: app)
+        let toggle = try requireMinimalModeToggle(app: app)
         let initialState = toggleIsOn(toggle)
 
         toggle.click()
@@ -502,7 +502,7 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
             sidebarHelpPollUntil(timeout: 3.0) {
                 toggle.exists && toggleIsOn(toggle) != initialState
             },
-            "Expected the workspace titlebar setting to toggle"
+            "Expected the minimal mode setting to toggle"
         )
 
         let diagnostics = waitForDiagnostics(
@@ -515,12 +515,12 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
         XCTAssertEqual(
             diagnostics?["keyWindowIdentifier"],
             "cmux.settings",
-            "Expected the Settings window to remain key after toggling the workspace titlebar setting. diagnostics=\(diagnostics ?? [:])"
+            "Expected the Settings window to remain key after toggling minimal mode. diagnostics=\(diagnostics ?? [:])"
         )
         XCTAssertEqual(
             diagnostics?["settingsWindowIsKey"],
             "1",
-            "Expected the Settings window to report itself as key after toggling the workspace titlebar setting. diagnostics=\(diagnostics ?? [:])"
+            "Expected the Settings window to report itself as key after toggling minimal mode. diagnostics=\(diagnostics ?? [:])"
         )
         XCTAssertTrue(
             diagnosticsRemainStable(
@@ -529,7 +529,7 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
             ) { data in
                 data["keyWindowIdentifier"] == "cmux.settings" && data["settingsWindowIsKey"] == "1"
             },
-            "Expected the Settings window to stay key after toggling the workspace titlebar setting. diagnostics=\(loadDiagnostics(at: diagnosticsPath) ?? [:])"
+            "Expected the Settings window to stay key after toggling minimal mode. diagnostics=\(loadDiagnostics(at: diagnosticsPath) ?? [:])"
         )
 
         app.typeKey("w", modifierFlags: [.command])
@@ -538,7 +538,7 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
             sidebarHelpPollUntil(timeout: 3.0) {
                 app.windows.count == 1 && !toggle.exists
             },
-            "Expected Cmd+W after toggling the workspace titlebar setting to close the focused Settings window instead of defocusing back to the workspace window"
+            "Expected Cmd+W after toggling minimal mode to close the focused Settings window instead of defocusing back to the workspace window"
         )
     }
 
@@ -606,17 +606,17 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
         throw XCTSkip("Could not find the command palette all-surfaces toggle")
     }
 
-    private func requireShowWorkspaceTitlebarToggle(app: XCUIApplication) throws -> XCUIElement {
+    private func requireMinimalModeToggle(app: XCUIApplication) throws -> XCUIElement {
         let scrollView = app.scrollViews.firstMatch
         let candidates = [
-            app.switches["SettingsShowWorkspaceTitlebarToggle"],
-            app.checkBoxes["SettingsShowWorkspaceTitlebarToggle"],
-            app.buttons["SettingsShowWorkspaceTitlebarToggle"],
-            app.otherElements["SettingsShowWorkspaceTitlebarToggle"],
-            app.switches["Show Workspace Title Bar"],
-            app.checkBoxes["Show Workspace Title Bar"],
-            app.buttons["Show Workspace Title Bar"],
-            app.otherElements["Show Workspace Title Bar"],
+            app.switches["SettingsMinimalModeToggle"],
+            app.checkBoxes["SettingsMinimalModeToggle"],
+            app.buttons["SettingsMinimalModeToggle"],
+            app.otherElements["SettingsMinimalModeToggle"],
+            app.switches["Minimal Mode"],
+            app.checkBoxes["Minimal Mode"],
+            app.buttons["Minimal Mode"],
+            app.otherElements["Minimal Mode"],
         ]
 
         for _ in 0..<8 {
@@ -628,7 +628,7 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
             }
         }
 
-        throw XCTSkip("Could not find the workspace titlebar toggle")
+        throw XCTSkip("Could not find the minimal mode toggle")
     }
 
     private func toggleIsOn(_ element: XCUIElement) -> Bool {
