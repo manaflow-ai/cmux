@@ -10,6 +10,9 @@ Validates that shell integration:
 4) recovers when a gh probe wedges longer than the async timeout
 5) keeps polling in bash after prompt-render helper commands run
 6) tears down the timed-out gh probe instead of leaking it in the background
+7) falls back to explicit branch lookup when implicit gh branch resolution fails
+8) does not clear an existing PR badge on the first prompt while establishing
+   the HEAD baseline
 """
 
 from __future__ import annotations
@@ -77,6 +80,11 @@ def _git_stub() -> str:
           exit 0
         fi
 
+        if [ "$1" = "remote" ] && [ "$2" = "get-url" ] && [ "$3" = "origin" ]; then
+          printf 'https://github.com/manaflow-ai/cmux.git\\n'
+          exit 0
+        fi
+
         if [ "$1" = "status" ] && [ "$2" = "--porcelain" ] && [ "$3" = "-uno" ]; then
           exit 0
         fi
@@ -111,6 +119,17 @@ def _gh_stub() -> str:
           exit 9
         fi
 
+        requested_branch=""
+        if [ $# -ge 3 ]; then
+          case "$3" in
+            --*)
+              ;;
+            *)
+              requested_branch="$3"
+              ;;
+          esac
+        fi
+
         branch=""
         if [ -f "$head_file" ]; then
           head_line="$(cat "$head_file")"
@@ -123,6 +142,9 @@ def _gh_stub() -> str:
 
         case "$scenario" in
           prompt_helper_idle)
+            printf '1138\\tOPEN\\thttps://github.com/manaflow-ai/cmux/pull/1138\\n'
+            ;;
+          initial_prompt_preserves_pr_badge)
             printf '1138\\tOPEN\\thttps://github.com/manaflow-ai/cmux/pull/1138\\n'
             ;;
           transient_same_context)
@@ -153,6 +175,18 @@ def _gh_stub() -> str:
               exit 0
             fi
             printf '1138\\tOPEN\\thttps://github.com/manaflow-ai/cmux/pull/1138\\n'
+            ;;
+          explicit_branch_fallback)
+            if [ -z "$requested_branch" ]; then
+              printf 'no pull requests found for branch "%s"\\n' "$branch" >&2
+              exit 1
+            fi
+            if [ "$requested_branch" = "$branch" ]; then
+              printf '1138\\tOPEN\\thttps://github.com/manaflow-ai/cmux/pull/1138\\n'
+              exit 0
+            fi
+            printf 'unexpected branch lookup: %s\\n' "$requested_branch" >&2
+            exit 8
             ;;
           *)
             printf 'unknown scenario: %s\\n' "$scenario" >&2
@@ -196,6 +230,20 @@ def _shell_command(kind: str, scenario: str) -> str:
             '_CMUX_ASYNC_JOB_TIMEOUT=1\n'
             '_cmux_prompt_entry\n'
             'sleep 4\n'
+            '_cmux_cleanup\n'
+        ),
+        "explicit_branch_fallback": (
+            'cd "$CMUX_TEST_REPO"\n'
+            '_CMUX_PR_POLL_INTERVAL=10\n'
+            '_cmux_prompt_entry\n'
+            'sleep 2\n'
+            '_cmux_cleanup\n'
+        ),
+        "initial_prompt_preserves_pr_badge": (
+            'cd "$CMUX_TEST_REPO"\n'
+            '_CMUX_PR_POLL_INTERVAL=10\n'
+            '_cmux_prompt_entry\n'
+            'sleep 2\n'
             '_cmux_cleanup\n'
         ),
     }[scenario]
@@ -344,6 +392,27 @@ def _run_case(base: Path, *, shell: str, shell_args: list[str], script: Path, sc
                 return (1, f"{shell}/{scenario}: timed-out gh probe still running as pid {gh_pid}")
         return (0, f"{shell}/{scenario}: ok")
 
+    if scenario == "explicit_branch_fallback":
+        if _report_line(1138) not in send_lines:
+            return (1, f"{shell}/{scenario}: missing report_pr payload\n" + "\n".join(send_lines))
+        if not any(line.startswith("pr view feature/issue-1138 ") for line in gh_args_lines):
+            return (
+                1,
+                f"{shell}/{scenario}: expected explicit branch fallback\n" + "\n".join(gh_args_lines),
+            )
+        return (0, f"{shell}/{scenario}: ok")
+
+    if scenario == "initial_prompt_preserves_pr_badge":
+        if _report_line(1138) not in send_lines:
+            return (1, f"{shell}/{scenario}: missing report_pr payload\n" + "\n".join(send_lines))
+        if any(line.startswith("clear_pr ") for line in send_lines):
+            return (
+                1,
+                f"{shell}/{scenario}: initial prompt should not clear an existing PR badge\n"
+                + "\n".join(send_lines),
+            )
+        return (0, f"{shell}/{scenario}: ok")
+
     return (1, f"{shell}/{scenario}: unhandled scenario")
 
 
@@ -358,6 +427,8 @@ def main() -> int:
         "transient_same_context",
         "branch_switch_clear",
         "timeout_recovery",
+        "explicit_branch_fallback",
+        "initial_prompt_preserves_pr_badge",
     ]
 
     base = Path("/tmp") / f"cmux_issue_1138_pr_poll_{os.getpid()}"
