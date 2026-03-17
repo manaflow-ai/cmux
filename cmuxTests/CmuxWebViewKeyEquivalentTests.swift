@@ -5190,6 +5190,46 @@ final class UpdateChannelSettingsTests: XCTestCase {
     }
 }
 
+final class UpdateSettingsTests: XCTestCase {
+    func testApplyEnablesAutomaticChecksAndDailySchedule() {
+        let defaults = makeDefaults()
+        UpdateSettings.apply(to: defaults)
+
+        XCTAssertTrue(defaults.bool(forKey: UpdateSettings.automaticChecksKey))
+        XCTAssertEqual(defaults.double(forKey: UpdateSettings.scheduledCheckIntervalKey), UpdateSettings.scheduledCheckInterval)
+        XCTAssertFalse(defaults.bool(forKey: UpdateSettings.automaticallyUpdateKey))
+        XCTAssertFalse(defaults.bool(forKey: UpdateSettings.sendProfileInfoKey))
+        XCTAssertTrue(defaults.bool(forKey: UpdateSettings.migrationKey))
+    }
+
+    func testApplyRepairsLegacyDisabledAutomaticChecksOnce() {
+        let defaults = makeDefaults()
+        defaults.set(false, forKey: UpdateSettings.automaticChecksKey)
+        defaults.set(0, forKey: UpdateSettings.scheduledCheckIntervalKey)
+        defaults.set(true, forKey: UpdateSettings.automaticallyUpdateKey)
+
+        UpdateSettings.apply(to: defaults)
+
+        XCTAssertTrue(defaults.bool(forKey: UpdateSettings.automaticChecksKey))
+        XCTAssertEqual(defaults.double(forKey: UpdateSettings.scheduledCheckIntervalKey), UpdateSettings.scheduledCheckInterval)
+        XCTAssertTrue(defaults.bool(forKey: UpdateSettings.automaticallyUpdateKey))
+
+        defaults.set(false, forKey: UpdateSettings.automaticChecksKey)
+        UpdateSettings.apply(to: defaults)
+
+        XCTAssertFalse(defaults.bool(forKey: UpdateSettings.automaticChecksKey))
+    }
+
+    private func makeDefaults() -> UserDefaults {
+        let suiteName = "UpdateSettingsTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            fatalError("Failed to create isolated UserDefaults suite")
+        }
+        defaults.removePersistentDomain(forName: suiteName)
+        return defaults
+    }
+}
+
 final class SidebarRemoteErrorCopySupportTests: XCTestCase {
     func testMenuLabelIsNilWhenThereAreNoErrors() {
         XCTAssertNil(SidebarRemoteErrorCopySupport.menuLabel(for: []))
