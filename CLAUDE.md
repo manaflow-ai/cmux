@@ -103,6 +103,8 @@ tail -f "$(cat /tmp/cmux-last-debug-log-path 2>/dev/null || echo /tmp/cmux-debug
 - Untagged Debug app: `/tmp/cmux-debug.log`
 - Tagged Debug app (`./scripts/reload.sh --tag <tag>`): `/tmp/cmux-debug-<tag>.log`
 - `reload.sh` writes the current path to `/tmp/cmux-last-debug-log-path`
+- `reload.sh` writes the selected dev CLI path to `/tmp/cmux-last-cli-path`
+- `reload.sh` updates `/tmp/cmux-cli` and `$HOME/.local/bin/cmux-dev` to that CLI
 
 - Implementation: `vendor/bonsplit/Sources/Bonsplit/Public/DebugEventLog.swift`
 - Free function `dlog("message")` — logs with timestamp and appends to file in real time
