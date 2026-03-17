@@ -20,17 +20,17 @@ on:
         default: true
         type: boolean
       runner:
-        description: "Runner OS (warp-macos-15-arm64-6x or warp-macos-26-arm64-6x)"
+        description: "Runner OS (Depot runners for GUI activation support)"
         required: false
-        default: "warp-macos-15-arm64-6x"
+        default: "depot-macos-latest"
         type: choice
         options:
-          - warp-macos-15-arm64-6x
-          - warp-macos-26-arm64-6x
+          - depot-macos-latest
+          - depot-macos-14
 
 jobs:
   e2e:
-    runs-on: ${{ inputs.runner || 'warp-macos-15-arm64-6x' }}
+    runs-on: ${{ inputs.runner || 'depot-macos-latest' }}
     timeout-minutes: 20
     env:
       TEST_REF: ${{ inputs.ref || github.ref }}
@@ -172,8 +172,8 @@ jobs:
         uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4
         with:
           path: .ci-source-packages
-          key: spm-${{ inputs.runner || 'warp-macos-15-arm64-6x' }}-${{ hashFiles('GhosttyTabs.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
-          restore-keys: spm-${{ inputs.runner || 'warp-macos-15-arm64-6x' }}-
+          key: spm-${{ inputs.runner || 'depot-macos-latest' }}-${{ hashFiles('GhosttyTabs.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: spm-${{ inputs.runner || 'depot-macos-latest' }}-
 
       - name: Resolve Swift packages
         run: |
