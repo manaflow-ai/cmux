@@ -7567,6 +7567,11 @@ final class TerminalDirectoryOpenTargetAvailabilityTests: XCTestCase {
         XCTAssertTrue(TerminalDirectoryOpenTarget.tower.isAvailable(in: env))
     }
 
+    func testIntelliJDetected() {
+        let env = environment(existingPaths: ["/Applications/IntelliJ IDEA.app"])
+        XCTAssertTrue(TerminalDirectoryOpenTarget.intellij.isAvailable(in: env))
+    }
+
     func testCommandPaletteShortcutsExcludeGenericIDEEntry() {
         let targets = TerminalDirectoryOpenTarget.commandPaletteShortcutTargets
         XCTAssertFalse(targets.contains(where: { $0.commandPaletteTitle == "Open Current Directory in IDE" }))
