@@ -26,7 +26,7 @@ func cmuxCurrentSurfaceFontSizePoints(_ surface: ghostty_surface_t) -> Float? {
         return nil
     }
 
-    let ctFont = Unmanaged<CTFont>.fromOpaque(quicklookFont).takeRetainedValue()
+    let ctFont = Unmanaged<CTFont>.fromOpaque(quicklookFont).takeUnretainedValue()
     let points = Float(CTFontGetSize(ctFont))
     guard points > 0 else { return nil }
     return points
