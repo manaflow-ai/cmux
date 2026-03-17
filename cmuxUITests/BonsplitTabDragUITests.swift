@@ -16,12 +16,12 @@ final class BonsplitTabDragUITests: XCTestCase {
         RunLoop.current.run(until: Date().addingTimeInterval(0.5))
     }
 
-    func testHiddenWorkspaceTitlebarKeepsTabReorderWorking() {
+    func testMinimalModeKeepsTabReorderWorking() {
         let (app, dataPath) = launchConfiguredApp()
 
         XCTAssertTrue(
             ensureForegroundAfterLaunch(app, timeout: launchTimeout),
-            "Expected app to launch for Bonsplit tab drag UI test. state=\(app.state.rawValue)"
+            "Expected app to launch for minimal-mode Bonsplit tab drag UI test. state=\(app.state.rawValue)"
         )
         XCTAssertTrue(waitForAnyJSON(atPath: dataPath, timeout: setupTimeout), "Expected tab-drag setup data at \(dataPath)")
         guard let ready = waitForJSONKey("ready", equals: "1", atPath: dataPath, timeout: setupTimeout) else {
@@ -86,12 +86,12 @@ final class BonsplitTabDragUITests: XCTestCase {
         XCTAssertEqual(window.frame.origin.y, windowFrameBeforeDrag.origin.y, accuracy: 2.0, "Expected tab drag not to move the window vertically")
     }
 
-    func testHiddenWorkspaceTitlebarPlacesPaneTabBarAtTopEdge() {
+    func testMinimalModePlacesPaneTabBarAtTopEdge() {
         let (app, dataPath) = launchConfiguredApp()
 
         XCTAssertTrue(
             ensureForegroundAfterLaunch(app, timeout: launchTimeout),
-            "Expected app to launch for hidden titlebar top-gap UI test. state=\(app.state.rawValue)"
+            "Expected app to launch for minimal-mode top-gap UI test. state=\(app.state.rawValue)"
         )
         XCTAssertTrue(waitForAnyJSON(atPath: dataPath, timeout: setupTimeout), "Expected tab-drag setup data at \(dataPath)")
         guard let ready = waitForJSONKey("ready", equals: "1", atPath: dataPath, timeout: setupTimeout) else {
@@ -117,16 +117,16 @@ final class BonsplitTabDragUITests: XCTestCase {
         XCTAssertLessThanOrEqual(
             topGap,
             8,
-            "Expected the selected pane tab to reach the top edge when the workspace titlebar is hidden. window=\(window.frame) alphaTab=\(alphaTab.frame) gap.bottomLeft=\(gapIfOriginIsBottomLeft) gap.topLeft=\(gapIfOriginIsTopLeft)"
+            "Expected the selected pane tab to reach the top edge in minimal mode. window=\(window.frame) alphaTab=\(alphaTab.frame) gap.bottomLeft=\(gapIfOriginIsBottomLeft) gap.topLeft=\(gapIfOriginIsTopLeft)"
         )
     }
 
-    func testHiddenWorkspaceTitlebarKeepsSidebarRowsBelowTrafficLights() {
+    func testMinimalModeKeepsSidebarRowsBelowTrafficLights() {
         let (app, dataPath) = launchConfiguredApp()
 
         XCTAssertTrue(
             ensureForegroundAfterLaunch(app, timeout: launchTimeout),
-            "Expected app to launch for hidden titlebar sidebar inset UI test. state=\(app.state.rawValue)"
+            "Expected app to launch for minimal-mode sidebar inset UI test. state=\(app.state.rawValue)"
         )
         XCTAssertTrue(waitForAnyJSON(atPath: dataPath, timeout: setupTimeout), "Expected tab-drag setup data at \(dataPath)")
         guard let ready = waitForJSONKey("ready", equals: "1", atPath: dataPath, timeout: setupTimeout) else {
@@ -152,16 +152,65 @@ final class BonsplitTabDragUITests: XCTestCase {
             topInset,
             36,
             accuracy: 4,
-            "Expected hidden-titlebar mode to keep the sidebar workspace row offset unchanged while reserving the existing traffic-light strip. window=\(window.frame) workspaceRow=\(workspaceRow.frame) topInset=\(topInset)"
+            "Expected minimal mode to keep the sidebar workspace row offset unchanged while reserving the existing traffic-light strip. window=\(window.frame) workspaceRow=\(workspaceRow.frame) topInset=\(topInset)"
         )
     }
 
-    func testHiddenWorkspaceTitlebarSidebarControlsRevealOnlyFromSidebarHoverWhenFadeButtonsEnabled() {
+    func testStandardModeKeepsWorkspaceControlsOutOfSidebar() {
+        let (app, dataPath) = launchConfiguredApp(presentationMode: .standard)
+
+        XCTAssertTrue(
+            ensureForegroundAfterLaunch(app, timeout: launchTimeout),
+            "Expected app to launch for standard-mode sidebar control placement UI test. state=\(app.state.rawValue)"
+        )
+        XCTAssertTrue(waitForAnyJSON(atPath: dataPath, timeout: setupTimeout), "Expected tab-drag setup data at \(dataPath)")
+        guard let ready = waitForJSONKey("ready", equals: "1", atPath: dataPath, timeout: setupTimeout) else {
+            XCTFail("Timed out waiting for ready=1. data=\(loadJSON(atPath: dataPath) ?? [:])")
+            return
+        }
+
+        if let setupError = ready["setupError"], !setupError.isEmpty {
+            XCTFail("Setup failed: \(setupError)")
+            return
+        }
+
+        let window = app.windows.element(boundBy: 0)
+        XCTAssertTrue(window.waitForExistence(timeout: 5.0), "Expected main window to exist")
+
+        let sidebar = app.descendants(matching: .any).matching(identifier: "Sidebar").firstMatch
+        XCTAssertTrue(sidebar.waitForExistence(timeout: 5.0), "Expected sidebar to exist")
+
+        let toggleSidebarButton = app.descendants(matching: .any).matching(identifier: "titlebarControl.toggleSidebar").firstMatch
+        let notificationsButton = app.descendants(matching: .any).matching(identifier: "titlebarControl.showNotifications").firstMatch
+        let newWorkspaceButton = app.descendants(matching: .any).matching(identifier: "titlebarControl.newTab").firstMatch
+
+        XCTAssertTrue(
+            waitForCondition(timeout: 2.0) {
+                toggleSidebarButton.exists && toggleSidebarButton.isHittable &&
+                    notificationsButton.exists && notificationsButton.isHittable &&
+                    newWorkspaceButton.exists && newWorkspaceButton.isHittable
+            },
+            "Expected standard mode to keep workspace controls visible in the titlebar."
+        )
+
+        let leadingControlX = min(
+            toggleSidebarButton.frame.minX,
+            notificationsButton.frame.minX,
+            newWorkspaceButton.frame.minX
+        )
+        XCTAssertGreaterThanOrEqual(
+            leadingControlX,
+            sidebar.frame.maxX - 4,
+            "Expected standard mode workspace controls to stay outside the sidebar header. sidebar=\(sidebar.frame) toggle=\(toggleSidebarButton.frame) notifications=\(notificationsButton.frame) new=\(newWorkspaceButton.frame)"
+        )
+    }
+
+    func testMinimalModeSidebarControlsRevealOnlyFromSidebarHover() {
         let (app, dataPath) = launchConfiguredApp()
 
         XCTAssertTrue(
             ensureForegroundAfterLaunch(app, timeout: launchTimeout),
-            "Expected app to launch for hidden titlebar titlebar-controls hover UI test. state=\(app.state.rawValue)"
+            "Expected app to launch for minimal-mode sidebar hover UI test. state=\(app.state.rawValue)"
         )
         XCTAssertTrue(waitForAnyJSON(atPath: dataPath, timeout: setupTimeout), "Expected tab-drag setup data at \(dataPath)")
         guard let ready = waitForJSONKey("ready", equals: "1", atPath: dataPath, timeout: setupTimeout) else {
@@ -192,7 +241,7 @@ final class BonsplitTabDragUITests: XCTestCase {
         XCTAssertLessThan(
             paneLeadingGap,
             28,
-            "Expected visible-sidebar hidden-titlebar mode to keep pane tabs tight to the sidebar edge while the traffic lights sit over the sidebar. window=\(window.frame) sidebar=\(sidebar.frame) alphaTab=\(alphaTab.frame) paneLeadingGap=\(paneLeadingGap)"
+            "Expected visible-sidebar minimal mode to keep pane tabs tight to the sidebar edge while the traffic lights sit over the sidebar. window=\(window.frame) sidebar=\(sidebar.frame) alphaTab=\(alphaTab.frame) paneLeadingGap=\(paneLeadingGap)"
         )
 
         window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8)).hover()
@@ -200,7 +249,7 @@ final class BonsplitTabDragUITests: XCTestCase {
             waitForCondition(timeout: 2.0) {
                 !toggleSidebarButton.isHittable && !notificationsButton.isHittable && !newWorkspaceButton.isHittable
             },
-            "Expected hidden-titlebar sidebar controls to stay hidden away from the sidebar hover zone when Fade Buttons is enabled."
+            "Expected minimal-mode sidebar controls to stay hidden away from the sidebar hover zone."
         )
 
         hover(in: window, at: CGPoint(x: window.frame.maxX - 48, y: window.frame.minY + 18))
@@ -208,7 +257,7 @@ final class BonsplitTabDragUITests: XCTestCase {
             waitForCondition(timeout: 2.0) {
                 !toggleSidebarButton.isHittable && !notificationsButton.isHittable && !newWorkspaceButton.isHittable
             },
-            "Expected the removed titlebar area to stop revealing hidden-titlebar controls when Fade Buttons is enabled."
+            "Expected the removed titlebar area to stop revealing minimal-mode controls."
         )
 
         hover(
@@ -224,85 +273,16 @@ final class BonsplitTabDragUITests: XCTestCase {
                     notificationsButton.exists && notificationsButton.isHittable &&
                     newWorkspaceButton.exists && newWorkspaceButton.isHittable
             },
-            "Expected hidden-titlebar sidebar controls to reveal when hovering the sidebar chrome area with Fade Buttons enabled."
+            "Expected minimal-mode sidebar controls to reveal when hovering the sidebar chrome area."
         )
     }
 
-    func testHiddenWorkspaceTitlebarSidebarControlsStayVisibleWhenFadeButtonsDisabled() {
-        let (app, dataPath) = launchConfiguredApp(fadeButtonsMode: "disabled")
-
-        XCTAssertTrue(
-            ensureForegroundAfterLaunch(app, timeout: launchTimeout),
-            "Expected app to launch for hidden titlebar sidebar visibility UI test. state=\(app.state.rawValue)"
-        )
-        XCTAssertTrue(waitForAnyJSON(atPath: dataPath, timeout: setupTimeout), "Expected tab-drag setup data at \(dataPath)")
-        guard let ready = waitForJSONKey("ready", equals: "1", atPath: dataPath, timeout: setupTimeout) else {
-            XCTFail("Timed out waiting for ready=1. data=\(loadJSON(atPath: dataPath) ?? [:])")
-            return
-        }
-
-        if let setupError = ready["setupError"], !setupError.isEmpty {
-            XCTFail("Setup failed: \(setupError)")
-            return
-        }
-
-        let window = app.windows.element(boundBy: 0)
-        XCTAssertTrue(window.waitForExistence(timeout: 5.0), "Expected main window to exist")
-
-        let sidebar = app.descendants(matching: .any).matching(identifier: "Sidebar").firstMatch
-        XCTAssertTrue(sidebar.waitForExistence(timeout: 5.0), "Expected sidebar to exist")
-
-        let toggleSidebarButton = app.descendants(matching: .any).matching(identifier: "titlebarControl.toggleSidebar").firstMatch
-        let notificationsButton = app.descendants(matching: .any).matching(identifier: "titlebarControl.showNotifications").firstMatch
-        let newWorkspaceButton = app.descendants(matching: .any).matching(identifier: "titlebarControl.newTab").firstMatch
-
-        let alphaTitle = ready["alphaTitle"] ?? "UITest Alpha"
-        let alphaTab = app.buttons[alphaTitle]
-        XCTAssertTrue(alphaTab.waitForExistence(timeout: 5.0), "Expected alpha tab to exist")
-
-        let paneLeadingGap = alphaTab.frame.minX - sidebar.frame.maxX
-        XCTAssertLessThan(
-            paneLeadingGap,
-            28,
-            "Expected visible-sidebar hidden-titlebar mode to keep pane tabs tight to the sidebar edge while the traffic lights sit over the sidebar. window=\(window.frame) sidebar=\(sidebar.frame) alphaTab=\(alphaTab.frame) paneLeadingGap=\(paneLeadingGap)"
-        )
-
-        XCTAssertTrue(
-            waitForCondition(timeout: 2.0) {
-                toggleSidebarButton.exists && toggleSidebarButton.isHittable &&
-                    notificationsButton.exists && notificationsButton.isHittable &&
-                    newWorkspaceButton.exists && newWorkspaceButton.isHittable
-            },
-            "Expected hidden-titlebar sidebar controls to stay visible whenever the sidebar is visible and Fade Buttons is disabled."
-        )
-
-        window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8)).hover()
-        XCTAssertTrue(
-            waitForCondition(timeout: 2.0) {
-                toggleSidebarButton.exists && toggleSidebarButton.isHittable &&
-                    notificationsButton.exists && notificationsButton.isHittable &&
-                    newWorkspaceButton.exists && newWorkspaceButton.isHittable
-            },
-            "Expected hidden-titlebar sidebar controls to remain visible away from the sidebar header when Fade Buttons is disabled."
-        )
-
-        hover(in: window, at: CGPoint(x: window.frame.maxX - 48, y: window.frame.minY + 18))
-        XCTAssertTrue(
-            waitForCondition(timeout: 2.0) {
-                toggleSidebarButton.exists && toggleSidebarButton.isHittable &&
-                    notificationsButton.exists && notificationsButton.isHittable &&
-                    newWorkspaceButton.exists && newWorkspaceButton.isHittable
-            },
-            "Expected hidden-titlebar sidebar controls to remain visible without any special hover zone when Fade Buttons is disabled."
-        )
-    }
-
-    func testHiddenWorkspaceTitlebarCollapsedSidebarKeepsControlsSuppressed() {
+    func testMinimalModeCollapsedSidebarKeepsWorkspaceControlsSuppressed() {
         let (app, dataPath) = launchConfiguredApp(startWithHiddenSidebar: true)
 
         XCTAssertTrue(
             ensureForegroundAfterLaunch(app, timeout: launchTimeout),
-            "Expected app to launch for collapsed-sidebar hidden-titlebar controls UI test. state=\(app.state.rawValue)"
+            "Expected app to launch for collapsed-sidebar minimal-mode controls UI test. state=\(app.state.rawValue)"
         )
         XCTAssertTrue(waitForAnyJSON(atPath: dataPath, timeout: setupTimeout), "Expected tab-drag setup data at \(dataPath)")
         guard let ready = waitForJSONKey("ready", equals: "1", atPath: dataPath, timeout: setupTimeout) else {
@@ -335,23 +315,23 @@ final class BonsplitTabDragUITests: XCTestCase {
                     (!notificationsButton.exists || !notificationsButton.isHittable) &&
                     (!newWorkspaceButton.exists || !newWorkspaceButton.isHittable)
             },
-            "Expected collapsed-sidebar hidden-titlebar mode to keep titlebar controls suppressed. toggle=\(toggleSidebarButton.debugDescription) notifications=\(notificationsButton.debugDescription) new=\(newWorkspaceButton.debugDescription)"
+            "Expected collapsed-sidebar minimal mode to keep workspace controls suppressed. toggle=\(toggleSidebarButton.debugDescription) notifications=\(notificationsButton.debugDescription) new=\(newWorkspaceButton.debugDescription)"
         )
 
         let leadingInset = alphaTab.frame.minX - window.frame.minX
         XCTAssertLessThan(
             leadingInset,
             96,
-            "Expected pane tabs to stay near the leading edge when collapsed-sidebar hidden-titlebar mode removes the titlebar accessory lane. window=\(window.frame) alphaTab=\(alphaTab.frame) leadingInset=\(leadingInset)"
+            "Expected pane tabs to stay near the leading edge when collapsed-sidebar minimal mode removes the titlebar accessory lane. window=\(window.frame) alphaTab=\(alphaTab.frame) leadingInset=\(leadingInset)"
         )
     }
 
-    func testHiddenWorkspaceTitlebarSidebarControlsRemainVisibleWhileNotificationsPopoverIsShown() {
+    func testMinimalModeSidebarControlsRemainVisibleWhileNotificationsPopoverIsShown() {
         let (app, dataPath) = launchConfiguredApp()
 
         XCTAssertTrue(
             ensureForegroundAfterLaunch(app, timeout: launchTimeout),
-            "Expected app to launch for hidden-titlebar notifications-popover pinning UI test. state=\(app.state.rawValue)"
+            "Expected app to launch for minimal-mode notifications-popover pinning UI test. state=\(app.state.rawValue)"
         )
         XCTAssertTrue(waitForAnyJSON(atPath: dataPath, timeout: setupTimeout), "Expected tab-drag setup data at \(dataPath)")
         guard let ready = waitForJSONKey("ready", equals: "1", atPath: dataPath, timeout: setupTimeout) else {
@@ -376,7 +356,7 @@ final class BonsplitTabDragUITests: XCTestCase {
             waitForCondition(timeout: 2.0) {
                 !toggleSidebarButton.isHittable && !notificationsButton.isHittable && !newWorkspaceButton.isHittable
             },
-            "Expected hidden-titlebar sidebar controls to start hidden away from hover when Fade Buttons is enabled."
+            "Expected minimal-mode sidebar controls to start hidden away from hover."
         )
 
         app.typeKey("i", modifierFlags: [.command])
@@ -393,16 +373,16 @@ final class BonsplitTabDragUITests: XCTestCase {
                     notificationsButton.exists && notificationsButton.isHittable &&
                     newWorkspaceButton.exists && newWorkspaceButton.isHittable
             },
-            "Expected hidden-titlebar sidebar controls to remain visible while the notifications popover is open."
+            "Expected minimal-mode sidebar controls to remain visible while the notifications popover is open."
         )
     }
 
-    func testPaneTabBarControlsRevealWhenHoveringAnywhereOnPaneTabBar() {
-        let (app, dataPath) = launchConfiguredApp()
+    func testMinimalModeCollapsedSidebarStillRevealsPaneTabBarControlsOnHover() {
+        let (app, dataPath) = launchConfiguredApp(startWithHiddenSidebar: true)
 
         XCTAssertTrue(
             ensureForegroundAfterLaunch(app, timeout: launchTimeout),
-            "Expected app to launch for Bonsplit controls hover UI test. state=\(app.state.rawValue)"
+            "Expected app to launch for collapsed-sidebar minimal-mode Bonsplit controls hover UI test. state=\(app.state.rawValue)"
         )
         XCTAssertTrue(waitForAnyJSON(atPath: dataPath, timeout: setupTimeout), "Expected tab-drag setup data at \(dataPath)")
         guard let ready = waitForJSONKey("ready", equals: "1", atPath: dataPath, timeout: setupTimeout) else {
@@ -429,7 +409,7 @@ final class BonsplitTabDragUITests: XCTestCase {
         window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8)).hover()
         XCTAssertTrue(
             waitForCondition(timeout: 2.0) { !newTerminalButton.exists || !newTerminalButton.isHittable },
-            "Expected pane tab bar controls to hide away from the pane tab bar. button=\(newTerminalButton.debugDescription)"
+            "Expected pane tab bar controls to hide away from the pane tab bar in minimal mode. button=\(newTerminalButton.debugDescription)"
         )
 
         hover(
@@ -441,19 +421,24 @@ final class BonsplitTabDragUITests: XCTestCase {
         )
         XCTAssertTrue(
             waitForCondition(timeout: 2.0) { newTerminalButton.exists && newTerminalButton.isHittable },
-            "Expected pane tab bar controls to reveal when hovering inside empty pane-tab-bar space. window=\(window.frame) alphaTab=\(alphaTab.frame) betaTab=\(betaTab.frame) button=\(newTerminalButton.debugDescription)"
+            "Expected pane tab bar controls to reveal when hovering inside empty pane-tab-bar space in collapsed-sidebar minimal mode. window=\(window.frame) alphaTab=\(alphaTab.frame) betaTab=\(betaTab.frame) button=\(newTerminalButton.debugDescription)"
         )
 
         window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8)).hover()
         XCTAssertTrue(
             waitForCondition(timeout: 2.0) { !newTerminalButton.exists || !newTerminalButton.isHittable },
-            "Expected pane tab bar controls to hide again after leaving the pane tab bar. button=\(newTerminalButton.debugDescription)"
+            "Expected pane tab bar controls to hide again after leaving the pane tab bar in minimal mode. button=\(newTerminalButton.debugDescription)"
         )
+    }
+
+    private enum WorkspacePresentationMode: String {
+        case standard
+        case minimal
     }
 
     private func launchConfiguredApp(
         startWithHiddenSidebar: Bool = false,
-        fadeButtonsMode: String = "enabled"
+        presentationMode: WorkspacePresentationMode = .minimal
     ) -> (XCUIApplication, String) {
         let app = XCUIApplication()
         let dataPath = "/tmp/cmux-ui-test-bonsplit-tab-drag-\(UUID().uuidString).json"
@@ -464,7 +449,7 @@ final class BonsplitTabDragUITests: XCTestCase {
         if startWithHiddenSidebar {
             app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_START_WITH_HIDDEN_SIDEBAR"] = "1"
         }
-        app.launchArguments += ["-workspaceTitlebarVisible", "NO", "-workspaceButtonsFadeMode", fadeButtonsMode]
+        app.launchArguments += ["-workspacePresentationMode", presentationMode.rawValue]
         app.launch()
         app.activate()
         return (app, dataPath)
