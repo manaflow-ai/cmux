@@ -4,6 +4,16 @@ import CoreGraphics
 import ImageIO
 import Darwin
 
+private extension XCTestCase {
+    func waitForCondition(timeout: TimeInterval, predicate: @escaping () -> Bool) -> Bool {
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in predicate() },
+            object: nil
+        )
+        return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
+    }
+}
+
 final class MenuKeyEquivalentRoutingUITests: XCTestCase {
     private var gotoSplitPath = ""
     private var keyequivPath = ""
@@ -126,44 +136,24 @@ final class MenuKeyEquivalentRoutingUITests: XCTestCase {
     }
 
     private func waitForGotoSplit(keys: [String], timeout: TimeInterval) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if let data = loadGotoSplit(), keys.allSatisfy({ data[$0] != nil }) {
-                return true
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        waitForCondition(timeout: timeout) {
+            guard let data = self.loadGotoSplit() else { return false }
+            return keys.allSatisfy { data[$0] != nil }
         }
-        if let data = loadGotoSplit(), keys.allSatisfy({ data[$0] != nil }) {
-            return true
-        }
-        return false
     }
 
-    private func waitForGotoSplitMatch(timeout: TimeInterval, predicate: ([String: String]) -> Bool) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if let data = loadGotoSplit(), predicate(data) {
-                return true
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+    private func waitForGotoSplitMatch(timeout: TimeInterval, predicate: @escaping ([String: String]) -> Bool) -> Bool {
+        waitForCondition(timeout: timeout) {
+            guard let data = self.loadGotoSplit() else { return false }
+            return predicate(data)
         }
-        if let data = loadGotoSplit(), predicate(data) {
-            return true
-        }
-        return false
     }
 
     private func waitForKeyequivInt(key: String, toBeAtLeast expected: Int, timeout: TimeInterval) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            let value = loadKeyequiv()[key].flatMap(Int.init) ?? 0
-            if value >= expected {
-                return true
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        waitForCondition(timeout: timeout) {
+            let value = self.loadKeyequiv()[key].flatMap(Int.init) ?? 0
+            return value >= expected
         }
-        let value = loadKeyequiv()[key].flatMap(Int.init) ?? 0
-        return value >= expected
     }
 
     private func loadGotoSplit() -> [String: String]? {
@@ -280,13 +270,7 @@ final class SplitCloseRightBlankRegressionUITests: XCTestCase {
         XCTAssertTrue(waitForAnyData(timeout: 12.0), "Expected split-close-right test data to be written at \(dataPath)")
 
         // Wait for the app-side repro loop to finish.
-        let doneDeadline = Date().addingTimeInterval(90.0)
-        while Date() < doneDeadline {
-            if let data = loadData(), data["visualDone"] == "1" {
-                break
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.10))
-        }
+        XCTAssertTrue(waitForVisualDone(timeout: 90.0), "Expected visual repro loop to finish. path=\(dataPath)")
 
         guard let data = loadData() else {
             XCTFail("Missing split-close-right data after waiting. path=\(dataPath)")
@@ -329,13 +313,7 @@ final class SplitCloseRightBlankRegressionUITests: XCTestCase {
 
         XCTAssertTrue(waitForAnyData(timeout: 12.0), "Expected split-close-right test data to be written at \(dataPath)")
 
-        let doneDeadline = Date().addingTimeInterval(90.0)
-        while Date() < doneDeadline {
-            if let data = loadData(), data["visualDone"] == "1" {
-                break
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.10))
-        }
+        XCTAssertTrue(waitForVisualDone(timeout: 90.0), "Expected visual repro loop to finish. path=\(dataPath)")
 
         guard let data = loadData() else {
             XCTFail("Missing split-close-right data after waiting. path=\(dataPath)")
@@ -373,13 +351,7 @@ final class SplitCloseRightBlankRegressionUITests: XCTestCase {
 
         XCTAssertTrue(waitForAnyData(timeout: 12.0), "Expected split-close-right test data to be written at \(dataPath)")
 
-        let doneDeadline = Date().addingTimeInterval(90.0)
-        while Date() < doneDeadline {
-            if let data = loadData(), data["visualDone"] == "1" {
-                break
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.10))
-        }
+        XCTAssertTrue(waitForVisualDone(timeout: 90.0), "Expected visual repro loop to finish. path=\(dataPath)")
 
         guard let data = loadData() else {
             XCTFail("Missing split-close-right data after waiting. path=\(dataPath)")
@@ -423,13 +395,7 @@ final class SplitCloseRightBlankRegressionUITests: XCTestCase {
 
         XCTAssertTrue(waitForAnyData(timeout: 12.0), "Expected split-close-right test data to be written at \(dataPath)")
 
-        let doneDeadline = Date().addingTimeInterval(90.0)
-        while Date() < doneDeadline {
-            if let data = loadData(), data["visualDone"] == "1" {
-                break
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.10))
-        }
+        XCTAssertTrue(waitForVisualDone(timeout: 90.0), "Expected visual repro loop to finish. path=\(dataPath)")
 
         guard let data = loadData() else {
             XCTFail("Missing split-close-right data after waiting. path=\(dataPath)")
@@ -474,13 +440,7 @@ final class SplitCloseRightBlankRegressionUITests: XCTestCase {
 
         XCTAssertTrue(waitForAnyData(timeout: 12.0), "Expected split-close-right test data to be written at \(dataPath)")
 
-        let doneDeadline = Date().addingTimeInterval(90.0)
-        while Date() < doneDeadline {
-            if let data = loadData(), data["visualDone"] == "1" {
-                break
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.10))
-        }
+        XCTAssertTrue(waitForVisualDone(timeout: 90.0), "Expected visual repro loop to finish. path=\(dataPath)")
 
         guard let data = loadData() else {
             XCTFail("Missing split-close-right data after waiting. path=\(dataPath)")
@@ -523,13 +483,7 @@ final class SplitCloseRightBlankRegressionUITests: XCTestCase {
 
         XCTAssertTrue(waitForAnyData(timeout: 12.0), "Expected split-close-right test data to be written at \(dataPath)")
 
-        let doneDeadline = Date().addingTimeInterval(90.0)
-        while Date() < doneDeadline {
-            if let data = loadData(), data["visualDone"] == "1" {
-                break
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.10))
-        }
+        XCTAssertTrue(waitForVisualDone(timeout: 90.0), "Expected visual repro loop to finish. path=\(dataPath)")
 
         guard let data = loadData() else {
             XCTFail("Missing split-close-right data after waiting. path=\(dataPath)")
@@ -638,13 +592,12 @@ final class SplitCloseRightBlankRegressionUITests: XCTestCase {
         }
 
         // Also guard against a delayed blanking: watch for ~1.5s and fail if it goes blank for sustained streak.
-        let deadline = Date().addingTimeInterval(1.5)
         var blankStreak = 0
-        var sampleIndex = 0
-        while Date() < deadline {
-            sampleIndex += 1
+        for sampleIndex in 1...9 {
             guard let (path, stats) = takeStats("\(label)-watch-\(String(format: "%02d", sampleIndex))", crop: blankCrop) else {
-                RunLoop.current.run(until: Date().addingTimeInterval(0.17))
+                if sampleIndex < 9 {
+                    RunLoop.current.run(until: Date().addingTimeInterval(0.17))
+                }
                 continue
             }
             if stats.isProbablyBlank {
@@ -657,7 +610,9 @@ final class SplitCloseRightBlankRegressionUITests: XCTestCase {
                 XCTFail("Pane became blank for sustained period after close. label=\(label) stats=\(stats) shots=\(screenshotDir)")
                 return
             }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.17))
+            if sampleIndex < 9 {
+                RunLoop.current.run(until: Date().addingTimeInterval(0.17))
+            }
         }
     }
 
@@ -852,76 +807,54 @@ final class SplitCloseRightBlankRegressionUITests: XCTestCase {
     }
 
     private func waitForData(keys: [String], timeout: TimeInterval) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if let data = loadData(), keys.allSatisfy({ data[$0] != nil }) {
-                return true
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        waitForCondition(timeout: timeout) {
+            guard let data = self.loadData() else { return false }
+            return keys.allSatisfy { data[$0] != nil }
         }
-        if let data = loadData(), keys.allSatisfy({ data[$0] != nil }) {
-            return true
-        }
-        return false
     }
 
     private func waitForAnyData(timeout: TimeInterval) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if loadData() != nil {
-                return true
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        waitForCondition(timeout: timeout) {
+            self.loadData() != nil
         }
-        return loadData() != nil
     }
 
     private func waitForSettledData(timeout: TimeInterval) -> [String: String]? {
-        let deadline = Date().addingTimeInterval(timeout)
         var last: [String: String]?
 
-        while Date() < deadline {
-            if let data = loadData() {
-                last = data
+        _ = waitForCondition(timeout: timeout) {
+            guard let data = self.loadData() else { return false }
+            last = data
 
-                if let setupError = data["setupError"], !setupError.isEmpty {
-                    return data
-                }
-
-                let finalPaneCount = Int(data["finalPaneCount"] ?? "") ?? -1
-                let missingSelected = Int(data["missingSelectedTabCount"] ?? "") ?? -1
-                let missingMapping = Int(data["missingPanelMappingCount"] ?? "") ?? -1
-                let emptyPanels = Int(data["emptyPanelAppearCount"] ?? "") ?? -1
-                let selectedTerminalCount = Int(data["selectedTerminalCount"] ?? "") ?? -1
-                let selectedTerminalAttached = Int(data["selectedTerminalAttachedCount"] ?? "") ?? -1
-                let selectedTerminalZeroSize = Int(data["selectedTerminalZeroSizeCount"] ?? "") ?? -1
-                let selectedTerminalSurfaceNil = Int(data["selectedTerminalSurfaceNilCount"] ?? "") ?? -1
-
-                let settled =
-                    finalPaneCount == 2 &&
-                    missingSelected == 0 &&
-                    missingMapping == 0 &&
-                    emptyPanels == 0 &&
-                    selectedTerminalCount == 2 &&
-                    selectedTerminalAttached == 2 &&
-                    selectedTerminalZeroSize == 0 &&
-                    selectedTerminalSurfaceNil == 0
-
-                if settled {
-                    return data
-                }
-
-                // `recordSplitCloseRightFinalState` streams attempts; give it time to converge.
-                // If the bug is present it will never converge to "settled".
-                let attempt = Int(data["finalAttempt"] ?? "") ?? -1
-                if attempt >= 20 {
-                    return data
-                }
+            if let setupError = data["setupError"], !setupError.isEmpty {
+                return true
             }
 
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-        }
+            let finalPaneCount = Int(data["finalPaneCount"] ?? "") ?? -1
+            let missingSelected = Int(data["missingSelectedTabCount"] ?? "") ?? -1
+            let missingMapping = Int(data["missingPanelMappingCount"] ?? "") ?? -1
+            let emptyPanels = Int(data["emptyPanelAppearCount"] ?? "") ?? -1
+            let selectedTerminalCount = Int(data["selectedTerminalCount"] ?? "") ?? -1
+            let selectedTerminalAttached = Int(data["selectedTerminalAttachedCount"] ?? "") ?? -1
+            let selectedTerminalZeroSize = Int(data["selectedTerminalZeroSizeCount"] ?? "") ?? -1
+            let selectedTerminalSurfaceNil = Int(data["selectedTerminalSurfaceNilCount"] ?? "") ?? -1
 
+            let settled =
+                finalPaneCount == 2 &&
+                missingSelected == 0 &&
+                missingMapping == 0 &&
+                emptyPanels == 0 &&
+                selectedTerminalCount == 2 &&
+                selectedTerminalAttached == 2 &&
+                selectedTerminalZeroSize == 0 &&
+                selectedTerminalSurfaceNil == 0
+            if settled {
+                return true
+            }
+
+            let attempt = Int(data["finalAttempt"] ?? "") ?? -1
+            return attempt >= 20
+        }
         return last
     }
 
@@ -942,14 +875,15 @@ final class SplitCloseRightBlankRegressionUITests: XCTestCase {
     // MARK: - Automation Socket Client (UI Tests)
 
     private func waitForSocketPong(timeout: TimeInterval) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if socketCommand("ping") == "PONG" {
-                return true
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        waitForCondition(timeout: timeout) {
+            self.socketCommand("ping") == "PONG"
         }
-        return socketCommand("ping") == "PONG"
+    }
+
+    private func waitForVisualDone(timeout: TimeInterval) -> Bool {
+        waitForCondition(timeout: timeout) {
+            self.loadData()?["visualDone"] == "1"
+        }
     }
 
     private func socketCommand(_ cmd: String) -> String? {

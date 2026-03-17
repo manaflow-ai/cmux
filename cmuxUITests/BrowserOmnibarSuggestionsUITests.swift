@@ -96,15 +96,12 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
 
         // After committing the autocompletion candidate, the omnibar should contain the URL.
         // Note: example.com may redirect to example.org in some environments.
-        let deadline = Date().addingTimeInterval(8.0)
-        while Date() < deadline {
-            let value = (omnibar.value as? String) ?? ""
-            if value.contains("example.com") || value.contains("example.org") {
-                return
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-        }
-        XCTFail("Expected omnibar to navigate to example.com after keyboard nav + Enter. value=\(String(describing: omnibar.value))")
+        XCTAssertTrue(
+            waitForCondition(timeout: 8.0) {
+                self.containsExampleDomain((omnibar.value as? String) ?? "")
+            },
+            "Expected omnibar to navigate to example.com after keyboard nav + Enter. value=\(String(describing: omnibar.value))"
+        )
     }
 
     func testOmnibarEscapeAndClickOutsideBehaveLikeChrome() {
@@ -135,18 +132,12 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
         app.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [])
 
         // Note: example.com may redirect to example.org in some environments.
-        func containsExampleDomain(_ value: String) -> Bool {
-            value.contains("example.com") || value.contains("example.org")
-        }
-
-        let deadline = Date().addingTimeInterval(8.0)
-        while Date() < deadline {
-            let value = (omnibar.value as? String) ?? ""
-            if containsExampleDomain(value) {
-                break
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-        }
+        XCTAssertTrue(
+            waitForCondition(timeout: 8.0) {
+                self.containsExampleDomain((omnibar.value as? String) ?? "")
+            },
+            "Expected committed omnibar value to contain example.com or example.org. value=\(String(describing: omnibar.value))"
+        )
         XCTAssertTrue(containsExampleDomain((omnibar.value as? String) ?? ""))
 
         // Type a new query to open the popup, then Escape should revert to the current URL.
@@ -289,30 +280,19 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
         app.typeKey("l", modifierFlags: [.command])
 
         // Wait for navigation to finish so we can verify focus is held through page load.
-        let loaded = Date().addingTimeInterval(8.0)
         var loadObserved = false
-        while Date() < loaded {
-            let value = (omnibar.value as? String) ?? ""
-            if value.lowercased().contains("example.com") {
-                loadObserved = true
-                break
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.15))
+        loadObserved = waitForCondition(timeout: 8.0) {
+            ((omnibar.value as? String) ?? "").lowercased().contains("example.com")
         }
         XCTAssertTrue(loadObserved, "Expected omnibar to reflect the navigated URL after load. value=\(omnibar.value)")
 
         let valueAfterLoad = (omnibar.value as? String) ?? ""
         omnibar.typeText("zx")
 
-        let typed = Date().addingTimeInterval(5.0)
         var valueCaptured = false
-        while Date() < typed {
+        valueCaptured = waitForCondition(timeout: 5.0) {
             let value = (omnibar.value as? String) ?? ""
-            if value.contains("zx") && value != valueAfterLoad {
-                valueCaptured = true
-                break
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+            return value.contains("zx") && value != valueAfterLoad
         }
         XCTAssertTrue(valueCaptured, "Expected omnirbar to keep keyboard focus after Cmd+L when navigation is in-flight. value=\(String(describing: omnibar.value))")
 
@@ -346,15 +326,9 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
         omnibar.typeText("example.com")
         app.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [])
 
-        let loadedDeadline = Date().addingTimeInterval(8.0)
-        var loaded = false
-        while Date() < loadedDeadline {
+        let loaded = waitForCondition(timeout: 8.0) {
             let value = ((omnibar.value as? String) ?? "").lowercased()
-            if value.contains("example.com") || value.contains("example.org") {
-                loaded = true
-                break
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+            return self.containsExampleDomain(value)
         }
         XCTAssertTrue(loaded, "Expected baseline navigation to load before Cmd+L fast-typing check.")
 
@@ -362,18 +336,11 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
         app.typeKey("l", modifierFlags: [.command])
         app.typeText("lo")
 
-        let typedDeadline = Date().addingTimeInterval(7.0)
         var observedValue = ""
-        var startsWithTypedPrefix = false
-        while Date() < typedDeadline {
+        let startsWithTypedPrefix = waitForCondition(timeout: 7.0) {
             observedValue = ((omnibar.value as? String) ?? "").lowercased()
-            if observedValue.hasPrefix("lo") {
-                startsWithTypedPrefix = true
-                break
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+            return observedValue.hasPrefix("lo")
         }
-
         XCTAssertTrue(
             startsWithTypedPrefix,
             "Expected immediate typing after Cmd+L to preserve typed prefix 'lo'. value=\(observedValue)"
@@ -411,19 +378,15 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
         XCTAssertTrue(rows[0].waitForExistence(timeout: 4.0))
 
         var gmailRowIndex: Int?
-        let gmailDeadline = Date().addingTimeInterval(4.0)
-        while Date() < gmailDeadline {
+        _ = waitForCondition(timeout: 4.0) {
             for (index, row) in rows.enumerated() where row.exists {
                 let rowValue = (row.value as? String) ?? ""
                 if rowValue.localizedCaseInsensitiveContains("gmail") {
                     gmailRowIndex = index
-                    break
+                    return true
                 }
             }
-            if gmailRowIndex != nil {
-                break
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+            return false
         }
         guard let gmailRowIndex else {
             let rowValues = rows.enumerated().compactMap { index, row -> String? in
@@ -447,15 +410,9 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
 
         app.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [])
 
-        let deadline = Date().addingTimeInterval(8.0)
-        var committedToGmail = false
-        while Date() < deadline {
+        let committedToGmail = waitForCondition(timeout: 8.0) {
             let value = (omnibar.value as? String) ?? ""
-            if value.localizedCaseInsensitiveContains("gmail.com") {
-                committedToGmail = true
-                break
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+            return value.localizedCaseInsensitiveContains("gmail.com")
         }
         XCTAssertTrue(committedToGmail, "Expected Enter to commit Gmail autocomplete target. value=\(String(describing: omnibar.value))")
     }
@@ -557,18 +514,14 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
         omnibar.typeText("exam")
 
         let typedPrefix = "exam"
-        let inlineDeadline = Date().addingTimeInterval(3.0)
         var valueBeforeCmdA = ""
-        while Date() < inlineDeadline {
+        let sawInlineCompletion = waitForCondition(timeout: 3.0) {
             valueBeforeCmdA = (omnibar.value as? String) ?? ""
             let normalized = valueBeforeCmdA.lowercased()
-            if normalized.hasPrefix(typedPrefix), valueBeforeCmdA.utf16.count > typedPrefix.utf16.count {
-                break
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+            return normalized.hasPrefix(typedPrefix) && valueBeforeCmdA.utf16.count > typedPrefix.utf16.count
         }
         XCTAssertTrue(
-            valueBeforeCmdA.lowercased().hasPrefix(typedPrefix) && valueBeforeCmdA.utf16.count > typedPrefix.utf16.count,
+            sawInlineCompletion,
             "Expected inline completion to extend typed prefix before Cmd+A. value=\(valueBeforeCmdA)"
         )
 
@@ -688,14 +641,9 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
     }
 
     private func waitForSuggestionRowToBeSelected(_ row: XCUIElement, timeout: TimeInterval) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if isSuggestionRowSelected(row) {
-                return true
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        waitForCondition(timeout: timeout) {
+            self.isSuggestionRowSelected(row)
         }
-        return isSuggestionRowSelected(row)
     }
 
     private func isSuggestionRowSelected(_ row: XCUIElement) -> Bool {
@@ -734,26 +682,18 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
     }
 
     private func focusOmnibarWithCmdL(app: XCUIApplication, omnibar: XCUIElement, timeout: TimeInterval) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
+        let attempts = max(1, Int(ceil(timeout)))
+        for _ in 0..<attempts {
             app.typeKey("l", modifierFlags: [.command])
             guard omnibar.waitForExistence(timeout: 1.0) else { continue }
 
             let before = (omnibar.value as? String) ?? ""
             omnibar.typeText("z")
 
-            let probeDeadline = Date().addingTimeInterval(0.5)
-            var acceptedProbe = false
-            while Date() < probeDeadline {
+            if waitForCondition(timeout: 0.5, predicate: {
                 let value = (omnibar.value as? String) ?? ""
-                if value != before {
-                    acceptedProbe = true
-                    break
-                }
-                RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-            }
-
-            if acceptedProbe {
+                return value != before
+            }) {
                 app.typeKey("a", modifierFlags: [.command])
                 app.typeKey(XCUIKeyboardKey.delete.rawValue, modifierFlags: [])
                 return true
@@ -763,5 +703,17 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.1))
         }
         return false
+    }
+
+    private func containsExampleDomain(_ value: String) -> Bool {
+        value.contains("example.com") || value.contains("example.org")
+    }
+
+    private func waitForCondition(timeout: TimeInterval, predicate: @escaping () -> Bool) -> Bool {
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in predicate() },
+            object: nil
+        )
+        return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
     }
 }

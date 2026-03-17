@@ -145,6 +145,40 @@ _cmux_pr_output_indicates_no_pull_request() {
         || "$output" == *"no pull request associated"* ]]
 }
 
+_cmux_github_repo_slug_for_path() {
+    local repo_path="$1"
+    local remote_url="" path_part=""
+    [[ -n "$repo_path" ]] || return 0
+
+    remote_url="$(git -C "$repo_path" remote get-url origin 2>/dev/null)"
+    [[ -n "$remote_url" ]] || return 0
+
+    case "$remote_url" in
+        git@github.com:*)
+            path_part="${remote_url#git@github.com:}"
+            ;;
+        ssh://git@github.com/*)
+            path_part="${remote_url#ssh://git@github.com/}"
+            ;;
+        https://github.com/*)
+            path_part="${remote_url#https://github.com/}"
+            ;;
+        http://github.com/*)
+            path_part="${remote_url#http://github.com/}"
+            ;;
+        git://github.com/*)
+            path_part="${remote_url#git://github.com/}"
+            ;;
+        *)
+            return 0
+            ;;
+    esac
+
+    path_part="${path_part%.git}"
+    [[ "$path_part" == */* ]] || return 0
+    printf '%s\n' "$path_part"
+}
+
 _cmux_report_pr_for_path() {
     local repo_path="$1"
     [[ -n "$repo_path" ]] || {
@@ -159,11 +193,18 @@ _cmux_report_pr_for_path() {
     [[ -n "$CMUX_TAB_ID" ]] || return 0
     [[ -n "$CMUX_PANEL_ID" ]] || return 0
 
-    local branch gh_output gh_error="" err_file="" gh_status number state url status_opt=""
+    local branch repo_slug="" gh_output="" gh_error="" err_file="" gh_status number state url status_opt=""
+    local explicit_branch_output="" explicit_branch_error="" explicit_branch_status=0
+    local implicit_probe_indicates_no_pr=0 explicit_probe_indicates_no_pr=0
+    local -a gh_repo_args=()
     branch="$(git -C "$repo_path" branch --show-current 2>/dev/null)"
     if [[ -z "$branch" ]] || ! command -v gh >/dev/null 2>&1; then
         _cmux_clear_pr_for_panel
         return 0
+    fi
+    repo_slug="$(_cmux_github_repo_slug_for_path "$repo_path")"
+    if [[ -n "$repo_slug" ]]; then
+        gh_repo_args=(--repo "$repo_slug")
     fi
 
     err_file="$(/usr/bin/mktemp "${TMPDIR:-/tmp}/cmux-gh-pr-view.XXXXXX" 2>/dev/null || true)"
@@ -171,6 +212,7 @@ _cmux_report_pr_for_path() {
     gh_output="$(
         builtin cd "$repo_path" 2>/dev/null \
             && gh pr view \
+                "${gh_repo_args[@]}" \
                 --json number,state,url \
                 --jq '[.number, .state, .url] | @tsv' \
                 2>"$err_file"
@@ -180,18 +222,54 @@ _cmux_report_pr_for_path() {
         gh_error="$("/bin/cat" -- "$err_file" 2>/dev/null || true)"
         /bin/rm -f -- "$err_file" >/dev/null 2>&1 || true
     fi
-    if (( gh_status != 0 )); then
-        if _cmux_pr_output_indicates_no_pull_request "$gh_error"; then
-            _cmux_clear_pr_for_panel
-            return 0
+
+    if (( gh_status == 0 )) && [[ -n "$gh_output" ]]; then
+        :
+    else
+        if (( gh_status == 0 )) && [[ -z "$gh_output" ]]; then
+            implicit_probe_indicates_no_pr=1
+        elif _cmux_pr_output_indicates_no_pull_request "$gh_error"; then
+            implicit_probe_indicates_no_pr=1
         fi
-        # Preserve the last-known PR badge when gh fails transiently, then retry
-        # on the next background poll instead of clearing visible state.
-        return 1
-    fi
-    if [[ -z "$gh_output" ]]; then
-        _cmux_clear_pr_for_panel
-        return 0
+
+        # `gh pr view` without an explicit branch can fail to resolve the
+        # current worktree branch even when the branch has a PR. Fall back to
+        # the explicit branch name before concluding there is no PR.
+        err_file="$(/usr/bin/mktemp "${TMPDIR:-/tmp}/cmux-gh-pr-view.XXXXXX" 2>/dev/null || true)"
+        [[ -n "$err_file" ]] || return 1
+        explicit_branch_output="$(
+            builtin cd "$repo_path" 2>/dev/null \
+                && gh pr view "$branch" \
+                    "${gh_repo_args[@]}" \
+                    --json number,state,url \
+                    --jq '[.number, .state, .url] | @tsv' \
+                    2>"$err_file"
+        )"
+        explicit_branch_status=$?
+        if [[ -f "$err_file" ]]; then
+            explicit_branch_error="$("/bin/cat" -- "$err_file" 2>/dev/null || true)"
+            /bin/rm -f -- "$err_file" >/dev/null 2>&1 || true
+        fi
+
+        if (( explicit_branch_status == 0 )) && [[ -n "$explicit_branch_output" ]]; then
+            gh_output="$explicit_branch_output"
+            gh_status=0
+        else
+            if (( explicit_branch_status == 0 )) && [[ -z "$explicit_branch_output" ]]; then
+                explicit_probe_indicates_no_pr=1
+            elif _cmux_pr_output_indicates_no_pull_request "$explicit_branch_error"; then
+                explicit_probe_indicates_no_pr=1
+            fi
+
+            if (( implicit_probe_indicates_no_pr )) && (( explicit_probe_indicates_no_pr )); then
+                _cmux_clear_pr_for_panel
+                return 0
+            fi
+
+            # Preserve the last-known PR badge when gh fails transiently, then retry
+            # on the next background poll instead of clearing visible state.
+            return 1
+        fi
     fi
 
     IFS=$'\t' read -r number state url <<< "$gh_output"
@@ -376,11 +454,18 @@ _cmux_prompt_command() {
     if [[ -n "$_CMUX_GIT_HEAD_PATH" ]]; then
         local head_signature
         head_signature="$(_cmux_git_head_signature "$_CMUX_GIT_HEAD_PATH" 2>/dev/null || true)"
-        if [[ -n "$head_signature" && "$head_signature" != "$_CMUX_GIT_HEAD_SIGNATURE" ]]; then
-            _CMUX_GIT_HEAD_SIGNATURE="$head_signature"
-            git_head_changed=1
-            # Also invalidate the PR poller so it refreshes with the new branch.
-            _CMUX_PR_FORCE=1
+        if [[ -n "$head_signature" ]]; then
+            if [[ -z "$_CMUX_GIT_HEAD_SIGNATURE" ]]; then
+                # The first observed HEAD value is just the session baseline.
+                # Treating it as a branch change clears restore-seeded PR badges
+                # before the first background probe can confirm the current PR.
+                _CMUX_GIT_HEAD_SIGNATURE="$head_signature"
+            elif [[ "$head_signature" != "$_CMUX_GIT_HEAD_SIGNATURE" ]]; then
+                _CMUX_GIT_HEAD_SIGNATURE="$head_signature"
+                git_head_changed=1
+                # Also invalidate the PR poller so it refreshes with the new branch.
+                _CMUX_PR_FORCE=1
+            fi
         fi
     fi
 

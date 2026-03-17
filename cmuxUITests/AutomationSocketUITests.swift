@@ -69,31 +69,35 @@ final class AutomationSocketUITests: XCTestCase {
     }
 
     private func waitForSocket(exists: Bool, timeout: TimeInterval) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if FileManager.default.fileExists(atPath: socketPath) == exists {
-                return true
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-        }
-        return FileManager.default.fileExists(atPath: socketPath) == exists
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                FileManager.default.fileExists(atPath: self.socketPath) == exists
+            },
+            object: NSObject()
+        )
+        return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
     }
 
     private func resolveSocketPath(timeout: TimeInterval) -> String? {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if FileManager.default.fileExists(atPath: socketPath) {
-                return socketPath
-            }
-            if let found = findSocketInTmp() {
-                return found
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        var resolvedPath: String?
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                if FileManager.default.fileExists(atPath: self.socketPath) {
+                    resolvedPath = self.socketPath
+                    return true
+                }
+                if let found = self.findSocketInTmp() {
+                    resolvedPath = found
+                    return true
+                }
+                return false
+            },
+            object: NSObject()
+        )
+        if XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed {
+            return resolvedPath
         }
-        if FileManager.default.fileExists(atPath: socketPath) {
-            return socketPath
-        }
-        return findSocketInTmp()
+        return resolvedPath
     }
 
     private func findSocketInTmp() -> String? {

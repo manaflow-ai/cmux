@@ -19,6 +19,8 @@ concurrency:
 
 permissions:
   contents: write
+  attestations: write
+  id-token: write
 
 env:
   CREATE_DMG_VERSION: 8.0.0
@@ -99,7 +101,8 @@ jobs:
   build-sign-notarize-nightly:
     needs: decide
     if: needs.decide.outputs.should_build == 'true'
-    runs-on: depot-macos-latest
+    runs-on: warp-macos-15-arm64-6x
+    timeout-minutes: 20
     steps:
       - name: Checkout build ref
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -151,8 +154,18 @@ jobs:
       - name: Install build deps
         if: needs.decide.outputs.should_publish != 'true' || steps.current_head_prebuild.outputs.still_current == 'true'
         run: |
-          if ! command -v zig >/dev/null 2>&1; then
-            brew install zig
+          ZIG_REQUIRED="0.15.2"
+          if command -v zig >/dev/null 2>&1 && zig version 2>/dev/null | grep -q "^${ZIG_REQUIRED}"; then
+            echo "zig ${ZIG_REQUIRED} already installed"
+          else
+            echo "Installing zig ${ZIG_REQUIRED} from tarball"
+            curl -fSL "https://ziglang.org/download/${ZIG_REQUIRED}/zig-aarch64-macos-${ZIG_REQUIRED}.tar.xz" -o /tmp/zig.tar.xz
+            tar xf /tmp/zig.tar.xz -C /tmp
+            sudo mkdir -p /usr/local/bin /usr/local/lib
+            sudo cp -f /tmp/zig-aarch64-macos-${ZIG_REQUIRED}/zig /usr/local/bin/zig
+            sudo cp -rf /tmp/zig-aarch64-macos-${ZIG_REQUIRED}/lib /usr/local/lib/zig
+            export PATH="/usr/local/bin:$PATH"
+            zig version
           fi
           npm install --global "create-dmg@${CREATE_DMG_VERSION}"
 
@@ -168,6 +181,11 @@ jobs:
           path: .spm-cache
           key: spm-${{ hashFiles('GhosttyTabs.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
           restore-keys: spm-
+
+      - name: Setup Go
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        with:
+          go-version-file: daemon/remote/go.mod
 
       - name: Derive Sparkle public key from private key
         if: needs.decide.outputs.should_publish != 'true' || steps.current_head_prebuild.outputs.still_current == 'true'
@@ -256,7 +274,10 @@ jobs:
           else
             NIGHTLY_BUILD="${NIGHTLY_DATE}000000"
           fi
+          NIGHTLY_MARKETING_VERSION="${BASE_MARKETING}-nightly.${NIGHTLY_BUILD}"
           echo "NIGHTLY_BUILD=${NIGHTLY_BUILD}" >> "$GITHUB_ENV"
+          echo "NIGHTLY_MARKETING_VERSION=${NIGHTLY_MARKETING_VERSION}" >> "$GITHUB_ENV"
+          echo "NIGHTLY_REMOTE_DAEMON_VERSION=${NIGHTLY_MARKETING_VERSION}" >> "$GITHUB_ENV"
 
           NIGHTLY_DMG_IMMUTABLE="cmux-nightly-macos-${NIGHTLY_BUILD}.dmg"
           echo "NIGHTLY_DMG_IMMUTABLE=${NIGHTLY_DMG_IMMUTABLE}" >> "$GITHUB_ENV"
@@ -274,7 +295,7 @@ jobs:
             /usr/libexec/PlistBuddy -c "Delete :SUFeedURL" "$app_plist" >/dev/null 2>&1 || true
             /usr/libexec/PlistBuddy -c "Add :SUPublicEDKey string ${SPARKLE_PUBLIC_KEY}" "$app_plist"
             /usr/libexec/PlistBuddy -c "Add :SUFeedURL string ${feed_url}" "$app_plist"
-            /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${BASE_MARKETING}-nightly.${NIGHTLY_DATE}" "$app_plist"
+            /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${NIGHTLY_MARKETING_VERSION}" "$app_plist"
             /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${NIGHTLY_BUILD}" "$app_plist"
             /usr/libexec/PlistBuddy -c "Delete :CMUXCommit" "$app_plist" >/dev/null 2>&1 || true
             /usr/libexec/PlistBuddy -c "Add :CMUXCommit string ${SHORT_SHA}" "$app_plist"
@@ -288,10 +309,28 @@ jobs:
 
           echo "Nightly app name: cmux NIGHTLY"
           echo "Nightly bundle ID: com.cmuxterm.app.nightly"
-          echo "Nightly marketing version: ${BASE_MARKETING}-nightly.${NIGHTLY_DATE}"
+          echo "Nightly marketing version: ${NIGHTLY_MARKETING_VERSION}"
           echo "Nightly build number: ${NIGHTLY_BUILD}"
           echo "Nightly immutable DMG: ${NIGHTLY_DMG_IMMUTABLE}"
           echo "Commit SHA: ${SHORT_SHA}"
+
+      - name: Build remote daemon nightly assets and inject manifest
+        if: needs.decide.outputs.should_publish != 'true' || (steps.current_head_prebuild.outputs.still_current == 'true' && steps.current_head_postbuild.outputs.still_current == 'true')
+        run: |
+          set -euo pipefail
+          ./scripts/build_remote_daemon_release_assets.sh \
+            --version "$NIGHTLY_REMOTE_DAEMON_VERSION" \
+            --release-tag "nightly" \
+            --repo "manaflow-ai/cmux" \
+            --output-dir "remote-daemon-assets"
+          MANIFEST_JSON="$(python3 -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1], encoding="utf-8")), separators=(",",":")))' remote-daemon-assets/cmuxd-remote-manifest.json)"
+          APP_PLIST="build-universal/Build/Products/Release/cmux NIGHTLY.app/Contents/Info.plist"
+          if [ ! -f "$APP_PLIST" ]; then
+            echo "Missing nightly app Info.plist at $APP_PLIST" >&2
+            exit 1
+          fi
+          plutil -remove CMUXRemoteDaemonManifestJSON "$APP_PLIST" >/dev/null 2>&1 || true
+          plutil -insert CMUXRemoteDaemonManifestJSON -string "$MANIFEST_JSON" "$APP_PLIST"
 
       - name: Import signing cert
         if: needs.decide.outputs.should_publish != 'true' || (steps.current_head_prebuild.outputs.still_current == 'true' && steps.current_head_postbuild.outputs.still_current == 'true')
@@ -436,6 +475,18 @@ jobs:
           # installs to migrate onto the unified nightly appcast.
           cp appcast.xml appcast-universal.xml
 
+      - name: Attest remote daemon nightly assets
+        if: needs.decide.outputs.should_publish != 'true' || (steps.current_head_prebuild.outputs.still_current == 'true' && steps.current_head_postbuild.outputs.still_current == 'true')
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        with:
+          subject-path: |
+            remote-daemon-assets/cmuxd-remote-darwin-arm64
+            remote-daemon-assets/cmuxd-remote-darwin-amd64
+            remote-daemon-assets/cmuxd-remote-linux-arm64
+            remote-daemon-assets/cmuxd-remote-linux-amd64
+            remote-daemon-assets/cmuxd-remote-checksums.txt
+            remote-daemon-assets/cmuxd-remote-manifest.json
+
       - name: Upload branch nightly artifacts
         if: needs.decide.outputs.should_publish != 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -444,6 +495,12 @@ jobs:
           path: |
             cmux-nightly-macos*.dmg
             appcast.xml
+            remote-daemon-assets/cmuxd-remote-darwin-arm64
+            remote-daemon-assets/cmuxd-remote-darwin-amd64
+            remote-daemon-assets/cmuxd-remote-linux-arm64
+            remote-daemon-assets/cmuxd-remote-linux-amd64
+            remote-daemon-assets/cmuxd-remote-checksums.txt
+            remote-daemon-assets/cmuxd-remote-manifest.json
             appcast-universal.xml
           if-no-files-found: error
 
@@ -477,6 +534,12 @@ jobs:
             cmux-nightly-macos-${{ github.run_id }}*.dmg
             cmux-nightly-macos.dmg
             appcast.xml
+            remote-daemon-assets/cmuxd-remote-darwin-arm64
+            remote-daemon-assets/cmuxd-remote-darwin-amd64
+            remote-daemon-assets/cmuxd-remote-linux-arm64
+            remote-daemon-assets/cmuxd-remote-linux-amd64
+            remote-daemon-assets/cmuxd-remote-checksums.txt
+            remote-daemon-assets/cmuxd-remote-manifest.json
             appcast-universal.xml
           overwrite_files: true
 
