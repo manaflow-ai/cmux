@@ -368,13 +368,24 @@ enum FinderServicePathResolver {
         return canonical
     }
 
+    private static func resolvedDirectoryURL(from url: URL) -> URL {
+        let standardized = url.standardizedFileURL
+        if standardized.hasDirectoryPath {
+            return standardized
+        }
+        if let resourceValues = try? standardized.resourceValues(forKeys: [.isDirectoryKey]),
+           resourceValues.isDirectory == true {
+            return standardized
+        }
+        return standardized.deletingLastPathComponent()
+    }
+
     static func orderedUniqueDirectories(from pathURLs: [URL]) -> [String] {
         var seen: Set<String> = []
         var directories: [String] = []
 
         for url in pathURLs {
-            let standardized = url.standardizedFileURL
-            let directoryURL = standardized.hasDirectoryPath ? standardized : standardized.deletingLastPathComponent()
+            let directoryURL = resolvedDirectoryURL(from: url)
             let path = canonicalDirectoryPath(directoryURL.path(percentEncoded: false))
             guard !path.isEmpty else { continue }
             if seen.insert(path).inserted {
@@ -2152,6 +2163,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     override init() {
         super.init()
         Self.shared = self
+    }
+
+    func application(_ application: NSApplication, open urls: [URL]) {
+        let directories = externalOpenDirectories(from: urls)
+        guard !directories.isEmpty else { return }
+
+        prepareForExplicitOpenIntentAtStartup()
+        for directory in directories {
+            openWorkspaceForExternalDirectory(
+                workingDirectory: directory,
+                debugSource: "application.openURLs"
+            )
+        }
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -5077,11 +5101,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         target: ServiceOpenTarget,
         error: AutoreleasingUnsafeMutablePointer<NSString>
     ) {
-        didHandleExplicitOpenIntentAtStartup = true
-        if !didAttemptStartupSessionRestore {
-            startupSessionSnapshot = nil
-            didAttemptStartupSessionRestore = true
-        }
+        prepareForExplicitOpenIntentAtStartup()
 
         let pathURLs = servicePathURLs(from: pasteboard)
         guard !pathURLs.isEmpty else {
@@ -5089,7 +5109,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return
         }
 
-        let directories = FinderServicePathResolver.orderedUniqueDirectories(from: pathURLs)
+        let directories = externalOpenDirectories(from: pathURLs)
         guard !directories.isEmpty else {
             error.pointee = Self.serviceErrorNoPath
             return
@@ -5134,10 +5154,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func openWorkspaceFromService(workingDirectory: String) {
+        openWorkspaceForExternalDirectory(
+            workingDirectory: workingDirectory,
+            debugSource: "service.openTab"
+        )
+    }
+
+    private func prepareForExplicitOpenIntentAtStartup() {
+        didHandleExplicitOpenIntentAtStartup = true
+        if !didAttemptStartupSessionRestore {
+            startupSessionSnapshot = nil
+            didAttemptStartupSessionRestore = true
+        }
+    }
+
+    private func externalOpenDirectories(from urls: [URL]) -> [String] {
+        FinderServicePathResolver.orderedUniqueDirectories(from: urls.filter { $0.isFileURL })
+    }
+
+    private func openWorkspaceForExternalDirectory(
+        workingDirectory: String,
+        debugSource: String
+    ) {
         if addWorkspaceInPreferredMainWindow(
             workingDirectory: workingDirectory,
             shouldBringToFront: true,
-            debugSource: "service.openTab"
+            debugSource: debugSource
         ) != nil {
             return
         }

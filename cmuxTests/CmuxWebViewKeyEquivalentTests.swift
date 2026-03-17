@@ -1197,6 +1197,55 @@ final class AppDelegateWindowContextRoutingTests: XCTestCase {
         XCTAssertEqual(managerB.tabs.count, originalTabCountB + 1)
         XCTAssertTrue(managerB.tabs.contains(where: { $0.id == createdWorkspaceId }))
     }
+
+    func testApplicationOpenURLsAddsWorkspaceForDroppedFolderURL() throws {
+        _ = NSApplication.shared
+        let app = AppDelegate()
+
+        let windowId = UUID()
+        let window = makeMainWindow(id: windowId)
+        defer { window.orderOut(nil) }
+
+        let manager = TabManager()
+        app.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState()
+        )
+
+        window.makeKeyAndOrderFront(nil)
+        _ = app.synchronizeActiveMainWindowContext(preferredWindow: window)
+
+        let defaults = UserDefaults.standard
+        let previousWelcomeShown = defaults.object(forKey: WelcomeSettings.shownKey)
+        defaults.set(true, forKey: WelcomeSettings.shownKey)
+        defer {
+            if let previousWelcomeShown {
+                defaults.set(previousWelcomeShown, forKey: WelcomeSettings.shownKey)
+            } else {
+                defaults.removeObject(forKey: WelcomeSettings.shownKey)
+            }
+        }
+
+        let rootDirectory = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let droppedDirectory = rootDirectory.appendingPathComponent("project", isDirectory: true)
+        try FileManager.default.createDirectory(at: droppedDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: rootDirectory) }
+
+        let existingWorkspaceIds = Set(manager.tabs.map(\.id))
+
+        app.application(
+            NSApplication.shared,
+            open: [URL(fileURLWithPath: droppedDirectory.path)]
+        )
+
+        let createdWorkspace = manager.tabs.first { !existingWorkspaceIds.contains($0.id) }
+        XCTAssertNotNil(createdWorkspace)
+        XCTAssertEqual(createdWorkspace?.currentDirectory, droppedDirectory.path)
+    }
 }
 
 @MainActor
