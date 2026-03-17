@@ -119,9 +119,22 @@ final class BrowserImportProfilesUITests: XCTestCase {
         XCTAssertTrue(settingsButton.waitForExistence(timeout: 5.0))
         settingsButton.click()
 
+        let importSection = app.otherElements["SettingsBrowserImportSection"]
         XCTAssertTrue(
-            app.switches["SettingsBrowserImportHintToggle"].waitForExistence(timeout: 5.0),
-            "Expected Browser Settings to open from the blank-tab import hint"
+            importSection.waitForExistence(timeout: 5.0),
+            "Expected Browser Settings to scroll to the import section"
+        )
+
+        let chooseButton = app.buttons["SettingsBrowserImportChooseButton"]
+        XCTAssertTrue(
+            chooseButton.waitForExistence(timeout: 5.0),
+            "Expected Browser Settings to expose the import actions"
+        )
+        XCTAssertTrue(
+            browserImportPollUntil(timeout: 5.0) {
+                importSection.isHittable && chooseButton.isHittable
+            },
+            "Expected Browser Settings to scroll directly to the import controls"
         )
     }
 

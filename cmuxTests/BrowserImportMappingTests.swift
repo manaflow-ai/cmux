@@ -144,14 +144,15 @@ final class BrowserImportMappingTests: XCTestCase {
         XCTAssertTrue(manyProfilesPresentation.showsHelpText)
     }
 
-    func testBrowserImportHintPresentationDefaultsToInlineStrip() {
-        let presentation = BrowserImportHintPresentation(
-            variant: .inlineStrip,
-            showOnBlankTabs: true,
-            isDismissed: false
-        )
+    func testBrowserImportHintSettingsDefaultToToolbarChip() throws {
+        let suiteName = "BrowserImportHintDefaults-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        XCTAssertEqual(presentation.blankTabPlacement, .inlineStrip)
+        let presentation = BrowserImportHintSettings.presentation(defaults: defaults)
+
+        XCTAssertEqual(presentation.blankTabPlacement, .toolbarChip)
         XCTAssertEqual(presentation.settingsStatus, .visible)
     }
 

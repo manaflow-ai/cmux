@@ -873,6 +873,14 @@ struct BrowserPanelView: View {
             }
             .buttonStyle(.plain)
 
+            Button {
+                presentImportDialogFromProfileMenu()
+            } label: {
+                Text(String(localized: "menu.view.importFromBrowser", defaultValue: "Import From Browser…"))
+                    .font(.system(size: 12))
+            }
+            .buttonStyle(.plain)
+
             if browserProfileStore.canRenameProfile(id: panel.profileID) {
                 Button {
                     isBrowserProfileMenuPresented = false
@@ -1470,6 +1478,16 @@ struct BrowserPanelView: View {
 
     private func presentImportDialogFromHint() {
         isBrowserImportHintPopoverPresented = false
+        // Let the popover fully dismiss before entering the modal import flow.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+            BrowserDataImportCoordinator.shared.presentImportDialog(
+                defaultDestinationProfileID: panel.profileID
+            )
+        }
+    }
+
+    private func presentImportDialogFromProfileMenu() {
+        isBrowserProfileMenuPresented = false
         DispatchQueue.main.async {
             BrowserDataImportCoordinator.shared.presentImportDialog(
                 defaultDestinationProfileID: panel.profileID
@@ -1479,7 +1497,7 @@ struct BrowserPanelView: View {
 
     private func openBrowserImportSettings() {
         isBrowserImportHintPopoverPresented = false
-        AppDelegate.presentPreferencesWindow(navigationTarget: .browser)
+        AppDelegate.presentPreferencesWindow(navigationTarget: .browserImport)
     }
 
     private func dismissBrowserImportHint() {

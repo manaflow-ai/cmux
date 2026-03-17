@@ -2550,6 +2550,24 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(activateApplicationCallCount, 1)
     }
 
+    func testPresentPreferencesWindowForwardsBrowserImportNavigationTarget() {
+        var receivedNavigationTarget: SettingsNavigationTarget?
+        var activateApplicationCallCount = 0
+
+        AppDelegate.presentPreferencesWindow(
+            navigationTarget: .browserImport,
+            showFallbackSettingsWindow: { navigationTarget in
+                receivedNavigationTarget = navigationTarget
+            },
+            activateApplication: {
+                activateApplicationCallCount += 1
+            }
+        )
+
+        XCTAssertEqual(receivedNavigationTarget, .browserImport)
+        XCTAssertEqual(activateApplicationCallCount, 1)
+    }
+
     private func makeKeyDownEvent(
         key: String,
         modifiers: NSEvent.ModifierFlags,

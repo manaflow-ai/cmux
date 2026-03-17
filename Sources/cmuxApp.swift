@@ -2252,6 +2252,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
 
 enum SettingsNavigationTarget: String {
     case browser
+    case browserImport
     case keyboardShortcuts
 }
 
@@ -4659,6 +4660,7 @@ struct SettingsView: View {
                                 }
                                 .buttonStyle(.bordered)
                                 .controlSize(.small)
+                                .accessibilityIdentifier("SettingsBrowserImportChooseButton")
 
                                 Button(String(localized: "settings.browser.import.refresh", defaultValue: "Refresh")) {
                                     refreshDetectedImportBrowsers()
@@ -4680,6 +4682,8 @@ struct SettingsView: View {
                                 .foregroundStyle(.secondary)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
+                        .id(SettingsNavigationTarget.browserImport)
+                        .accessibilityIdentifier("SettingsBrowserImportSection")
                         .padding(.horizontal, 14)
                         .padding(.vertical, 10)
 

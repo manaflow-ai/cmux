@@ -259,7 +259,7 @@ enum BrowserImportHintSettings {
     static let variantKey = "browserImportHintVariant"
     static let showOnBlankTabsKey = "browserImportHintShowOnBlankTabs"
     static let dismissedKey = "browserImportHintDismissed"
-    static let defaultVariant: BrowserImportHintVariant = .inlineStrip
+    static let defaultVariant: BrowserImportHintVariant = .toolbarChip
     static let defaultShowOnBlankTabs = true
     static let defaultDismissed = false
 
