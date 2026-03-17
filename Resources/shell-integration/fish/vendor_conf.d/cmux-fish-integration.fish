@@ -238,12 +238,26 @@ function _cmux_report_pr_for_path --description "Run gh pr view and send result 
 
     if test $gh_status -ne 0
         if _cmux_pr_output_indicates_no_pull_request "$gh_error"
-            _cmux_clear_pr_for_panel
-            return 0
+            # Retry with the explicit branch name before clearing — worktree or
+            # implicit-resolution failures may succeed when branch is named directly.
+            set -l retry_err_file (/usr/bin/mktemp "$tmpdir/cmux-gh-pr-view.XXXXXX" 2>/dev/null)
+            if test -n "$retry_err_file"
+                set gh_output (gh pr view "$branch" \
+                    --json number,state,url \
+                    --jq '[.number, .state, .url] | @tsv' \
+                    2>$retry_err_file)
+                set gh_status $status
+                /bin/rm -f -- $retry_err_file >/dev/null 2>&1; or true
+            end
+            if test $gh_status -ne 0
+                _cmux_clear_pr_for_panel
+                return 0
+            end
+        else
+            # Preserve the last-known PR badge when gh fails transiently, then retry
+            # on the next background poll instead of clearing visible state.
+            return 1
         end
-        # Preserve the last-known PR badge when gh fails transiently, then retry
-        # on the next background poll instead of clearing visible state.
-        return 1
     end
 
     if test -z "$gh_output"
@@ -490,11 +504,14 @@ function _cmux_fish_prompt --description "Prompt hook before prompt is drawn" --
     if test -n "$_CMUX_GIT_HEAD_PATH"
         set -l head_signature (_cmux_git_head_signature $_CMUX_GIT_HEAD_PATH 2>/dev/null; or printf '')
         if test -n "$head_signature" -a "$head_signature" != "$_CMUX_GIT_HEAD_SIGNATURE"
+            if test -n "$_CMUX_GIT_HEAD_SIGNATURE"
+                # Signature changed from a known baseline — force both probes to refresh.
+                set git_head_changed 1
+                set -g _CMUX_GIT_FORCE 1
+                set -g _CMUX_PR_FORCE 1
+            end
+            # Always update the stored signature (baseline on first read, track changes after).
             set -g _CMUX_GIT_HEAD_SIGNATURE $head_signature
-            set git_head_changed 1
-            # Force both git and PR probes to refresh immediately.
-            set -g _CMUX_GIT_FORCE 1
-            set -g _CMUX_PR_FORCE 1
         end
     end
 
@@ -519,7 +536,7 @@ function _cmux_fish_prompt --description "Prompt hook before prompt is drawn" --
             # If a stale probe is still running but the cwd changed or we just ran
             # a git command, restart immediately so branch state isn't delayed.
             if test "$pwd" != "$_CMUX_GIT_LAST_PWD"; or test $_CMUX_GIT_FORCE -eq 1
-                kill $_CMUX_GIT_JOB_PID >/dev/null 2>&1; or true
+                _cmux_kill_process_tree $_CMUX_GIT_JOB_PID KILL
                 set -g _CMUX_GIT_JOB_PID ""
                 set -g _CMUX_GIT_JOB_STARTED_AT 0
             else
@@ -626,7 +643,7 @@ set -g _CMUX_INTEGRATION_FILE (status filename)
 # ---------------------------------------------------------------------------
 function _cmux_fish_exit --description "Cleanup on shell exit" --on-event fish_exit
     if test -n "$_CMUX_GIT_JOB_PID"
-        kill $_CMUX_GIT_JOB_PID >/dev/null 2>&1; or true
+        _cmux_kill_process_tree $_CMUX_GIT_JOB_PID KILL
     end
     _cmux_stop_pr_poll_loop
 end

@@ -3225,6 +3225,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
             } else {
                 env["XDG_DATA_DIRS"] = "\(integrationDir):/usr/local/share:/usr/share"
             }
+            // Protect against initialEnvironmentOverrides overwriting the prepended prefix.
+            protectedStartupEnvironmentKeys.insert("XDG_DATA_DIRS")
         }
         env = Self.mergedStartupEnvironment(
             base: env,
