@@ -5172,13 +5172,6 @@ extension BrowserPanel {
         return "webFrame=\(Self.debugRectDescription(webFrame)) webBounds=\(Self.debugRectDescription(webView.bounds)) webWin=\(webView.window?.windowNumber ?? -1) super=\(Self.debugObjectToken(container)) superType=\(containerType) superBounds=\(Self.debugRectDescription(containerBounds)) inspectorHApprox=\(String(format: "%.1f", inspectorHeightApprox)) inspectorInsets=\(String(format: "%.1f", inspectorInsets)) inspectorOverflow=\(String(format: "%.1f", inspectorOverflow)) inspectorSubviews=\(inspectorSubviews)"
     }
 
-    func hideBrowserPortalView(source: String) {
-        BrowserWindowPortalRegistry.hide(
-            webView: webView,
-            source: source
-        )
-    }
-
 }
 #endif
 
@@ -5267,6 +5260,15 @@ private extension BrowserPanel {
 
     static func verticalOverlap(between lhs: NSRect, and rhs: NSRect) -> CGFloat {
         max(0, min(lhs.maxY, rhs.maxY) - max(lhs.minY, rhs.minY))
+    }
+}
+
+extension BrowserPanel {
+    func hideBrowserPortalView(source: String) {
+        BrowserWindowPortalRegistry.hide(
+            webView: webView,
+            source: source
+        )
     }
 }
 
