@@ -1775,7 +1775,7 @@ class GhosttyApp {
             }
         } catch {
             #if DEBUG
-            Self.initLog("failed to write classic light theme config: \(error)")
+            dlog("classicLight theme injection write failed error=\(error)")
             #endif
         }
     }
