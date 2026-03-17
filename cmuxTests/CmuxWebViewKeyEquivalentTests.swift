@@ -6264,6 +6264,99 @@ final class WorkspaceTerminalConfigInheritanceSelectionTests: XCTestCase {
 }
 
 @MainActor
+final class WorkspaceBrowserProfileSelectionTests: XCTestCase {
+    private final class RejectingCreateTabDelegate: BonsplitDelegate {
+        func splitTabBar(_ controller: BonsplitController, shouldCreateTab tab: Bonsplit.Tab, inPane pane: PaneID) -> Bool {
+            false
+        }
+    }
+
+    private func makeProfile(named prefix: String) throws -> BrowserProfileDefinition {
+        try XCTUnwrap(
+            BrowserProfileStore.shared.createProfile(
+                named: "\(prefix)-\(UUID().uuidString)"
+            )
+        )
+    }
+
+    func testNewBrowserSurfacePrefersSelectedBrowserProfileInTargetPane() throws {
+        let workspace = Workspace()
+        let profileA = try makeProfile(named: "Alpha")
+        let profileB = try makeProfile(named: "Beta")
+        let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+        let browserA = try XCTUnwrap(
+            workspace.newBrowserSurface(
+                inPane: paneId,
+                focus: true,
+                preferredProfileID: profileA.id
+            )
+        )
+        _ = try XCTUnwrap(
+            workspace.newBrowserSplit(
+                from: browserA.id,
+                orientation: .horizontal,
+                preferredProfileID: profileB.id,
+                focus: true
+            )
+        )
+
+        XCTAssertEqual(
+            workspace.preferredBrowserProfileID,
+            profileB.id,
+            "Expected workspace preference to drift to the most recently created browser profile"
+        )
+
+        let leftSurfaceId = try XCTUnwrap(workspace.surfaceIdFromPanelId(browserA.id))
+        workspace.bonsplitController.focusPane(paneId)
+        workspace.bonsplitController.selectTab(leftSurfaceId)
+
+        let created = try XCTUnwrap(
+            workspace.newBrowserSurface(
+                inPane: paneId,
+                focus: false
+            )
+        )
+
+        XCTAssertEqual(
+            created.profileID,
+            profileA.id,
+            "Expected new browser creation to inherit the selected browser profile from the target pane"
+        )
+    }
+
+    func testNewBrowserSurfaceFailureDoesNotMutatePreferredProfile() throws {
+        let workspace = Workspace()
+        let preferredProfile = try makeProfile(named: "Preferred")
+        let unexpectedProfile = try makeProfile(named: "Unexpected")
+
+        let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+        _ = try XCTUnwrap(
+            workspace.newBrowserSurface(
+                inPane: paneId,
+                focus: false,
+                preferredProfileID: preferredProfile.id
+            )
+        )
+        XCTAssertEqual(workspace.preferredBrowserProfileID, preferredProfile.id)
+
+        let rejectingDelegate = RejectingCreateTabDelegate()
+        workspace.bonsplitController.delegate = rejectingDelegate
+        let created = workspace.newBrowserSurface(
+            inPane: paneId,
+            focus: false,
+            preferredProfileID: unexpectedProfile.id
+        )
+
+        XCTAssertNil(created)
+        XCTAssertEqual(
+            workspace.preferredBrowserProfileID,
+            preferredProfile.id,
+            "Expected a failed browser creation to leave the workspace preferred profile unchanged"
+        )
+    }
+}
+
+@MainActor
 final class TabManagerWorkspaceConfigInheritanceSourceTests: XCTestCase {
     func testUsesFocusedTerminalWhenTerminalIsFocused() {
         let manager = TabManager()
@@ -6316,6 +6409,52 @@ final class TabManagerWorkspaceConfigInheritanceSourceTests: XCTestCase {
             sourcePanel?.id,
             leftTerminalPanelId,
             "Expected workspace inheritance source to use last focused terminal across panes"
+        )
+    }
+}
+
+@MainActor
+final class BrowserPanelProfileIsolationTests: XCTestCase {
+    private func makeProfile(named prefix: String) throws -> BrowserProfileDefinition {
+        try XCTUnwrap(
+            BrowserProfileStore.shared.createProfile(
+                named: "\(prefix)-\(UUID().uuidString)"
+            )
+        )
+    }
+
+    func testStaleDidFinishDoesNotRecordVisitIntoSwitchedProfileHistory() throws {
+        let alternateProfile = try makeProfile(named: "Switched")
+        let defaultStore = BrowserHistoryStore.shared
+        let alternateStore = BrowserProfileStore.shared.historyStore(for: alternateProfile.id)
+        defaultStore.clearHistory()
+        alternateStore.clearHistory()
+        defer {
+            defaultStore.clearHistory()
+            alternateStore.clearHistory()
+        }
+
+        let panel = BrowserPanel(workspaceId: UUID())
+        let staleWebView = panel.webView
+        let staleDelegate = try XCTUnwrap(staleWebView.navigationDelegate)
+        let staleURL = try XCTUnwrap(URL(string: "https://example.com/stale-finish"))
+        staleWebView.loadHTMLString(
+            "<html><head><title>Stale</title></head><body>stale</body></html>",
+            baseURL: staleURL
+        )
+
+        XCTAssertTrue(panel.switchToProfile(alternateProfile.id))
+
+        staleDelegate.webView?(staleWebView, didFinish: nil)
+        drainMainQueue()
+
+        XCTAssertTrue(
+            defaultStore.entries.isEmpty,
+            "Expected stale completion callbacks to avoid writing into the old profile history store"
+        )
+        XCTAssertTrue(
+            alternateStore.entries.isEmpty,
+            "Expected stale completion callbacks to avoid writing into the newly selected profile history store"
         )
     }
 }
