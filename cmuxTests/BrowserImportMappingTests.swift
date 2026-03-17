@@ -127,6 +127,68 @@ final class BrowserImportMappingTests: XCTestCase {
         XCTAssertTrue(presentation.showsSingleDestinationPicker)
     }
 
+    func testSourceProfilesPresentationShrinksListForSmallProfileCounts() {
+        let presentation = BrowserImportSourceProfilesPresentation(profileCount: 2)
+
+        XCTAssertEqual(presentation.scrollHeight, 76)
+        XCTAssertTrue(presentation.showsHelpText)
+    }
+
+    func testSourceProfilesPresentationCapsListHeightAndHidesHelpForSingleProfile() {
+        let singleProfilePresentation = BrowserImportSourceProfilesPresentation(profileCount: 1)
+        let manyProfilesPresentation = BrowserImportSourceProfilesPresentation(profileCount: 9)
+
+        XCTAssertEqual(singleProfilePresentation.scrollHeight, 76)
+        XCTAssertFalse(singleProfilePresentation.showsHelpText)
+        XCTAssertEqual(manyProfilesPresentation.scrollHeight, 144)
+        XCTAssertTrue(manyProfilesPresentation.showsHelpText)
+    }
+
+    func testBrowserImportHintSettingsDefaultToToolbarChip() throws {
+        let suiteName = "BrowserImportHintDefaults-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let presentation = BrowserImportHintSettings.presentation(defaults: defaults)
+
+        XCTAssertEqual(presentation.blankTabPlacement, .toolbarChip)
+        XCTAssertEqual(presentation.settingsStatus, .visible)
+    }
+
+    func testBrowserImportHintPresentationHidesBlankTabHintWhenDismissed() {
+        let presentation = BrowserImportHintPresentation(
+            variant: .floatingCard,
+            showOnBlankTabs: true,
+            isDismissed: true
+        )
+
+        XCTAssertEqual(presentation.blankTabPlacement, .hidden)
+        XCTAssertEqual(presentation.settingsStatus, .hidden)
+    }
+
+    func testBrowserImportHintPresentationUsesToolbarChipWhenEnabled() {
+        let presentation = BrowserImportHintPresentation(
+            variant: .toolbarChip,
+            showOnBlankTabs: true,
+            isDismissed: false
+        )
+
+        XCTAssertEqual(presentation.blankTabPlacement, .toolbarChip)
+        XCTAssertEqual(presentation.settingsStatus, .visible)
+    }
+
+    func testBrowserImportHintPresentationSettingsOnlyVariantStaysInSettings() {
+        let presentation = BrowserImportHintPresentation(
+            variant: .settingsOnly,
+            showOnBlankTabs: true,
+            isDismissed: false
+        )
+
+        XCTAssertEqual(presentation.blankTabPlacement, .hidden)
+        XCTAssertEqual(presentation.settingsStatus, .settingsOnly)
+    }
+
     @MainActor
     func testRealizePlanCreatesMissingDestinationProfilesOnlyWhenRequested() throws {
         let suiteName = "BrowserImportMappingTests-\(UUID().uuidString)"
@@ -222,11 +284,72 @@ final class BrowserImportMappingTests: XCTestCase {
         XCTAssertTrue(lines.contains("Created cmux profiles: You, austin"))
     }
 
+    @MainActor
+    func testImportWizardCanBeConstructedForSettingsChoosePath() {
+        let destinationProfiles = [
+            BrowserProfileDefinition(
+                id: UUID(uuidString: "52B43C05-4A1D-45D3-8FD5-9EF94952E445")!,
+                displayName: "Default",
+                createdAt: .distantPast,
+                isBuiltInDefault: true
+            )
+        ]
+        let browser = makeInstalledBrowserCandidate(
+            descriptorID: "google-chrome",
+            displayName: "Chrome",
+            profiles: [
+                makeSourceProfile(displayName: "Default", path: "/tmp/browser-import-chrome-default", isDefault: true),
+                makeSourceProfile(displayName: "Profile 1", path: "/tmp/browser-import-chrome-profile-1", isDefault: false),
+            ]
+        )
+
+        let window = BrowserDataImportCoordinator.shared.debugMakeImportWizardWindow(
+            browsers: [browser],
+            destinationProfiles: destinationProfiles,
+            defaultDestinationProfileID: destinationProfiles[0].id
+        )
+        defer {
+            window.orderOut(nil)
+            window.close()
+        }
+
+        XCTAssertEqual(window.title, "Import Browser Data")
+        XCTAssertNotNil(window.contentView)
+    }
+
     private func makeSourceProfile(displayName: String, path: String, isDefault: Bool) -> InstalledBrowserProfile {
         InstalledBrowserProfile(
             displayName: displayName,
             rootURL: URL(fileURLWithPath: path, isDirectory: true),
             isDefault: isDefault
+        )
+    }
+
+    private func makeInstalledBrowserCandidate(
+        descriptorID: String,
+        displayName: String,
+        profiles: [InstalledBrowserProfile]
+    ) -> InstalledBrowserCandidate {
+        let descriptor = try! XCTUnwrap(InstalledBrowserDetector.allBrowserDescriptors.first(where: { $0.id == descriptorID }))
+        return InstalledBrowserCandidate(
+            descriptor: BrowserImportBrowserDescriptor(
+                id: descriptor.id,
+                displayName: displayName,
+                family: descriptor.family,
+                tier: descriptor.tier,
+                bundleIdentifiers: descriptor.bundleIdentifiers,
+                appNames: descriptor.appNames,
+                dataRootRelativePaths: descriptor.dataRootRelativePaths,
+                dataArtifactRelativePaths: descriptor.dataArtifactRelativePaths,
+                supportsDataOnlyDetection: descriptor.supportsDataOnlyDetection
+            ),
+            resolvedFamily: descriptor.family,
+            homeDirectoryURL: URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true),
+            appURL: nil,
+            dataRootURL: URL(fileURLWithPath: "/tmp/browser-import-\(descriptorID)", isDirectory: true),
+            profiles: profiles,
+            detectionSignals: ["test"],
+            detectionScore: 1
         )
     }
 }
