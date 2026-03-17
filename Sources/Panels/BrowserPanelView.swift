@@ -1470,9 +1470,11 @@ struct BrowserPanelView: View {
 
     private func presentImportDialogFromHint() {
         isBrowserImportHintPopoverPresented = false
-        BrowserDataImportCoordinator.shared.presentImportDialog(
-            defaultDestinationProfileID: panel.profileID
-        )
+        DispatchQueue.main.async {
+            BrowserDataImportCoordinator.shared.presentImportDialog(
+                defaultDestinationProfileID: panel.profileID
+            )
+        }
     }
 
     private func openBrowserImportSettings() {

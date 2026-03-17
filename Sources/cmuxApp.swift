@@ -2037,7 +2037,9 @@ private struct BrowserImportHintDebugView: View {
                                 AppDelegate.presentPreferencesWindow(navigationTarget: .browser)
                             }
                             Button("Open Import Dialog") {
-                                BrowserDataImportCoordinator.shared.presentImportDialog()
+                                DispatchQueue.main.async {
+                                    BrowserDataImportCoordinator.shared.presentImportDialog()
+                                }
                             }
                         }
 
@@ -4650,8 +4652,10 @@ struct SettingsView: View {
 
                             HStack(spacing: 8) {
                                 Button(String(localized: "settings.browser.import.choose", defaultValue: "Choose…")) {
-                                    BrowserDataImportCoordinator.shared.presentImportDialog()
-                                    refreshDetectedImportBrowsers()
+                                    DispatchQueue.main.async {
+                                        BrowserDataImportCoordinator.shared.presentImportDialog()
+                                        refreshDetectedImportBrowsers()
+                                    }
                                 }
                                 .buttonStyle(.bordered)
                                 .controlSize(.small)
