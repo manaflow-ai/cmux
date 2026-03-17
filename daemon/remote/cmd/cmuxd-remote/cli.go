@@ -41,6 +41,10 @@ type commandSpec struct {
 	flagKeys []string
 	// noParams means the command takes no parameters at all.
 	noParams bool
+	// paramKeyOverrides remaps specific flags for compatibility aliases.
+	paramKeyOverrides map[string]string
+	// defaultParams are applied before flags/env fallbacks.
+	defaultParams map[string]any
 }
 
 var commands = []commandSpec{
@@ -59,12 +63,12 @@ var commands = []commandSpec{
 	{name: "close-workspace", proto: protoV2, v2Method: "workspace.close", flagKeys: []string{"workspace"}},
 	{name: "select-workspace", proto: protoV2, v2Method: "workspace.select", flagKeys: []string{"workspace"}},
 	{name: "current-workspace", proto: protoV2, v2Method: "workspace.current", noParams: true},
-	{name: "list-panels", proto: protoV2, v2Method: "panel.list", flagKeys: []string{"workspace"}},
-	{name: "focus-panel", proto: protoV2, v2Method: "panel.focus", flagKeys: []string{"panel", "workspace"}},
+	{name: "list-panels", proto: protoV2, v2Method: "surface.list", flagKeys: []string{"workspace"}},
+	{name: "focus-panel", proto: protoV2, v2Method: "surface.focus", flagKeys: []string{"panel", "workspace"}, paramKeyOverrides: map[string]string{"panel": "surface_id"}},
 	{name: "list-panes", proto: protoV2, v2Method: "pane.list", flagKeys: []string{"workspace"}},
 	{name: "list-pane-surfaces", proto: protoV2, v2Method: "pane.surfaces", flagKeys: []string{"pane"}},
-	{name: "new-pane", proto: protoV2, v2Method: "pane.create", flagKeys: []string{"workspace"}},
-	{name: "new-surface", proto: protoV2, v2Method: "surface.create", flagKeys: []string{"workspace", "pane"}},
+	{name: "new-pane", proto: protoV2, v2Method: "pane.create", flagKeys: []string{"workspace", "direction", "type", "url"}, defaultParams: map[string]any{"direction": "right"}},
+	{name: "new-surface", proto: protoV2, v2Method: "surface.create", flagKeys: []string{"workspace", "pane", "type", "url"}},
 	{name: "new-split", proto: protoV2, v2Method: "surface.split", flagKeys: []string{"surface", "direction"}},
 	{name: "close-surface", proto: protoV2, v2Method: "surface.close", flagKeys: []string{"surface"}},
 	{name: "send", proto: protoV2, v2Method: "surface.send_text", flagKeys: []string{"surface", "text"}},
@@ -191,7 +195,10 @@ func execV1(socketPath string, spec *commandSpec, args []string, refreshAddr fun
 
 // execV2 sends a v2 JSON-RPC request over the socket.
 func execV2(socketPath string, spec *commandSpec, args []string, jsonOutput bool, refreshAddr func() string) int {
-	params := make(map[string]any)
+	params := make(map[string]any, len(spec.defaultParams))
+	for key, value := range spec.defaultParams {
+		params[key] = value
+	}
 
 	if !spec.noParams {
 		parsed, err := parseFlags(args, spec.flagKeys)
@@ -203,6 +210,9 @@ func execV2(socketPath string, spec *commandSpec, args []string, jsonOutput bool
 		for _, key := range spec.flagKeys {
 			if val, ok := parsed.flags[key]; ok {
 				paramKey := flagToParamKey(key)
+				if override, ok := spec.paramKeyOverrides[key]; ok {
+					paramKey = override
+				}
 				params[paramKey] = val
 			}
 		}
@@ -212,17 +222,8 @@ func execV2(socketPath string, spec *commandSpec, args []string, jsonOutput bool
 			params["initial_command"] = parsed.positional[0]
 		}
 
-		// Fall back to env vars for common IDs
-		if _, ok := params["workspace_id"]; !ok {
-			if envWs := os.Getenv("CMUX_WORKSPACE_ID"); envWs != "" {
-				params["workspace_id"] = envWs
-			}
-		}
-		if _, ok := params["surface_id"]; !ok {
-			if envSf := os.Getenv("CMUX_SURFACE_ID"); envSf != "" {
-				params["surface_id"] = envSf
-			}
-		}
+		applyWorkspaceEnvFallback(params)
+		applySurfaceEnvFallback(params)
 	}
 
 	resp, err := socketRoundTripV2(socketPath, spec.v2Method, params, refreshAddr)
@@ -275,25 +276,36 @@ func runBrowserRelay(socketPath string, args []string, jsonOutput bool, refreshA
 
 	var method string
 	var flagKeys []string
+	var allowPositionalURL bool
+	var useWorkspaceEnv bool
+	var useSurfaceEnv bool
 	switch sub {
 	case "open", "open-split", "new":
-		method = "browser.open"
+		method = "browser.open_split"
 		flagKeys = []string{"url", "workspace", "surface"}
+		allowPositionalURL = true
+		useWorkspaceEnv = true
 	case "navigate":
 		method = "browser.navigate"
 		flagKeys = []string{"url", "surface"}
+		allowPositionalURL = true
+		useSurfaceEnv = true
 	case "back":
 		method = "browser.back"
 		flagKeys = []string{"surface"}
+		useSurfaceEnv = true
 	case "forward":
 		method = "browser.forward"
 		flagKeys = []string{"surface"}
+		useSurfaceEnv = true
 	case "reload":
 		method = "browser.reload"
 		flagKeys = []string{"surface"}
+		useSurfaceEnv = true
 	case "get-url":
-		method = "browser.get_url"
+		method = "browser.url.get"
 		flagKeys = []string{"surface"}
+		useSurfaceEnv = true
 	default:
 		fmt.Fprintf(os.Stderr, "cmux browser: unknown subcommand %q\n", sub)
 		return 2
@@ -311,6 +323,17 @@ func runBrowserRelay(socketPath string, args []string, jsonOutput bool, refreshA
 			params[paramKey] = val
 		}
 	}
+	if allowPositionalURL {
+		if _, ok := params["url"]; !ok && len(parsed.positional) > 0 {
+			params["url"] = strings.Join(parsed.positional, " ")
+		}
+	}
+	if useWorkspaceEnv {
+		applyWorkspaceEnvFallback(params)
+	}
+	if useSurfaceEnv {
+		applySurfaceEnvFallback(params)
+	}
 
 	resp, err := socketRoundTripV2(socketPath, method, params, refreshAddr)
 	if err != nil {
@@ -323,6 +346,24 @@ func runBrowserRelay(socketPath string, args []string, jsonOutput bool, refreshA
 		fmt.Println(defaultRelayOutput(resp))
 	}
 	return 0
+}
+
+func applyWorkspaceEnvFallback(params map[string]any) {
+	if _, ok := params["workspace_id"]; ok {
+		return
+	}
+	if envWs := os.Getenv("CMUX_WORKSPACE_ID"); envWs != "" {
+		params["workspace_id"] = envWs
+	}
+}
+
+func applySurfaceEnvFallback(params map[string]any) {
+	if _, ok := params["surface_id"]; ok {
+		return
+	}
+	if envSf := os.Getenv("CMUX_SURFACE_ID"); envSf != "" {
+		params["surface_id"] = envSf
+	}
 }
 
 func defaultRelayOutput(resp string) string {
