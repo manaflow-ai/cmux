@@ -334,6 +334,8 @@
         "sf-jump-1-8": "서피스 1–8로 이동",
         "sf-jump-last": "마지막 서피스로 이동",
         "sf-close": "서피스 닫기",
+        "sf-next-global": "다음 서피스 (모든 패널)",
+        "sf-prev-global": "이전 서피스 (모든 패널)",
         "sp-right": "오른쪽으로 분할",
         "sp-down": "아래로 분할",
         "sp-focus": "방향별 패널 포커스",

@@ -334,6 +334,8 @@
         "sf-jump-1-8": "Skok na površinu 1–8",
         "sf-jump-last": "Skok na posljednju površinu",
         "sf-close": "Zatvori površinu",
+        "sf-next-global": "Sljedeća površina (svi paneli)",
+        "sf-prev-global": "Prethodna površina (svi paneli)",
         "sp-right": "Podijeli desno",
         "sp-down": "Podijeli dolje",
         "sp-focus": "Fokusiraj panel po smjeru",

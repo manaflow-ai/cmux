@@ -334,6 +334,8 @@
         "sf-jump-1-8": "1–8 arası yüzeye atla",
         "sf-jump-last": "Son yüzeye atla",
         "sf-close": "Yüzeyi kapat",
+        "sf-next-global": "Sonraki yüzey (tüm paneller)",
+        "sf-prev-global": "Önceki yüzey (tüm paneller)",
         "sp-right": "Sağa böl",
         "sp-down": "Aşağı böl",
         "sp-focus": "Yönlü panel odağı",

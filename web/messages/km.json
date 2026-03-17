@@ -334,6 +334,8 @@
         "sf-jump-1-8": "លោតទៅ surface 1–8",
         "sf-jump-last": "លោតទៅ surface ចុងក្រោយ",
         "sf-close": "បិទ surface",
+        "sf-next-global": "Surface បន្ទាប់ (បន្ទះទាំងអស់)",
+        "sf-prev-global": "Surface មុន (បន្ទះទាំងអស់)",
         "sp-right": "បំបែកស្ដាំ",
         "sp-down": "បំបែកក្រោម",
         "sp-focus": "ផ្ដោតបន្ទះតាមទិសដៅ",

@@ -2771,6 +2771,16 @@ class TabManager: ObservableObject {
         selectedWorkspace?.selectPreviousSurface()
     }
 
+    /// Select the next surface across all panes in the selected workspace
+    func selectNextSurfaceGlobal() {
+        selectedWorkspace?.selectNextSurfaceGlobal()
+    }
+
+    /// Select the previous surface across all panes in the selected workspace
+    func selectPreviousSurfaceGlobal() {
+        selectedWorkspace?.selectPreviousSurfaceGlobal()
+    }
+
     /// Select a surface by index in the currently focused pane of the selected workspace
     func selectSurface(at index: Int) {
         selectedWorkspace?.selectSurface(at: index)

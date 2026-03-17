@@ -334,6 +334,8 @@
         "sf-jump-1-8": "Zu Oberfläche 1–8 springen",
         "sf-jump-last": "Zur letzten Oberfläche springen",
         "sf-close": "Oberfläche schließen",
+        "sf-next-global": "Nächste Oberfläche (alle Bereiche)",
+        "sf-prev-global": "Vorherige Oberfläche (alle Bereiche)",
         "sp-right": "Rechts teilen",
         "sp-down": "Unten teilen",
         "sp-focus": "Bereich richtungsabhängig fokussieren",

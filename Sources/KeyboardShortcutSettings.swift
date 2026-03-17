@@ -18,6 +18,8 @@ enum KeyboardShortcutSettings {
         // Navigation
         case nextSurface
         case prevSurface
+        case nextSurfaceGlobal
+        case prevSurfaceGlobal
         case nextSidebarTab
         case prevSidebarTab
         case renameTab
@@ -57,6 +59,8 @@ enum KeyboardShortcutSettings {
             case .triggerFlash: return String(localized: "shortcut.flashFocusedPanel.label", defaultValue: "Flash Focused Panel")
             case .nextSurface: return String(localized: "shortcut.nextSurface.label", defaultValue: "Next Surface")
             case .prevSurface: return String(localized: "shortcut.previousSurface.label", defaultValue: "Previous Surface")
+            case .nextSurfaceGlobal: return String(localized: "shortcut.nextSurfaceGlobal.label", defaultValue: "Next Surface (All Panes)")
+            case .prevSurfaceGlobal: return String(localized: "shortcut.prevSurfaceGlobal.label", defaultValue: "Previous Surface (All Panes)")
             case .nextSidebarTab: return String(localized: "shortcut.nextWorkspace.label", defaultValue: "Next Workspace")
             case .prevSidebarTab: return String(localized: "shortcut.previousWorkspace.label", defaultValue: "Previous Workspace")
             case .renameTab: return String(localized: "shortcut.renameTab.label", defaultValue: "Rename Tab")
@@ -106,6 +110,8 @@ enum KeyboardShortcutSettings {
             case .splitBrowserDown: return "shortcut.splitBrowserDown"
             case .nextSurface: return "shortcut.nextSurface"
             case .prevSurface: return "shortcut.prevSurface"
+            case .nextSurfaceGlobal: return "shortcut.nextSurfaceGlobal"
+            case .prevSurfaceGlobal: return "shortcut.prevSurfaceGlobal"
             case .newSurface: return "shortcut.newSurface"
             case .toggleTerminalCopyMode: return "shortcut.toggleTerminalCopyMode"
             case .openBrowser: return "shortcut.openBrowser"
@@ -166,6 +172,10 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "]", command: true, shift: true, option: false, control: false)
             case .prevSurface:
                 return StoredShortcut(key: "[", command: true, shift: true, option: false, control: false)
+            case .nextSurfaceGlobal:
+                return StoredShortcut(key: "\t", command: false, shift: false, option: true, control: true)
+            case .prevSurfaceGlobal:
+                return StoredShortcut(key: "\t", command: false, shift: true, option: true, control: true)
             case .newSurface:
                 return StoredShortcut(key: "t", command: true, shift: false, option: false, control: false)
             case .toggleTerminalCopyMode:
@@ -246,6 +256,8 @@ enum KeyboardShortcutSettings {
 
     static func nextSurfaceShortcut() -> StoredShortcut { shortcut(for: .nextSurface) }
     static func prevSurfaceShortcut() -> StoredShortcut { shortcut(for: .prevSurface) }
+    static func nextSurfaceGlobalShortcut() -> StoredShortcut { shortcut(for: .nextSurfaceGlobal) }
+    static func prevSurfaceGlobalShortcut() -> StoredShortcut { shortcut(for: .prevSurfaceGlobal) }
     static func newSurfaceShortcut() -> StoredShortcut { shortcut(for: .newSurface) }
 
     static func openBrowserShortcut() -> StoredShortcut { shortcut(for: .openBrowser) }
