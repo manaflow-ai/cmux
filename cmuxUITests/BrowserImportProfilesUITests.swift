@@ -70,6 +70,34 @@ final class BrowserImportProfilesUITests: XCTestCase {
         XCTAssertEqual(entries[0]["destinationName"] as? String, "Default")
     }
 
+    func testAdditionalDataSelectionCapturesEverythingScope() throws {
+        let app = launchApp()
+
+        openImportWizard(app)
+        app.buttons["Next"].click()
+        app.buttons["Next"].click()
+
+        let cookiesCheckbox = app.checkBoxes["BrowserImportCookiesCheckbox"]
+        XCTAssertTrue(cookiesCheckbox.waitForExistence(timeout: 5.0))
+        cookiesCheckbox.click()
+
+        let historyCheckbox = app.checkBoxes["BrowserImportHistoryCheckbox"]
+        XCTAssertTrue(historyCheckbox.waitForExistence(timeout: 5.0))
+        historyCheckbox.click()
+
+        let additionalDataCheckbox = app.checkBoxes["BrowserImportAdditionalDataCheckbox"]
+        XCTAssertTrue(
+            additionalDataCheckbox.waitForExistence(timeout: 5.0),
+            "Expected Step 3 to expose the additional data checkbox"
+        )
+        additionalDataCheckbox.click()
+
+        app.buttons["Start Import"].click()
+
+        let capture = try XCTUnwrap(waitForCapturedSelection(timeout: 5.0))
+        XCTAssertEqual(capture["scope"] as? String, "everything")
+    }
+
     private func launchApp() -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"

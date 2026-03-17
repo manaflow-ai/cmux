@@ -1751,6 +1751,15 @@ final class BrowserImportScopeTests: XCTestCase {
         XCTAssertEqual(scope, .cookiesAndHistory)
     }
 
+    func testFromSelectionEverything() {
+        let scope = BrowserImportScope.fromSelection(
+            includeCookies: false,
+            includeHistory: false,
+            includeAdditionalData: true
+        )
+        XCTAssertEqual(scope, .everything)
+    }
+
     func testFromSelectionRejectsEmptySelection() {
         let scope = BrowserImportScope.fromSelection(
             includeCookies: false,

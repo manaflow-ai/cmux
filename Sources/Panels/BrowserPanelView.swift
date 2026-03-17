@@ -226,6 +226,8 @@ struct BrowserPanelView: View {
     @State private var latestRemoteSuggestionQuery: String = ""
     @State private var latestRemoteSuggestions: [String] = []
     @State private var emptyStateImportBrowsers: [InstalledBrowserCandidate] = []
+    @State private var emptyStateImportBrowserRefreshTask: Task<Void, Never>?
+    @State private var emptyStateImportBrowserRefreshGeneration: UInt64 = 0
     @State private var inlineCompletion: OmnibarInlineCompletion?
     @State private var omnibarSelectionRange: NSRange = NSRange(location: NSNotFound, length: 0)
     @State private var omnibarHasMarkedText: Bool = false
@@ -981,12 +983,12 @@ struct BrowserPanelView: View {
                         if addressBarFocused {
                             setAddressBarFocused(false, reason: "placeholderContent.tapBlur")
                         }
-                }
-            }
-        }
-        .overlay {
-            if isWebViewBlank() {
-                emptyBrowserStateOverlay
+                    }
+                    .overlay {
+                        if shouldShowEmptyStateImportOverlay {
+                            emptyBrowserStateOverlay
+                        }
+                    }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -1245,7 +1247,6 @@ struct BrowserPanelView: View {
                     .fixedSize(horizontal: false, vertical: true)
 
                 Button(String(localized: "settings.browser.emptyImport.choose", defaultValue: "Choose What to Import…")) {
-                    refreshEmptyStateImportBrowsers()
                     BrowserDataImportCoordinator.shared.presentImportDialog(
                         defaultDestinationProfileID: panel.profileID
                     )
@@ -1270,6 +1271,10 @@ struct BrowserPanelView: View {
             Spacer()
         }
         .padding(.horizontal, 18)
+    }
+
+    private var shouldShowEmptyStateImportOverlay: Bool {
+        !panel.shouldRenderWebView && isWebViewBlank()
     }
 
     /// Treat a WebView with no URL (or about:blank) as "blank" for UX purposes.
@@ -1324,7 +1329,28 @@ struct BrowserPanelView: View {
     }
 
     private func refreshEmptyStateImportBrowsers() {
-        emptyStateImportBrowsers = InstalledBrowserDetector.detectInstalledBrowsers()
+        emptyStateImportBrowserRefreshTask?.cancel()
+        emptyStateImportBrowserRefreshGeneration &+= 1
+        let generation = emptyStateImportBrowserRefreshGeneration
+
+        guard shouldShowEmptyStateImportOverlay else {
+            emptyStateImportBrowsers = []
+            emptyStateImportBrowserRefreshTask = nil
+            return
+        }
+
+        emptyStateImportBrowserRefreshTask = Task {
+            let browsers = await Task.detached(priority: .utility) {
+                InstalledBrowserDetector.detectInstalledBrowsers()
+            }.value
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                guard emptyStateImportBrowserRefreshGeneration == generation,
+                      shouldShowEmptyStateImportOverlay else { return }
+                emptyStateImportBrowsers = browsers
+                emptyStateImportBrowserRefreshTask = nil
+            }
+        }
     }
 
     private func openDevTools() {

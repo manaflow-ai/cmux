@@ -4734,6 +4734,23 @@
         }
       }
     },
+    "browser.import.additionalData": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Additional data (bookmarks, settings, extensions)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "追加データ（ブックマーク、設定、拡張機能）"
+          }
+        }
+      }
+    },
     "browser.import.back": {
       "extractionState": "manual",
       "localizations": {
@@ -5142,7 +5159,24 @@
         }
       }
     },
-    "browser.import.detected.more": {
+    "browser.import.detected.more.one": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Detected: %@, +1 more."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "検出済み: %@、ほか1件。"
+          }
+        }
+      }
+    },
+    "browser.import.detected.more.other": {
       "extractionState": "manual",
       "localizations": {
         "en": {

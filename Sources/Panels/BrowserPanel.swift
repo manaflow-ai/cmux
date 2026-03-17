@@ -12,6 +12,18 @@ import CommonCrypto
 import Security
 #endif
 
+fileprivate func dedupedCanonicalURLs(_ urls: [URL]) -> [URL] {
+    var seen = Set<String>()
+    var result: [URL] = []
+    for url in urls {
+        let canonical = url.standardizedFileURL.resolvingSymlinksInPath().path
+        if seen.insert(canonical).inserted {
+            result.append(url)
+        }
+    }
+    return result
+}
+
 enum GhosttyBackgroundTheme {
     static func clampedOpacity(_ opacity: Double) -> CGFloat {
         CGFloat(max(0.0, min(1.0, opacity)))
@@ -5532,10 +5544,10 @@ enum BrowserImportScope: String, CaseIterable, Identifiable {
         includeHistory: Bool,
         includeAdditionalData: Bool
     ) -> BrowserImportScope? {
-        guard includeCookies || includeHistory else { return nil }
         if includeAdditionalData {
             return .everything
         }
+        guard includeCookies || includeHistory else { return nil }
         if includeCookies && includeHistory {
             return .cookiesAndHistory
         }
@@ -5949,13 +5961,23 @@ enum InstalledBrowserDetector {
             )
         }
         let shown = names.prefix(limit).joined(separator: ", ")
+        let remaining = names.count - limit
+        if remaining == 1 {
+            return String(
+                format: String(
+                    localized: "browser.import.detected.more.one",
+                    defaultValue: "Detected: %@, +1 more."
+                ),
+                shown
+            )
+        }
         return String(
             format: String(
-                localized: "browser.import.detected.more",
+                localized: "browser.import.detected.more.other",
                 defaultValue: "Detected: %@, +%ld more."
             ),
             shown,
-            names.count - limit
+            remaining
         )
     }
 
@@ -6442,18 +6464,6 @@ enum InstalledBrowserDetector {
             URL(fileURLWithPath: "/Applications/Setapp", isDirectory: true),
             homeDirectoryURL.appendingPathComponent("Applications/Setapp", isDirectory: true),
         ]
-    }
-
-    private static func dedupedCanonicalURLs(_ urls: [URL]) -> [URL] {
-        var seen = Set<String>()
-        var result: [URL] = []
-        for url in urls {
-            let canonical = url.standardizedFileURL.resolvingSymlinksInPath().path
-            if seen.insert(canonical).inserted {
-                result.append(url)
-            }
-        }
-        return result
     }
 
     private static func dedupedProfiles(_ profiles: [InstalledBrowserProfile]) -> [InstalledBrowserProfile] {
@@ -7582,7 +7592,7 @@ enum BrowserDataImporter {
                           domainMatches(host: host, filters: domainFilters) else {
                         return
                     }
-                    let lastVisited = firefoxDate(fromUnixMicroseconds: lastVisitMicros) ?? Date()
+                    let lastVisited = firefoxDate(fromUnixMicroseconds: lastVisitMicros) ?? .distantPast
                     rows.append(HistoryRow(url: url, title: title, visitCount: visitCount, lastVisited: lastVisited))
                 }
             } catch {
@@ -7638,7 +7648,7 @@ enum BrowserDataImporter {
                           domainMatches(host: host, filters: domainFilters) else {
                         return
                     }
-                    let lastVisited = chromiumDate(fromWebKitMicroseconds: lastVisitMicros) ?? Date()
+                    let lastVisited = chromiumDate(fromWebKitMicroseconds: lastVisitMicros) ?? .distantPast
                     rows.append(HistoryRow(url: url, title: title, visitCount: visitCount, lastVisited: lastVisited))
                 }
             } catch {
@@ -7929,18 +7939,6 @@ enum BrowserDataImporter {
             return Data()
         }
         return Data(bytes: pointer, count: length)
-    }
-
-    private static func dedupedCanonicalURLs(_ urls: [URL]) -> [URL] {
-        var seen = Set<String>()
-        var result: [URL] = []
-        for url in urls {
-            let canonical = url.standardizedFileURL.resolvingSymlinksInPath().path
-            if seen.insert(canonical).inserted {
-                result.append(url)
-            }
-        }
-        return result
     }
 }
 
@@ -8279,6 +8277,7 @@ final class BrowserDataImportCoordinator {
 
         private let cookiesCheckbox = NSButton(checkboxWithTitle: "", target: nil, action: nil)
         private let historyCheckbox = NSButton(checkboxWithTitle: "", target: nil, action: nil)
+        private let additionalDataCheckbox = NSButton(checkboxWithTitle: "", target: nil, action: nil)
         private let domainField = NSTextField(frame: .zero)
 
         private let backButton = NSButton(title: "", target: nil, action: nil)
@@ -8373,10 +8372,11 @@ final class BrowserDataImportCoordinator {
             case .dataTypes:
                 let includeCookies = cookiesCheckbox.state == .on
                 let includeHistory = historyCheckbox.state == .on
+                let includeAdditionalData = additionalDataCheckbox.state == .on
                 guard let scope = BrowserImportScope.fromSelection(
                     includeCookies: includeCookies,
                     includeHistory: includeHistory,
-                    includeAdditionalData: false
+                    includeAdditionalData: includeAdditionalData
                 ) else {
                     validationLabel.stringValue = String(
                         localized: "browser.import.validation.scope",
@@ -8632,6 +8632,7 @@ final class BrowserDataImportCoordinator {
         private func setupDataTypesContainer() {
             cookiesCheckbox.state = .on
             historyCheckbox.state = .on
+            additionalDataCheckbox.state = .off
             cookiesCheckbox.title = String(
                 localized: "browser.import.cookies",
                 defaultValue: "Cookies (site sign-ins)"
@@ -8640,6 +8641,13 @@ final class BrowserDataImportCoordinator {
                 localized: "browser.import.history",
                 defaultValue: "History (visited pages)"
             )
+            additionalDataCheckbox.title = String(
+                localized: "browser.import.additionalData",
+                defaultValue: "Additional data (bookmarks, settings, extensions)"
+            )
+            cookiesCheckbox.setAccessibilityIdentifier("BrowserImportCookiesCheckbox")
+            historyCheckbox.setAccessibilityIdentifier("BrowserImportHistoryCheckbox")
+            additionalDataCheckbox.setAccessibilityIdentifier("BrowserImportAdditionalDataCheckbox")
             separateProfilesRadio.title = String(
                 localized: "browser.import.destinationMode.separate",
                 defaultValue: "Keep profiles separate"
@@ -8721,6 +8729,7 @@ final class BrowserDataImportCoordinator {
             dataTypesContainer.addArrangedSubview(destinationHelpLabel)
             dataTypesContainer.addArrangedSubview(cookiesCheckbox)
             dataTypesContainer.addArrangedSubview(historyCheckbox)
+            dataTypesContainer.addArrangedSubview(additionalDataCheckbox)
             dataTypesContainer.addArrangedSubview(domainRow)
             dataTypesContainer.addArrangedSubview(noteLabel)
         }
