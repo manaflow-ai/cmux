@@ -443,7 +443,7 @@ func TestProxyStreamEOFPayloadIsNotDuplicatedAcrossDataAndEOFEvents(t *testing.T
 	if err != nil {
 		t.Fatalf("decode first payload: %v", err)
 	}
-	secondPayload, err := base64.StdEncoding.DecodeString(second["data_base64"].(string))
+	secondPayload, err := decodeOptionalBase64(second["data_base64"])
 	if err != nil {
 		t.Fatalf("decode second payload: %v", err)
 	}
@@ -461,6 +461,14 @@ func boolToInt(value bool) int {
 		return 1
 	}
 	return 0
+}
+
+func decodeOptionalBase64(value any) ([]byte, error) {
+	encoded, ok := value.(string)
+	if !ok || encoded == "" {
+		return nil, nil
+	}
+	return base64.StdEncoding.DecodeString(encoded)
 }
 
 func TestGetIntParamRejectsFractionalFloat64(t *testing.T) {

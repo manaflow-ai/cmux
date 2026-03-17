@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -82,12 +83,30 @@ type sessionState struct {
 const maxRPCFrameBytes = 4 * 1024 * 1024
 
 func main() {
-	// Busybox-style: if invoked as "cmux" (via symlink), act as CLI relay.
-	base := filepath.Base(os.Args[0])
-	if base == "cmux" {
+	if shouldRunCLIForInvocation(os.Args[0], os.Args[1:]) {
 		os.Exit(runCLI(os.Args[1:]))
 	}
 	os.Exit(run(os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
+}
+
+func shouldRunCLIForInvocation(argv0 string, args []string) bool {
+	base := filepath.Base(argv0)
+	if base == "cmux" {
+		return true
+	}
+	if !strings.HasPrefix(base, "cmuxd-remote") || len(args) == 0 {
+		return false
+	}
+	return !isDaemonEntryCommand(args[0])
+}
+
+func isDaemonEntryCommand(arg string) bool {
+	switch arg {
+	case "version", "serve", "cli":
+		return true
+	default:
+		return false
+	}
 }
 
 func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
@@ -1013,7 +1032,7 @@ func (s *rpcServer) streamPump(streamID string, conn net.Conn) {
 			_ = s.frameWriter.writeEvent(rpcEvent{
 				Event:      "proxy.stream.eof",
 				StreamID:   streamID,
-				DataBase64: base64.StdEncoding.EncodeToString(data),
+				DataBase64: "",
 			})
 		} else if !errors.Is(readErr, net.ErrClosed) {
 			_ = s.frameWriter.writeEvent(rpcEvent{

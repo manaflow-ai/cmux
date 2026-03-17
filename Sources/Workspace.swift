@@ -1399,6 +1399,41 @@ enum RemoteLoopbackHTTPRequestRewriter {
     }
 }
 
+struct RemoteLoopbackHTTPRequestStreamRewriter {
+    private let aliasHost: String
+    private var pendingHeaderBytes = Data()
+    private var hasForwardedHeaders = false
+
+    init(aliasHost: String) {
+        self.aliasHost = aliasHost
+    }
+
+    mutating func rewriteNextChunk(_ data: Data, eof: Bool) -> Data {
+        guard !hasForwardedHeaders else { return data }
+
+        pendingHeaderBytes.append(data)
+        let marker = Data([0x0D, 0x0A, 0x0D, 0x0A])
+        guard pendingHeaderBytes.range(of: marker) != nil else {
+            guard eof else { return Data() }
+            hasForwardedHeaders = true
+            let payload = pendingHeaderBytes
+            pendingHeaderBytes = Data()
+            return RemoteLoopbackHTTPRequestRewriter.rewriteIfNeeded(
+                data: payload,
+                aliasHost: aliasHost
+            )
+        }
+
+        hasForwardedHeaders = true
+        let payload = pendingHeaderBytes
+        pendingHeaderBytes = Data()
+        return RemoteLoopbackHTTPRequestRewriter.rewriteIfNeeded(
+            data: payload,
+            aliasHost: aliasHost
+        )
+    }
+}
+
 enum RemoteLoopbackHTTPResponseRewriter {
     private static let headerDelimiter = Data([0x0d, 0x0a, 0x0d, 0x0a])
     private static let canonicalLoopbackHost = "localhost"
@@ -1507,6 +1542,7 @@ private final class WorkspaceRemoteDaemonProxyTunnel {
         private var streamID: String?
         private var localInputEOF = false
         private var rewritesLoopbackHTTPHeaders = false
+        private var loopbackRequestHeaderRewriter: RemoteLoopbackHTTPRequestStreamRewriter?
         private var pendingRemoteHTTPHeaderBytes = Data()
         private var hasForwardedRemoteHTTPHeaders = false
 
@@ -1556,7 +1592,7 @@ private final class WorkspaceRemoteDaemonProxyTunnel {
                         self.handshakeBuffer.append(data)
                         self.processHandshakeBuffer()
                     } else {
-                        self.forwardToRemote(data)
+                        self.forwardToRemote(data, eof: isComplete)
                     }
                 }
 
@@ -1565,6 +1601,9 @@ private final class WorkspaceRemoteDaemonProxyTunnel {
                     // drain upstream response bytes (for example curl closing write-side after
                     // sending an HTTP request through SOCKS/CONNECT).
                     self.localInputEOF = true
+                    if self.streamID != nil, data?.isEmpty ?? true {
+                        self.forwardToRemote(Data(), eof: true, allowAfterEOF: true)
+                    }
                     if self.streamID == nil {
                         self.close(reason: nil)
                     }
@@ -1756,6 +1795,11 @@ private final class WorkspaceRemoteDaemonProxyTunnel {
                 rewritesLoopbackHTTPHeaders =
                     BrowserInsecureHTTPSettings.normalizeHost(host)
                     == BrowserInsecureHTTPSettings.normalizeHost(Self.remoteLoopbackProxyAliasHost)
+                loopbackRequestHeaderRewriter = rewritesLoopbackHTTPHeaders
+                    ? RemoteLoopbackHTTPRequestStreamRewriter(aliasHost: Self.remoteLoopbackProxyAliasHost)
+                    : nil
+                pendingRemoteHTTPHeaderBytes = Data()
+                hasForwardedRemoteHTTPHeaders = false
                 let targetHost = Self.normalizedProxyTargetHost(host)
                 let streamID = try rpcClient.openStream(host: targetHost, port: port)
                 self.streamID = streamID
@@ -1777,17 +1821,18 @@ private final class WorkspaceRemoteDaemonProxyTunnel {
             }
         }
 
-        private func forwardToRemote(_ data: Data, allowAfterEOF: Bool = false) {
+        private func forwardToRemote(_ data: Data, eof: Bool = false, allowAfterEOF: Bool = false) {
             guard !isClosed else { return }
             guard !localInputEOF || allowAfterEOF else { return }
             guard let streamID else { return }
             do {
-                let outgoingData = rewritesLoopbackHTTPHeaders
-                    ? RemoteLoopbackHTTPRequestRewriter.rewriteIfNeeded(
-                        data: data,
-                        aliasHost: Self.remoteLoopbackProxyAliasHost
-                    )
-                    : data
+                let outgoingData: Data
+                if rewritesLoopbackHTTPHeaders {
+                    outgoingData = loopbackRequestHeaderRewriter?.rewriteNextChunk(data, eof: eof) ?? data
+                } else {
+                    outgoingData = data
+                }
+                guard !outgoingData.isEmpty else { return }
                 try rpcClient.writeStream(streamID: streamID, data: outgoingData)
             } catch {
                 close(reason: "proxy.write failed: \(error.localizedDescription)")
