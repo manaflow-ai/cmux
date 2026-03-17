@@ -328,6 +328,7 @@ extension Workspace {
             let historySnapshot = browserPanel.sessionNavigationHistorySnapshot()
             browserSnapshot = SessionBrowserPanelSnapshot(
                 urlString: browserPanel.preferredURLStringForOmnibar(),
+                profileID: browserPanel.profileID,
                 shouldRenderWebView: browserPanel.shouldRenderWebView,
                 pageZoom: Double(browserPanel.webView.pageZoom),
                 developerToolsVisible: browserPanel.isDeveloperToolsVisible(),
@@ -513,7 +514,8 @@ extension Workspace {
             guard let browserPanel = newBrowserSurface(
                 inPane: paneId,
                 url: initialURL,
-                focus: false
+                focus: false,
+                preferredProfileID: snapshot.browser?.profileID
             ) else {
                 return nil
             }
@@ -898,6 +900,7 @@ enum SidebarBranchOrdering {
 struct ClosedBrowserPanelRestoreSnapshot {
     let workspaceId: UUID
     let url: URL?
+    let profileID: UUID?
     let originalPaneId: UUID
     let originalTabIndex: Int
     let fallbackSplitOrientation: SplitOrientation?
@@ -915,6 +918,7 @@ final class Workspace: Identifiable, ObservableObject {
     @Published var isPinned: Bool = false
     @Published var customColor: String?  // hex string, e.g. "#C0392B"
     @Published var currentDirectory: String
+    private(set) var preferredBrowserProfileID: UUID?
 
     /// Ordinal for CMUX_PORT range assignment (monotonically increasing per app session)
     var portOrdinal: Int = 0
@@ -1363,6 +1367,35 @@ final class Workspace: Identifiable, ObservableObject {
             )
         }
         panelSubscriptions[browserPanel.id] = subscription
+        setPreferredBrowserProfileID(browserPanel.profileID)
+    }
+
+    func setPreferredBrowserProfileID(_ profileID: UUID?) {
+        guard let profileID else {
+            preferredBrowserProfileID = nil
+            return
+        }
+        guard BrowserProfileStore.shared.profileDefinition(id: profileID) != nil else { return }
+        preferredBrowserProfileID = profileID
+    }
+
+    private func resolvedNewBrowserProfileID(
+        preferredProfileID: UUID? = nil,
+        sourcePanelId: UUID? = nil
+    ) -> UUID {
+        if let preferredProfileID,
+           BrowserProfileStore.shared.profileDefinition(id: preferredProfileID) != nil {
+            return preferredProfileID
+        }
+        if let sourcePanelId,
+           let sourceBrowserPanel = browserPanel(for: sourcePanelId) {
+            return sourceBrowserPanel.profileID
+        }
+        if let preferredBrowserProfileID,
+           BrowserProfileStore.shared.profileDefinition(id: preferredBrowserProfileID) != nil {
+            return preferredBrowserProfileID
+        }
+        return BrowserProfileStore.shared.effectiveLastUsedProfileID
     }
 
     private func installMarkdownPanelSubscription(_ markdownPanel: MarkdownPanel) {
@@ -2266,6 +2299,7 @@ final class Workspace: Identifiable, ObservableObject {
         orientation: SplitOrientation,
         insertFirst: Bool = false,
         url: URL? = nil,
+        preferredProfileID: UUID? = nil,
         focus: Bool = true
     ) -> BrowserPanel? {
         // Find the pane containing the source panel
@@ -2282,9 +2316,17 @@ final class Workspace: Identifiable, ObservableObject {
         guard let paneId = sourcePaneId else { return nil }
 
         // Create browser panel
-        let browserPanel = BrowserPanel(workspaceId: id, initialURL: url)
+        let browserPanel = BrowserPanel(
+            workspaceId: id,
+            profileID: resolvedNewBrowserProfileID(
+                preferredProfileID: preferredProfileID,
+                sourcePanelId: panelId
+            ),
+            initialURL: url
+        )
         panels[browserPanel.id] = browserPanel
         panelTitles[browserPanel.id] = browserPanel.displayTitle
+        setPreferredBrowserProfileID(browserPanel.profileID)
 
         // Pre-generate the bonsplit tab ID so the mapping exists before the split lands.
         let newTab = Bonsplit.Tab(
@@ -2340,17 +2382,20 @@ final class Workspace: Identifiable, ObservableObject {
         url: URL? = nil,
         focus: Bool? = nil,
         insertAtEnd: Bool = false,
+        preferredProfileID: UUID? = nil,
         bypassInsecureHTTPHostOnce: String? = nil
     ) -> BrowserPanel? {
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
 
         let browserPanel = BrowserPanel(
             workspaceId: id,
+            profileID: resolvedNewBrowserProfileID(preferredProfileID: preferredProfileID),
             initialURL: url,
             bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce
         )
         panels[browserPanel.id] = browserPanel
         panelTitles[browserPanel.id] = browserPanel.displayTitle
+        setPreferredBrowserProfileID(browserPanel.profileID)
 
         guard let newTabId = bonsplitController.createTab(
             title: browserPanel.displayTitle,
@@ -2823,6 +2868,7 @@ final class Workspace: Identifiable, ObservableObject {
         pendingClosedBrowserRestoreSnapshots[tab.id] = ClosedBrowserPanelRestoreSnapshot(
             workspaceId: id,
             url: resolvedURL,
+            profileID: browserPanel.profileID,
             originalPaneId: pane.id,
             originalTabIndex: tabIndex,
             fallbackSplitOrientation: fallbackPlan?.orientation,
@@ -4002,14 +4048,27 @@ final class Workspace: Identifiable, ObservableObject {
 
     private func createBrowserToRight(of anchorTabId: TabID, inPane paneId: PaneID, url: URL? = nil) {
         let targetIndex = insertionIndexToRight(of: anchorTabId, inPane: paneId)
-        guard let newPanel = newBrowserSurface(inPane: paneId, url: url, focus: true) else { return }
+        let preferredProfileID = panelIdFromSurfaceId(anchorTabId).flatMap { browserPanel(for: $0)?.profileID }
+        guard let newPanel = newBrowserSurface(
+            inPane: paneId,
+            url: url,
+            focus: true,
+            preferredProfileID: preferredProfileID
+        ) else { return }
         _ = reorderSurface(panelId: newPanel.id, toIndex: targetIndex)
     }
 
     private func duplicateBrowserToRight(anchorTabId: TabID, inPane paneId: PaneID) {
         guard let panelId = panelIdFromSurfaceId(anchorTabId),
               let browser = browserPanel(for: panelId) else { return }
-        createBrowserToRight(of: anchorTabId, inPane: paneId, url: browser.currentURL)
+        let targetIndex = insertionIndexToRight(of: anchorTabId, inPane: paneId)
+        guard let newPanel = newBrowserSurface(
+            inPane: paneId,
+            url: browser.currentURL,
+            focus: true,
+            preferredProfileID: browser.profileID
+        ) else { return }
+        _ = reorderSurface(panelId: newPanel.id, toIndex: targetIndex)
     }
 
     private func promptRenamePanel(tabId: TabID) {

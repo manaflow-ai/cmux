@@ -2995,6 +2995,7 @@ class TabManager: ObservableObject {
         orientation: SplitOrientation,
         insertFirst: Bool = false,
         url: URL? = nil,
+        preferredProfileID: UUID? = nil,
         focus: Bool = true
     ) -> UUID? {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return nil }
@@ -3003,14 +3004,24 @@ class TabManager: ObservableObject {
             orientation: orientation,
             insertFirst: insertFirst,
             url: url,
+            preferredProfileID: preferredProfileID,
             focus: focus
         )?.id
     }
 
     /// Create a new browser surface in a pane
-    func newBrowserSurface(tabId: UUID, inPane paneId: PaneID, url: URL? = nil) -> UUID? {
+    func newBrowserSurface(
+        tabId: UUID,
+        inPane paneId: PaneID,
+        url: URL? = nil,
+        preferredProfileID: UUID? = nil
+    ) -> UUID? {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return nil }
-        return tab.newBrowserSurface(inPane: paneId, url: url)?.id
+        return tab.newBrowserSurface(
+            inPane: paneId,
+            url: url,
+            preferredProfileID: preferredProfileID
+        )?.id
     }
 
     /// Get a browser panel by ID
@@ -3025,6 +3036,7 @@ class TabManager: ObservableObject {
         inWorkspace tabId: UUID,
         url: URL? = nil,
         preferSplitRight: Bool = false,
+        preferredProfileID: UUID? = nil,
         insertAtEnd: Bool = false
     ) -> UUID? {
         guard let workspace = tabs.first(where: { $0.id == tabId }) else { return nil }
@@ -3038,7 +3050,8 @@ class TabManager: ObservableObject {
                    inPane: targetPaneId,
                    url: url,
                    focus: true,
-                   insertAtEnd: insertAtEnd
+                   insertAtEnd: insertAtEnd,
+                   preferredProfileID: preferredProfileID
                ) {
                 rememberFocusedSurface(tabId: tabId, surfaceId: browserPanel.id)
                 return browserPanel.id
@@ -3064,6 +3077,7 @@ class TabManager: ObservableObject {
                    from: splitSourcePanelId,
                    orientation: .horizontal,
                    url: url,
+                   preferredProfileID: preferredProfileID,
                    focus: true
                ) {
                 rememberFocusedSurface(tabId: tabId, surfaceId: browserPanel.id)
@@ -3076,7 +3090,8 @@ class TabManager: ObservableObject {
                   inPane: paneId,
                   url: url,
                   focus: true,
-                  insertAtEnd: insertAtEnd
+                  insertAtEnd: insertAtEnd,
+                  preferredProfileID: preferredProfileID
               ) else {
             return nil
         }
@@ -3086,12 +3101,17 @@ class TabManager: ObservableObject {
 
     /// Open a browser in the currently focused pane (as a new surface)
     @discardableResult
-    func openBrowser(url: URL? = nil, insertAtEnd: Bool = false) -> UUID? {
+    func openBrowser(
+        url: URL? = nil,
+        preferredProfileID: UUID? = nil,
+        insertAtEnd: Bool = false
+    ) -> UUID? {
         guard let tabId = selectedTabId else { return nil }
         return openBrowser(
             inWorkspace: tabId,
             url: url,
             preferSplitRight: false,
+            preferredProfileID: preferredProfileID,
             insertAtEnd: insertAtEnd
         )
     }
@@ -3187,7 +3207,12 @@ class TabManager: ObservableObject {
         in workspace: Workspace
     ) -> UUID? {
         if let originalPane = workspace.bonsplitController.allPaneIds.first(where: { $0.id == snapshot.originalPaneId }),
-           let browserPanel = workspace.newBrowserSurface(inPane: originalPane, url: snapshot.url, focus: true) {
+           let browserPanel = workspace.newBrowserSurface(
+               inPane: originalPane,
+               url: snapshot.url,
+               focus: true,
+               preferredProfileID: snapshot.profileID
+           ) {
             let tabCount = workspace.bonsplitController.tabs(inPane: originalPane).count
             let maxIndex = max(0, tabCount - 1)
             let targetIndex = min(max(snapshot.originalTabIndex, 0), maxIndex)
@@ -3204,7 +3229,8 @@ class TabManager: ObservableObject {
                from: anchorPanelId,
                orientation: orientation,
                insertFirst: snapshot.fallbackSplitInsertFirst,
-               url: snapshot.url
+               url: snapshot.url,
+               preferredProfileID: snapshot.profileID
            )?.id {
             return browserPanelId
         }
@@ -3212,7 +3238,12 @@ class TabManager: ObservableObject {
         guard let focusedPane = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
             return nil
         }
-        return workspace.newBrowserSurface(inPane: focusedPane, url: snapshot.url, focus: true)?.id
+        return workspace.newBrowserSurface(
+            inPane: focusedPane,
+            url: snapshot.url,
+            focus: true,
+            preferredProfileID: snapshot.profileID
+        )?.id
     }
 
     /// Flash the currently focused panel so the user can visually confirm focus.

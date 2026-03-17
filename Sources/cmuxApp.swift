@@ -587,6 +587,10 @@ struct cmuxApp: App {
                     BrowserHistoryStore.shared.clearHistory()
                 }
 
+                Button(String(localized: "menu.view.importFromBrowser", defaultValue: "Import From Browser…")) {
+                    BrowserDataImportCoordinator.shared.presentImportDialog()
+                }
+
                 splitCommandButton(title: String(localized: "menu.view.nextWorkspace", defaultValue: "Next Workspace"), shortcut: nextWorkspaceMenuShortcut) {
                     activeTabManager.selectNextTab()
                 }
@@ -3150,6 +3154,7 @@ struct SettingsView: View {
     @State private var showOpenAccessConfirmation = false
     @State private var pendingOpenAccessMode: SocketControlMode?
     @State private var browserHistoryEntryCount: Int = 0
+    @State private var detectedImportBrowsers: [InstalledBrowserCandidate] = []
     @State private var browserInsecureHTTPAllowlistDraft = BrowserInsecureHTTPSettings.defaultAllowlistText
     @State private var socketPasswordDraft = ""
     @State private var socketPasswordStatusMessage: String?
@@ -3252,6 +3257,10 @@ struct SettingsView: View {
         default:
             return String(localized: "settings.browser.history.subtitleMany", defaultValue: "\(browserHistoryEntryCount) saved pages appear in omnibar suggestions.")
         }
+    }
+
+    private var browserImportSubtitle: String {
+        InstalledBrowserDetector.summaryText(for: detectedImportBrowsers)
     }
 
     private var browserInsecureHTTPAllowlistHasUnsavedChanges: Bool {
@@ -4349,6 +4358,25 @@ struct SettingsView: View {
 
                         SettingsCardDivider()
 
+                        SettingsCardRow(String(localized: "settings.browser.import", defaultValue: "Import From Browser"), subtitle: browserImportSubtitle) {
+                            HStack(spacing: 8) {
+                                Button(String(localized: "settings.browser.import.choose", defaultValue: "Choose…")) {
+                                    BrowserDataImportCoordinator.shared.presentImportDialog()
+                                    refreshDetectedImportBrowsers()
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+
+                                Button(String(localized: "settings.browser.import.refresh", defaultValue: "Refresh")) {
+                                    refreshDetectedImportBrowsers()
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                            }
+                        }
+
+                        SettingsCardDivider()
+
                         SettingsCardRow(String(localized: "settings.browser.history", defaultValue: "Browsing History"), subtitle: browserHistorySubtitle) {
                             Button(String(localized: "settings.browser.history.clearButton", defaultValue: "Clear History…")) {
                                 showClearBrowserHistoryConfirmation = true
@@ -4491,6 +4519,7 @@ struct SettingsView: View {
             browserThemeMode = BrowserThemeSettings.mode(defaults: .standard).rawValue
             browserHistoryEntryCount = BrowserHistoryStore.shared.entries.count
             browserInsecureHTTPAllowlistDraft = browserInsecureHTTPAllowlist
+            refreshDetectedImportBrowsers()
             reloadWorkspaceTabColorSettings()
             refreshNotificationCustomSoundStatus()
         }
@@ -4646,6 +4675,7 @@ struct SettingsView: View {
         socketPasswordDraft = ""
         socketPasswordStatusMessage = nil
         socketPasswordStatusIsError = false
+        refreshDetectedImportBrowsers()
         KeyboardShortcutSettings.resetAll()
         WorkspaceTabColorSettings.reset()
         reloadWorkspaceTabColorSettings()
@@ -4690,6 +4720,10 @@ struct SettingsView: View {
 
     private func saveBrowserInsecureHTTPAllowlist() {
         browserInsecureHTTPAllowlist = browserInsecureHTTPAllowlistDraft
+    }
+
+    private func refreshDetectedImportBrowsers() {
+        detectedImportBrowsers = InstalledBrowserDetector.detectInstalledBrowsers()
     }
 }
 
