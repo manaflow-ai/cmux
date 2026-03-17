@@ -8914,13 +8914,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Loading\u2026"
+            "value": "Loading…"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "\u8aad\u307f\u8fbc\u307f\u4e2d\u2026"
+            "value": "読み込み中…"
           }
         }
       }
@@ -77511,6 +77511,119 @@
           "stringUnit": {
             "state": "translated",
             "value": "Varsayılan"
+          }
+        }
+      }
+    },
+    "menu.openInIntelliJ": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Current Directory in IntelliJ IDEA"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在のディレクトリを IntelliJ IDEA で開く"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 IntelliJ IDEA 中打开当前目录"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 IntelliJ IDEA 中開啟目前目錄"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "현재 디렉토리를 IntelliJ IDEA에서 열기"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktuelles Verzeichnis in IntelliJ IDEA öffnen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir directorio actual en IntelliJ IDEA"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvrir le répertoire courant dans IntelliJ IDEA"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apri la directory corrente in IntelliJ IDEA"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Åbn nuværende mappe i IntelliJ IDEA"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otwórz bieżący katalog w IntelliJ IDEA"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Открыть текущий каталог в IntelliJ IDEA"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otvori trenutni direktorij u IntelliJ IDEA"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فتح الدليل الحالي في IntelliJ IDEA"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Åpne gjeldende katalog i IntelliJ IDEA"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir Diretório Atual no IntelliJ IDEA"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เปิดไดเรกทอรีปัจจุบันใน IntelliJ IDEA"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geçerli Dizini IntelliJ IDEA'da Aç"
           }
         }
       }
