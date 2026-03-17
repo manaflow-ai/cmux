@@ -124,6 +124,23 @@ final class UpdatePillUITests: XCTestCase {
         assertVisibleSize(noUpdatePill)
     }
 
+    func testBackgroundDetectedUpdateKeepsOnlyBottomUpdatePill() {
+        let systemSettings = XCUIApplication(bundleIdentifier: "com.apple.systempreferences")
+        systemSettings.terminate()
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_DETECTED_UPDATE_VERSION"] = "9.9.9"
+        app.launchEnvironment["CMUX_UI_TEST_UPDATE_STATE"] = "available"
+        app.launchEnvironment["CMUX_UI_TEST_UPDATE_VERSION"] = "9.9.9"
+        launchAndActivate(app)
+
+        let pill = pillButton(app: app, expectedLabel: "Update Available: 9.9.9")
+        XCTAssertTrue(pill.waitForExistence(timeout: 6.0))
+        assertVisibleSize(pill)
+        XCTAssertFalse(app.otherElements["SidebarUpdateBanner"].exists)
+        XCTAssertFalse(app.buttons["SidebarUpdateBannerAction"].exists)
+    }
+
     func testNoSparklePermissionDialogIsShown() {
         let systemSettings = XCUIApplication(bundleIdentifier: "com.apple.systempreferences")
         systemSettings.terminate()

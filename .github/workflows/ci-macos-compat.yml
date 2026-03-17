@@ -13,8 +13,17 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-14, macos-15]
+        include:
+          - os: warp-macos-15-arm64-6x
+            timeout: 20
+            smoke: true
+            skip_zig: false
+          - os: warp-macos-26-arm64-6x
+            timeout: 20
+            smoke: false
+            skip_zig: true  # zig 0.15.2 MachO linker can't resolve libSystem on macOS 26
     runs-on: ${{ matrix.os }}
+    timeout-minutes: ${{ matrix.timeout }}
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -39,45 +48,49 @@ jobs:
           echo "Selected: $XCODE_APP"
           echo "DEVELOPER_DIR=$XCODE_DIR" >> "$GITHUB_ENV"
           export DEVELOPER_DIR="$XCODE_DIR"
-          xcodebuild -version
+          XCODE_VER="$(xcodebuild -version | head -1)"
+          echo "XCODE_VER=$XCODE_VER" >> "$GITHUB_ENV"
+          echo "$XCODE_VER"
           xcrun --sdk macosx --show-sdk-path
           sw_vers
 
+      - name: Cache GhosttyKit.xcframework
+        id: cache-ghosttykit
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4
+        with:
+          path: GhosttyKit.xcframework
+          key: ghosttykit-${{ hashFiles('.gitmodules', 'ghostty') }}
+
       - name: Download pre-built GhosttyKit.xcframework
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        if: steps.cache-ghosttykit.outputs.cache-hit != 'true'
         run: |
-          set -euo pipefail
-          GHOSTTY_SHA=$(git -C ghostty rev-parse HEAD)
-          TAG="xcframework-$GHOSTTY_SHA"
-          URL="https://github.com/manaflow-ai/ghostty/releases/download/$TAG/GhosttyKit.xcframework.tar.gz"
-          echo "Downloading xcframework for ghostty $GHOSTTY_SHA"
-          MAX_RETRIES=30
-          RETRY_DELAY=20
-          for i in $(seq 1 $MAX_RETRIES); do
-            if curl -fSL -o GhosttyKit.xcframework.tar.gz "$URL"; then
-              echo "Download succeeded on attempt $i"
-              break
-            fi
-            if [ "$i" -eq "$MAX_RETRIES" ]; then
-              echo "Failed to download xcframework after $MAX_RETRIES attempts" >&2
-              exit 1
-            fi
-            echo "Attempt $i/$MAX_RETRIES failed, retrying in ${RETRY_DELAY}s..."
-            sleep $RETRY_DELAY
-          done
-          tar xzf GhosttyKit.xcframework.tar.gz
-          rm GhosttyKit.xcframework.tar.gz
-          test -d GhosttyKit.xcframework
+          ./scripts/download-prebuilt-ghosttykit.sh
 
       - name: Install zig
+        if: ${{ !matrix.skip_zig }}
         run: |
-          if ! command -v zig >/dev/null 2>&1; then
-            brew install zig
+          ZIG_REQUIRED="0.15.2"
+          if command -v zig >/dev/null 2>&1 && zig version 2>/dev/null | grep -q "^${ZIG_REQUIRED}"; then
+            echo "zig ${ZIG_REQUIRED} already installed"
+          else
+            echo "Installing zig ${ZIG_REQUIRED} from tarball"
+            curl -fSL "https://ziglang.org/download/${ZIG_REQUIRED}/zig-aarch64-macos-${ZIG_REQUIRED}.tar.xz" -o /tmp/zig.tar.xz
+            tar xf /tmp/zig.tar.xz -C /tmp
+            sudo mkdir -p /usr/local/bin /usr/local/lib
+            sudo cp -f /tmp/zig-aarch64-macos-${ZIG_REQUIRED}/zig /usr/local/bin/zig
+            sudo cp -rf /tmp/zig-aarch64-macos-${ZIG_REQUIRED}/lib /usr/local/lib/zig
+            export PATH="/usr/local/bin:$PATH"
+            zig version
           fi
 
-      - name: Clean DerivedData
-        run: rm -rf ~/Library/Developer/Xcode/DerivedData/GhosttyTabs-*
+      - name: Cache DerivedData
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4
+        with:
+          path: ~/Library/Developer/Xcode/DerivedData/GhosttyTabs-*
+          key: deriveddata-${{ matrix.os }}-${{ env.XCODE_VER }}-${{ hashFiles('GhosttyTabs.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-${{ hashFiles('GhosttyTabs.xcodeproj/project.pbxproj') }}
+          restore-keys: |
+            deriveddata-${{ matrix.os }}-${{ env.XCODE_VER }}-${{ hashFiles('GhosttyTabs.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-
+            deriveddata-${{ matrix.os }}-${{ env.XCODE_VER }}-
 
       - name: Cache Swift packages
         uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4
@@ -107,6 +120,8 @@ jobs:
           done
 
       - name: Run unit tests
+        env:
+          CMUX_SKIP_ZIG_BUILD: ${{ matrix.skip_zig && '1' || '0' }}
         run: |
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
@@ -147,6 +162,7 @@ jobs:
           fi
 
       - name: Create virtual display
+        if: matrix.smoke
         run: |
           set -euo pipefail
           echo "=== Display before ==="
@@ -162,6 +178,7 @@ jobs:
           system_profiler SPDisplaysDataType 2>/dev/null || echo "(no display info)"
 
       - name: Build app for smoke test
+        if: matrix.smoke
         run: |
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
@@ -171,6 +188,7 @@ jobs:
             -destination "platform=macOS" build
 
       - name: Smoke test
+        if: matrix.smoke
         run: |
           set -euo pipefail
           chmod +x scripts/smoke-test-ci.sh

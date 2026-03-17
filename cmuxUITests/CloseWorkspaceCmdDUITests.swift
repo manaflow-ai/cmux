@@ -604,23 +604,25 @@ final class CloseWorkspaceCmdDUITests: XCTestCase {
     }
 
     private func waitForCloseWorkspaceAlert(app: XCUIApplication, timeout: TimeInterval) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if app.dialogs.containing(.staticText, identifier: "Close workspace?").firstMatch.exists { return true }
-            if app.alerts.containing(.staticText, identifier: "Close workspace?").firstMatch.exists { return true }
-            if app.staticTexts["Close workspace?"].exists { return true }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-        }
-        return false
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                app.dialogs.containing(.staticText, identifier: "Close workspace?").firstMatch.exists ||
+                app.alerts.containing(.staticText, identifier: "Close workspace?").firstMatch.exists ||
+                app.staticTexts["Close workspace?"].exists
+            },
+            object: NSObject()
+        )
+        return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
     }
 
     private func waitForCloseTabAlert(app: XCUIApplication, timeout: TimeInterval) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if isCloseTabAlertPresent(app: app) { return true }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-        }
-        return isCloseTabAlertPresent(app: app)
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                self.isCloseTabAlertPresent(app: app)
+            },
+            object: NSObject()
+        )
+        return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
     }
 
     // Must match the defaultValue for dialog.closeTab.title in TabManager.
@@ -651,65 +653,72 @@ final class CloseWorkspaceCmdDUITests: XCTestCase {
     }
 
     private func waitForWindowCount(app: XCUIApplication, toBe count: Int, timeout: TimeInterval) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if app.windows.count == count { return true }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-        }
-        return app.windows.count == count
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                app.windows.count == count
+            },
+            object: NSObject()
+        )
+        return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
     }
 
     private func waitForWindowCount(app: XCUIApplication, atLeast count: Int, timeout: TimeInterval) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if app.windows.count >= count { return true }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-        }
-        return app.windows.count >= count
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                app.windows.count >= count
+            },
+            object: NSObject()
+        )
+        return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
     }
 
     private func waitForNoWindowsOrAppNotRunningForeground(app: XCUIApplication, timeout: TimeInterval) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if app.state != .runningForeground { return true }
-            if app.windows.count == 0 { return true }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-        }
-        return app.state != .runningForeground || app.windows.count == 0
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                app.state != .runningForeground || app.windows.count == 0
+            },
+            object: NSObject()
+        )
+        return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
     }
 
     private func waitForKeyequivInt(_ key: String, toBeAtLeast expected: Int, atPath path: String, timeout: TimeInterval) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            let value = loadJSON(atPath: path)?[key].flatMap(Int.init) ?? 0
-            if value >= expected { return true }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-        }
-        let value = loadJSON(atPath: path)?[key].flatMap(Int.init) ?? 0
-        return value >= expected
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                let value = self.loadJSON(atPath: path)?[key].flatMap(Int.init) ?? 0
+                return value >= expected
+            },
+            object: NSObject()
+        )
+        return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
     }
 
     private func waitForAnyJSON(atPath path: String, timeout: TimeInterval) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if loadJSON(atPath: path) != nil { return true }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-        }
-        return loadJSON(atPath: path) != nil
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                self.loadJSON(atPath: path) != nil
+            },
+            object: NSObject()
+        )
+        return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
     }
 
     private func waitForJSONKey(_ key: String, equals expected: String, atPath path: String, timeout: TimeInterval) -> [String: String]? {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if let data = loadJSON(atPath: path), data[key] == expected {
-                return data
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        var matchedData: [String: String]?
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                guard let data = self.loadJSON(atPath: path), data[key] == expected else {
+                    return false
+                }
+                matchedData = data
+                return true
+            },
+            object: NSObject()
+        )
+        guard XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed else {
+            return nil
         }
-        if let data = loadJSON(atPath: path), data[key] == expected {
-            return data
-        }
-        return nil
+        return matchedData
     }
 
     private func assertCtrlDPreconditionsBeforeTrigger(
