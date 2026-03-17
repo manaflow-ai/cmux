@@ -2979,7 +2979,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
         // Backward-compatible shell integration keys used by existing scripts/tests.
         env["CMUX_PANEL_ID"] = id.uuidString
         env["CMUX_TAB_ID"] = tabId.uuidString
-        env["CMUX_SOCKET_PATH"] = SocketControlSettings.socketPath()
+        let socketPath = SocketControlSettings.socketPath()
+        env["CMUX_SOCKET_PATH"] = socketPath
+
         if let bundleId = Bundle.main.bundleIdentifier, !bundleId.isEmpty {
             env["CMUX_BUNDLE_ID"] = bundleId
         }
@@ -2995,17 +2997,6 @@ final class TerminalSurface: Identifiable, ObservableObject {
         let claudeHooksEnabled = ClaudeCodeIntegrationSettings.hooksEnabled()
         if !claudeHooksEnabled {
             env["CMUX_CLAUDE_HOOKS_DISABLED"] = "1"
-        }
-
-        if let cliBinPath = Bundle.main.resourceURL?.appendingPathComponent("bin").path {
-            let currentPath = env["PATH"]
-                ?? getenv("PATH").map { String(cString: $0) }
-                ?? ProcessInfo.processInfo.environment["PATH"]
-                ?? ""
-            if !currentPath.split(separator: ":").contains(Substring(cliBinPath)) {
-                let separator = currentPath.isEmpty ? "" : ":"
-                env["PATH"] = "\(cliBinPath)\(separator)\(currentPath)"
-            }
         }
 
         // Shell integration: inject ZDOTDIR wrapper for zsh shells.
@@ -3072,6 +3063,28 @@ final class TerminalSurface: Identifiable, ObservableObject {
         if !startupEnvironment.isEmpty {
             for (key, value) in startupEnvironment where !key.isEmpty && !value.isEmpty {
                 env[key] = value
+            }
+        }
+
+        // Set TMUX and PATH after additionalEnvironment merge so they cannot
+        // be accidentally overridden by caller-supplied environment variables.
+
+        // Expose TMUX env var so tools that detect tmux (e.g. AI coding agent
+        // teams split-pane mode) route through the cmux tmux shim at Resources/bin/tmux.
+        // Format mirrors real tmux: <socket-path>,<pid>,<session>
+        // Use surface UUID suffix to give each surface a unique TMUX value.
+        let surfaceIdShort = String(id.uuidString.prefix(8))
+        env["TMUX"] = "\(socketPath),\(ProcessInfo.processInfo.processIdentifier),\(surfaceIdShort)"
+
+        // Prepend Resources/bin to PATH so the tmux shim is found first.
+        if let cliBinPath = Bundle.main.resourceURL?.appendingPathComponent("bin").path {
+            let currentPath = env["PATH"]
+                ?? getenv("PATH").map { String(cString: $0) }
+                ?? ProcessInfo.processInfo.environment["PATH"]
+                ?? ""
+            if !currentPath.split(separator: ":").contains(Substring(cliBinPath)) {
+                let separator = currentPath.isEmpty ? "" : ":"
+                env["PATH"] = "\(cliBinPath)\(separator)\(currentPath)"
             }
         }
 

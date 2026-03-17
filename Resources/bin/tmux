@@ -1,0 +1,404 @@
+#!/usr/bin/env bash
+# cmux tmux shim — translates tmux commands to cmux equivalents.
+#
+# AI coding agent teams detect tmux via the TMUX env var, then call:
+#   tmux split-window -h [-c <dir>] [<command>]
+#   tmux send-keys -t <pane> "text" [Enter]
+#   tmux list-panes [-F <format>]
+#   tmux kill-pane -t <pane>
+#   tmux select-pane -t <pane>
+#   tmux display-message -p <format>
+#   tmux resize-pane -t <pane> -x <w> -y <h>
+#
+# This shim maps those to cmux CLI commands so that agent teams
+# natively spawn in cmux splits without knowing they're not in tmux.
+
+set -euo pipefail
+
+# python3 is required for JSON parsing (split-window, list-panes, new-window).
+if ! command -v python3 &>/dev/null; then
+    echo "cmux tmux shim: python3 is required but not found on PATH" >&2
+    exit 1
+fi
+
+# ── Helpers ──────────────────────────────────────────────────────────
+
+CMUX_CLI="${CMUX_CLI:-cmux}"
+SOCKET="${CMUX_SOCKET_PATH:-/tmp/cmux.sock}"
+
+# Pane target mapping file — maps tmux %N pane IDs to cmux surface refs.
+PANE_MAP="${CMUX_TMUX_PANE_MAP:-${TMPDIR:-/tmp}/cmux-tmux-pane-map}"
+
+cmux_cmd() {
+    "$CMUX_CLI" --socket "$SOCKET" "$@"
+}
+
+# Map a tmux pane target (%N or numeric) to a cmux surface ref.
+# Falls back to the target as-is if no mapping exists.
+resolve_pane() {
+    local target="$1"
+    if [[ -f "$PANE_MAP" ]] && grep -Fq "${target}=" "$PANE_MAP" 2>/dev/null; then
+        grep -F "${target}=" "$PANE_MAP" | tail -1 | cut -d= -f2
+    else
+        echo "$target"
+    fi
+}
+
+# Store a mapping from tmux pane ID to cmux surface ref.
+store_pane() {
+    local tmux_id="$1" cmux_ref="$2"
+    echo "${tmux_id}=${cmux_ref}" >> "$PANE_MAP"
+}
+
+# Allocate a tmux-style %N pane ID (atomic via flock).
+next_pane_id() {
+    local counter_file="${PANE_MAP}.counter"
+    local lock_file="${PANE_MAP}.lock"
+    local n
+    n=$(
+        flock -x 200
+        n=$(cat "$counter_file" 2>/dev/null || echo 0)
+        n=$((n + 1))
+        echo "$n" > "$counter_file"
+        echo "$n"
+    ) 200>"$lock_file"
+    echo "%${n}"
+}
+
+# ── Command dispatch ─────────────────────────────────────────────────
+
+command="${1:-}"
+shift 2>/dev/null || true
+
+case "$command" in
+
+# ── split-window ─────────────────────────────────────────────────────
+split-window)
+    direction="right"
+    cwd=""
+    shell_cmd=""
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -h) direction="right"; shift ;;
+            -v) direction="down"; shift ;;
+            -c) cwd="$2"; shift 2 ;;
+            -P) shift ;;  # print pane info (we always do)
+            -F) shift 2 ;;  # format string (ignored, always print pane ID)
+            -d) shift ;;  # don't switch focus (we handle via cmux)
+            -l) shift 2 ;;  # size (ignore for now)
+            -p) shift 2 ;;  # percentage (ignore for now)
+            -t) shift 2 ;;  # target pane (ignore, split from current)
+            -*) shift ;;
+            *)  shell_cmd="$1"; shift ;;
+        esac
+    done
+
+    # Create split (suppress cmux's own OK line by using --json)
+    result=$(cmux_cmd --json new-split "$direction" 2>&1)
+    surface_ref=$(echo "$result" | python3 -c "import sys,json; print(json.load(sys.stdin).get('surface_ref',''))" 2>/dev/null || echo "")
+
+    if [[ -z "$surface_ref" ]]; then
+        echo "Error: failed to create split" >&2
+        exit 1
+    fi
+
+    # Allocate a tmux-style pane ID and store mapping
+    tmux_id=$(next_pane_id)
+    store_pane "$tmux_id" "$surface_ref"
+
+    # If a directory was specified, cd into it
+    if [[ -n "$cwd" ]]; then
+        sleep 0.3
+        cmux_cmd send --surface "$surface_ref" "cd $(printf '%q' "$cwd")\n" >/dev/null 2>&1
+        sleep 0.2
+    fi
+
+    # If a command was specified, send it
+    if [[ -n "$shell_cmd" ]]; then
+        sleep 0.3
+        cmux_cmd send --surface "$surface_ref" "${shell_cmd}\n" >/dev/null 2>&1
+    fi
+
+    # Print pane identifier (agents expect this)
+    echo "$tmux_id"
+    ;;
+
+# ── send-keys ────────────────────────────────────────────────────────
+send-keys)
+    target=""
+    literal=false
+    keys=()
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -t) target="$2"; shift 2 ;;
+            -l) literal=true; shift ;;
+            *) keys+=("$1"); shift ;;
+        esac
+    done
+
+    if [[ -z "$target" ]]; then
+        echo "Error: send-keys requires -t target" >&2
+        exit 1
+    fi
+
+    surface=$(resolve_pane "$target")
+
+    # Build the text to send
+    text=""
+    for key in "${keys[@]}"; do
+        if [[ "$literal" == true ]]; then
+            text+="$key"
+            continue
+        fi
+        case "$key" in
+            Enter|enter)    text+=$'\n' ;;
+            Space|space)    text+=" " ;;
+            Tab|tab)        text+=$'\t' ;;
+            Escape|escape)  text+=$'\x1b' ;;
+            BSpace|bspace)  text+=$'\x7f' ;;
+            C-c)            cmux_cmd send-key --surface "$surface" ctrl-c >/dev/null 2>&1; continue ;;
+            C-d)            cmux_cmd send-key --surface "$surface" ctrl-d >/dev/null 2>&1; continue ;;
+            C-z)            cmux_cmd send-key --surface "$surface" ctrl-z >/dev/null 2>&1; continue ;;
+            C-l)            cmux_cmd send-key --surface "$surface" ctrl-l >/dev/null 2>&1; continue ;;
+            *)              text+="$key" ;;
+        esac
+    done
+
+    if [[ -n "$text" ]]; then
+        cmux_cmd send --surface "$surface" "$text" >/dev/null 2>&1
+    fi
+    ;;
+
+# ── list-panes ───────────────────────────────────────────────────────
+list-panes)
+    format=""
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -F) format="$2"; shift 2 ;;
+            -t) shift 2 ;;  # target window (ignore)
+            *) shift ;;
+        esac
+    done
+
+    # Get cmux panes and format as tmux-style output
+    panes=$(cmux_cmd --json list-panes 2>/dev/null || echo "")
+
+    if [[ -n "$format" ]]; then
+        # Pass format and pane map via env vars to avoid code injection.
+        # Env vars must prefix the python3 command (not echo) so python sees them.
+        echo "$panes" | TMUX_SHIM_FORMAT="$format" TMUX_SHIM_PANE_MAP="$PANE_MAP" python3 -c "
+import sys, json, os
+fmt = os.environ.get('TMUX_SHIM_FORMAT', '')
+pane_map_path = os.environ.get('TMUX_SHIM_PANE_MAP', '')
+try:
+    data = json.load(sys.stdin)
+except (json.JSONDecodeError, ValueError):
+    sys.exit(0)
+# Build reverse map: cmux surface ref -> tmux pane ID
+rev = {}
+if pane_map_path:
+    try:
+        for line in open(pane_map_path):
+            line = line.strip()
+            if '=' in line:
+                tid, sref = line.split('=', 1)
+                rev[sref] = tid
+    except FileNotFoundError:
+        pass
+panes = data if isinstance(data, list) else []
+for i, p in enumerate(panes):
+    line = fmt
+    sref = p.get('surface_ref', p.get('id', ''))
+    pane_id = rev.get(sref, '%' + str(i))
+    line = line.replace('#{pane_id}', pane_id)
+    line = line.replace('#{pane_index}', str(i))
+    line = line.replace('#{pane_width}', str(p.get('width', 80)))
+    line = line.replace('#{pane_height}', str(p.get('height', 24)))
+    line = line.replace('#{pane_active}', '1' if p.get('focused', False) else '0')
+    line = line.replace('#{pane_current_command}', p.get('command', 'bash'))
+    line = line.replace('#{pane_pid}', str(p.get('pid', 0)))
+    print(line)
+" 2>/dev/null
+    else
+        cmux_cmd list-panes 2>/dev/null
+    fi
+    ;;
+
+# ── kill-pane ────────────────────────────────────────────────────────
+kill-pane)
+    target=""
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -t) target="$2"; shift 2 ;;
+            *) shift ;;
+        esac
+    done
+
+    if [[ -n "$target" ]]; then
+        surface=$(resolve_pane "$target")
+        cmux_cmd close-surface --surface "$surface" >/dev/null 2>&1
+    fi
+    ;;
+
+# ── select-pane ──────────────────────────────────────────────────────
+select-pane)
+    target=""
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -t) target="$2"; shift 2 ;;
+            -U|-D|-L|-R) shift ;;  # direction (ignore for now)
+            *) shift ;;
+        esac
+    done
+
+    if [[ -n "$target" ]]; then
+        surface=$(resolve_pane "$target")
+        cmux_cmd focus-panel --panel "$surface" >/dev/null 2>&1
+    fi
+    ;;
+
+# ── display-message ──────────────────────────────────────────────────
+display-message)
+    print_mode=false
+    message=""
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -p) print_mode=true; shift ;;
+            -t) shift 2 ;;
+            *)  message="$1"; shift ;;
+        esac
+    done
+
+    if [[ "$print_mode" == true ]]; then
+        # Substitute tmux format tokens so combined formats work
+        result="$message"
+        result="${result//\#\{pane_id\}/%${CMUX_SURFACE_ID:-0}}"
+        result="${result//\#\{session_name\}/cmux}"
+        result="${result//\#\{window_index\}/0}"
+        result="${result//\#\{pane_index\}/0}"
+        echo "$result"
+    else
+        cmux_cmd display-message "$message" 2>/dev/null || echo "$message"
+    fi
+    ;;
+
+# ── resize-pane ──────────────────────────────────────────────────────
+resize-pane)
+    target="" direction="-R" amount="5" absolute=false
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -t) target="$2"; shift 2 ;;
+            -x) absolute=true; shift 2 ;;  # absolute width (not supported)
+            -y) absolute=true; shift 2 ;;  # absolute height (not supported)
+            -L) direction="-L"; shift ;;
+            -R) direction="-R"; shift ;;
+            -U) direction="-U"; shift ;;
+            -D) direction="-D"; shift ;;
+            [0-9]*) amount="$1"; shift ;;
+            *) shift ;;
+        esac
+    done
+
+    if [[ "$absolute" == true ]]; then
+        echo "cmux tmux shim: resize-pane -x/-y (absolute sizing) not supported" >&2
+    elif [[ -n "$target" ]]; then
+        surface=$(resolve_pane "$target")
+        cmux_cmd resize-pane --pane "$surface" "$direction" --amount "$amount" 2>/dev/null
+    fi
+    ;;
+
+# ── capture-pane ─────────────────────────────────────────────────────
+capture-pane)
+    target="" print_mode=false
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -t) target="$2"; shift 2 ;;
+            -p) print_mode=true; shift ;;
+            -S) shift 2 ;;  # start line
+            -E) shift 2 ;;  # end line
+            -J) shift ;;    # join lines
+            *) shift ;;
+        esac
+    done
+
+    args=()
+    if [[ -n "$target" ]]; then
+        surface=$(resolve_pane "$target")
+        args+=(--surface "$surface")
+    fi
+
+    cmux_cmd capture-pane "${args[@]}" 2>/dev/null
+    ;;
+
+# ── new-window ───────────────────────────────────────────────────────
+new-window)
+    cwd="" shell_cmd=""
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -c) cwd="$2"; shift 2 ;;
+            -P) shift ;;
+            -F) shift 2 ;;  # format string (ignored)
+            -n) shift 2 ;;  # window name
+            -t) shift 2 ;;  # target
+            -d) shift ;;    # don't switch
+            -*) shift ;;
+            *)  shell_cmd="$1"; shift ;;
+        esac
+    done
+
+    result=$(cmux_cmd --json new-workspace 2>&1)
+    surface_ref=$(echo "$result" | python3 -c "import sys,json; r=json.load(sys.stdin); print(r.get('surface_ref','') or r.get('workspace_id',''))" 2>/dev/null || echo "")
+    sleep 0.3
+
+    if [[ -n "$cwd" && -n "$surface_ref" ]]; then
+        cmux_cmd send --surface "$surface_ref" "cd $(printf '%q' "$cwd")\n" >/dev/null 2>&1
+        sleep 0.2
+    fi
+    if [[ -n "$shell_cmd" && -n "$surface_ref" ]]; then
+        cmux_cmd send --surface "$surface_ref" "${shell_cmd}\n" >/dev/null 2>&1
+    fi
+
+    tmux_id=$(next_pane_id)
+    if [[ -n "$surface_ref" ]]; then
+        store_pane "$tmux_id" "$surface_ref"
+    fi
+    echo "$tmux_id"
+    ;;
+
+# ── kill-session / kill-server ───────────────────────────────────────
+kill-session|kill-server)
+    # No-op for safety — don't kill the cmux app
+    ;;
+
+# ── has-session ──────────────────────────────────────────────────────
+has-session)
+    # Always succeed — cmux is running if we got here
+    exit 0
+    ;;
+
+# ── list-sessions ────────────────────────────────────────────────────
+list-sessions|ls)
+    echo "cmux: 1 windows (created $(date))"
+    ;;
+
+# ── set-option / set ─────────────────────────────────────────────────
+set-option|set)
+    # Silently accept — tmux options don't apply
+    ;;
+
+# ── Passthrough to cmux tmux-compat layer ────────────────────────────
+wait-for|swap-pane|break-pane|join-pane|pipe-pane|respawn-pane|\
+set-buffer|paste-buffer|list-buffers|set-hook|rename-window|\
+last-pane|last-window|next-window|previous-window|find-window|clear-history)
+    cmux_cmd "$command" "$@" 2>/dev/null
+    ;;
+
+# ── Unsupported ──────────────────────────────────────────────────────
+*)
+    echo "cmux tmux shim: unsupported command '$command'" >&2
+    exit 0  # Don't fail — some callers probe for features
+    ;;
+
+esac
