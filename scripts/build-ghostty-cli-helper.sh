@@ -53,6 +53,16 @@ if [[ -z "$OUTPUT_PATH" ]]; then
   exit 1
 fi
 
+# Allow CI to skip the zig build (e.g., macOS 26 where zig 0.15.2 can't link).
+# Creates a stub binary so the Xcode Run Script file-existence check passes.
+if [[ "${CMUX_SKIP_ZIG_BUILD:-}" == "1" ]]; then
+  echo "Skipping zig CLI helper build (CMUX_SKIP_ZIG_BUILD=1)"
+  mkdir -p "$(dirname "$OUTPUT_PATH")"
+  printf '#!/bin/sh\necho "ghostty CLI helper stub (zig build skipped)" >&2\nexit 1\n' > "$OUTPUT_PATH"
+  chmod +x "$OUTPUT_PATH"
+  exit 0
+fi
+
 if [[ "$UNIVERSAL" == "true" && -n "$TARGET_TRIPLE" ]]; then
   echo "--universal and --target are mutually exclusive" >&2
   usage >&2

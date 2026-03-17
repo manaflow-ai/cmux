@@ -3,6 +3,8 @@ import Combine
 import WebKit
 import AppKit
 import Bonsplit
+import Network
+import CFNetwork
 import SQLite3
 import CryptoKit
 #if canImport(CommonCrypto)
@@ -22,6 +24,18 @@ fileprivate func dedupedCanonicalURLs(_ urls: [URL]) -> [URL] {
         }
     }
     return result
+}
+
+struct BrowserProxyEndpoint: Equatable {
+    let host: String
+    let port: Int
+}
+
+struct BrowserRemoteWorkspaceStatus: Equatable {
+    let target: String
+    let connectionState: WorkspaceRemoteConnectionState
+    let heartbeatCount: Int
+    let lastHeartbeatAt: Date?
 }
 
 enum GhosttyBackgroundTheme {
@@ -1695,6 +1709,14 @@ final class BrowserPortalAnchorView: NSView {
 
 @MainActor
 final class BrowserPanel: Panel, ObservableObject {
+    private static let remoteLoopbackProxyAliasHost = "cmux-loopback.localtest.me"
+    private static let remoteLoopbackHosts: Set<String> = [
+        "localhost",
+        "127.0.0.1",
+        "::1",
+        "0.0.0.0",
+    ]
+
     /// Shared process pool for cookie sharing across all browser panels
     private static let sharedProcessPool = WKProcessPool()
 
@@ -1845,6 +1867,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
     /// The underlying web view
     private(set) var webView: WKWebView
+    private var websiteDataStore: WKWebsiteDataStore
 
     /// Monotonic identity for the current WKWebView instance.
     /// Incremented whenever we replace the underlying WKWebView after a process crash.
@@ -2219,6 +2242,15 @@ final class BrowserPanel: Panel, ObservableObject {
     private var developerToolsRestoreRetryAttempt: Int = 0
     private let developerToolsRestoreRetryDelay: TimeInterval = 0.05
     private let developerToolsRestoreRetryMaxAttempts: Int = 40
+    private var remoteProxyEndpoint: BrowserProxyEndpoint?
+    @Published private(set) var remoteWorkspaceStatus: BrowserRemoteWorkspaceStatus?
+    private var usesRemoteWorkspaceProxy: Bool
+    private struct PendingRemoteNavigation {
+        let request: URLRequest
+        let recordTypedNavigation: Bool
+        let preserveRestoredSessionHistory: Bool
+    }
+    private var pendingRemoteNavigation: PendingRemoteNavigation?
     private let developerToolsDetachedOpenGracePeriod: TimeInterval = 0.35
     private var developerToolsDetachedOpenGraceDeadline: Date?
     private var developerToolsTransitionTargetVisible: Bool?
@@ -2406,11 +2438,16 @@ final class BrowserPanel: Panel, ObservableObject {
         false
     }
 
-    private static func makeWebView(profileID: UUID) -> CmuxWebView {
+    private static func makeWebView(
+        profileID: UUID,
+        websiteDataStore: WKWebsiteDataStore? = nil
+    ) -> CmuxWebView {
         let config = WKWebViewConfiguration()
         config.processPool = BrowserPanel.sharedProcessPool
         config.mediaTypesRequiringUserActionForPlayback = []
-        config.websiteDataStore = BrowserProfileStore.shared.websiteDataStore(for: profileID)
+        // Ensure browser cookies/storage persist across navigations and launches.
+        // This reduces repeated consent/bot-challenge flows on sites like Google.
+        config.websiteDataStore = websiteDataStore ?? BrowserProfileStore.shared.websiteDataStore(for: profileID)
 
         // Enable developer extras (DevTools)
         config.preferences.setValue(true, forKey: "developerExtrasEnabled")
@@ -2504,7 +2541,10 @@ final class BrowserPanel: Panel, ObservableObject {
         workspaceId: UUID,
         profileID: UUID? = nil,
         initialURL: URL? = nil,
-        bypassInsecureHTTPHostOnce: String? = nil
+        bypassInsecureHTTPHostOnce: String? = nil,
+        proxyEndpoint: BrowserProxyEndpoint? = nil,
+        isRemoteWorkspace: Bool = false,
+        remoteWebsiteDataStoreIdentifier: UUID? = nil
     ) {
         self.id = UUID()
         self.workspaceId = workspaceId
@@ -2515,11 +2555,20 @@ final class BrowserPanel: Panel, ObservableObject {
         self.profileID = resolvedProfileID
         self.historyStore = BrowserProfileStore.shared.historyStore(for: resolvedProfileID)
         self.insecureHTTPBypassHostOnce = BrowserInsecureHTTPSettings.normalizeHost(bypassInsecureHTTPHostOnce ?? "")
+        self.remoteProxyEndpoint = proxyEndpoint
+        self.usesRemoteWorkspaceProxy = isRemoteWorkspace
         self.browserThemeMode = BrowserThemeSettings.mode()
+        self.websiteDataStore = isRemoteWorkspace
+            ? WKWebsiteDataStore(forIdentifier: remoteWebsiteDataStoreIdentifier ?? workspaceId)
+            : BrowserProfileStore.shared.websiteDataStore(for: resolvedProfileID)
 
-        let webView = Self.makeWebView(profileID: resolvedProfileID)
+        let webView = Self.makeWebView(
+            profileID: resolvedProfileID,
+            websiteDataStore: websiteDataStore
+        )
         self.webView = webView
         self.insecureHTTPAlertFactory = { NSAlert() }
+        applyRemoteProxyConfigurationIfAvailable()
         BrowserProfileStore.shared.noteUsed(resolvedProfileID)
 
         // Set up navigation delegate
@@ -2540,14 +2589,52 @@ final class BrowserPanel: Panel, ObservableObject {
         // Downloads save to a temp file synchronously (no NSSavePanel during WebKit
         // callbacks), then show NSSavePanel after the download completes.
         let dlDelegate = BrowserDownloadDelegate()
-        dlDelegate.onDownloadStarted = { [weak self] _ in
-            self?.beginDownloadActivity()
+        dlDelegate.onDownloadStarted = { [weak self] filename in
+            guard let self else { return }
+            self.beginDownloadActivity()
+            NotificationCenter.default.post(
+                name: .browserDownloadEventDidArrive,
+                object: self,
+                userInfo: [
+                    "surfaceId": self.id,
+                    "workspaceId": self.workspaceId,
+                    "event": [
+                        "type": "started",
+                        "filename": filename
+                    ]
+                ]
+            )
         }
         dlDelegate.onDownloadReadyToSave = { [weak self] in
-            self?.endDownloadActivity()
+            guard let self else { return }
+            self.endDownloadActivity()
+            NotificationCenter.default.post(
+                name: .browserDownloadEventDidArrive,
+                object: self,
+                userInfo: [
+                    "surfaceId": self.id,
+                    "workspaceId": self.workspaceId,
+                    "event": [
+                        "type": "ready_to_save"
+                    ]
+                ]
+            )
         }
-        dlDelegate.onDownloadFailed = { [weak self] _ in
-            self?.endDownloadActivity()
+        dlDelegate.onDownloadFailed = { [weak self] error in
+            guard let self else { return }
+            self.endDownloadActivity()
+            NotificationCenter.default.post(
+                name: .browserDownloadEventDidArrive,
+                object: self,
+                userInfo: [
+                    "surfaceId": self.id,
+                    "workspaceId": self.workspaceId,
+                    "event": [
+                        "type": "failed",
+                        "error": error.localizedDescription
+                    ]
+                ]
+            )
         }
         navDelegate.downloadDelegate = dlDelegate
         self.downloadDelegate = dlDelegate
@@ -2581,6 +2668,41 @@ final class BrowserPanel: Panel, ObservableObject {
         }
     }
 
+    func setRemoteProxyEndpoint(_ endpoint: BrowserProxyEndpoint?) {
+        guard remoteProxyEndpoint != endpoint else { return }
+        remoteProxyEndpoint = endpoint
+        applyRemoteProxyConfigurationIfAvailable()
+        resumePendingRemoteNavigationIfNeeded()
+    }
+
+    func setRemoteWorkspaceStatus(_ status: BrowserRemoteWorkspaceStatus?) {
+        guard remoteWorkspaceStatus != status else { return }
+        remoteWorkspaceStatus = status
+    }
+
+    private func applyRemoteProxyConfigurationIfAvailable() {
+        guard #available(macOS 14.0, *) else { return }
+
+        let store = webView.configuration.websiteDataStore
+        guard let endpoint = remoteProxyEndpoint else {
+            store.proxyConfigurations = []
+            return
+        }
+
+        let host = endpoint.host.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !host.isEmpty,
+              endpoint.port > 0 && endpoint.port <= 65535,
+              let nwPort = NWEndpoint.Port(rawValue: UInt16(endpoint.port)) else {
+            store.proxyConfigurations = []
+            return
+        }
+
+        let nwEndpoint = NWEndpoint.hostPort(host: NWEndpoint.Host(host), port: nwPort)
+        let socks = ProxyConfiguration(socksv5Proxy: nwEndpoint)
+        let connect = ProxyConfiguration(httpCONNECTProxy: nwEndpoint)
+        store.proxyConfigurations = [socks, connect]
+    }
+
     private func beginDownloadActivity() {
         let apply = {
             self.activeDownloadCount += 1
@@ -2607,6 +2729,33 @@ final class BrowserPanel: Panel, ObservableObject {
 
     func updateWorkspaceId(_ newWorkspaceId: UUID) {
         workspaceId = newWorkspaceId
+    }
+
+    func reattachToWorkspace(
+        _ newWorkspaceId: UUID,
+        isRemoteWorkspace: Bool,
+        remoteWebsiteDataStoreIdentifier: UUID? = nil,
+        proxyEndpoint: BrowserProxyEndpoint?,
+        remoteStatus: BrowserRemoteWorkspaceStatus?
+    ) {
+        workspaceId = newWorkspaceId
+        usesRemoteWorkspaceProxy = isRemoteWorkspace
+        let targetStore = isRemoteWorkspace
+            ? WKWebsiteDataStore(forIdentifier: remoteWebsiteDataStoreIdentifier ?? newWorkspaceId)
+            : BrowserProfileStore.shared.websiteDataStore(for: profileID)
+        let needsStoreSwap = webView.configuration.websiteDataStore !== targetStore
+        websiteDataStore = targetStore
+        remoteProxyEndpoint = proxyEndpoint
+        remoteWorkspaceStatus = remoteStatus
+        if needsStoreSwap {
+            replaceWebViewPreservingState(
+                from: webView,
+                websiteDataStore: targetStore,
+                reason: "workspace_reattach"
+            )
+        }
+        applyRemoteProxyConfigurationIfAvailable()
+        resumePendingRemoteNavigationIfNeeded()
     }
 
     @discardableResult
@@ -2652,7 +2801,14 @@ final class BrowserPanel: Panel, ObservableObject {
         historyStore = BrowserProfileStore.shared.historyStore(for: resolvedProfileID)
         BrowserProfileStore.shared.noteUsed(resolvedProfileID)
 
-        let replacement = Self.makeWebView(profileID: resolvedProfileID)
+        if !usesRemoteWorkspaceProxy {
+            websiteDataStore = BrowserProfileStore.shared.websiteDataStore(for: resolvedProfileID)
+        }
+
+        let replacement = Self.makeWebView(
+            profileID: resolvedProfileID,
+            websiteDataStore: websiteDataStore
+        )
         replacement.pageZoom = desiredZoom
         webViewInstanceID = UUID()
         webView = replacement
@@ -2736,7 +2892,7 @@ final class BrowserPanel: Panel, ObservableObject {
         let urlObserver = webView.observe(\.url, options: [.new]) { [weak self] webView, _ in
             Task { @MainActor in
                 guard let self, self.isCurrentWebView(webView, instanceID: observedWebViewInstanceID) else { return }
-                self.currentURL = webView.url
+                self.currentURL = Self.remoteProxyDisplayURL(for: webView.url)
             }
         }
         webViewObservers.append(urlObserver)
@@ -2802,20 +2958,33 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     private func replaceWebViewAfterContentProcessTermination(for terminatedWebView: WKWebView) {
-        guard terminatedWebView === webView else { return }
+        replaceWebViewPreservingState(
+            from: terminatedWebView,
+            websiteDataStore: websiteDataStore,
+            reason: "webcontent_process_terminated"
+        )
+    }
+
+    private func replaceWebViewPreservingState(
+        from oldWebView: WKWebView,
+        websiteDataStore: WKWebsiteDataStore,
+        reason: String
+    ) {
+        guard oldWebView === webView else { return }
 
         let wasRenderable = shouldRenderWebView
-        let restoreURL = terminatedWebView.url ?? currentURL
+        let restoreURL = Self.remoteProxyDisplayURL(for: oldWebView.url) ?? currentURL
         let restoreURLString = restoreURL?.absoluteString
         let shouldRestoreURL = wasRenderable && restoreURLString != nil && restoreURLString != blankURLString
         let history = sessionNavigationHistorySnapshot()
         let historyCurrentURL = preferredURLStringForOmnibar()
-        let desiredZoom = max(minPageZoom, min(maxPageZoom, terminatedWebView.pageZoom))
+        let desiredZoom = max(minPageZoom, min(maxPageZoom, oldWebView.pageZoom))
         let restoreDevTools = preferredDeveloperToolsVisible
 
 #if DEBUG
         dlog(
             "browser.webview.replace.begin panel=\(id.uuidString.prefix(5)) " +
+            "reason=\(reason) " +
             "renderable=\(wasRenderable ? 1 : 0) restoreURL=\(restoreURLString ?? "nil") " +
             "restoreHistoryBack=\(history.backHistoryURLStrings.count) " +
             "restoreHistoryForward=\(history.forwardHistoryURLStrings.count)"
@@ -2827,15 +2996,18 @@ final class BrowserPanel: Panel, ObservableObject {
         faviconTask?.cancel()
         faviconTask = nil
         faviconRefreshGeneration &+= 1
-        BrowserWindowPortalRegistry.detach(webView: terminatedWebView)
-        terminatedWebView.stopLoading()
-        terminatedWebView.navigationDelegate = nil
-        terminatedWebView.uiDelegate = nil
-        if let terminatedCmuxWebView = terminatedWebView as? CmuxWebView {
-            terminatedCmuxWebView.onContextMenuDownloadStateChanged = nil
+        BrowserWindowPortalRegistry.detach(webView: oldWebView)
+        oldWebView.stopLoading()
+        oldWebView.navigationDelegate = nil
+        oldWebView.uiDelegate = nil
+        if let oldCmuxWebView = oldWebView as? CmuxWebView {
+            oldCmuxWebView.onContextMenuDownloadStateChanged = nil
         }
 
-        let replacement = Self.makeWebView(profileID: profileID)
+        let replacement = Self.makeWebView(
+            profileID: profileID,
+            websiteDataStore: websiteDataStore
+        )
         replacement.pageZoom = desiredZoom
         webViewInstanceID = UUID()
         webView = replacement
@@ -2863,12 +3035,13 @@ final class BrowserPanel: Panel, ObservableObject {
         }
 
         if restoreDevTools {
-            requestDeveloperToolsRefreshAfterNextAttach(reason: "webcontent_process_terminated")
+            requestDeveloperToolsRefreshAfterNextAttach(reason: reason)
         }
 
 #if DEBUG
         dlog(
             "browser.webview.replace.end panel=\(id.uuidString.prefix(5)) " +
+            "reason=\(reason) " +
             "instance=\(webViewInstanceID.uuidString.prefix(6)) " +
             "restoreURL=\(restoreURLString ?? "nil") shouldRestore=\(shouldRestoreURL ? 1 : 0)"
         )
@@ -2892,7 +3065,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
         // If nothing meaningful is loaded yet, prefer letting the omnibar take focus.
         if !webView.isLoading {
-            let urlString = webView.url?.absoluteString ?? currentURL?.absoluteString
+            let urlString = Self.remoteProxyDisplayURL(for: webView.url)?.absoluteString ?? currentURL?.absoluteString
             if urlString == nil || urlString == "about:blank" {
                 return
             }
@@ -2974,6 +3147,13 @@ final class BrowserPanel: Panel, ObservableObject {
             guard let self, let webView else { return }
             guard self.isCurrentWebView(webView, instanceID: refreshWebViewInstanceID) else { return }
             guard self.isCurrentFaviconRefresh(generation: refreshGeneration) else { return }
+#if DEBUG
+            dlog(
+                "browser.favicon.begin " +
+                "panel=\(id.uuidString.prefix(5)) " +
+                "page=\(pageURL.absoluteString)"
+            )
+#endif
 
             // Try to discover the best icon URL from the document.
             let js = """
@@ -3001,7 +3181,11 @@ final class BrowserPanel: Panel, ObservableObject {
             """
 
             var discoveredURL: URL?
-            if let href = try? await webView.evaluateJavaScript(js) as? String {
+            if let href = await self.evaluateJavaScriptString(
+                js,
+                in: webView,
+                timeoutNanoseconds: 400_000_000
+            ) {
                 let trimmed = href.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !trimmed.isEmpty, let u = URL(string: trimmed) {
                     discoveredURL = u
@@ -3013,10 +3197,26 @@ final class BrowserPanel: Panel, ObservableObject {
             let fallbackURL = URL(string: "/favicon.ico", relativeTo: pageURL)
             let iconURL = discoveredURL ?? fallbackURL
             guard let iconURL else { return }
+#if DEBUG
+            dlog(
+                "browser.favicon.iconURL " +
+                "panel=\(id.uuidString.prefix(5)) " +
+                "discovered=\(discoveredURL?.absoluteString ?? "<nil>") " +
+                "fallback=\(fallbackURL?.absoluteString ?? "<nil>") " +
+                "chosen=\(iconURL.absoluteString)"
+            )
+#endif
 
             // Avoid repeated fetches.
             let iconURLString = iconURL.absoluteString
             if iconURLString == lastFaviconURLString, faviconPNGData != nil {
+#if DEBUG
+                dlog(
+                    "browser.favicon.skipCached " +
+                    "panel=\(id.uuidString.prefix(5)) " +
+                    "icon=\(iconURLString)"
+                )
+#endif
                 return
             }
             lastFaviconURLString = iconURLString
@@ -3025,12 +3225,42 @@ final class BrowserPanel: Panel, ObservableObject {
             req.timeoutInterval = 2.0
             req.cachePolicy = .returnCacheDataElseLoad
             req.setValue(BrowserUserAgentSettings.safariUserAgent, forHTTPHeaderField: "User-Agent")
+            let effectiveRequest = remoteProxyPreparedRequest(from: req, logScope: "faviconRewrite")
 
             let data: Data
             let response: URLResponse
             do {
-                (data, response) = try await URLSession.shared.data(for: req)
+                let remoteSession = remoteProxyURLSession()
+                defer { remoteSession?.finishTasksAndInvalidate() }
+                if let remoteSession {
+#if DEBUG
+                    dlog(
+                        "browser.favicon.fetch " +
+                        "panel=\(id.uuidString.prefix(5)) " +
+                        "via=proxy " +
+                        "url=\(effectiveRequest.url?.absoluteString ?? "<nil>")"
+                    )
+#endif
+                    (data, response) = try await remoteSession.data(for: effectiveRequest)
+                } else {
+#if DEBUG
+                    dlog(
+                        "browser.favicon.fetch " +
+                        "panel=\(id.uuidString.prefix(5)) " +
+                        "via=direct " +
+                        "url=\(effectiveRequest.url?.absoluteString ?? "<nil>")"
+                    )
+#endif
+                    (data, response) = try await URLSession.shared.data(for: effectiveRequest)
+                }
             } catch {
+#if DEBUG
+                dlog(
+                    "browser.favicon.fetchError " +
+                    "panel=\(id.uuidString.prefix(5)) " +
+                    "error=\(String(describing: error))"
+                )
+#endif
                 return
             }
             guard self.isCurrentWebView(webView, instanceID: refreshWebViewInstanceID) else { return }
@@ -3038,19 +3268,80 @@ final class BrowserPanel: Panel, ObservableObject {
 
             guard let http = response as? HTTPURLResponse,
                   (200..<300).contains(http.statusCode) else {
+#if DEBUG
+                let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+                dlog(
+                    "browser.favicon.badResponse " +
+                    "panel=\(id.uuidString.prefix(5)) " +
+                    "status=\(status)"
+                )
+#endif
                 return
             }
+#if DEBUG
+            dlog(
+                "browser.favicon.response " +
+                "panel=\(id.uuidString.prefix(5)) " +
+                "status=\(http.statusCode) " +
+                "bytes=\(data.count)"
+            )
+#endif
 
             // Use >= 2x the rendered point size so we don't upscale (blurry) on Retina.
-            guard let png = Self.makeFaviconPNGData(from: data, targetPx: 32) else { return }
+            guard let png = Self.makeFaviconPNGData(from: data, targetPx: 32) else {
+#if DEBUG
+                dlog(
+                    "browser.favicon.decodeFailed " +
+                    "panel=\(id.uuidString.prefix(5)) " +
+                    "bytes=\(data.count)"
+                )
+#endif
+                return
+            }
             // Only update if we got a real icon; keep the old one otherwise to avoid flashes.
             faviconPNGData = png
+#if DEBUG
+            dlog(
+                "browser.favicon.ready " +
+                "panel=\(id.uuidString.prefix(5)) " +
+                "pngBytes=\(png.count)"
+            )
+#endif
         }
     }
 
     private func isCurrentFaviconRefresh(generation: Int) -> Bool {
         guard !Task.isCancelled else { return false }
         return generation == faviconRefreshGeneration
+    }
+
+    @MainActor
+    private func evaluateJavaScriptString(
+        _ script: String,
+        in webView: WKWebView,
+        timeoutNanoseconds: UInt64
+    ) async -> String? {
+        await withCheckedContinuation { continuation in
+            var hasResumed = false
+
+            func resume(_ value: String?) {
+                guard !hasResumed else { return }
+                hasResumed = true
+                continuation.resume(returning: value)
+            }
+
+            webView.evaluateJavaScript(script) { result, _ in
+                let value = result as? String
+                Task { @MainActor in
+                    resume(value)
+                }
+            }
+
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: timeoutNanoseconds)
+                resume(nil)
+            }
+        }
     }
 
     @MainActor
@@ -3183,17 +3474,113 @@ final class BrowserPanel: Panel, ObservableObject {
         preserveRestoredSessionHistory: Bool = false
     ) {
         guard let url = request.url else { return }
+        if usesRemoteWorkspaceProxy, remoteProxyEndpoint == nil {
+            pendingRemoteNavigation = PendingRemoteNavigation(
+                request: request,
+                recordTypedNavigation: recordTypedNavigation,
+                preserveRestoredSessionHistory: preserveRestoredSessionHistory
+            )
+            shouldRenderWebView = true
+            currentURL = Self.remoteProxyDisplayURL(for: url) ?? url
+            navigationDelegate?.lastAttemptedURL = url
+            return
+        }
+        performNavigation(
+            request: request,
+            originalURL: url,
+            recordTypedNavigation: recordTypedNavigation,
+            preserveRestoredSessionHistory: preserveRestoredSessionHistory
+        )
+    }
+
+    private func resumePendingRemoteNavigationIfNeeded() {
+        guard remoteProxyEndpoint != nil,
+              let pendingRemoteNavigation else {
+            return
+        }
+        self.pendingRemoteNavigation = nil
+        guard let originalURL = pendingRemoteNavigation.request.url else { return }
+        performNavigation(
+            request: pendingRemoteNavigation.request,
+            originalURL: originalURL,
+            recordTypedNavigation: pendingRemoteNavigation.recordTypedNavigation,
+            preserveRestoredSessionHistory: pendingRemoteNavigation.preserveRestoredSessionHistory
+        )
+    }
+
+    private func performNavigation(
+        request: URLRequest,
+        originalURL: URL,
+        recordTypedNavigation: Bool,
+        preserveRestoredSessionHistory: Bool
+    ) {
         if !preserveRestoredSessionHistory {
             abandonRestoredSessionHistoryIfNeeded()
         }
+        let effectiveRequest = remoteProxyPreparedRequest(from: request, logScope: "rewrite")
         // Some installs can end up with a legacy Chrome UA override; keep this pinned.
         webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
         shouldRenderWebView = true
         if recordTypedNavigation {
-            historyStore.recordTypedNavigation(url: url)
+            historyStore.recordTypedNavigation(url: originalURL)
         }
-        navigationDelegate?.lastAttemptedURL = url
-        browserLoadRequest(request, in: webView)
+        navigationDelegate?.lastAttemptedURL = originalURL
+        browserLoadRequest(effectiveRequest, in: webView)
+    }
+
+    private func remoteProxyPreparedRequest(from request: URLRequest, logScope: String) -> URLRequest {
+        guard remoteProxyEndpoint != nil else { return request }
+        guard let url = request.url else { return request }
+        guard let rewrittenURL = Self.remoteProxyLoopbackAliasURL(for: url) else { return request }
+
+        var rewrittenRequest = request
+        rewrittenRequest.url = rewrittenURL
+#if DEBUG
+        dlog(
+            "browser.remoteProxy.\(logScope) " +
+            "panel=\(id.uuidString.prefix(5)) " +
+            "from=\(url.absoluteString) " +
+            "to=\(rewrittenURL.absoluteString)"
+        )
+#endif
+        return rewrittenRequest
+    }
+
+    private func remoteProxyURLSession() -> URLSession? {
+        guard let endpoint = remoteProxyEndpoint else { return nil }
+        let host = endpoint.host.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !host.isEmpty, endpoint.port > 0, endpoint.port <= 65535 else { return nil }
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.requestCachePolicy = .returnCacheDataElseLoad
+        configuration.timeoutIntervalForRequest = 2.0
+        configuration.timeoutIntervalForResource = 4.0
+        configuration.connectionProxyDictionary = [
+            kCFNetworkProxiesSOCKSEnable as String: 1,
+            kCFNetworkProxiesSOCKSProxy as String: host,
+            kCFNetworkProxiesSOCKSPort as String: endpoint.port,
+        ]
+        return URLSession(configuration: configuration)
+    }
+
+    private static func remoteProxyDisplayURL(for url: URL?) -> URL? {
+        guard let url else { return nil }
+        guard let host = BrowserInsecureHTTPSettings.normalizeHost(url.host ?? "") else { return url }
+        guard host == BrowserInsecureHTTPSettings.normalizeHost(remoteLoopbackProxyAliasHost) else { return url }
+
+        var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        components?.host = "localhost"
+        return components?.url ?? url
+    }
+
+    private static func remoteProxyLoopbackAliasURL(for url: URL) -> URL? {
+        guard let scheme = url.scheme?.lowercased(), scheme == "http" else { return nil }
+        guard let host = BrowserInsecureHTTPSettings.normalizeHost(url.host ?? "") else { return nil }
+        guard remoteLoopbackHosts.contains(host) else { return nil }
+
+        var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        components?.host = remoteLoopbackProxyAliasHost
+        return components?.url
     }
 
     /// Navigate with smart URL/search detection
@@ -3416,7 +3803,10 @@ extension BrowserPanel {
             oldCmuxWebView.onContextMenuDownloadStateChanged = nil
         }
 
-        let replacement = Self.makeWebView(profileID: profileID)
+        let replacement = Self.makeWebView(
+            profileID: profileID,
+            websiteDataStore: websiteDataStore
+        )
         webViewInstanceID = UUID()
         webView = replacement
         shouldRenderWebView = false
@@ -4069,6 +4459,16 @@ extension BrowserPanel {
         applyPageZoom(1.0)
     }
 
+    func currentPageZoomFactor() -> CGFloat {
+        webView.pageZoom
+    }
+
+    @discardableResult
+    func setPageZoomFactor(_ pageZoom: CGFloat) -> Bool {
+        let clamped = max(minPageZoom, min(maxPageZoom, pageZoom))
+        return applyPageZoom(clamped)
+    }
+
     /// Take a snapshot of the web view
     func takeSnapshot(completion: @escaping (NSImage?) -> Void) {
         let config = WKSnapshotConfiguration()
@@ -4642,7 +5042,7 @@ extension BrowserPanel {
     /// Returns the most reliable URL string for omnibar-related matching and UI decisions.
     /// `currentURL` can lag behind navigation changes, so prefer the live WKWebView URL.
     func preferredURLStringForOmnibar() -> String? {
-        if let webViewURL = webView.url?.absoluteString
+        if let webViewURL = Self.remoteProxyDisplayURL(for: webView.url)?.absoluteString
             .trimmingCharacters(in: .whitespacesAndNewlines),
            !webViewURL.isEmpty,
            webViewURL != blankURLString {
@@ -4660,7 +5060,7 @@ extension BrowserPanel {
     }
 
     private func resolvedCurrentSessionHistoryURL() -> URL? {
-        if let webViewURL = webView.url,
+        if let webViewURL = Self.remoteProxyDisplayURL(for: webView.url),
            Self.serializableSessionHistoryURLString(webViewURL) != nil {
             return webViewURL
         }
@@ -4971,6 +5371,15 @@ private extension BrowserPanel {
 
     static func verticalOverlap(between lhs: NSRect, and rhs: NSRect) -> CGFloat {
         max(0, min(lhs.maxY, rhs.maxY) - max(lhs.minY, rhs.minY))
+    }
+}
+
+extension BrowserPanel {
+    func hideBrowserPortalView(source: String) {
+        BrowserWindowPortalRegistry.hide(
+            webView: webView,
+            source: source
+        )
     }
 }
 

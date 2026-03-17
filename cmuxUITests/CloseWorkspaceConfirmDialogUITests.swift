@@ -36,14 +36,13 @@ final class CloseWorkspaceConfirmDialogUITests: XCTestCase {
     }
 
     private func waitForCloseWorkspaceAlert(app: XCUIApplication, timeout: TimeInterval) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if isCloseWorkspaceAlertPresent(app: app) {
-                return true
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-        }
-        return isCloseWorkspaceAlertPresent(app: app)
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                self.isCloseWorkspaceAlertPresent(app: app)
+            },
+            object: NSObject()
+        )
+        return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
     }
 
     private func clickCancelOnCloseWorkspaceAlert(app: XCUIApplication) {

@@ -10,8 +10,87 @@ BUNDLE_SET=0
 DERIVED_SET=0
 TAG=""
 CMUX_DEBUG_LOG=""
+CLI_PATH=""
 LAST_SOCKET_PATH_DIR="$HOME/Library/Application Support/cmux"
 LAST_SOCKET_PATH_FILE="${LAST_SOCKET_PATH_DIR}/last-socket-path"
+
+write_dev_cli_shim() {
+  local target="$1"
+  local fallback_bin="$2"
+  mkdir -p "$(dirname "$target")"
+  cat > "$target" <<EOF
+#!/usr/bin/env bash
+# cmux dev shim (managed by scripts/reload.sh)
+set -euo pipefail
+
+CLI_PATH_FILE="/tmp/cmux-last-cli-path"
+CLI_PATH_OWNER="\$(stat -f '%u' "\$CLI_PATH_FILE" 2>/dev/null || stat -c '%u' "\$CLI_PATH_FILE" 2>/dev/null || echo -1)"
+if [[ -r "\$CLI_PATH_FILE" ]] && [[ ! -L "\$CLI_PATH_FILE" ]] && [[ "\$CLI_PATH_OWNER" == "\$(id -u)" ]]; then
+  CLI_PATH="\$(cat "\$CLI_PATH_FILE")"
+  if [[ -x "\$CLI_PATH" ]]; then
+    exec "\$CLI_PATH" "\$@"
+  fi
+fi
+
+if [[ -x "$fallback_bin" ]]; then
+  exec "$fallback_bin" "\$@"
+fi
+
+echo "error: no reload-selected dev cmux CLI found. Run ./scripts/reload.sh --tag <name> first." >&2
+exit 1
+EOF
+  chmod +x "$target"
+}
+
+select_cmux_shim_target() {
+  local app_cli_dir="/Applications/cmux.app/Contents/Resources/bin"
+  local marker="cmux dev shim (managed by scripts/reload.sh)"
+  local target=""
+  local path_entry=""
+  local candidate=""
+
+  IFS=':' read -r -a path_entries <<< "${PATH:-}"
+  for path_entry in "${path_entries[@]}"; do
+    [[ -z "$path_entry" ]] && continue
+    if [[ "$path_entry" == "~/"* ]]; then
+      path_entry="$HOME/${path_entry#~/}"
+    fi
+    if [[ "$path_entry" == "$app_cli_dir" ]]; then
+      break
+    fi
+    [[ -d "$path_entry" && -w "$path_entry" ]] || continue
+    candidate="$path_entry/cmux"
+    if [[ ! -e "$candidate" ]]; then
+      target="$candidate"
+      break
+    fi
+    if [[ -f "$candidate" ]] && grep -q "$marker" "$candidate" 2>/dev/null; then
+      target="$candidate"
+      break
+    fi
+  done
+
+  if [[ -n "$target" ]]; then
+    echo "$target"
+    return 0
+  fi
+
+  # Fallback for PATH layouts where app CLI isn't listed or no earlier entries were writable.
+  for path_entry in /opt/homebrew/bin /usr/local/bin "$HOME/.local/bin" "$HOME/bin"; do
+    [[ -d "$path_entry" && -w "$path_entry" ]] || continue
+    candidate="$path_entry/cmux"
+    if [[ ! -e "$candidate" ]]; then
+      echo "$candidate"
+      return 0
+    fi
+    if [[ -f "$candidate" ]] && grep -q "$marker" "$candidate" 2>/dev/null; then
+      echo "$candidate"
+      return 0
+    fi
+  done
+
+  return 1
+}
 
 write_last_socket_path() {
   local socket_path="$1"
@@ -288,6 +367,14 @@ if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
         || /usr/libexec/PlistBuddy -c "Add :LSEnvironment:CMUX_SOCKET_PATH string \"${CMUX_SOCKET}\"" "$INFO_PLIST"
       /usr/libexec/PlistBuddy -c "Set :LSEnvironment:CMUX_DEBUG_LOG \"${CMUX_DEBUG_LOG}\"" "$INFO_PLIST" 2>/dev/null \
         || /usr/libexec/PlistBuddy -c "Add :LSEnvironment:CMUX_DEBUG_LOG string \"${CMUX_DEBUG_LOG}\"" "$INFO_PLIST"
+      /usr/libexec/PlistBuddy -c "Set :LSEnvironment:CMUX_SOCKET_ENABLE 1" "$INFO_PLIST" 2>/dev/null \
+        || /usr/libexec/PlistBuddy -c "Add :LSEnvironment:CMUX_SOCKET_ENABLE string 1" "$INFO_PLIST"
+      /usr/libexec/PlistBuddy -c "Set :LSEnvironment:CMUX_SOCKET_MODE automation" "$INFO_PLIST" 2>/dev/null \
+        || /usr/libexec/PlistBuddy -c "Add :LSEnvironment:CMUX_SOCKET_MODE string automation" "$INFO_PLIST"
+      /usr/libexec/PlistBuddy -c "Set :LSEnvironment:CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD 1" "$INFO_PLIST" 2>/dev/null \
+        || /usr/libexec/PlistBuddy -c "Add :LSEnvironment:CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD string 1" "$INFO_PLIST"
+      /usr/libexec/PlistBuddy -c "Set :LSEnvironment:CMUXTERM_REPO_ROOT \"${PWD}\"" "$INFO_PLIST" 2>/dev/null \
+        || /usr/libexec/PlistBuddy -c "Add :LSEnvironment:CMUXTERM_REPO_ROOT string \"${PWD}\"" "$INFO_PLIST"
       if [[ -S "$CMUXD_SOCKET" ]]; then
         for PID in $(lsof -t "$CMUXD_SOCKET" 2>/dev/null); do
           kill "$PID" 2>/dev/null || true
@@ -301,6 +388,21 @@ if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
     /usr/bin/codesign --force --sign - --timestamp=none --generate-entitlement-der "$TAG_APP_PATH" >/dev/null 2>&1 || true
   fi
   APP_PATH="$TAG_APP_PATH"
+fi
+
+CLI_PATH="$(dirname "$APP_PATH")/cmux"
+if [[ -x "$CLI_PATH" ]]; then
+  (umask 077; printf '%s\n' "$CLI_PATH" > /tmp/cmux-last-cli-path) || true
+  ln -sfn "$CLI_PATH" /tmp/cmux-cli || true
+
+  # Stable shim that always follows the last reload-selected dev CLI.
+  DEV_CLI_SHIM="$HOME/.local/bin/cmux-dev"
+  write_dev_cli_shim "$DEV_CLI_SHIM" "/Applications/cmux.app/Contents/Resources/bin/cmux"
+
+  CMUX_SHIM_TARGET="$(select_cmux_shim_target || true)"
+  if [[ -n "${CMUX_SHIM_TARGET:-}" ]]; then
+    write_dev_cli_shim "$CMUX_SHIM_TARGET" "/Applications/cmux.app/Contents/Resources/bin/cmux"
+  fi
 fi
 
 # Ensure any running instance is fully terminated, regardless of DerivedData path.
@@ -344,6 +446,8 @@ fi
 OPEN_CLEAN_ENV=(
   env
   -u CMUX_SOCKET_PATH
+  -u CMUX_WORKSPACE_ID
+  -u CMUX_SURFACE_ID
   -u CMUX_TAB_ID
   -u CMUX_PANEL_ID
   -u CMUXD_UNIX_PATH
@@ -364,10 +468,11 @@ OPEN_CLEAN_ENV=(
 
 if [[ -n "${TAG_SLUG:-}" && -n "${CMUX_SOCKET:-}" ]]; then
   # Ensure tag-specific socket paths win even if the caller has CMUX_* overrides.
-  "${OPEN_CLEAN_ENV[@]}" CMUX_TAG="$TAG_SLUG" CMUX_SOCKET_PATH="$CMUX_SOCKET" CMUXD_UNIX_PATH="$CMUXD_SOCKET" CMUX_DEBUG_LOG="$CMUX_DEBUG_LOG" open -g "$APP_PATH"
+  "${OPEN_CLEAN_ENV[@]}" CMUX_TAG="$TAG_SLUG" CMUX_SOCKET_ENABLE=1 CMUX_SOCKET_MODE=automation CMUX_SOCKET_PATH="$CMUX_SOCKET" CMUXD_UNIX_PATH="$CMUXD_SOCKET" CMUX_DEBUG_LOG="$CMUX_DEBUG_LOG" CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD=1 CMUXTERM_REPO_ROOT="$PWD" open -g "$APP_PATH"
 elif [[ -n "${TAG_SLUG:-}" ]]; then
-  "${OPEN_CLEAN_ENV[@]}" CMUX_TAG="$TAG_SLUG" CMUX_DEBUG_LOG="$CMUX_DEBUG_LOG" open -g "$APP_PATH"
+  "${OPEN_CLEAN_ENV[@]}" CMUX_TAG="$TAG_SLUG" CMUX_SOCKET_ENABLE=1 CMUX_SOCKET_MODE=automation CMUX_DEBUG_LOG="$CMUX_DEBUG_LOG" CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD=1 CMUXTERM_REPO_ROOT="$PWD" open -g "$APP_PATH"
 else
+  echo "/tmp/cmux-debug.sock" > /tmp/cmux-last-socket-path || true
   echo "/tmp/cmux-debug.log" > /tmp/cmux-last-debug-log-path || true
   "${OPEN_CLEAN_ENV[@]}" open -g "$APP_PATH"
 fi
@@ -394,4 +499,17 @@ fi
 
 if [[ -n "${TAG_SLUG:-}" ]]; then
   print_tag_cleanup_reminder "$TAG_SLUG"
+fi
+
+if [[ -x "${CLI_PATH:-}" ]]; then
+  echo
+  echo "CLI path:"
+  echo "  $CLI_PATH"
+  echo "CLI helpers:"
+  echo "  /tmp/cmux-cli ..."
+  echo "  $HOME/.local/bin/cmux-dev ..."
+  if [[ -n "${CMUX_SHIM_TARGET:-}" ]]; then
+    echo "  $CMUX_SHIM_TARGET ..."
+  fi
+  echo "If your shell still resolves the old cmux, run: rehash"
 fi

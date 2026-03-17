@@ -5249,6 +5249,105 @@ final class UpdateChannelSettingsTests: XCTestCase {
     }
 }
 
+final class UpdateSettingsTests: XCTestCase {
+    func testApplyEnablesAutomaticChecksAndDailySchedule() {
+        let defaults = makeDefaults()
+        UpdateSettings.apply(to: defaults)
+
+        XCTAssertTrue(defaults.bool(forKey: UpdateSettings.automaticChecksKey))
+        XCTAssertEqual(defaults.double(forKey: UpdateSettings.scheduledCheckIntervalKey), UpdateSettings.scheduledCheckInterval)
+        XCTAssertFalse(defaults.bool(forKey: UpdateSettings.automaticallyUpdateKey))
+        XCTAssertFalse(defaults.bool(forKey: UpdateSettings.sendProfileInfoKey))
+        XCTAssertTrue(defaults.bool(forKey: UpdateSettings.migrationKey))
+    }
+
+    func testApplyRepairsLegacyDisabledAutomaticChecksOnce() {
+        let defaults = makeDefaults()
+        defaults.set(false, forKey: UpdateSettings.automaticChecksKey)
+        defaults.set(0, forKey: UpdateSettings.scheduledCheckIntervalKey)
+        defaults.set(true, forKey: UpdateSettings.automaticallyUpdateKey)
+
+        UpdateSettings.apply(to: defaults)
+
+        XCTAssertTrue(defaults.bool(forKey: UpdateSettings.automaticChecksKey))
+        XCTAssertEqual(defaults.double(forKey: UpdateSettings.scheduledCheckIntervalKey), UpdateSettings.scheduledCheckInterval)
+        XCTAssertTrue(defaults.bool(forKey: UpdateSettings.automaticallyUpdateKey))
+
+        defaults.set(false, forKey: UpdateSettings.automaticChecksKey)
+        UpdateSettings.apply(to: defaults)
+
+        XCTAssertFalse(defaults.bool(forKey: UpdateSettings.automaticChecksKey))
+    }
+
+    private func makeDefaults() -> UserDefaults {
+        let suiteName = "UpdateSettingsTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            fatalError("Failed to create isolated UserDefaults suite")
+        }
+        defaults.removePersistentDomain(forName: suiteName)
+        return defaults
+    }
+}
+
+final class SidebarRemoteErrorCopySupportTests: XCTestCase {
+    func testMenuLabelIsNilWhenThereAreNoErrors() {
+        XCTAssertNil(SidebarRemoteErrorCopySupport.menuLabel(for: []))
+        XCTAssertNil(SidebarRemoteErrorCopySupport.clipboardText(for: []))
+    }
+
+    func testSingleErrorUsesCopyErrorLabelAndSingleLinePayload() {
+        let entries = [
+            SidebarRemoteErrorCopyEntry(
+                workspaceTitle: "alpha",
+                target: "devbox:22",
+                detail: "failed to start reverse relay"
+            )
+        ]
+
+        XCTAssertEqual(SidebarRemoteErrorCopySupport.menuLabel(for: entries), "Copy Error")
+        XCTAssertEqual(
+            SidebarRemoteErrorCopySupport.clipboardText(for: entries),
+            "SSH error (devbox:22): failed to start reverse relay"
+        )
+    }
+
+    func testMultipleErrorsUseCopyErrorsLabelAndEnumeratedPayload() {
+        let entries = [
+            SidebarRemoteErrorCopyEntry(
+                workspaceTitle: "alpha",
+                target: "devbox-a:22",
+                detail: "connection timed out"
+            ),
+            SidebarRemoteErrorCopyEntry(
+                workspaceTitle: "beta",
+                target: "devbox-b:22",
+                detail: "permission denied"
+            ),
+        ]
+
+        XCTAssertEqual(SidebarRemoteErrorCopySupport.menuLabel(for: entries), "Copy Errors")
+        XCTAssertEqual(
+            SidebarRemoteErrorCopySupport.clipboardText(for: entries),
+            """
+            1. alpha (devbox-a:22): connection timed out
+            2. beta (devbox-b:22): permission denied
+            """
+        )
+    }
+
+    func testClipboardTextSingleEntryUsesStructuredEntryFields() {
+        let entry = SidebarRemoteErrorCopyEntry(
+            workspaceTitle: "alpha",
+            target: "devbox:22",
+            detail: "failed to bootstrap daemon"
+        )
+        XCTAssertEqual(
+            SidebarRemoteErrorCopySupport.clipboardText(for: [entry]),
+            "SSH error (devbox:22): failed to bootstrap daemon"
+        )
+    }
+}
+
 final class WorkspaceReorderTests: XCTestCase {
     @MainActor
     func testReorderWorkspaceMovesWorkspaceToRequestedIndex() {
@@ -6979,6 +7078,66 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
             workspace.focusedPanelId,
             browserSplitPanel.id,
             "Expected explicit focus intent to keep the split panel focused"
+        )
+    }
+
+    func testNewTerminalSurfaceWithFocusFalsePreservesFocusedPanel() {
+        let workspace = Workspace()
+        guard let originalFocusedPanelId = workspace.focusedPanelId,
+              let originalPaneId = workspace.paneId(forPanelId: originalFocusedPanelId) else {
+            XCTFail("Expected initial focused panel and pane")
+            return
+        }
+
+        guard let newPanel = workspace.newTerminalSurface(inPane: originalPaneId, focus: false) else {
+            XCTFail("Expected terminal surface to be created")
+            return
+        }
+
+        drainMainQueue()
+        drainMainQueue()
+        drainMainQueue()
+
+        XCTAssertNotEqual(newPanel.id, originalFocusedPanelId)
+        XCTAssertEqual(
+            workspace.focusedPanelId,
+            originalFocusedPanelId,
+            "Expected non-focus terminal surface creation to preserve the existing focused panel"
+        )
+        XCTAssertEqual(
+            workspace.bonsplitController.selectedTab(inPane: originalPaneId)?.id,
+            workspace.surfaceIdFromPanelId(originalFocusedPanelId),
+            "Expected selected tab to stay on the original focused panel"
+        )
+    }
+
+    func testNewBrowserSurfaceWithFocusFalsePreservesFocusedPanel() {
+        let workspace = Workspace()
+        guard let originalFocusedPanelId = workspace.focusedPanelId,
+              let originalPaneId = workspace.paneId(forPanelId: originalFocusedPanelId) else {
+            XCTFail("Expected initial focused panel and pane")
+            return
+        }
+
+        guard let newPanel = workspace.newBrowserSurface(inPane: originalPaneId, focus: false) else {
+            XCTFail("Expected browser surface to be created")
+            return
+        }
+
+        drainMainQueue()
+        drainMainQueue()
+        drainMainQueue()
+
+        XCTAssertNotEqual(newPanel.id, originalFocusedPanelId)
+        XCTAssertEqual(
+            workspace.focusedPanelId,
+            originalFocusedPanelId,
+            "Expected non-focus browser surface creation to preserve the existing focused panel"
+        )
+        XCTAssertEqual(
+            workspace.bonsplitController.selectedTab(inPane: originalPaneId)?.id,
+            workspace.surfaceIdFromPanelId(originalFocusedPanelId),
+            "Expected selected tab to stay on the original focused panel"
         )
     }
 
@@ -13345,6 +13504,89 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
             "The scheduled external geometry sync should move the portal-hosted terminal to the anchor's new window position"
         )
     }
+
+    func testScheduledExternalGeometrySyncWaitsForQueuedLayoutShift() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 700, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer {
+            NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
+            window.orderOut(nil)
+        }
+
+        let surface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let shiftedContainer = NSView(frame: NSRect(x: 40, y: 60, width: 260, height: 180))
+        contentView.addSubview(shiftedContainer)
+        let anchor = NSView(frame: NSRect(x: 0, y: 0, width: 260, height: 180))
+        shiftedContainer.addSubview(anchor)
+        let hosted = surface.hostedView
+        TerminalWindowPortalRegistry.bind(
+            hostedView: hosted,
+            to: anchor,
+            visibleInUI: true,
+            expectedSurfaceId: surface.id,
+            expectedGeneration: surface.portalBindingGeneration()
+        )
+        TerminalWindowPortalRegistry.synchronizeForAnchor(anchor)
+
+        let anchorCenter = NSPoint(x: anchor.bounds.midX, y: anchor.bounds.midY)
+        let originalWindowPoint = anchor.convert(anchorCenter, to: nil)
+        let originalAnchorFrameInWindow = anchor.convert(anchor.bounds, to: nil)
+        XCTAssertNotNil(
+            TerminalWindowPortalRegistry.terminalViewAtWindowPoint(originalWindowPoint, in: window),
+            "Initial hit-testing should resolve the portal-hosted terminal at its original window position"
+        )
+
+        TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronizeForAllWindows()
+        DispatchQueue.main.async {
+            shiftedContainer.frame.origin.x += 72
+            contentView.layoutSubtreeIfNeeded()
+            window.displayIfNeeded()
+        }
+
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        let shiftedAnchorFrameInWindow = anchor.convert(anchor.bounds, to: nil)
+        XCTAssertGreaterThan(
+            shiftedAnchorFrameInWindow.minX,
+            originalAnchorFrameInWindow.minX + 1,
+            "The queued layout shift should move the anchor to the right"
+        )
+        XCTAssertGreaterThan(
+            shiftedAnchorFrameInWindow.maxX,
+            originalAnchorFrameInWindow.maxX + 1,
+            "The shifted anchor should expose a new trailing region outside the stale portal frame"
+        )
+        let retiredStaleWindowPoint = NSPoint(
+            x: (originalAnchorFrameInWindow.minX + shiftedAnchorFrameInWindow.minX) / 2,
+            y: shiftedAnchorFrameInWindow.midY
+        )
+        let shiftedWindowPoint = NSPoint(
+            x: (originalAnchorFrameInWindow.maxX + shiftedAnchorFrameInWindow.maxX) / 2,
+            y: shiftedAnchorFrameInWindow.midY
+        )
+        XCTAssertNil(
+            TerminalWindowPortalRegistry.terminalViewAtWindowPoint(retiredStaleWindowPoint, in: window),
+            "The queued external sync should wait until the later layout shift settles, clearing the stale portal location"
+        )
+        XCTAssertNotNil(
+            TerminalWindowPortalRegistry.terminalViewAtWindowPoint(shiftedWindowPoint, in: window),
+            "The delayed external sync should move the portal-hosted terminal to the queued layout shift position"
+        )
+    }
 }
 
 @MainActor
@@ -15256,6 +15498,32 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
         return fd
     }
 
+    private func acceptSingleClient(
+        on listenerFD: Int32,
+        handler: @escaping (_ clientFD: Int32) -> Void
+    ) -> XCTestExpectation {
+        let handled = expectation(description: "socket client handled")
+        DispatchQueue.global(qos: .userInitiated).async {
+            var clientAddr = sockaddr_un()
+            var clientAddrLen = socklen_t(MemoryLayout<sockaddr_un>.size)
+            let clientFD = withUnsafeMutablePointer(to: &clientAddr) { ptr in
+                ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                    Darwin.accept(listenerFD, sockaddrPtr, &clientAddrLen)
+                }
+            }
+            guard clientFD >= 0 else {
+                handled.fulfill()
+                return
+            }
+            defer {
+                Darwin.close(clientFD)
+                handled.fulfill()
+            }
+            handler(clientFD)
+        }
+        return handled
+    }
+
     @MainActor
     func testSocketListenerHealthRecognizesSocketPath() throws {
         let path = makeTempSocketPath()
@@ -15282,21 +15550,64 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
         XCTAssertFalse(health.isHealthy)
     }
 
+    func testProbeSocketCommandReturnsFirstLineResponse() throws {
+        let path = makeTempSocketPath()
+        let listenerFD = try bindUnixSocket(at: path)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(path)
+        }
+
+        let handled = acceptSingleClient(on: listenerFD) { clientFD in
+            var buffer = [UInt8](repeating: 0, count: 256)
+            _ = read(clientFD, &buffer, buffer.count)
+            let response = "PONG\nextra\n"
+            _ = response.withCString { ptr in
+                write(clientFD, ptr, strlen(ptr))
+            }
+        }
+
+        let response = TerminalController.probeSocketCommand("ping", at: path, timeout: 0.5)
+
+        XCTAssertEqual(response, "PONG")
+        wait(for: [handled], timeout: 1.0)
+    }
+
+    func testProbeSocketCommandTimesOutWithoutPollingUntilServerResponds() throws {
+        let path = makeTempSocketPath()
+        let listenerFD = try bindUnixSocket(at: path)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(path)
+        }
+
+        let releaseServer = DispatchSemaphore(value: 0)
+        let handled = acceptSingleClient(on: listenerFD) { clientFD in
+            var buffer = [UInt8](repeating: 0, count: 256)
+            _ = read(clientFD, &buffer, buffer.count)
+            _ = releaseServer.wait(timeout: .now() + 1.0)
+        }
+
+        let startedAt = Date()
+        let response = TerminalController.probeSocketCommand("ping", at: path, timeout: 0.2)
+        let elapsed = Date().timeIntervalSince(startedAt)
+        releaseServer.signal()
+
+        XCTAssertNil(response)
+        XCTAssertGreaterThanOrEqual(elapsed, 0.18)
+        XCTAssertLessThan(elapsed, 0.8)
+        wait(for: [handled], timeout: 1.0)
+    }
+
     func testSocketListenerHealthFailureSignalsAreEmptyWhenHealthy() {
         let health = TerminalController.SocketListenerHealth(
             isRunning: true,
             acceptLoopAlive: true,
             socketPathMatches: true,
-            socketPathExists: true,
-            socketProbePerformed: true,
-            socketConnectable: true,
-            socketConnectErrno: nil
+            socketPathExists: true
         )
         XCTAssertTrue(health.isHealthy)
         XCTAssertTrue(health.failureSignals.isEmpty)
-        XCTAssertTrue(health.socketProbePerformed)
-        XCTAssertEqual(health.socketConnectable, true)
-        XCTAssertNil(health.socketConnectErrno)
     }
 
     func testSocketListenerHealthFailureSignalsIncludeAllDetectedProblems() {
@@ -15304,15 +15615,9 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
             isRunning: false,
             acceptLoopAlive: false,
             socketPathMatches: false,
-            socketPathExists: false,
-            socketProbePerformed: false,
-            socketConnectable: nil,
-            socketConnectErrno: nil
+            socketPathExists: false
         )
         XCTAssertFalse(health.isHealthy)
-        XCTAssertFalse(health.socketProbePerformed)
-        XCTAssertNil(health.socketConnectable)
-        XCTAssertNil(health.socketConnectErrno)
         XCTAssertEqual(
             health.failureSignals,
             ["not_running", "accept_loop_dead", "socket_path_mismatch", "socket_missing"]

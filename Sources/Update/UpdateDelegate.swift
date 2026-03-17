@@ -33,7 +33,15 @@ extension UpdateDriver: SPUUpdaterDelegate {
         let resolved = UpdateFeedResolver.resolvedFeedURLString(infoFeedURL: infoFeedURL)
         UpdateLogStore.shared.append("update channel: \(resolved.isNightly ? "nightly" : "stable")")
         recordFeedURLString(resolved.url, usedFallback: resolved.usedFallback)
-        return infoFeedURL
+        return resolved.url
+    }
+
+    func updater(_ updater: SPUUpdater, willScheduleUpdateCheckAfterDelay delay: TimeInterval) {
+        UpdateLogStore.shared.append("next update check scheduled in \(Int(delay.rounded()))s")
+    }
+
+    func updaterWillNotScheduleUpdateCheck(_ updater: SPUUpdater) {
+        UpdateLogStore.shared.append("automatic update checks disabled; no scheduled check")
     }
 
     /// Called when an update is scheduled to install silently,
