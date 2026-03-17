@@ -5996,8 +5996,11 @@ final class GhosttySurfaceScrollView: NSView {
     private var observers: [NSObjectProtocol] = []
     private var windowObservers: [NSObjectProtocol] = []
     private var isLiveScrolling = false
+    private var lastLiveScrollEndTime: CFTimeInterval = 0
+    private let scrollGracePeriod: TimeInterval = 0.25
     private var lastSentRow: Int?
     private var isActive = true
+    private var scrollbarUpdateDebounceTimer: Timer?
     private var lastFocusRefreshAt: CFTimeInterval = 0
     private var activeDropZone: DropZone?
     private var pendingDropZone: DropZone?
@@ -6324,6 +6327,7 @@ final class GhosttySurfaceScrollView: NSView {
             queue: .main
         ) { [weak self] _ in
             self?.isLiveScrolling = false
+            self?.lastLiveScrollEndTime = CACurrentMediaTime()
         })
 
         observers.append(NotificationCenter.default.addObserver(
@@ -6380,6 +6384,7 @@ final class GhosttySurfaceScrollView: NSView {
         observers.forEach { NotificationCenter.default.removeObserver($0) }
         windowObservers.forEach { NotificationCenter.default.removeObserver($0) }
         deferredSearchOverlayMutationWorkItem?.cancel()
+        scrollbarUpdateDebounceTimer?.invalidate()
         dropZoneOverlayView.removeFromSuperview()
         cancelFocusRequest()
     }
@@ -8231,6 +8236,12 @@ final class GhosttySurfaceScrollView: NSView {
         }
 
         if !isLiveScrolling {
+            // Prevent scroll position sync immediately after user interaction ends.
+            // This grace period stops "doomscroll" jumps caused by racing scrollbar
+            // updates from Ghostty while the trackpad/mouse momentum is settling.
+            let timeSinceLastScroll = CACurrentMediaTime() - lastLiveScrollEndTime
+            guard timeSinceLastScroll >= scrollGracePeriod else { return }
+
             let cellHeight = surfaceView.cellSize.height
             if cellHeight > 0, let scrollbar = surfaceView.scrollbar {
                 let offsetY =
@@ -8279,7 +8290,15 @@ final class GhosttySurfaceScrollView: NSView {
             return
         }
         surfaceView.scrollbar = scrollbar
-        synchronizeScrollView()
+
+        // Debounce scrollbar updates to prevent "doomscroll" behavior during
+        // high-volume terminal output. Rapid-fire updates can race with user
+        // scroll gestures and cause erratic scroll position jumps.
+        scrollbarUpdateDebounceTimer?.invalidate()
+        let timer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: false) { [weak self] _ in
+            self?.synchronizeScrollView()
+        }
+        scrollbarUpdateDebounceTimer = timer
     }
 
     private func documentHeight() -> CGFloat {
