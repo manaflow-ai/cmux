@@ -7789,10 +7789,6 @@ struct VerticalTabsSidebar: View {
                         Spacer()
                             .frame(height: trafficLightPadding)
 
-                        SidebarUpdateBanner(updateViewModel: updateViewModel)
-                            .padding(.horizontal, 8)
-                            .padding(.top, 8)
-
                         LazyVStack(spacing: tabRowSpacing) {
                             ForEach(Array(tabManager.tabs.enumerated()), id: \.element.id) { index, tab in
                                 TabItemView(
@@ -8720,107 +8716,6 @@ private final class SidebarShortcutHintModifierMonitor: ObservableObject {
             NotificationCenter.default.removeObserver(hostWindowDidResignKeyObserver)
             self.hostWindowDidResignKeyObserver = nil
         }
-    }
-}
-
-private struct SidebarUpdateBanner: View {
-    @ObservedObject var updateViewModel: UpdateViewModel
-
-    private var bannerVersion: String? {
-        if let detectedUpdateVersion = updateViewModel.detectedUpdateVersion {
-            return detectedUpdateVersion
-        }
-        if case .updateAvailable(let update) = updateViewModel.effectiveState {
-            return UpdateViewModel.normalizedDetectedUpdateVersion(from: update.appcastItem.displayVersionString)
-        }
-        return nil
-    }
-
-    private var titleText: String {
-        guard let bannerVersion else {
-            return String(localized: "update.available.short", defaultValue: "Update Available")
-        }
-        return String(localized: "update.available.withVersion", defaultValue: "Update Available: \(bannerVersion)")
-    }
-
-    private var messageText: String {
-        if case .updateAvailable = updateViewModel.effectiveState {
-            let message = updateViewModel.description
-            if !message.isEmpty {
-                return message
-            }
-        }
-        return String(localized: "update.downloadAndInstall", defaultValue: "Download and install the latest version")
-    }
-
-    private var actionDisabled: Bool {
-        switch updateViewModel.effectiveState {
-        case .checking, .downloading, .extracting, .installing:
-            return true
-        default:
-            return false
-        }
-    }
-
-    var body: some View {
-        if bannerVersion != nil {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(alignment: .top, spacing: 10) {
-                    Image(systemName: "shippingbox.fill")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(cmuxAccentColor())
-                        .padding(.top, 1)
-
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(titleText)
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundColor(.primary)
-                            .accessibilityIdentifier("SidebarUpdateBannerTitle")
-                        Text(messageText)
-                            .font(.system(size: 11))
-                            .foregroundColor(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-
-                    Spacer(minLength: 0)
-                }
-
-                HStack {
-                    Spacer(minLength: 0)
-                    Button(String(localized: "common.installAndRelaunch", defaultValue: "Install and Relaunch")) {
-                        installDetectedUpdate()
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.small)
-                    .disabled(actionDisabled)
-                    .accessibilityIdentifier("SidebarUpdateBannerAction")
-                }
-            }
-            .padding(12)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(cmuxAccentColor().opacity(0.12))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .stroke(cmuxAccentColor().opacity(0.28), lineWidth: 1)
-            )
-            .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .accessibilityIdentifier("SidebarUpdateBanner")
-        }
-    }
-
-    private func installDetectedUpdate() {
-        if case .updateAvailable(let update) = updateViewModel.effectiveState {
-            update.reply(.install)
-            return
-        }
-        if updateViewModel.effectiveState.isInstallable {
-            updateViewModel.effectiveState.confirm()
-            return
-        }
-        AppDelegate.shared?.attemptUpdate(nil)
     }
 }
 
