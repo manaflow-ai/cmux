@@ -14,7 +14,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-14
+          - os: warp-macos-14-arm64-6x
             timeout: 30
           - os: warp-macos-15-arm64-6x
             timeout: 20
