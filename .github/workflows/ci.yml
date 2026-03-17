@@ -317,19 +317,21 @@ jobs:
         run: |
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          # WarpBuild VMs cannot activate macOS GUI apps (Virtualization.framework
+          # limitation: XCUIApplication stays "Running Background"). Tests still
+          # execute and report expected failures via XCTExpectFailure. The 15s
+          # per-test timeout prevents each expected failure from burning 62s on
+          # the activation timeout. For full interactive UI test runs, use
+          # test-e2e.yml which runs on GitHub-hosted runners with display support.
+          #
           # SidebarResizeUITests hangs on headless runners (mouse drag simulation
           # doesn't work without a physical display, even with virtual display).
-          # Skip it in CI; it runs fine on local machines.
-          #
-          # Stream output with tee instead of capturing into a bash variable.
-          # The OUTPUT=$(...) pattern can hang on large builds by buffering
-          # hundreds of MB of xcodebuild output into memory.
           set +eo pipefail
           xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug \
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
             -disableAutomaticPackageResolution \
             -destination "platform=macOS" \
-            -maximum-test-execution-time-allowance 120 \
+            -maximum-test-execution-time-allowance 15 \
             -only-testing:cmuxUITests \
             -skip-testing:cmuxUITests/SidebarResizeUITests test 2>&1 \
             | tee /tmp/ui-test-output.txt
