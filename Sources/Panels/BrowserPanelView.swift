@@ -203,6 +203,35 @@ func resolvedBrowserOmnibarPillBackgroundColor(
     return themeBackgroundColor.blended(withFraction: darkenMix, of: .black) ?? themeBackgroundColor
 }
 
+private struct BrowserChromeStyle {
+    let backgroundColor: NSColor
+    let colorScheme: ColorScheme
+    let omnibarPillBackgroundColor: NSColor
+
+    static func resolve(
+        for colorScheme: ColorScheme,
+        themeBackgroundColor: NSColor
+    ) -> BrowserChromeStyle {
+        let backgroundColor = resolvedBrowserChromeBackgroundColor(
+            for: colorScheme,
+            themeBackgroundColor: themeBackgroundColor
+        )
+        let chromeColorScheme = resolvedBrowserChromeColorScheme(
+            for: colorScheme,
+            themeBackgroundColor: backgroundColor
+        )
+        let omnibarPillBackgroundColor = resolvedBrowserOmnibarPillBackgroundColor(
+            for: chromeColorScheme,
+            themeBackgroundColor: backgroundColor
+        )
+        return BrowserChromeStyle(
+            backgroundColor: backgroundColor,
+            colorScheme: chromeColorScheme,
+            omnibarPillBackgroundColor: omnibarPillBackgroundColor
+        )
+    }
+}
+
 /// View for rendering a browser panel with address bar
 struct BrowserPanelView: View {
     @ObservedObject var panel: BrowserPanel
@@ -220,6 +249,8 @@ struct BrowserPanelView: View {
     @AppStorage(BrowserDevToolsButtonDebugSettings.iconNameKey) private var devToolsIconNameRaw = BrowserDevToolsButtonDebugSettings.defaultIcon.rawValue
     @AppStorage(BrowserDevToolsButtonDebugSettings.iconColorKey) private var devToolsIconColorRaw = BrowserDevToolsButtonDebugSettings.defaultColor.rawValue
     @AppStorage(BrowserThemeSettings.modeKey) private var browserThemeModeRaw = BrowserThemeSettings.defaultMode.rawValue
+    @AppStorage(KeyboardShortcutSettings.Action.toggleBrowserDeveloperTools.defaultsKey)
+    private var toggleBrowserDeveloperToolsShortcutData = Data()
     @State private var suggestionTask: Task<Void, Never>?
     @State private var isLoadingRemoteSuggestions: Bool = false
     @State private var latestRemoteSuggestionQuery: String = ""
@@ -236,7 +267,11 @@ struct BrowserPanelView: View {
     @State private var pendingAddressBarFocusRetryRequestId: UUID?
     @State private var pendingAddressBarFocusRetryGeneration: UInt64 = 0
     @State private var isBrowserThemeMenuPresented = false
-    @State private var ghosttyBackgroundGeneration: Int = 0
+    @State private var browserChromeStyle = BrowserChromeStyle.resolve(
+        for: .light,
+        themeBackgroundColor: GhosttyBackgroundTheme.currentColor()
+    )
+    @State private var toggleBrowserDeveloperToolsShortcut = KeyboardShortcutSettings.Action.toggleBrowserDeveloperTools.defaultShortcut
     // Keep this below half of the compact omnibar height so it reads as a squircle,
     // not a capsule.
     private let omnibarPillCornerRadius: CGFloat = 10
@@ -282,24 +317,15 @@ struct BrowserPanelView: View {
     }
 
     private var browserChromeBackground: Color {
-        _ = ghosttyBackgroundGeneration
-        return Color(nsColor: GhosttyBackgroundTheme.currentColor())
+        Color(nsColor: browserChromeStyle.backgroundColor)
     }
 
     private var browserChromeBackgroundColor: NSColor {
-        _ = ghosttyBackgroundGeneration
-        return resolvedBrowserChromeBackgroundColor(
-            for: colorScheme,
-            themeBackgroundColor: GhosttyBackgroundTheme.currentColor()
-        )
+        browserChromeStyle.backgroundColor
     }
 
     private var browserChromeColorScheme: ColorScheme {
-        _ = ghosttyBackgroundGeneration
-        return resolvedBrowserChromeColorScheme(
-            for: colorScheme,
-            themeBackgroundColor: GhosttyBackgroundTheme.currentColor()
-        )
+        browserChromeStyle.colorScheme
     }
 
     private var browserContentAccessibilityIdentifier: String {
@@ -307,10 +333,12 @@ struct BrowserPanelView: View {
     }
 
     private var omnibarPillBackgroundColor: NSColor {
-        resolvedBrowserOmnibarPillBackgroundColor(
-            for: browserChromeColorScheme,
-            themeBackgroundColor: browserChromeBackgroundColor
-        )
+        browserChromeStyle.omnibarPillBackgroundColor
+    }
+
+    private var developerToolsButtonHelp: String {
+        let base = String(localized: "browser.toggleDevTools", defaultValue: "Toggle Developer Tools")
+        return "\(base) (\(toggleBrowserDeveloperToolsShortcut.displayString))"
     }
 
     private var owningWorkspace: Workspace? {
@@ -420,6 +448,8 @@ struct BrowserPanelView: View {
                 BrowserSearchSettings.searchSuggestionsEnabledKey: BrowserSearchSettings.defaultSearchSuggestionsEnabled,
                 BrowserThemeSettings.modeKey: BrowserThemeSettings.defaultMode.rawValue,
             ])
+            refreshBrowserChromeStyle()
+            refreshToggleBrowserDeveloperToolsShortcut()
             let resolvedThemeMode = BrowserThemeSettings.mode(defaults: .standard)
             if browserThemeModeRaw != resolvedThemeMode.rawValue {
                 browserThemeModeRaw = resolvedThemeMode.rawValue
@@ -459,7 +489,11 @@ struct BrowserPanelView: View {
             panel.setBrowserThemeMode(normalizedMode)
         }
         .onChange(of: colorScheme) { _ in
+            refreshBrowserChromeStyle()
             panel.refreshAppearanceDrivenColors()
+        }
+        .onChange(of: toggleBrowserDeveloperToolsShortcutData) { _ in
+            refreshToggleBrowserDeveloperToolsShortcut()
         }
         .onChange(of: panel.pendingAddressBarFocusRequestId) { _ in
             applyPendingAddressBarFocusRequestIfNeeded()
@@ -552,7 +586,7 @@ struct BrowserPanelView: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)) { _ in
-            ghosttyBackgroundGeneration &+= 1
+            refreshBrowserChromeStyle()
         }
     }
 
@@ -668,7 +702,7 @@ struct BrowserPanelView: View {
         }
         .buttonStyle(OmnibarAddressButtonStyle())
         .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
-        .safeHelp(KeyboardShortcutSettings.Action.toggleBrowserDeveloperTools.tooltip(String(localized: "browser.toggleDevTools", defaultValue: "Toggle Developer Tools")))
+        .safeHelp(developerToolsButtonHelp)
         .accessibilityIdentifier("BrowserToggleDevToolsButton")
     }
 
@@ -905,6 +939,28 @@ struct BrowserPanelView: View {
         case .easeOut:
             return .easeOut(duration: duration)
         }
+    }
+
+    private func refreshBrowserChromeStyle() {
+        browserChromeStyle = BrowserChromeStyle.resolve(
+            for: colorScheme,
+            themeBackgroundColor: GhosttyBackgroundTheme.currentColor()
+        )
+    }
+
+    private func refreshToggleBrowserDeveloperToolsShortcut() {
+        toggleBrowserDeveloperToolsShortcut = decodeShortcut(
+            from: toggleBrowserDeveloperToolsShortcutData,
+            fallback: KeyboardShortcutSettings.Action.toggleBrowserDeveloperTools.defaultShortcut
+        )
+    }
+
+    private func decodeShortcut(from data: Data, fallback: StoredShortcut) -> StoredShortcut {
+        guard !data.isEmpty,
+              let shortcut = try? JSONDecoder().decode(StoredShortcut.self, from: data) else {
+            return fallback
+        }
+        return shortcut
     }
 
     private func syncWebViewResponderPolicyWithViewState(

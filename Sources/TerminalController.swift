@@ -13025,6 +13025,61 @@ class TerminalController {
         return trimmed.isEmpty ? nil : trimmed
     }
 
+    private func schedulePanelMetadataMutation(
+        args: String,
+        options: [String: String],
+        missingPanelUsage: String,
+        mutation: @escaping (Tab, UUID) -> Void
+    ) -> String {
+        let rawPanelArg = options["panel"] ?? options["surface"]
+        let surfaceIdFromOptions: UUID?
+        if let rawPanelArg {
+            if rawPanelArg.isEmpty {
+                return "ERROR: Missing panel id — usage: \(missingPanelUsage)"
+            }
+            guard let surfaceId = UUID(uuidString: rawPanelArg) else {
+                return "ERROR: Invalid panel id '\(rawPanelArg)'"
+            }
+            surfaceIdFromOptions = surfaceId
+        } else {
+            surfaceIdFromOptions = nil
+        }
+
+        if let tabArg = options["tab"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !tabArg.isEmpty,
+           UUID(uuidString: tabArg) == nil,
+           Int(tabArg) == nil {
+            return "ERROR: Tab not found"
+        }
+
+        if let scope = Self.explicitSocketScope(options: options) {
+            DispatchQueue.main.async { [weak self] in
+                guard let self,
+                      let tab = self.tabForSidebarMutation(id: scope.workspaceId) else {
+                    return
+                }
+                let validSurfaceIds = Set(tab.panels.keys)
+                tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
+                guard validSurfaceIds.contains(scope.panelId) else { return }
+                mutation(tab, scope.panelId)
+            }
+            return "OK"
+        }
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self,
+                  let tab = self.resolveTabForReport(args) else {
+                return
+            }
+            let validSurfaceIds = Set(tab.panels.keys)
+            tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
+            guard let surfaceId = surfaceIdFromOptions ?? tab.focusedPanelId else { return }
+            guard validSurfaceIds.contains(surfaceId) else { return }
+            mutation(tab, surfaceId)
+        }
+        return "OK"
+    }
+
     private func upsertSidebarMetadata(_ args: String, missingError: String) -> String {
         guard tabManager != nil else { return "ERROR: TabManager not available" }
         let parsed = parseOptionsNoStop(args)
@@ -13611,40 +13666,13 @@ class TerminalController {
         }
         let label = String(labelRaw.prefix(16))
 
-        var result = "OK"
-        DispatchQueue.main.sync {
-            guard let tab = resolveTabForReport(args) else {
-                result = parsed.options["tab"] != nil ? "ERROR: Tab not found" : "ERROR: No tab selected"
-                return
-            }
-            let validSurfaceIds = Set(tab.panels.keys)
-            tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
-
-            let panelArg = parsed.options["panel"] ?? parsed.options["surface"]
-            let surfaceId: UUID
-            if let panelArg {
-                if panelArg.isEmpty {
-                    result = "ERROR: Missing panel id — usage: report_pr <number> <url> [--label=PR] [--state=open|merged|closed] [--tab=X] [--panel=Y]"
-                    return
-                }
-                guard let parsedId = UUID(uuidString: panelArg) else {
-                    result = "ERROR: Invalid panel id '\(panelArg)'"
-                    return
-                }
-                surfaceId = parsedId
-            } else {
-                guard let focused = tab.focusedPanelId else {
-                    result = "ERROR: Missing panel id (no focused surface)"
-                    return
-                }
-                surfaceId = focused
-            }
-
-            guard validSurfaceIds.contains(surfaceId) else {
-                result = "ERROR: Panel not found '\(surfaceId.uuidString)'"
-                return
-            }
-
+        // Shell integration provides explicit workspace/panel UUIDs for browser metadata.
+        // Keep this telemetry path off-main so SwiftUI render passes can't deadlock the socket handler.
+        return schedulePanelMetadataMutation(
+            args: args,
+            options: parsed.options,
+            missingPanelUsage: "report_pr <number> <url> [--label=PR] [--state=open|merged|closed] [--tab=X] [--panel=Y]"
+        ) { tab, surfaceId in
             guard Self.shouldReplacePullRequest(
                 current: tab.panelPullRequests[surfaceId],
                 number: number,
@@ -13663,48 +13691,17 @@ class TerminalController {
                 status: status
             )
         }
-        return result
     }
 
     private func clearPullRequest(_ args: String) -> String {
         let parsed = parseOptions(args)
-        var result = "OK"
-        DispatchQueue.main.sync {
-            guard let tab = resolveTabForReport(args) else {
-                result = parsed.options["tab"] != nil ? "ERROR: Tab not found" : "ERROR: No tab selected"
-                return
-            }
-            let validSurfaceIds = Set(tab.panels.keys)
-            tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
-
-            let panelArg = parsed.options["panel"] ?? parsed.options["surface"]
-            let surfaceId: UUID
-            if let panelArg {
-                if panelArg.isEmpty {
-                    result = "ERROR: Missing panel id — usage: clear_pr [--tab=X] [--panel=Y]"
-                    return
-                }
-                guard let parsedId = UUID(uuidString: panelArg) else {
-                    result = "ERROR: Invalid panel id '\(panelArg)'"
-                    return
-                }
-                surfaceId = parsedId
-            } else {
-                guard let focused = tab.focusedPanelId else {
-                    result = "ERROR: Missing panel id (no focused surface)"
-                    return
-                }
-                surfaceId = focused
-            }
-
-            guard validSurfaceIds.contains(surfaceId) else {
-                result = "ERROR: Panel not found '\(surfaceId.uuidString)'"
-                return
-            }
-
+        return schedulePanelMetadataMutation(
+            args: args,
+            options: parsed.options,
+            missingPanelUsage: "clear_pr [--tab=X] [--panel=Y]"
+        ) { tab, surfaceId in
             tab.clearPanelPullRequest(panelId: surfaceId)
         }
-        return result
     }
 
     private func reportPorts(_ args: String) -> String {
