@@ -299,6 +299,7 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
     private var socketPath = ""
     private let hiddenSurfaceToken = "cmux-command-palette-hidden-surface"
     private let visibleSurfaceToken = "cmux-command-palette-visible-surface"
+    private let noMatchWorkspaceQuery = "cmux-command-palette-no-match"
 
     override func setUp() {
         super.setUp()
@@ -475,6 +476,69 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
         )
     }
 
+    func testSwitcherEmptyStateDoesNotBlinkWhileRefiningNoMatchQuery() throws {
+        let app = XCUIApplication()
+        app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        launchAndActivate(app)
+
+        XCTAssertTrue(
+            sidebarHelpPollUntil(timeout: 8.0) {
+                app.windows.count >= 1
+            },
+            "Expected the main window to be visible"
+        )
+        XCTAssertTrue(waitForSocketPong(timeout: 12.0), "Expected control socket at \(socketPath)")
+
+        let mainWindowId = try XCTUnwrap(
+            socketCommand("current_window")?.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+        try seedWorkspaceSwitcherCorpus(workspaceCount: 96)
+
+        let searchField = app.textFields["CommandPaletteSearchField"]
+        app.typeKey("p", modifierFlags: [.command])
+        XCTAssertTrue(searchField.waitForExistence(timeout: 5.0), "Expected command palette search field")
+        searchField.click()
+
+        try debugTypeText(String(repeating: "z", count: 8))
+
+        let emptyLabel = app.staticTexts["No workspaces match your search."].firstMatch
+        XCTAssertTrue(
+            sidebarHelpPollUntil(timeout: 5.0) {
+                guard emptyLabel.exists else { return false }
+                guard let snapshot = commandPaletteSnapshot(windowId: mainWindowId) else { return false }
+                return (snapshot["query"] as? String) == String(repeating: "z", count: 8)
+                    && self.commandPaletteResultRows(from: snapshot).isEmpty
+            },
+            "Expected the switcher to reach a visible no-results state before refining the query"
+        )
+
+        try debugTypeText("z")
+
+        let emptyLabelDisappearedWhileRefining = sidebarHelpPollUntil(timeout: 0.5, pollInterval: 0.01) {
+            !emptyLabel.exists
+        }
+        XCTAssertFalse(
+            emptyLabelDisappearedWhileRefining,
+            "Expected refining an already-empty switcher query to keep the empty-state label visible"
+        )
+
+        let refinedSnapshot = try XCTUnwrap(
+            waitForCommandPaletteSnapshot(
+                windowId: mainWindowId,
+                query: String(repeating: "z", count: 9),
+                timeout: 5.0
+            ) { snapshot in
+                self.commandPaletteResultRows(from: snapshot).isEmpty
+            }
+        )
+        XCTAssertTrue(
+            commandPaletteResultRows(from: refinedSnapshot).isEmpty,
+            "Expected the refined no-match query to stay empty. snapshot=\(refinedSnapshot)"
+        )
+    }
+
     private func launchAndActivate(_ app: XCUIApplication) {
         app.launch()
         XCTAssertTrue(
@@ -590,6 +654,46 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
         guard let response, response.hasPrefix("OK ") else { return nil }
         let value = String(response.dropFirst(3)).trimmingCharacters(in: .whitespacesAndNewlines)
         return UUID(uuidString: value) != nil ? value : nil
+    }
+
+    private func debugTypeText(_ text: String) throws {
+        let response = try XCTUnwrap(
+            socketJSON(
+                method: "debug.type",
+                params: ["text": text]
+            ),
+            "Expected a response from debug.type"
+        )
+        XCTAssertEqual(response["ok"] as? Bool, true, "Expected debug.type to succeed. response=\(response)")
+    }
+
+    private func seedWorkspaceSwitcherCorpus(workspaceCount: Int) throws {
+        guard workspaceCount > 1 else { return }
+
+        for index in 1..<workspaceCount {
+            let workspaceId = try XCTUnwrap(
+                okUUID(from: socketCommand("new_workspace")),
+                "Expected new_workspace to return a workspace ID"
+            )
+            let title = "\(noMatchWorkspaceQuery)-\(index)-" + String(repeating: "workspace-", count: 8)
+            let response = try XCTUnwrap(
+                socketJSON(
+                    method: "workspace.rename",
+                    params: [
+                        "workspace_id": workspaceId,
+                        "title": title,
+                    ]
+                ),
+                "Expected a response from workspace.rename"
+            )
+            XCTAssertEqual(
+                response["ok"] as? Bool,
+                true,
+                "Expected workspace.rename to succeed. response=\(response)"
+            )
+        }
+
+        XCTAssertEqual(socketCommand("select_workspace 0"), "OK")
     }
 
     private func socketCommand(_ command: String) -> String? {
