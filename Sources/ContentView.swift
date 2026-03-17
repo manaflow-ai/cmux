@@ -5372,7 +5372,6 @@ struct ContentView: View {
                     keywords: target.commandPaletteKeywords,
                     when: { context in
                         context.bool(CommandPaletteContextKeys.panelIsTerminal)
-                            && context.bool(CommandPaletteContextKeys.terminalOpenTargetAvailable(target))
                     }
                 )
             )
