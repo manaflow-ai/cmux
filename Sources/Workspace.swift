@@ -9229,7 +9229,13 @@ extension Workspace: BonsplitDelegate {
         surfaceIdToPanelId.removeValue(forKey: tabId)
         panelDirectories.removeValue(forKey: panelId)
         panelGitBranches.removeValue(forKey: panelId)
+        if panelId == focusedPanelId {
+            gitBranch = nil
+        }
         panelPullRequests.removeValue(forKey: panelId)
+        if panelId == focusedPanelId {
+            pullRequest = nil
+        }
         panelTitles.removeValue(forKey: panelId)
         panelCustomTitles.removeValue(forKey: panelId)
         pinnedPanelIds.remove(panelId)
@@ -9379,6 +9385,10 @@ extension Workspace: BonsplitDelegate {
                 panelDirectories.removeValue(forKey: panelId)
                 panelGitBranches.removeValue(forKey: panelId)
                 panelPullRequests.removeValue(forKey: panelId)
+                if panelId == focusedPanelId {
+                    gitBranch = nil
+                    pullRequest = nil
+                }
                 panelTitles.removeValue(forKey: panelId)
                 panelCustomTitles.removeValue(forKey: panelId)
                 pinnedPanelIds.remove(panelId)
