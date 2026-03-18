@@ -14349,6 +14349,40 @@
         }
       }
     },
+    "command.enableMinimalMode.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable Minimal Mode"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ミニマルモードを有効にする"
+          }
+        }
+      }
+    },
+    "command.disableMinimalMode.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disable Minimal Mode"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ミニマルモードを無効にする"
+          }
+        }
+      }
+    },
     "command.installCLI.subtitle": {
       "extractionState": "manual",
       "localizations": {
