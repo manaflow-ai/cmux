@@ -116,6 +116,29 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         ]
     }
 
+    private func makeUpdateCommandEntries() -> [FixtureEntry] {
+        [
+            FixtureEntry(
+                id: "command.checkForUpdates",
+                rank: 0,
+                title: "Check for Updates",
+                searchableTexts: ["Check for Updates", "Global", "update", "upgrade", "release"]
+            ),
+            FixtureEntry(
+                id: "command.attemptUpdate",
+                rank: 1,
+                title: "Attempt Update",
+                searchableTexts: ["Attempt Update", "Global", "attempt", "check", "update", "upgrade", "release"]
+            ),
+            FixtureEntry(
+                id: "command.applyUpdateIfAvailable",
+                rank: 2,
+                title: "Apply Update (If Available)",
+                searchableTexts: ["Apply Update (If Available)", "Global", "apply", "install", "update", "available"]
+            ),
+        ]
+    }
+
     private func optimizedResults(
         entries: [FixtureEntry],
         query: String
@@ -322,6 +345,15 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
             "command.finder"
         )
     }
+    func testSearchPrefersTitleMatchOverKeywordOnlyMatchForCheckQuery() {
+        let results = optimizedResults(entries: makeUpdateCommandEntries(), query: "check")
+
+        XCTAssertEqual(
+            results.prefix(2).map(\.id),
+            ["command.checkForUpdates", "command.attemptUpdate"]
+        )
+    }
+
 
     func testResolvedSelectionIndexPrefersAnchoredCommand() {
         let resultIDs = ["command.0", "command.1", "command.2"]
