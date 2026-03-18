@@ -7278,6 +7278,10 @@ final class GhosttySurfaceScrollView: NSView {
         surfaceView.isVisibleInUI
     }
 
+    var debugPortalActive: Bool {
+        isActive
+    }
+
     var debugPortalFrameInWindow: CGRect {
         guard window != nil else { return .zero }
         return convert(bounds, to: nil)

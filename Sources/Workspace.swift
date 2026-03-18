@@ -5199,6 +5199,8 @@ final class Workspace: Identifiable, ObservableObject {
     private var layoutFollowUpBrowserPanelId: UUID?
     private var layoutFollowUpBrowserExitFocusPanelId: UUID?
     private var layoutFollowUpNeedsGeometryPass = false
+    private var layoutFollowUpAttemptScheduled = false
+    private var layoutFollowUpStalledAttemptCount = 0
     private var isAttemptingLayoutFollowUp = false
     private var isNormalizingPinnedTabOrder = false
     private var pendingNonFocusSplitFocusReassert: PendingNonFocusSplitFocusReassert?
@@ -7954,6 +7956,7 @@ final class Workspace: Identifiable, ObservableObject {
             layoutFollowUpTerminalFocusPanelId = terminalFocusPanelId
         }
         layoutFollowUpNeedsGeometryPass = layoutFollowUpNeedsGeometryPass || includeGeometry
+        layoutFollowUpStalledAttemptCount = 0
 
         if layoutFollowUpTimeoutWorkItem == nil {
             installLayoutFollowUpObservers()
@@ -7965,10 +7968,8 @@ final class Workspace: Identifiable, ObservableObject {
     private func installLayoutFollowUpObservers() {
         guard layoutFollowUpTimeoutWorkItem == nil else { return }
 
-        func enqueueAttempt() {
-            DispatchQueue.main.async { [weak self] in
-                self?.attemptEventDrivenLayoutFollowUp()
-            }
+        let enqueueAttempt: () -> Void = { [weak self] in
+            self?.scheduleLayoutFollowUpAttempt()
         }
 
         layoutFollowUpObservers.append(NotificationCenter.default.addObserver(
@@ -8048,6 +8049,28 @@ final class Workspace: Identifiable, ObservableObject {
         layoutFollowUpBrowserPanelId = nil
         layoutFollowUpBrowserExitFocusPanelId = nil
         layoutFollowUpNeedsGeometryPass = false
+        layoutFollowUpAttemptScheduled = false
+        layoutFollowUpStalledAttemptCount = 0
+    }
+
+    private func scheduleLayoutFollowUpAttempt() {
+        guard layoutFollowUpTimeoutWorkItem != nil else { return }
+        guard !layoutFollowUpAttemptScheduled else { return }
+
+        layoutFollowUpAttemptScheduled = true
+        let delay = layoutFollowUpBackoffDelay()
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            guard let self else { return }
+            self.layoutFollowUpAttemptScheduled = false
+            self.attemptEventDrivenLayoutFollowUp()
+        }
+    }
+
+    private func layoutFollowUpBackoffDelay() -> TimeInterval {
+        guard layoutFollowUpStalledAttemptCount > 0 else { return 0 }
+        let baseDelay: TimeInterval = 0.01
+        let exponent = min(layoutFollowUpStalledAttemptCount - 1, 5)
+        return min(0.25, baseDelay * pow(2.0, Double(exponent)))
     }
 
     private func flushWorkspaceWindowLayouts() {
@@ -8085,12 +8108,35 @@ final class Workspace: Identifiable, ObservableObject {
         return !selectionConverged || !browserPortalAnchorReady(for: browserPanel)
     }
 
+    private func terminalFocusNeedsFollowUp() -> Bool {
+        guard let panelId = layoutFollowUpTerminalFocusPanelId,
+              let terminalPanel = terminalPanel(for: panelId) else {
+            return false
+        }
+        return focusedPanelId != panelId || !terminalPanel.hostedView.isSurfaceViewFirstResponder()
+    }
+
+    private func browserPanelNeedsFollowUp() -> Bool {
+        guard let panelId = layoutFollowUpBrowserPanelId,
+              let browserPanel = browserPanel(for: panelId) else {
+            return false
+        }
+        return !browserPortalReady(for: browserPanel)
+    }
+
     private func attemptEventDrivenLayoutFollowUp() {
         guard layoutFollowUpTimeoutWorkItem != nil, !isAttemptingLayoutFollowUp else { return }
         isAttemptingLayoutFollowUp = true
         defer { isAttemptingLayoutFollowUp = false }
 
         flushWorkspaceWindowLayouts()
+
+        let geometryPendingBefore = layoutFollowUpNeedsGeometryPass
+        let terminalPortalPendingBefore = terminalPortalVisibilityNeedsFollowUp()
+        let browserVisibilityPendingBefore = browserPortalVisibilityNeedsFollowUp()
+        let terminalFocusPendingBefore = terminalFocusNeedsFollowUp()
+        let browserPanelPendingBefore = browserPanelNeedsFollowUp()
+        let browserExitPendingBefore = layoutFollowUpBrowserExitFocusPanelId != nil
 
         if layoutFollowUpNeedsGeometryPass {
             layoutFollowUpNeedsGeometryPass = reconcileTerminalGeometryPass()
@@ -8117,14 +8163,20 @@ final class Workspace: Identifiable, ObservableObject {
 
         if let browserPanelId = layoutFollowUpBrowserPanelId {
             if let browserPanel = browserPanel(for: browserPanelId) {
-                if browserPortalAnchorReady(for: browserPanel) {
+                let anchorReady = browserPortalAnchorReady(for: browserPanel)
+                let wasReady = browserPortalReady(for: browserPanel)
+                if anchorReady && !wasReady {
                     BrowserWindowPortalRegistry.synchronizeForAnchor(browserPanel.portalAnchorView)
+                }
+                let isReady = browserPortalReady(for: browserPanel)
+                if isReady,
+                   (!wasReady || BrowserWindowPortalRegistry.debugSnapshot(for: browserPanel.webView)?.containerHidden == true) {
                     BrowserWindowPortalRegistry.refresh(
                         webView: browserPanel.webView,
                         reason: reason
                     )
                 }
-                if browserPortalReady(for: browserPanel) {
+                if isReady {
                     layoutFollowUpBrowserPanelId = nil
                 }
             } else {
@@ -8145,20 +8197,8 @@ final class Workspace: Identifiable, ObservableObject {
             }
         }
 
-        let terminalFocusPending: Bool = {
-            guard let panelId = layoutFollowUpTerminalFocusPanelId,
-                  let terminalPanel = terminalPanel(for: panelId) else {
-                return false
-            }
-            return focusedPanelId != panelId || !terminalPanel.hostedView.isSurfaceViewFirstResponder()
-        }()
-        let browserPanelPending: Bool = {
-            guard let panelId = layoutFollowUpBrowserPanelId,
-                  let browserPanel = browserPanel(for: panelId) else {
-                return false
-            }
-            return !browserPortalReady(for: browserPanel)
-        }()
+        let terminalFocusPending = terminalFocusNeedsFollowUp()
+        let browserPanelPending = browserPanelNeedsFollowUp()
         let browserExitPending = layoutFollowUpBrowserExitFocusPanelId != nil
         let needsMoreWork =
             layoutFollowUpNeedsGeometryPass ||
@@ -8170,6 +8210,22 @@ final class Workspace: Identifiable, ObservableObject {
 
         if !needsMoreWork {
             clearLayoutFollowUp()
+            return
+        }
+
+        let didMakeProgress =
+            (geometryPendingBefore && !layoutFollowUpNeedsGeometryPass) ||
+            (terminalPortalPendingBefore && !terminalPortalPending) ||
+            (browserVisibilityPendingBefore && !browserVisibilityPending) ||
+            (terminalFocusPendingBefore && !terminalFocusPending) ||
+            (browserPanelPendingBefore && !browserPanelPending) ||
+            (browserExitPendingBefore && !browserExitPending)
+
+        if didMakeProgress {
+            layoutFollowUpStalledAttemptCount = 0
+            scheduleLayoutFollowUpAttempt()
+        } else {
+            layoutFollowUpStalledAttemptCount += 1
         }
     }
 
@@ -8243,19 +8299,30 @@ final class Workspace: Identifiable, ObservableObject {
         return visiblePanelIds
     }
 
-    private func reconcileTerminalPortalVisibilityForCurrentRenderedLayout() {
+    @discardableResult
+    private func reconcileTerminalPortalVisibilityForCurrentRenderedLayout() -> Bool {
         let visiblePanelIds = renderedVisiblePanelIdsForCurrentLayout()
+        var didChange = false
 
         for panel in panels.values {
             guard let terminalPanel = panel as? TerminalPanel else { continue }
             let shouldBeVisible = visiblePanelIds.contains(terminalPanel.id)
-            terminalPanel.hostedView.setVisibleInUI(shouldBeVisible)
-            terminalPanel.hostedView.setActive(shouldBeVisible && focusedPanelId == terminalPanel.id)
+            if terminalPanel.hostedView.debugPortalVisibleInUI != shouldBeVisible {
+                terminalPanel.hostedView.setVisibleInUI(shouldBeVisible)
+                didChange = true
+            }
+            let shouldBeActive = shouldBeVisible && focusedPanelId == terminalPanel.id
+            if terminalPanel.hostedView.debugPortalActive != shouldBeActive {
+                terminalPanel.hostedView.setActive(shouldBeActive)
+                didChange = true
+            }
             TerminalWindowPortalRegistry.updateEntryVisibility(
                 for: terminalPanel.hostedView,
                 visibleInUI: shouldBeVisible
             )
         }
+
+        return didChange
     }
 
     private func terminalPortalVisibilityNeedsFollowUp() -> Bool {
@@ -8278,43 +8345,65 @@ final class Workspace: Identifiable, ObservableObject {
         return false
     }
 
-    private func reconcileBrowserPortalVisibilityForCurrentRenderedLayout(reason: String) {
+    @discardableResult
+    private func reconcileBrowserPortalVisibilityForCurrentRenderedLayout(reason: String) -> Bool {
         let visiblePanelIds = renderedVisiblePanelIdsForCurrentLayout()
+        var didChange = false
 
         for panel in panels.values {
             guard let browserPanel = panel as? BrowserPanel else { continue }
             let shouldBeVisible = visiblePanelIds.contains(browserPanel.id)
+            let anchorView = browserPanel.portalAnchorView
+            let snapshot = BrowserWindowPortalRegistry.debugSnapshot(for: browserPanel.webView)
             if shouldBeVisible {
-                BrowserWindowPortalRegistry.updateEntryVisibility(
-                    for: browserPanel.webView,
-                    visibleInUI: true,
-                    zPriority: 2
-                )
-                let anchorView = browserPanel.portalAnchorView
-                let anchorReady =
-                    anchorView.window != nil &&
-                    anchorView.superview != nil &&
-                    anchorView.bounds.width > 1 &&
-                    anchorView.bounds.height > 1
-                if anchorReady {
+                if snapshot?.visibleInUI == false {
+                    BrowserWindowPortalRegistry.updateEntryVisibility(
+                        for: browserPanel.webView,
+                        visibleInUI: true,
+                        zPriority: 2
+                    )
+                    didChange = true
+                }
+                let anchorReady = browserPortalAnchorReady(for: browserPanel)
+                let portalReady = browserPortalReady(for: browserPanel)
+                if anchorReady && !portalReady {
                     BrowserWindowPortalRegistry.synchronizeForAnchor(anchorView)
+                    if browserPortalReady(for: browserPanel) {
+                        BrowserWindowPortalRegistry.refresh(
+                            webView: browserPanel.webView,
+                            reason: reason
+                        )
+                        didChange = true
+                    }
+                } else if anchorReady && snapshot?.containerHidden == true {
                     BrowserWindowPortalRegistry.refresh(
                         webView: browserPanel.webView,
                         reason: reason
                     )
+                    didChange = true
                 }
             } else {
-                BrowserWindowPortalRegistry.updateEntryVisibility(
-                    for: browserPanel.webView,
-                    visibleInUI: false,
-                    zPriority: 0
-                )
-                BrowserWindowPortalRegistry.hide(
-                    webView: browserPanel.webView,
-                    source: reason
-                )
+                let portalNeedsHide =
+                    snapshot?.visibleInUI == true ||
+                    snapshot?.containerHidden == false
+                if portalNeedsHide {
+                    if snapshot?.visibleInUI == true {
+                        BrowserWindowPortalRegistry.updateEntryVisibility(
+                            for: browserPanel.webView,
+                            visibleInUI: false,
+                            zPriority: 0
+                        )
+                    }
+                    BrowserWindowPortalRegistry.hide(
+                        webView: browserPanel.webView,
+                        source: reason
+                    )
+                    didChange = true
+                }
             }
         }
+
+        return didChange
     }
 
     private func browserPortalVisibilityNeedsFollowUp() -> Bool {
