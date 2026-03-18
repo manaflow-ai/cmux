@@ -9,8 +9,6 @@ class UpdateDriver: NSObject, SPUUserDriver {
     private var pendingCheckTransition: DispatchWorkItem?
     private var checkTimeoutWorkItem: DispatchWorkItem?
     private var lastFeedURLString: String?
-    private var updateFileURLForQuarantineRepair: URL?
-    private var finishedExtractedUpdateQuarantineRepair: Bool = false
 
     init(viewModel: UpdateViewModel, hostBundle _: Bundle) {
         self.viewModel = viewModel
@@ -120,13 +118,11 @@ class UpdateDriver: NSObject, SPUUserDriver {
     func showDownloadDidStartExtractingUpdate() {
         UpdateLogStore.shared.append("show extraction started")
         setState(.extracting(.init(progress: 0)))
-        maybeRepairExtractedUpdateQuarantine()
     }
 
     func showExtractionReceivedProgress(_ progress: Double) {
         UpdateLogStore.shared.append(String(format: "show extraction progress: %.2f", progress))
         setState(.extracting(.init(progress: progress)))
-        maybeRepairExtractedUpdateQuarantine()
     }
 
     func showReady(toInstallAndRelaunch reply: @escaping @Sendable (SPUUserUpdateChoice) -> Void) {
@@ -258,11 +254,6 @@ class UpdateDriver: NSObject, SPUUserDriver {
         UpdateLogStore.shared.append("feed url resolved\(suffix): \(feedURLString)")
     }
 
-    func prepareQuarantineRepair(for updateFileURL: URL?) {
-        updateFileURLForQuarantineRepair = updateFileURL
-        finishedExtractedUpdateQuarantineRepair = false
-    }
-
     func formatErrorForLog(_ error: Error) -> String {
         let nsError = error as NSError
         var parts: [String] = ["\(nsError.domain)(\(nsError.code))"]
@@ -308,24 +299,6 @@ class UpdateDriver: NSObject, SPUUserDriver {
             return String(format: "extracting(%.0f%%)", extracting.progress * 100)
         case .installing(let installing):
             return "installing(auto=\(installing.isAutoUpdate))"
-        }
-    }
-
-    private func maybeRepairExtractedUpdateQuarantine() {
-        guard !finishedExtractedUpdateQuarantineRepair else { return }
-
-        do {
-            let result = try UpdateQuarantineRepair.repairExtractedApplicationIfNeeded(dataURL: updateFileURLForQuarantineRepair)
-            guard result.outcome != .notFound else { return }
-
-            finishedExtractedUpdateQuarantineRepair = true
-            let path = result.url?.path ?? "<not-found>"
-            let before = result.beforeRawValue ?? "<none>"
-            let after = result.afterRawValue ?? "<none>"
-            UpdateLogStore.shared.append("quarantine repair extracted-app: \(result.outcome) path=\(path) before=\(before) after=\(after)")
-        } catch {
-            finishedExtractedUpdateQuarantineRepair = true
-            UpdateLogStore.shared.append("quarantine repair extracted-app failed: \(error.localizedDescription)")
         }
     }
 
