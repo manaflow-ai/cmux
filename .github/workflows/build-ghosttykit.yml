@@ -7,11 +7,16 @@ on:
   pull_request:
 
 jobs:
-  build-ghosttykit:
+  build-ghosttykit-attempt-1:
     # Never run WarpBuild jobs for fork pull requests (avoid billing on external PRs).
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    continue-on-error: true
     runs-on: warp-macos-15-arm64-6x
     timeout-minutes: 20
+    outputs:
+      build_started: ${{ steps.mark-build-start.outputs.value }}
+      completed: ${{ steps.mark-build-complete.outputs.value }}
+      passed: ${{ steps.mark-build-pass.outputs.value }}
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -58,23 +63,16 @@ jobs:
           export DEVELOPER_DIR="$XCODE_DIR"
           xcodebuild -version
 
+      - name: Mark GhosttyKit build start
+        id: mark-build-start
+        if: steps.check-release.outputs.exists == 'false'
+        run: echo "value=true" >> "$GITHUB_OUTPUT"
+
       - name: Build GhosttyKit.xcframework
         if: steps.check-release.outputs.exists == 'false'
         run: |
           set -euo pipefail
-          ZIG_REQUIRED="0.15.2"
-          if command -v zig >/dev/null 2>&1 && zig version 2>/dev/null | grep -q "^${ZIG_REQUIRED}"; then
-            echo "zig ${ZIG_REQUIRED} already installed"
-          else
-            echo "Installing zig ${ZIG_REQUIRED} from tarball"
-            curl -fSL "https://ziglang.org/download/${ZIG_REQUIRED}/zig-aarch64-macos-${ZIG_REQUIRED}.tar.xz" -o /tmp/zig.tar.xz
-            tar xf /tmp/zig.tar.xz -C /tmp
-            sudo mkdir -p /usr/local/bin /usr/local/lib
-            sudo cp -f /tmp/zig-aarch64-macos-${ZIG_REQUIRED}/zig /usr/local/bin/zig
-            sudo cp -rf /tmp/zig-aarch64-macos-${ZIG_REQUIRED}/lib /usr/local/lib/zig
-            export PATH="/usr/local/bin:$PATH"
-            zig version
-          fi
+          ./scripts/install-zig.sh
           cd ghostty && zig build -Demit-xcframework=true -Demit-macos-app=false -Dxcframework-target=universal -Doptimize=ReleaseFast
 
       - name: Package xcframework
@@ -98,3 +96,133 @@ jobs:
             --notes "Pre-built GhosttyKit.xcframework for commit ${{ steps.ghostty-sha.outputs.sha }}" \
             GhosttyKit.xcframework.tar.gz
           echo "Published release $TAG"
+
+      - name: Mark GhosttyKit build completed
+        if: ${{ always() && !cancelled() }}
+        id: mark-build-complete
+        run: echo "value=true" >> "$GITHUB_OUTPUT"
+
+      - name: Mark GhosttyKit build success
+        id: mark-build-pass
+        run: echo "value=true" >> "$GITHUB_OUTPUT"
+
+  build-ghosttykit-attempt-2:
+    if: ${{ always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && needs.build-ghosttykit-attempt-1.outputs.completed != 'true' && needs.build-ghosttykit-attempt-1.outputs.passed != 'true' }}
+    needs:
+      - build-ghosttykit-attempt-1
+    continue-on-error: true
+    runs-on: warp-macos-15-arm64-6x
+    timeout-minutes: 20
+    outputs:
+      build_started: ${{ steps.mark-build-start.outputs.value }}
+      completed: ${{ steps.mark-build-complete.outputs.value }}
+      passed: ${{ steps.mark-build-pass.outputs.value }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          submodules: recursive
+
+      - name: Get ghostty SHA
+        id: ghostty-sha
+        run: |
+          SHA=$(git -C ghostty rev-parse HEAD)
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "Ghostty SHA: $SHA"
+
+      - name: Check if xcframework release already exists
+        id: check-release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="xcframework-${{ steps.ghostty-sha.outputs.sha }}"
+          if gh release view "$TAG" --repo manaflow-ai/ghostty >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "Release $TAG already exists, skipping build"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "Release $TAG not found, will build"
+          fi
+
+      - name: Select Xcode
+        if: steps.check-release.outputs.exists == 'false'
+        run: |
+          set -euo pipefail
+          if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
+            XCODE_DIR="/Applications/Xcode.app/Contents/Developer"
+          else
+            XCODE_APP="$(ls -d /Applications/Xcode*.app 2>/dev/null | head -n 1 || true)"
+            if [ -n "$XCODE_APP" ]; then
+              XCODE_DIR="$XCODE_APP/Contents/Developer"
+            else
+              echo "No Xcode.app found under /Applications" >&2
+              exit 1
+            fi
+          fi
+          echo "DEVELOPER_DIR=$XCODE_DIR" >> "$GITHUB_ENV"
+          export DEVELOPER_DIR="$XCODE_DIR"
+          xcodebuild -version
+
+      - name: Mark GhosttyKit build start
+        id: mark-build-start
+        if: steps.check-release.outputs.exists == 'false'
+        run: echo "value=true" >> "$GITHUB_OUTPUT"
+
+      - name: Build GhosttyKit.xcframework
+        if: steps.check-release.outputs.exists == 'false'
+        run: |
+          set -euo pipefail
+          ./scripts/install-zig.sh
+          cd ghostty && zig build -Demit-xcframework=true -Demit-macos-app=false -Dxcframework-target=universal -Doptimize=ReleaseFast
+
+      - name: Package xcframework
+        if: steps.check-release.outputs.exists == 'false'
+        run: |
+          set -euo pipefail
+          rm -rf GhosttyKit.xcframework
+          cp -R ghostty/macos/GhosttyKit.xcframework GhosttyKit.xcframework
+          tar czf GhosttyKit.xcframework.tar.gz GhosttyKit.xcframework
+
+      - name: Upload xcframework release
+        if: steps.check-release.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GHOSTTY_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="xcframework-${{ steps.ghostty-sha.outputs.sha }}"
+          gh release create "$TAG" \
+            --repo manaflow-ai/ghostty \
+            --title "GhosttyKit xcframework (${{ steps.ghostty-sha.outputs.sha }})" \
+            --notes "Pre-built GhosttyKit.xcframework for commit ${{ steps.ghostty-sha.outputs.sha }}" \
+            GhosttyKit.xcframework.tar.gz
+          echo "Published release $TAG"
+
+      - name: Mark GhosttyKit build completed
+        if: ${{ always() && !cancelled() }}
+        id: mark-build-complete
+        run: echo "value=true" >> "$GITHUB_OUTPUT"
+
+      - name: Mark GhosttyKit build success
+        id: mark-build-pass
+        run: echo "value=true" >> "$GITHUB_OUTPUT"
+
+  build-ghosttykit:
+    if: ${{ always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+    needs:
+      - build-ghosttykit-attempt-1
+      - build-ghosttykit-attempt-2
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Verify GhosttyKit build passed
+        run: |
+          scripts/verify_retry_result.sh \
+            "GhosttyKit build" \
+            "${{ needs.build-ghosttykit-attempt-1.result }}" \
+            "${{ needs.build-ghosttykit-attempt-1.outputs.completed }}" \
+            "${{ needs.build-ghosttykit-attempt-1.outputs.passed }}" \
+            "${{ needs.build-ghosttykit-attempt-2.result }}" \
+            "${{ needs.build-ghosttykit-attempt-2.outputs.completed }}" \
+            "${{ needs.build-ghosttykit-attempt-2.outputs.passed }}"

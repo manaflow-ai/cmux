@@ -1,0 +1,175 @@
+name: Run unit test shard
+description: Run one shard of the cmux-unit test suite on WarpBuild.
+inputs:
+  shard_index:
+    description: Zero-based shard index.
+    required: true
+  shard_count:
+    description: Total number of shards.
+    required: true
+  skip_zig:
+    description: Skip zig install and set CMUX_SKIP_ZIG_BUILD.
+    required: false
+    default: "0"
+outputs:
+  test_started:
+    description: Whether the shard reached xcodebuild test execution.
+    value: ${{ steps.test-start.outputs.value }}
+  completed:
+    description: Whether the shard reached a deterministic pass/fail outcome.
+    value: ${{ steps.run-tests.outputs.completed }}
+  passed:
+    description: Whether the shard passed after expected-failure handling.
+    value: ${{ steps.run-tests.outputs.passed }}
+runs:
+  using: composite
+  steps:
+    - name: Select Xcode
+      shell: bash
+      run: |
+        set -euo pipefail
+        if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
+          XCODE_DIR="/Applications/Xcode.app/Contents/Developer"
+        else
+          XCODE_APP="$(ls -d /Applications/Xcode*.app 2>/dev/null | sort | tail -n 1 || true)"
+          if [ -n "$XCODE_APP" ]; then
+            XCODE_DIR="$XCODE_APP/Contents/Developer"
+          else
+            echo "No Xcode.app found under /Applications" >&2
+            exit 1
+          fi
+        fi
+        echo "DEVELOPER_DIR=$XCODE_DIR" >> "$GITHUB_ENV"
+        export DEVELOPER_DIR="$XCODE_DIR"
+        xcodebuild -version
+
+    - name: Capture GhosttyKit cache key
+      id: ghosttykit-cache-key
+      shell: bash
+      run: echo "ghostty_sha=$(git -C ghostty rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+    - name: Cache GhosttyKit.xcframework
+      id: cache-ghosttykit
+      uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4
+      with:
+        path: GhosttyKit.xcframework
+        key: ghosttykit-${{ hashFiles('.gitmodules') }}-${{ steps.ghosttykit-cache-key.outputs.ghostty_sha }}
+
+    - name: Download pre-built GhosttyKit.xcframework
+      if: steps.cache-ghosttykit.outputs.cache-hit != 'true'
+      shell: bash
+      run: ./scripts/download-prebuilt-ghosttykit.sh
+
+    - name: Install zig
+      if: inputs.skip_zig != '1'
+      shell: bash
+      run: ./scripts/install-zig.sh
+
+    - name: Cache DerivedData
+      uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4
+      with:
+        path: ~/Library/Developer/Xcode/DerivedData/GhosttyTabs-*
+        key: deriveddata-tests-${{ hashFiles('GhosttyTabs.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-${{ hashFiles('GhosttyTabs.xcodeproj/project.pbxproj') }}
+        restore-keys: |
+          deriveddata-tests-${{ hashFiles('GhosttyTabs.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-
+          deriveddata-tests-
+
+    - name: Cache Swift packages
+      uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4
+      with:
+        path: .ci-source-packages
+        key: spm-${{ hashFiles('GhosttyTabs.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+        restore-keys: spm-
+
+    - name: Resolve Swift packages
+      shell: bash
+      run: |
+        set -euo pipefail
+        SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+        mkdir -p "$SOURCE_PACKAGES_DIR"
+
+        for attempt in 1 2 3; do
+          if xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux-unit -configuration Debug \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+            -resolvePackageDependencies; then
+            exit 0
+          fi
+          if [ "$attempt" -eq 3 ]; then
+            echo "Failed to resolve Swift packages after 3 attempts" >&2
+            exit 1
+          fi
+          echo "Package resolution failed on attempt $attempt, retrying..."
+          sleep $((attempt * 5))
+        done
+
+    - name: Mark test start
+      id: test-start
+      shell: bash
+      run: echo "value=true" >> "$GITHUB_OUTPUT"
+
+    - name: Run unit test shard
+      id: run-tests
+      shell: bash
+      env:
+        CMUX_SKIP_ZIG_BUILD: ${{ inputs.skip_zig }}
+        SHARD_INDEX: ${{ inputs.shard_index }}
+        SHARD_COUNT: ${{ inputs.shard_count }}
+      run: |
+        set -euo pipefail
+        SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+        TEST_FILTERS=()
+        while IFS= read -r filter; do
+          TEST_FILTERS+=("$filter")
+        done < <(
+          python3 scripts/unit_test_shard_args.py \
+            --shard-index "$SHARD_INDEX" \
+            --shard-count "$SHARD_COUNT"
+        )
+
+        if [ "${#TEST_FILTERS[@]}" -eq 0 ]; then
+          echo "No test classes assigned to shard $SHARD_INDEX of $SHARD_COUNT" >&2
+          exit 1
+        fi
+
+        echo "Running shard $((SHARD_INDEX + 1)) of $SHARD_COUNT with ${#TEST_FILTERS[@]} test classes"
+
+        run_unit_tests() {
+          xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux-unit -configuration Debug \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+            -disableAutomaticPackageResolution \
+            -destination "platform=macOS" \
+            "${TEST_FILTERS[@]}" \
+            test 2>&1
+        }
+
+        set +e
+        run_unit_tests | tee /tmp/test-output.txt
+        EXIT_CODE=${PIPESTATUS[0]}
+        OUTPUT=$(cat /tmp/test-output.txt)
+        set -e
+
+        if [ "$EXIT_CODE" -ne 0 ] && echo "$OUTPUT" | grep -q "Could not resolve package dependencies"; then
+          echo "SwiftPM package resolution failed, clearing caches and retrying once"
+          rm -rf ~/Library/Caches/org.swift.swiftpm
+          mkdir -p ~/Library/Caches/org.swift.swiftpm
+          rm -rf ~/Library/Developer/Xcode/DerivedData/GhosttyTabs-*
+          set +e
+          run_unit_tests | tee /tmp/test-output.txt
+          EXIT_CODE=${PIPESTATUS[0]}
+          OUTPUT=$(cat /tmp/test-output.txt)
+          set -e
+        fi
+
+        echo "completed=true" >> "$GITHUB_OUTPUT"
+
+        if [ "$EXIT_CODE" -ne 0 ]; then
+          SUMMARY=$(echo "$OUTPUT" | grep "Executed.*tests.*with.*failures" | tail -1)
+          if echo "$SUMMARY" | grep -q "(0 unexpected)"; then
+            echo "All failures are expected, treating as pass"
+          else
+            echo "Unexpected test failures detected"
+            exit 1
+          fi
+        fi
+
+        echo "passed=true" >> "$GITHUB_OUTPUT"

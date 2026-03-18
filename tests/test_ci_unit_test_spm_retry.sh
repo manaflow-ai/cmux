@@ -3,20 +3,20 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-WORKFLOW_FILE="$ROOT_DIR/.github/workflows/ci.yml"
+ACTION_FILE="$ROOT_DIR/.github/actions/run-unit-test-shard/action.yml"
 
 REQUIRED_PATTERNS=(
   "run_unit_tests()"
   "Could not resolve package dependencies"
   "rm -rf ~/Library/Caches/org.swift.swiftpm"
-  "OUTPUT=\$(run_unit_tests)"
+  "run_unit_tests | tee /tmp/test-output.txt"
 )
 
 for pattern in "${REQUIRED_PATTERNS[@]}"; do
-  if ! grep -Fq "$pattern" "$WORKFLOW_FILE"; then
-    echo "FAIL: Missing pattern in ci.yml: $pattern"
+  if ! grep -Fq "$pattern" "$ACTION_FILE"; then
+    echo "FAIL: Missing pattern in run-unit-test-shard action: $pattern"
     exit 1
   fi
 done
 
-echo "PASS: CI unit-test SwiftPM retry guard is present"
+echo "PASS: CI unit-test shard SwiftPM retry guard is present"

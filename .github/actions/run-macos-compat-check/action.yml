@@ -1,0 +1,212 @@
+name: Run macOS compatibility check
+description: Build cmux on a specific macOS runner, run a targeted compatibility slice, and optionally smoke test with a virtual display.
+inputs:
+  os_label:
+    description: Runner label used for cache keys and diagnostics.
+    required: true
+  skip_zig:
+    description: Whether Zig installation and local GhosttyKit builds should be skipped.
+    required: true
+  smoke:
+    description: Whether to create a virtual display and run the smoke test.
+    required: true
+  compat_test_filters:
+    description: Newline-delimited xcodebuild -only-testing filters.
+    required: true
+outputs:
+  completed:
+    description: Whether the compatibility attempt reached a deterministic pass/fail outcome.
+    value: ${{ steps.mark-completed.outputs.value }}
+  passed:
+    description: Whether the compatibility attempt passed.
+    value: ${{ steps.mark-passed.outputs.value }}
+runs:
+  using: composite
+  steps:
+    - name: Select Xcode
+      shell: bash
+      run: |
+        set -euo pipefail
+        XCODE_APP="$(ls -d /Applications/Xcode_*.app 2>/dev/null | sort | tail -n 1)"
+        if [ -z "$XCODE_APP" ]; then
+          XCODE_APP="/Applications/Xcode.app"
+        fi
+        XCODE_DIR="$XCODE_APP/Contents/Developer"
+        if [ ! -d "$XCODE_DIR" ]; then
+          echo "No Xcode found under /Applications" >&2
+          exit 1
+        fi
+        echo "Selected: $XCODE_APP"
+        echo "DEVELOPER_DIR=$XCODE_DIR" >> "$GITHUB_ENV"
+        export DEVELOPER_DIR="$XCODE_DIR"
+        XCODE_VERSION_OUTPUT="$(xcodebuild -version)"
+        XCODE_VER="${XCODE_VERSION_OUTPUT%%$'\n'*}"
+        echo "XCODE_VER=$XCODE_VER" >> "$GITHUB_ENV"
+        echo "$XCODE_VERSION_OUTPUT"
+        xcrun --sdk macosx --show-sdk-path
+        sw_vers
+
+    - name: Capture GhosttyKit cache key
+      id: ghosttykit-cache-key
+      shell: bash
+      run: echo "ghostty_sha=$(git -C ghostty rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+    - name: Cache GhosttyKit.xcframework
+      id: cache-ghosttykit
+      uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4
+      with:
+        path: GhosttyKit.xcframework
+        key: ghosttykit-${{ hashFiles('.gitmodules') }}-${{ steps.ghosttykit-cache-key.outputs.ghostty_sha }}
+
+    - name: Download pre-built GhosttyKit.xcframework
+      if: steps.cache-ghosttykit.outputs.cache-hit != 'true'
+      shell: bash
+      run: ./scripts/download-prebuilt-ghosttykit.sh
+
+    - name: Install zig
+      if: ${{ inputs.skip_zig != 'true' }}
+      shell: bash
+      run: ./scripts/install-zig.sh
+
+    - name: Cache DerivedData
+      uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4
+      with:
+        path: ~/Library/Developer/Xcode/DerivedData/GhosttyTabs-*
+        key: deriveddata-${{ inputs.os_label }}-${{ env.XCODE_VER }}-${{ hashFiles('GhosttyTabs.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-${{ hashFiles('GhosttyTabs.xcodeproj/project.pbxproj') }}
+        restore-keys: |
+          deriveddata-${{ inputs.os_label }}-${{ env.XCODE_VER }}-${{ hashFiles('GhosttyTabs.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-
+          deriveddata-${{ inputs.os_label }}-${{ env.XCODE_VER }}-
+
+    - name: Cache Swift packages
+      uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4
+      with:
+        path: .ci-source-packages
+        key: spm-${{ inputs.os_label }}-${{ hashFiles('GhosttyTabs.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+        restore-keys: spm-${{ inputs.os_label }}-
+
+    - name: Resolve Swift packages
+      shell: bash
+      run: |
+        set -euo pipefail
+        SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+        mkdir -p "$SOURCE_PACKAGES_DIR"
+
+        for attempt in 1 2 3; do
+          if xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux-unit -configuration Debug \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+            -resolvePackageDependencies; then
+            exit 0
+          fi
+          if [ "$attempt" -eq 3 ]; then
+            echo "Failed to resolve Swift packages after 3 attempts" >&2
+            exit 1
+          fi
+          echo "Package resolution failed on attempt $attempt, retrying..."
+          sleep $((attempt * 5))
+        done
+
+    - name: Build app
+      shell: bash
+      env:
+        CMUX_SKIP_ZIG_BUILD: ${{ inputs.skip_zig == 'true' && '1' || '0' }}
+      run: |
+        set -euo pipefail
+        SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+        xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug \
+          -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+          -disableAutomaticPackageResolution \
+          -destination "platform=macOS" build
+
+    - name: Run compatibility unit test slice
+      shell: bash
+      env:
+        CMUX_SKIP_ZIG_BUILD: ${{ inputs.skip_zig == 'true' && '1' || '0' }}
+      run: |
+        set -euo pipefail
+        SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+        TEST_FILTERS=()
+        while IFS= read -r filter; do
+          if [ -z "$filter" ]; then
+            continue
+          fi
+          TEST_FILTERS+=("$filter")
+        done <<'EOF'
+        ${{ inputs.compat_test_filters }}
+        EOF
+
+        if [ "${#TEST_FILTERS[@]}" -eq 0 ]; then
+          echo "No compatibility test classes selected" >&2
+          exit 1
+        fi
+
+        echo "Running ${#TEST_FILTERS[@]} compatibility test classes on ${{ inputs.os_label }}"
+
+        run_compat_tests() {
+          xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux-unit -configuration Debug \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+            -disableAutomaticPackageResolution \
+            -destination "platform=macOS" \
+            "${TEST_FILTERS[@]}" \
+            test 2>&1
+        }
+
+        set +e
+        run_compat_tests | tee /tmp/compat-test-output.txt
+        EXIT_CODE=${PIPESTATUS[0]}
+        OUTPUT=$(cat /tmp/compat-test-output.txt)
+        set -e
+
+        if [ "$EXIT_CODE" -ne 0 ]; then
+          SUMMARY=$(echo "$OUTPUT" | grep "Executed.*tests.*with.*failures" | tail -1)
+          if echo "$SUMMARY" | grep -q "(0 unexpected)"; then
+            echo "Compatibility test slice only hit expected failures, treating as pass"
+          else
+            echo "Compatibility test slice failed unexpectedly"
+            exit 1
+          fi
+        fi
+
+    - name: Create virtual display
+      if: ${{ inputs.smoke == 'true' }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        echo "=== Display before ==="
+        system_profiler SPDisplaysDataType 2>/dev/null || echo "(no display info)"
+        echo ""
+        clang -framework Foundation -framework CoreGraphics \
+          -o /tmp/create-virtual-display scripts/create-virtual-display.m
+        /tmp/create-virtual-display &
+        VDISPLAY_PID=$!
+        echo "VDISPLAY_PID=$VDISPLAY_PID" >> "$GITHUB_ENV"
+        sleep 3
+        echo "=== Display after ==="
+        system_profiler SPDisplaysDataType 2>/dev/null || echo "(no display info)"
+
+    - name: Smoke test
+      if: ${{ inputs.smoke == 'true' }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        chmod +x scripts/smoke-test-ci.sh
+        scripts/smoke-test-ci.sh
+
+    - name: Cleanup virtual display
+      if: ${{ always() && inputs.smoke == 'true' }}
+      shell: bash
+      run: |
+        if [ -n "${VDISPLAY_PID:-}" ]; then
+          kill "$VDISPLAY_PID" >/dev/null 2>&1 || true
+        fi
+
+    - name: Mark compatibility attempt completed
+      if: ${{ always() && !cancelled() }}
+      id: mark-completed
+      shell: bash
+      run: echo "value=true" >> "$GITHUB_OUTPUT"
+
+    - name: Mark compatibility attempt passed
+      if: ${{ success() }}
+      id: mark-passed
+      shell: bash
+      run: echo "value=true" >> "$GITHUB_OUTPUT"

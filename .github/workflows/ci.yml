@@ -22,11 +22,20 @@ jobs:
       - name: Validate unit-test SwiftPM retry guard
         run: ./tests/test_ci_unit_test_spm_retry.sh
 
+      - name: Validate unit-test shard timeout guard
+        run: bash ./tests/test_ci_unit_shard_timeout.sh
+
+      - name: Validate retry output gating
+        run: bash ./tests/test_ci_retry_output_gating.sh
+
       - name: Validate cmux scheme test configuration
         run: ./tests/test_ci_scheme_testaction_debug.sh
 
       - name: Validate GhosttyKit checksum verification
         run: ./tests/test_ci_ghosttykit_checksum_verification.sh
+
+      - name: Validate macOS compat test slice
+        run: ./tests/test_ci_macos_compat_test_slice.sh
 
       - name: Validate release asset guard
         run: node scripts/release_asset_guard.test.js
@@ -70,148 +79,32 @@ jobs:
       - name: Typecheck
         run: bun tsc --noEmit
 
-  tests:
+  tests-shard-1-attempt-1:
     # Never run WarpBuild jobs for fork pull requests (avoid billing on external PRs).
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    continue-on-error: true
     runs-on: warp-macos-15-arm64-6x
-    timeout-minutes: 20
+    timeout-minutes: 10
+    outputs:
+      test_started: ${{ steps.unit-test-shard.outputs.test_started }}
+      completed: ${{ steps.mark-attempt-complete.outputs.value }}
+      passed: ${{ steps.mark-attempt-pass.outputs.value }}
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           submodules: recursive
-
-      - name: Select Xcode
-        run: |
-          set -euo pipefail
-          if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
-            XCODE_DIR="/Applications/Xcode.app/Contents/Developer"
-          else
-            XCODE_APP="$(ls -d /Applications/Xcode*.app 2>/dev/null | sort | tail -n 1 || true)"
-            if [ -n "$XCODE_APP" ]; then
-              XCODE_DIR="$XCODE_APP/Contents/Developer"
-            else
-              echo "No Xcode.app found under /Applications" >&2
-              exit 1
-            fi
-          fi
-          echo "DEVELOPER_DIR=$XCODE_DIR" >> "$GITHUB_ENV"
-          export DEVELOPER_DIR="$XCODE_DIR"
-          xcodebuild -version
-
-      - name: Cache GhosttyKit.xcframework
-        id: cache-ghosttykit
-        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4
+      - name: Run unit test shard
+        id: unit-test-shard
+        uses: ./.github/actions/run-unit-test-shard
         with:
-          path: GhosttyKit.xcframework
-          key: ghosttykit-${{ hashFiles('.gitmodules', 'ghostty') }}
-
-      - name: Download pre-built GhosttyKit.xcframework
-        if: steps.cache-ghosttykit.outputs.cache-hit != 'true'
-        run: |
-          ./scripts/download-prebuilt-ghosttykit.sh
-
-      - name: Install zig
-        run: |
-          ZIG_REQUIRED="0.15.2"
-          if command -v zig >/dev/null 2>&1 && zig version 2>/dev/null | grep -q "^${ZIG_REQUIRED}"; then
-            echo "zig ${ZIG_REQUIRED} already installed"
-          else
-            echo "Installing zig ${ZIG_REQUIRED} from tarball"
-            curl -fSL "https://ziglang.org/download/${ZIG_REQUIRED}/zig-aarch64-macos-${ZIG_REQUIRED}.tar.xz" -o /tmp/zig.tar.xz
-            tar xf /tmp/zig.tar.xz -C /tmp
-            sudo mkdir -p /usr/local/bin /usr/local/lib
-            sudo cp -f /tmp/zig-aarch64-macos-${ZIG_REQUIRED}/zig /usr/local/bin/zig
-            sudo cp -rf /tmp/zig-aarch64-macos-${ZIG_REQUIRED}/lib /usr/local/lib/zig
-            export PATH="/usr/local/bin:$PATH"
-            zig version
-          fi
-
-      - name: Cache DerivedData
-        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4
-        with:
-          path: ~/Library/Developer/Xcode/DerivedData/GhosttyTabs-*
-          key: deriveddata-tests-${{ hashFiles('GhosttyTabs.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-${{ hashFiles('GhosttyTabs.xcodeproj/project.pbxproj') }}
-          restore-keys: |
-            deriveddata-tests-${{ hashFiles('GhosttyTabs.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-
-            deriveddata-tests-
-
-      - name: Cache Swift packages
-        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4
-        with:
-          path: .ci-source-packages
-          key: spm-${{ hashFiles('GhosttyTabs.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
-          restore-keys: spm-
-
-      - name: Resolve Swift packages
-        run: |
-          set -euo pipefail
-          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
-          mkdir -p "$SOURCE_PACKAGES_DIR"
-
-          for attempt in 1 2 3; do
-            if xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux-unit -configuration Debug \
-              -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
-              -resolvePackageDependencies; then
-              exit 0
-            fi
-            if [ "$attempt" -eq 3 ]; then
-              echo "Failed to resolve Swift packages after 3 attempts" >&2
-              exit 1
-            fi
-            echo "Package resolution failed on attempt $attempt, retrying..."
-            sleep $((attempt * 5))
-          done
-
-      - name: Run unit tests
-        run: |
-          set -euo pipefail
-          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
-          run_unit_tests() {
-            xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux-unit -configuration Debug \
-              -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
-              -disableAutomaticPackageResolution \
-              -destination "platform=macOS" test 2>&1
-          }
-
-          # xcodebuild exits 65 even for expected failures (XCTExpectFailure).
-          # Capture output and fail only if there are unexpected failures.
-          set +e
-          OUTPUT=$(run_unit_tests)
-          EXIT_CODE=$?
-          set -e
-
-          # SwiftPM binary artifact resolution can occasionally fail on ephemeral
-          # runners with "Could not resolve package dependencies". Retry once after
-          # clearing SwiftPM/DerivedData caches to recover from transient corruption.
-          if [ "$EXIT_CODE" -ne 0 ] && echo "$OUTPUT" | grep -q "Could not resolve package dependencies"; then
-            echo "SwiftPM package resolution failed, clearing caches and retrying once"
-            rm -rf ~/Library/Caches/org.swift.swiftpm
-            mkdir -p ~/Library/Caches/org.swift.swiftpm
-            rm -rf ~/Library/Developer/Xcode/DerivedData/GhosttyTabs-*
-            set +e
-            OUTPUT=$(run_unit_tests)
-            EXIT_CODE=$?
-            set -e
-          fi
-
-          echo "$OUTPUT"
-          if [ "$EXIT_CODE" -ne 0 ]; then
-            SUMMARY=$(echo "$OUTPUT" | grep "Executed.*tests.*with.*failures" | tail -1)
-            if echo "$SUMMARY" | grep -q "(0 unexpected)"; then
-              echo "All failures are expected, treating as pass"
-            else
-              echo "Unexpected test failures detected"
-              exit 1
-            fi
-          fi
-
+          shard_index: "0"
+          shard_count: "6"
       - name: Run bundled Ghostty theme picker helper regression
         run: |
           set -euo pipefail
           CMUX_SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages" \
             ./tests/test_bundled_ghostty_theme_picker_helper.sh
-
       - name: Run CLI version memory guard regression
         run: |
           set -euo pipefail
@@ -228,259 +121,573 @@ jobs:
           fi
 
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_version_memory_guard.py
+      - name: Mark unit test shard attempt completed
+        if: ${{ always() && !cancelled() }}
+        id: mark-attempt-complete
+        run: echo "value=true" >> "$GITHUB_OUTPUT"
+      - name: Mark unit test shard attempt passed
+        if: ${{ success() }}
+        id: mark-attempt-pass
+        run: echo "value=true" >> "$GITHUB_OUTPUT"
 
-  tests-build-and-lag:
+  tests-shard-1-attempt-2:
+    if: ${{ always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && needs.tests-shard-1-attempt-1.outputs.completed != 'true' && needs.tests-shard-1-attempt-1.outputs.passed != 'true' }}
+    needs:
+      - tests-shard-1-attempt-1
+    continue-on-error: true
+    runs-on: warp-macos-15-arm64-6x
+    timeout-minutes: 10
+    outputs:
+      test_started: ${{ steps.unit-test-shard.outputs.test_started }}
+      completed: ${{ steps.mark-attempt-complete.outputs.value }}
+      passed: ${{ steps.mark-attempt-pass.outputs.value }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          submodules: recursive
+      - name: Run unit test shard
+        id: unit-test-shard
+        uses: ./.github/actions/run-unit-test-shard
+        with:
+          shard_index: "0"
+          shard_count: "6"
+      - name: Run bundled Ghostty theme picker helper regression
+        run: |
+          set -euo pipefail
+          CMUX_SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages" \
+            ./tests/test_bundled_ghostty_theme_picker_helper.sh
+      - name: Run CLI version memory guard regression
+        run: |
+          set -euo pipefail
+
+          CLI_BIN="$(
+            find "$HOME/Library/Developer/Xcode/DerivedData" -path "*/Build/Products/Debug/cmux" -exec stat -f '%m %N' {} \; \
+              | sort -nr \
+              | head -1 \
+              | cut -d' ' -f2-
+          )"
+          if [ -z "${CLI_BIN:-}" ] || [ ! -x "$CLI_BIN" ]; then
+            echo "cmux CLI binary not found in DerivedData" >&2
+            exit 1
+          fi
+
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_version_memory_guard.py
+      - name: Mark unit test shard attempt completed
+        if: ${{ always() && !cancelled() }}
+        id: mark-attempt-complete
+        run: echo "value=true" >> "$GITHUB_OUTPUT"
+      - name: Mark unit test shard attempt passed
+        if: ${{ success() }}
+        id: mark-attempt-pass
+        run: echo "value=true" >> "$GITHUB_OUTPUT"
+
+  tests-shard-1:
+    if: ${{ always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+    needs:
+      - tests-shard-1-attempt-1
+      - tests-shard-1-attempt-2
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Verify unit test shard passed
+        run: |
+          scripts/verify_retry_result.sh \
+            "Unit test shard" \
+            "${{ needs.tests-shard-1-attempt-1.result }}" \
+            "${{ needs.tests-shard-1-attempt-1.outputs.completed }}" \
+            "${{ needs.tests-shard-1-attempt-1.outputs.passed }}" \
+            "${{ needs.tests-shard-1-attempt-2.result }}" \
+            "${{ needs.tests-shard-1-attempt-2.outputs.completed }}" \
+            "${{ needs.tests-shard-1-attempt-2.outputs.passed }}"
+
+  tests-shard-2-attempt-1:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    continue-on-error: true
+    runs-on: warp-macos-15-arm64-6x
+    timeout-minutes: 10
+    outputs:
+      test_started: ${{ steps.unit-test-shard.outputs.test_started }}
+      completed: ${{ steps.unit-test-shard.outputs.completed }}
+      passed: ${{ steps.unit-test-shard.outputs.passed }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          submodules: recursive
+      - name: Run unit test shard
+        id: unit-test-shard
+        uses: ./.github/actions/run-unit-test-shard
+        with:
+          shard_index: "1"
+          shard_count: "6"
+
+  tests-shard-2-attempt-2:
+    if: ${{ always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && needs.tests-shard-2-attempt-1.outputs.completed != 'true' && needs.tests-shard-2-attempt-1.outputs.passed != 'true' }}
+    needs:
+      - tests-shard-2-attempt-1
+    continue-on-error: true
+    runs-on: warp-macos-15-arm64-6x
+    timeout-minutes: 10
+    outputs:
+      test_started: ${{ steps.unit-test-shard.outputs.test_started }}
+      completed: ${{ steps.unit-test-shard.outputs.completed }}
+      passed: ${{ steps.unit-test-shard.outputs.passed }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          submodules: recursive
+      - name: Run unit test shard
+        id: unit-test-shard
+        uses: ./.github/actions/run-unit-test-shard
+        with:
+          shard_index: "1"
+          shard_count: "6"
+
+  tests-shard-2:
+    if: ${{ always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+    needs:
+      - tests-shard-2-attempt-1
+      - tests-shard-2-attempt-2
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Verify unit test shard passed
+        run: |
+          scripts/verify_retry_result.sh \
+            "Unit test shard" \
+            "${{ needs.tests-shard-2-attempt-1.result }}" \
+            "${{ needs.tests-shard-2-attempt-1.outputs.completed }}" \
+            "${{ needs.tests-shard-2-attempt-1.outputs.passed }}" \
+            "${{ needs.tests-shard-2-attempt-2.result }}" \
+            "${{ needs.tests-shard-2-attempt-2.outputs.completed }}" \
+            "${{ needs.tests-shard-2-attempt-2.outputs.passed }}"
+
+  tests-shard-3-attempt-1:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    continue-on-error: true
+    runs-on: warp-macos-15-arm64-6x
+    timeout-minutes: 10
+    outputs:
+      test_started: ${{ steps.unit-test-shard.outputs.test_started }}
+      completed: ${{ steps.unit-test-shard.outputs.completed }}
+      passed: ${{ steps.unit-test-shard.outputs.passed }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          submodules: recursive
+      - name: Run unit test shard
+        id: unit-test-shard
+        uses: ./.github/actions/run-unit-test-shard
+        with:
+          shard_index: "2"
+          shard_count: "6"
+
+  tests-shard-3-attempt-2:
+    if: ${{ always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && needs.tests-shard-3-attempt-1.outputs.completed != 'true' && needs.tests-shard-3-attempt-1.outputs.passed != 'true' }}
+    needs:
+      - tests-shard-3-attempt-1
+    continue-on-error: true
+    runs-on: warp-macos-15-arm64-6x
+    timeout-minutes: 10
+    outputs:
+      test_started: ${{ steps.unit-test-shard.outputs.test_started }}
+      completed: ${{ steps.unit-test-shard.outputs.completed }}
+      passed: ${{ steps.unit-test-shard.outputs.passed }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          submodules: recursive
+      - name: Run unit test shard
+        id: unit-test-shard
+        uses: ./.github/actions/run-unit-test-shard
+        with:
+          shard_index: "2"
+          shard_count: "6"
+
+  tests-shard-3:
+    if: ${{ always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+    needs:
+      - tests-shard-3-attempt-1
+      - tests-shard-3-attempt-2
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Verify unit test shard passed
+        run: |
+          scripts/verify_retry_result.sh \
+            "Unit test shard" \
+            "${{ needs.tests-shard-3-attempt-1.result }}" \
+            "${{ needs.tests-shard-3-attempt-1.outputs.completed }}" \
+            "${{ needs.tests-shard-3-attempt-1.outputs.passed }}" \
+            "${{ needs.tests-shard-3-attempt-2.result }}" \
+            "${{ needs.tests-shard-3-attempt-2.outputs.completed }}" \
+            "${{ needs.tests-shard-3-attempt-2.outputs.passed }}"
+
+  tests-shard-4-attempt-1:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    continue-on-error: true
+    runs-on: warp-macos-15-arm64-6x
+    timeout-minutes: 10
+    outputs:
+      test_started: ${{ steps.unit-test-shard.outputs.test_started }}
+      completed: ${{ steps.unit-test-shard.outputs.completed }}
+      passed: ${{ steps.unit-test-shard.outputs.passed }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          submodules: recursive
+      - name: Run unit test shard
+        id: unit-test-shard
+        uses: ./.github/actions/run-unit-test-shard
+        with:
+          shard_index: "3"
+          shard_count: "6"
+
+  tests-shard-4-attempt-2:
+    if: ${{ always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && needs.tests-shard-4-attempt-1.outputs.completed != 'true' && needs.tests-shard-4-attempt-1.outputs.passed != 'true' }}
+    needs:
+      - tests-shard-4-attempt-1
+    continue-on-error: true
+    runs-on: warp-macos-15-arm64-6x
+    timeout-minutes: 10
+    outputs:
+      test_started: ${{ steps.unit-test-shard.outputs.test_started }}
+      completed: ${{ steps.unit-test-shard.outputs.completed }}
+      passed: ${{ steps.unit-test-shard.outputs.passed }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          submodules: recursive
+      - name: Run unit test shard
+        id: unit-test-shard
+        uses: ./.github/actions/run-unit-test-shard
+        with:
+          shard_index: "3"
+          shard_count: "6"
+
+  tests-shard-4:
+    if: ${{ always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+    needs:
+      - tests-shard-4-attempt-1
+      - tests-shard-4-attempt-2
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Verify unit test shard passed
+        run: |
+          scripts/verify_retry_result.sh \
+            "Unit test shard" \
+            "${{ needs.tests-shard-4-attempt-1.result }}" \
+            "${{ needs.tests-shard-4-attempt-1.outputs.completed }}" \
+            "${{ needs.tests-shard-4-attempt-1.outputs.passed }}" \
+            "${{ needs.tests-shard-4-attempt-2.result }}" \
+            "${{ needs.tests-shard-4-attempt-2.outputs.completed }}" \
+            "${{ needs.tests-shard-4-attempt-2.outputs.passed }}"
+
+  tests-shard-5-attempt-1:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    continue-on-error: true
+    runs-on: warp-macos-15-arm64-6x
+    timeout-minutes: 10
+    outputs:
+      test_started: ${{ steps.unit-test-shard.outputs.test_started }}
+      completed: ${{ steps.unit-test-shard.outputs.completed }}
+      passed: ${{ steps.unit-test-shard.outputs.passed }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          submodules: recursive
+      - name: Run unit test shard
+        id: unit-test-shard
+        uses: ./.github/actions/run-unit-test-shard
+        with:
+          shard_index: "4"
+          shard_count: "6"
+
+  tests-shard-5-attempt-2:
+    if: ${{ always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && needs.tests-shard-5-attempt-1.outputs.completed != 'true' && needs.tests-shard-5-attempt-1.outputs.passed != 'true' }}
+    needs:
+      - tests-shard-5-attempt-1
+    continue-on-error: true
+    runs-on: warp-macos-15-arm64-6x
+    timeout-minutes: 10
+    outputs:
+      test_started: ${{ steps.unit-test-shard.outputs.test_started }}
+      completed: ${{ steps.unit-test-shard.outputs.completed }}
+      passed: ${{ steps.unit-test-shard.outputs.passed }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          submodules: recursive
+      - name: Run unit test shard
+        id: unit-test-shard
+        uses: ./.github/actions/run-unit-test-shard
+        with:
+          shard_index: "4"
+          shard_count: "6"
+
+  tests-shard-5:
+    if: ${{ always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+    needs:
+      - tests-shard-5-attempt-1
+      - tests-shard-5-attempt-2
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Verify unit test shard passed
+        run: |
+          scripts/verify_retry_result.sh \
+            "Unit test shard" \
+            "${{ needs.tests-shard-5-attempt-1.result }}" \
+            "${{ needs.tests-shard-5-attempt-1.outputs.completed }}" \
+            "${{ needs.tests-shard-5-attempt-1.outputs.passed }}" \
+            "${{ needs.tests-shard-5-attempt-2.result }}" \
+            "${{ needs.tests-shard-5-attempt-2.outputs.completed }}" \
+            "${{ needs.tests-shard-5-attempt-2.outputs.passed }}"
+
+  tests-shard-6-attempt-1:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    continue-on-error: true
+    runs-on: warp-macos-15-arm64-6x
+    timeout-minutes: 10
+    outputs:
+      test_started: ${{ steps.unit-test-shard.outputs.test_started }}
+      completed: ${{ steps.unit-test-shard.outputs.completed }}
+      passed: ${{ steps.unit-test-shard.outputs.passed }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          submodules: recursive
+      - name: Run unit test shard
+        id: unit-test-shard
+        uses: ./.github/actions/run-unit-test-shard
+        with:
+          shard_index: "5"
+          shard_count: "6"
+
+  tests-shard-6-attempt-2:
+    if: ${{ always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && needs.tests-shard-6-attempt-1.outputs.completed != 'true' && needs.tests-shard-6-attempt-1.outputs.passed != 'true' }}
+    needs:
+      - tests-shard-6-attempt-1
+    continue-on-error: true
+    runs-on: warp-macos-15-arm64-6x
+    timeout-minutes: 10
+    outputs:
+      test_started: ${{ steps.unit-test-shard.outputs.test_started }}
+      completed: ${{ steps.unit-test-shard.outputs.completed }}
+      passed: ${{ steps.unit-test-shard.outputs.passed }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          submodules: recursive
+      - name: Run unit test shard
+        id: unit-test-shard
+        uses: ./.github/actions/run-unit-test-shard
+        with:
+          shard_index: "5"
+          shard_count: "6"
+
+  tests-shard-6:
+    if: ${{ always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+    needs:
+      - tests-shard-6-attempt-1
+      - tests-shard-6-attempt-2
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Verify unit test shard passed
+        run: |
+          scripts/verify_retry_result.sh \
+            "Unit test shard" \
+            "${{ needs.tests-shard-6-attempt-1.result }}" \
+            "${{ needs.tests-shard-6-attempt-1.outputs.completed }}" \
+            "${{ needs.tests-shard-6-attempt-1.outputs.passed }}" \
+            "${{ needs.tests-shard-6-attempt-2.result }}" \
+            "${{ needs.tests-shard-6-attempt-2.outputs.completed }}" \
+            "${{ needs.tests-shard-6-attempt-2.outputs.passed }}"
+
+  tests:
+    if: ${{ always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+    needs:
+      - tests-shard-1
+      - tests-shard-2
+      - tests-shard-3
+      - tests-shard-4
+      - tests-shard-5
+      - tests-shard-6
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify unit test shards passed
+        run: |
+          set -euo pipefail
+
+          SHARD_1_RESULT="${{ needs.tests-shard-1.result }}"
+          SHARD_2_RESULT="${{ needs.tests-shard-2.result }}"
+          SHARD_3_RESULT="${{ needs.tests-shard-3.result }}"
+          SHARD_4_RESULT="${{ needs.tests-shard-4.result }}"
+          SHARD_5_RESULT="${{ needs.tests-shard-5.result }}"
+          SHARD_6_RESULT="${{ needs.tests-shard-6.result }}"
+
+          if [ "$SHARD_1_RESULT" = "success" ] \
+            && [ "$SHARD_2_RESULT" = "success" ] \
+            && [ "$SHARD_3_RESULT" = "success" ] \
+            && [ "$SHARD_4_RESULT" = "success" ] \
+            && [ "$SHARD_5_RESULT" = "success" ] \
+            && [ "$SHARD_6_RESULT" = "success" ]; then
+            echo "All cmux-unit shards passed."
+            exit 0
+          fi
+
+          echo "One or more cmux-unit shards failed." >&2
+          echo "tests-shard-1=$SHARD_1_RESULT" >&2
+          echo "tests-shard-2=$SHARD_2_RESULT" >&2
+          echo "tests-shard-3=$SHARD_3_RESULT" >&2
+          echo "tests-shard-4=$SHARD_4_RESULT" >&2
+          echo "tests-shard-5=$SHARD_5_RESULT" >&2
+          echo "tests-shard-6=$SHARD_6_RESULT" >&2
+          exit 1
+
+  tests-build-and-lag-attempt-1:
     # Build the full cmux scheme and run the lag regression on WarpBuild.
     # XCUITests cannot run on WarpBuild (Virtualization.framework limitation:
     # XCUIApplication stuck "Running Background", 62s activation timeout per
     # test). Interactive UI tests run via test-e2e.yml on GitHub-hosted runners.
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    continue-on-error: true
     runs-on: warp-macos-15-arm64-6x
     timeout-minutes: 20
+    outputs:
+      test_started: ${{ steps.lag-regression.outputs.test_started }}
+      completed: ${{ steps.lag-regression.outputs.completed }}
+      passed: ${{ steps.lag-regression.outputs.passed }}
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           submodules: recursive
+      - name: Run lag regression attempt
+        id: lag-regression
+        uses: ./.github/actions/run-lag-regression
 
-      - name: Select Xcode
-        run: |
-          set -euo pipefail
-          if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
-            XCODE_DIR="/Applications/Xcode.app/Contents/Developer"
-          else
-            XCODE_APP="$(ls -d /Applications/Xcode*.app 2>/dev/null | sort | tail -n 1 || true)"
-            if [ -n "$XCODE_APP" ]; then
-              XCODE_DIR="$XCODE_APP/Contents/Developer"
-            else
-              echo "No Xcode.app found under /Applications" >&2
-              exit 1
-            fi
-          fi
-          echo "DEVELOPER_DIR=$XCODE_DIR" >> "$GITHUB_ENV"
-          export DEVELOPER_DIR="$XCODE_DIR"
-          xcodebuild -version
-
-      - name: Cache GhosttyKit.xcframework
-        id: cache-ghosttykit-lag
-        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4
+  tests-build-and-lag-attempt-2:
+    if: ${{ always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && needs.tests-build-and-lag-attempt-1.outputs.completed != 'true' && needs.tests-build-and-lag-attempt-1.outputs.passed != 'true' }}
+    needs:
+      - tests-build-and-lag-attempt-1
+    continue-on-error: true
+    runs-on: warp-macos-15-arm64-6x
+    timeout-minutes: 20
+    outputs:
+      test_started: ${{ steps.lag-regression.outputs.test_started }}
+      completed: ${{ steps.lag-regression.outputs.completed }}
+      passed: ${{ steps.lag-regression.outputs.passed }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
-          path: GhosttyKit.xcframework
-          key: ghosttykit-${{ hashFiles('.gitmodules', 'ghostty') }}
+          submodules: recursive
+      - name: Run lag regression attempt
+        id: lag-regression
+        uses: ./.github/actions/run-lag-regression
 
-      - name: Download pre-built GhosttyKit.xcframework
-        if: steps.cache-ghosttykit-lag.outputs.cache-hit != 'true'
+  tests-build-and-lag:
+    if: ${{ always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+    needs:
+      - tests-build-and-lag-attempt-1
+      - tests-build-and-lag-attempt-2
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Verify lag regression result
         run: |
-          ./scripts/download-prebuilt-ghosttykit.sh
+          scripts/verify_retry_result.sh \
+            "Lag regression" \
+            "${{ needs.tests-build-and-lag-attempt-1.result }}" \
+            "${{ needs.tests-build-and-lag-attempt-1.outputs.completed }}" \
+            "${{ needs.tests-build-and-lag-attempt-1.outputs.passed }}" \
+            "${{ needs.tests-build-and-lag-attempt-2.result }}" \
+            "${{ needs.tests-build-and-lag-attempt-2.outputs.completed }}" \
+            "${{ needs.tests-build-and-lag-attempt-2.outputs.passed }}"
 
-      - name: Install zig
-        run: |
-          ZIG_REQUIRED="0.15.2"
-          if command -v zig >/dev/null 2>&1 && zig version 2>/dev/null | grep -q "^${ZIG_REQUIRED}"; then
-            echo "zig ${ZIG_REQUIRED} already installed"
-          else
-            echo "Installing zig ${ZIG_REQUIRED} from tarball"
-            curl -fSL "https://ziglang.org/download/${ZIG_REQUIRED}/zig-aarch64-macos-${ZIG_REQUIRED}.tar.xz" -o /tmp/zig.tar.xz
-            tar xf /tmp/zig.tar.xz -C /tmp
-            sudo mkdir -p /usr/local/bin /usr/local/lib
-            sudo cp -f /tmp/zig-aarch64-macos-${ZIG_REQUIRED}/zig /usr/local/bin/zig
-            sudo cp -rf /tmp/zig-aarch64-macos-${ZIG_REQUIRED}/lib /usr/local/lib/zig
-            export PATH="/usr/local/bin:$PATH"
-            zig version
-          fi
-
-      - name: Cache DerivedData
-        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4
-        with:
-          path: ~/Library/Developer/Xcode/DerivedData/GhosttyTabs-*
-          key: deriveddata-build-${{ hashFiles('GhosttyTabs.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-${{ hashFiles('GhosttyTabs.xcodeproj/project.pbxproj') }}
-          restore-keys: |
-            deriveddata-build-${{ hashFiles('GhosttyTabs.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-
-            deriveddata-build-
-
-      - name: Cache Swift packages
-        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4
-        with:
-          path: .ci-source-packages
-          key: spm-build-${{ hashFiles('GhosttyTabs.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
-          restore-keys: spm-build-
-
-      - name: Resolve Swift packages
-        run: |
-          set -euo pipefail
-          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
-          mkdir -p "$SOURCE_PACKAGES_DIR"
-
-          for attempt in 1 2 3; do
-            if xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug \
-              -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
-              -resolvePackageDependencies; then
-              exit 0
-            fi
-            if [ "$attempt" -eq 3 ]; then
-              echo "Failed to resolve Swift packages after 3 attempts" >&2
-              exit 1
-            fi
-            echo "Package resolution failed on attempt $attempt, retrying..."
-            sleep $((attempt * 5))
-          done
-
-      - name: Build app
-        run: |
-          set -euo pipefail
-          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
-          xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug \
-            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
-            -disableAutomaticPackageResolution \
-            -destination "platform=macOS" build
-
-      - name: Create virtual display
-        run: |
-          set -euo pipefail
-          clang -framework Foundation -framework CoreGraphics \
-            -o /tmp/create-virtual-display scripts/create-virtual-display.m
-          /tmp/create-virtual-display &
-          VDISPLAY_PID=$!
-          echo "VDISPLAY_PID=$VDISPLAY_PID" >> "$GITHUB_ENV"
-          sleep 3
-
-      - name: Run workspace churn typing-lag regression
-        run: |
-          set -euo pipefail
-
-          APP="$(find "$HOME/Library/Developer/Xcode/DerivedData" -path "*/Build/Products/Debug/cmux DEV.app" -print -quit)"
-          if [ -z "${APP:-}" ] || [ ! -d "$APP" ]; then
-            echo "cmux DEV.app not found in DerivedData" >&2
-            exit 1
-          fi
-
-          TAG="ci-lag"
-          SOCK="/tmp/cmux-debug-${TAG}.sock"
-          BUNDLE_ID="$(
-            /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Contents/Info.plist" 2>/dev/null \
-              || echo 'com.cmuxterm.app.debug'
-          )"
-
-          pkill -x "cmux DEV" || true
-          rm -f "$SOCK" "/tmp/cmux-${TAG}.sock" || true
-          defaults write "$BUNDLE_ID" socketControlMode -string full >/dev/null 2>&1 || true
-
-          CMUX_TAG="$TAG" CMUX_SOCKET_PATH="$SOCK" CMUX_UI_TEST_MODE=1 "$APP/Contents/MacOS/cmux DEV" >/tmp/cmux-ci-lag.log 2>&1 &
-          APP_PID=$!
-          trap 'kill "$APP_PID" >/dev/null 2>&1 || true' EXIT
-
-          for _ in {1..240}; do
-            [ -S "$SOCK" ] && break
-            sleep 0.25
-          done
-          [ -S "$SOCK" ] || { echo "Socket not ready at $SOCK" >&2; exit 1; }
-
-          CMUX_SOCKET_PATH="$SOCK" \
-          CMUX_LAG_MAX_P95_RATIO=1.70 \
-          CMUX_LAG_MAX_AVG_RATIO=1.70 \
-          CMUX_LAG_MIN_BASELINE_P95_MS_FOR_RATIO=6.0 \
-          CMUX_LAG_MIN_BASELINE_AVG_MS_FOR_RATIO=4.0 \
-          CMUX_LAG_MAX_P95_DELTA_MS=20.0 \
-          CMUX_LAG_MAX_AVG_DELTA_MS=12.0 \
-          CMUX_LAG_MAX_CHURN_P95_MS=35 \
-          CMUX_LAG_KEY_EVENTS=180 \
-          python3 tests/test_workspace_churn_up_arrow_lag.py
-
-  ui-display-resolution-regression:
+  ui-display-resolution-regression-attempt-1:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    continue-on-error: true
     runs-on: warp-macos-15-arm64-6x
     timeout-minutes: 25
+    outputs:
+      test_started: ${{ steps.display-regression.outputs.test_started }}
+      completed: ${{ steps.display-regression.outputs.completed }}
+      passed: ${{ steps.display-regression.outputs.passed }}
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           submodules: recursive
+      - name: Run display regression attempt
+        id: display-regression
+        uses: ./.github/actions/run-display-resolution-regression
 
-      - name: Select Xcode
-        run: |
-          set -euo pipefail
-          if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
-            XCODE_DIR="/Applications/Xcode.app/Contents/Developer"
-          else
-            XCODE_APP="$(ls -d /Applications/Xcode*.app 2>/dev/null | sort | tail -n 1 || true)"
-            if [ -n "$XCODE_APP" ]; then
-              XCODE_DIR="$XCODE_APP/Contents/Developer"
-            else
-              echo "No Xcode.app found under /Applications" >&2
-              exit 1
-            fi
-          fi
-          echo "DEVELOPER_DIR=$XCODE_DIR" >> "$GITHUB_ENV"
-          export DEVELOPER_DIR="$XCODE_DIR"
-          xcodebuild -version
-          xcrun --sdk macosx --show-sdk-path
-
-      - name: Download pre-built GhosttyKit.xcframework
-        run: ./scripts/download-prebuilt-ghosttykit.sh
-
-      - name: Install zig
-        run: |
-          ZIG_REQUIRED="0.15.2"
-          if command -v zig >/dev/null 2>&1 && zig version 2>/dev/null | grep -q "^${ZIG_REQUIRED}"; then
-            echo "zig ${ZIG_REQUIRED} already installed"
-          else
-            echo "Installing zig ${ZIG_REQUIRED} from tarball"
-            curl -fSL "https://ziglang.org/download/${ZIG_REQUIRED}/zig-aarch64-macos-${ZIG_REQUIRED}.tar.xz" -o /tmp/zig.tar.xz
-            tar xf /tmp/zig.tar.xz -C /tmp
-            sudo mkdir -p /usr/local/bin /usr/local/lib
-            sudo cp -f /tmp/zig-aarch64-macos-${ZIG_REQUIRED}/zig /usr/local/bin/zig
-            sudo cp -rf /tmp/zig-aarch64-macos-${ZIG_REQUIRED}/lib /usr/local/lib/zig
-            export PATH="/usr/local/bin:$PATH"
-            zig version
-          fi
-
-      - name: Cache Swift packages
-        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4
+  ui-display-resolution-regression-attempt-2:
+    if: ${{ always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && needs.ui-display-resolution-regression-attempt-1.outputs.completed != 'true' && needs.ui-display-resolution-regression-attempt-1.outputs.passed != 'true' }}
+    needs:
+      - ui-display-resolution-regression-attempt-1
+    continue-on-error: true
+    runs-on: warp-macos-15-arm64-6x
+    timeout-minutes: 25
+    outputs:
+      test_started: ${{ steps.display-regression.outputs.test_started }}
+      completed: ${{ steps.display-regression.outputs.completed }}
+      passed: ${{ steps.display-regression.outputs.passed }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
-          path: .ci-source-packages
-          key: spm-ui-display-resolution-${{ hashFiles('GhosttyTabs.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
-          restore-keys: spm-ui-display-resolution-
+          submodules: recursive
+      - name: Run display regression attempt
+        id: display-regression
+        uses: ./.github/actions/run-display-resolution-regression
 
-      - name: Resolve Swift packages
+  ui-display-resolution-regression:
+    if: ${{ always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+    needs:
+      - ui-display-resolution-regression-attempt-1
+      - ui-display-resolution-regression-attempt-2
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Verify at least one display regression attempt passed
         run: |
-          set -euo pipefail
-          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
-          mkdir -p "$SOURCE_PACKAGES_DIR"
-
-          for attempt in 1 2 3; do
-            if xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug \
-              -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
-              -resolvePackageDependencies; then
-              exit 0
-            fi
-            if [ "$attempt" -eq 3 ]; then
-              echo "Failed to resolve Swift packages after 3 attempts" >&2
-              exit 1
-            fi
-            echo "Package resolution failed on attempt $attempt, retrying..."
-            sleep $((attempt * 5))
-          done
-
-      - name: Run display resolution churn UI regression
-        run: |
-          set -euo pipefail
-          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
-          HELPER_PATH="/tmp/create-virtual-display"
-          MANIFEST_PATH="/tmp/cmux-ui-test-display-harness.json"
-
-          rm -f "$MANIFEST_PATH"
-          trap 'rm -f "$MANIFEST_PATH"' EXIT
-
-          clang -framework Foundation -framework CoreGraphics \
-            -o "$HELPER_PATH" scripts/create-virtual-display.m
-
-          cat >"$MANIFEST_PATH" <<EOF
-          {"helperBinaryPath":"$HELPER_PATH"}
-          EOF
-
-          xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug \
-            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
-            -disableAutomaticPackageResolution \
-            -destination "platform=macOS" \
-            -only-testing:cmuxUITests/DisplayResolutionRegressionUITests \
-            test
+          scripts/verify_retry_result.sh \
+            "Display resolution regression" \
+            "${{ needs.ui-display-resolution-regression-attempt-1.result }}" \
+            "${{ needs.ui-display-resolution-regression-attempt-1.outputs.completed }}" \
+            "${{ needs.ui-display-resolution-regression-attempt-1.outputs.passed }}" \
+            "${{ needs.ui-display-resolution-regression-attempt-2.result }}" \
+            "${{ needs.ui-display-resolution-regression-attempt-2.outputs.completed }}" \
+            "${{ needs.ui-display-resolution-regression-attempt-2.outputs.passed }}"

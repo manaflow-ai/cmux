@@ -7,8 +7,11 @@ SCRIPT="$ROOT_DIR/scripts/download-prebuilt-ghosttykit.sh"
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
-WORKFLOWS=(
-  "$ROOT_DIR/.github/workflows/ci.yml"
+HELPER_CALL_SITES=(
+  "$ROOT_DIR/.github/actions/run-unit-test-shard/action.yml"
+  "$ROOT_DIR/.github/actions/run-display-resolution-regression/action.yml"
+  "$ROOT_DIR/.github/actions/run-lag-regression/action.yml"
+  "$ROOT_DIR/.github/actions/run-macos-compat-check/action.yml"
   "$ROOT_DIR/.github/workflows/nightly.yml"
   "$ROOT_DIR/.github/workflows/release.yml"
 )
@@ -31,9 +34,9 @@ printf 'fixture\n' > "$FIXTURE_DIR/GhosttyKit.xcframework/marker.txt"
 ACTUAL_SHA256="$(shasum -a 256 "$TMP_DIR/GhosttyKit.xcframework.tar.gz" | awk '{print $1}')"
 printf '%s %s\n' "$FIXTURE_SHA" "$ACTUAL_SHA256" > "$CHECKSUMS_FILE"
 
-for workflow in "${WORKFLOWS[@]}"; do
-  if ! grep -Fq './scripts/download-prebuilt-ghosttykit.sh' "$workflow"; then
-    echo "FAIL: $workflow must call download-prebuilt-ghosttykit.sh"
+for helper_call_site in "${HELPER_CALL_SITES[@]}"; do
+  if ! grep -Fq './scripts/download-prebuilt-ghosttykit.sh' "$helper_call_site"; then
+    echo "FAIL: $helper_call_site must call download-prebuilt-ghosttykit.sh"
     exit 1
   fi
 done
