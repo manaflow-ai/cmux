@@ -58,6 +58,13 @@ export default function PrivacyPolicyPage() {
         The Application checks for updates via Sparkle, which may transmit your
         operating system version and application version to our update server.
       </p>
+      <p>
+        The Site uses PostHog for anonymous analytics, including page views and
+        navigation patterns. PostHog stores a cookie to distinguish unique
+        visitors. No personally identifiable information is collected through
+        analytics. You can opt out by using a browser extension that blocks
+        tracking scripts.
+      </p>
 
       <h3>2. Information you provide directly</h3>
       <p>
@@ -90,6 +97,16 @@ export default function PrivacyPolicyPage() {
         <li>
           <strong>Ghostty / libghostty</strong> &mdash; terminal rendering
           engine. Runs entirely locally on your device.
+        </li>
+        <li>
+          <strong>PostHog</strong> &mdash; website analytics. Collects anonymous
+          page view data, navigation patterns, and browser metadata via a
+          first-party proxy. No personally identifiable information is collected.
+        </li>
+        <li>
+          <strong>Resend</strong> &mdash; transactional email delivery. Used to
+          deliver feedback submissions from the Application. Your email address
+          is transmitted to Resend only if you voluntarily submit feedback.
         </li>
       </ul>
       <p>
