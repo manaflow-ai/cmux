@@ -134,7 +134,8 @@ final class WindowTerminalHostView: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? {
         let currentEvent = NSApp.currentEvent
         let isPointerEvent: Bool
-        switch currentEvent?.type {
+        let eventType = currentEvent?.type
+        switch eventType {
         case .mouseMoved, .mouseEntered, .mouseExited,
              .leftMouseDown, .leftMouseUp, .leftMouseDragged,
              .rightMouseDown, .rightMouseUp, .rightMouseDragged,
@@ -146,7 +147,17 @@ final class WindowTerminalHostView: NSView {
         }
 
         if isPointerEvent {
-            if shouldPassThroughToSidebarResizer(at: point) {
+            // Only pass through to sidebar resizer during actual drag operations,
+            // not on mouse down which could be starting a text selection.
+            let isDragEvent: Bool
+            switch eventType {
+            case .leftMouseDragged, .rightMouseDragged, .otherMouseDragged:
+                isDragEvent = true
+            default:
+                isDragEvent = false
+            }
+
+            if isDragEvent, shouldPassThroughToSidebarResizer(at: point) {
                 clearActiveDividerCursor(restoreArrow: false)
                 return nil
             }
@@ -155,13 +166,16 @@ final class WindowTerminalHostView: NSView {
             if let kind = splitDividerCursorKind(at: point) {
                 activeDividerCursorKind = kind
                 kind.cursor.set()
-                return nil
+                // Only consume the hit (return nil) during drag operations.
+                // On mouse down/up, allow terminal text selection to work.
+                if isDragEvent {
+                    return nil
+                }
             }
 
             clearActiveDividerCursor(restoreArrow: true)
 
             let dragPasteboardTypes = NSPasteboard(name: .drag).types
-            let eventType = currentEvent?.type
             let shouldPassThrough = DragOverlayRoutingPolicy.shouldPassThroughPortalHitTesting(
                 pasteboardTypes: dragPasteboardTypes,
                 eventType: eventType
@@ -182,7 +196,7 @@ final class WindowTerminalHostView: NSView {
 #if DEBUG
             logDragRouteDecision(
                 passThrough: false,
-                eventType: currentEvent?.type,
+                eventType: eventType,
                 pasteboardTypes: dragPasteboardTypes,
                 hitView: hitView
             )

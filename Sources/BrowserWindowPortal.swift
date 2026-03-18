@@ -446,6 +446,17 @@ final class WindowBrowserHostView: NSView {
         )
         let splitPassThrough = dividerHit.map { !$0.isInHostedContent } ?? false
 
+        // Only pass through divider events during actual drag operations,
+        // not on mouse down which could be starting a text selection.
+        let eventType = NSApp.currentEvent?.type
+        let isDragEvent: Bool
+        switch eventType {
+        case .leftMouseDragged, .rightMouseDragged, .otherMouseDragged:
+            isDragEvent = true
+        default:
+            isDragEvent = false
+        }
+
         if titlebarPassThrough {
 #if DEBUG
             debugLogPointerRouting(
@@ -459,7 +470,7 @@ final class WindowBrowserHostView: NSView {
 #endif
             return nil
         }
-        if sidebarPassThrough {
+        if sidebarPassThrough && isDragEvent {
 #if DEBUG
             debugLogPointerRouting(
                 stage: "hitTest.sidebarPass",
@@ -472,7 +483,7 @@ final class WindowBrowserHostView: NSView {
 #endif
             return nil
         }
-        if splitPassThrough {
+        if splitPassThrough && isDragEvent {
 #if DEBUG
             debugLogPointerRouting(
                 stage: "hitTest.splitPass",
