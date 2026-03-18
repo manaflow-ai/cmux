@@ -14,11 +14,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: warp-macos-15-arm64-6x
+          - os: warp-macos-15-arm64-12x
             timeout: 20
             smoke: true
             skip_zig: false
-          - os: warp-macos-26-arm64-6x
+          - os: warp-macos-26-arm64-12x
             timeout: 20
             smoke: false
             skip_zig: true  # zig 0.15.2 MachO linker can't resolve libSystem on macOS 26
