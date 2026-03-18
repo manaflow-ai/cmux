@@ -1777,7 +1777,10 @@ struct ContentView: View {
 
     private func dividerBandContains(pointInContent point: NSPoint, contentBounds: NSRect) -> Bool {
         guard point.y >= contentBounds.minY, point.y <= contentBounds.maxY else { return false }
-        let minX = sidebarWidth - sidebarResizerHitWidthPerSide
+        // Only extend the hit area to the right of the divider (into terminal content),
+        // not to the left, to avoid capturing mouse events when selecting text at the
+        // start of terminal lines.
+        let minX = sidebarWidth
         let maxX = sidebarWidth + sidebarResizerHitWidthPerSide
         return point.x >= minX && point.x <= maxX
     }
@@ -1956,7 +1959,10 @@ struct ContentView: View {
         GeometryReader { proxy in
             let totalWidth = max(0, proxy.size.width)
             let dividerX = min(max(sidebarWidth, 0), totalWidth)
-            let leadingWidth = max(0, dividerX - sidebarResizerHitWidthPerSide)
+            // Only extend the hit area into the sidebar side, not into the terminal content area.
+            // This ensures users can select text at the start of terminal lines without the
+            // resizer overlay capturing mouse events.
+            let leadingWidth = max(0, dividerX)
 
             HStack(spacing: 0) {
                 Color.clear
