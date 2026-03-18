@@ -2099,7 +2099,10 @@ class GhosttyApp {
                 return false
             }
             return performOnMain {
-                guard let tabManager = AppDelegate.shared?.tabManager else { return false }
+                let owningManager = AppDelegate.shared?.tabManagerFor(tabId: tabId)
+                    ?? AppDelegate.shared?.quickTerminalController?.tabManager
+                    ?? AppDelegate.shared?.tabManager
+                guard let tabManager = owningManager else { return false }
                 return tabManager.equalizeSplits(tabId: tabId)
             }
         case GHOSTTY_ACTION_TOGGLE_SPLIT_ZOOM:
@@ -2557,6 +2560,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
     var requestedWorkingDirectory: String? { workingDirectory }
     private var additionalEnvironment: [String: String]
     let hostedView: GhosttySurfaceScrollView
+    /// The inner NSView that accepts first responder for keyboard input.
+    var focusableView: NSView { surfaceView }
     private let surfaceView: GhosttyNSView
     private var lastPixelWidth: UInt32 = 0
     private var lastPixelHeight: UInt32 = 0

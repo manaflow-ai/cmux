@@ -3,47 +3,84 @@ import SwiftUI
 
 /// Stores customizable keyboard shortcuts (definitions + persistence).
 enum KeyboardShortcutSettings {
+    /// All configurable keyboard shortcut actions in the app.
     enum Action: String, CaseIterable, Identifiable {
         // Titlebar / primary UI
+        /// Toggle the sidebar visibility.
         case toggleSidebar
+        /// Create a new workspace tab.
         case newTab
+        /// Open a new window.
         case newWindow
+        /// Close the current window.
         case closeWindow
+        /// Open a folder in the sidebar.
         case openFolder
+        /// Open the feedback composer.
         case sendFeedback
+        /// Show the notifications popover.
         case showNotifications
+        /// Jump to the latest unread notification.
         case jumpToUnread
+        /// Flash the focused panel to indicate focus.
         case triggerFlash
 
         // Navigation
+        /// Select the next terminal surface.
         case nextSurface
+        /// Select the previous terminal surface.
         case prevSurface
+        /// Select the next workspace in the sidebar.
         case nextSidebarTab
+        /// Select the previous workspace in the sidebar.
         case prevSidebarTab
+        /// Rename the current tab.
         case renameTab
+        /// Rename the current workspace.
         case renameWorkspace
+        /// Close the current workspace.
         case closeWorkspace
+        /// Create a new terminal surface.
         case newSurface
+        /// Toggle terminal copy mode.
         case toggleTerminalCopyMode
 
         // Panes / splits
+        /// Move focus to the left pane.
         case focusLeft
+        /// Move focus to the right pane.
         case focusRight
+        /// Move focus to the pane above.
         case focusUp
+        /// Move focus to the pane below.
         case focusDown
+        /// Split the focused pane to the right.
         case splitRight
+        /// Split the focused pane downward.
         case splitDown
+        /// Toggle zoom on the focused split pane.
         case toggleSplitZoom
+        /// Split a browser pane to the right.
         case splitBrowserRight
+        /// Split a browser pane downward.
         case splitBrowserDown
 
+        // Quick Terminal
+        /// Toggle the Quake-style Quick Terminal overlay.
+        case toggleQuickTerminal
+
         // Panels
+        /// Open a new browser panel.
         case openBrowser
+        /// Toggle the browser developer tools.
         case toggleBrowserDeveloperTools
+        /// Show the browser JavaScript console.
         case showBrowserJavaScriptConsole
 
+        /// Unique identifier for `Identifiable` conformance.
         var id: String { rawValue }
 
+        /// Localized display label for this action.
         var label: String {
             switch self {
             case .toggleSidebar: return String(localized: "shortcut.toggleSidebar.label", defaultValue: "Toggle Sidebar")
@@ -73,12 +110,14 @@ enum KeyboardShortcutSettings {
             case .toggleSplitZoom: return String(localized: "shortcut.togglePaneZoom.label", defaultValue: "Toggle Pane Zoom")
             case .splitBrowserRight: return String(localized: "shortcut.splitBrowserRight.label", defaultValue: "Split Browser Right")
             case .splitBrowserDown: return String(localized: "shortcut.splitBrowserDown.label", defaultValue: "Split Browser Down")
+            case .toggleQuickTerminal: return String(localized: "shortcut.toggleQuickTerminal.label", defaultValue: "Toggle Quick Terminal")
             case .openBrowser: return String(localized: "shortcut.openBrowser.label", defaultValue: "Open Browser")
             case .toggleBrowserDeveloperTools: return String(localized: "shortcut.toggleBrowserDevTools.label", defaultValue: "Toggle Browser Developer Tools")
             case .showBrowserJavaScriptConsole: return String(localized: "shortcut.showBrowserJSConsole.label", defaultValue: "Show Browser JavaScript Console")
             }
         }
 
+        /// UserDefaults key for persisting this shortcut.
         var defaultsKey: String {
             switch self {
             case .toggleSidebar: return "shortcut.toggleSidebar"
@@ -108,12 +147,14 @@ enum KeyboardShortcutSettings {
             case .prevSurface: return "shortcut.prevSurface"
             case .newSurface: return "shortcut.newSurface"
             case .toggleTerminalCopyMode: return "shortcut.toggleTerminalCopyMode"
+            case .toggleQuickTerminal: return "shortcut.toggleQuickTerminal"
             case .openBrowser: return "shortcut.openBrowser"
             case .toggleBrowserDeveloperTools: return "shortcut.toggleBrowserDeveloperTools"
             case .showBrowserJavaScriptConsole: return "shortcut.showBrowserJavaScriptConsole"
             }
         }
 
+        /// The factory-default shortcut for this action.
         var defaultShortcut: StoredShortcut {
             switch self {
             case .toggleSidebar:
@@ -170,6 +211,8 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "t", command: true, shift: false, option: false, control: false)
             case .toggleTerminalCopyMode:
                 return StoredShortcut(key: "m", command: true, shift: true, option: false, control: false)
+            case .toggleQuickTerminal:
+                return StoredShortcut(key: "`", command: true, shift: false, option: false, control: false)
             case .openBrowser:
                 return StoredShortcut(key: "l", command: true, shift: true, option: false, control: false)
             case .toggleBrowserDeveloperTools:
@@ -181,11 +224,13 @@ enum KeyboardShortcutSettings {
             }
         }
 
+        /// Build a tooltip string that appends the current shortcut display.
         func tooltip(_ base: String) -> String {
             "\(base) (\(KeyboardShortcutSettings.shortcut(for: self).displayString))"
         }
     }
 
+    /// Return the user-customized shortcut for the given action, or its default.
     static func shortcut(for action: Action) -> StoredShortcut {
         guard let data = UserDefaults.standard.data(forKey: action.defaultsKey),
               let shortcut = try? JSONDecoder().decode(StoredShortcut.self, from: data) else {
@@ -194,16 +239,19 @@ enum KeyboardShortcutSettings {
         return shortcut
     }
 
+    /// Persist a custom shortcut for the given action.
     static func setShortcut(_ shortcut: StoredShortcut, for action: Action) {
         if let data = try? JSONEncoder().encode(shortcut) {
             UserDefaults.standard.set(data, forKey: action.defaultsKey)
         }
     }
 
+    /// Remove the user's custom shortcut, reverting to the default.
     static func resetShortcut(for action: Action) {
         UserDefaults.standard.removeObject(forKey: action.defaultsKey)
     }
 
+    /// Reset all shortcuts to their factory defaults.
     static func resetAll() {
         for action in Action.allCases {
             resetShortcut(for: action)
@@ -212,55 +260,88 @@ enum KeyboardShortcutSettings {
 
     // MARK: - Backwards-Compatible API (call-sites can migrate gradually)
 
-    // Keys (used by debug socket command + UI tests)
+    /// UserDefaults key for the focus-left shortcut.
     static let focusLeftKey = Action.focusLeft.defaultsKey
+    /// UserDefaults key for the focus-right shortcut.
     static let focusRightKey = Action.focusRight.defaultsKey
+    /// UserDefaults key for the focus-up shortcut.
     static let focusUpKey = Action.focusUp.defaultsKey
+    /// UserDefaults key for the focus-down shortcut.
     static let focusDownKey = Action.focusDown.defaultsKey
 
-    // Defaults (used by settings reset + recorder button initial title)
+    /// Factory default for the show-notifications shortcut.
     static let showNotificationsDefault = Action.showNotifications.defaultShortcut
+    /// Factory default for the jump-to-unread shortcut.
     static let jumpToUnreadDefault = Action.jumpToUnread.defaultShortcut
 
+    /// Return the current show-notifications shortcut.
     static func showNotificationsShortcut() -> StoredShortcut { shortcut(for: .showNotifications) }
+    /// Persist a custom show-notifications shortcut.
     static func setShowNotificationsShortcut(_ shortcut: StoredShortcut) { setShortcut(shortcut, for: .showNotifications) }
 
+    /// Return the current jump-to-unread shortcut.
     static func jumpToUnreadShortcut() -> StoredShortcut { shortcut(for: .jumpToUnread) }
+    /// Persist a custom jump-to-unread shortcut.
     static func setJumpToUnreadShortcut(_ shortcut: StoredShortcut) { setShortcut(shortcut, for: .jumpToUnread) }
 
+    /// Return the current next-workspace shortcut.
     static func nextSidebarTabShortcut() -> StoredShortcut { shortcut(for: .nextSidebarTab) }
+    /// Return the current previous-workspace shortcut.
     static func prevSidebarTabShortcut() -> StoredShortcut { shortcut(for: .prevSidebarTab) }
+    /// Return the current rename-workspace shortcut.
     static func renameWorkspaceShortcut() -> StoredShortcut { shortcut(for: .renameWorkspace) }
+    /// Return the current close-workspace shortcut.
     static func closeWorkspaceShortcut() -> StoredShortcut { shortcut(for: .closeWorkspace) }
 
+    /// Return the current focus-left shortcut.
     static func focusLeftShortcut() -> StoredShortcut { shortcut(for: .focusLeft) }
+    /// Return the current focus-right shortcut.
     static func focusRightShortcut() -> StoredShortcut { shortcut(for: .focusRight) }
+    /// Return the current focus-up shortcut.
     static func focusUpShortcut() -> StoredShortcut { shortcut(for: .focusUp) }
+    /// Return the current focus-down shortcut.
     static func focusDownShortcut() -> StoredShortcut { shortcut(for: .focusDown) }
 
+    /// Return the current split-right shortcut.
     static func splitRightShortcut() -> StoredShortcut { shortcut(for: .splitRight) }
+    /// Return the current split-down shortcut.
     static func splitDownShortcut() -> StoredShortcut { shortcut(for: .splitDown) }
+    /// Return the current toggle-split-zoom shortcut.
     static func toggleSplitZoomShortcut() -> StoredShortcut { shortcut(for: .toggleSplitZoom) }
+    /// Return the current split-browser-right shortcut.
     static func splitBrowserRightShortcut() -> StoredShortcut { shortcut(for: .splitBrowserRight) }
+    /// Return the current split-browser-down shortcut.
     static func splitBrowserDownShortcut() -> StoredShortcut { shortcut(for: .splitBrowserDown) }
 
+    /// Return the current next-surface shortcut.
     static func nextSurfaceShortcut() -> StoredShortcut { shortcut(for: .nextSurface) }
+    /// Return the current previous-surface shortcut.
     static func prevSurfaceShortcut() -> StoredShortcut { shortcut(for: .prevSurface) }
+    /// Return the current new-surface shortcut.
     static func newSurfaceShortcut() -> StoredShortcut { shortcut(for: .newSurface) }
 
+    /// Return the current open-browser shortcut.
     static func openBrowserShortcut() -> StoredShortcut { shortcut(for: .openBrowser) }
+    /// Return the current toggle-browser-developer-tools shortcut.
     static func toggleBrowserDeveloperToolsShortcut() -> StoredShortcut { shortcut(for: .toggleBrowserDeveloperTools) }
+    /// Return the current show-browser-JavaScript-console shortcut.
     static func showBrowserJavaScriptConsoleShortcut() -> StoredShortcut { shortcut(for: .showBrowserJavaScriptConsole) }
 }
 
-/// A keyboard shortcut that can be stored in UserDefaults
+/// A keyboard shortcut that can be stored in UserDefaults.
 struct StoredShortcut: Codable, Equatable {
+    /// The key character (e.g. "a", "`", "←").
     var key: String
+    /// Whether the Command modifier is required.
     var command: Bool
+    /// Whether the Shift modifier is required.
     var shift: Bool
+    /// Whether the Option modifier is required.
     var option: Bool
+    /// Whether the Control modifier is required.
     var control: Bool
 
+    /// Human-readable display string with modifier glyphs (e.g. "⌘⇧D").
     var displayString: String {
         var parts: [String] = []
         if control { parts.append("⌃") }
@@ -280,6 +361,7 @@ struct StoredShortcut: Codable, Equatable {
         return parts.joined()
     }
 
+    /// AppKit modifier flags for event matching.
     var modifierFlags: NSEvent.ModifierFlags {
         var flags: NSEvent.ModifierFlags = []
         if command { flags.insert(.command) }
@@ -289,6 +371,7 @@ struct StoredShortcut: Codable, Equatable {
         return flags
     }
 
+    /// SwiftUI `KeyEquivalent` for use in keyboard shortcut modifiers.
     var keyEquivalent: KeyEquivalent? {
         switch key {
         case "←":
@@ -310,6 +393,7 @@ struct StoredShortcut: Codable, Equatable {
         }
     }
 
+    /// SwiftUI `EventModifiers` for use in keyboard shortcut modifiers.
     var eventModifiers: EventModifiers {
         var modifiers: EventModifiers = []
         if command {
@@ -327,6 +411,7 @@ struct StoredShortcut: Codable, Equatable {
         return modifiers
     }
 
+    /// Key equivalent string for `NSMenuItem` integration.
     var menuItemKeyEquivalent: String? {
         switch key {
         case "←":
@@ -352,6 +437,7 @@ struct StoredShortcut: Codable, Equatable {
         }
     }
 
+    /// Create a `StoredShortcut` from a key-down event, or `nil` if unsuitable.
     static func from(event: NSEvent) -> StoredShortcut? {
         guard let key = storedKey(from: event) else { return nil }
 
@@ -411,12 +497,15 @@ struct StoredShortcut: Codable, Equatable {
     }
 }
 
-/// View for recording a keyboard shortcut
+/// View for recording a keyboard shortcut.
 struct KeyboardShortcutRecorder: View {
+    /// The label displayed next to the recorder button.
     let label: String
+    /// Binding to the shortcut being recorded.
     @Binding var shortcut: StoredShortcut
     @State private var isRecording = false
 
+    /// The recorder view body with label and button.
     var body: some View {
         HStack {
             Text(label)
