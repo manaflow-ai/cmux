@@ -26,7 +26,10 @@ func cmuxCurrentSurfaceFontSizePoints(_ surface: ghostty_surface_t) -> Float? {
         return nil
     }
 
-    let ctFont = Unmanaged<CTFont>.fromOpaque(quicklookFont).takeUnretainedValue()
+    // ghostty_surface_quicklook_font returns a CTFontRef created via copyWithAttributes,
+    // which returns a +1 retained reference that the caller must release.
+    // Use takeRetainedValue() to properly transfer ownership and CFRelease it.
+    let ctFont = Unmanaged<CTFont>.fromOpaque(quicklookFont).takeRetainedValue()
     let points = Float(CTFontGetSize(ctFont))
     guard points > 0 else { return nil }
     return points
