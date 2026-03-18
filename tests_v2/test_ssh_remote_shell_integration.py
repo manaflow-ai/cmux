@@ -27,11 +27,13 @@ OSC_ESCAPE_RE = re.compile(r"\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)")
 
 
 def _must(cond: bool, msg: str) -> None:
+    """Raise a test failure with ``msg`` when ``cond`` is false."""
     if not cond:
         raise cmuxError(msg)
 
 
 def _find_cli_binary() -> str:
+    """Locate the most recent debug cmux CLI binary for integration tests."""
     env_cli = os.environ.get("CMUXTERM_CLI")
     if env_cli and os.path.isfile(env_cli) and os.access(env_cli, os.X_OK):
         return env_cli
@@ -50,6 +52,7 @@ def _find_cli_binary() -> str:
 
 
 def _run(cmd: list[str], *, env: dict[str, str] | None = None, check: bool = True) -> subprocess.CompletedProcess[str]:
+    """Run a subprocess and raise ``cmuxError`` when ``check`` is enabled and it fails."""
     proc = subprocess.run(cmd, capture_output=True, text=True, env=env, check=False)
     if check and proc.returncode != 0:
         merged = f"{proc.stdout}\n{proc.stderr}".strip()
@@ -58,6 +61,7 @@ def _run(cmd: list[str], *, env: dict[str, str] | None = None, check: bool = Tru
 
 
 def _run_cli_json(cli: str, args: list[str]) -> dict:
+    """Run the cmux CLI with JSON output and decode the returned payload."""
     env = dict(os.environ)
     env.pop("CMUX_WORKSPACE_ID", None)
     env.pop("CMUX_SURFACE_ID", None)
@@ -71,6 +75,7 @@ def _run_cli_json(cli: str, args: list[str]) -> dict:
 
 
 def _docker_available() -> bool:
+    """Return whether Docker is installed and the daemon is reachable."""
     if shutil.which("docker") is None:
         return False
     probe = _run(["docker", "info"], check=False)
@@ -78,6 +83,7 @@ def _docker_available() -> bool:
 
 
 def _parse_host_port(docker_port_output: str) -> int:
+    """Extract the published host port from ``docker port`` output."""
     text = docker_port_output.strip()
     if not text:
         raise cmuxError("docker port output was empty")
@@ -85,10 +91,12 @@ def _parse_host_port(docker_port_output: str) -> int:
 
 
 def _shell_single_quote(value: str) -> str:
+    """Shell-quote a string for use inside a single-quoted POSIX literal."""
     return "'" + value.replace("'", "'\"'\"'") + "'"
 
 
 def _ssh_run(host: str, host_port: int, key_path: Path, script: str, *, check: bool = True) -> subprocess.CompletedProcess[str]:
+    """Run a remote shell script over SSH against the Docker fixture host."""
     return _run(
         [
             "ssh",
@@ -110,6 +118,7 @@ def _ssh_run(host: str, host_port: int, key_path: Path, script: str, *, check: b
 
 
 def _wait_for_ssh(host: str, host_port: int, key_path: Path, timeout: float = 20.0) -> None:
+    """Poll the fixture SSH server until it accepts commands or times out."""
     deadline = time.time() + timeout
     while time.time() < deadline:
         probe = _ssh_run(host, host_port, key_path, "echo ready", check=False)
@@ -120,6 +129,7 @@ def _wait_for_ssh(host: str, host_port: int, key_path: Path, timeout: float = 20
 
 
 def _wait_remote_connected(client: cmux, workspace_id: str, timeout: float) -> dict:
+    """Wait until the remote workspace and daemon both report a ready state."""
     deadline = time.time() + timeout
     last_status = {}
     while time.time() < deadline:
@@ -133,10 +143,12 @@ def _wait_remote_connected(client: cmux, workspace_id: str, timeout: float) -> d
 
 
 def _is_terminal_surface_not_found(exc: Exception) -> bool:
+    """Return whether an exception indicates a transient missing terminal surface."""
     return "terminal surface not found" in str(exc).lower()
 
 
 def _read_probe_value(client: cmux, surface_id: str, command: str, timeout: float = 20.0) -> str:
+    """Run a shell command in the surface and read back its numeric exit marker."""
     token = f"__CMUX_PROBE_{secrets.token_hex(6)}__"
     client.send_surface(surface_id, f"{command}; printf '{token}%s\\n' $?\\n")
 
@@ -165,6 +177,7 @@ def _read_probe_value(client: cmux, surface_id: str, command: str, timeout: floa
 
 
 def _read_probe_payload(client: cmux, surface_id: str, payload_command: str, timeout: float = 20.0) -> str:
+    """Run a shell payload command in the surface and read back its string output."""
     token = f"__CMUX_PAYLOAD_{secrets.token_hex(6)}__"
     client.send_surface(surface_id, f"printf '{token}%s\\n' \"$({payload_command})\"\\n")
 
@@ -193,6 +206,7 @@ def _read_probe_payload(client: cmux, surface_id: str, payload_command: str, tim
 
 
 def _wait_for(pred, timeout_s: float = 5.0, step_s: float = 0.05) -> None:
+    """Poll ``pred`` until it returns truthy or the timeout elapses."""
     deadline = time.time() + timeout_s
     while time.time() < deadline:
         if pred():
@@ -202,6 +216,7 @@ def _wait_for(pred, timeout_s: float = 5.0, step_s: float = 0.05) -> None:
 
 
 def _wait_for_pane_count(client: cmux, minimum_count: int, timeout: float = 8.0) -> list[str]:
+    """Wait until at least ``minimum_count`` panes are visible in the workspace."""
     deadline = time.time() + timeout
     last: list[str] = []
     while time.time() < deadline:
@@ -213,6 +228,7 @@ def _wait_for_pane_count(client: cmux, minimum_count: int, timeout: float = 8.0)
 
 
 def _surface_text_scrollback(client: cmux, workspace_id: str, surface_id: str) -> str:
+    """Read full scrollback text for a specific workspace surface."""
     payload = client._call(
         "surface.read_text",
         {"workspace_id": workspace_id, "surface_id": surface_id, "scrollback": True},
@@ -221,6 +237,7 @@ def _surface_text_scrollback(client: cmux, workspace_id: str, surface_id: str) -
 
 
 def _clean_line(raw: str) -> str:
+    """Strip OSC/ANSI escapes and carriage returns from captured terminal text."""
     line = OSC_ESCAPE_RE.sub("", raw)
     line = ANSI_ESCAPE_RE.sub("", line)
     line = line.replace("\r", "")
@@ -228,6 +245,7 @@ def _clean_line(raw: str) -> str:
 
 
 def _surface_text_scrollback_lines(client: cmux, workspace_id: str, surface_id: str) -> list[str]:
+    """Return cleaned scrollback lines for the target surface."""
     return [_clean_line(raw) for raw in _surface_text_scrollback(client, workspace_id, surface_id).splitlines()]
 
 
@@ -237,6 +255,7 @@ def _scrollback_has_all_lines(
     surface_id: str,
     lines: list[str],
 ) -> bool:
+    """Return whether all expected lines are present in the surface scrollback."""
     available = set(_surface_text_scrollback_lines(client, workspace_id, surface_id))
     return all(line in available for line in lines)
 
@@ -249,6 +268,7 @@ def _wait_surface_contains(
     *,
     timeout: float = 20.0,
 ) -> None:
+    """Wait until the target token appears in the surface scrollback."""
     deadline = time.time() + timeout
     saw_missing_surface = False
     while time.time() < deadline:
@@ -269,6 +289,7 @@ def _wait_surface_contains(
 
 
 def _probe_backspace_round_trip(client: cmux, workspace_id: str, surface_id: str, timeout: float = 20.0) -> str:
+    """Verify that sending Backspace deletes one character in the remote shell."""
     token = f"__CMUX_BACKSPACE_{secrets.token_hex(6)}__"
     expected = f"{token}abZ"
     client.send_surface(surface_id, f"printf '{token}'")
@@ -297,12 +318,14 @@ def _probe_backspace_round_trip(client: cmux, workspace_id: str, surface_id: str
 
 
 def _layout_panes(client: cmux) -> list[dict]:
+    """Fetch the current layout debug pane payload."""
     layout_payload = client.layout_debug() or {}
     layout = layout_payload.get("layout") or {}
     return list(layout.get("panes") or [])
 
 
 def _pane_extent(client: cmux, pane_id: str, axis: str) -> float:
+    """Return the width or height extent for a pane from layout debug data."""
     panes = _layout_panes(client)
     for pane in panes:
         pid = str(pane.get("paneId") or pane.get("pane_id") or "")
@@ -314,6 +337,7 @@ def _pane_extent(client: cmux, pane_id: str, axis: str) -> float:
 
 
 def _pane_for_surface(client: cmux, surface_id: str) -> str:
+    """Resolve the pane that currently hosts the given surface."""
     target_id = str(client._resolve_surface_id(surface_id))
     for _idx, pane_id, _count, _focused in client.list_panes():
         rows = client.list_pane_surfaces(pane_id)
@@ -328,6 +352,7 @@ def _pane_for_surface(client: cmux, surface_id: str) -> str:
 
 
 def _pick_resize_direction_for_pane(client: cmux, pane_ids: list[str], target_pane: str) -> tuple[str, str]:
+    """Choose a resize direction and axis that should grow the target pane."""
     panes = [p for p in _layout_panes(client) if str(p.get("paneId") or p.get("pane_id") or "") in pane_ids]
     if len(panes) < 2:
         raise cmuxError(f"Need >=2 panes for resize test, got {panes}")
@@ -352,6 +377,7 @@ def _pick_resize_direction_for_pane(client: cmux, pane_ids: list[str], target_pa
 
 
 def main() -> int:
+    """Run the Docker-backed SSH shell integration regression suite."""
     if not _docker_available():
         print("SKIP: docker is not available")
         return 0
