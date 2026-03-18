@@ -98,7 +98,9 @@
 					F9000000A1B2C3D4E5F60718 /* GhosttyEnsureFocusWindowActivationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9000001A1B2C3D4E5F60718 /* GhosttyEnsureFocusWindowActivationTests.swift */; };
 					FA000000A1B2C3D4E5F60718 /* WorkspaceStressProfileTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA000001A1B2C3D4E5F60718 /* WorkspaceStressProfileTests.swift */; };
 					A5008381 /* BrowserFindJavaScriptTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5008380 /* BrowserFindJavaScriptTests.swift */; };
-					A5008383 /* CommandPaletteSearchEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5008382 /* CommandPaletteSearchEngineTests.swift */; };
+				A5008383 /* CommandPaletteSearchEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5008382 /* CommandPaletteSearchEngineTests.swift */; };
+				AB169902A1B2C3D4E5F60718 /* UpdateQuarantineRepairTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB169903A1B2C3D4E5F60718 /* UpdateQuarantineRepairTests.swift */; };
+					AB169900A1B2C3D4E5F60718 /* UpdateQuarantineRepair.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB169901A1B2C3D4E5F60718 /* UpdateQuarantineRepair.swift */; };
 		DA7A10CA710E000000000003 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = DA7A10CA710E000000000001 /* Localizable.xcstrings */; };
 		DA7A10CA710E000000000004 /* InfoPlist.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = DA7A10CA710E000000000002 /* InfoPlist.xcstrings */; };
 		A5001623 /* cmux.sdef in Resources */ = {isa = PBXBuildFile; fileRef = A5001622 /* cmux.sdef */; };
@@ -263,6 +265,8 @@
 					FA000001A1B2C3D4E5F60718 /* WorkspaceStressProfileTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceStressProfileTests.swift; sourceTree = "<group>"; };
 					A5008380 /* BrowserFindJavaScriptTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserFindJavaScriptTests.swift; sourceTree = "<group>"; };
 				A5008382 /* CommandPaletteSearchEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPaletteSearchEngineTests.swift; sourceTree = "<group>"; };
+				AB169903A1B2C3D4E5F60718 /* UpdateQuarantineRepairTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateQuarantineRepairTests.swift; sourceTree = "<group>"; };
+					AB169901A1B2C3D4E5F60718 /* UpdateQuarantineRepair.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/UpdateQuarantineRepair.swift; sourceTree = "<group>"; };
 		DA7A10CA710E000000000001 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		DA7A10CA710E000000000002 /* InfoPlist.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = InfoPlist.xcstrings; sourceTree = "<group>"; };
 		A5001622 /* cmux.sdef */ = {isa = PBXFileReference; lastKnownFileType = text.sdef; path = cmux.sdef; sourceTree = "<group>"; };
@@ -438,6 +442,7 @@
 				A5001221 /* UpdateTestSupport.swift */,
 				A5001224 /* UpdateTestURLProtocol.swift */,
 				A5001223 /* UpdateLogStore.swift */,
+				AB169901A1B2C3D4E5F60718 /* UpdateQuarantineRepair.swift */,
 				A5001217 /* UpdatePopoverView.swift */,
 				A5001218 /* UpdateTitlebarAccessory.swift */,
 				A5001219 /* WindowToolbarController.swift */,
@@ -516,6 +521,7 @@
 					FA000001A1B2C3D4E5F60718 /* WorkspaceStressProfileTests.swift */,
 					A5008380 /* BrowserFindJavaScriptTests.swift */,
 					A5008382 /* CommandPaletteSearchEngineTests.swift */,
+					AB169903A1B2C3D4E5F60718 /* UpdateQuarantineRepairTests.swift */,
 					970226F3C99D0D937CD00539 /* BrowserConfigTests.swift */,
 					58C7B1B978620BE162CC057E /* BrowserPanelTests.swift */,
 					02FC74F2C27127CC565B3E8C /* TerminalAndGhosttyTests.swift */,
@@ -728,6 +734,7 @@
 				A500120B /* UpdateTestSupport.swift in Sources */,
 				A500120E /* UpdateTestURLProtocol.swift in Sources */,
 				A500120D /* UpdateLogStore.swift in Sources */,
+				AB169900A1B2C3D4E5F60718 /* UpdateQuarantineRepair.swift in Sources */,
 				A5001207 /* UpdatePopoverView.swift in Sources */,
 				A5001208 /* UpdateTitlebarAccessory.swift in Sources */,
 				A5001209 /* WindowToolbarController.swift in Sources */,
@@ -774,6 +781,7 @@
 					FA000000A1B2C3D4E5F60718 /* WorkspaceStressProfileTests.swift in Sources */,
 					A5008381 /* BrowserFindJavaScriptTests.swift in Sources */,
 					A5008383 /* CommandPaletteSearchEngineTests.swift in Sources */,
+					AB169902A1B2C3D4E5F60718 /* UpdateQuarantineRepairTests.swift in Sources */,
 				);
 				runOnlyForDeploymentPostprocessing = 0;
 			};
