@@ -46,11 +46,23 @@ final class PortScanner: @unchecked Sendable {
         let panelId: UUID
     }
 
+    /// Normalizes a TTY name by stripping the `/dev/` prefix if present.
+    /// This ensures consistent comparison between TTY names from different sources
+    /// (e.g., shell integration vs. ps output).
+    private func normalizedTTYName(_ ttyName: String) -> String {
+        let trimmed = ttyName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.hasPrefix("/dev/") {
+            return String(trimmed.dropFirst(5))
+        }
+        return trimmed
+    }
+
     func registerTTY(workspaceId: UUID, panelId: UUID, ttyName: String) {
         queue.async { [self] in
             let key = PanelKey(workspaceId: workspaceId, panelId: panelId)
-            guard ttyNames[key] != ttyName else { return }
-            ttyNames[key] = ttyName
+            let normalized = self.normalizedTTYName(ttyName)
+            guard self.ttyNames[key] != normalized else { return }
+            self.ttyNames[key] = normalized
         }
     }
 
@@ -156,13 +168,15 @@ final class PortScanner: @unchecked Sendable {
         var portsByTTY: [String: Set<Int>] = [:]
         for (pid, ports) in pidToPorts {
             guard let tty = pidToTTY[pid] else { continue }
-            portsByTTY[tty, default: []].formUnion(ports)
+            let normalizedTTY = self.normalizedTTYName(tty)
+            portsByTTY[normalizedTTY, default: []].formUnion(ports)
         }
 
         // 4. Map to per-panel port lists.
         var results: [(PanelKey, [Int])] = []
         for (key, tty) in snapshot {
-            let ports = portsByTTY[tty].map { Array($0).sorted() } ?? []
+            let normalizedTTY = self.normalizedTTYName(tty)
+            let ports = portsByTTY[normalizedTTY].map { Array($0).sorted() } ?? []
             results.append((key, ports))
         }
 
