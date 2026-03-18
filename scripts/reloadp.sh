@@ -23,12 +23,18 @@ echo "  ${APP_PATH}"
 # Don't leak that into cmux, otherwise `git diff` won't page even with PAGER=less.
 env -u GIT_PAGER -u GH_PAGER open -g "$APP_PATH"
 
-sleep 1
 APP_PROCESS_PATH="${APP_PATH}/Contents/MacOS/cmux"
-if ps -ax -o command= | grep -F "$APP_PROCESS_PATH" | grep -v grep >/dev/null 2>&1; then
-  echo "Release launch status:"
-  echo "  running: ${APP_PROCESS_PATH}"
-else
-  echo "warning: Release app launch was requested, but no running process was observed for:" >&2
-  echo "  ${APP_PROCESS_PATH}" >&2
-fi
+ATTEMPT=0
+MAX_ATTEMPTS=20
+while [[ "$ATTEMPT" -lt "$MAX_ATTEMPTS" ]]; do
+  if pgrep -f "$APP_PROCESS_PATH" >/dev/null 2>&1; then
+    echo "Release launch status:"
+    echo "  running: ${APP_PROCESS_PATH}"
+    exit 0
+  fi
+  ATTEMPT=$((ATTEMPT + 1))
+  sleep 0.25
+done
+
+echo "warning: Release app launch was requested, but no running process was observed for:" >&2
+echo "  ${APP_PROCESS_PATH}" >&2
